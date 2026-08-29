@@ -17,19 +17,33 @@ import {
 const VAR = "ENV_RPC_BOUNDS_TEST_VALUE";
 const FALLBACK = 20;
 
+function assert(condition: boolean, message: string): void {
+  if (!condition) throw new Error(message);
+}
+
 function assertEquals(actual: unknown, expected: unknown, message: string): void {
   if (actual !== expected) {
     throw new Error(`${message}: erwartet ${JSON.stringify(expected)}, war ${JSON.stringify(actual)}`);
   }
 }
 
-/** Sets VAR for the duration of the call and cleans up afterwards. */
+/** console.warn lines of the most recent withValue() call (P6-03). */
+let warnings: string[] = [];
+
+/** Sets VAR for the duration of the call, records console.warn and cleans up
+ *  afterwards. */
 function withValue(value: string | null, run: () => void): void {
   if (value === null) Deno.env.delete(VAR);
   else Deno.env.set(VAR, value);
+  warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args.map((arg) => JSON.stringify(arg)).join(" "));
+  };
   try {
     run();
   } finally {
+    console.warn = originalWarn;
     Deno.env.delete(VAR);
   }
 }
@@ -87,6 +101,43 @@ Deno.test("F9-01: Tagesfenster-Werte ueber 10000 s brauchen das explizite max", 
   assertEquals(withoutMax, DAY_FALLBACK, "12 h ohne max faellt still auf den Tages-Default");
   assertEquals(parsed("86400", EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS), 86400, "voller Tag erlaubt");
   assertEquals(parsed("172800", EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS), FALLBACK, "zwei Tage wirft in der RPC");
+});
+
+// ---------------------------------------------------------------------------
+// P6-03 (review 2026-08-29): a value that IS set but gets discarded must say
+// so. The silent fallback was the real trap — an operator who sets a day
+// window to tighten a paid limit gets the looser code default back and has
+// nothing to notice it by.
+// ---------------------------------------------------------------------------
+
+Deno.test("P6-03: ein gesetzter, verworfener Wert wird geloggt", () => {
+  assertEquals(parsed("86400"), FALLBACK, "Tagesfenster ohne explizites max faellt zurueck");
+  const joined = warnings.join("\n");
+  assertEquals(warnings.length, 1, `genau eine Warnung erwartet, waren: ${joined}`);
+  assert(joined.includes(VAR), `Variablenname fehlt: ${joined}`);
+  assert(joined.includes("86400"), `der verworfene Wert fehlt: ${joined}`);
+  assert(joined.includes(String(FALLBACK)), `der wirksame Default fehlt: ${joined}`);
+  assert(joined.includes(String(EDGE_RATE_LIMIT_MAX_LIMIT)), `die verletzte Grenze fehlt: ${joined}`);
+});
+
+Deno.test("P6-03: auch unbrauchbare Formate warnen", () => {
+  for (const value of ["abc", "20x", "2.5", "-5", "0", "9".repeat(30)]) {
+    assertEquals(parsed(value), FALLBACK, value);
+    assertEquals(warnings.length, 1, `keine Warnung fuer ${value}`);
+  }
+});
+
+Deno.test("P6-03: nicht gesetzt, leer und gueltig bleiben still", () => {
+  // Every deployment without overrides runs through here; warning would drown
+  // the real signal.
+  for (const value of [null, "", "   "]) {
+    assertEquals(parsed(value), FALLBACK, JSON.stringify(value));
+    assertEquals(warnings.length, 0, `stiller Fall hat gewarnt: ${warnings.join("|")}`);
+  }
+  assertEquals(parsed("3600"), 3600, "gueltiger Wert");
+  assertEquals(warnings.length, 0, `gueltiger Wert hat gewarnt: ${warnings.join("|")}`);
+  assertEquals(parsed("86400", EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS), 86400, "gueltig mit weiterem max");
+  assertEquals(warnings.length, 0, `gueltiger Wert hat gewarnt: ${warnings.join("|")}`);
 });
 
 Deno.test("bisheriges Verhalten bleibt: unbrauchbare Werte -> Default", () => {

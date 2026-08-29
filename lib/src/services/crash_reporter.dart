@@ -215,6 +215,17 @@ void configureSentry(SentryFlutterOptions options) {
   // errors DIRECTLY.
   options.beforeSend = sanitizeSentryEvent;
 
+  // Review P10-01. Unlike the switches below this one defaults to TRUE
+  // (sentry_flutter_options.dart:42), so it has to be assigned: left alone,
+  // every release build with a DSN reports app starts and foreground changes
+  // (session id, install id, start, duration, status) — usage telemetry, not
+  // errors. The value is handed to the native SDKs
+  // (sentry_native_channel.dart:47), which build the session envelopes
+  // THEMSELVES; they never pass `beforeSend`, so none of the filters above
+  // touch them. The price is Sentry's Release Health (crash-free rate), which
+  // this project does not use; crash reporting itself is unaffected.
+  options.enableAutoSessionTracking = false;
+
   // Deliberately NOT set (and pinned by the wiring test): `tracesSampleRate`
   // (spans carry transaction names, i.e. routes) and `replay.*` (session
   // replay films the screen). Both default to off.

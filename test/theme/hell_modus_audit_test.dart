@@ -4,7 +4,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/main.dart';
+import 'package:eatova/src/models/fitness_recipe.dart';
+import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/screens/onboarding_screen.dart';
+import 'package:eatova/src/screens/recipes/recipes_screen.dart';
+import 'package:eatova/src/screens/settings/goals_screen.dart';
+import 'package:eatova/src/screens/settings/settings_controls.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
+import 'package:eatova/src/theme/meal_slot_style.dart';
+import 'package:eatova/src/widgets/meal/meal_widgets.dart';
+
+import '../support/harness.dart';
 
 // ---------------------------------------------------------------------------
 // LIGHT MODE AUDIT
@@ -18,6 +30,12 @@ import 'package:eatova/src/theme/app_tokens.dart';
 //      palette, else pumping the same palette twice would pass silently.
 //   2. CONTRAST — the pairings that tip over in light mode, including
 //      semi-transparent surfaces: composited first, then measured.
+//   3. USAGE — the macro tones are toned for GRAPHICS (3:1, WCAG 1.4.11) and
+//      may not be painted into text. Level 2 alone missed that: it measures
+//      colour pairs, not which widget picks which pair.
+//   4. GEBOXTE NOTIZ — the signal-banner pattern read back OUT of the tree,
+//      and against `bg` as well as `surf`. Same blind spot as 3, other
+//      widget: level 2 measured the card only, the boxes sit on the page.
 //
 // The SOURCE level (the three hard rules from DESIGN_REFACTOR §3 scanned over
 // `lib/`: no `app_colors.dart`, no `Color(0x…)`, no brightness branch) lives
@@ -145,6 +163,140 @@ void _erwartePalette(
         'der Screen sitzt vermutlich unter einem eigenen Theme',
   );
   expect(gelesen.ink, erwartet.ink);
+}
+
+// --- 3. USAGE: helpers ------------------------------------------------------
+
+/// The four graphical tones by TOKEN name — the same four [MealSlot] reaches
+/// through `accentOn`. `accent` is NOT among them: it carries text at 13.6:1
+/// (hell) / 14.0:1 (dunkel).
+Map<Color, String> _makroToene(AppTokens t) => <Color, String>{
+      t.protein: 'protein',
+      t.carbs: 'carbs',
+      t.fat: 'fat',
+      t.snack: 'snack',
+    };
+
+/// Fails when any [Text] in the current tree is PAINTED in a macro tone.
+///
+/// Deliberately widget-level: the tones themselves are correct (3:1 for
+/// graphics), only their use as text is wrong, and no colour-pair check can
+/// see that.
+void _erwarteKeineMakroTexte(WidgetTester tester, AppTokens t) {
+  final toene = _makroToene(t);
+  final treffer = <String>[];
+  for (final element in find.byType(Text).evaluate()) {
+    final widget = element.widget as Text;
+    final farbe = widget.style?.color;
+    if (farbe == null) continue;
+    final name = toene[farbe];
+    if (name == null) continue;
+    final inhalt = widget.data ?? widget.textSpan?.toPlainText() ?? '';
+    treffer.add('"$inhalt" in $name');
+  }
+  expect(
+    treffer,
+    isEmpty,
+    reason: 'Makrofarben sind Grafik-Toene (3:1) und tragen keinen Text — '
+        'im Hellmodus erreichen carbs 3,39:1 und fat 3,73:1 auf surf, '
+        'noetig waeren 4,5:1. Farbiger Punkt + Text in ink:\n'
+        '${treffer.join('\n')}',
+  );
+}
+
+/// Tones a macro MARKER may legitimately carry: the raw tone, which holds the
+/// 3:1 for graphical objects on `surf`, and its [AppTokens.readableOnTint]
+/// correction, which a darker ground needs — on `surf2` the raw carb tone is
+/// only 2.77:1, so the scan result's tiles (P9-01b) lift their dot.
+Map<Color, String> _makroPunktToene(AppTokens t) => <Color, String>{
+      for (final eintrag in _makroToene(t).entries) ...<Color, String>{
+        eintrag.key: eintrag.value,
+        t.readableOnTint(eintrag.key): '${eintrag.value} (readableOnTint)',
+      },
+    };
+
+/// Circular markers painted in a macro tone — what replaces the coloured
+/// number. Counts them so a fix that merely drops the colour fails too.
+int _makroPunkte(WidgetTester tester, AppTokens t) {
+  final toene = _makroPunktToene(t);
+  var anzahl = 0;
+  for (final element in find.byType(Container).evaluate()) {
+    final deko = (element.widget as Container).decoration;
+    if (deko is! BoxDecoration || deko.shape != BoxShape.circle) continue;
+    final farbe = deko.color;
+    if (farbe != null && toene.containsKey(farbe)) anzahl++;
+  }
+  return anzahl;
+}
+
+/// A user recipe with all four nutrition tiles filled.
+final FitnessRecipe _rezept = FitnessRecipe(
+  slug: FitnessRecipe.userRecipeSlug(),
+  title: 'Kontrastteller',
+  description: 'Vier Naehrwert-Kacheln',
+  portion: '1 Portion',
+  ingredients: 'Keine Angabe',
+  preparation: 'Keine Zubereitung hinterlegt.',
+  professionalHint: 'Selbst angelegt.',
+  imageAsset: '',
+  caloriesKcal: 520,
+  proteinG: 40,
+  carbsG: 50,
+  fatG: 15,
+  estimatedGrams: 300,
+  categories: const <String>['Eigene'],
+  userCreated: true,
+);
+
+/// A scan result with all three macros filled — the only way into
+/// [MealResultCard], which is what kept its tiles out of this section.
+const MealAnalysisResult _scanErgebnis = MealAnalysisResult(
+  mealName: 'Linsensuppe',
+  caloriesKcal: 420,
+  estimatedGrams: 350,
+  kcalPer100G: 120,
+  protein: '24 g',
+  carbs: '48 g',
+  fat: '9 g',
+  confidence: 'Hoch',
+  portionNotes: 'Ein tiefer Teller.',
+  sourceLabel: 'Foto-KI',
+);
+
+/// Walks the onboarding to its summary — the only place the macro chips are
+/// built. Defaults everywhere except the goal, which has to be a direction so
+/// target and pace steps appear.
+Future<void> _zurOnboardingZusammenfassung(WidgetTester tester) async {
+  pinPhoneViewport(tester);
+  await pumpLocalized(
+    tester,
+    OnboardingScreen(
+      firstName: 'Moritz',
+      initialProfile: const UserProfile(),
+      onComplete: (_) {},
+    ),
+    brightness: Brightness.light,
+    reducedMotion: false,
+    scaffold: false,
+    safeArea: false,
+    settle: true,
+  );
+
+  Future<void> weiter() async {
+    await tester.tap(find.byKey(const ValueKey('onboarding-next')));
+    await tester.pumpAndSettle();
+  }
+
+  // intro, sex, age, height, weight, activity
+  for (var i = 0; i < 6; i++) {
+    await weiter();
+  }
+  await tester.tap(find.byKey(const ValueKey('onboarding-goal-lose')));
+  await tester.pumpAndSettle();
+  // goal, target, pace, diet
+  for (var i = 0; i < 4; i++) {
+    await weiter();
+  }
 }
 
 void main() {
@@ -373,22 +525,38 @@ void main() {
       // in the full signal color, text in `ink`. In light mode the fill turns
       // near-white and both must still carry.
       //
-      // Only opacities that actually occur are checked. Guard rail: text in
-      // warning color at 0.16 would be 4.34:1, already below AA — text goes
-      // in `ink`.
+      // BOTH grounds, not just `surf`: this test used to measure the card
+      // only, and the boxed settings note — which sits on the PAGE, `bg` —
+      // slipped past it for that reason (P9-03). `bg` is the darker of the
+      // two, so it is the one that decides.
+      //
+      // Only opacities that actually occur are checked. Guard rail, measured
+      // on `bg` in the light palette: text in the signal color itself would
+      // be warning 4.20:1 · danger 4.48:1 · ink2 4.48:1 — all under AA, which
+      // is why the text goes in `ink` (12.9 - 13.1:1 there).
       for (final p in _paletten.entries) {
         final t = p.value;
-        for (final fall in <(String, Color, double)>[
-          ('warning', t.warning, 0.10),
-          ('warning', t.warning, 0.12),
-          ('danger', t.danger, 0.16),
+        for (final grund in <(String, Color)>[
+          ('bg', t.bg),
+          ('surf', t.surf),
         ]) {
-          final flaeche = _ueber(fall.$2.withValues(alpha: fall.$3), t.surf);
-          expect(_contrast(t.ink, flaeche), greaterThanOrEqualTo(4.5),
-              reason: '${p.key}: Text (ink) auf ${fall.$1}@${fall.$3}');
-          // Glyph = graphical object (WCAG 1.4.11): 3:1.
-          expect(_contrast(fall.$2, flaeche), greaterThanOrEqualTo(3.0),
-              reason: '${p.key}: Icon (${fall.$1}) auf ${fall.$1}@${fall.$3}');
+          for (final fall in <(String, Color, double)>[
+            ('ink2', t.ink2, 0.10),
+            ('warning', t.warning, 0.10),
+            ('warning', t.warning, 0.12),
+            ('danger', t.danger, 0.10),
+            ('danger', t.danger, 0.16),
+          ]) {
+            final flaeche =
+                _ueber(fall.$2.withValues(alpha: fall.$3), grund.$2);
+            expect(_contrast(t.ink, flaeche), greaterThanOrEqualTo(4.5),
+                reason: '${p.key}: Text (ink) auf ${fall.$1}@${fall.$3} '
+                    'ueber ${grund.$1}');
+            // Glyph = graphical object (WCAG 1.4.11): 3:1.
+            expect(_contrast(fall.$2, flaeche), greaterThanOrEqualTo(3.0),
+                reason: '${p.key}: Icon (${fall.$1}) auf '
+                    '${fall.$1}@${fall.$3} ueber ${grund.$1}');
+          }
         }
       }
     });
@@ -419,16 +587,269 @@ void main() {
       }
     });
 
-    // OPEN FINDING, deliberately not asserted: it really fails in light mode
-    // and the fix is a palette decision.
-    //
-    //   MealAvatar (widgets/design/meters.dart:198/209) puts the letter in the
-    //   full slot color on that same color at 16 % opacity. Over `surf`, light
-    //   palette: carbs 2.15:1 · fat 3.10:1 · snack 3.89:1 · protein 4.57:1
-    //   (the only one above AA). All four carry in dark mode (4.8 … 6.9:1).
-    //
-    //   Same for MacroBar: `carbs` against its track (`tile` over `surf`) is
-    //   2.24:1 in light mode, below the 3:1 for graphical objects; `protein`
-    //   carries at 5.21:1.
+    // The two findings that stood here as OPEN are closed; the block is the
+    // assertion now, so a regression fails instead of being re-described.
+    test('der MealAvatar-Buchstabe erreicht auf seinem eigenen Tint AA', () {
+      // MealAvatar (widgets/design/meters.dart) puts the letter on that same
+      // slot color at 16 %. In the full color it reached 2.15:1 in light mode;
+      // `readableOnTint` blends towards `ink` and now holds 5.95 … 7.75 (hell)
+      // and 7.35 … 8.35 (dunkel).
+      for (final p in _paletten.entries) {
+        final t = p.value;
+        for (final slot in MealSlot.values) {
+          final farbe = slot.accentOn(t);
+          final tint = _ueber(farbe.withValues(alpha: 0.16), t.surf);
+          expect(
+            _contrast(t.readableOnTint(farbe), tint),
+            greaterThanOrEqualTo(4.5),
+            reason: '${p.key}: ${slot.name}-Buchstabe auf seinem 16-%-Tint',
+          );
+        }
+      }
+      // Counter-check: the raw slot color is what used to stand there, and
+      // the carb tone still would not carry the letter (2.86:1).
+      const hell = AppTokens.light;
+      final tint = _ueber(hell.carbs.withValues(alpha: 0.16), hell.surf);
+      expect(_contrast(hell.carbs, tint), lessThan(3.0));
+    });
+
+    test('die MacroBar-Fuellung erreicht 3:1 gegen ihre Spur', () {
+      // Bar in the macro color on a track of `tile` over `surf` — the fill
+      // level is the message, so WCAG 1.4.11 applies. `carbs` was 2.24:1
+      // before the tone was darkened; it now holds 3.07:1, the tightest of
+      // the three and the reason the tone may not move.
+      for (final p in _paletten.entries) {
+        final t = p.value;
+        final spur = _ueber(t.tile, t.surf);
+        for (final farbe in <MapEntry<String, Color>>[
+          MapEntry<String, Color>('protein', t.protein),
+          MapEntry<String, Color>('carbs', t.carbs),
+          MapEntry<String, Color>('fat', t.fat),
+        ]) {
+          expect(_contrast(farbe.value, spur), greaterThanOrEqualTo(3.0),
+              reason: '${p.key}: ${farbe.key}-Balken gegen die Spur');
+        }
+      }
+    });
+
+    test('Makrofarben tragen Grafik, aber keinen Text', () {
+      // The pairing this file never measured — and exactly the one three
+      // metric tiles got wrong. The tones are toned for graphical objects
+      // (3:1): dot, bar, avatar tint. As TEXT on a card they are short in
+      // light mode, so tiles carry a colored DOT and put the number in `ink`
+      // — the rule `trends_screen` already writes out.
+      for (final p in _paletten.entries) {
+        final t = p.value;
+        for (final slot in MealSlot.values) {
+          expect(
+            _contrast(slot.accentOn(t), t.surf),
+            greaterThanOrEqualTo(3.0),
+            reason: '${p.key}: ${slot.name}-Punkt auf der Karte',
+          );
+        }
+        // What the tiles use instead.
+        expect(_contrast(t.ink, t.surf), greaterThanOrEqualTo(4.5),
+            reason: '${p.key}: Kachelzahl in ink auf der Karte');
+      }
+      // Counter-check and the whole reason for the rule: in light mode carbs
+      // (3.39:1) and fat (3.73:1) miss the 4.5:1 for normal text. 16 px w700
+      // is NOT large text — AA-Large starts at 14 pt bold = 14 x 96/72 =
+      // 18.67 px.
+      const hell = AppTokens.light;
+      expect(_contrast(hell.carbs, hell.surf), lessThan(4.5));
+      expect(_contrast(hell.fat, hell.surf), lessThan(4.5));
+    });
+  });
+
+  // =========================================================================
+  // 3. USAGE — no macro tone may be painted into a Text
+  // =========================================================================
+  group('Makrofarben faerben keinen Text', () {
+    // The three metric-tile screens the RUNTIME section never reaches: the
+    // audit boots into the tab shell, while these sit behind onboarding, a
+    // recipe push and the goals route. That gap is why the violation lived
+    // here for three releases.
+
+    testWidgets('Naehrwert-Kacheln im Rezept', (tester) async {
+      await pumpLocalized(
+        tester,
+        RecipeDetailScreen(
+          recipe: _rezept,
+          onAddMeal: (_, __) {},
+        ),
+        brightness: Brightness.light,
+        scaffold: false,
+        safeArea: false,
+        settle: true,
+      );
+      expect(find.text('520'), findsOneWidget);
+      _erwarteKeineMakroTexte(tester, AppTokens.light);
+      // kcal, protein, carbs, fat — one marker each.
+      expect(_makroPunkte(tester, AppTokens.light), greaterThanOrEqualTo(3));
+    });
+
+    testWidgets('Plan-Kacheln in den Zielen', (tester) async {
+      pinPhoneViewport(tester);
+      await pumpLocalized(
+        tester,
+        const GoalsScreen(profile: UserProfile()),
+        brightness: Brightness.light,
+        scaffold: false,
+        safeArea: false,
+        settle: true,
+      );
+      expect(find.byKey(const ValueKey('screen-goals')), findsOneWidget);
+      _erwarteKeineMakroTexte(tester, AppTokens.light);
+      expect(_makroPunkte(tester, AppTokens.light), greaterThanOrEqualTo(3));
+    });
+
+    testWidgets('Makro-Kacheln der Onboarding-Zusammenfassung', (tester) async {
+      await _zurOnboardingZusammenfassung(tester);
+      expect(
+        find.byKey(const ValueKey('onboarding-summary-kcal')),
+        findsOneWidget,
+      );
+      _erwarteKeineMakroTexte(tester, AppTokens.light);
+      expect(_makroPunkte(tester, AppTokens.light), greaterThanOrEqualTo(3));
+    });
+
+    // The FOURTH tile, and the one this section could not see: it needs a scan
+    // RESULT, so neither the runtime walk (which boots into the tab shell) nor
+    // the three cases above ever build it. Its ground is `surf2`, half a point
+    // darker than the `surf` the others sit on — the reason it was the worst
+    // of the four (carbs 2.77:1) while looking like the same code.
+    testWidgets('Makro-Kacheln des KI-Scan-Ergebnisses', (tester) async {
+      await pumpLocalized(
+        tester,
+        MealResultCard(
+          result: _scanErgebnis,
+          addedToDailyTotal: false,
+          onAdjustRequested: () {},
+          onAddToDailyRequested: () {},
+        ),
+        brightness: Brightness.light,
+        settle: true,
+      );
+      expect(
+        find.byKey(const ValueKey('analyse-result-card')),
+        findsOneWidget,
+      );
+      _erwarteKeineMakroTexte(tester, AppTokens.light);
+      expect(_makroPunkte(tester, AppTokens.light), greaterThanOrEqualTo(3));
+    });
+  });
+
+  // =========================================================================
+  // 4. DIE GEBOXTE NOTIZ — am GERENDERTEN Widget gemessen, auf bg UND surf
+  //
+  // Level 2 measures colour pairs; it never sees which pair the CODE picks.
+  // That is the hole P9-03 fell through: [SettingsNote] painted its text in
+  // the signal colour, and the banner rule above was held against `surf`
+  // only — while every boxed note sits on `bg` (delete sheet, goals screen,
+  // plan hero; `app_theme.dart` grounds sheets in `bg` as well), the darker
+  // of the two, where the same fill costs another half point.
+  // =========================================================================
+  group('Die geboxte Notiz haelt den Signalbanner-Kontrakt', () {
+    /// Renders one note on [grund] and hands back what it actually painted.
+    Future<({Color text, Color glyphe, Color flaeche})> notiz(
+      WidgetTester tester, {
+      required Brightness brightness,
+      required Color grund,
+      required Color? ton,
+      required bool boxed,
+    }) async {
+      await pumpLocalized(
+        tester,
+        ColoredBox(
+          color: grund,
+          child: SettingsNote(
+            'Hinweis',
+            tone: ton,
+            icon: Icons.error_outline_rounded,
+            boxed: boxed,
+          ),
+        ),
+        brightness: brightness,
+        scaffold: false,
+        safeArea: false,
+      );
+
+      // Alpha 0 for the unboxed note: `_ueber` then returns the bare ground.
+      var fuellung = const Color(0x00000000);
+      if (boxed) {
+        final kasten = tester.widget<Container>(
+          find.descendant(
+            of: find.byType(SettingsNote),
+            matching: find.byType(Container),
+          ),
+        );
+        fuellung = (kasten.decoration! as BoxDecoration).color!;
+      }
+      return (
+        text: tester.widget<Text>(find.text('Hinweis')).style!.color!,
+        glyphe: tester.widget<Icon>(find.byType(Icon)).color!,
+        flaeche: _ueber(fuellung, grund),
+      );
+    }
+
+    for (final brightness in Brightness.values) {
+      final modus = brightness == Brightness.light ? 'HELL' : 'DUNKEL';
+      final t =
+          brightness == Brightness.light ? AppTokens.light : AppTokens.dark;
+
+      for (final grund in <(String, Color)>[
+        ('bg', t.bg),
+        ('surf', t.surf),
+      ]) {
+        for (final ton in <(String, Color?)>[
+          ('warning', t.warning),
+          ('danger', t.danger),
+          ('ohne Ton', null),
+        ]) {
+          testWidgets('$modus: geboxt, ${ton.$1}, auf ${grund.$1}',
+              (tester) async {
+            final n = await notiz(
+              tester,
+              brightness: brightness,
+              grund: grund.$2,
+              ton: ton.$2,
+              boxed: true,
+            );
+
+            // The contract itself, not only its numbers.
+            expect(n.text, t.ink,
+                reason: 'Kontrakt: Glyphe im Signalton, Text in ink — auf '
+                    'der eigenen Fuellung faellt der Ton unter AA');
+            expect(n.glyphe, ton.$2 ?? t.ink2);
+
+            expect(_contrast(n.text, n.flaeche), greaterThanOrEqualTo(4.5),
+                reason: '$modus: 12-px-Text auf ${ton.$1}@10 % ueber '
+                    '${grund.$1}');
+            // Glyph = graphical object (WCAG 1.4.11): 3:1.
+            expect(_contrast(n.glyphe, n.flaeche), greaterThanOrEqualTo(3.0),
+                reason: '$modus: Glyphe auf ${ton.$1}@10 % ueber ${grund.$1}');
+          });
+
+          testWidgets('$modus: ungeboxt, ${ton.$1}, auf ${grund.$1}',
+              (tester) async {
+            // Without a fill the tone keeps its headroom (warning 4,76:1 on
+            // the light `bg` is the weakest case), so THERE it stays the text
+            // colour — otherwise the signal would disappear entirely.
+            final n = await notiz(
+              tester,
+              brightness: brightness,
+              grund: grund.$2,
+              ton: ton.$2,
+              boxed: false,
+            );
+
+            expect(n.text, ton.$2 ?? t.ink2);
+            expect(n.glyphe, ton.$2 ?? t.ink2);
+            expect(_contrast(n.text, n.flaeche), greaterThanOrEqualTo(4.5),
+                reason: '$modus: 12-px-Text (${ton.$1}) auf ${grund.$1}');
+          });
+        }
+      }
+    }
   });
 }

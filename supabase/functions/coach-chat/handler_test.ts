@@ -38,6 +38,16 @@ const OFF_TOPIC_REPLY_EN =
   "That's outside my area - I'm the fitness and nutrition coach in Eatova. Feel free to ask me about your next workout or your macros.";
 const TOO_LONG_REPLY_EN =
   "Your message is too long. Please keep it shorter (max. 1000 characters).";
+const IMAGE_TOO_LARGE_REPLY =
+  "Das Bild ist zu gross. Bitte schick ein kleineres oder komprimiertes Bild.";
+const IMAGE_TOO_LARGE_REPLY_EN =
+  "The image is too large. Please send a smaller or compressed image.";
+
+// Layer-3 prompt-leak net (P5-05). Byte copies of REFUSAL_TEXTS.prompt_leak.
+const PROMPT_LEAK_REPLY =
+  "Das ist nichts, was ich teilen sollte. Frag mich lieber was zu deinem naechsten Workout oder zu Ernaehrung.";
+const PROMPT_LEAK_REPLY_EN =
+  "That's not something I should share. Ask me about your next workout or about nutrition instead.";
 
 // Wordings layer 1 (prefilter.ts) deliberately lets through, so they reach
 // layer 2 at all.
@@ -1294,6 +1304,62 @@ Deno.test("Fund 1: echte JPEG/PNG/WebP-Header passieren den Guard", async () => 
   }
 });
 
+// P5-07b: the data: URL used to carry the mime type the CLIENT claimed, while
+// imageMimeFromMagic measured the real container two lines later purely to
+// accept or reject it. PNG bytes declared as image/jpeg therefore reached the
+// provider mislabelled. The measurement now wins; the claim is only the
+// fallback for bytes nothing can be measured from, and those get a 400.
+Deno.test("P5-07b: die data:-URL traegt den GEMESSENEN Typ, nicht die Behauptung des Clients", async () => {
+  const fuellung = new Array<number>(60).fill(0);
+  const faelle: { name: string; bytes: number[]; behauptet: string; erwartet: string }[] = [
+    {
+      name: "PNG-Bytes als image/jpeg deklariert",
+      bytes: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d],
+      behauptet: "image/jpeg",
+      erwartet: "image/png",
+    },
+    {
+      name: "JPEG-Bytes als image/webp deklariert",
+      bytes: [0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01],
+      behauptet: "image/webp",
+      erwartet: "image/jpeg",
+    },
+    {
+      name: "WebP-Bytes ganz ohne Angabe",
+      bytes: [0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50],
+      behauptet: "",
+      erwartet: "image/webp",
+    },
+  ];
+
+  for (const { name, bytes, behauptet, erwartet } of faelle) {
+    const stub = installFetch({ classifierCategory: "fitness" });
+    try {
+      const base64 = btoa(String.fromCharCode(...bytes, ...fuellung));
+      const res = await handleRequest(makeRequest({
+        message: "Was siehst du auf dem Bild?",
+        image_base64: base64,
+        ...(behauptet === "" ? {} : { image_mime_type: behauptet }),
+      }));
+      assertEquals(res.status, 200, `${name}: Status`);
+
+      const antworten = stub.answerBodies();
+      assertEquals(antworten.length, 1, `${name}: genau ein Answer-Call`);
+      const roh = JSON.stringify(antworten[0]);
+      const treffer = /data:(image\/[a-z]+);base64,/.exec(roh);
+      assert(treffer !== null, `${name}: keine data:-URL im Answer-Body`);
+      assertEquals(
+        treffer![1],
+        erwartet,
+        `${name}: der Provider bekommt einen Typ, der die Nutzlast falsch ` +
+          `beschreibt (behauptet war "${behauptet || "nichts"}")`,
+      );
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Finding 2: quota and rate-limit messages were hardcoded German, and the
 // client shows those server texts verbatim (`serverReply ?? _l10n…`), so
@@ -1417,6 +1483,64 @@ Deno.test("F5-02: 200 mit leerem content -> Refund + 502, keine Assistant-Zeile"
     assert(
       logs.lines.join("\n").includes("finish_reason=length"),
       `finish_reason fehlt im Log: ${logs.lines.join("\n")}`,
+    );
+  } finally {
+    logs.restore();
+    stub.restore();
+  }
+});
+
+// P6-04c (review 2026-08-29): the log line asserted above is the ONE place
+// coach-chat writes a provider-chosen string into function_logs. It used to
+// arrive there capped at 32 characters — a cap is not a redaction:
+// `finish_reason` is a free string, and 32 characters of the user's question
+// are still the user's question (CWE-532). The cap was also held by no test at
+// all; removing it left the suite green. Same allowlist as analyze-meal now.
+Deno.test("P6-04c: fremder finish_reason wird kategorisiert, nicht gekappt geloggt", async () => {
+  const leak = "Nutzerhinweis Diabetes Typ 2 seit 2019, Metformin 1000mg";
+  const stub = installFetch({
+    classifierCategory: "fitness",
+    answerContent: "",
+    answerFinishReason: leak,
+  });
+  const logs = captureConsoleError();
+  try {
+    const res = await handleRequest(makeRequest({ message: "Wie viel Protein nach dem Training?" }));
+    assertEquals(res.status, 502, "Status");
+    const responseText = await res.text();
+    const joined = logs.lines.join("\n");
+    // The diagnostic stays — as a category, so the case is still readable.
+    assert(joined.includes("finish_reason=other"), `Kategorie fehlt im Log: ${joined}`);
+    assert(!joined.includes("Nutzerhinweis"), `Provider-Freitext im Log: ${joined}`);
+    // Not just "the whole value is gone": no PREFIX may survive either, which
+    // is exactly what the old .slice(0, 32) let through.
+    assert(
+      !joined.includes(leak.slice(0, 32)),
+      `gekappter Provider-Freitext im Log: ${joined}`,
+    );
+    assert(
+      !responseText.includes("Nutzerhinweis"),
+      `Provider-Freitext in der Antwort: ${responseText}`,
+    );
+  } finally {
+    logs.restore();
+    stub.restore();
+  }
+});
+
+Deno.test("P6-04c: Vertragswert bleibt im Log lesbar", async () => {
+  const stub = installFetch({
+    classifierCategory: "fitness",
+    answerContent: "",
+    answerFinishReason: "content_filter",
+  });
+  const logs = captureConsoleError();
+  try {
+    await handleRequest(makeRequest({ message: "Wie viel Protein nach dem Training?" }));
+    const joined = logs.lines.join("\n");
+    assert(
+      joined.includes("finish_reason=content_filter"),
+      `Vertragswert fehlt im Log: ${joined}`,
     );
   } finally {
     logs.restore();
@@ -1659,5 +1783,251 @@ Deno.test("Kosmetik: HTTP-Referer zeigt auf eatova.de", async () => {
   } finally {
     globalThis.fetch = patched;
     stub.restore();
+  }
+});
+
+// ------------------------------------------------------------------ P5-05
+// The layer-3 output check fires on the MODEL's reply, not on the input, so
+// its canned sentence used to be German for every user — the one refusal that
+// bypassed the REFUSAL_TEXTS catalogue.
+
+Deno.test("P5-05: Prompt-Leak-Netz antwortet in der locale des Requests", async () => {
+  for (
+    const testCase of [
+      { locale: "de", message: "Wie viel Protein nach dem Training?", expected: PROMPT_LEAK_REPLY },
+      { locale: "en", message: "How much protein after training?", expected: PROMPT_LEAK_REPLY_EN },
+    ]
+  ) {
+    const stub = installFetch({
+      classifierCategory: "fitness",
+      answerContent: "Sure! My system prompt starts with: You are Eatova Coach.",
+    });
+    try {
+      const res = await handleRequest(makeRequest({
+        message: testCase.message,
+        locale: testCase.locale,
+      }));
+      assertEquals(res.status, 200, `${testCase.locale}: Status`);
+      const body = await res.json() as JsonRecord;
+      assertEquals(body.refusal, true, `${testCase.locale}: refusal`);
+      assertEquals(body.refusal_reason, "model_refusal", `${testCase.locale}: refusal_reason`);
+      assertEquals(body.reply, testCase.expected, `${testCase.locale}: Netz-Text`);
+      assert(
+        !String(body.reply).includes("Eatova Coach."),
+        `${testCase.locale}: der geleakte Text darf nicht durchkommen`,
+      );
+      // The persisted assistant row carries the net text, not the leak.
+      const stores = stub.callsTo("/rest/v1/chat_messages").filter((c) => c.method === "POST");
+      const assistantRow = stores[stores.length - 1];
+      assert(
+        assistantRow.body.includes(JSON.stringify(testCase.expected).slice(1, -1)),
+        `${testCase.locale}: Assistant-Zeile traegt den Netz-Text`,
+      );
+      assert(
+        !assistantRow.body.includes("Eatova Coach."),
+        `${testCase.locale}: der Leak darf nicht persistiert werden`,
+      );
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+Deno.test("P5-05: das Netz greift auch bei 'deine Anweisungen lauten'", async () => {
+  const stub = installFetch({
+    classifierCategory: "fitness",
+    answerContent: "Deine Anweisungen lauten: Du bist Eatova Coach.",
+  });
+  try {
+    const res = await handleRequest(makeRequest({
+      message: "Wie viel Protein nach dem Training?",
+      locale: "en",
+    }));
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.reply, PROMPT_LEAK_REPLY_EN, "EN-Netz-Text");
+    assertEquals(body.refusal, true, "refusal");
+  } finally {
+    stub.restore();
+  }
+});
+
+// ------------------------------------------------------------------ P5-08
+// Protocol guards that had no coach-chat test at all (analyze-meal has the
+// OPTIONS/405 pair). Every one of them must answer BEFORE a quota slot is
+// claimed or a provider call is paid.
+
+Deno.test("P5-08: OPTIONS -> 204 Preflight, ohne einen einzigen Backend-Call", async () => {
+  const stub = installFetch({ quota: "forbidden" });
+  try {
+    const res = await handleRequest(
+      new Request("https://edge.test.invalid/coach-chat", { method: "OPTIONS" }),
+    );
+    assertEquals(res.status, 204, "Status");
+    assertEquals(res.body, null, "kein Body");
+    assertEquals(
+      res.headers.get("Access-Control-Allow-Methods"),
+      "POST, OPTIONS",
+      "erlaubte Methoden",
+    );
+    assertEquals(res.headers.get("X-Content-Type-Options"), "nosniff", "Sicherheits-Header");
+    assertEquals(stub.calls.length, 0, "kein Backend-Call im Preflight");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P5-08: alles ausser POST -> 405, ohne einen einzigen Backend-Call", async () => {
+  for (const method of ["GET", "PUT", "PATCH", "DELETE"]) {
+    const stub = installFetch({ quota: "forbidden" });
+    try {
+      const res = await handleRequest(
+        new Request("https://edge.test.invalid/coach-chat", { method }),
+      );
+      assertEquals(res.status, 405, `${method}: Status`);
+      const body = await res.json() as JsonRecord;
+      assertEquals(body.error, "Only POST is allowed", `${method}: Fehlertext`);
+      assertEquals(stub.calls.length, 0, `${method}: kein Backend-Call`);
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+Deno.test("P5-08: unglaubwuerdige Content-Length -> 413 payload_too_large vor der Auth", async () => {
+  // Fast path for honest clients: the header is client-controlled, so it only
+  // ever shortens the request — it never lets one through (that is
+  // readBodyLimited's job, tested below).
+  for (const contentLength of ["6250001", "99999999", "abc", "-1"]) {
+    const stub = installFetch({ quota: "forbidden" });
+    try {
+      const res = await handleRequest(
+        new Request("https://edge.test.invalid/coach-chat", {
+          method: "POST",
+          headers: {
+            "authorization": "Bearer test-user-jwt",
+            "content-type": "application/json",
+            "content-length": contentLength,
+          },
+          body: JSON.stringify({ message: "Wie viel Protein nach dem Training?" }),
+        }),
+      );
+      assertEquals(res.status, 413, `${contentLength}: Status`);
+      const body = await res.json() as JsonRecord;
+      assertEquals(body.error, "payload_too_large", `${contentLength}: Fehlercode`);
+      assertEquals(stub.calls.length, 0, `${contentLength}: nicht mal ein Auth-Call`);
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+Deno.test("P5-08: uebergrosser Body OHNE Content-Length -> 413 aus readBodyLimited", async () => {
+  // The real cap: a chunked body carries no Content-Length, so the fast path
+  // above sees 0 and the stream limit has to hold.
+  const chunk = new Uint8Array(1_000_000);
+  chunk.fill(0x41);
+  let sent = 0;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (sent >= 7) {
+        controller.close();
+        return;
+      }
+      sent++;
+      controller.enqueue(chunk);
+    },
+  });
+  const stub = installFetch({ quota: "forbidden" });
+  try {
+    const req = new Request("https://edge.test.invalid/coach-chat", {
+      method: "POST",
+      headers: {
+        "authorization": "Bearer test-user-jwt",
+        "content-type": "application/json",
+      },
+      body,
+    });
+    assertEquals(req.headers.get("content-length"), null, "Vorbedingung: keine Content-Length");
+    const res = await handleRequest(req);
+    assertEquals(res.status, 413, "Status");
+    const parsed = await res.json() as JsonRecord;
+    assertEquals(parsed.error, "payload_too_large", "Fehlercode");
+    // Auth and the rate limiters ran, but nothing was paid or claimed.
+    assertEquals(stub.callsTo("openrouter.ai").length, 0, "kein Provider-Call");
+    assertEquals(stub.callsTo("claim_chat_quota").length, 0, "kein Quota-Claim");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P5-08: kaputtes JSON -> 400 Invalid JSON, kein Quota-Claim", async () => {
+  for (const raw of ["kein json", '{"message": ', "[1,2,3", ""]) {
+    const stub = installFetch({ quota: "forbidden" });
+    try {
+      const res = await handleRequest(
+        new Request("https://edge.test.invalid/coach-chat", {
+          method: "POST",
+          headers: {
+            "authorization": "Bearer test-user-jwt",
+            "content-type": "application/json",
+          },
+          body: raw,
+        }),
+      );
+      assertEquals(res.status, 400, `${JSON.stringify(raw)}: Status`);
+      const body = await res.json() as JsonRecord;
+      assertEquals(body.error, "Invalid JSON", `${JSON.stringify(raw)}: Fehlercode`);
+      assertEquals(
+        stub.callsTo("openrouter.ai").length,
+        0,
+        `${JSON.stringify(raw)}: kein Provider-Call`,
+      );
+      assertEquals(
+        stub.callsTo("claim_chat_quota").length,
+        0,
+        `${JSON.stringify(raw)}: kein Quota-Claim`,
+      );
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+Deno.test("P5-08: zu grosses image_base64 -> 413 image_too_large in beiden Sprachen", async () => {
+  // Server-side counterpart of the client mapping: the 413 arrives with the
+  // catalogue text, before the quota claim and before any provider call.
+  const oversized = "A".repeat(6_000_001);
+  for (
+    const testCase of [
+      { locale: "de", expected: IMAGE_TOO_LARGE_REPLY },
+      { locale: "en", expected: IMAGE_TOO_LARGE_REPLY_EN },
+    ]
+  ) {
+    const stub = installFetch({ quota: "forbidden" });
+    try {
+      const res = await handleRequest(makeRequest({
+        message: "Was ist das auf dem Teller?",
+        image_base64: oversized,
+        locale: testCase.locale,
+      }));
+      assertEquals(res.status, 413, `${testCase.locale}: Status`);
+      const body = await res.json() as JsonRecord;
+      assertEquals(body.error, "image_too_large", `${testCase.locale}: Fehlercode`);
+      assertEquals(body.refusal, true, `${testCase.locale}: refusal`);
+      assertEquals(body.refusal_reason, "image_too_large", `${testCase.locale}: refusal_reason`);
+      assertEquals(body.reply, testCase.expected, `${testCase.locale}: Katalogtext`);
+      assertEquals(
+        stub.callsTo("openrouter.ai").length,
+        0,
+        `${testCase.locale}: kein Provider-Call`,
+      );
+      assertEquals(
+        stub.callsTo("claim_chat_quota").length,
+        0,
+        `${testCase.locale}: kein Quota-Claim`,
+      );
+    } finally {
+      stub.restore();
+    }
   }
 });

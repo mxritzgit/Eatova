@@ -37,7 +37,10 @@ class ProductSearchResult {
   final String? imageUrl;
 
   factory ProductSearchResult.fromOpenFoodFacts(Map<String, dynamic> product) {
-    final code = product['code']?.toString().trim() ?? '';
+    // Straight out of the search index, not from the scanner (which is pinned
+    // to EAN/UPC): clamped to the `logged_meals.barcode` column before anything
+    // builds a favorite key or a log row from it (P2-01b).
+    final code = clampBarcode(product['code']?.toString()) ?? '';
     final result = MealAnalysisResult.fromOpenFoodFacts(product, code);
     final brand = result.brand?.trim();
     final quantity = _firstNonEmptyString(product, const ['quantity']);
@@ -85,6 +88,7 @@ class OpenFoodFactsProductService implements ProductLookupService {
   const OpenFoodFactsProductService({
     this.productBaseUrl = defaultProductBaseUrl,
     this.searchBaseUrls = defaultSearchBaseUrls,
+    this.searchChainBudget = defaultSearchChainBudget,
   });
 
   static const String defaultProductBaseUrl =
@@ -94,8 +98,18 @@ class OpenFoodFactsProductService implements ProductLookupService {
     'https://world.openfoodfacts.org/cgi/search.pl',
   ];
 
+  /// Ceiling over the de -> world chain (review P10-02). Both endpoints run
+  /// one after the other, so their cost adds up: at 20 s per request (
+  /// [HttpTimeoutPolicy.openFoodFacts]) the pair could hold the caller for
+  /// 40 s. 24 s leaves a stalling `de` room to fail and `world` room to still
+  /// answer, without the sum ever reaching the phase arithmetic.
+  static const Duration defaultSearchChainBudget = Duration(seconds: 24);
+
   final String productBaseUrl;
   final List<String> searchBaseUrls;
+
+  /// Test seam plus tuning knob for [defaultSearchChainBudget].
+  final Duration searchChainBudget;
 
   /// `nutrition_data_per` is required (B7): the parser falls back to
   /// `energy-kcal_value`, which is per 100 g or per serving depending on that
@@ -176,35 +190,64 @@ class OpenFoodFactsProductService implements ProductLookupService {
     }
 
     final client = createHttpClient(HttpTimeoutPolicy.openFoodFacts);
+    // One ceiling over BOTH endpoints (P10-02). Closing the client in the
+    // `finally` is what actually cuts the socket of the leg still in flight.
+    final deadline = ChainDeadline(
+      searchChainBudget,
+      operation: 'off.searchProducts',
+    );
     try {
       Object? lastError;
+      // An endpoint that answered 2xx with a well-formed, EMPTY product list
+      // has spoken: "not in this index". P10-07 — `lastError` used to live
+      // outside the loop, so an empty `de` followed by a 502 from `world`
+      // threw, and the user saw an error instead of the empty view with the
+      // manual-entry offer (plus three retries on top of it).
+      var cleanlyEmpty = false;
 
       for (final baseUrl in searchBaseUrls) {
+        if (deadline.isExpired) break;
         try {
-          final results = await _searchProductsFromEndpoint(
-            client: client,
-            baseUrl: baseUrl,
-            query: cleanQuery,
+          final answer = await deadline.guard(
+            _searchProductsFromEndpoint(
+              client: client,
+              baseUrl: baseUrl,
+              query: cleanQuery,
+            ),
           );
-          if (results.isNotEmpty) {
-            return results;
+          if (answer.hits.isNotEmpty) {
+            return answer.hits;
           }
+          // Only a REAL product list counts as "nothing found"; a 2xx without
+          // one is a broken endpoint (see [_searchProductsFromEndpoint]).
+          cleanlyEmpty |= answer.wellFormed;
         } catch (error) {
           lastError = error;
         }
       }
 
-      if (lastError != null) {
-        throw lastError;
+      // Order matters: "nothing found" beats a later leg's error, an error
+      // only wins when NO leg answered cleanly.
+      if (cleanlyEmpty || lastError == null) {
+        return const <ProductSearchResult>[];
       }
-
-      return const <ProductSearchResult>[];
+      throw lastError;
     } finally {
+      deadline.dispose();
       client.close(force: true);
     }
   }
 
-  Future<List<ProductSearchResult>> _searchProductsFromEndpoint({
+  /// One endpoint's answer: the loggable hits, plus whether the response even
+  /// WAS a search response.
+  ///
+  /// The flag is the difference P10-07 turns on: `wellFormed: true` with no
+  /// hits means "not in this index" — an answer — while a 2xx without a
+  /// `products` list (proxy error page, schema change) is a broken endpoint
+  /// that must not silence a later leg's error. Both still fall through to the
+  /// next endpoint.
+  Future<({List<ProductSearchResult> hits, bool wellFormed})>
+  _searchProductsFromEndpoint({
     required HttpClient client,
     required String baseUrl,
     required String query,
@@ -237,7 +280,7 @@ class OpenFoodFactsProductService implements ProductLookupService {
     final decoded = jsonDecode(response.body) as Map<String, dynamic>;
     final products = decoded['products'];
     if (products is! List) {
-      return const <ProductSearchResult>[];
+      return (hits: const <ProductSearchResult>[], wellFormed: false);
     }
 
     // A loop, not a map/where chain: the plausibility filter needs the raw
@@ -259,7 +302,10 @@ class OpenFoodFactsProductService implements ProductLookupService {
       }
       treffer.add(hit);
     }
-    return List<ProductSearchResult>.unmodifiable(treffer);
+    return (
+      hits: List<ProductSearchResult>.unmodifiable(treffer),
+      wellFormed: true,
+    );
   }
 
   /// Raw kcal/100 g straight from the OFF record.

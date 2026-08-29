@@ -191,8 +191,9 @@ class EdgeFunctionMealAnalyzer implements MealAnalyzer {
   static const int _maxImageBytes = 5 * 1000 * 1000;
 
   // Explicit timeouts on EVERY phase: HttpTimeoutPolicy.mealAnalysis
-  // (15 s connect / 60 s response / 15 s body); rationale lives with the
-  // policy in eatova_http.dart.
+  // (15 s connect / 60 s response / 15 s body) plus a 75 s ceiling over their
+  // sum, calibrated against the function's own 55 s budget (P10-02b);
+  // rationale lives with the policy in eatova_http.dart.
 
   String? _accessToken() {
     final provider = _tokenProvider;

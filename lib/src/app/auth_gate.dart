@@ -4,6 +4,7 @@ import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
 import '../auth/auth_repository.dart';
+import '../l10n/l10n.dart';
 import '../screens/auth_screen.dart';
 import '../services/crash_reporter.dart';
 import '../services/local_cache.dart';
@@ -16,8 +17,12 @@ import '../widgets/common/app_snack.dart';
 /// and route state cannot tell the two apart. Expires after [gueltigkeit] so a
 /// stuck attempt cannot silence a REAL session loss.
 abstract final class IntentionalSignOut {
-  /// Lifetime of a declared intent: enough for the cache purge plus the
-  /// `signOut` roundtrip, short enough not to silence the next session.
+  /// Lifetime of a declared intent, measured from the LAST sign of life of the
+  /// running sign-out ([mark] or [refresh]) — not from the button press.
+  ///
+  /// It has to cover what still follows that last sign of life: the `signOut`
+  /// roundtrip and the auth event behind it. It deliberately does NOT have to
+  /// cover the cleanup before it — see [refresh].
   static const Duration gueltigkeit = Duration(seconds: 30);
 
   static DateTime? _markiertAm;
@@ -25,6 +30,23 @@ abstract final class IntentionalSignOut {
   /// The logout path declares its intent BEFORE calling `signOut` — the auth
   /// event can follow immediately.
   static void mark() => _markiertAm = clock.now();
+
+  /// Restarts the window at the end of a long sign-out step. NEVER creates an
+  /// intent: an involuntary session end runs through the same cleanup, and one
+  /// invented here would silence exactly the message it must not silence.
+  ///
+  /// P1-03: `HomeStore.signOutCleanup` runs before the `signOut` call and may
+  /// take `2 * kSignOutDeliveryBudget + kCacheSnapshotWaitBudget` (up to 53 s)
+  /// — realistically already 40 s at the PostgREST request timeout. Measured
+  /// from the button press, a DELIBERATE sign-out therefore expired and the
+  /// gate reported "your session has expired". Raising [gueltigkeit] would
+  /// have tied this number to three budgets in another file, by hand: the
+  /// comment above it already claimed to cover the cleanup and was wrong by a
+  /// factor of two. So the intent hangs off the END of the cleanup instead of
+  /// off a deadline someone has to keep in step.
+  static void refresh() {
+    if (_markiertAm != null) _markiertAm = clock.now();
+  }
 
   /// Withdraws the intent: the sign-out never happened.
   static void clear() => _markiertAm = null;
@@ -48,7 +70,13 @@ Future<void> purgePersonalCacheFor(String userId) async {
   // F1-02: silence the store's OWN instance first — its debounce timer and
   // late live-op callbacks would otherwise write into the slots this purge
   // clears. Independent of whether the second instance can be built.
-  LocalCache.closeInstancesFor(userId);
+  //
+  // P3-01: AWAITED. Closing only stops writes that have not started; a blob
+  // already encrypting in the isolate lands 200-400 ms later, and the second
+  // instance cannot order its `remove` behind it (the store's write queue is
+  // per instance). `closeInstancesFor` waits for those writes — bounded and
+  // never throwing, so it stays outside the catch below.
+  await LocalCache.closeInstancesFor(userId);
   try {
     final cache = await LocalCache.create(userId);
     if (cache != null) await purgePersonalCache(cache);
@@ -155,7 +183,7 @@ class _AuthGateState extends State<AuthGate> {
       if (!isLoggedIn && !gewollt) {
         showAppSnack(
           context,
-          'Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.',
+          context.l10n.authSessionExpired,
           icon: Icons.lock_clock_rounded,
           duration: kSnackError,
         );

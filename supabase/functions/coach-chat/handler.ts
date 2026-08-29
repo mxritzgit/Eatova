@@ -26,6 +26,7 @@ import {
 import { authFailGate } from "../_shared/auth_fail_gate.ts";
 import { clientIpSubject } from "../_shared/client_ip.ts";
 import { positiveIntFromEnv } from "../_shared/env.ts";
+import { loggableFinishReason } from "../_shared/provider_log.ts";
 import { pruneRateLimits } from "../_shared/rate_limit_prune.ts";
 import {
   parseRecipeDraft,
@@ -336,28 +337,34 @@ function decodeBase64Head(base64: string, bytes: number): Uint8Array | null {
   }
 }
 
-/// Container magic of the three formats safeImageMimeType allows.
+/// Container magic of the three formats safeImageMimeType allows; null = none
+/// of them. The MEASURED type, as opposed to a mime string somebody claims.
 ///
-/// The charset guard only says "looks like base64", so a 6 MB "AAAA…" used to
-/// reach the quota claim and pay for two calls before the provider's 4xx. Not
-/// full validation — a truncated JPEG still fails at the provider, which is
-/// what isClientFaultFailure is for.
-function hasSupportedImageMagic(base64: string): boolean {
+/// Used in two directions:
+///   * incoming user photos — the charset guard only says "looks like
+///     base64", so a 6 MB "AAAA…" used to reach the quota claim and pay for
+///     two calls before the provider's 4xx;
+///   * generated recipe images — the reported image_mime_type comes from
+///     here, never from the provider's media_type field (P5-07).
+///
+/// Not full validation — a truncated JPEG still fails at the provider, which
+/// is what isClientFaultFailure is for.
+function imageMimeFromMagic(base64: string): string | null {
   const head = decodeBase64Head(base64, 12);
-  if (head === null || head.length < 12) return false;
+  if (head === null || head.length < 12) return null;
   // JPEG: FF D8 FF
-  if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return true;
+  if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return "image/jpeg";
   // PNG: 89 "PNG" CR LF SUB LF
   if (
     head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47 &&
     head[4] === 0x0d && head[5] === 0x0a && head[6] === 0x1a && head[7] === 0x0a
-  ) return true;
+  ) return "image/png";
   // WebP: "RIFF" + 4-byte length + "WEBP"
   if (
     head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46 &&
     head[8] === 0x57 && head[9] === 0x45 && head[10] === 0x42 && head[11] === 0x50
-  ) return true;
-  return false;
+  ) return "image/webp";
+  return null;
 }
 
 async function answer(
@@ -429,10 +436,12 @@ async function answer(
   }
   const data = await resp.json();
   const choice = data?.choices?.[0];
-  // Provider-controlled string: capped before it reaches a log line.
-  const finishReason = typeof choice?.finish_reason === "string"
-    ? choice.finish_reason.slice(0, 32)
-    : "unknown";
+  // P6-04c: this used to cap the value at 32 characters before putting it into
+  // a ProviderError message, i.e. into console.error and function_logs. A cap
+  // is no redaction — `finish_reason` is a free string, and the first 32
+  // characters of whatever the model wrote there are still provider-chosen
+  // (CWE-532). Same allowlist as analyze-meal now: contract value or category.
+  const finishReason = loggableFinishReason(choice?.finish_reason) ?? "unknown";
   let reply: string = choice?.message?.content ?? "";
   reply = reply.trim();
 
@@ -442,10 +451,13 @@ async function answer(
     refusal = true;
     reply = reply.replace(/^__REFUSE__\s*/, "").trim();
   }
-  // Safety net: cut the reply if Grok tries to leak the prompt.
+  // Safety net: cut the reply if Grok tries to leak the prompt. P5-05: this
+  // check fires on the MODEL's reply, not on the input, so the reply language
+  // follows the request locale like every other refusal — it used to be the
+  // only one hardcoded in German.
   if (/system\s*prompt|deine\s*anweisungen\s*lauten/i.test(reply)) {
     refusal = true;
-    reply = "Das ist nichts, was ich teilen sollte. Frag mich lieber was zu deinem naechsten Workout oder zu Ernaehrung.";
+    reply = refusalForReason("prompt_leak", locale);
   }
   if (reply.length === 0) {
     if (hadRefusalMarker) {
@@ -557,11 +569,22 @@ async function generateRecipeImage(
       console.error("recipe image: Antwort ohne b64_json");
       return null;
     }
-    const mimeRaw = data?.data?.[0]?.media_type;
-    return {
-      base64: b64,
-      mimeType: typeof mimeRaw === "string" ? safeImageMimeType(mimeRaw) : "image/jpeg",
-    };
+    // Some gateways answer with a data: URL instead of bare base64; the client
+    // decodes the field as-is, so the prefix has to go here.
+    const clean = b64.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "");
+    // P5-07: image_mime_type is MEASURED from the bytes, never taken from the
+    // provider's media_type claim. Two things follow from that:
+    //   * the field is a fact the client can rely on (it stores every recipe
+    //     image as .jpg and decodes by content, so it may also ignore it);
+    //   * bytes with no known container never ship. That would be a broken
+    //     card at the client; the tolerant image policy applies (recipe yes,
+    //     image no, no refund), same as any other image failure.
+    const mimeType = imageMimeFromMagic(clean);
+    if (mimeType === null) {
+      console.error(`recipe image: unbekanntes Containerformat (chars=${clean.length})`);
+      return null;
+    }
+    return { base64: clean, mimeType };
   } catch (e) {
     console.error(`recipe image failed: ${e instanceof Error ? e.message : String(e)}`);
     return null;
@@ -682,6 +705,24 @@ async function handleRecipeMode(params: {
     // Unreadable model output = provider infra error (analyze-meal's
     // provider_invalid_json): refund + 502. Log the LENGTH only — raw can
     // mirror the user's wish text.
+    //
+    // P5-09, decided 2026-08-29 — KEEP the refund. This is the only refund
+    // whose trigger sits in the model's OUTPUT instead of in infrastructure,
+    // so the reasoning is written down rather than left as a silent remainder:
+    //   * The draft call is paid and the user got nothing. Dropping the refund
+    //     would charge a daily slot for a provider malfunction, and would put
+    //     coach-chat at odds with analyze-meal, which treats exactly this case
+    //     as provider_invalid_json.
+    //   * The branch is not reachable from the WISH text: a wish that steers
+    //     the model away from a dish makes the recipe prompt answer
+    //     {"refuse": ...}, which lands in parseRecipeRefusal above and KEEPS
+    //     the slot. Hitting this branch needs output that neither refuses nor
+    //     parses — pinned in handler_recipe_test.ts (the matrix around "{}").
+    //   * If it did fire in a loop, the cost ceiling is not DAILY_LIMIT but
+    //     the request gates, coach-chat:user 60/h and coach-chat:ip 120/10min
+    //     — which is true of every refund path here, not just this one.
+    // No extra counter: it would add a DB roundtrip and a new limiter scope
+    // for a path no verifier could trigger.
     console.error(`recipe draft unlesbar (${raw.length} Zeichen)`);
     await rpcRefundQuota(serviceKey, supabaseUrl, userId);
     await touchSession(serviceKey, supabaseUrl, sessionId);
@@ -753,6 +794,12 @@ const REFUSAL_TEXTS: Record<string, Record<CoachLocale, string>> = {
     de: "Schoener Versuch. Ich bleibe dein Fitness- und Ernaehrungs-Coach. Was willst du zu Training oder Ernaehrung wissen?",
     en: "Nice try. I'm staying your fitness and nutrition coach. What would you like to know about training or nutrition?",
   },
+  // Layer-3 output net: the model started reciting the system prompt. The de
+  // text is verbatim the pre-localisation state (P5-05).
+  prompt_leak: {
+    de: "Das ist nichts, was ich teilen sollte. Frag mich lieber was zu deinem naechsten Workout oder zu Ernaehrung.",
+    en: "That's not something I should share. Ask me about your next workout or about nutrition instead.",
+  },
   too_long: {
     de: "Deine Nachricht ist zu lang. Bitte fasse dich kuerzer (max. 1000 Zeichen).",
     en: "Your message is too long. Please keep it shorter (max. 1000 characters).",
@@ -793,6 +840,8 @@ function refusalForReason(reason: string, locale: CoachLocale): string {
     case "prompt_injection":
     case "injection":
       return REFUSAL_TEXTS.injection[locale];
+    case "prompt_leak":
+      return REFUSAL_TEXTS.prompt_leak[locale];
     case "too_long":
       return REFUSAL_TEXTS.too_long[locale];
     case "empty":
@@ -1333,10 +1382,14 @@ export async function handleRequest(req: Request): Promise<Response> {
   const message = typeof body?.message === "string" ? body.message.trim() : "";
   const imageBase64Raw = typeof body?.image_base64 === "string" ? body.image_base64.trim() : "";
   const imageBase64 = imageBase64Raw.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "");
-  const imageMimeType = typeof body?.image_mime_type === "string"
+  const hasImage = imageBase64.length > 0;
+  // Only the CLAIM so far. It is overwritten by the measured container at the
+  // magic-byte guard below (P5-07b) — measuring here would run ahead of the
+  // size cap, and decodeBase64Head scans the whole string for MIME line breaks
+  // before it looks at the head.
+  let imageMimeType = typeof body?.image_mime_type === "string"
     ? safeImageMimeType(body.image_mime_type)
     : "image/jpeg";
-  const hasImage = imageBase64.length > 0;
   // mode: "recipe": recipe JSON + image instead of a chat reply; the branch
   // sits after the classifier block.
   const isRecipeMode = body?.mode === "recipe";
@@ -1393,8 +1446,17 @@ export async function handleRequest(req: Request): Promise<Response> {
   // Container magic BEFORE claiming a slot and paying for the first call: the
   // charset guard above only says "looks like base64". Same answer as a
   // charset violation — that client has a protocol problem.
-  if (hasImage && !hasSupportedImageMagic(imageBase64)) {
-    return json({ error: "Invalid image_base64" }, 400);
+  if (hasImage) {
+    const measured = imageMimeFromMagic(imageBase64);
+    if (measured === null) {
+      return json({ error: "Invalid image_base64" }, 400);
+    }
+    // P5-07b: the MEASURED container wins over the client's self-report, the
+    // same rule the generated recipe image already follows. A client shipping
+    // PNG bytes as `image/jpeg` would otherwise build a data: URL that
+    // misdescribes its own payload to the provider. Nothing reads
+    // imageMimeType before this point.
+    imageMimeType = measured;
   }
 
   // ---------------------------------------------------------------- LAYER 1

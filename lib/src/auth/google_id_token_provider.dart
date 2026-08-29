@@ -10,27 +10,67 @@ abstract class GoogleIdTokenProvider {
   Future<String?> getIdToken();
 }
 
+/// Remembers a one-shot initialization — but only a SUCCESSFUL one.
+///
+/// `google_sign_in` allows `initialize()` exactly once per process, so its
+/// future has to be cached. Caching it with `??=` cached FAILURES too: after
+/// one bad moment (Play Services mid-update, a freshly flashed device, a work
+/// profile) every later login re-awaited the same rejected future and dropped
+/// to the web OAuth sheet — the very sheet showing the Supabase domain this
+/// flow exists to avoid — until the app was restarted (P4-04).
+///
+/// Concurrent callers still share ONE run; only a run that threw is forgotten.
+class RetryableInitialization {
+  Future<void>? _laufend;
+
+  /// True while a run is remembered: pending, or finished successfully.
+  @visibleForTesting
+  bool get isRemembered => _laufend != null;
+
+  /// Starts [start] once and awaits the remembered run on every later call.
+  Future<void> run(Future<void> Function() start) async {
+    final laufend = _laufend;
+    if (laufend != null) return laufend;
+    final frisch = start();
+    _laufend = frisch;
+    try {
+      await frisch;
+    } catch (_) {
+      // Drop only OUR run: a newer one started meanwhile must survive.
+      if (identical(_laufend, frisch)) _laufend = null;
+      rethrow;
+    }
+  }
+}
+
 /// Production implementation on google_sign_in v7. The native sheet shows
 /// the consent-screen app name instead of the Supabase domain, which is the
 /// whole point of this flow.
+///
+/// No `nonce` is passed: `initialize()` runs exactly ONCE per process and
+/// `authenticate()` takes none, so any nonce would be a per-process constant
+/// and could not bind a single sign-in — see
+/// docs/superpowers/specs/2026-08-05-google-native-signin-design.md.
 class GoogleSignInIdTokenProvider implements GoogleIdTokenProvider {
   const GoogleSignInIdTokenProvider();
 
-  // initialize() may run only once per process.
-  static Future<void>? _initialization;
+  // initialize() may run only once per process — a FAILED attempt is not a run.
+  static final RetryableInitialization _initialization =
+      RetryableInitialization();
 
   @override
   Future<String?> getIdToken() async {
     final signIn = GoogleSignIn.instance;
-    _initialization ??= signIn.initialize(
-      // iOS needs its own client for the URL-scheme callback; Android runs
-      // through serverClientId, whose audience Supabase knows.
-      clientId: defaultTargetPlatform == TargetPlatform.iOS
-          ? EatovaSupabaseConfig.googleIosClientId
-          : null,
-      serverClientId: EatovaSupabaseConfig.googleWebClientId,
+    await _initialization.run(
+      () => signIn.initialize(
+        // iOS needs its own client for the URL-scheme callback; Android runs
+        // through serverClientId, whose audience Supabase knows.
+        clientId: defaultTargetPlatform == TargetPlatform.iOS
+            ? EatovaSupabaseConfig.googleIosClientId
+            : null,
+        serverClientId: EatovaSupabaseConfig.googleWebClientId,
+      ),
     );
-    await _initialization;
     try {
       final account = await signIn.authenticate();
       return account.authentication.idToken;

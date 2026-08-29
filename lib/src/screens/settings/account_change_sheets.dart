@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -24,6 +26,15 @@ import 'settings_controls.dart';
 // [SecureScreenGuard] wraps both — codes and mail addresses do not belong in
 // the app-switcher thumbnail. The guard is ref-counted, so nesting it under
 // the settings screen guard is free.
+//
+// BOTH SHEETS ARE GUARDED AGAINST AN ACCIDENTAL DISMISS (P4-06): everything
+// these flows achieved lives in the sheet's State, and the codes behind it are
+// SERVER-SIDE spent — GoTrue burns a confirmed code, and only two mails go out
+// per hour. A swipe or a tap beside the sheet (easy to hit while dismissing
+// the keyboard) therefore asks first; see [_fragAbbruch] and
+// [SheetDismissGuard]. `dragHandle: false` is part of that: a pull on
+// Material's own handle pops past `PopScope`, so the sheets draw a
+// [SheetHandle] themselves.
 // ---------------------------------------------------------------------------
 
 /// Opens the password change. Returns `true` only when the password was
@@ -42,6 +53,9 @@ Future<bool> showPasswordChangeSheet(
         email: email,
       ),
     ),
+    // See the file header: the sheet draws its own handle so the drag guard
+    // sees every dismiss.
+    dragHandle: false,
   );
   return erfolg ?? false;
 }
@@ -62,8 +76,133 @@ Future<bool> showEmailChangeSheet(
         currentEmail: currentEmail,
       ),
     ),
+    dragHandle: false,
   );
   return erfolg ?? false;
+}
+
+/// Asks before an unfinished code flow is thrown away (P4-06).
+///
+/// `true` = discard. [codeVerbraucht] switches to the sharper wording of the
+/// email flow, where the FIRST code is already confirmed: GoTrue burns a
+/// confirmed code, so that half cannot be repeated with the mail in the inbox.
+///
+/// `barrierDismissible` stays true — a tap outside means "keep going", and the
+/// dialog's own barrier swallows it, so the sheet below never sees it.
+Future<bool> _fragAbbruch(
+  BuildContext context, {
+  required bool codeVerbraucht,
+}) async {
+  final t = context.t;
+  final l10n = context.l10n;
+  final abbrechen = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      key: const ValueKey<String>('account-change-discard-dialog'),
+      backgroundColor: t.surf,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(rSheet),
+      ),
+      title: Text(
+        l10n.settingsAccountDiscardTitle,
+        style: AppType.display(19, color: t.ink),
+      ),
+      content: Text(
+        codeVerbraucht
+            ? l10n.settingsAccountDiscardBodyConfirmed
+            : l10n.settingsAccountDiscardBody,
+        style: AppType.ui(13, color: t.ink2, height: 1.4),
+      ),
+      actions: <Widget>[
+        TextButton(
+          key: const ValueKey<String>('account-change-discard-keep'),
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: Text(l10n.settingsAccountDiscardKeep),
+        ),
+        TextButton(
+          key: const ValueKey<String>('account-change-discard-confirm'),
+          // Destructive red is the one color the theme may not decide.
+          style: TextButton.styleFrom(foregroundColor: t.danger),
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          child: Text(l10n.settingsAccountDiscardConfirm),
+        ),
+      ],
+    ),
+  );
+  return abbrechen ?? false;
+}
+
+/// The shell both sheets wear: handle, dismiss guard and [PopScope] around the
+/// [SheetScaffold] (P4-06).
+///
+/// [verbraucht] means "the flow already cost something a retry cannot get
+/// back" — a requested or confirmed code. Only then does closing ask.
+class _AbbruchGuard extends StatefulWidget {
+  const _AbbruchGuard({
+    required this.verbraucht,
+    required this.codeVerbraucht,
+    required this.child,
+  });
+
+  final bool verbraucht;
+
+  /// A code that is already CONFIRMED (email flow, step two) — sharper wording.
+  final bool codeVerbraucht;
+
+  final Widget child;
+
+  @override
+  State<_AbbruchGuard> createState() => _AbbruchGuardState();
+}
+
+class _AbbruchGuardState extends State<_AbbruchGuard> {
+  /// Guards every intercepted dismiss (barrier tap and system back via
+  /// [PopScope], drag via [SheetDismissGuard]) so repeated attempts do not
+  /// stack dialogs.
+  bool _dialogOffen = false;
+
+  Future<void> _frage() async {
+    if (_dialogOffen) return;
+    _dialogOffen = true;
+    final abbrechen =
+        await _fragAbbruch(context, codeVerbraucht: widget.codeVerbraucht);
+    _dialogOffen = false;
+    if (!mounted || !abbrechen) return;
+    // No result: an aborted change is not a successful one.
+    Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope<bool>(
+      canPop: !widget.verbraucht,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        unawaited(_frage());
+      },
+      child: SheetDismissGuard(
+        active: widget.verbraucht,
+        onDismissAttempt: _frage,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            // Material's handle also carries the "dismiss" semantics action,
+            // and that goes away with `dragHandle: false` — so the sheet's own
+            // handle has to offer it, routed through `maybePop` and therefore
+            // through the confirmation. Without it a screen-reader user would
+            // have no way out of the sheet at all.
+            Semantics(
+              button: true,
+              label: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+              onTap: () => Navigator.of(context).maybePop(),
+              child: const SheetHandle(),
+            ),
+            Flexible(child: widget.child),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -190,51 +329,57 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
     final adresse = widget.email;
     final ersterSchritt = _schritt == _PasswortSchritt.codeAnfordern;
 
-    return SheetScaffold(
-      title: l10n.settingsChangePasswordTitle,
-      subtitle: ersterSchritt
-          ? (adresse == null
-              ? l10n.settingsPasswordChangeCodeSentDefault
-              : l10n.settingsPasswordChangeCodeSentTo(adresse))
-          : l10n.settingsPasswordChangeStep2Subtitle,
-      actionLabel: _aktionsBeschriftung(l10n, ersterSchritt),
-      actionEnabled: !_busy,
-      onAction: ersterSchritt ? _codeAnfordern : _passwortSetzen,
-      children: <Widget>[
-        if (!ersterSchritt) ...<Widget>[
-          _CodeFeld(
-            fieldKey: const ValueKey<String>('password-change-code'),
-            label: l10n.settingsPasswordChangeCodeFieldLabel,
-            adresse: adresse,
-            controller: _code,
-            enabled: !_busy,
-            errorText: _codeFehler,
-          ),
-          SheetField(
-            key: const ValueKey<String>('password-change-new'),
-            label: l10n.settingsPasswordChangeNewLabel,
-            hint: l10n.settingsPasswordChangeNewHint,
-            obscure: true,
-            controller: _neu,
-            enabled: !_busy,
-            errorText: _neuFehler,
-          ),
-          SheetField(
-            key: const ValueKey<String>('password-change-repeat'),
-            label: l10n.settingsPasswordChangeRepeatLabel,
-            hint: l10n.settingsPasswordChangeRepeatHint,
-            obscure: true,
-            controller: _wiederholung,
-            enabled: !_busy,
-            errorText: _wiederholungFehler,
-          ),
+    return _AbbruchGuard(
+      // From step two on a code is out in the world and the mail quota is
+      // down one; losing that to a stray swipe costs a new mail at best.
+      verbraucht: !ersterSchritt,
+      codeVerbraucht: false,
+      child: SheetScaffold(
+        title: l10n.settingsChangePasswordTitle,
+        subtitle: ersterSchritt
+            ? (adresse == null
+                ? l10n.settingsPasswordChangeCodeSentDefault
+                : l10n.settingsPasswordChangeCodeSentTo(adresse))
+            : l10n.settingsPasswordChangeStep2Subtitle,
+        actionLabel: _aktionsBeschriftung(l10n, ersterSchritt),
+        actionEnabled: !_busy,
+        onAction: ersterSchritt ? _codeAnfordern : _passwortSetzen,
+        children: <Widget>[
+          if (!ersterSchritt) ...<Widget>[
+            _CodeFeld(
+              fieldKey: const ValueKey<String>('password-change-code'),
+              label: l10n.settingsPasswordChangeCodeFieldLabel,
+              adresse: adresse,
+              controller: _code,
+              enabled: !_busy,
+              errorText: _codeFehler,
+            ),
+            SheetField(
+              key: const ValueKey<String>('password-change-new'),
+              label: l10n.settingsPasswordChangeNewLabel,
+              hint: l10n.settingsPasswordChangeNewHint,
+              obscure: true,
+              controller: _neu,
+              enabled: !_busy,
+              errorText: _neuFehler,
+            ),
+            SheetField(
+              key: const ValueKey<String>('password-change-repeat'),
+              label: l10n.settingsPasswordChangeRepeatLabel,
+              hint: l10n.settingsPasswordChangeRepeatHint,
+              obscure: true,
+              controller: _wiederholung,
+              enabled: !_busy,
+              errorText: _wiederholungFehler,
+            ),
+          ],
+          if (_fehler != null)
+            _FehlerNotiz(
+              noteKey: const ValueKey<String>('password-change-error'),
+              text: _fehler!,
+            ),
         ],
-        if (_fehler != null)
-          _FehlerNotiz(
-            noteKey: const ValueKey<String>('password-change-error'),
-            text: _fehler!,
-          ),
-      ],
+      ),
     );
   }
 
@@ -408,53 +553,60 @@ class _EmailChangeSheetState extends State<_EmailChangeSheet> {
     final l10n = context.l10n;
     final ersterSchritt = _schritt == _MailSchritt.adresse;
 
-    return SheetScaffold(
-      title: l10n.settingsChangeEmailTitle,
-      subtitle: ersterSchritt
-          ? l10n.settingsEmailChangeStep1Subtitle(widget.currentEmail)
-          : l10n.settingsEmailChangeStep2Subtitle,
-      actionLabel: _aktionsBeschriftung(l10n, ersterSchritt),
-      actionEnabled: !_busy,
-      onAction: ersterSchritt ? _codesAnfordern : _adresseBestaetigen,
-      children: <Widget>[
-        if (ersterSchritt)
-          SheetField(
-            key: const ValueKey<String>('email-change-new-address'),
-            label: l10n.settingsEmailChangeNewAddressLabel,
-            hint: l10n.settingsEmailChangeNewAddressHint,
-            controller: _adresse,
-            enabled: !_busy,
-            keyboardType: TextInputType.emailAddress,
-            errorText: _adressFehler,
-          )
-        else ...<Widget>[
-          _CodeFeld(
-            fieldKey: const ValueKey<String>('email-change-code-old'),
-            label: l10n.settingsEmailChangeOldCodeLabel,
-            adresse: widget.currentEmail,
-            controller: _codeAlt,
-            // A confirmed code is spent: the field stays visible for
-            // traceability but inert.
-            enabled: !_busy && !_altBestaetigt,
-            errorText: _fehlerAlt,
-            erledigt: _altBestaetigt,
-          ),
-          _CodeFeld(
-            fieldKey: const ValueKey<String>('email-change-code-new'),
-            label: l10n.settingsEmailChangeNewCodeLabel,
-            adresse: _zieladresse,
-            controller: _codeNeu,
-            enabled: !_busy && !_neuBestaetigt,
-            errorText: _fehlerNeu,
-            erledigt: _neuBestaetigt,
-          ),
-          SettingsNote(
-            key: const ValueKey<String>('email-change-both-hint'),
-            l10n.settingsEmailChangeBothCodesHint,
-            boxed: true,
-          ),
+    return _AbbruchGuard(
+      // Step two holds two mailed codes — and possibly one already CONFIRMED
+      // and thereby burned. That is the state the file's own comment on
+      // [_altBestaetigt] warns about; a swipe must not take it.
+      verbraucht: !ersterSchritt,
+      codeVerbraucht: _altBestaetigt || _neuBestaetigt,
+      child: SheetScaffold(
+        title: l10n.settingsChangeEmailTitle,
+        subtitle: ersterSchritt
+            ? l10n.settingsEmailChangeStep1Subtitle(widget.currentEmail)
+            : l10n.settingsEmailChangeStep2Subtitle,
+        actionLabel: _aktionsBeschriftung(l10n, ersterSchritt),
+        actionEnabled: !_busy,
+        onAction: ersterSchritt ? _codesAnfordern : _adresseBestaetigen,
+        children: <Widget>[
+          if (ersterSchritt)
+            SheetField(
+              key: const ValueKey<String>('email-change-new-address'),
+              label: l10n.settingsEmailChangeNewAddressLabel,
+              hint: l10n.settingsEmailChangeNewAddressHint,
+              controller: _adresse,
+              enabled: !_busy,
+              keyboardType: TextInputType.emailAddress,
+              errorText: _adressFehler,
+            )
+          else ...<Widget>[
+            _CodeFeld(
+              fieldKey: const ValueKey<String>('email-change-code-old'),
+              label: l10n.settingsEmailChangeOldCodeLabel,
+              adresse: widget.currentEmail,
+              controller: _codeAlt,
+              // A confirmed code is spent: the field stays visible for
+              // traceability but inert.
+              enabled: !_busy && !_altBestaetigt,
+              errorText: _fehlerAlt,
+              erledigt: _altBestaetigt,
+            ),
+            _CodeFeld(
+              fieldKey: const ValueKey<String>('email-change-code-new'),
+              label: l10n.settingsEmailChangeNewCodeLabel,
+              adresse: _zieladresse,
+              controller: _codeNeu,
+              enabled: !_busy && !_neuBestaetigt,
+              errorText: _fehlerNeu,
+              erledigt: _neuBestaetigt,
+            ),
+            SettingsNote(
+              key: const ValueKey<String>('email-change-both-hint'),
+              l10n.settingsEmailChangeBothCodesHint,
+              boxed: true,
+            ),
+          ],
         ],
-      ],
+      ),
     );
   }
 

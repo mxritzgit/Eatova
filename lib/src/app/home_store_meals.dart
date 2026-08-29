@@ -265,18 +265,34 @@ mixin _HomeStoreMealsPart
       }
     });
     _cacheLoggedMeals();
-    if (recordToday) {
-      unawaited(_rescheduleStreakReminder());
-      // As in the live log and the replay: the day comes from the same source
-      // that goes into the server row (logged_meals.local_day), which is what
-      // the RPC's source proof compares against.
-      _recordTrackingDay(day: DateTime.parse(updated.effectiveLocalDay));
-    }
+    if (recordToday) unawaited(_rescheduleStreakReminder());
+    // As in the live log and the replay: the day comes from the same source
+    // that goes into the server row (logged_meals.local_day), which is what
+    // the RPC's source proof compares against.
+    final trackedDay =
+        recordToday ? DateTime.parse(updated.effectiveLocalDay) : null;
     _syncOrQueue(
       'Mahlzeit-Update',
       () => sync!.meals.updateLoggedMeal(updated),
       () => SyncOp.mealUpsert(updated),
+      // P1-05: record_tracking_day needs a logged_meals row for the day
+      // (EX_DAY_NOT_LOGGED -> P0001), and a move ONTO today is exactly the
+      // case where today may still be empty. Booking before the upsert
+      // therefore burned a delivery attempt every time. Live only after the
+      // PATCH, as in addResultToDailyTotal.
+      onDelivered: trackedDay == null
+          ? null
+          : () => _recordTrackingDay(day: trackedDay),
     );
+    if (trackedDay != null) {
+      // The queued twin for every path the live callback cannot reach:
+      // offline, entity already busy, a request that never answers, a kill in
+      // between. SyncOp.mealUpsert carries no `trackDay` flag (unlike
+      // mealInsert), so the day needs its own op — enqueued AFTER the upsert,
+      // so the FIFO replay writes the row first. Coalesced per day, and a
+      // successful live RPC removes it again (_clearQueuedTrackingDay).
+      _queueTrackingDay(trackedDay);
+    }
   }
 
   /// Short label for the target day of the move confirmation.

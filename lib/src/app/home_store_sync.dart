@@ -40,6 +40,21 @@ const Duration kSignOutDeliveryBudget = Duration(seconds: 25);
 /// closed flag on the cache takes over.
 const Duration kCacheSnapshotWaitBudget = Duration(seconds: 3);
 
+/// How often a failed re-hydration may protect a slot that is present but
+/// unreadable before this session's own writes take it over (P3-02b).
+///
+/// The brake only ever engages for a slot the storage still HOLDS bytes for
+/// AND that [UnreadableCacheSlot.transient] calls merely unreadable RIGHT NOW
+/// (P3-02d) — a provably broken ciphertext is purged on read and never gets
+/// here, and provably broken CONTENT gives up at once, without spending a
+/// single attempt. What is left is transient by nature (isolate spawn, OOM)
+/// and gone within a few attempts; a slot that still will not open after that
+/// is broken in a way this layer cannot name, and blocking every write of the
+/// session forever is the worse loss. Attempts, not wall clock: each one is
+/// triggered by a write, so the count is exactly the number of chances the
+/// slot got.
+const int kOutboxRepairMaxAttempts = 3;
+
 /// The payload of an outbox op is unreadable (Review 2026-08-08, A8).
 ///
 /// [SyncOp.tryFromJson] keeps an op with a non-Map payload and substitutes
@@ -82,16 +97,23 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// Gap F: reading the outbox slot THREW (as opposed to: the slot was empty).
   /// While this holds, the in-memory state is not a valid version of the
   /// persisted blob and must not overwrite it — [_persistOutbox] retries
-  /// hydration once instead.
+  /// hydration instead (up to [kOutboxRepairMaxAttempts] times while the slot
+  /// is still occupied, P3-02b).
   bool _outboxHydrationFailed = false;
   bool _outboxRepairInFlight = false;
+
+  /// Failed re-hydration attempts on an outbox slot that is still OCCUPIED
+  /// (P3-02b). Bounded by [kOutboxRepairMaxAttempts]; reset on a read that
+  /// worked.
+  int _outboxRepairAttempts = 0;
 
   /// Same for the deltas slot (W7b). [_persistPendingStatsDeltas] always
   /// rewrites the slot wholesale, so a swallowed read error would restart it
   /// at 0 and leave the lifetime counters too low. Same mechanism as above
-  /// (flag + one-shot re-hydration).
+  /// (flag + bounded re-hydration).
   bool _statsHydrationFailed = false;
   bool _statsRepairInFlight = false;
+  int _statsRepairAttempts = 0;
 
   /// The subtle queue hint (offline OR "will retry") is shown ONCE per error
   /// episode, reset on the next sync success. Which of the two texts appears
@@ -155,6 +177,21 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
 
   /// Not yet synced write operations (view for tests/debug).
   List<SyncOp> get pendingOutbox => List.unmodifiable(_outbox);
+
+  /// Whether a retry alarm is armed (view for tests/debug). Undelivered ops
+  /// WITHOUT an armed timer is the state P1-02 produced: nothing touches them
+  /// again until the next lifecycle event.
+  bool get debugOutboxRetryTimerIsActive =>
+      _outboxRetryTimer?.isActive ?? false;
+
+  /// Current backoff stage (view for tests/debug): 0 = 30 s, 3 = the 4 min cap.
+  /// P1-02b hangs on it — a pass that only skipped in-flight ops must not put
+  /// it back to 0.
+  int get debugOutboxRetryStage => _outboxRetryAttempt;
+
+  /// Entities currently marked as orphaned (view for tests/debug). P1-01b: the
+  /// mark must survive a LIVE success, only a replay success may clear it.
+  Set<String> get debugOrphanedEntities => Set.unmodifiable(_orphanedEntities);
 
   /// Cross-reference to the tracking part (implemented in
   /// [_HomeStoreTrackingPart]): outbox replay books the streak day of a
@@ -244,6 +281,16 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     _inFlightOps[op.entityKey] = op;
     final zustellung = action().then<SyncDelivery>((_) {
       _inFlightOps.remove(op.entityKey);
+      // P1-01b: the orphan mark is deliberately NOT cleared here. A live PATCH
+      // hitting 0 rows answers 204, so this success path cannot tell "row
+      // written" from "row missing" — and the mark can be set WHILE the write
+      // flies: `_enqueueOp` runs the queue cap synchronously before `action()`,
+      // and the repair it starts (`_persistOutbox` -> `_repairOutboxHydration`)
+      // caps the merged queue during the flight. Clearing here dropped a mark
+      // that was still needed, and the next correction went out as a 0-row
+      // PATCH again — silent data loss. Only the replay success path clears it
+      // (there the write is a full upsert, so the success is real); the price
+      // is one queue detour for the next write to that entity.
       _dequeueDeliveredOp(op);
       onDelivered?.call();
       _onSyncSuccess();
@@ -263,9 +310,15 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   }
 
   /// Sync write failed: hint subtly, schedule a retry. No rollback, no red
-  /// toast. The op already sits in the persisted queue (gap B) and simply stays
-  /// there; re-queueing is deliberately avoided because it may legitimately be
-  /// gone by now (coalesced, capped, delivered by replay).
+  /// toast. The op NORMALLY still sits in the persisted queue (gap B) and
+  /// simply stays there; re-queueing is deliberately avoided because it may
+  /// legitimately be gone by now (coalesced, capped, delivered by replay).
+  ///
+  /// "Capped" is not theory: [_enqueueOp] runs the cap right after inserting,
+  /// and in a queue of pure deletes the fresh write op is the FIRST thing it
+  /// sheds (deletes fall last). Its net is A6: the cap marks the entity as
+  /// orphaned ([_markDroppedAsOrphaned]), so the next write to it takes the
+  /// outbox as a full upsert instead of a 0-row PATCH.
   void _handleSyncFailure(
     String operation,
     Object error,
@@ -338,6 +391,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         CrashReporter.breadcrumb(
             'outbox-cap: ${capped.dropped.length} ops dropped');
         _outbox = capped.queue;
+        // A6, exactly as in the replay drop path: a capped op is lost for
+        // good, so its entity may exist only locally from here on.
+        _markDroppedAsOrphaned(capped.dropped);
         // The cap trims deletes last, but it does trim them (hard limit, see
         // capOutbox) — then the replay path applies: restore entries, report
         // both loss kinds separately.
@@ -364,6 +420,29 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       icon: offline ? Icons.cloud_off_rounded : Icons.sync_problem_rounded,
       tone: SnackTone.neutral,
     );
+  }
+
+  /// Marks the entities of ops dropped FOR GOOD as potentially orphaned (A6).
+  ///
+  /// The single place that fills [_orphanedEntities], for all three drop paths
+  /// (replay verdict, queue cap in [_enqueueOp], cap of the merged queue in
+  /// [_repairOutboxHydration]). Without the mark the next write to such an
+  /// entity runs LIVE as a PATCH, and a PATCH hitting 0 rows is a 204: the
+  /// repair reports success and repairs nothing.
+  ///
+  /// Content ops only: nobody writes to a `stats:` key again, and its loss is
+  /// a counter, not an entry.
+  ///
+  /// NOT used by the boot hydration cap (home_store.dart): the server load
+  /// right after it replaces the meal list, so there is nothing left to repair
+  /// — and a mark from there would cut a healthy entity off from the live path
+  /// for the rest of the session.
+  void _markDroppedAsOrphaned(Iterable<SyncOp> dropped) {
+    for (final op in dropped) {
+      if (op.kind != SyncOpKind.statsIncrement) {
+        _orphanedEntities.add(op.entityKey);
+      }
+    }
   }
 
   /// Reports the losses of ONE cap event, split by kind. A single
@@ -591,6 +670,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     final blocked = <String>{};
     var anySuccess = false;
     var droppedWrites = false;
+    // P1-02b: an op was skipped ONLY because its live write is still running.
+    var uebersprungenImFlug = false;
     final droppedDeletes = <SyncOp>[];
     try {
       var i = 0;
@@ -598,11 +679,16 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         final op = _outbox[i];
         // If a live write is running for the entity, the op belongs to it
         // (gap B) — replaying it too would write the same row twice and a
-        // mealInsert would count the meal twice. Its outcome triggers the next
-        // pass itself; no `blocked` entry, else a silent request would keep the
-        // backoff timer alive forever.
-        if (blocked.contains(op.entityKey) ||
-            _inFlightOps.containsKey(op.entityKey)) {
+        // mealInsert would count the meal twice. No `blocked` entry: nothing
+        // FAILED here, so a hanging request must not climb the backoff ladder.
+        // That the op stays undelivered is handled at the end of the pass,
+        // which arms an alarm for any non-empty queue (P1-02) — the running
+        // write does NOT reliably trigger the next pass itself: on success
+        // `_onSyncSuccess` sees `_outboxReplayInFlight` and starts none.
+        final istBlockiert = blocked.contains(op.entityKey);
+        final imFlug = _inFlightOps.containsKey(op.entityKey);
+        if (istBlockiert || imFlug) {
+          if (imFlug && !istBlockiert) uebersprungenImFlug = true;
           i++;
           continue;
         }
@@ -633,11 +719,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
             }
             // A6: the entity is now potentially orphaned (present locally, not
             // server-side), so future writes must go through the outbox, where
-            // they arrive as a full upsert. Content ops only: nobody writes to
-            // 'stats:<uuid>' again, and its loss is a counter, not an entry.
-            if (op.kind != SyncOpKind.statsIncrement) {
-              _orphanedEntities.add(op.entityKey);
-            }
+            // they arrive as a full upsert.
+            _markDroppedAsOrphaned(<SyncOp>[op]);
             if (at >= 0) {
               _outbox = [..._outbox]..removeAt(at);
               _persistOutbox();
@@ -713,14 +796,34 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     // Both messages if both happened — they describe two different losses.
     if (droppedWrites) _notifyOutboxLoss();
     if (droppedDeletes.isNotEmpty) _notifyOutboxLoss(deletesLost: true);
+    // P1-02b: a pass that delivered NOTHING and skipped ops only for a running
+    // live write made no progress. PostgREST carries no timeout (gap B), so a
+    // HANGING request keeps its entity in `_inFlightOps` forever — resetting
+    // the ladder here re-armed the alarm at 30 s on every pass, endlessly,
+    // instead of climbing to the 4 min cap. Such a pass therefore counts as
+    // blocked for the ladder. The healthy case is untouched: a pass that
+    // delivered something resets as before, and so does the running write's
+    // own success (`_onSyncSuccess`).
+    final leerlauf = !anySuccess && uebersprungenImFlug;
     // An empty queue is "done" even if ops WERE blocked: they were all dropped,
     // so a backoff timer would have nothing left to do.
-    if (blocked.isEmpty || _outbox.isEmpty) {
+    if ((blocked.isEmpty && !leerlauf) || _outbox.isEmpty) {
       _outboxRetryAttempt = 0;
-      // Only the outbox is done; open stats deltas keep their timer.
-      if (_pendingMealsDelta == 0 && _pendingWeightLogsDelta == 0) {
-        _outboxRetryTimer?.cancel();
-        _outboxRetryTimer = null;
+      // P1-02: ops SKIPPED for a running live write leave `blocked` empty but
+      // stay undelivered, and so does anything a parallel path queued during
+      // the pass. Only an actually empty queue may disarm the alarm — else the
+      // pass cancels the timer a parallel write just armed and nothing touches
+      // the op again until the next lifecycle event.
+      if (_outbox.isEmpty) {
+        // Only the outbox is done; open stats deltas keep their timer.
+        if (_pendingMealsDelta == 0 && _pendingWeightLogsDelta == 0) {
+          _outboxRetryTimer?.cancel();
+          _outboxRetryTimer = null;
+        }
+      } else {
+        // Nothing FAILED here, so the ladder stays at stage 0 (reset above):
+        // the wake-up comes in 30 s.
+        _scheduleOutboxRetry();
       }
       if (anySuccess) {
         _syncHintShown = false;
@@ -728,9 +831,10 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         _outboxDeleteLossNotified = false;
       }
     } else {
-      // A timer pass ended with ops still blocked: climb one stage, then arm
-      // at it. Any other pass (resume flush, boot) only arms if idle. Ladder
-      // from the first live failure: 30 s, 60 s, 120 s, 240 s (F1-03).
+      // A timer pass ended with ops still blocked — or idle behind a hanging
+      // live write (P1-02b): climb one stage, then arm at it. Any other pass
+      // (resume flush, boot) only arms if idle. Ladder from the first live
+      // failure: 30 s, 60 s, 120 s, 240 s (F1-03).
       if (vomTimer) _bumpRetryStage();
       _scheduleOutboxRetry();
     }
@@ -1060,6 +1164,16 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     // a wrongly kept empty slot costs nothing, a wrongly cleared one costs up
     // to 500 unacknowledged writes (A2).
     await _clearCache(preserveOutbox: remaining > 0 || !_syncStateHydrated);
+    // P1-03: everything above may take up to 2 x kSignOutDeliveryBudget plus
+    // kCacheSnapshotWaitBudget — longer than IntentionalSignOut.gueltigkeit.
+    // The intent was declared BEFORE this call, so its window has to start
+    // where the waiting ENDS; `signOut` and its auth event follow from here.
+    // Refresh, not mark: a cleanup without a declared intent stays without one
+    // (an involuntary session end must keep its message).
+    //
+    // Stays the LAST statement: anything appended below would wait outside the
+    // refreshed window again.
+    IntentionalSignOut.refresh();
   }
 
   void _logSignOutDeadline() {
@@ -1161,8 +1275,14 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// loaded older days stay in memory: they would inflate the SharedPreferences
   /// blob without bound and are reloaded from the server anyway. Pending WRITES
   /// for older days stay kill-safe in the persisted outbox.
+  ///
+  /// P1-06b: `clock.now()`, the same clock as `_isOutsideBootWindow` and
+  /// `MealsSync.loadLoggedMeals`. On `DateTime.now()` this third window drifted
+  /// against the other two, and a row the store loaded and counts as "inside"
+  /// fell out of the durable cache on the write-through.
   List<LoggedMeal> _cacheableLoggedMeals() {
-    final cutoff = DateTime.now()
+    final cutoff = clock
+        .now()
         .subtract(const Duration(days: MealsSync.loggedMealsWindowDays));
     return loggedMeals
         .where((m) => !m.loggedAt.isBefore(cutoff))
@@ -1221,32 +1341,71 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   ///  * it SUCCEEDS -> the first error was transient. The read ops are the
   ///    older ones and go before this session's; the normal path then writes
   ///    the merged queue.
-  ///  * it fails again -> the blob is unreadable and hence undeliverable. It is
-  ///    already lost, and keeping it would drag THIS session's writes down too.
+  ///  * it throws [UnreadableCacheSlot] with `transient` -> the storage still
+  ///    HOLDS bytes for the slot and the read failed at EXECUTING the
+  ///    decryption (P3-02b); a provably broken ciphertext is purged by the
+  ///    decorator on read and comes back as plain `null`, without a throw. Not
+  ///    readable is not the same as not there, so the brake stays on and
+  ///    nothing is written; the next write retries the read. Bounded by
+  ///    [kOutboxRepairMaxAttempts], or a slot that never opens would leave the
+  ///    whole session without durability.
+  ///  * it throws [UnreadableCacheSlot] with `transient: false` -> the bytes
+  ///    handed themselves over and the reader still could not use them
+  ///    (P3-02d). Every further read produces the same bytes and the same
+  ///    failure, so protecting the slot can never gain anything and costs this
+  ///    session up to [kOutboxRepairMaxAttempts] unpersisted writes. Give up
+  ///    at once instead.
+  ///  * it fails otherwise, or the bound is spent -> the blob is unreadable and
+  ///    hence undeliverable. It is already lost, and keeping it would drag THIS
+  ///    session's writes down too.
   ///
   /// Uses the THROWING read variant (W7b): with the tolerant
   /// [LocalCache.readOutbox] a broken blob would arrive as `null`,
   /// indistinguishable from "slot empty", and the second failure would go
   /// unreported.
   ///
-  /// Runs at most once concurrently; afterwards [_outboxHydrationFailed] is
-  /// false either way.
+  /// Runs at most once concurrently.
   Future<void> _repairOutboxHydration() async {
     if (_outboxRepairInFlight) return;
     _outboxRepairInFlight = true;
     List<SyncOp>? blob;
+    // P3-02b: keep the write brake because the slot is occupied, not empty.
+    var slotGeschuetzt = false;
     try {
       blob = await _cache?.readOutboxOrThrow();
+      _outboxRepairAttempts = 0;
     } catch (e, st) {
-      dev.log('Outbox-Nachhydration fehlgeschlagen — der persistierte Blob '
-          'ist unlesbar und damit ohnehin unzustellbar',
+      _outboxRepairAttempts++;
+      // P3-02d: the TYPE alone is not the verdict — `transient` is. Bytes that
+      // handed themselves over and still could not be parsed are a statement
+      // about the CONTENT, and it is permanent: every further attempt reads
+      // the same bytes and fails the same way, while the brake keeps this
+      // session's own writes off disk. Only "unreadable right now" earns
+      // protection.
+      slotGeschuetzt = e is UnreadableCacheSlot &&
+          e.transient &&
+          _outboxRepairAttempts < kOutboxRepairMaxAttempts;
+      dev.log(
+          slotGeschuetzt
+              ? 'Outbox-Nachhydration fehlgeschlagen — der Slot ist noch '
+                  'belegt, der Blob bleibt geschuetzt'
+              : 'Outbox-Nachhydration endgueltig fehlgeschlagen — der '
+                  'persistierte Blob ist unlesbar und damit ohnehin '
+                  'unzustellbar',
           error: e, stackTrace: st, name: 'eatova_sync');
       unawaited(CrashReporter.capture(e, st, context: 'outbox-rehydrate'));
     } finally {
       _outboxRepairInFlight = false;
-      _outboxHydrationFailed = false;
+      _outboxHydrationFailed = slotGeschuetzt;
     }
     if (_disposed) return;
+    if (slotGeschuetzt) {
+      // Deliberately no [_persistOutbox]: this session's queue would overwrite
+      // a blob that is merely unreadable RIGHT NOW. The ops stay in memory and
+      // keep replaying; the alarm makes sure they are not forgotten.
+      _scheduleOutboxRetry();
+      return;
+    }
     if (blob != null && blob.isNotEmpty) {
       CrashReporter.breadcrumb('outbox-rehydrate: ${blob.length} ops restored');
       // Layer this session's ops onto the re-read ones with the regular enqueue
@@ -1261,7 +1420,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       if (capped.dropped.isNotEmpty) {
         // As with the regular cap in [_enqueueOp] — unlike the cap during
         // hydration, where the following boot load cleans up; here boot is long
-        // done.
+        // done. That is also why the orphan mark belongs here: nothing follows
+        // that would repair the entity by itself.
+        _markDroppedAsOrphaned(capped.dropped);
         final lostDeletes = capped.dropped.where((o) => o.isDelete).toList();
         if (lostDeletes.isNotEmpty) {
           unawaited(_restoreDroppedDeletes(lostDeletes));
@@ -1301,25 +1462,49 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// Also via the throwing read variant, else a broken slot would arrive as
   /// "empty" and the failure would stay invisible.
   ///
-  /// Runs at most once concurrently; afterwards [_statsHydrationFailed] is
-  /// false either way.
+  /// P3-02b applies here too: a TRANSIENT [UnreadableCacheSlot] means the slot
+  /// still holds bytes, so the numbers are not lost — only unreadable right
+  /// now. The brake stays on for [kOutboxRepairMaxAttempts] attempts before
+  /// the session's own bundle takes the slot over. P3-02d: a slot whose
+  /// CONTENT is provably broken (`transient: false`) skips the brake
+  /// altogether — no later read can turn those bytes into numbers.
+  ///
+  /// Runs at most once concurrently.
   Future<void> _repairStatsHydration() async {
     if (_statsRepairInFlight) return;
     _statsRepairInFlight = true;
     ({int meals, int weightLogs, String? requestId})? blob;
+    var slotGeschuetzt = false;
     try {
       blob = await _cache?.readPendingStatsDeltasOrThrow();
+      _statsRepairAttempts = 0;
     } catch (e, st) {
-      dev.log('Deltas-Nachhydration fehlgeschlagen — der persistierte Slot '
-          'ist unlesbar und damit ohnehin nicht mehr verbuchbar',
+      _statsRepairAttempts++;
+      // Same verdict as in [_repairOutboxHydration] (P3-02d): provably broken
+      // content is not worth a single protected attempt.
+      slotGeschuetzt = e is UnreadableCacheSlot &&
+          e.transient &&
+          _statsRepairAttempts < kOutboxRepairMaxAttempts;
+      dev.log(
+          slotGeschuetzt
+              ? 'Deltas-Nachhydration fehlgeschlagen — der Slot ist noch '
+                  'belegt, die Zahlen bleiben geschuetzt'
+              : 'Deltas-Nachhydration endgueltig fehlgeschlagen — der '
+                  'persistierte Slot ist unlesbar und damit ohnehin nicht '
+                  'mehr verbuchbar',
           error: e, stackTrace: st, name: 'eatova_sync');
       unawaited(
           CrashReporter.capture(e, st, context: 'pending-stats-rehydrate'));
     } finally {
       _statsRepairInFlight = false;
-      _statsHydrationFailed = false;
+      _statsHydrationFailed = slotGeschuetzt;
     }
     if (_disposed) return;
+    if (slotGeschuetzt) {
+      // No write: the persisted numbers are still there, just unreadable.
+      _scheduleOutboxRetry();
+      return;
+    }
     if (blob != null && (blob.meals != 0 || blob.weightLogs != 0)) {
       // The fact only, no numbers: the slot holds meal and weight counters and
       // this text goes into reporting.
@@ -1350,6 +1535,20 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// have to rebuild kill safety, FIFO, coalescing, cap, budget, backoff, loss
   /// reporting and logout survival. The day replays idempotently, so it belongs
   /// in the existing queue.
+  ///
+  /// The [_scheduleOutboxRetry] is load-bearing, not habit (P1-05b). Two paths
+  /// reach here with NO other alarm armed:
+  ///  * the eager twin in `_applyLoggedMealDetails`, when the meal PATCH HANGS
+  ///    (PostgREST carries no timeout). `_syncOrQueue` stays deliberately
+  ///    silent while only a live write is running, and `_handleSyncFailure`
+  ///    never fires on a request that neither answers nor throws — without the
+  ///    timer the queued day would sit until the next boot.
+  ///  * the `catchError` in [_recordTrackingDay], when the meal write SUCCEEDED
+  ///    and only the RPC failed: nothing on that path arms one either.
+  /// Price on the fully live path: ONE timer per move onto today. It fires
+  /// 30 s later, finds an empty queue and no open deltas, and returns without
+  /// a request — cheap enough not to be worth a second mechanism that would
+  /// have to guess in advance whether the live path will answer.
   void _queueTrackingDay(DateTime day) {
     if (sync == null || _disposed) return;
     _enqueueOp(SyncOp.trackingDay(localDayKey(day)));

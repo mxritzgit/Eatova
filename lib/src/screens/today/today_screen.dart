@@ -230,9 +230,18 @@ class _Kopfzeile extends StatelessWidget {
                 style: AppType.eyebrow(t.ink2, size: 10.5),
               ),
               const SizedBox(height: 3),
-              Text(
-                greeting,
-                style: AppType.display(30, color: t.ink, height: 1.1),
+              // The tab's only rank-1 mark (P9-06c); the two SectionHeadings
+              // below are rank 2. The annotation sits on the greeting alone:
+              // this row is the first child of a ListView, whose
+              // IndexedSemantics merges compatible siblings into ONE node —
+              // without a node of its own the mark would read the eyebrow
+              // ("SUNDAY, 9 AUGUST 2026") and the profile tile too.
+              HeadingSemantics(
+                level: 1,
+                child: Text(
+                  greeting,
+                  style: AppType.display(30, color: t.ink, height: 1.1),
+                ),
               ),
             ],
           ),

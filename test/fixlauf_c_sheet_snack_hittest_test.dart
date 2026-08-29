@@ -122,6 +122,61 @@ void main() {
     await tester.tap(undo);
     await tester.pumpAndSettle();
     expect(_storeOf(tester).loggedMeals.length, 1);
+
+    // P8-01/P8-08: the store alone is not the proof. The undo must reach the
+    // OPEN sheet, or the user sees a dead "Rückgängig", books the meal again
+    // and has it twice in the diary.
+    expect(
+      find.byKey(const ValueKey('analyse-existing-meals')),
+      findsOneWidget,
+      reason: 'die „Bereits hinzugefügt"-Karte kommt nicht zurück',
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('analyse-existing-total-kcal')),
+        matching: find.text('252 kcal'),
+        matchRoot: true,
+      ),
+      findsOneWidget,
+      reason: 'die Slot-Summe bleibt nach dem Rückgängig zu niedrig',
+    );
+  });
+
+  testWidgetsRobust(
+      'Favorit löschen im Add-Sheet: Rückgängig stellt die Kachel wieder her',
+      (WidgetTester tester) async {
+    await _bootSheet(tester);
+    await _logSalami(tester);
+    await _toastAblaufen(tester);
+
+    // Logging created an auto-recent in the store; the open sheet follows it.
+    // Clearing the search term switches the zone back from hits to favorites.
+    await tester.enterText(
+      find.byKey(const ValueKey('kcal-product-search-input')),
+      '',
+    );
+    await tester.pumpAndSettle();
+    final kachel = find.byKey(const ValueKey('favorite-tile-0'));
+    await tester.ensureVisible(kachel);
+    expect(kachel, findsOneWidget);
+
+    final x = find.descendant(of: kachel, matching: find.byTooltip('Entfernen'));
+    await tester.tap(x);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byKey(const ValueKey('favorite-tile-0')), findsNothing);
+
+    final undo = find.text('Rückgängig');
+    expect(undo.hitTestable(), findsOneWidget);
+    await tester.tap(undo);
+    await tester.pumpAndSettle();
+
+    expect(_storeOf(tester).favorites, hasLength(1));
+    expect(
+      find.byKey(const ValueKey('favorite-tile-0')),
+      findsOneWidget,
+      reason: 'P8-05: das Rückgängig erreicht die Favoritenliste des Sheets nicht',
+    );
   });
 
   testWidgetsRobust('Entpinnen im Favoriten-Sheet: Toast ist antippbar', (

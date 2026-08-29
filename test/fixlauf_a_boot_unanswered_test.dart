@@ -251,6 +251,43 @@ void main() {
           reason: 'Bestandsnutzer: onboarding_completed=true');
       expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
     });
+
+    testWidgets('der Verbindungs-Screen traegt seinen Titel als Sprungmarke '
+        'der Ebene 1 (P9-06b)', (tester) async {
+      // The title used to carry a hand-written `Semantics(header: true)` with
+      // no rank, so "headings" navigation found it but could not tell a
+      // screen title from a section.
+      final server = FixlaufServer()
+        ..profileRow = serverProfileRow(completedProfile)
+        ..offline = true;
+      final handle = tester.ensureSemantics();
+      await _pumpHome(tester, server: server);
+      await tester.pump(kBootNetworkBudget + const Duration(seconds: 1));
+      await _drain(tester, rounds: 40);
+
+      expect(find.byKey(const ValueKey('screen-boot-unanswered')),
+          findsOneWidget, reason: 'Vorbedingung');
+      // Read first, so a red expectation does not also leak the handle.
+      final titel =
+          tester.getSemantics(find.text(deL10n.commonBootUnansweredTitle));
+      final retry =
+          tester.getSemantics(find.byKey(const ValueKey('boot-unanswered-retry')));
+      handle.dispose();
+
+      expect(
+        titel,
+        isSemantics(label: deL10n.commonBootUnansweredTitle, isHeader: true),
+      );
+      expect(titel.headingLevel, 1,
+          reason: 'Bildschirmtitel = Ebene 1; ohne Rang bleibt die Marke auf '
+              'Android und im Web rangfrei');
+      // Gegenprobe: der Retry-Knopf bleibt eine eigene, tippbare Marke-freie
+      // Schaltflaeche.
+      expect(
+        retry,
+        isSemantics(isButton: true, hasTapAction: true, isHeader: false),
+      );
+    });
   });
 }
 

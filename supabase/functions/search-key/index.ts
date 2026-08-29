@@ -15,7 +15,7 @@
 
 import { authFailGate } from '../_shared/auth_fail_gate.ts';
 import { clientIpSubject } from '../_shared/client_ip.ts';
-import { positiveIntFromEnv } from '../_shared/env.ts';
+import { EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS, positiveIntFromEnv } from '../_shared/env.ts';
 import { pruneRateLimits } from '../_shared/rate_limit_prune.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
@@ -77,12 +77,25 @@ const ALLOWED_ORIGINS = (Deno.env.get('EATOVA_ALLOWED_ORIGINS') ?? '')
 // can use the endpoint as a key oracle. `positiveIntFromEnv` instead of bare
 // `Number(...)`: a typo in the secret became NaN -> JSON `null` -> SQL guard
 // throws -> every request `rate_limit_unavailable`.
+//
+// P6-03: WINDOWS pass EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS explicitly. The
+// default cap is the LIMIT bound (10000), so a window beyond ~2.8 h — a day
+// window, say — silently fell back to the code default. Limits keep the
+// default cap, which is their own RPC bound.
 const IP_LIMIT = positiveIntFromEnv('SEARCH_KEY_IP_LIMIT', 120);
-const IP_WINDOW_SECONDS = positiveIntFromEnv('SEARCH_KEY_IP_WINDOW_SECONDS', 600);
+const IP_WINDOW_SECONDS = positiveIntFromEnv(
+  'SEARCH_KEY_IP_WINDOW_SECONDS',
+  600,
+  EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS,
+);
 // 20/h/user: a healthy client fetches the key ~2x daily (TTL 12 h) plus once
 // per rotation. Anything above that is a loop.
 const USER_LIMIT = positiveIntFromEnv('SEARCH_KEY_USER_LIMIT', 20);
-const USER_WINDOW_SECONDS = positiveIntFromEnv('SEARCH_KEY_USER_WINDOW_SECONDS', 3600);
+const USER_WINDOW_SECONDS = positiveIntFromEnv(
+  'SEARCH_KEY_USER_WINDOW_SECONDS',
+  3600,
+  EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS,
+);
 
 type AuthUser = { id: string; email?: string };
 type RateLimitResult = {

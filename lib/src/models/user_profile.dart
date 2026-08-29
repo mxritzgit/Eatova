@@ -1,6 +1,7 @@
 import 'package:intl/intl.dart';
 
 import '../l10n/l10n.dart';
+import 'model_limits.dart';
 
 enum BiologicalSex { male, female, neutral }
 
@@ -176,6 +177,103 @@ extension WeightGoalInfo on WeightGoal {
     final sign = kcalDelta > 0 ? '+' : '−';
     return '$sign${kcalDelta.abs()} kcal';
   }
+}
+
+// ---------------------------------------------------------------------------
+// Target weight vs. weight goal — ONE rule, three callers
+// ---------------------------------------------------------------------------
+//
+// Losing aims BELOW today's weight, gaining ABOVE it; equal weights are no
+// direction at all. The rule used to exist twice — as a picker window in the
+// onboarding (`_targetMin`/`_targetMax`) and as a field check on the goals page
+// (`_targetWeightError`) — with identical thresholds and no link between them
+// (P9-08b). It lives here now; the screens only phrase it.
+//
+// [WeightGoal.maintain] is deliberately unbounded: it has no direction, so no
+// target weight can contradict it.
+
+/// Lowest target weight that still means [goal] at [weightKg].
+///
+/// May end up ABOVE [targetWeightMaxFor] at the extremes (gaining at 300 kg):
+/// the DB column ends there, so no consistent target is left. Callers must
+/// survive an inverted window rather than clamp into it — the onboarding picker
+/// does, see `_safeClamp`.
+int targetWeightMinFor(WeightGoal goal, int weightKg) =>
+    goal.isGain ? weightKg + 1 : ProfileLimits.targetWeightKgMin;
+
+/// Highest target weight that still means [goal] at [weightKg].
+int targetWeightMaxFor(WeightGoal goal, int weightKg) =>
+    goal.isLoss ? weightKg - 1 : ProfileLimits.targetWeightKgMax;
+
+/// `true` while [targetWeightKg] agrees with the direction of [goal].
+///
+/// Rejected, never bent into shape (see model_limits.dart): clamping 90 down
+/// to 79 would write a target nobody chose.
+bool isConsistentTargetWeight(
+  WeightGoal goal,
+  int weightKg,
+  int targetWeightKg,
+) =>
+    targetWeightKg >= targetWeightMinFor(goal, weightKg) &&
+    targetWeightKg <= targetWeightMaxFor(goal, weightKg);
+
+/// The SAME state read from the other side: a directional goal whose target
+/// lies on the wrong side of today's weight has nothing left to do — the user
+/// is at or past it (P9-08e).
+///
+/// This is the frequent case, not the error case: reaching the target is what
+/// a weight app is for. Treating it as a field error locked the whole goals
+/// page (step goal and reminders included) the moment someone typed the weight
+/// they had worked for.
+bool hasReachedTargetWeight(
+  WeightGoal goal,
+  int weightKg,
+  int targetWeightKg,
+) =>
+    goal != WeightGoal.maintain &&
+    !isConsistentTargetWeight(goal, weightKg, targetWeightKg);
+
+extension UserProfileWeightPlan on UserProfile {
+  /// `true` once the current weight has reached or passed the target.
+  bool get reachedTargetWeight =>
+      hasReachedTargetWeight(weightGoal, weightKg, targetWeightKg);
+
+  /// The goal the plan can still act on: [WeightGoal.maintain] once the target
+  /// is reached, the stored goal otherwise.
+  ///
+  /// A deficit toward a target already undercut is not a plan, it is a leftover
+  /// — and it is exactly what made the plan card claim "80 → 90" and the coach
+  /// prompt carry a deficit next to a higher target weight (P9-08d).
+  ///
+  /// **Derived, never written back.** [weightGoal] keeps what its name says:
+  /// the user's INTENT. Everything that shows or computes a PLAN reads this
+  /// instead — `KcalCalculator.calculate` (and through it `applyLiveGoals` at
+  /// the load boundary), the coach context and the plan card. Two consequences,
+  /// both wanted:
+  ///
+  ///  * P9-08d closes for every stored row **without a save**: a profile that
+  ///    has carried the contradiction since before the rule existed gets the
+  ///    holding plan the moment it is read, not the next time someone happens
+  ///    to open the goals page.
+  ///  * The way out stays open. The goals page promises "for a new goal, enter
+  ///    a lower target weight" — that only works while the stored direction
+  ///    survives. An earlier `withEffectiveWeightGoal` overwrote it on save, so
+  ///    opening the page and pressing save silently turned `lose05kg` into
+  ///    `maintain` and the promised way out stopped working.
+  WeightGoal get effectiveWeightGoal =>
+      reachedTargetWeight ? WeightGoal.maintain : weightGoal;
+
+  /// Direction the two weights themselves describe, `null` when they are equal
+  /// and only the goal knows.
+  ///
+  /// Reads the direction off the two numbers a card DRAWS, so an arrow can
+  /// never point away from the pair below it (P9-08c). With
+  /// [effectiveWeightGoal] the two agree by construction — a directional
+  /// effective goal implies a consistent target — which is exactly why the
+  /// plan card may keep drawing straight from the numbers.
+  bool? get targetPointsUp => targetWeightKg == weightKg
+      ? null
+      : targetWeightKg > weightKg;
 }
 
 /// Label for an **actual** weekly rate (signed, negative = losing),

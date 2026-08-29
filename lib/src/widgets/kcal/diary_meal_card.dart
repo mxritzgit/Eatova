@@ -73,7 +73,22 @@ class DiaryMealCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           Padding(
-            padding: const EdgeInsets.fromLTRB(15, 14, 15, 14),
+            // The plus button wears 6 pt of transparent tap margin around its
+            // 32 pt chip. The header gives those 6 pt back on the right (and
+            // the gap before it gives back the same 6), so chip, text column
+            // and avatar keep the pixel positions they had at 15/8. Without a
+            // plus button there is no margin to compensate.
+            //
+            // Vertically the target is not free: a card WITHOUT entries has a
+            // 40 pt header row at text scale 1.0 and grows to the button's 44.
+            // Every card with entries, and every scale from 1.3 up, is taller
+            // than that anyway and does not move.
+            padding: EdgeInsets.fromLTRB(
+              15,
+              14,
+              onAddToSlot == null ? 15 : 15 - _addTapBleed,
+              14,
+            ),
             child: Row(
               children: <Widget>[
                 MealAvatar(letter: slot.initial(l10n), color: color, size: 36),
@@ -120,7 +135,7 @@ class DiaryMealCard extends StatelessWidget {
                   ),
                 ),
                 if (onAddToSlot != null) ...<Widget>[
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 8 - _addTapBleed),
                   _SlotAddButton(
                     slot: slot,
                     onTap: () => onAddToSlot!(slot),
@@ -156,7 +171,21 @@ class DiaryMealCard extends StatelessWidget {
 String _macroLine(AppLocalizations l10n, MacroProgress m) =>
     l10n.foodMacroSummary(m.proteinG.round(), m.carbsG.round(), m.fatG.round());
 
+/// Drawn size of the plus chip — what the eye sees, not what the finger hits.
+const double _addChipSize = 32;
+
+/// The project's tap-target floor (`AppToggle`, `SquareIconButton`, the
+/// favorites search clear key). WCAG 2.5.8 would already be happy at 24.
+const double _addTapTarget = 44;
+
+/// Transparent tap margin the floor adds on each side of the chip. The card
+/// header hands these pixels back so the chip does not move (see [build]).
+const double _addTapBleed = (_addTapTarget - _addChipSize) / 2;
+
 /// The forest-coloured plus button of the slot card.
+///
+/// 32 pt visible, 44 pt tappable — the extra area is transparent and sits
+/// outside the drawn chip, exactly like `SquareIconButton`.
 class _SlotAddButton extends StatelessWidget {
   const _SlotAddButton({required this.slot, required this.onTap});
 
@@ -170,17 +199,28 @@ class _SlotAddButton extends StatelessWidget {
     return Semantics(
       button: true,
       label: l10n.foodSlotAddLabel(slot.label(l10n)),
-      child: Material(
+      child: SizedBox(
         key: ValueKey('food-slot-add-${slot.name}'),
-        color: t.forest,
-        borderRadius: BorderRadius.circular(rChip),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(rChip),
-          child: SizedBox(
-            width: 32,
-            height: 32,
-            child: Icon(Icons.add_rounded, size: 17, color: t.lime),
+        width: _addTapTarget,
+        height: _addTapTarget,
+        child: Material(
+          // Transparent, so the tap area reaches the full 44 pt while the
+          // forest surface below stays 32 pt.
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(rChip),
+            child: Center(
+              child: Container(
+                width: _addChipSize,
+                height: _addChipSize,
+                decoration: BoxDecoration(
+                  color: t.forest,
+                  borderRadius: BorderRadius.circular(rChip),
+                ),
+                child: Icon(Icons.add_rounded, size: 17, color: t.lime),
+              ),
+            ),
           ),
         ),
       ),

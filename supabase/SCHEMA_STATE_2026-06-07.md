@@ -1,59 +1,88 @@
-# Supabase Schema-State — Stand 2026-06-07 (re-verifiziert)
+# Migration-Drift — was der CI-Job meint und was zu tun ist
 
-Festgehalten: **Live-DB == Repo** für alle Migrationen, am 2026-06-07 gegen den
-echten Katalog der Live-DB (`ftoozzvmduptrvrrrshb`) verifiziert. Grundlage für den
-CI-Drift-Gate (`supabase-migration-drift` in `.github/workflows/security.yml`).
+> Diese Seite hat der Fehlertext des Jobs `supabase-migration-drift` im Blick
+> (`.github/workflows/security.yml`); er verweist namentlich hierher. Sie
+> beschreibt **den Abgleich**, nicht das Schema.
+>
+> **Der Schema-Bestand steht in [`SCHEMA_STATE.md`](SCHEMA_STATE.md)** —
+> Tabellen, RLS, Policies, Rechte und Funktionen als Endzustand aller
+> Migrationen, **erzeugt** aus `supabase/migrations/` und von
+> `test/migrations/schema_state_doc_test.dart` gegen den Replay geprüft.
 
-> Verifikations-Grundsatz: Live-DB-Zustand IMMER gegen den echten Pfad prüfen
-> (Katalog-Query via Management-API), nie gegen Annahmen.
+## Warum diese Seite nicht mehr das Schema führt
 
-## Abgleich-Ergebnis (2026-06-07)
+Bis zum 2026-08-29 stand hier eine von Hand gepflegte Tabelle des
+„verifizierten Live-Zustands". Sie war zuletzt **sechzehn Migrationen alt**:
+`workout_sets`, `weekly_plans` und `caffeine_entries` standen darin als live,
+obwohl `20260803120000_drop_removed_feature_tables.sql` sie gedroppt hat, und
+`record_workout_day(date)` als aufrufbar, obwohl `20260804120000` sie entfernt
+hat (Befund P7-04). Niemand konnte das sehen: kein Test las die Datei.
 
-`supabase_migrations.schema_migrations` enthält **lückenlos alle 19 Repo-Versionen**
-von `20260516150000` bis `20260604160000` — identische Liste, identische Reihenfolge
-wie `ls supabase/migrations`. Es gibt **keine Drift**: kein Repo-Eintrag fehlt in der
-Historie, `db push` wäre ein No-Op.
+Ein Dokument, das wieder veralten kann, veraltet auch. Der Bestand wird
+deshalb erzeugt, nicht gepflegt — neu erzeugen mit:
 
-Damit sind die in früheren Migrations-Kommentaren als „NOCH NICHT angewendet (PENDING
-APPLY)" markierten Migrationen (`20260603100000`, `20260604120000` und die folgenden
-bis `20260604160000`) **überholt** — sie sind angewendet und registriert. Die
-betroffenen Kommentare wurden am 2026-06-07 entsprechend richtiggestellt.
+```
+SCHEMA_STATE_SCHREIBEN=1 flutter test test/migrations/schema_state_doc_test.dart
+```
 
-### Verifizierter Live-Zustand (Katalog-Query bestätigt, 2026-06-07)
-| Migration | Objekt(e) | Live | Registriert |
-|-----------|-----------|------|-------------|
-| 20260603100000_security_hardening_followup | `delete_account()` mit `EX_USER_REQUIRED`-Guard; `touch_chat_session(uuid)` NICHT an `authenticated` ausführbar | ✅ | ✅ |
-| 20260604120000_lifetime_increment_rpcs | `increment_lifetime_stats(int,int,int,int,int)` + `record_workout_day(date)` | ✅ | ✅ |
-| 20260604130000_favorite_meals_pinned | `favorite_meals.pinned boolean not null default false` | ✅ | ✅ |
-| 20260604140000_profiles_diet_preference | `profiles.diet_preference text` + `profiles_diet_preference_check` | ✅ | ✅ |
-| 20260604150000_local_day_keys | `logged_meals.local_day` + `caffeine_entries.local_day` (+ Indizes) | ✅ | ✅ |
-| 20260604160000_workout_logging | Tabelle `workout_sets` + RLS an + 4 `*_own`-Policies + `authenticated`-Grants | ✅ | ✅ |
+Fehlt der Schritt nach einer neuen Migration, wird genau ein Test rot und nennt
+diesen Befehl.
 
-(Frühere Objekte bis `20260602120200` waren bereits im Stand 2026-06-04 als live
-verifiziert; `user_recipes` + `weekly_plans` ebenfalls vorhanden.)
+## Was der Drift-Job prüft
 
-## CI-Gate (Drift-Erkennung)
+Job **`supabase-migration-drift`** in `.github/workflows/security.yml`:
 
-`.github/workflows/security.yml` → Job **`supabase-migration-drift`**:
-- Läuft nur mit Repo-Secrets `SUPABASE_ACCESS_TOKEN` **und** `SUPABASE_PROJECT_REF`.
-  Fehlt ein Secret → Schritt wird **sauber übersprungen** (`::notice::`), CI bleibt
-  grün (Forks/PRs ohne Secret-Zugriff machen den Build nicht rot).
-- Mit Secrets: fragt die Live-Migrations-Historie über die **Management-API**
-  (`POST /v1/projects/{ref}/database/query` auf `supabase_migrations.schema_migrations`,
-  Browser-User-Agent wegen Cloudflare 1010) ab und vergleicht sie gegen die
-  Dateinamen in `supabase/migrations/`. Ist eine Repo-Migration **nicht** in der
-  Historie registriert → **Job failt**. Bewusst KEIN `supabase db push --dry-run`
-  mehr: das brauchte ein `SUPABASE_DB_PASSWORD`-Secret + DB-Login; der Management-API-
-  Weg kommt mit dem ohnehin nötigen PAT aus.
+- Läuft nur mit den Repo-Secrets `SUPABASE_ACCESS_TOKEN` **und**
+  `SUPABASE_PROJECT_REF` — und bewusst **nicht** bei `pull_request`: der PAT ist
+  kontoweit und der Endpunkt führt beliebiges SQL auf der Produktivdatenbank
+  aus, während die Workflow-Datei bei `pull_request` aus dem PR-Head stammt.
+  Der Abgleich läuft beim Push auf `main` (also direkt nach dem Merge) und
+  wöchentlich per `schedule`.
+- Er fragt die Live-Historie über die **Management-API** ab
+  (`POST /v1/projects/{ref}/database/query` auf
+  `supabase_migrations.schema_migrations`, mit Browser-User-Agent wegen
+  Cloudflare 1010) und vergleicht sie gegen die Dateinamen in
+  `supabase/migrations/`.
+- **Fehlt eine Repo-Migration in der Historie, failt der Job.** Das heißt: die
+  Live-DB kennt eine Änderung nicht, die im Repo steht.
 
-## Offen / Entscheidung
-- **Repo-Secret `SUPABASE_ACCESS_TOKEN` setzen, um den Gate-Job in CI scharf zu
-  schalten.** Sicherheits-Trade-off bewusst lassen: Der `sbp_`-PAT ist
-  **account-weit** (kann DDL auf jedem Projekt des Accounts) und kann von Supabase
-  nicht projekt-scoped ausgestellt werden. In einem **öffentlichen** Repo ist das
-  ein realer Blast-Radius, falls er je aus den Actions-Secrets exfiltriert wird
-  (nur über Push/Workflow-Änderung auf `main` möglich — Fork-PRs erhalten das Secret
-  nicht). Ohne das Secret bleibt der Gate-Job ein sauberer Skip; die Drift-Prüfung
-  läuft dann weiterhin manuell/lokal über die Management-API (wie am 2026-06-07).
-- Client-Wiring der neuen RPCs (`lifetime_stats_sync` / `daily_log_sync`) erfolgt in
-  der Integrations-Welle (separat).
+Bewusst **kein** `supabase db push --dry-run`: das bräuchte ein zusätzliches
+`SUPABASE_DB_PASSWORD`-Secret und einen DB-Login; der Management-API-Weg kommt
+mit dem ohnehin nötigen PAT aus.
+
+## Wenn der Job failt
+
+Der Fehlertext nennt die nicht registrierten Dateinamen. Beide Schritte
+gehören zusammen:
+
+1. **Anwenden** — den Inhalt der genannten Migration(en) in Dateinamen-
+   Reihenfolge ausführen, entweder mit `supabase db push` oder über die
+   Management-API (`POST /v1/projects/{ref}/database/query`). Alle Migrationen
+   dieses Repos sind idempotent geschrieben (`if not exists`,
+   `drop … if exists`, `pg_constraint`-Proben), ein zweiter Lauf ist also
+   folgenlos.
+2. **Historie nachziehen** — den Versionsstempel in
+   `supabase_migrations.schema_migrations` eintragen, sonst failt der Job
+   weiter, obwohl die Änderung live ist.
+
+Vor jeder Diagnose gilt der Grundsatz aus der Verifikation vom 2026-06-07:
+**Live-Zustand immer gegen den echten Pfad prüfen** (Katalog-Query über die
+Management-API), nie gegen Annahmen.
+
+## Offener Punkt (unverändert seit 2026-06-07)
+
+**Repo-Secret `SUPABASE_ACCESS_TOKEN` setzen, um den Gate-Job scharf zu
+schalten.** Der Trade-off bleibt bewusst offen: der `sbp_`-PAT ist
+**kontoweit** (DDL auf jedem Projekt des Accounts) und lässt sich von Supabase
+nicht projekt-scoped ausstellen. In einem öffentlichen Repo ist das ein realer
+Blast-Radius, sollte er je aus den Actions-Secrets exfiltriert werden (nur über
+Push/Workflow-Änderung auf `main` möglich — Fork-PRs bekommen das Secret
+nicht). Die Härtung dazu ist ein Repo-Schritt, kein Code-Schritt: Environment
+`supabase-drift` mit Branch-Policy `main` anlegen, beide Secrets dorthin
+verschieben, Token rotieren, dann `environment:` im Job
+`supabase-migration-drift-live` einkommentieren.
+
+Ohne das Secret bleibt der Job ein sauberer Skip; die Drift-Prüfung läuft dann
+manuell/lokal über die Management-API — so wie am 2026-06-07, als
+`supabase_migrations.schema_migrations` lückenlos alle damaligen 19
+Repo-Versionen von `20260516150000` bis `20260604160000` enthielt.

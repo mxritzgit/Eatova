@@ -603,7 +603,8 @@ class _FoodSearchBar extends StatelessWidget {
 ///
 /// Deliberately not [FilterChipPill]: the shared chip sets no `maxLines`, and
 /// `food_tab_layout_test` expects exactly one text descendant with
-/// `maxLines == 1`.
+/// `maxLines == 1`. Its COLOURS are the shared ones all the same — see the
+/// note on [filled].
 class _FoodQuickChip extends StatelessWidget {
   const _FoodQuickChip({
     super.key,
@@ -615,17 +616,26 @@ class _FoodQuickChip extends StatelessWidget {
 
   final IconData icon;
   final String label;
+
+  /// Static emphasis (AI scan yes, barcode no), NOT a selection state — both
+  /// chips stay labelled, so this is no 1.4.11 case. It was painted in
+  /// `forest` on a `surf` neighbour all the same, which is mode-asymmetric:
+  /// 13.57:1 in light mode, 1.34:1 in dark, where the emphasis simply was not
+  /// there. [SelectionTone] is the app's one answer to that pairing, so the
+  /// chip speaks it too — `ink`/`bg` carry 16.78:1 (hell) / 14.93:1 (dunkel)
+  /// against the neighbour. The lime glyph goes with it: on the `ink` fill it
+  /// would be 1.31:1 in dark mode.
   final bool filled;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final fg = filled ? t.onForest : t.ink2;
+    final fg = filled ? t.onSelected : t.ink2;
     return Semantics(
       button: true,
       child: Material(
-        color: filled ? t.forest : t.surf,
+        color: filled ? t.selectedFill : t.surf,
         borderRadius: BorderRadius.circular(rChip),
         child: InkWell(
           onTap: onTap,
@@ -635,14 +645,17 @@ class _FoodQuickChip extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(rChip),
+              // Ring in the fill colour rather than transparent, like
+              // [FilterChipPill]: same pixels, but the geometry no longer
+              // depends on the state.
               border: Border.all(
-                color: filled ? Colors.transparent : t.line,
+                color: filled ? t.selectedFill : t.line,
               ),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(icon, size: 17, color: filled ? t.lime : t.ink2),
+                Icon(icon, size: 17, color: fg),
                 const SizedBox(width: 6),
                 Flexible(
                   child: Text(
@@ -1126,17 +1139,25 @@ class _FoodDateChip extends StatelessWidget {
           // Tight vertical padding: the 1 px border costs 2 px and the strip
           // is pinned to 52 px (chip geometry 66/6 feeds _scrollToSelected).
           padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 4),
+          // [SelectionTone], like every other chip in the app: the selected
+          // day fills with `ink` and labels in `bg`. As `forest`/`onForest`
+          // the picked day sat at 1.33:1 on `surf` in dark mode and its number
+          // at 1.04:1 against an unpicked one — the state was invisible there
+          // while looking correct in light mode (P9-02c).
           decoration: BoxDecoration(
-            color: selected ? t.forest : t.surf,
+            color: selected ? t.selectedFill : t.surf,
             borderRadius: BorderRadius.circular(rChip),
-            border: Border.all(color: selected ? Colors.transparent : t.line),
+            // Ring in the fill colour instead of transparent: same pixels,
+            // but the geometry no longer depends on the state.
+            border: Border.all(color: selected ? t.selectedFill : t.line),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // The weekday recedes and the date leads; on the selected chip
-              // it is the other way round, because context matters there.
+              // The weekday recedes and the date leads. On the selected chip
+              // the hierarchy comes from OPACITY, not from a second hue:
+              // `lime` on the `ink` fill would be 1.07:1 in dark mode.
               Text(
                 label,
                 maxLines: 1,
@@ -1144,7 +1165,9 @@ class _FoodDateChip extends StatelessWidget {
                 style: AppType.ui(
                   10.5,
                   weight: FontWeight.w700,
-                  color: selected ? t.lime : t.ink2,
+                  color: selected
+                      ? t.onSelected.withValues(alpha: 0.78)
+                      : t.ink2,
                   letterSpacing: 0.1,
                 ),
               ),
@@ -1157,7 +1180,7 @@ class _FoodDateChip extends StatelessWidget {
                 style: AppType.display(
                   11.5,
                   weight: FontWeight.w700,
-                  color: selected ? t.onForest : t.ink,
+                  color: selected ? t.onSelected : t.ink,
                 ),
               ),
             ],
@@ -1200,15 +1223,19 @@ class _CalendarDayButton extends StatelessWidget {
           curve: Curves.easeOut,
           width: 44,
           alignment: Alignment.center,
+          // Same [SelectionTone] as the chips it stands next to — it fills
+          // like an active chip, so it has to fill in the same language.
           decoration: BoxDecoration(
-            color: selected ? t.forest : t.surf,
+            color: selected ? t.selectedFill : t.surf,
             borderRadius: BorderRadius.circular(rChip),
-            border: Border.all(color: selected ? Colors.transparent : t.line),
+            border: Border.all(color: selected ? t.selectedFill : t.line),
           ),
           child: Icon(
             Icons.calendar_month_rounded,
             size: 18,
-            color: selected ? t.lime : t.ink2,
+            // Not `lime`: on the `ink` fill that is 1.07:1 in dark mode, and
+            // the glyph is the only thing inside this button.
+            color: selected ? t.onSelected : t.ink2,
           ),
         ),
       ),

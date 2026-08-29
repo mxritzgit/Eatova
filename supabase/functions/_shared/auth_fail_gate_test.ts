@@ -76,6 +76,21 @@ function installErrorLog(): { zeilen: string[]; restore: () => void } {
   };
 }
 
+/** Same for console.warn — the shared-bucket signal (P6-05) lives there. */
+function installWarnLog(): { zeilen: string[]; restore: () => void } {
+  const original = console.warn;
+  const zeilen: string[] = [];
+  console.warn = (...args: unknown[]) => {
+    zeilen.push(args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" "));
+  };
+  return {
+    zeilen,
+    restore: () => {
+      console.warn = original;
+    },
+  };
+}
+
 function rpcAntwort(body: JsonRecord, status = 200): () => Promise<Response> {
   return () =>
     Promise.resolve(
@@ -229,6 +244,97 @@ Deno.test("E6: 200 ohne lesbares allowed ist ein Limiter-Ausfall, kein Limit", a
     );
   } finally {
     log.restore();
+    fetchStub.restore();
+  }
+});
+
+// --- P6-05: der geteilte Bucket ohne Client-IP -----------------------------
+//
+// Without an IP header every function's failures share ONE bucket
+// ("uid:anon"), so its exhaustion answers 429 to callers who never failed
+// themselves. The numbers stay as they are (see the file header for why); what
+// was missing is the operator's signal for the moment it starts happening.
+
+Deno.test("P6-05: erschoepfter anon-Sammelbucket meldet sich beim Betreiber", async () => {
+  const fetchStub = installFetch(rpcAntwort({
+    allowed: false,
+    limit: 30,
+    remaining: 0,
+    resetAt: new Date(Date.now() + 1800_000).toISOString(),
+    windowSeconds: 3600,
+  }));
+  const warn = installWarnLog();
+  try {
+    const result = await authFailGate({ ...OPTIONS, subject: "uid:anon" });
+    assert(result.limited, "der Bucket drosselt weiterhin");
+    const zeilen = warn.zeilen.join("\n");
+    assert(zeilen.includes("uid-Bucket"), `der geteilte Bucket muss benannt sein: ${zeilen}`);
+    assert(zeilen.includes("401"), `die Verwechslungsgefahr muss dranstehen: ${zeilen}`);
+    assert(zeilen.includes(OPTIONS.scope), `die Function muss erkennbar sein: ${zeilen}`);
+    // Deliberately unchanged: same limit and window as the per-IP bucket, one
+    // set of numbers for all three functions.
+    const params = JSON.parse(String(fetchStub.aufrufe[0].init?.body)) as JsonRecord;
+    assertEquals(params.p_limit, 30, "Limit bleibt");
+    assertEquals(params.p_window_seconds, 3600, "Fenster bleibt");
+  } finally {
+    warn.restore();
+    fetchStub.restore();
+  }
+});
+
+// P6-04c (Gegenprobe 2026-08-29): the warning above names the BUCKET, not the
+// subject. Today every caller passes clientIpSubject(req, "anon"), so the
+// subject is the constant "uid:anon" — but the same helper turns a verified
+// user id into "uid:<uuid>", and the old line would have written that id into
+// function_logs the moment one caller changed its fallback (CWE-532).
+Deno.test("P6-04c: eine echte User-ID im Subject landet nicht im Log", async () => {
+  const userId = "11111111-1111-4111-8111-111111111111";
+  const fetchStub = installFetch(rpcAntwort({
+    allowed: false,
+    limit: 30,
+    remaining: 0,
+    resetAt: new Date(Date.now() + 1800_000).toISOString(),
+    windowSeconds: 3600,
+  }));
+  const warn = installWarnLog();
+  try {
+    await authFailGate({ ...OPTIONS, subject: `uid:${userId}` });
+    const zeilen = warn.zeilen.join("\n");
+    assert(zeilen.includes("uid-Bucket"), `der Bucket muss benannt bleiben: ${zeilen}`);
+    assert(!zeilen.includes(userId), `User-ID im Log: ${zeilen}`);
+  } finally {
+    warn.restore();
+    fetchStub.restore();
+  }
+});
+
+Deno.test("P6-05: der IP-Bucket bleibt still — sein 429 trifft den Verursacher", async () => {
+  const fetchStub = installFetch(rpcAntwort({
+    allowed: false,
+    limit: 30,
+    remaining: 0,
+    resetAt: new Date(Date.now() + 1800_000).toISOString(),
+    windowSeconds: 3600,
+  }));
+  const warn = installWarnLog();
+  try {
+    const result = await authFailGate(OPTIONS);
+    assert(result.limited, "gedrosselt");
+    assertEquals(warn.zeilen.length, 0, `keine Warnung fuer den IP-Bucket: ${warn.zeilen.join("\n")}`);
+  } finally {
+    warn.restore();
+    fetchStub.restore();
+  }
+});
+
+Deno.test("P6-05: der ungedrosselte anon-Bucket warnt nicht bei jedem Fehlschlag", async () => {
+  const fetchStub = installFetch(erlaubt());
+  const warn = installWarnLog();
+  try {
+    await authFailGate({ ...OPTIONS, subject: "uid:anon" });
+    assertEquals(warn.zeilen.length, 0, `nur die Erschoepfung ist ein Ereignis: ${warn.zeilen.join("\n")}`);
+  } finally {
+    warn.restore();
     fetchStub.restore();
   }
 });

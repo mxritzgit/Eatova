@@ -267,6 +267,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
           subtitle: l10n.settingsOpenGoalsSubtitle,
           onTap: widget.onOpenGoals,
         ),
+      // NO `onTap` on these two rows, unlike the Manual row in the goals
+      // screen — and that is the decision, not an oversight. That row is a
+      // two-state switch, so "tap the row" has exactly one meaning. A
+      // three-state segment has none: cycling System -> Hell -> Dunkel on a
+      // stray tap against the label would silently change the theme, and on
+      // the language row the whole app's language, with no hint that the row
+      // was even a control (both rows deliberately carry `chevron: false`).
+      // The dead zone is closed at the other end instead: each segment owns a
+      // 44 px tall target (`_segmentSaum` in settings_controls.dart), so the
+      // pill fills the row's whole content height and a tap above or below a
+      // segment's capsule lands ON that segment.
       if (controller != null)
         SettingsRow(
           // Three states, not a toggle (DESIGN_REFACTOR §2: default is

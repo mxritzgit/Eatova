@@ -1,45 +1,71 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  SEC-1 — Backup/Transfer-Ausschluss des verschluesselten LocalCache.
+  SEC-1 — backup/transfer exclusion of the encrypted LocalCache.
 
-  WARUM ueberhaupt, obwohl android:allowBackup="false" gesetzt ist:
-  allowBackup="false" schaltet Cloud-Backup (Google Drive) und adb-Backup ab,
-  aber auf Android 12+ NICHT die Geraet-zu-Geraet-Uebertragung. Die offizielle
-  Doku (https://developer.android.com/guide/topics/data/autobackup) sagt dazu:
+  WHY AT ALL, given android:allowBackup="false":
+  allowBackup="false" switches off cloud backup (Google Drive) and adb backup,
+  but on Android 12+ NOT the device-to-device transfer. The official docs
+  (https://developer.android.com/guide/topics/data/autobackup) say:
 
     "On devices from some device manufacturers, specifying
      android:allowBackup="false" disables cloud-based backup and restore
      (such as Google Drive backups) but doesn't disable device-to-device
      transfers for the app."
 
-  Bei einem D2D-Transfer wandern die SharedPreferences-Dateien auf das neue
-  Geraet — der nicht-exportierbare AndroidKeyStore-Key aber nicht. Jeder
-  Cache-Slot waere dort unentschluesselbar, und die Outbox (die der Server
-  NICHT rekonstruieren kann) waere zerstoert. Wir wollen den Zustand also
-  sauber ABWESEND statt kaputt: nach einem Transfer startet die App wie eine
-  Neuinstallation, laedt vom Server und legt einen frischen DEK an.
+  In a D2D transfer the SharedPreferences files would travel to the new device
+  — the non-exportable AndroidKeyStore key would not. Every cache slot would be
+  undecryptable there, and the outbox (which the server CANNOT reconstruct)
+  would be destroyed. So we want that state cleanly ABSENT instead of broken:
+  after a transfer the app starts like a fresh install, loads from the server
+  and creates a new DEK.
 
-  Ebenfalls aus der Doku, deshalb sind BEIDE Sektionen ausbuchstabiert:
+  Also from the docs, which is why BOTH sections are spelled out:
 
     "If there are no rules for a particular backup mode, such as if the
      <device-transfer> section is missing, that mode is fully enabled for all
      content except for no-backup and cache directories"
 
-  Was ausgeschlossen wird:
+  What is excluded:
     * domain="sharedpref" path="."
-        - shared_prefs/FlutterSharedPreferences.xml  (shared_preferences,
-          also LocalCache + die gotrue-Session)
+        - shared_prefs/FlutterSharedPreferences.xml  (shared_preferences, i.e.
+          LocalCache plus the gotrue session)
         - shared_prefs/FlutterSecureStorage.xml      (flutter_secure_storage,
-          der gewrappte DEK — ohne den KeyStore-Key ohnehin wertlos)
+          the wrapped DEK — worthless without the KeyStore key anyway)
     * domain="file" path="datastore"
-        - files/datastore/FlutterSharedPreferences.preferences_pb, der
-          DataStore-Pfad der neueren shared_preferences-Android-Backends.
-          Heute laeuft SharedPreferences.getInstance() ueber den Legacy-
-          XML-Pfad; der Ausschluss haelt eine kuenftige Plugin-Umstellung
-          davon ab, die Luecke still wieder aufzureissen.
+        - files/datastore/FlutterSharedPreferences.preferences_pb, the
+          DataStore path of the newer shared_preferences Android backends.
+          Today SharedPreferences.getInstance() runs over the legacy XML path;
+          the exclusion stops a future plugin switch from silently reopening
+          the gap.
 
-  android:fullBackupContent fuer Android 11 und aelter ist bewusst NICHT
-  gesetzt: dort deckt allowBackup="false" auch die lokale Uebertragung ab.
+  What is deliberately NOT excluded (P10-04) — the recipe photos:
+  `getApplicationDocumentsDirectory()` maps to context.getDir("flutter"), i.e.
+  /data/user/0/com.eatova.app/app_flutter, so recipe_images/<uid>/ sits in
+  domain "root", path "app_flutter" (NOT domain "file", which is getFilesDir()).
+  It is the only thing the app keeps there. Excluding it would take
+  `<exclude domain="root" path="app_flutter" />`; that line is left out on
+  purpose:
+    * The bytes exist NOWHERE else. Recipe and coach-card photos are never
+      uploaded (the row only carries `local:<name>.jpg`), so excluding them
+      from the transfer would silently and permanently destroy the user's own
+      pictures on every phone switch.
+    * A D2D transfer is user-initiated, goes to the user's OWN new device and
+      involves no third party — unlike cloud backup, which stays off for
+      everything. On iOS these same files ride along in the iCloud device
+      backup (PRIVACY.md says so), so carrying them here is the smaller
+      exposure, not a new one.
+    * Unlike the cache they survive the transfer INTACT: no key is involved,
+      and both the `local:` reference and the `<uid>` folder name come back
+      from the server, so the photos re-attach to their recipes.
+  Accepted residual: if a DIFFERENT account signs in first on the new device,
+  the transferred <uid> folder stays behind as orphaned files —
+  RecipeImageStore only ever reads the active uid's namespace, so the app can
+  never surface them. The same already applies to an iOS restore.
+  PRIVACY.md is worded to match: cloud backups excluded entirely, the direct
+  device-to-device transfer named as the one path that carries these photos.
+
+  android:fullBackupContent for Android 11 and older is deliberately NOT set:
+  there, allowBackup="false" covers local transfer as well.
 -->
 <data-extraction-rules>
     <cloud-backup>

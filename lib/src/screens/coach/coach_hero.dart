@@ -40,10 +40,18 @@ class _CoachHero extends StatelessWidget {
           children: <Widget>[
             const CoachOrb(size: 92),
             const SizedBox(height: 22),
-            Text(
-              '${_timeGreeting(l10n)}, ${_firstName(l10n)}',
-              textAlign: TextAlign.center,
-              style: AppType.display(26, color: t.ink, height: 1.15),
+            // Rank 2, not 1 (P9-06c): _CoachTopBar above already names the
+            // screen, and a second rank-1 mark on the same tab would leave
+            // the "headings" navigation with two equal entry points and no
+            // structure. This greets the empty state — a section inside the
+            // coach, exactly like a SectionHeading.
+            HeadingSemantics(
+              level: 2,
+              child: Text(
+                '${_timeGreeting(l10n)}, ${_firstName(l10n)}',
+                textAlign: TextAlign.center,
+                style: AppType.display(26, color: t.ink, height: 1.15),
+              ),
             ),
             const SizedBox(height: 6),
             Text(

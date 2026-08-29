@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:developer' as dev;
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../l10n/l10n.dart';
@@ -23,6 +24,65 @@ class CoachChatService {
 
   final SupabaseClient _client;
   final String _userId;
+
+  // -------------------------------------------------------------------------
+  // Deadlines
+  // -------------------------------------------------------------------------
+  /// Deadline for a plain coach question.
+  ///
+  /// The function budgets 15 s for the safety classification plus 45 s for the
+  /// answer (`PROVIDER_TIMEOUTS_MS` in handler.ts), so 75 s outlasts the server
+  /// by the same 15 s of headroom `HttpTimeoutPolicy.mealAnalysis` gives
+  /// analyze-meal. Without any deadline a network switch left the future
+  /// hanging until the OS tore the connection down, and the composer stayed
+  /// dead the whole time.
+  static const Duration chatDeadline = Duration(seconds: 75);
+
+  /// Deadline for /recipe: three provider round trips (15 s classification +
+  /// 45 s draft + 30 s image) plus the base64 image travelling back.
+  static const Duration recipeDeadline = Duration(seconds: 120);
+
+  /// Grace the outer `timeout` gets on top of the abort signal. The signal is
+  /// the clean exit (it tears the socket down); the timeout is the guarantee,
+  /// for HTTP clients that ignore `abortTrigger`.
+  static const Duration _deadlineGrace = Duration(seconds: 5);
+
+  /// The daily limit as the SERVER named it, learned from the last function
+  /// answer or quota 429.
+  ///
+  /// The only reliable source there is: `get_chat_quota_today` merely echoes
+  /// the limit it is handed, so the client cannot ask for it. null until the
+  /// server has spoken once.
+  int? _serverTageslimit;
+
+  int? get serverDailyLimit => _serverTageslimit;
+
+  /// Test seam for the state the app reaches after the first server answer.
+  @visibleForTesting
+  set serverDailyLimit(int? value) => _serverTageslimit = value;
+
+  void _tageslimitMerken(int? limit) {
+    if (limit != null && limit > 0) _serverTageslimit = limit;
+  }
+
+  /// Runs [aufruf] under [frist].
+  ///
+  /// Two layers on purpose: `abortSignal` (functions_client 2.7.1) actually
+  /// cancels the request, and the outer `timeout` guarantees the future
+  /// completes even where the trigger is ignored. The timer is cancelled on
+  /// every exit, so no pending timer leaks into a widget test.
+  Future<T> _mitFrist<T>(
+    Duration frist,
+    Future<T> Function(Future<void> abbruch) aufruf,
+  ) {
+    final abbruch = Completer<void>();
+    final wecker = Timer(frist, () {
+      if (!abbruch.isCompleted) abbruch.complete();
+    });
+    return aufruf(abbruch.future)
+        .timeout(frist + _deadlineGrace)
+        .whenComplete(wecker.cancel);
+  }
 
   /// Locale pack for the user-visible fallback error texts. Set via setter
   /// rather than a `send()` parameter so test doubles overriding `send` stay
@@ -225,18 +285,24 @@ class CoachChatService {
   /// The daily counter as the server reports it.
   ///
   /// `p_daily_limit` is display arithmetic only: the RPC is read-only and
-  /// derives `remaining` from the passed value. The limit is enforced
-  /// server-side via `claim_chat_quota` (service_role only), so a tampered
-  /// client only lies to its own display.
+  /// derives `remaining` from the passed value and echoes it back. The limit
+  /// is enforced server-side via `claim_chat_quota` (service_role only)
+  /// against `COACH_DAILY_LIMIT`, which this RPC never sees — so the only
+  /// reliable limit is the one a function answer named, kept in
+  /// [serverDailyLimit]. Until then the request goes out with the client's
+  /// assumption and the snapshot says so via [ChatQuotaSnapshot.limitAssumed].
   ///
   /// Throws [CoachDataUnavailable] if the RPC fails or returns no usable
   /// numbers — inventing a full quota there would lift an existing lock.
   Future<ChatQuotaSnapshot> loadQuotaToday() async {
+    final bekannt = _serverTageslimit;
     final dynamic res;
     try {
       res = await _client.rpc(
         'get_chat_quota_today',
-        params: {'p_daily_limit': ChatQuotaSnapshot.standardTageslimit},
+        params: {
+          'p_daily_limit': bekannt ?? ChatQuotaSnapshot.standardTageslimit,
+        },
       );
     } catch (e, stack) {
       dev.log(
@@ -274,6 +340,9 @@ class CoachChatService {
       used: used,
       remaining: remaining,
       dailyLimit: dailyLimit,
+      // `daily_limit` is the echo of what we just sent, so it is only a server
+      // statement once the server itself named a limit.
+      limitAssumed: bekannt == null,
     );
   }
 
@@ -293,19 +362,23 @@ class CoachChatService {
     String? userContext,
   }) async {
     try {
-      final res = await _client.functions.invoke(
-        'coach-chat',
-        body: {
-          'message': message,
-          'session_id': sessionId,
-          'locale': _localeCode,
-          if (imageBase64 != null && imageBase64.isNotEmpty)
-            'image_base64': imageBase64,
-          if (imageMimeType != null && imageMimeType.isNotEmpty)
-            'image_mime_type': imageMimeType,
-          if (userContext != null && userContext.trim().isNotEmpty)
-            'user_context': userContext.trim(),
-        },
+      final res = await _mitFrist(
+        chatDeadline,
+        (abbruch) => _client.functions.invoke(
+          'coach-chat',
+          body: {
+            'message': message,
+            'session_id': sessionId,
+            'locale': _localeCode,
+            if (imageBase64 != null && imageBase64.isNotEmpty)
+              'image_base64': imageBase64,
+            if (imageMimeType != null && imageMimeType.isNotEmpty)
+              'image_mime_type': imageMimeType,
+            if (userContext != null && userContext.trim().isNotEmpty)
+              'user_context': userContext.trim(),
+          },
+          abortSignal: abbruch,
+        ),
       );
       // Reaching this point means 2xx: functions_client throws on any other
       // status, so error handling lives only in the `on Functions*` arms.
@@ -321,6 +394,9 @@ class CoachChatService {
         _melde('coach.send.leereAntwort', leer, StackTrace.current);
         throw leer;
       }
+      final dailyLimit =
+          map['daily_limit'] is num ? (map['daily_limit'] as num).toInt() : null;
+      _tageslimitMerken(dailyLimit);
       return CoachChatReply(
         reply: reply,
         refusal: map['refusal'] == true,
@@ -328,15 +404,22 @@ class CoachChatService {
         remaining: map['remaining'] is num
             ? (map['remaining'] as num).toInt()
             : null,
-        dailyLimit: map['daily_limit'] is num
-            ? (map['daily_limit'] as num).toInt()
-            : null,
+        dailyLimit: dailyLimit,
         sessionId: map['session_id']?.toString() ?? sessionId,
       );
     } on CoachQuotaExceeded {
       rethrow;
     } on CoachChatException {
       rethrow;
+    } on TimeoutException catch (e, stack) {
+      // Deadline hit. Deliberately unreported, like the offline case: a slow
+      // network or a slow provider is not an outage only we can see.
+      _logSendFailure(e, stack);
+      throw CoachChatException(_l10n.coachErrorTimeout);
+    } on RequestAbortedException catch (e, stack) {
+      // Same deadline, taken by the abort signal instead of the timeout.
+      _logSendFailure(e, stack);
+      throw CoachChatException(_l10n.coachErrorTimeout);
     } on FunctionsHttpException catch (e, stack) {
       // The edge function itself answered with a non-2xx status.
       _logSendFailure(e, stack);
@@ -365,23 +448,31 @@ class CoachChatService {
   ///
   /// The function only returns data; saving happens client-side after the user
   /// confirms in the sheet. Error mapping is identical to [send].
+  ///
+  /// Deliberately no `user_context`: `handleRecipeMode` takes eight parameters
+  /// and none of them is the context, so weight, target weight, daily balance
+  /// and the names of today's logged foods travelled to the server without
+  /// ever being read. Data minimisation beats sending on spec — making the
+  /// recipe respect the remaining balance is a server change and a product
+  /// decision, not a client one.
   Future<CoachRecipeReply> requestRecipe(
     String wish, {
     required String sessionId,
     required String locale,
-    String? userContext,
   }) async {
     try {
-      final res = await _client.functions.invoke(
-        'coach-chat',
-        body: {
-          'message': wish,
-          'mode': 'recipe',
-          'locale': locale.toLowerCase().startsWith('en') ? 'en' : 'de',
-          'session_id': sessionId,
-          if (userContext != null && userContext.trim().isNotEmpty)
-            'user_context': userContext.trim(),
-        },
+      final res = await _mitFrist(
+        recipeDeadline,
+        (abbruch) => _client.functions.invoke(
+          'coach-chat',
+          body: {
+            'message': wish,
+            'mode': 'recipe',
+            'locale': locale.toLowerCase().startsWith('en') ? 'en' : 'de',
+            'session_id': sessionId,
+          },
+          abortSignal: abbruch,
+        ),
       );
       final data = res.data;
       final map = data is Map ? data : const <dynamic, dynamic>{};
@@ -414,6 +505,9 @@ class CoachChatService {
         _melde('coach.recipe.leereAntwort', leer, StackTrace.current);
         throw leer;
       }
+      final dailyLimit =
+          map['daily_limit'] is num ? (map['daily_limit'] as num).toInt() : null;
+      _tageslimitMerken(dailyLimit);
       return CoachRecipeReply(
         reply: reply,
         refusal: refusal,
@@ -421,9 +515,7 @@ class CoachChatService {
         remaining: map['remaining'] is num
             ? (map['remaining'] as num).toInt()
             : null,
-        dailyLimit: map['daily_limit'] is num
-            ? (map['daily_limit'] as num).toInt()
-            : null,
+        dailyLimit: dailyLimit,
         sessionId: map['session_id']?.toString() ?? sessionId,
         // Key for the local image store; absent on older function deployments
         // or if the insert failed.
@@ -435,6 +527,13 @@ class CoachChatService {
       rethrow;
     } on CoachChatException {
       rethrow;
+    } on TimeoutException catch (e, stack) {
+      // As in [send]: the deadline, deliberately unreported.
+      _logSendFailure(e, stack);
+      throw CoachChatException(_l10n.coachErrorTimeout);
+    } on RequestAbortedException catch (e, stack) {
+      _logSendFailure(e, stack);
+      throw CoachChatException(_l10n.coachErrorTimeout);
     } on FunctionsHttpException catch (e, stack) {
       _logSendFailure(e, stack);
       if (_statusIstVorfall(e.status)) _melde('coach.recipe.http', e, stack);
@@ -486,6 +585,8 @@ class CoachChatService {
       // carries no daily_limit and must not lock the composer for the day.
       if (map['error'] == 'quota_exceeded') {
         final limit = map['daily_limit'];
+        // The 429 is the second place the server names its own limit.
+        if (limit is num) _tageslimitMerken(limit.toInt());
         return CoachQuotaExceeded(
           message: serverReply ?? _l10n.coachErrorQuotaFallback,
           // The function's 429 always carries daily_limit; if a gateway body

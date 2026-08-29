@@ -10,8 +10,10 @@ import '../auth/auth_repository.dart';
 import '../config/legal_links.dart';
 import '../l10n/l10n.dart';
 import '../services/secure_screen.dart';
+import '../services/sync_error_messages.dart' show isNetworkSyncError;
 import '../theme/app_tokens.dart';
 import '../widgets/auth/auth_controls.dart';
+import '../widgets/common/app_snack.dart';
 import '../widgets/common/motion.dart';
 import '../widgets/shared/eatova_wordmark.dart';
 import 'auth_code_screen.dart';
@@ -196,6 +198,12 @@ class _AuthScreenState extends State<AuthScreen> {
     final l10n = context.l10n;
     if (error is AuthCancelledException) return l10n.authErrorCancelled;
     if (error is AuthUnavailableException) return l10n.authErrorUnavailable;
+    // Same TYPED branch and same position as `auth_code_screen.dart` (P4-02b):
+    // offline there is no server text to classify, so a dead radio cell used to
+    // fall through to `authErrorGeneric` and let the user suspect their
+    // password. A 429 arrives as an AuthApiException, so no throttle is
+    // swallowed here.
+    if (isNetworkSyncError(error)) return l10n.authCodeOfflineError;
     if (_matches(error, 'invalid_credentials', 'invalid login') ||
         _matches(error, 'invalid_credentials', 'invalid credentials')) {
       return l10n.authErrorInvalidCredentials;
@@ -778,8 +786,29 @@ class _ConsentNoticeState extends State<_ConsentNotice> {
   late final TapGestureRecognizer _privacy = TapGestureRecognizer()
     ..onTap = () => _open(kPrivacyUrl);
 
-  static Future<void> _open(String url) async {
-    await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+  /// Opens a legal link and SAYS SO when that fails (P4-05).
+  ///
+  /// `launchUrl` reports "no handler" in two shapes: `false`, and — on Android
+  /// — a thrown `PlatformException('ACTIVITY_NOT_FOUND')`. Neither was read
+  /// before: the tap did visibly nothing and the exception ended up unhandled
+  /// in `PlatformDispatcher.onError`, i.e. as a Sentry event nobody could tie
+  /// to a user. Both links are GDPR Art. 13 and store obligations on exactly
+  /// this screen, so the fallback names the URL to type by hand.
+  Future<void> _open(String url) async {
+    var geoeffnet = false;
+    try {
+      geoeffnet =
+          await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    } catch (_) {
+      geoeffnet = false;
+    }
+    if (geoeffnet || !mounted) return;
+    showAppSnack(
+      context,
+      context.l10n.authLegalLinkFailed(url),
+      icon: Icons.link_off_rounded,
+      tone: SnackTone.warning,
+    );
   }
 
   @override

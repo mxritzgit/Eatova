@@ -30,6 +30,7 @@ import '../widgets/common/app_snack.dart';
 import '../widgets/common/lively.dart';
 import '../widgets/common/store_selector.dart';
 import '../widgets/design/design.dart';
+import '../widgets/kcal/add_meal_sheet.dart' show FoodStoreScope;
 import '../widgets/kcal/edit_meal_sheet.dart';
 import '../widgets/shared/settings_sheet.dart';
 import 'auth_gate.dart';
@@ -566,7 +567,11 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         },
       );
 
-  // MealEditScope passes the edit callbacks around the screen signature.
+  // MealEditScope passes the edit callbacks around the screen signature;
+  // FoodStoreScope does the same for the two lists the add-meal sheet renders.
+  // A modal route never rebuilds from a store notify, so without the scope the
+  // sheet's copy of "already added" and the favorites only ever flowed one way
+  // and missed every undo (review P8-01/-05).
   Widget _foodTab() => StoreSelector(
         store: _store,
         // G11: INPUT values only. Derived getters return a NEW list per call,
@@ -584,36 +589,46 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         ),
         builder: (context) {
           assert(_countTabBuild(_tabFood));
-          return MealEditScope(
-            onUpdateMeal: _store.updateLoggedMealDetails,
-            onRemoveMeal: _store.removeLoggedMeal,
-            child: MealAnalysisScreen(
-              analyzer: widget.mealAnalyzer,
-              productService: widget.productService,
-              photoInput: widget.photoInput,
-              cameraLauncher: widget.mealCameraLauncher,
-              selectedDate: _store.selectedFoodDate,
-              onDateSelected: (date) => _store.setFoodDate(date),
-              dayLoading: _store.isLoadingFoodDay(_store.selectedFoodDate),
-              dailyConsumedKcal:
-                  _store.consumedKcalForFoodDate(_store.selectedFoodDate),
-              profile: _store.profile,
-              favorites: _store.favorites,
-              loggedMeals: _store.mealsForFoodDate(_store.selectedFoodDate),
-              onAddMeal: (result, slot) =>
-                  _store.addResultToDailyTotal(result, slot: slot),
-              onUpdateMeal: _store.updateLoggedMealResult,
-              isFavorite: _store.isFavorite,
-              onToggleFavorite: _store.toggleFavorite,
-              onRemoveFavorite: _store.removeFavorite,
+          return FoodStoreScope(
+            store: _store,
+            // Read at call time, not captured: the sheet asks again on every
+            // notify, so these must answer with the store's state of THAT
+            // moment. `favorites` hands out the store's own list instance —
+            // the sheet uses its identity as the change fingerprint.
+            mealsOfSelectedDay: () =>
+                _store.mealsForFoodDate(_store.selectedFoodDate),
+            favorites: () => _store.favorites,
+            child: MealEditScope(
+              onUpdateMeal: _store.updateLoggedMealDetails,
               onRemoveMeal: _store.removeLoggedMeal,
-              onSettingsPressed: _openSettings,
-              onProfilePressed: _openProfile,
-              profileInitial: _store.profileInitial,
-              // Trends measure "goal hit" against goal + step bonus, like
-              // the Today tab (F7-05).
-              trendBurnedKcalFor: _store.burnedKcalForFoodDate,
-              addSlotRequest: _addSlotRequest,
+              child: MealAnalysisScreen(
+                analyzer: widget.mealAnalyzer,
+                productService: widget.productService,
+                photoInput: widget.photoInput,
+                cameraLauncher: widget.mealCameraLauncher,
+                selectedDate: _store.selectedFoodDate,
+                onDateSelected: (date) => _store.setFoodDate(date),
+                dayLoading: _store.isLoadingFoodDay(_store.selectedFoodDate),
+                dailyConsumedKcal:
+                    _store.consumedKcalForFoodDate(_store.selectedFoodDate),
+                profile: _store.profile,
+                favorites: _store.favorites,
+                loggedMeals: _store.mealsForFoodDate(_store.selectedFoodDate),
+                onAddMeal: (result, slot) =>
+                    _store.addResultToDailyTotal(result, slot: slot),
+                onUpdateMeal: _store.updateLoggedMealResult,
+                isFavorite: _store.isFavorite,
+                onToggleFavorite: _store.toggleFavorite,
+                onRemoveFavorite: _store.removeFavorite,
+                onRemoveMeal: _store.removeLoggedMeal,
+                onSettingsPressed: _openSettings,
+                onProfilePressed: _openProfile,
+                profileInitial: _store.profileInitial,
+                // Trends measure "goal hit" against goal + step bonus, like
+                // the Today tab (F7-05).
+                trendBurnedKcalFor: _store.burnedKcalForFoodDate,
+                addSlotRequest: _addSlotRequest,
+              ),
             ),
           );
         },
@@ -625,6 +640,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         // for the "fits your goal" filter.
         selector: () => (
           _store.userRecipes,
+          // The flag flips with the boot answer and gates the photo sweep
+          // (P3-04b); without it in the slice the screen could miss the flip.
+          _store.userRecipesAuthoritative,
           _store.profile,
           _store.macroProgress,
         ),
@@ -638,6 +656,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               slot: slot,
             ),
             initialUserRecipes: _store.userRecipes,
+            // Only after the boot load answered is the list complete enough
+            // to conclude that a photo has no recipe left (P3-04b).
+            userRecipesAuthoritative: _store.userRecipesAuthoritative,
             // Persistence only with real sync (test/preview: session-local).
             onCreateRecipe:
                 widget.sync == null ? null : _store.createUserRecipe,
@@ -721,10 +742,12 @@ class _BootUnansweredScreen extends StatelessWidget {
               children: <Widget>[
                 Icon(Icons.cloud_off_rounded, size: 40, color: t.ink2),
                 const SizedBox(height: 18),
-                // `header: true` lets a screen reader jump to the screen
-                // title, as in the sheets.
-                Semantics(
-                  header: true,
+                // Screen title, so rank 1 — the shared widget adds the
+                // `header` trait AND the rank a hand-written Semantics
+                // cannot express (P9-06b). Type stays display-22: this is an
+                // a11y fix, not a design change.
+                HeadingSemantics(
+                  level: 1,
                   child: Text(
                     l10n.commonBootUnansweredTitle,
                     textAlign: TextAlign.center,

@@ -1,6 +1,8 @@
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/app/auth_gate.dart';
 import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/lifetime_stats.dart';
@@ -239,6 +241,73 @@ void main() {
 
     expect(health.resetCalls, 1);
     expect(store.healthAuthState, HealthAuthState.unknown);
+  });
+
+  // P1-03: the sign-out button declares the intent BEFORE signOutCleanup and
+  // never renews it, but the cleanup runs sequentially through
+  // kSignOutDeliveryBudget (replay) + kSignOutDeliveryBudget (stats flush) +
+  // kCacheSnapshotWaitBudget (snapshot) — 53 s against a 30 s intent. A silent
+  // socket is enough; at the 20 s PostgREST timeout it is already 40 s. Past
+  // the deadline `consume()` said false and the gate reported „Deine Sitzung
+  // ist abgelaufen" after a DELIBERATE sign-out.
+  //
+  // The clock is moved instead of really waiting: mark/refresh/consume all
+  // read `clock.now()`, so the fixed clock reproduces exactly the elapsed time
+  // the budgets allow, without the test running for a minute.
+  group('P1-03 — die Abmelde-Absicht überlebt das Aufräumen', () {
+    final aufraeumdauer = kSignOutDeliveryBudget * 2 + kCacheSnapshotWaitBudget;
+
+    test(
+        'ein Aufräumen über die volle Frist hinaus bleibt eine gewollte '
+        'Abmeldung', () async {
+      addTearDown(IntentionalSignOut.clear);
+      final cache = LocalCache(InMemoryKeyValueStore(), 'user-signout');
+      final store = _storeWith(cache);
+      final start = DateTime(2026, 8, 29, 10);
+      var jetzt = start;
+
+      await withClock(Clock(() => jetzt), () async {
+        IntentionalSignOut.mark();
+        // What the cleanup is allowed to cost on a silent socket.
+        jetzt = start.add(aufraeumdauer);
+        await store.signOutCleanup();
+        // `signOut` and the auth event follow right after.
+        jetzt = jetzt.add(const Duration(seconds: 1));
+
+        expect(
+          IntentionalSignOut.consume(),
+          isTrue,
+          reason: 'nach ${aufraeumdauer.inSeconds}s Aufräumen (Frist: '
+              '${IntentionalSignOut.gueltigkeit.inSeconds}s) meldete der Gate '
+              'sonst einen Sitzungsverlust — nach einem Druck auf „Abmelden"',
+        );
+      });
+    });
+
+    test('ein Aufräumen ohne erklärte Absicht erfindet keine', () async {
+      addTearDown(IntentionalSignOut.clear);
+      final cache = LocalCache(InMemoryKeyValueStore(), 'user-signout');
+      final store = _storeWith(cache);
+
+      // Exactly the involuntary case: the session is gone, the cleanup runs,
+      // and the user must still be told why.
+      await store.signOutCleanup();
+
+      expect(IntentionalSignOut.consume(), isFalse,
+          reason: 'sonst schaltete jedes Aufräumen den echten Verlust stumm');
+    });
+
+    test('eine zurückgezogene Absicht bleibt zurückgezogen', () async {
+      addTearDown(IntentionalSignOut.clear);
+      final cache = LocalCache(InMemoryKeyValueStore(), 'user-signout');
+      final store = _storeWith(cache);
+
+      IntentionalSignOut.mark();
+      IntentionalSignOut.clear();
+      await store.signOutCleanup();
+
+      expect(IntentionalSignOut.consume(), isFalse);
+    });
   });
 
   test('signOutCleanup ist ohne Cache ein gefahrloses No-Op', () async {

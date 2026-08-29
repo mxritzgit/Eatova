@@ -36,6 +36,9 @@ import '../services/sync_error_messages.dart';
 import '../services/sync_outbox.dart';
 import '../services/uuid.dart';
 import '../widgets/common/app_snack.dart';
+// P1-03: `signOutCleanup` is the only code that knows when the cleanup ended,
+// so it is the only place that can hand the sign-out intent back to the gate.
+import 'auth_gate.dart' show IntentionalSignOut;
 
 part 'home_store_meals.dart';
 part 'home_store_profile.dart';
@@ -210,9 +213,9 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   ///
   /// Order is FIXED because the Edge Function truncates the TAIL of
   /// `user_context` at [kCoachContextCapChars]: language hint, core values
-  /// (weight, balance, open macros), per-slot macros ([_todaysSlotSummary]),
-  /// then the food list ([_todaysFoodSummary]) — the only line the cap may
-  /// hit.
+  /// (weight, effective weight goal, balance, open macros), per-slot macros
+  /// ([_todaysSlotSummary]), then the food list ([_todaysFoodSummary]) — the
+  /// only line the cap may hit.
   String get coachContext {
     final p = profile;
     final remKcal = p.dailyKcalGoal - dailyConsumedKcal;
@@ -226,6 +229,15 @@ abstract class _HomeStoreBase extends ChangeNotifier {
       // REPLY language only.
       'App language of the user: ${_l10n.localeName}.',
       'Körpergewicht: ${p.weightKg} kg (Ziel ${p.targetWeightKg} kg).',
+      // The direction that is actually running (P9-08d). Weight and target
+      // alone left the model to infer the plan, and a stored row like "80 kg,
+      // Ziel 90 kg" on a deficit goal handed it a target ABOVE the weight next
+      // to a deficit daily goal — a contradiction it then advised on.
+      // `effectiveWeightGoal` is DERIVED, so this holds for every stored row
+      // without a save; nothing is invented here, all three values are read.
+      // German like the rest of the context, hence the fixed German bundle and
+      // not the user's — the reply language is the system prompt's business.
+      'Wirksames Gewichtsziel: ${p.effectiveWeightGoal.label(deL10n)}.',
       'Heute gegessen: $dailyConsumedKcal von ${p.dailyKcalGoal} kcal '
           '(noch $remKcal kcal übrig).',
       'Makros heute noch offen: Protein $remProt g, Kohlenhydrate $remCarbs g, '
@@ -432,6 +444,10 @@ class HomeStore extends _HomeStoreBase
   /// An error or a timeout is not an answer.
   bool _serverProfileAnswered = false;
 
+  /// The boot load of `user_recipes` has ANSWERED — a list, possibly empty.
+  /// An error, a timeout or a still-running load is not an answer.
+  bool _serverRecipesAnswered = false;
+
   /// A server load is running ([_bootFromSupabase]); the shell shows progress
   /// instead of the retry button. Also the re-entry guard of that method.
   bool _bootLoadInFlight = false;
@@ -450,6 +466,22 @@ class HomeStore extends _HomeStoreBase
       sync != null && !_hydratedFromRealSource && !_serverProfileAnswered;
 
   bool get bootLoadInFlight => _bootLoadInFlight || _bootChainInFlight;
+
+  /// True once [userRecipes] is an AUTHORITATIVE statement about which recipes
+  /// this account has — the boot load answered for that collection (P3-04b).
+  ///
+  /// Everything before is provisional, and looks exactly the same from the
+  /// outside: the ctor default, a cache slot that is legitimately empty and a
+  /// cache slot that lost its last 400 ms to a kill are all `[]`. Only the
+  /// server answer separates "the user has no recipes" from "we do not know
+  /// yet", and only after it may a consumer draw conclusions from what is
+  /// MISSING — the orphan photo sweep in `recipes_screen.dart` deletes files
+  /// on exactly that conclusion.
+  ///
+  /// Deliberately the recipe load, not the end of [_bootFromSupabase]: the six
+  /// loads answer independently, and a failed recipe load leaves the list as
+  /// provisional as it was before.
+  bool get userRecipesAuthoritative => _serverRecipesAnswered;
 
   /// Retry button of the unanswered state: runs the server load again. No-op
   /// while the boot chain or a load is running — two taps are one load.
@@ -500,9 +532,7 @@ class HomeStore extends _HomeStoreBase
     unawaited(CacheKeyProvider.consumeCacheResetNotice().then((liegtAn) {
       if (!liegtAn || _disposed) return;
       _emitSnack(
-        'Der Offline-Speicher musste neu angelegt werden. Deine Daten auf dem '
-        'Server sind unberuehrt — nur noch nicht synchronisierte Eintraege '
-        'sind verloren.',
+        _l10n.commonCacheResetNotice,
         icon: Icons.info_outline_rounded,
         duration: const Duration(seconds: 6),
       );
@@ -637,6 +667,14 @@ class HomeStore extends _HomeStoreBase
       if (cachedWeightLog != null) weightLog = cachedWeightLog;
       // Gap A: without this, airplane mode always started with an empty own
       // recipe list, because only the failing server load knew them.
+      //
+      // An EMPTY slot is adopted like any other (P3-04b): here it is a no-op
+      // anyway (the ctor default is `[]` too), and the case it looks like it
+      // could catch — a slot the 400 ms debounce never got to write — is
+      // indistinguishable from a genuinely empty one at this point. That
+      // distinction is not hydration's job and cannot be made here; only the
+      // server answer makes it, and [userRecipesAuthoritative] carries it to
+      // the one consumer that draws conclusions from a missing entry.
       if (cachedRecipes != null) _userRecipes = cachedRecipes;
       // Merge, not assign: an early health refresh may already have written
       // today before hydration finished — the newer in-memory value wins for
@@ -792,6 +830,9 @@ class HomeStore extends _HomeStoreBase
 
       final loadedRecipes = results[5] as List<FitnessRecipe>?;
       if (loadedRecipes != null) {
+        // The server named the account's recipes; from here the list is a
+        // statement, not a guess ([userRecipesAuthoritative], P3-04b).
+        _serverRecipesAnswered = true;
         _userRecipes = vorher.userRecipesVersion == _userRecipesVersion
             ? _mergeUserRecipes(loadedRecipes)
             : _mergeRacedLoad(

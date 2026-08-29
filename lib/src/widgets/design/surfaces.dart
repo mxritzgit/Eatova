@@ -9,6 +9,48 @@ import '../../theme/app_tokens.dart';
 // [AppTokens], type only from [AppType].
 // ---------------------------------------------------------------------------
 
+/// Marks [child] as a heading, so screen readers can jump to it.
+///
+/// Flutter sets no heading flag on its own — neither [Text] nor a large type
+/// style implies one — so every jump mark in the app comes from here.
+///
+/// The rank scheme (review 2026-08-29):
+///   1  the title of a screen or sheet — [ScreenTitle], [PageHeader],
+///   2  a section inside it — [SectionHeading], the [SettingsGroup] caption.
+///
+/// `header` is the trait TalkBack and VoiceOver navigate by; `headingLevel`
+/// adds the rank on top (`aria-level` on web, `isHeading` on Android) and is
+/// ignored where the platform has no notion of it.
+///
+/// `container: true` is load-bearing, not decoration. Every child of a
+/// [ListView] is wrapped in an `IndexedSemantics`, which absorbs all compatible
+/// descendants into a single node — on the settings page the back button and
+/// the page title were one node reading "Zurück Einstellungen". Without a node
+/// of its own the heading would inherit that whole label, and the jump mark
+/// would announce the neighbours too.
+///
+/// Wrap the title text ONLY. Put this around a row that also holds a back
+/// button or an action and their tap actions land inside the heading node (the
+/// pattern that bit PR #53).
+class HeadingSemantics extends StatelessWidget {
+  const HeadingSemantics({
+    super.key,
+    required this.level,
+    required this.child,
+  }) : assert(level >= 1 && level <= 6, 'Heading level must be between 1 and 6');
+
+  final int level;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        container: true,
+        header: true,
+        headingLevel: level,
+        child: child,
+      );
+}
+
 /// The base surface: calm card, 1 px border, no shadow.
 class AppCard extends StatelessWidget {
   const AppCard({
@@ -68,7 +110,15 @@ class ScreenTitle extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Text(title, style: AppType.display(30, color: t.ink, height: 1.1)),
+              // Title only: the subtitle is context, and [trailing] keeps its
+              // own node with its own tap action.
+              HeadingSemantics(
+                level: 1,
+                child: Text(
+                  title,
+                  style: AppType.display(30, color: t.ink, height: 1.1),
+                ),
+              ),
               if (subtitle != null) ...<Widget>[
                 const SizedBox(height: 3),
                 Text(
@@ -102,10 +152,15 @@ class SectionHeading extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.end,
       children: <Widget>[
         Expanded(
-          child: Text(
-            title,
-            style:
-                AppType.display(17, weight: FontWeight.w700, color: t.ink),
+          // One rank below the screen title; the muted [trailing] is no jump
+          // mark of its own.
+          child: HeadingSemantics(
+            level: 2,
+            child: Text(
+              title,
+              style:
+                  AppType.display(17, weight: FontWeight.w700, color: t.ink),
+            ),
           ),
         ),
         // Flexible instead of a fixed text: at textScaler 2.0 the trailing

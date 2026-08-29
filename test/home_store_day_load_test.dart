@@ -428,15 +428,24 @@ void main() {
   // hour short, so the 35-day edge day counted as 34, was wrongly treated as
   // loaded and stayed empty forever.
   //   DateTime(2026,4,20).difference(DateTime(2026,3,16)).inDays == 34
+  //
+  // P1-06: boot query, window predicate and cache filter used to measure
+  // against two different clocks — `_isOutsideBootWindow` on `clock.now()`, the
+  // query on `DateTime.now()`. Under `withClock` they diverged, so no test
+  // could prove the invariant "a day the store treats as INSIDE the window was
+  // really loaded". The whole group therefore boots INSIDE the fixed clock.
   group('B5 — Fenstergrenze ueber die Fruehjahrsumstellung', () {
+    final umstellung = Clock.fixed(DateTime(2026, 4, 20, 10));
+
     test(
         'der Randtag (35 Kalendertage zurueck) wird nachgeladen, auch wenn '
         'die Umstellung dazwischen liegt', () async {
       final s = _setup();
-      await _boot(s.store);
-      expect(s.server.dayReads, isEmpty);
 
-      await withClock(Clock.fixed(DateTime(2026, 4, 20, 10)), () async {
+      await withClock(umstellung, () async {
+        await _boot(s.store);
+        expect(s.server.dayReads, isEmpty);
+
         s.store.setFoodDate(DateTime(2026, 3, 16));
         await _settle();
       });
@@ -456,15 +465,87 @@ void main() {
     test('ein Tag INNERHALB des Fensters loest weiterhin keinen Load aus',
         () async {
       final s = _setup();
-      await _boot(s.store);
 
-      await withClock(Clock.fixed(DateTime(2026, 4, 20, 10)), () async {
-        // 34 calendar days back: covered by the boot query.
+      await withClock(umstellung, () async {
+        await _boot(s.store);
+        // 34 calendar days back, and the boot ran on the SAME clock — so this
+        // day really is covered by the boot query, as the next test proves.
         s.store.setFoodDate(DateTime(2026, 3, 17));
         await _settle();
       });
 
       expect(s.server.dayReads, isEmpty);
+    });
+
+    // The invariant itself, not just the predicate: the day the store declares
+    // INSIDE the window must carry the rows the boot query actually brought
+    // back. Rows on both sides of the edge, so a window silently shifted in
+    // either direction is visible.
+    //
+    // 'ausserhalb' sits at 00:30 on the boundary day, i.e. BEFORE the cutoff
+    // timestamp (now - 35 days, around 10:00 local): the boundary day is only
+    // partially covered, which is exactly why the predicate counts it as
+    // outside and reloads it in full. The gap between 00:30 and 10:00 is far
+    // wider than any zone/DST offset, so the setup holds in every zone.
+    test(
+        'was der Store als „im Fenster" fuehrt, hat der Boot-Load auch '
+        'wirklich geholt', () async {
+      final s = _setup();
+      s.server.mealRows['im-fenster'] = _serverMealRow(
+          'im-fenster', DateTime(2026, 3, 17, 12),
+          kcal: 410, name: 'Randnah');
+      s.server.mealRows['ausserhalb'] = _serverMealRow(
+          'ausserhalb', DateTime(2026, 3, 16, 0, 30),
+          kcal: 380, name: 'Randtag');
+
+      await withClock(umstellung, () async {
+        await _boot(s.store);
+
+        // The boot load brought back exactly the row inside the window.
+        expect(s.store.loggedMeals.map((m) => m.id), <String>['im-fenster'],
+            reason: 'die Boot-Query muss dieselbe Uhr benutzen wie das '
+                'Fenster-Praedikat — sonst behauptet der Store „geladen" '
+                'ueber einen Tag, den der Server nie geschickt hat');
+
+        // P1-06b: the write-through filter is the THIRD place this window is
+        // computed (_cacheableLoggedMeals). On `DateTime.now()` it drifted
+        // against the two above, so a row loaded and led as „im Fenster" fell
+        // out of the durable cache — and the next offline cold start showed
+        // the day empty although nobody ever left the window.
+        //
+        // A logged meal is what triggers the write-through; the boot snapshot
+        // stays out because this fake server answers /profiles empty and the
+        // store writes no snapshot without a real hydration source.
+        s.store.setFoodDate(DateTime(2026, 4, 20));
+        final heuteId = s.store.addResultToDailyTotal(_result('Fenster-Bowl'));
+        await _settle();
+        s.store.flushPendingWrites();
+        await _settle();
+        expect((await s.cache.readLoggedMeals())?.map((m) => m.id),
+            containsAll(<String>['im-fenster', heuteId]),
+            reason: 'was im Fenster liegt, gehoert auch in den durablen '
+                'Cache — sonst ist der Offline-Bestand nach dem naechsten '
+                'Kaltstart lueckenhaft');
+
+        // And the store treats the day as inside the window: no reload …
+        s.store.setFoodDate(DateTime(2026, 3, 17));
+        await _settle();
+        expect(s.server.dayReads, isEmpty,
+            reason: 'ein Tag im Fenster wird nicht nachgeladen');
+        // … and it is still not empty.
+        expect(s.store.mealsForFoodDate(DateTime(2026, 3, 17)).map((m) => m.id),
+            <String>['im-fenster'],
+            reason: 'genau das ist die Invariante: im Fenster gefuehrt UND '
+                'geladen — sonst bleibt der Tag dauerhaft leer');
+        expect(s.store.consumedKcalForFoodDate(DateTime(2026, 3, 17)), 410);
+
+        // Counter-check: the day outside arrives only on demand.
+        s.store.setFoodDate(DateTime(2026, 3, 16));
+        await _settle();
+        expect(s.server.dayReads, hasLength(1));
+        expect(s.store.mealsForFoodDate(DateTime(2026, 3, 16)).map((m) => m.id),
+            <String>['ausserhalb']);
+      });
     });
   });
 }

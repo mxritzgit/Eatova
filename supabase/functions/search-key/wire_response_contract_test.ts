@@ -13,9 +13,31 @@
 //
 // This test loads `index.ts` unchanged (intercepting Deno.serve to grab the
 // real handler), feeds it a real Request, and runs the real body through a
-// faithful replica of the Dart parser, asserting it does not yield `null`.
-// The three field names live once in KLIENT_FELDER and are cross-checked
-// against the real Dart source where read permission allows.
+// replica of the Dart parser, asserting it does not yield `null`.
+//
+// WHAT THIS FILE CAN AND CANNOT SEE. It runs the REAL function against a
+// REPLICA client, so it catches a rename on the SERVER side only. KLIENT_FELDER
+// below is a constant in this file, not a reading of the Dart source, so a
+// rename in the CLIENT cannot turn it red — this file would keep asserting the
+// old names against a function that still emits them, and stay green while the
+// contract broke.
+//
+// That other direction lives in `test/wire_search_key_envelope_test.dart`,
+// which runs inside `flutter test` (a required check, with file access):
+// it EXTRACTS the field names from `search_credentials.dart`, requires
+// `index.ts` to emit every one of them, and additionally serves a body built from
+// the FUNCTION's names to the REAL `EdgeFunctionSearchKeyFetcher` over
+// loopback. Between the two files each side is once real and once replicated.
+//
+// This file previously carried a sixth test that read the Dart source itself.
+// It asked `Deno.permissions.query` for read access and returned silently
+// without it — and CI runs `deno test --allow-env` (see
+// .github/workflows/security.yml), so it never once executed there while still
+// reporting `ok`. It was removed rather than granted `--allow-read`: the Dart
+// test states the same thing more sharply (extraction instead of a hand-written
+// constant), and the whole Deno suite deliberately runs without file access —
+// `tenant_token_test.ts` documents its string-literal import specifiers on
+// exactly that basis.
 //
 // Runs with `deno test --allow-env` like CI. No network: `Deno.serve` never
 // executes.
@@ -27,8 +49,9 @@ const MIRROR_URL = "https://eatova.test.invalid/meili";
 const MIRROR_KEY = "test-search-only-key-0123456789";
 const TTL = "43200";
 
-/** Fields the Dart client reads from the body. Source:
- *  lib/src/services/search_credentials.dart, `_fetch()`. */
+/** Fields the Dart client reads from the body. Mirrored by hand from
+ *  lib/src/services/search_credentials.dart, `_fetch()`; kept in step by
+ *  test/wire_search_key_envelope_test.dart, which reads that source for real. */
 const KLIENT_FELDER = {
   baseUrl: "mirrorBaseUrl",
   searchKey: "searchKey",
@@ -279,35 +302,6 @@ Deno.test("search-key: der Key steht nie im Log", async () => {
     wiederherstellen();
   }
 });
-
-Deno.test(
-  "search-key: die Feldnamen stimmen mit dem Dart-Client ueberein",
-  async () => {
-    // Guards against a fake built from the same mental model: KLIENT_FELDER
-    // is checked against the real client source, not the function. Without
-    // read permission (CI runs `deno test --allow-env`) the assertions above
-    // still catch a rename on their own.
-    const pfad = "../../../lib/src/services/search_credentials.dart";
-    const url = new URL(pfad, import.meta.url);
-    const erlaubt = await Deno.permissions.query({ name: "read", path: url });
-    if (erlaubt.state !== "granted") {
-      console.log(
-        "uebersprungen: kein --allow-read (Quervergleich mit " +
-          "search_credentials.dart entfaellt)",
-      );
-      return;
-    }
-
-    const quelle = await Deno.readTextFile(url);
-    for (const feld of Object.values(KLIENT_FELDER)) {
-      assert(
-        quelle.includes(`decoded['${feld}']`),
-        `search_credentials.dart liest "${feld}" nicht mehr — Function und ` +
-          "Client sind auseinandergelaufen.",
-      );
-    }
-  },
-);
 
 Deno.test(
   "Sentinel-Rest E6: kaputter Rate-Limit-Shape -> 500 rate_limit_unavailable statt erfundenem 429",

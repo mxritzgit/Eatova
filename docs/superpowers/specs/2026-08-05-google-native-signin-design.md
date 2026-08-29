@@ -1,6 +1,6 @@
 # Design: Nativer Google Sign-In — „Eatova" statt „…supabase.co"
 
-**Datum:** 2026-08-05 · **Status:** Design freigegeben, Infrastruktur erledigt, Implementierung offen
+**Datum:** 2026-08-05 · **Status:** implementiert und live (`lib/src/auth/google_id_token_provider.dart`) · **zuletzt geprüft:** 2026-08-29 (Review-Fixlauf, P4-01/P4-04)
 
 ## Problem
 
@@ -47,9 +47,18 @@ AuthScreen ──signInWithOAuth(google)──▶ SupabaseAuthRepository
 ```
 
 - **`GoogleIdTokenProvider`** (neu, `lib/src/auth/google_id_token_provider.dart`): schmales Interface + Produktiv-Implementierung auf `google_sign_in` v7 (`GoogleSignIn.instance.initialize(serverClientId: <Web-ID>, clientId: <iOS-ID, nur Apple-Plattformen>)`, dann `authenticate()` → `authentication.idToken`). Lazy-Init beim ersten Aufruf.
+- **Lazy-Init merkt sich nur den ERFOLG** (`RetryableInitialization`, seit 2026-08-29 · P4-04): `initialize()` darf pro Prozess nur einmal laufen, das Ergebnis muss also zwischengespeichert werden — ein `??=` speicherte aber auch den **Fehlschlag**. Nach einem einmaligen Aussetzer (Play Services im Update, frisch geflashtes Gerät, Work-Profil) lief danach jeder Login bis zum App-Neustart in den Web-OAuth-Sheet, also genau in die Domain-Anzeige, die dieser Flow vermeiden soll. Ein gescheiterter Lauf wird jetzt verworfen; parallele Aufrufe teilen sich weiterhin **einen** Lauf.
 - **`SupabaseAuthRepository`**: bekommt den Provider injiziert (Default = Produktiv-Impl); `signInWithOAuth` verzweigt nur bei `EatovaOAuthProvider.google` in den nativen Pfad. Apple läuft unverändert durch den bestehenden Code.
 - **Fallback-Prinzip:** Der Login darf nie kaputter sein als heute. Technische Fehler des nativen Flows (fehlende Play Services, Propagation, etc.) → alter Web-Flow. Nur expliziter User-Abbruch bricht ab.
-- **Nonce:** `google_sign_in` unterstützt kein Nonce; Supabase akzeptiert Google-ID-Tokens ohne Nonce (`skip_nonce_check` bleibt false).
+
+### Nonce — bewusst keiner (Stand 2026-08-29, Review-Befund P4-01)
+
+Die ursprüngliche Begründung an dieser Stelle — „`google_sign_in` unterstützt kein Nonce" — ist **veraltet und war so nie ganz richtig**: `GoogleSignIn.initialize()` nimmt in 7.2.0 ein `nonce` entgegen, und `signInWithIdToken` hat den Parameter ebenfalls. Der Flow bleibt trotzdem ohne Nonce, aus zwei unabhängigen Gründen:
+
+1. **Ein Nonce wäre hier technisch wirkungslos.** `initialize()` darf laut API-Vertrag *genau einmal pro Prozess* laufen („Clients must call this method exactly once", `google_sign_in-7.2.0/lib/google_sign_in.dart:289-318`), und `authenticate()` nimmt selbst keins entgegen (`:541`). Ein gesetztes Nonce wäre damit eine **Prozess-Konstante**, die für jeden Anmeldeversuch derselben App-Sitzung identisch ist — es könnte also genau das nicht, wofür ein Nonce da ist: einen einzelnen Versuch binden.
+2. **Es schließt keine Lücke.** Der ursprünglich vermutete Sicherheitsaspekt wurde in der Verifikation **widerlegt**: Client und Prüfer sind hier derselbe Akteur (die App wählt das Nonce frei und liefert es an beide Seiten), GoTrue prüft es ausweislich `gotrue_client.dart:497-498` ohnehin nur, *wenn das Token überhaupt eins trägt* („If the ID token contains a nonce claim") — ein Angreifer fordert das Token also einfach ohne an —, und der Anon-Key steht öffentlich im Client. Ein Nonce hier ist Kosmetik, keine Härtung, und darf auch nicht als solche verkauft werden.
+
+Serverseitig bleibt `skip_nonce_check` unverändert **false**; Supabase akzeptiert Google-ID-Tokens ohne Nonce, das ist der dokumentierte Normalfall des nativen Flows.
 
 ## Code-Änderungen
 

@@ -182,8 +182,11 @@ void main() {
         return box.decoration! as BoxDecoration;
       }
 
-      expect(decoFor('kg').color, AppTokens.light.forest);
-      expect(decoFor('lb').color, isNot(AppTokens.light.forest));
+      // Selection language since P9-02: `ink`, not `forest` — the latter is
+      // itself a dark surface and vanishes in dark mode
+      // (review0829_selection_contrast_test).
+      expect(decoFor('kg').color, AppTokens.light.ink);
+      expect(decoFor('lb').color, Colors.transparent);
     });
   });
 
@@ -206,7 +209,7 @@ void main() {
       expect(taps, 1);
     });
 
-    testWidgets('ausgewaehlt wechselt die Flaeche auf forest', (tester) async {
+    testWidgets('ausgewaehlt wechselt die Flaeche auf ink', (tester) async {
       Material materialOf() => tester.widget<Material>(
             find
                 .descendant(
@@ -232,7 +235,7 @@ void main() {
           ),
         ),
       );
-      expect(materialOf().color, AppTokens.light.forest);
+      expect(materialOf().color, AppTokens.light.ink);
     });
   });
 

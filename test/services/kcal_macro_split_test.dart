@@ -142,6 +142,9 @@ void main() {
         ageYears: 16,
         sex: BiologicalSex.male,
         activityLevel: ActivityLevel.athlete,
+        // Wunschgewicht UEBER dem heutigen: seit P9-08d rechnet calculate mit
+        // dem wirksamen Ziel, und eine Zunahme auf 78 kg bei 85 kg ist keine.
+        targetWeightKg: 95,
         weightGoal: WeightGoal.gain05kg,
       );
       final t = calc.calculate(decke);
@@ -165,6 +168,7 @@ void main() {
         ageYears: 16,
         sex: BiologicalSex.male,
         activityLevel: ActivityLevel.athlete,
+        targetWeightKg: 95,
         weightGoal: WeightGoal.gain05kg,
       );
       final t = calc.calculate(maximal);

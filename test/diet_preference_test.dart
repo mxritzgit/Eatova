@@ -22,7 +22,8 @@ void main() {
     final lachs = _byTitle('Lachs mit Süßkartoffel & Spargel'); // fish
     final rind = _byTitle('Rindersteak mit Kartoffeln & Bohnen'); // meat
     final tofu = _byTitle('Tofu mit Reis & Edamame'); // vegetarian tag
-    final omelett = _byTitle('Omelett mit Spinat & Avocado'); // egg, no tag
+    // Egg dish; carries the `Vegetarisch` tag since P2-03.
+    final omelett = _byTitle('Omelett mit Spinat & Avocado');
 
     test('none erlaubt jedes Rezept', () {
       for (final r in fitnessRecipes) {
@@ -81,6 +82,74 @@ void main() {
       expect(veg, isNot(contains('Rindersteak mit Kartoffeln & Bohnen')));
       expect(veg, isNot(contains('Garnelen mit Vollkornnudeln & Zucchini')));
       expect(veg, contains('Tofu mit Reis & Edamame'));
+    });
+  });
+
+  // P2-03 (Review 2026-08-29): Filter-Chip und Empfehlung widersprachen sich.
+  // `matchesDiet` liess das Omelett ueber `isMeat == false` durch und empfahl
+  // es Vegetariern aktiv, waehrend der Chip `categories.contains('Vegetarisch')`
+  // auswertet und es ausblendete — dasselbe Gericht, zwei Antworten.
+  group('Katalog-Tags und matchesDiet sagen dasselbe (P2-03)', () {
+    for (final (sprache, katalog) in <(String, List<FitnessRecipe>)>[
+      ('de', recipeCatalogDe),
+      ('en', recipeCatalogEn),
+    ]) {
+      test('$sprache: vegetarisch empfohlen == unter dem Chip auffindbar', () {
+        for (final r in katalog) {
+          expect(
+            r.matchesDiet(DietPreference.vegetarian),
+            r.categories.contains('Vegetarisch'),
+            reason: '${r.slug}: Chip und Empfehlung widersprechen sich '
+                '(${r.categories}).',
+          );
+        }
+      });
+
+      test('$sprache: jedes vegane Rezept traegt auch den Vegetarisch-Tag', () {
+        // Sonst faende der Vegetarisch-Chip die veganen Teller nicht.
+        for (final r in katalog.where((r) => r.categories.contains('Vegan'))) {
+          expect(r.categories, contains('Vegetarisch'), reason: r.slug);
+        }
+      });
+
+      test('$sprache: 12 fleisch- und fischfreie Rezepte, alle getaggt', () {
+        // Nachgezaehlt: 11 trugen den Tag schon, das Omelett kam mit P2-03
+        // dazu. Der Befund nannte "10 von 11" — beide Zahlen waren um eins
+        // daneben, die Richtung stimmte.
+        final vegetarisch = katalog
+            .where((r) => r.matchesDiet(DietPreference.vegetarian))
+            .toList(growable: false);
+        expect(vegetarisch, hasLength(12));
+        expect(katalog.where((r) => r.categories.contains('Fisch')),
+            hasLength(6));
+      });
+    }
+
+    test('ein Fleischgericht OHNE Hauptgericht/High-Protein-Tag wird '
+        'Vegetariern nicht empfohlen', () {
+      // Nebenbefund derselben Wurzel: `isMeat` hing frueher an
+      // `Hauptgericht`/`High Protein`. Ein kuenftiges Speck-Fruehstueck mit nur
+      // `Frühstück` waere als diaet-neutral durchgerutscht.
+      const speckfruehstueck = FitnessRecipe(
+        slug: 'speck_und_ei',
+        title: 'Speck & Ei',
+        description: 'd',
+        portion: '1',
+        ingredients: 'Speck',
+        preparation: 'p',
+        professionalHint: 'h',
+        imageAsset: '',
+        caloriesKcal: 500,
+        proteinG: 25,
+        carbsG: 10,
+        fatG: 40,
+        estimatedGrams: 300,
+        categories: <String>['Frühstück', 'Low Carb'],
+      );
+      expect(speckfruehstueck.matchesDiet(DietPreference.vegetarian), isFalse);
+      expect(speckfruehstueck.matchesDiet(DietPreference.pescetarian), isFalse);
+      expect(speckfruehstueck.matchesDiet(DietPreference.vegan), isFalse);
+      expect(speckfruehstueck.matchesDiet(DietPreference.none), isTrue);
     });
   });
 

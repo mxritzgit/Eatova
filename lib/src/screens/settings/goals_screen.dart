@@ -197,8 +197,58 @@ class _GoalsScreenState extends State<GoalsScreen> {
   String? get _heightError =>
       _fehler(_height, isValidProfileHeightCm, _bereichCm);
   String? get _ageError => _fehler(_age, isValidProfileAgeYears, _bereichAlter);
+
+  /// The current weight as a number, or `null` while the field is empty or out
+  /// of range — the target-weight comparison below then stays silent, since
+  /// there is nothing to compare against and the weight field already shows its
+  /// own error.
+  int? get _gueltigesGewicht {
+    final wert = int.tryParse(_weight.text.trim());
+    return (wert != null && isValidProfileWeightKg(wert)) ? wert : null;
+  }
+
+  /// Only the range of the DB column (30..300). The consistency rule — losing
+  /// aims BELOW today's weight, gaining ABOVE it — is NOT an error here, see
+  /// [_zielErreicht].
   String? get _targetWeightError =>
       _fehler(_targetWeight, isValidProfileTargetWeightKg, _bereichKg);
+
+  /// The target weight as a number, or `null` while it is empty or out of
+  /// range — [_targetWeightError] carries that case.
+  int? get _gueltigesZielgewicht {
+    final wert = int.tryParse(_targetWeight.text.trim());
+    return (wert != null && isValidProfileTargetWeightKg(wert)) ? wert : null;
+  }
+
+  /// The chosen goal has nothing left to do: the current weight is at or past
+  /// the target (`hasReachedTargetWeight`, one rule with the onboarding).
+  ///
+  /// This used to be a blocking field error, and it locked the WHOLE page — no
+  /// step goal, no reminders — the moment someone typed the weight they had
+  /// worked for: 80 kg, target 75, "Abnehmen", weighs 74 today (P9-08e).
+  /// Reaching a target is the normal course of a weight app, not a typo.
+  ///
+  /// `false` while either number is missing or out of range: there is nothing
+  /// to compare, and the field with the range error says so itself.
+  bool get _zielErreicht {
+    final gewicht = _gueltigesGewicht;
+    final ziel = _gueltigesZielgewicht;
+    if (gewicht == null || ziel == null) return false;
+    return hasReachedTargetWeight(_goal, gewicht, ziel);
+  }
+
+  /// The congratulation that replaced the lock, or `null`. Says out loud what
+  /// saving will do, so switching the plan to "hold" is announced, not silent.
+  String? get _zielErreichtHinweis {
+    if (!_zielErreicht) return null;
+    final l10n = context.l10n;
+    final gewicht = _gueltigesGewicht!;
+    final ziel = _gueltigesZielgewicht!;
+    return _goal.isGain
+        ? l10n.goalsTargetWeightReachedGain(gewicht, ziel)
+        : l10n.goalsTargetWeightReachedLose(gewicht, ziel);
+  }
+
   String? get _stepsError =>
       _fehler(_steps, isValidDailyStepsGoal, _bereichSchritte);
 
@@ -243,6 +293,15 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
   /// Profile with the calorie-relevant fields only — the basis for the live
   /// calculation (energy fields do NOT feed into calculate()).
+  ///
+  /// It carries [_goal] unchanged, i.e. the user's INTENT. A direction the two
+  /// weights no longer support turns into "hold" one level down, inside
+  /// `KcalCalculator.calculate`, which reads
+  /// [UserProfileWeightPlan.effectiveWeightGoal] (P9-08d). So plan hero, picker
+  /// outcomes, weight-goal row and the SAVED energy goals all say the same
+  /// thing, and no deficit plan can leave the page — while the chosen direction
+  /// stays stored, which is what makes the way out in [_zielErreichtHinweis]
+  /// ("enter a lower target weight") work at all.
   UserProfile _draftForCalc() {
     final p = widget.profile;
     return p.copyWith(
@@ -266,6 +325,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
   KcalTargets get _liveTargets =>
       const KcalCalculator().calculate(_draftForCalc());
 
+  /// The goal the plan on this page can act on — "hold" while the target is
+  /// reached, the chosen goal otherwise. Derived from the same draft the hero
+  /// and the plan card use, so no two numbers on the page can drift apart while
+  /// a field is out of range.
+  WeightGoal get _wirksamesZiel => _draftForCalc().effectiveWeightGoal;
+
   // --- Pace: choice vs. plan (B2) ------------------------------------------
   //
   // The plan card shows the effective pace, the goal row the promised one.
@@ -280,6 +345,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
   String _zielFolge(WeightGoal option) {
     final l10n = context.l10n;
     if (_manualEnergy) return l10n.goalsManualNoChangeHint;
+    // Through the same derivation as the plan hero (calculate() reads the
+    // effective goal): while the target is reached, picking a pace changes
+    // nothing, and a row promising a deficit would be a button that lies.
     final t = const KcalCalculator()
         .calculate(_draftForCalc().copyWith(weightGoal: option));
     return l10n.commonKcalOutcomeLabel(t.kcal, t.effectivePaceLabel(l10n));
@@ -289,14 +357,17 @@ class _GoalsScreenState extends State<GoalsScreen> {
   /// label as the plan card.
   ///
   /// Compares **strings**, not numbers: the user sees text, and the explanation
-  /// is needed exactly when two different texts are on screen.
+  /// is needed exactly when two different texts are on screen. Compared against
+  /// the pace the ROW shows ([_wirksamesZiel]), not against the stored choice —
+  /// otherwise a reached target would put three different pace strings on one
+  /// screen instead of connecting two.
   String? _zielAbweichung({required int tagesziel, required KcalTargets t}) {
     final l10n = context.l10n;
     final label = paceLabelForWeeklyRateKg(
       wochenrateKg(tagesziel: tagesziel, erhaltung: t.maintenanceKcal),
       l10n,
     );
-    if (label == _goal.paceLabel(l10n)) return null;
+    if (label == _wirksamesZiel.paceLabel(l10n)) return null;
     return l10n.commonKcalOutcomeLabel(tagesziel, label);
   }
 
@@ -597,6 +668,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
         ) !=
         null;
     final abweichung = _zielAbweichung(tagesziel: heroKcal, t: ziele);
+    final zielErreicht = _zielErreichtHinweis;
 
     return <Widget>[
       SettingsGroup(
@@ -617,6 +689,20 @@ class _GoalsScreenState extends State<GoalsScreen> {
             errorText: _targetWeightError,
             onChanged: (_) => _recompute(),
           ),
+          // Where the blocking consistency error used to sit: the same state,
+          // told as what it is (P9-08e). Accent, not danger — the boxed note
+          // writes in `ink` either way, so the tone is the glyph and the frame.
+          if (zielErreicht != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              child: SettingsNote(
+                zielErreicht,
+                key: const ValueKey('settings-target-reached'),
+                tone: t.accent,
+                icon: Icons.emoji_events_rounded,
+                boxed: true,
+              ),
+            ),
           if (zeigtBmiHinweis)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
@@ -632,10 +718,15 @@ class _GoalsScreenState extends State<GoalsScreen> {
               SettingsRow(
                 key: const ValueKey('settings-weight-goal'),
                 title: l10n.goalsFieldWeightGoal,
+                // The CHOICE, so the row and the picker that opens from it
+                // agree on what is selected.
                 subtitle: _goal.label(l10n),
-                // Stays the CHOSEN pace: the row shows what the user picked;
-                // what it turns into is the line below.
-                value: _goal.paceLabel(l10n),
+                // The pace the plan really runs at. Normally that IS the chosen
+                // pace; once the target is reached the choice has no
+                // consequence left, and promising "−0,5 kg/Woche" right under
+                // the "goal reached, your plan switches to holding" note was
+                // the contradiction P9-08e left behind.
+                value: _wirksamesZiel.paceLabel(l10n),
                 onTap: _pickWeightGoal,
               ),
               if (abweichung != null)

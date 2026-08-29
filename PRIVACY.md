@@ -1,6 +1,6 @@
 # Privacy Policy — Eatova
 
-_Last updated: 2026-08-19_
+_Last updated: 2026-08-29_
 
 > The authoritative, always-current version of this policy (in German, covering
 > both the app and the website) lives at
@@ -40,8 +40,12 @@ You enter and the app stores the following, tied to your account:
   never uploaded to our servers, and a second device shows that recipe with a
   placeholder. Like other app documents, this on-device copy is included in your
   operating system's device backup if you use one (on iOS: the iCloud backup of
-  your device); on Android, Eatova excludes its app data from system backups
-  entirely. See "Retention" for when it is deleted.
+  your device). On Android, Eatova is excluded from cloud backups entirely —
+  neither a Google Drive backup nor an `adb` backup ever contains app data.
+  What Android does still do is carry the pictures over in a **direct
+  device-to-device transfer** to your own new phone, so you keep them when you
+  switch devices; the app's encrypted local cache and your login session are
+  excluded even there. See "Retention" for when it is deleted.
 - **Weight & progress:** your weight history and your logging streak (the run of
   consecutive days on which you logged a meal), plus lifetime counters (meals
   logged, weigh-ins recorded). Accounts created before August 2026 may still
@@ -67,8 +71,10 @@ You enter and the app stores the following, tied to your account:
   device** — it is never uploaded to our servers, and a second device shows the
   card with a placeholder. Like other app documents, this on-device copy is
   included in your operating system's device backup if you use one (on iOS:
-  the iCloud backup of your device); on Android, Eatova excludes its app data
-  from system backups entirely. See "Where it is stored and who processes it" and
+  the iCloud backup of your device); on Android it is excluded from cloud
+  backups entirely and only a direct device-to-device transfer to your own new
+  phone carries it across — exactly as described for your own recipe photos
+  above. See "Where it is stored and who processes it" and
   "Transfers outside the EU/EEA": this feature involves a transfer to the USA.
 - **Apple Health (optional, iOS only):** if you grant permission, the app reads
   your step count and body-weight history from Apple Health.
@@ -102,7 +108,9 @@ In addition, and **not** tied to your account:
 We do **not** collect advertising identifiers, location data, or contacts, and
 the app contains **no advertising SDK and no product-analytics or tracking SDK**.
 The only third-party telemetry component in the app is the crash reporter named
-above; it reports errors, not usage.
+above; it reports errors, not usage. Its automatic session tracking — which
+would report every app start and every return to the foreground — is switched
+off in the app's configuration.
 
 **Photos:** every photo the app sends out — whether taken in-app or picked from
 your gallery, for meal analysis or for the coach — is re-encoded on your device
@@ -150,8 +158,10 @@ the device, before the photo is uploaded.
 - **Sentry** (`ingest.de.sentry.io`, EU region — reports are sent to and stored
   in the EU) receives the crash diagnostics described above. The SDK is
   configured to send no personal data by default (`sendDefaultPii = false`), to
-  attach neither screenshots nor the on-screen view hierarchy, and to run
-  neither session replay nor performance tracing; only errors are reported.
+  attach neither screenshots nor the on-screen view hierarchy, to run neither
+  session replay nor performance tracing, and to keep the SDK's automatic
+  session tracking off (`enableAutoSessionTracking = false`), so no app starts,
+  foreground changes or other usage signals are sent; only errors are reported.
   Every report and every diagnostic breadcrumb additionally passes the
   allow-list filter described above before it is sent.
 - **Apple Speech Recognition** converts your spoken coach questions to text if you

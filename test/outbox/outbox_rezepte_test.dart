@@ -543,4 +543,47 @@ void main() {
         reason: 'und der Boot-Snapshot darf den Verlust nicht auch noch '
             'festschreiben');
   });
+
+  // P3-04b: `userRecipes` sieht in zwei voellig verschiedenen Lagen gleich aus
+  // — „der Nutzer hat keine Rezepte" und „wir wissen es noch nicht". Wer aus
+  // einem FEHLENDEN Eintrag etwas ableitet (die Foto-Aufraeumung loescht
+  // darauf hin Dateien), braucht die Unterscheidung; nur die Server-Antwort
+  // liefert sie. Deshalb haengt das Flag am Rezept-Load, nicht am Ende der
+  // Boot-Kette: die sechs Loads antworten unabhaengig voneinander.
+  test(
+      'P3-04b: userRecipesAuthoritative erst nach BEANTWORTETEM Rezept-Load — '
+      'ein veraltet-leerer Cache-Slot bleibt vorlaeufig', () async {
+    final kv = InMemoryKeyValueStore();
+    final s = setup(kv: kv);
+    await s.cache.writeProfile(
+        const UserProfile(weightKg: 80, onboardingCompleted: true));
+    // Genau die Lage nach dem Kill im 400-ms-Entprellfenster: der Slot steht
+    // auf leer, das Rezept liegt beim Server.
+    await s.cache.writeUserRecipes(const <FitnessRecipe>[]);
+    s.server.recipeRows['user_da'] = serverRecipeRow('user_da');
+
+    // NUR der Rezept-Load faellt aus; die anderen fuenf antworten. Genau
+    // deshalb haengt das Flag am Rezept-Load und nicht am Boot-Ende.
+    s.server.rejectRecipeReads = true;
+    await boot(s.store);
+
+    expect(s.store.userRecipes, isEmpty,
+        reason: 'Vorbedingung: die Liste ist leer, obwohl es ein Rezept gibt');
+    expect(s.store.userRecipesAuthoritative, isFalse,
+        reason: 'Der Rezept-Load hat nicht geantwortet — diese leere Liste ist '
+            'keine Aussage darueber, welche Rezepte es gibt.');
+    expect(s.server.requests.map((r) => r.url.path),
+        contains('/rest/v1/profiles'),
+        reason: 'und der Boot als ganzes lief durch: das Flag steht fuer die '
+            'EINE Sammlung, nicht fuer das Ende der Boot-Kette');
+
+    s.server.rejectRecipeReads = false;
+    await s.store.retryBoot();
+    await settle();
+
+    expect(s.store.userRecipes.map((r) => r.slug), contains('user_da'));
+    expect(s.store.userRecipesAuthoritative, isTrue,
+        reason: 'Nach der Antwort ist die Liste vollstaendig — ab hier darf '
+            'aus einem fehlenden Eintrag geschlossen werden.');
+  });
 }

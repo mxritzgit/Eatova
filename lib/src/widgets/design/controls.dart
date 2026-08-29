@@ -14,6 +14,33 @@ import '../common/motion.dart';
 // blocks appear on EVERY screen.
 // ---------------------------------------------------------------------------
 
+/// APP-WIDE SELECTION LANGUAGE of pills, chips and segments.
+///
+/// Selected = a filled [AppTokens.ink] capsule with an [AppTokens.bg] label,
+/// the same pair [PrimaryActionButton] and the themed `FilledButton` carry.
+///
+/// It used to be `forest`/`onForest`, and that was a MODE-ASYMMETRIC bug: in
+/// light mode `forest` is a near-black green on a near-white card (13.57:1),
+/// in dark mode it is itself a dark surface and the same pairing collapses to
+/// 1.34:1 against `surf`, 1.10:1 against the `tile` track and 2.59:1 between
+/// the two labels — well under the 3:1 WCAG 1.4.11 asks of the visual
+/// information that identifies a control's state. Only the fill can carry it:
+/// the `line` edge an unselected chip has is itself 1.23:1 / 1.34:1.
+///
+/// A brightness branch is not an option (repo rule, DESIGN_REFACTOR §3), so
+/// the fix has to be one pair that works in both palettes. `ink`/`bg` are
+/// opposites by definition — 16.78:1 / 14.93:1 against `surf` — and the brand
+/// reading survives: in light mode `ink` #151E18 and `forest` #123322 are the
+/// same near-black green, 1.24:1 apart. F8-02 already moved the buttons for
+/// exactly this reason; this is the same decision for the selection states.
+extension SelectionTone on AppTokens {
+  /// Fill of a SELECTED chip, pill segment or capsule.
+  Color get selectedFill => ink;
+
+  /// Label, icon and dot on [selectedFill].
+  Color get onSelected => bg;
+}
+
 /// Square 34 px bordered button — back, close, menu.
 class SquareIconButton extends StatelessWidget {
   const SquareIconButton({
@@ -175,6 +202,14 @@ class AppToggle extends StatelessWidget {
 }
 
 /// Two or three mutually exclusive short options (kg/lb, week/month).
+///
+/// NO CALLER IN `lib/` TODAY — grep finds this definition and three test
+/// suites, nothing else. It stays because it is the segmented control of the
+/// design library (DESIGN_REFACTOR §4 lists it beside [FilterChipPill]) and
+/// because the live implementation, `_SettingsChoicePill`, is a copy of its
+/// geometry: a fix that lands here and not there would drift them apart. Both
+/// therefore carry [SelectionTone]. Delete it together with the doc entry the
+/// day the settings pills move into this file.
 class SegmentedPill extends StatelessWidget {
   const SegmentedPill({
     super.key,
@@ -216,7 +251,9 @@ class SegmentedPill extends StatelessWidget {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
                   decoration: BoxDecoration(
-                    color: option == selected ? t.forest : Colors.transparent,
+                    color: option == selected
+                        ? t.selectedFill
+                        : Colors.transparent,
                     // Concentric with the 3 px padded outer capsule.
                     borderRadius: BorderRadius.circular(rChip - 3),
                   ),
@@ -225,7 +262,7 @@ class SegmentedPill extends StatelessWidget {
                     style: AppType.ui(
                       11,
                       weight: FontWeight.w600,
-                      color: option == selected ? t.onForest : t.ink2,
+                      color: option == selected ? t.onSelected : t.ink2,
                     ),
                   ),
                 ),
@@ -258,9 +295,9 @@ enum FilterChipTone {
 
 /// Rectangular filter pill for horizontal chip bars.
 ///
-/// ONE selection language for every chip in the app: selected = forest fill
-/// with `onForest` text (and icon), unselected = `surf` with a `line` edge.
-/// Radius [rChip].
+/// ONE selection language for every chip in the app ([SelectionTone]):
+/// selected = `ink` fill with a `bg` label (and icon), unselected = `surf`
+/// with a `line` edge. Radius [rChip].
 class FilterChipPill extends StatelessWidget {
   const FilterChipPill({
     super.key,
@@ -294,7 +331,7 @@ class FilterChipPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final small = size == FilterChipSize.sm;
-    final fg = selected ? t.onForest : t.ink2;
+    final fg = selected ? t.onSelected : t.ink2;
     final fontSize = small ? 11.0 : 12.0;
     final padding = small
         ? const EdgeInsets.symmetric(horizontal: 11, vertical: 6)
@@ -309,7 +346,7 @@ class FilterChipPill extends StatelessWidget {
       label: semanticLabel,
       excludeSemantics: semanticLabel != null,
       child: Material(
-        color: selected ? t.forest : t.surf,
+        color: selected ? t.selectedFill : t.surf,
         borderRadius: BorderRadius.circular(rChip),
         child: InkWell(
           onTap: onTap,
@@ -317,7 +354,12 @@ class FilterChipPill extends StatelessWidget {
           child: Container(
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(rChip),
-              border: Border.all(color: selected ? Colors.transparent : t.line),
+              // The selected chip keeps a ring in its own fill colour instead
+              // of dropping to transparent: same pixels, but the geometry no
+              // longer depends on the state, and the boundary that identifies
+              // it is the fill against the ground (16.8:1 / 14.9:1) rather
+              // than the `line` edge, which never managed more than 1.34:1.
+              border: Border.all(color: selected ? t.selectedFill : t.line),
             ),
             padding: padding,
             child: Row(
@@ -329,9 +371,9 @@ class FilterChipPill extends StatelessWidget {
                     width: small ? 6 : 8,
                     height: small ? 6 : 8,
                     decoration: BoxDecoration(
-                      // On the forest fill the dot keeps its hue but must
-                      // stay visible: onForest is the safe fallback.
-                      color: selected ? t.onForest : (dotColor ?? fg),
+                      // On the selected fill the dot would lose its hue
+                      // anyway: the label colour is the safe fallback.
+                      color: selected ? t.onSelected : (dotColor ?? fg),
                       shape: BoxShape.circle,
                     ),
                   ),

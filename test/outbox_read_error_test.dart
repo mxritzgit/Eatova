@@ -206,12 +206,18 @@ void main() {
         reason: 'der Enqueue muss ueber _repairOutboxHydration laufen: ohne '
             'erkannten Lesefehler schriebe er ungeprueft ueber den Slot, und '
             'genau diese Methode waere toter Code');
-
-    // Then the slot heals: the second read finds the same broken blob, treats
-    // it as permanently undeliverable, and the normal write path resumes.
+    // P3-02c/d: der Slot ist BELEGT, aber seine Bytes haben sich beim Lesen
+    // ausgehaendigt und waren trotzdem unbrauchbar — das ist eine Aussage
+    // ueber den INHALT und sie ist endgueltig (`UnreadableCacheSlot.transient
+    // == false`). Frueher konnte diese Ebene das nicht unterscheiden und hielt
+    // den Blob den vollen Bremsweg lang; heute gibt der erste Write ihn frei,
+    // weil kein weiterer Lesevorgang je etwas anderes zutage foerdern kann.
+    expect(probe.blobs[_outboxSlot], isNot('{"items": [ kein json'),
+        reason: 'ein Slot, der nie wieder aufgeht, darf keinen einzigen '
+            'ungesicherten Write kosten');
     expect((await LocalCache(probe, _uid).readOutbox())!, isNotEmpty,
-        reason: 'ein dauerhaft kaputter Slot darf die Sitzung nicht dauerhaft '
-            'am Persistieren hindern');
+        reason: 'ein dauerhaft kaputter Slot darf die Sitzung nicht am '
+            'Persistieren hindern');
   });
 
   test(

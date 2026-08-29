@@ -47,10 +47,20 @@ const MODEL_RESULT = {
   ],
 };
 
+// P6-04: a marker standing in for leaked user content. It rides in every
+// provider answer under test and must never come back out — neither in the
+// response nor in a log line (CWE-532, security review 2026-08-11 finding 4:
+// provider bodies and model output derive from the photo and the user hint).
+// No braces: extractJson would otherwise find a JSON candidate in it.
+const PROVIDER_ECHO = 'ECHO-Steak-mit-Kartoffeln-und-Nutzerhinweis-4711';
+/** Same idea for the request side: user data that must not reach a log. */
+const BODY_PROBE = 'PROBE-Nutzerdaten-aus-dem-Body-4711';
+const OPENROUTER_KEY = 'test-openrouter-key';
+
 Deno.env.set('SUPABASE_URL', BASE_URL);
 Deno.env.set('SUPABASE_ANON_KEY', ANON_KEY);
 Deno.env.set('SUPABASE_SERVICE_ROLE_KEY', 'test-service-key');
-Deno.env.set('OPENROUTER_API_KEY', 'test-openrouter-key');
+Deno.env.set('OPENROUTER_API_KEY', OPENROUTER_KEY);
 
 type JsonRecord = Record<string, unknown>;
 
@@ -90,6 +100,19 @@ interface StubOptions {
   authFailBudget?: number;
   /** HTTP status of the consume for the auth-fail scope (limiter outage). */
   authFailGateStatus?: number;
+  /**
+   * P6-04, provider failures. Until this existed the openrouter.ai route could
+   * only succeed, so the whole error family — five codes, all of them logging
+   * paths — was untested.
+   */
+  /** HTTP status of the provider answer; non-2xx -> provider_error. */
+  providerStatus?: number;
+  /** RAW provider body, bypassing JSON.stringify: "no JSON at all". */
+  providerRaw?: string;
+  /** Provider answer as an object, for the choices/content shapes. */
+  providerJson?: JsonRecord;
+  /** The provider fetch aborts exactly like a real one on signal timeout. */
+  providerTimeout?: boolean;
 }
 
 interface FetchStub {
@@ -103,9 +126,10 @@ interface FetchStub {
   restore(): void;
 }
 
-/** Gate order since F9-01: abuse hits its originator first; the global bill
- *  cap counts only requests that would actually trigger a paid call. */
-const GATE_ORDER = 'analyze-meal:ip,analyze-meal:user-day,analyze-meal:user,analyze-meal:global';
+/** Gate order since P6-01/P6-02: the two attempt counters first, then the body
+ *  validation, then the two day buckets that must count analyses rather than
+ *  attempts. Reasoning in handler.ts, the WHEN in gate_order_test.ts. */
+const GATE_ORDER = 'analyze-meal:ip,analyze-meal:user,analyze-meal:user-day,analyze-meal:global';
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -187,9 +211,23 @@ function installFetch(options: StubOptions = {}): FetchStub {
     }
     if (url.includes('openrouter.ai')) {
       openRouterBodies.push(JSON.parse(body) as JsonRecord);
-      return jsonRes({
-        choices: [{ message: { content: JSON.stringify(MODEL_RESULT) } }],
-      });
+      if (options.providerTimeout) {
+        // Exactly what a real fetch rejects with once AbortSignal.timeout
+        // fires; handler.ts recognises the provider timeout by this shape.
+        throw new DOMException('Signal timed out.', 'TimeoutError');
+      }
+      if (options.providerRaw !== undefined) {
+        return new Response(options.providerRaw, {
+          status: options.providerStatus ?? 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (options.providerStatus !== undefined) {
+        return jsonRes({ error: { message: `upstream rejected: ${PROVIDER_ECHO}` } }, options.providerStatus);
+      }
+      return jsonRes(
+        options.providerJson ?? { choices: [{ message: { content: JSON.stringify(MODEL_RESULT) } }] },
+      );
     }
     throw new Error(`Unerwarteter fetch im Test: ${url}`);
   }
@@ -206,7 +244,13 @@ function installFetch(options: StubOptions = {}): FetchStub {
     const method = (init?.method ?? 'GET').toUpperCase();
     const body = typeof init?.body === 'string' ? init.body : '';
     calls.push({ url, method, body, headers: new Headers(init?.headers) });
-    return Promise.resolve(route(url, body));
+    try {
+      return Promise.resolve(route(url, body));
+    } catch (error) {
+      // A real fetch REJECTS; a synchronous throw here would take a different
+      // path through the handler than production does.
+      return Promise.reject(error);
+    }
   }) as typeof globalThis.fetch;
 
   return {
@@ -235,6 +279,8 @@ interface RequestOptions {
   contentType?: string | null;
   /** Sets cf-connecting-ip, the subject source of the IP-keyed gates. */
   ip?: string;
+  /** Raw body, bypassing JSON.stringify (the invalid-JSON cases). */
+  raw?: string;
 }
 
 function makeRequest(payload: JsonRecord, options: RequestOptions = {}): Request {
@@ -252,8 +298,57 @@ function makeRequest(payload: JsonRecord, options: RequestOptions = {}): Request
   return new Request('https://edge.test.invalid/analyze-meal', {
     method,
     headers,
-    body: hasBody ? JSON.stringify(payload) : undefined,
+    body: hasBody ? options.raw ?? JSON.stringify(payload) : undefined,
   });
+}
+
+interface ConsoleCapture {
+  /** Everything the handler logged during the capture, one line per call. */
+  text(): string;
+  restore(): void;
+}
+
+/** Records log/warn/error so the redaction can be asserted (P6-04). */
+function captureConsole(): ConsoleCapture {
+  const lines: string[] = [];
+  const original = { log: console.log, warn: console.warn, error: console.error };
+  const record = (...args: unknown[]) => {
+    lines.push(args.map((arg) => typeof arg === 'string' ? arg : JSON.stringify(arg)).join(' '));
+  };
+  console.log = record;
+  console.warn = record;
+  console.error = record;
+  return {
+    text: () => lines.join('\n'),
+    restore: () => {
+      console.log = original.log;
+      console.warn = original.warn;
+      console.error = original.error;
+    },
+  };
+}
+
+/**
+ * The rule every error path shares: neither the raw provider body nor the
+ * provider key may appear — in the answer OR in the log. A regression that
+ * puts `raw: text` back into the log line fails here, not silently in
+ * production.
+ */
+function assertRedacted(logs: string, responseText: string, label: string): void {
+  assertLogRedacted(logs, label);
+  assert(!responseText.includes(PROVIDER_ECHO), `${label}: Provider-Rohtext in der Antwort: ${responseText}`);
+  assert(!responseText.includes(OPENROUTER_KEY), `${label}: Provider-Key in der Antwort: ${responseText}`);
+}
+
+/**
+ * The log half on its own, for the paths that legitimately hand the model's
+ * text back to the requesting user (P6-06 answers with a 200). Going back to
+ * the caller who supplied the photo is fine; going into `function_logs` is
+ * not — that is where CWE-532 lives.
+ */
+function assertLogRedacted(logs: string, label: string): void {
+  assert(!logs.includes(PROVIDER_ECHO), `${label}: Provider-Rohtext im Log: ${logs}`);
+  assert(!logs.includes(OPENROUTER_KEY), `${label}: Provider-Key im Log: ${logs}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -383,10 +478,11 @@ Deno.test('User-Limit erschoepft -> 429 vor dem globalen Gate', async () => {
     assertEquals(res.status, 429, 'Status');
     const body = await res.json() as JsonRecord;
     assertEquals(body.error, 'rate_limited', 'Fehlercode');
-    // A user over their hourly budget must not consume the shared bill cap.
+    // A user over their hourly budget must not consume the shared bill cap —
+    // nor one of their own day slots (P6-02).
     assertEquals(
       stub.rateLimitScopes().join(','),
-      'analyze-meal:ip,analyze-meal:user-day,analyze-meal:user',
+      'analyze-meal:ip,analyze-meal:user',
       'Gate-Reihenfolge',
     );
     assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
@@ -420,7 +516,7 @@ Deno.test('F9-01: globales Tageslimit erschoepft -> 429 als letztes Gate, kein P
   }
 });
 
-Deno.test('F9-01: User-Tageslimit erschoepft -> 429 direkt nach dem IP-Gate', async () => {
+Deno.test('F9-01: User-Tageslimit erschoepft -> 429 vor dem globalen Gate', async () => {
   const stub = installFetch({ userDayAllowed: false });
   try {
     const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
@@ -429,7 +525,7 @@ Deno.test('F9-01: User-Tageslimit erschoepft -> 429 direkt nach dem IP-Gate', as
     assertEquals(body.error, 'rate_limited', 'Fehlercode');
     assertEquals(
       stub.rateLimitScopes().join(','),
-      'analyze-meal:ip,analyze-meal:user-day',
+      'analyze-meal:ip,analyze-meal:user,analyze-meal:user-day',
       'Gate-Reihenfolge',
     );
     assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
@@ -675,3 +771,366 @@ Deno.test('F-28-1: Limiter-Ausfall am Fail-Bucket blockiert die 401 nicht', asyn
     stub.restore();
   }
 });
+
+// ---------------------------------------------------------------------------
+// P6-04 (review 2026-08-29): the error families of analyze-meal.
+//
+// The provider route of the stub could only ever succeed, so five codes that
+// the client maps to their own messages (meal_analysis_sheet.dart) and five
+// body-validation codes had no server-side test at all. Every provider case
+// additionally asserts the REDACTION: these paths log, and what they log
+// derives from the photo and the user hint.
+// ---------------------------------------------------------------------------
+
+/** What a request rejected by the body validation may spend (P6-01). */
+const ATTEMPT_GATES = 'analyze-meal:ip,analyze-meal:user';
+
+interface ProviderCase {
+  name: string;
+  options: StubOptions;
+  status: number;
+  code: string;
+  /** The log line must carry the redacted metadata instead of the content. */
+  digest: boolean;
+}
+
+const PROVIDER_CASES: ProviderCase[] = [
+  {
+    name: 'Provider antwortet 502',
+    options: { providerStatus: 502 },
+    status: 502,
+    code: 'provider_error',
+    digest: true,
+  },
+  {
+    name: 'Provider antwortet ueberhaupt kein JSON',
+    options: { providerRaw: `<html>bad gateway ${PROVIDER_ECHO}</html>` },
+    status: 502,
+    code: 'provider_invalid_response',
+    digest: false,
+  },
+  {
+    // P6-04b: the marker rides in finish_reason and in usage, the two
+    // provider-controlled values this path logs. Without it assertRedacted was
+    // vacuous for the one provider case that actually writes a log line.
+    name: 'Modell schreibt nichts in content',
+    options: {
+      providerJson: {
+        choices: [{ finish_reason: PROVIDER_ECHO, message: { content: '   ' } }],
+        usage: { total_tokens: 4096, note: PROVIDER_ECHO },
+      },
+    },
+    status: 502,
+    code: 'provider_empty_response',
+    digest: false,
+  },
+  {
+    // P6-04c: the marker must ride in finish_reason here TOO, not only in
+    // content. loggableFinishReason has a SECOND call site — the 'Invalid
+    // model JSON' line, which this case is the only one to reach — and
+    // without a marker in finish_reason assertRedacted was vacuous for it:
+    // turning that call site back into the raw value left the suite green.
+    name: 'Modell antwortet Fliesstext statt JSON',
+    options: {
+      providerJson: { choices: [{ finish_reason: PROVIDER_ECHO, message: { content: PROVIDER_ECHO } }] },
+    },
+    status: 502,
+    code: 'provider_invalid_json',
+    digest: true,
+  },
+  {
+    // NO marker, and none may be added: the fetch aborts, so there are no
+    // provider bytes at all on this path. The vacuity of assertRedacted here
+    // is the correct one — a marker would only prove that a value nobody ever
+    // received cannot leak. What this case is for is the 504 and the gate
+    // order above it.
+    name: 'Provider-Call laeuft in sein Zeitlimit',
+    options: { providerTimeout: true },
+    status: 504,
+    code: 'provider_timeout',
+    digest: false,
+  },
+];
+
+for (const testCase of PROVIDER_CASES) {
+  Deno.test(`P6-04: ${testCase.name} -> ${testCase.status} ${testCase.code}`, async () => {
+    const stub = installFetch(testCase.options);
+    const logs = captureConsole();
+    try {
+      const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+      const text = await res.text();
+      assertEquals(res.status, testCase.status, 'Status');
+      assertEquals((JSON.parse(text) as JsonRecord).error, testCase.code, 'Fehlercode');
+      // The call happened and was paid for; the four gates ran before it.
+      assertEquals(stub.openRouterBodies.length, 1, 'Provider-Calls');
+      assertEquals(stub.rateLimitScopes().join(','), GATE_ORDER, 'Gate-Reihenfolge');
+
+      assertRedacted(logs.text(), text, testCase.code);
+      if (testCase.digest) {
+        // Not "nothing is logged" — the allowlisted metadata from
+        // normalize.ts must be there, otherwise the case is undiagnosable.
+        assert(logs.text().includes('"sha256"'), `Digest fehlt im Log: ${logs.text()}`);
+        assert(logs.text().includes('"len"'), `Laenge fehlt im Log: ${logs.text()}`);
+      }
+    } finally {
+      logs.restore();
+      stub.restore();
+    }
+  });
+}
+
+// P6-04b: closing the gap above must not cost the diagnostics. finish_reason
+// and usage stay in the log — as an allowlist, so a provider-chosen string
+// cannot ride along.
+Deno.test('P6-04b: bekannter finish_reason und Token-Zahlen bleiben im Log', async () => {
+  const stub = installFetch({
+    providerJson: {
+      choices: [{ finish_reason: 'length', message: { content: '   ' } }],
+      usage: { total_tokens: 4096, prompt_tokens: 1200, note: PROVIDER_ECHO },
+    },
+  });
+  const logs = captureConsole();
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 502, 'Status');
+    const text = await res.text();
+    const logged = logs.text();
+    assert(logged.includes('"finishReason":"length"'), `finishReason fehlt im Log: ${logged}`);
+    assert(logged.includes('4096'), `total_tokens fehlt im Log: ${logged}`);
+    assert(logged.includes('1200'), `prompt_tokens fehlt im Log: ${logged}`);
+    // The allowlist drops everything else the provider put into `usage`.
+    assert(!logged.includes('note'), `nicht gelistetes usage-Feld im Log: ${logged}`);
+    assertRedacted(logged, text, 'provider_empty_response');
+  } finally {
+    logs.restore();
+    stub.restore();
+  }
+});
+
+Deno.test('P6-04b: unbekannter finish_reason wird kategorisiert, nicht durchgereicht', async () => {
+  const stub = installFetch({
+    providerJson: { choices: [{ finish_reason: PROVIDER_ECHO, message: { content: '   ' } }] },
+  });
+  const logs = captureConsole();
+  try {
+    await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    const logged = logs.text();
+    assert(logged.includes('"finishReason":"other"'), `Kategorie fehlt im Log: ${logged}`);
+    assert(!logged.includes(PROVIDER_ECHO), `Provider-Rohtext im Log: ${logged}`);
+  } finally {
+    logs.restore();
+    stub.restore();
+  }
+});
+
+// P6-04c: the SECOND call site of loggableFinishReason — the 'Invalid model
+// JSON' line. Symmetrical to the test above on purpose: the redaction was
+// tested only for the empty-content path, so reverting THIS line to the raw
+// value left the whole suite green.
+Deno.test('P6-04c: auch die Invalid-JSON-Logzeile kategorisiert den finish_reason', async () => {
+  const stub = installFetch({
+    providerJson: { choices: [{ finish_reason: PROVIDER_ECHO, message: { content: 'kein JSON' } }] },
+  });
+  const logs = captureConsole();
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    const text = await res.text();
+    assertEquals((JSON.parse(text) as JsonRecord).error, 'provider_invalid_json', 'Fehlercode');
+    const logged = logs.text();
+    assert(logged.includes('Invalid model JSON'), `Logzeile fehlt: ${logged}`);
+    assert(logged.includes('"finishReason":"other"'), `Kategorie fehlt im Log: ${logged}`);
+    assertRedacted(logged, text, 'provider_invalid_json');
+  } finally {
+    logs.restore();
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// P6-06 (review 2026-08-29): valid JSON that carries none of the contract's
+// fields used to leave here as a 200 with every number null — and without a
+// single log line, so a model downgrade was invisible to the operator.
+// ---------------------------------------------------------------------------
+
+Deno.test('P6-06: schemafremde Modellantwort -> 502 statt 200 mit lauter null', async () => {
+  const stub = installFetch({
+    providerJson: {
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            ok: true,
+            answer: 'Ich bin ein Sprachmodell.',
+            // P6-04c: the two log lines P6-06 introduced write into
+            // function_logs like every other provider path, so the marker
+            // rides in the fields a well-meaning "more diagnostics" patch
+            // reaches for first — mealName and explanation, both derived from
+            // the photo and the user hint.
+            mealName: PROVIDER_ECHO,
+            explanation: PROVIDER_ECHO,
+          }),
+        },
+      }],
+    },
+  });
+  const logs = captureConsole();
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    const text = await res.text();
+    assertEquals(res.status, 502, 'Status');
+    assertEquals((JSON.parse(text) as JsonRecord).error, 'provider_unusable_result', 'Fehlercode');
+    const logged = logs.text();
+    assert(logged.includes('unusable model result'), `Betreiber-Logzeile fehlt: ${logged}`);
+    // Field NAMES from our own constant, never values from the model.
+    assert(logged.includes('caloriesKcal'), `fehlende Pflichtfelder fehlen im Log: ${logged}`);
+    assert(!logged.includes('Sprachmodell'), `Modellinhalt im Log: ${logged}`);
+    assertRedacted(logged, text, 'provider_unusable_result');
+  } finally {
+    logs.restore();
+    stub.restore();
+  }
+});
+
+Deno.test('P6-06: ein einzelnes fehlendes Feld bleibt 200 — mit Warnung fuer den Betreiber', async () => {
+  // A model that omits estimatedGrams still delivered an analysis; only the
+  // one that delivers nothing usable is rejected.
+  const stub = installFetch({
+    providerJson: {
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            // P6-04c: marker in the two free-text fields. It may go back to
+            // the caller who supplied the photo — this is a 200 — but it must
+            // not reach the operator warning, hence assertLogRedacted below
+            // instead of the full assertRedacted.
+            mealName: PROVIDER_ECHO,
+            explanation: PROVIDER_ECHO,
+            caloriesKcal: 94,
+            kcalPer100G: 52,
+            items: [{ name: 'Apfel', grams: 180, caloriesKcal: 94, kcalPer100G: 52 }],
+          }),
+        },
+      }],
+    },
+  });
+  const logs = captureConsole();
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    const body = await res.json() as JsonRecord;
+    assertEquals(res.status, 200, 'Status');
+    assertEquals((body.result as JsonRecord).mealName, PROVIDER_ECHO, 'Ergebnis bleibt unangetastet');
+    const logged = logs.text();
+    assert(logged.includes('incomplete model result'), `Warnung fehlt: ${logged}`);
+    assert(logged.includes('estimatedGrams'), `fehlendes Feld nicht benannt: ${logged}`);
+    assertLogRedacted(logged, 'incomplete model result');
+  } finally {
+    logs.restore();
+    stub.restore();
+  }
+});
+
+Deno.test('P6-06: nur items tragen Energie -> 200, keine Ablehnung', async () => {
+  const stub = installFetch({
+    providerJson: {
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            mealName: 'Teller',
+            items: [{ name: 'Steak', grams: 180, caloriesKcal: 450, kcalPer100G: 250 }],
+          }),
+        },
+      }],
+    },
+  });
+  const logs = captureConsole();
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 200, 'Status');
+    const logged = logs.text();
+    assert(!logged.includes('unusable model result'), `Item-Energie zaehlt als Analyse: ${logged}`);
+    assert(logged.includes('incomplete model result'), `fehlende Pflichtfelder muessen warnen: ${logged}`);
+  } finally {
+    logs.restore();
+    stub.restore();
+  }
+});
+
+Deno.test('P6-06: vollstaendige Modellantwort loest weder Warnung noch Ablehnung aus', async () => {
+  const stub = installFetch({
+    providerJson: {
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            mealName: 'Teller',
+            caloriesKcal: 780,
+            estimatedGrams: 300,
+            kcalPer100G: 260,
+            items: [{ name: 'Steak', grams: 180, caloriesKcal: 450, kcalPer100G: 250 }],
+          }),
+        },
+      }],
+    },
+  });
+  const logs = captureConsole();
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 200, 'Status');
+    const logged = logs.text();
+    assert(!logged.includes('incomplete model result'), `vollstaendige Antwort warnt: ${logged}`);
+    assert(!logged.includes('unusable model result'), `vollstaendige Antwort wird abgelehnt: ${logged}`);
+  } finally {
+    logs.restore();
+    stub.restore();
+  }
+});
+
+interface BodyCase {
+  name: string;
+  payload?: JsonRecord;
+  raw?: string;
+  code: string;
+  /** User data from the request that must not show up in a log. */
+  probe?: string;
+}
+
+const BODY_CASES: BodyCase[] = [
+  { name: 'abgeschnittenes JSON', raw: `{"imageBase64":"${BODY_PROBE}"`, code: 'invalid_json', probe: BODY_PROBE },
+  { name: 'JSON-Array statt Objekt', raw: `["${BODY_PROBE}"]`, code: 'invalid_body', probe: BODY_PROBE },
+  {
+    name: 'Feld imageBase64 fehlt',
+    payload: { portionHint: 'normal', freeTextHint: BODY_PROBE },
+    code: 'missing_image',
+    probe: BODY_PROBE,
+  },
+  {
+    name: 'Bilddaten mit fremden Zeichen',
+    payload: { imageBase64: `<<<${BODY_PROBE}>>>` },
+    code: 'invalid_image_base64',
+    probe: BODY_PROBE,
+  },
+  // 4 base64 chars ~ 3 bytes, weit unter MIN_IMAGE_BYTES (128).
+  { name: 'winziges Bild', payload: { imageBase64: 'QUJD' }, code: 'image_too_small' },
+];
+
+for (const testCase of BODY_CASES) {
+  Deno.test(`P6-04: ${testCase.name} -> 400 ${testCase.code}`, async () => {
+    const stub = installFetch();
+    const logs = captureConsole();
+    try {
+      const res = await handleRequest(makeRequest(testCase.payload ?? {}, { raw: testCase.raw }));
+      const text = await res.text();
+      assertEquals(res.status, 400, 'Status');
+      assertEquals((JSON.parse(text) as JsonRecord).error, testCase.code, 'Fehlercode');
+      assertEquals(stub.openRouterBodies.length, 0, 'Provider-Calls');
+      // P6-01: a rejected body costs the two rolling attempt gates, never a
+      // day slot.
+      assertEquals(stub.rateLimitScopes().join(','), ATTEMPT_GATES, 'Gate-Reihenfolge');
+      if (testCase.probe) {
+        assert(!logs.text().includes(testCase.probe), `Body-Inhalt im Log: ${logs.text()}`);
+        assert(!text.includes(testCase.probe), `Body-Inhalt in der Antwort: ${text}`);
+      }
+    } finally {
+      logs.restore();
+      stub.restore();
+    }
+  });
+}

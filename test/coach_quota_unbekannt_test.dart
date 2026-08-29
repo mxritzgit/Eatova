@@ -246,7 +246,13 @@ void main() {
         'Nachzug ueber ein erschoepftes Kontingent: scheitert der RPC, bleibt '
         'die Sperre stehen', (tester) async {
       final backend = _Backend()..quotaScheitertAbCall = 2;
-      await _pumpHost(tester, _service(backend));
+      // P5-06: gesperrt wird nur gegen ein Limit, das der SERVER genannt hat —
+      // `get_chat_quota_today` echot nur zurueck, was der Client hineinreicht.
+      // Das ist der Zustand, den die App nach der ersten Antwort der Edge
+      // Function erreicht; hier vorgegeben, weil `functions.invoke` unter dem
+      // FakeAsync eines Widget-Tests nie aufloest.
+      final svc = _service(backend)..serverDailyLimit = 5;
+      await _pumpHost(tester, svc);
 
       expect(backend.quotaCalls, 1);
       expect(find.text('Limit für heute erreicht'), findsOneWidget,

@@ -6,7 +6,6 @@ import 'package:intl/intl.dart';
 import '../../l10n/l10n.dart';
 import '../../models/logged_meal.dart';
 import '../../models/meal_analysis_result.dart';
-import '../../models/meal_component.dart';
 import '../../services/day_math.dart';
 import '../../services/local_day.dart';
 import '../../theme/app_tokens.dart';
@@ -14,6 +13,7 @@ import '../../theme/meal_slot_style.dart';
 import '../common/motion.dart';
 import '../design/design.dart';
 import '../meal/meal_widgets.dart';
+import 'meal_analysis_sheet.dart';
 import 'slot_selector.dart';
 
 /// Store callback for the edit sheet: changes portion/components, slot and/or
@@ -246,21 +246,17 @@ class _EditMealSheetState extends State<EditMealSheet> {
 
   /// Adjusts portion/components through the existing
   /// showWeightAdjustmentSheet editor. Same pattern as
-  /// MealAnalysisSheet._adjustPortion, but without an immediate save: the
-  /// change only lands on "save".
+  /// MealAnalysisSheet._adjustPortion — [mealPortionAdjustment] included, so a
+  /// meal without components does not grow a fake one-item breakdown — but
+  /// without an immediate save: the change only lands on "save".
   Future<void> _adjustPortion() async {
     final adjustment = await showWeightAdjustmentSheet(context, _result);
-    if (!mounted || adjustment == null) return;
+    if (!mounted) return;
 
-    MealAnalysisResult? candidate;
-    if (adjustment is int && adjustment > 0) {
-      candidate = _result.adjustedToGrams(adjustment);
-    } else if (adjustment is List<MealComponent>) {
-      candidate = _result.adjustedToItems(adjustment);
-    }
-    if (candidate == null) return;
+    final applied = mealPortionAdjustment(_result, adjustment);
+    if (applied == null) return;
     setState(() {
-      _result = candidate!;
+      _result = applied.result;
       _resultChanged = true;
     });
   }
@@ -729,11 +725,16 @@ class _DayPicker extends StatelessWidget {
                 curve: Curves.easeOut,
                 width: 64,
                 padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
+                // [SelectionTone], byte for byte the food tab's date chip:
+                // `forest` is itself a dark surface in dark mode, so the
+                // picked day sat at 1.33:1 on `surf` and its number at 1.04:1
+                // against an unpicked one (P9-02c). Ring in the fill colour,
+                // so the geometry does not depend on the state.
                 decoration: BoxDecoration(
-                  color: isSelected ? t.forest : t.surf,
+                  color: isSelected ? t.selectedFill : t.surf,
                   borderRadius: BorderRadius.circular(rControl),
                   border: Border.all(
-                    color: isSelected ? Colors.transparent : t.line,
+                    color: isSelected ? t.selectedFill : t.line,
                   ),
                 ),
                 child: Column(
@@ -746,7 +747,11 @@ class _DayPicker extends StatelessWidget {
                       style: AppType.ui(
                         10.5,
                         weight: FontWeight.w700,
-                        color: isSelected ? t.lime : t.ink2,
+                        // Opacity carries the hierarchy, not a second hue:
+                        // `lime` on the `ink` fill is 1.07:1 in dark mode.
+                        color: isSelected
+                            ? t.onSelected.withValues(alpha: 0.78)
+                            : t.ink2,
                         letterSpacing: 0.1,
                       ),
                     ),
@@ -760,7 +765,7 @@ class _DayPicker extends StatelessWidget {
                       style: AppType.display(
                         11.5,
                         weight: FontWeight.w700,
-                        color: isSelected ? t.onForest : t.ink,
+                        color: isSelected ? t.onSelected : t.ink,
                       ),
                     ),
                   ],

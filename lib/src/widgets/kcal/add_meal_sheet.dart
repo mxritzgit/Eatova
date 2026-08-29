@@ -12,9 +12,11 @@ import '../../models/meal_analysis_request.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../screens/barcode_scanner_sheet.dart';
 import '../../services/favorites_view.dart';
+import '../../services/eatova_http.dart';
 import '../../services/local_day.dart';
 import '../../services/meal_analyzer.dart';
 import '../../services/meal_photo_input.dart';
+import '../../services/meals_sync.dart';
 import '../../services/open_food_facts_product_service.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
@@ -36,6 +38,56 @@ import 'slot_selector.dart';
 /// wording points at "adjust" → enter components, a path that does not exist
 /// here (the expanded card only has a portion slider, and 0 kcal stays 0 at
 /// any portion). Two separate ARB keys instead of one mirrored constant.
+
+/// Live access to the two store lists the add-meal sheet renders.
+///
+/// The sheet lives in a modal route, and a `showModalBottomSheet` builder is
+/// never rebuilt by a store notify. So the sheet used to open with a COPY of
+/// "already added" and the favorites and only ever wrote INTO that copy:
+/// everything the store did on its own never arrived. The undo of a deleted
+/// meal was the worst case — the store put the row back, the sheet did not,
+/// the user re-entered the meal and had it twice in the diary (review P8-01,
+/// with P8-05/-06/-07 on the same root).
+///
+/// The scope is the active channel: [showAddMealSheet] resolves it from the
+/// OPENING context (like [MealEditScope]; the sheet's own context hangs off
+/// the navigator and no longer sees the food tab) and re-feeds the sheet the
+/// current lists on every notify. Without a scope — previews, standalone
+/// widget tests — the sheet keeps its opening snapshot and its own optimistic
+/// mirror, exactly as before.
+class FoodStoreScope extends InheritedWidget {
+  const FoodStoreScope({
+    super.key,
+    required this.store,
+    required this.mealsOfSelectedDay,
+    required this.favorites,
+    required super.child,
+  });
+
+  /// The store as a plain [Listenable]. The sheet only listens on it; every
+  /// read goes through the two suppliers below, so this widget layer never
+  /// learns the store's type.
+  final Listenable store;
+
+  /// Logged meals of the day the food tab shows, bucketed the DATA-6 way
+  /// (`mealsForFoodDate`) — the same list the opener passes as a value.
+  final List<LoggedMeal> Function() mealsOfSelectedDay;
+
+  /// The full favorites list (pinned + auto recents) in store order.
+  ///
+  /// Must return the store's own list instance while nothing changed: the
+  /// sheet uses its identity as the O(1) "did anything move" fingerprint.
+  final List<FavoriteMeal> Function() favorites;
+
+  /// Deliberately without dependency registration (like [MealEditScope]): the
+  /// lookup happens in the sheet opener, outside build.
+  static FoodStoreScope? maybeOf(BuildContext context) =>
+      context.getInheritedWidgetOfExactType<FoodStoreScope>();
+
+  @override
+  bool updateShouldNotify(FoodStoreScope oldWidget) =>
+      !identical(store, oldWidget.store);
+}
 
 Future<void> showAddMealSheet(
   BuildContext context, {
@@ -60,31 +112,109 @@ Future<void> showAddMealSheet(
   // home page's MealEditScope. Without a scope the list stays non-editable.
   final resolvedUpdateDetails =
       onUpdateMealDetails ?? MealEditScope.maybeOf(context)?.onUpdateMeal;
+  // Same reason, same moment: the live source of both lists (P8-01/-05).
+  final live = FoodStoreScope.maybeOf(context);
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     barrierColor: context.t.scrim,
     builder: (sheetContext) {
-      return AddMealSheet(
-        slot: slot,
-        searchMode: searchMode,
-        analyzer: analyzer,
-        productService: productService,
-        photoInput: photoInput,
-        favorites: favorites,
-        existingMeals: existingMeals,
-        foodDate: foodDate,
-        onAdd: onAdd,
-        onUpdateMeal: onUpdateMeal,
-        onRemoveFavorite: onRemoveFavorite,
-        isFavorite: isFavorite,
-        onToggleFavorite: onToggleFavorite,
-        onRemoveMeal: onRemoveMeal,
-        onUpdateMealDetails: resolvedUpdateDetails,
+      AddMealSheet sheet(
+        List<LoggedMeal> meals,
+        List<FavoriteMeal> favoriteMeals,
+      ) {
+        return AddMealSheet(
+          slot: slot,
+          searchMode: searchMode,
+          analyzer: analyzer,
+          productService: productService,
+          photoInput: photoInput,
+          favorites: favoriteMeals,
+          existingMeals: meals,
+          foodDate: foodDate,
+          onAdd: onAdd,
+          onUpdateMeal: onUpdateMeal,
+          onRemoveFavorite: onRemoveFavorite,
+          isFavorite: isFavorite,
+          onToggleFavorite: onToggleFavorite,
+          onRemoveMeal: onRemoveMeal,
+          onUpdateMealDetails: resolvedUpdateDetails,
+        );
+      }
+
+      if (live == null) return sheet(existingMeals, favorites);
+      // The channel: every store notify rebuilds here and hands the sheet the
+      // CURRENT lists, which its state adopts (see `didUpdateWidget`). Plain
+      // ListenableBuilder, no slice selector — the sheet is one modal at a
+      // time and both suppliers are O(1) reads plus one day filter.
+      return ListenableBuilder(
+        listenable: live.store,
+        builder: (_, __) => sheet(live.mealsOfSelectedDay(), live.favorites()),
       );
     },
   );
+}
+
+/// Adopts an incoming favorites list but keeps every entry the sheet already
+/// holds whose content did not change (P8-07b).
+///
+/// [MealSuggestionItem] resets a typed portion as soon as its `result` instance
+/// changes — the guard against index-keyed rows handing a State the NEXT row's
+/// meal (review B, 2026-08-27). It rests on callers handing out stable
+/// instances; the boot load hands out new ones for unchanged rows and so turned
+/// that guard into data loss. Reusing the old instance restores the contract
+/// without weakening the reset: an entry that really moved (the store rewriting
+/// a recent with the logged result, P8-07) arrives as a new instance and still
+/// resets its row.
+///
+/// The fingerprint is [mealResultToJson] — the projection the persistence layer
+/// already keeps complete and round-trip-safe, so this cannot fall behind a new
+/// model field and hand a stale result to `onAdd`.
+List<FavoriteMeal> _uebernommeneFavoriten(
+  List<FavoriteMeal> bisher,
+  List<FavoriteMeal> neu,
+) {
+  final vorhanden = <String, FavoriteMeal>{for (final f in bisher) f.id: f};
+  return <FavoriteMeal>[
+    for (final f in neu)
+      if (_favoritUnveraendert(vorhanden[f.id], f)) vorhanden[f.id]! else f,
+  ];
+}
+
+bool _favoritUnveraendert(FavoriteMeal? bisher, FavoriteMeal neu) {
+  if (bisher == null) return false;
+  if (identical(bisher, neu)) return true;
+  return bisher.pinned == neu.pinned &&
+      bisher.addedAt.isAtSameMomentAs(neu.addedAt) &&
+      _gleicherJsonWert(
+        mealResultToJson(bisher.result),
+        mealResultToJson(neu.result),
+      );
+}
+
+/// Deep equality over the JSON shapes [mealResultToJson] produces (scalars,
+/// lists, string-keyed maps). Hand-rolled: `package:collection` is not a
+/// declared dependency here, and `jsonEncode` would throw on a non-finite
+/// double — `kcalPer100G` can be one. Unequal is the safe answer, so NaN
+/// simply falls through to "changed".
+bool _gleicherJsonWert(Object? a, Object? b) {
+  if (a is Map && b is Map) {
+    if (a.length != b.length) return false;
+    for (final eintrag in a.entries) {
+      if (!b.containsKey(eintrag.key)) return false;
+      if (!_gleicherJsonWert(eintrag.value, b[eintrag.key])) return false;
+    }
+    return true;
+  }
+  if (a is List && b is List) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!_gleicherJsonWert(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  return a == b;
 }
 
 class AddMealSheet extends StatefulWidget {
@@ -163,10 +293,29 @@ class _AddMealSheetState extends State<AddMealSheet> {
   bool _isSearchingProducts = false;
   String? _productSearchMessage;
 
-  /// True only after a definitively empty (error-free) search — the one state
-  /// that shows the manual-entry CTA. Network errors and the min-chars hint
-  /// mean "search broken/too short", not "does not exist" (spec 2026-08-13).
+  /// True only after a definitively empty (error-free) search — one of the two
+  /// states that show the manual-entry CTA. Network errors and the min-chars
+  /// hint mean "search broken/too short", not "does not exist" (spec
+  /// 2026-08-13).
   bool _searchCameUpEmpty = false;
+
+  /// True after the search RAN OUT — the total deadline expired, or the user
+  /// hit cancel (review P10-02).
+  ///
+  /// Deliberately not folded into [_searchCameUpEmpty]: giving up says nothing
+  /// about whether the product exists, and that distinction still drives the
+  /// message. It shares only the CTA — someone who waited 18 s wants to log
+  /// their meal, not diagnose a network.
+  bool _searchGaveUp = false;
+
+  /// Definitively nothing found OR the search gave up: both hand the user the
+  /// manual form. A 429 and the min-chars hint deliberately do not.
+  bool get _offerManualEntry => _searchCameUpEmpty || _searchGaveUp;
+
+  /// True once [_productSearchSlowAfter] passed with the search still running
+  /// — shows the "taking longer" line plus the cancel button.
+  bool _searchIsSlow = false;
+  Timer? _searchSlowTimer;
 
   /// Did the user trigger the search explicitly (magnifier/enter)? Only then
   /// does a fragment below [_autoSearchMinChars] count as an active search.
@@ -181,6 +330,11 @@ class _AddMealSheetState extends State<AddMealSheet> {
   // The slot is sheet state, not a fixed input: it defaults to the passed
   // (time-of-day) suggestion and can be changed in the selector.
   late MealSlot _selectedSlot;
+
+  // Seeded from the opener and RE-seeded from it on every store notify
+  // (`didUpdateWidget`). The local writes below ("mirror") only lead by a
+  // frame; with a FoodStoreScope attached the store always has the last word,
+  // without one they are all the sheet has.
   late List<LoggedMeal> _existing;
   late List<FavoriteMeal> _favorites;
 
@@ -194,6 +348,26 @@ class _AddMealSheetState extends State<AddMealSheet> {
   static const Duration _productSearchRetryDelay = Duration(milliseconds: 600);
   static const int _productSearchMaxAttempts = 3;
   static const Duration _justAddedFadeDelay = Duration(seconds: 2);
+
+  /// THE ceiling on one search cycle — every attempt, every retry pause, every
+  /// leg inside them (review P10-02).
+  ///
+  /// Each stage used to carry its own timeout and nothing carried the chain:
+  /// mirror 16 s + rotation 3 s + mirror retry 16 s + OFF-de 32 s + OFF-world
+  /// 32 s = 99 s per attempt, times three attempts plus two 600 ms pauses =
+  /// 298.2 s of bare spinner. The service layer now caps each chain too, but
+  /// this is the number the USER is promised.
+  ///
+  /// Tighter than the service caps on purpose: a fast failure still gets its
+  /// three attempts (≈1.2 s), while a chain that hangs is over long before its
+  /// legs would have finished arguing.
+  static const Duration _productSearchCycleBudget = Duration(seconds: 18);
+
+  /// After this long the loading state gets the "taking longer" line plus a
+  /// cancel button — the same gesture (and the same wording,
+  /// `foodAnalysisSlowHint`) the photo scan uses at
+  /// [MealAnalysisSheet.slowAfter], scaled to the shorter ceiling here.
+  static const Duration _productSearchSlowAfter = Duration(seconds: 6);
 
   /// Shortest input worth a search at all — applies to the explicit path
   /// (magnifier/enter).
@@ -213,6 +387,36 @@ class _AddMealSheetState extends State<AddMealSheet> {
     _favorites = List<FavoriteMeal>.of(widget.favorites);
   }
 
+  /// Adopts the lists the opener re-feeds on every store notify (see
+  /// [FoodStoreScope]) — this is what makes the store, not the copy, the
+  /// truth. Everything the sheet writes locally (see "mirror" below) is only
+  /// the optimistic leading edge of its OWN action and is overwritten here, in
+  /// the same frame, by what the store really did.
+  ///
+  /// Identity, not content: both lists are reassigned by the store on every
+  /// mutation, so identity is an O(1) fingerprint.
+  ///
+  /// For [_favorites] the entries themselves matter too — [MealSuggestionItem]
+  /// throws away a typed portion as soon as its `result` INSTANCE differs
+  /// (review B, 2026-08-27), and that contract says callers hand out stable
+  /// instances across rebuilds. The boot load breaks it: it replaces the whole
+  /// favorites list with freshly parsed server rows, same content, new objects
+  /// (P8-07b). A user whose shell is already up from the cache can be typing
+  /// 175 g into an open sheet when that answer lands, and the field snapped
+  /// back to 100. [_uebernommeneFavoriten] keeps the promise instead of
+  /// weakening the reset: an entry that really changed still arrives as a new
+  /// instance and still resets the row.
+  @override
+  void didUpdateWidget(AddMealSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.existingMeals, widget.existingMeals)) {
+      _existing = List<LoggedMeal>.of(widget.existingMeals);
+    }
+    if (!identical(oldWidget.favorites, widget.favorites)) {
+      _favorites = _uebernommeneFavoriten(_favorites, widget.favorites);
+    }
+  }
+
   void _selectSlot(MealSlot slot) {
     if (slot == _selectedSlot) return;
     setState(() => _selectedSlot = slot);
@@ -226,6 +430,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
   @override
   void dispose() {
     _productSearchDebounce?.cancel();
+    _searchSlowTimer?.cancel();
     for (final t in _justAddedTimers.values) {
       t.cancel();
     }
@@ -243,6 +448,10 @@ class _AddMealSheetState extends State<AddMealSheet> {
     return _explicitSearchRequested && length >= _searchMinChars;
   }
 
+  /// Drops the row here and reports it upwards. The store answers with an undo
+  /// snack that lands in THIS sheet's SnackHost; tapping it restores the row in
+  /// the store, and the restored list reaches [didUpdateWidget] from there
+  /// (P8-01 — the local removal used to be a one-way street).
   void _removeExisting(String id) {
     setState(() {
       _existing = _existing.where((m) => m.id != id).toList();
@@ -277,6 +486,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
     });
   }
 
+  /// Same shape as [_removeExisting], second list: the store's undo snack
+  /// restores the favorite and [didUpdateWidget] brings it back here (P8-05).
   void _removeFavorite(String id) {
     setState(() {
       _favorites = _favorites.where((f) => f.id != id).toList();
@@ -326,14 +537,17 @@ class _AddMealSheetState extends State<AddMealSheet> {
 
     if (query.length < _autoSearchMinChars) {
       _productSearchRequestId++;
+      _searchSlowTimer?.cancel();
       setState(() {
         // New input revokes the magnifier/enter unlock: the previous hits
         // belong to a different term.
         _explicitSearchRequested = false;
         _isSearchingProducts = false;
+        _searchIsSlow = false;
         _productSuggestions = const <ProductSearchResult>[];
         _productSearchMessage = null;
         _searchCameUpEmpty = false;
+        _searchGaveUp = false;
       });
       return;
     }
@@ -366,6 +580,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
         _productSuggestions = const <ProductSearchResult>[];
         _productSearchMessage = context.l10n.foodSearchMinCharsHint;
         _searchCameUpEmpty = false;
+        _searchGaveUp = false;
       });
       return;
     }
@@ -377,24 +592,30 @@ class _AddMealSheetState extends State<AddMealSheet> {
     final cached = _productSearchCache[cacheKey];
     if (cached != null) {
       _productSearchRequestId++;
+      _searchSlowTimer?.cancel();
       setState(() {
         _productSuggestions = cached;
         _isSearchingProducts = false;
+        _searchIsSlow = false;
         _productSearchMessage = cached.isEmpty
             ? context.l10n.foodSearchNoResultsHint
             : null;
         _searchCameUpEmpty = cached.isEmpty;
+        _searchGaveUp = false;
       });
       return;
     }
     // Known empty search: answer immediately, no retry cycle.
     if (_emptyQueryCache.contains(cacheKey)) {
       _productSearchRequestId++;
+      _searchSlowTimer?.cancel();
       setState(() {
         _productSuggestions = const <ProductSearchResult>[];
         _isSearchingProducts = false;
+        _searchIsSlow = false;
         _productSearchMessage = context.l10n.foodSearchNoResultsHint;
         _searchCameUpEmpty = true;
+        _searchGaveUp = false;
       });
       return;
     }
@@ -402,8 +623,11 @@ class _AddMealSheetState extends State<AddMealSheet> {
     final requestId = ++_productSearchRequestId;
     setState(() {
       _isSearchingProducts = true;
+      _searchIsSlow = false;
+      _searchGaveUp = false;
       _productSearchMessage = null;
     });
+    _armSlowHint(requestId);
 
     try {
       final suggestions = await _searchWithRetry(query, requestId);
@@ -412,13 +636,16 @@ class _AddMealSheetState extends State<AddMealSheet> {
           query != _searchController.text.trim()) {
         return;
       }
+      _searchSlowTimer?.cancel();
       setState(() {
         _productSuggestions = suggestions;
         _isSearchingProducts = false;
+        _searchIsSlow = false;
         _productSearchMessage = suggestions.isEmpty
             ? context.l10n.foodSearchNoResultsHint
             : null;
         _searchCameUpEmpty = suggestions.isEmpty;
+        _searchGaveUp = false;
       });
     } catch (error) {
       if (!mounted) return;
@@ -427,21 +654,65 @@ class _AddMealSheetState extends State<AddMealSheet> {
         return;
       }
       final gedrosselt = _istDrosselung(error);
+      // The total deadline (or a chain deadline below it) ran out. Named on
+      // BOTH paths, typed one included: after 18 s of spinner an empty result
+      // zone is the one answer the user cannot act on.
+      final abgelaufen = error is TimeoutException;
+      _searchSlowTimer?.cancel();
       setState(() {
         _isSearchingProducts = false;
+        _searchIsSlow = false;
         // Rate limiting is always named, even on the typed path
         // (showTransientError == false): otherwise the zone stays silent and
         // the next keystroke runs into the same limit.
         _productSearchMessage = gedrosselt
             ? context.l10n.searchRateLimited
+            : abgelaufen
+            ? context.l10n.foodSearchTimeoutHint
             : (showTransientError
                   ? context.l10n.foodSearchUnreachableHint
                   : null);
-        // Not "does not exist": rate limiting says nothing about the product,
-        // so it must not open the manual CTA.
+        // Not "does not exist": neither rate limiting nor a deadline says
+        // anything about the product.
         _searchCameUpEmpty = false;
+        _searchGaveUp = abgelaufen;
       });
     }
+  }
+
+  /// Arms the "taking longer" line for [requestId]. Fires only while THAT
+  /// search is still the current one and still running.
+  void _armSlowHint(int requestId) {
+    _searchSlowTimer?.cancel();
+    _searchSlowTimer = Timer(_productSearchSlowAfter, () {
+      if (!mounted ||
+          requestId != _productSearchRequestId ||
+          !_isSearchingProducts) {
+        return;
+      }
+      setState(() => _searchIsSlow = true);
+    });
+  }
+
+  /// The user's handle on a search that is taking too long — the counterpart
+  /// to the photo scan's cancel button.
+  ///
+  /// Bumping the request id is what actually ends it: the running chain has no
+  /// cancel token, so its answer is dropped on arrival (and its own deadlines
+  /// stop the sockets). The zone drops straight to the manual form, which is
+  /// what someone who just gave up on the search wants.
+  void _cancelProductSearch() {
+    _productSearchDebounce?.cancel();
+    _searchSlowTimer?.cancel();
+    _productSearchRequestId++;
+    setState(() {
+      _isSearchingProducts = false;
+      _searchIsSlow = false;
+      _productSuggestions = const <ProductSearchResult>[];
+      _productSearchMessage = context.l10n.foodSearchCanceledHint;
+      _searchCameUpEmpty = false;
+      _searchGaveUp = true;
+    });
   }
 
   /// Coarse classification like `auth_code_screen.dart`: the search paths
@@ -463,35 +734,59 @@ class _AddMealSheetState extends State<AddMealSheet> {
   ) async {
     Object? lastError;
     final cacheKey = _normalizeQuery(query);
+    // THE ceiling (P10-02): attempts, retry pauses and every leg inside them
+    // race against this one budget, so the cycle ends after
+    // [_productSearchCycleBudget] no matter how many stages still wanted a
+    // timeout of their own.
+    final deadline = ChainDeadline(
+      _productSearchCycleBudget,
+      operation: 'product.search.cycle',
+    );
 
-    for (var attempt = 0; attempt < _productSearchMaxAttempts; attempt++) {
-      try {
-        final suggestions = await widget.productService.searchProducts(query);
-        // A successful answer is authoritative, the empty one included: empty
-        // is information, not an error. Retrying it would fan one search out
-        // over mirror + OFF-de + OFF-world three times over. Retries stay
-        // where they belong: real errors.
-        if (suggestions.isEmpty) {
-          _emptyQueryCache.add(cacheKey);
-        } else {
-          _productSearchCache[cacheKey] = suggestions;
+    try {
+      for (var attempt = 0; attempt < _productSearchMaxAttempts; attempt++) {
+        try {
+          final suggestions = await deadline.guard(
+            widget.productService.searchProducts(query),
+          );
+          // A successful answer is authoritative, the empty one included:
+          // empty is information, not an error. Retrying it would fan one
+          // search out over mirror + OFF-de + OFF-world three times over.
+          // Retries stay where they belong: real errors.
+          if (suggestions.isEmpty) {
+            _emptyQueryCache.add(cacheKey);
+          } else {
+            _productSearchCache[cacheKey] = suggestions;
+          }
+          return suggestions;
+        } catch (error) {
+          lastError = error;
         }
-        return suggestions;
-      } catch (error) {
-        lastError = error;
+
+        final isLastAttempt = attempt == _productSearchMaxAttempts - 1;
+        // Rate limiting gets worse from retrying: bail out, the caller names
+        // it. An expired budget bails for the same reason — the next attempt
+        // would only be cut off again.
+        if (isLastAttempt ||
+            deadline.isExpired ||
+            _istDrosselung(lastError) ||
+            requestId != _productSearchRequestId) {
+          break;
+        }
+        // The pause counts against the budget too, or the ceiling would be
+        // the budget plus 600 ms per retry.
+        try {
+          await deadline.guard(Future<void>.delayed(_productSearchRetryDelay));
+        } on TimeoutException catch (error) {
+          lastError = error;
+          break;
+        }
       }
 
-      final isLastAttempt = attempt == _productSearchMaxAttempts - 1;
-      // Rate limiting gets worse from retrying: bail out, the caller names it.
-      if (isLastAttempt ||
-          _istDrosselung(lastError) ||
-          requestId != _productSearchRequestId) {
-        break;
-      }
-      await Future<void>.delayed(_productSearchRetryDelay);
+      throw lastError!;
+    } finally {
+      deadline.dispose();
     }
-
-    throw lastError!;
   }
 
   static String _normalizeQuery(String query) =>
@@ -770,15 +1065,24 @@ class _AddMealSheetState extends State<AddMealSheet> {
     if (_isSearchingProducts && _productSuggestions.isEmpty) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 24),
-        child: Center(
-          child: SizedBox(
-            width: 22,
-            height: 22,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: context.t.accent,
+        child: Column(
+          children: [
+            SizedBox(
+              key: const ValueKey('product-search-spinner'),
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: context.t.accent,
+              ),
             ),
-          ),
+            // Same gesture as the photo scan: after
+            // [_productSearchSlowAfter] the wait gets a name and a way out.
+            if (_searchIsSlow) ...[
+              const SizedBox(height: 12),
+              _SearchSlowHint(onCancel: _cancelProductSearch),
+            ],
+          ],
         ),
       );
     }
@@ -786,9 +1090,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
       return Column(
         children: [
           _HintBlock(text: _productSearchMessage!),
-          if (_searchCameUpEmpty)
-            // Definitively nothing found -> straight into the form, with the
-            // query prefilled as the name.
+          if (_offerManualEntry)
+            // Definitively nothing found, or the search gave up -> straight
+            // into the form, with the query prefilled as the name.
             TextButton.icon(
               key: const ValueKey('manual-entry-cta'),
               onPressed: () =>
@@ -922,8 +1226,13 @@ class _AddMealSheetState extends State<AddMealSheet> {
     );
   }
 
-  // Report the toggle upwards AND mirror it in the local list, so the heart
-  // flips without rebuilding the sheet (favorites <-> recents).
+  // Report the toggle upwards AND flip the heart locally, so it reacts on the
+  // spot (favorites <-> recents).
+  //
+  // Only the flip is mirrored, never the store's rules: an unpin runs through
+  // the recents cap there and can DELETE the row instead of demoting it. That
+  // outcome arrives via [FoodStoreScope]; the sheet used to keep showing a row
+  // the store had dropped (P8-06).
   void _handleToggleFavorite(MealAnalysisResult result) {
     widget.onToggleFavorite?.call(result);
     final id = FavoriteMeal.idFor(result);
@@ -974,18 +1283,30 @@ class _AddMealSheetState extends State<AddMealSheet> {
     setState(() {});
   }
 
-  /// Mirrors the store's "last used" bump (`_rememberRecent` rewrites
-  /// `addedAt` on every log) into the local copy, so the inline top 3 follow
-  /// "most recently used first" within this sheet session too (review A,
-  /// 2026-08-27). Unknown results (fresh search hits) are left alone: the
-  /// store creates the recent, this copy is rebuilt on the next open.
+  /// Mirrors the store's "last used" bump (`_rememberRecent`) into the local
+  /// copy, so the inline top 3 follow "most recently used first" within this
+  /// sheet session too (review A, 2026-08-27).
+  ///
+  /// Like the store: the entry is REBUILT from the logged result and moves to
+  /// the front. `copyWith(addedAt:)` only moved the timestamp and left the old
+  /// result behind, so a re-logged meal kept showing the old density in its
+  /// tile header (P8-07). What stays the store's alone is the recents cap —
+  /// its outcome (including a dropped entry) arrives via [FoodStoreScope].
+  /// Unknown results (fresh search hits) are left alone here for the same
+  /// reason: the store creates that recent and hands it over.
   void _touchFavorite(MealAnalysisResult result) {
     final id = FavoriteMeal.idFor(result);
     final idx = _favorites.indexWhere((f) => f.id == id);
     if (idx == -1) return;
-    final next = [..._favorites];
-    next[idx] = _favorites[idx].copyWith(addedAt: clock.now());
-    setState(() => _favorites = next);
+    final refreshed = FavoriteMeal(
+      id: id,
+      result: result,
+      addedAt: clock.now(),
+      pinned: _favorites[idx].pinned,
+    );
+    setState(() {
+      _favorites = [refreshed, ..._favorites.where((f) => f.id != id)];
+    });
   }
 }
 
@@ -1329,6 +1650,43 @@ class _ManualEntryRow extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// "Taking longer" line plus cancel, shown under the search spinner once
+/// `_AddMealSheetState._productSearchSlowAfter` passed.
+///
+/// Deliberately the same shape and the same ARB key as `_SlowHint` in
+/// `meal_analysis_sheet.dart`: one wording for "this is taking a while", so
+/// the photo scan and the product search speak with one voice. Its own widget
+/// rather than a shared one — the analysis sheet's version sits under a
+/// loading CARD and carries that card's insets.
+class _SearchSlowHint extends StatelessWidget {
+  const _SearchSlowHint({required this.onCancel});
+
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    return Row(
+      key: const ValueKey('product-search-slow-hint'),
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Flexible(
+          child: Text(
+            l10n.foodAnalysisSlowHint,
+            style: AppType.ui(12.5, weight: FontWeight.w500, color: t.ink2),
+          ),
+        ),
+        TextButton(
+          key: const ValueKey('product-search-cancel'),
+          onPressed: onCancel,
+          child: Text(l10n.commonCancel),
+        ),
+      ],
     );
   }
 }

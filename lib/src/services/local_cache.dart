@@ -23,6 +23,46 @@ abstract class KeyValueStore {
   Future<void> remove(String key);
 }
 
+/// What the raw storage holds for a key — and, when it holds something the
+/// caller could not use, whether a later read can do better.
+///
+/// P3-02c: the two occupied cases look identical from the outside (both end in
+/// `null`) but call for opposite reactions, so they must not share a verdict.
+enum RawSlotState {
+  /// Nothing stored: overwriting or deleting loses nothing.
+  empty,
+
+  /// Bytes are there and the last read HANDED THEM OVER. If the caller still
+  /// could not use them, the CONTENT is broken and no retry changes that.
+  brokenContent,
+
+  /// Bytes are there and the last read could not even EXECUTE the decryption
+  /// (isolate spawn, OOM, RemoteError). The bytes are intact; the next read
+  /// can succeed, so the slot must not be given up.
+  unreadableForNow,
+}
+
+/// Extra capability of a store that TRANSFORMS values on read (decryption):
+/// tells whether the underlying storage still holds bytes for a key, without
+/// decoding them.
+///
+/// P3-02: such a store has to answer "slot unreadable" with the same `null` as
+/// "slot empty" — a failed isolate spawn says nothing about the ciphertext, so
+/// the slot must stay. For the `OrThrow` readers those two cases are opposites:
+/// only "empty" allows overwriting and deleting the persisted blob. Asking the
+/// STORAGE instead of the cipher keeps the answer independent of which error
+/// class a future decryption failure falls into.
+abstract class RawSlotProbe {
+  /// State of [key] in the raw storage. Throws if the storage itself cannot
+  /// answer — the caller must not read that as "empty".
+  ///
+  /// P3-02c: the store also reports WHY a read failed, which only it knows.
+  /// Without that, [LocalCache._assertSlotEmpty] had to call every occupied
+  /// slot equally unreadable, and the repair path could only bound itself by
+  /// counting attempts.
+  Future<RawSlotState> rawSlotState(String key);
+}
+
 /// Platform default: SharedPreferences, built in production via
 /// [LocalCache.create]. Already a transitive dependency of supabase_flutter.
 class SharedPreferencesStore implements KeyValueStore {
@@ -111,13 +151,69 @@ class LocalCache {
     _open.remove(this);
   }
 
-  /// Closes every open instance of [userId] — the AuthGate purge runs on a
-  /// SECOND instance and must silence the store's own one, else its debounce
-  /// timer and late callbacks write after the purge.
-  static void closeInstancesFor(String userId) {
-    for (final cache in _open.toList(growable: false)) {
-      if (cache._userId == userId) cache.close();
+  /// Closes every open instance of [userId] AND waits for the writes already
+  /// inside the store — the AuthGate purge runs on a SECOND instance and must
+  /// silence the store's own one, else its debounce timer and late callbacks
+  /// write after the purge.
+  ///
+  /// P3-01: closing alone is not enough. The [_closed] fence only stops writes
+  /// that have not STARTED; a blob already handed to the encryption isolate is
+  /// past it and lands 200-400 ms later (see [writeDebounce]). The purge
+  /// removes through the SECOND instance's own [EncryptedKeyValueStore], whose
+  /// write queue serialises per key AND per instance, so that `remove` does not
+  /// queue behind the running `setString` — the PII slot came back after the
+  /// purge and survived the logout on the device. Waiting orders the two.
+  ///
+  /// Same reasoning as `HomeStore._clearCache`, which waits for a running
+  /// snapshot; this is the AuthGate half of that protection. Bounded by
+  /// [settleBudget] and never throws, so a hung store cannot block the auth
+  /// transition — [_writeJson]'s own cleanup then takes over.
+  static Future<void> closeInstancesFor(String userId) async {
+    final betroffen =
+        _open.where((cache) => cache._userId == userId).toList(growable: false);
+    for (final cache in betroffen) {
+      cache.close();
     }
+    await Future.wait(betroffen.map((cache) => cache.settle()));
+  }
+
+  /// Upper bound for [settle]: local IO plus one isolate hop. Anything longer
+  /// is a hung plugin, and a purge must not stall the auth transition behind
+  /// it. Same value as `kCacheSnapshotWaitBudget` for the sibling wait.
+  static const Duration settleBudget = Duration(seconds: 3);
+
+  /// Writes that passed the [_closed] fence and are still running. Holds
+  /// error-swallowing copies: [settle] only WAITS, the originating caller
+  /// keeps its own error handling.
+  final Set<Future<void>> _inFlightWrites = <Future<void>>{};
+
+  /// Waits until every write that passed the fence has finished, at most
+  /// [settleBudget]. Never throws.
+  ///
+  /// Needed by every purge that runs on a DIFFERENT instance, because only the
+  /// store's per-key queue can order a `remove` behind a `setString` — and
+  /// that queue is per instance ([closeInstancesFor]).
+  Future<void> settle() {
+    if (_inFlightWrites.isEmpty) return Future<void>.value();
+    return _settleWrites().timeout(settleBudget, onTimeout: () {});
+  }
+
+  Future<void> _settleWrites() async {
+    // A landing write can release the next one (the debounce drain walks its
+    // slots one by one), so loop instead of waiting once.
+    while (_inFlightWrites.isNotEmpty) {
+      await Future.wait(_inFlightWrites.toList(growable: false));
+    }
+  }
+
+  /// Registers [write] for [settle] and returns it UNCHANGED, so the caller
+  /// still sees its result and its errors.
+  Future<T> _trackWrite<T>(Future<T> write) {
+    final Future<void> tracked =
+        write.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _inFlightWrites.add(tracked);
+    unawaited(tracked.whenComplete(() => _inFlightWrites.remove(tracked)));
+    return write;
   }
 
   /// Drops pending debounced writes WITHOUT closing — `HomeStore.dispose`
@@ -597,13 +693,26 @@ class LocalCache {
 
   // ---- Low-level ----------------------------------------------------------
 
-  Future<void> _writeJson(String key, Map<String, dynamic> value) async {
-    if (_closed) return;
+  Future<void> _writeJson(String key, Map<String, dynamic> value) {
+    if (_closed) return Future<void>.value();
     // An immediate write to the same slot invalidates a pending debounced
     // one, which would otherwise overwrite the fresher state later.
     _pendingWrites.remove(key);
+    // Tracked so a purge on ANOTHER instance can wait for it ([settle]).
+    return _trackWrite(_writeJsonNow(key, value));
+  }
+
+  Future<void> _writeJsonNow(String key, Map<String, dynamic> value) async {
     try {
       await _store.setString(key, jsonEncode(value));
+      // P3-01, second fence: the instance can be closed DURING the write. The
+      // one above only stops writes that have not started, and the encryption
+      // runs in an isolate. Whoever closed is purging, and every slot on this
+      // path is cleared unconditionally (see [clear]), so take the blob back
+      // out. The `remove` rides the store's OWN per-key queue and therefore
+      // lands after this write. Deliberately not in [_writeDurable]: a purge
+      // with `preserveOutbox` keeps exactly those two slots.
+      if (_closed) await _store.remove(key);
     } catch (e) {
       // A cache write must never kill the UI path — it is pure speed-up for
       // the next cold start, so failures are dropped silently.
@@ -628,13 +737,23 @@ class LocalCache {
     String key,
     String slot,
     Map<String, dynamic> value,
-  ) async {
+  ) {
     // Closed = not on disk, and the caller is told so; the outbox keeps its
     // in-memory copy and replays on the next login (A2).
-    if (_closed) return false;
+    if (_closed) return Future<bool>.value(false);
     // Same invariant as in [_writeJson]: it belongs to the slot, not the
     // caller. A no-op for the two sync slots, which are never debounced.
     _pendingWrites.remove(key);
+    // Tracked like [_writeJson]: an account deletion purges these slots too,
+    // so it has to wait for a running write (P3-01).
+    return _trackWrite(_writeDurableNow(key, slot, value));
+  }
+
+  Future<bool> _writeDurableNow(
+    String key,
+    String slot,
+    Map<String, dynamic> value,
+  ) async {
     try {
       await _store.setString(key, jsonEncode(value));
       return true;
@@ -690,24 +809,54 @@ class LocalCache {
   /// separates the two.
   ///
   /// Deliberately AFTER, not before: the healthy case costs no second store
-  /// access, which under [EncryptedKeyValueStore] would decrypt the blob
-  /// again. Only empty and broken slots pay.
+  /// access. Only empty and broken slots pay.
   ///
-  /// Not covered: an undecryptable slot — [EncryptedKeyValueStore] clears it
-  /// on read and returns `null`, so it arrives here as empty. Correct, since
-  /// nothing is left that overwriting could lose.
+  /// Under [EncryptedKeyValueStore] the look goes to the RAW storage
+  /// ([RawSlotProbe]), not through the decorator again (P3-02): a read that
+  /// failed at EXECUTING the decryption — isolate spawn, OOM, RemoteError —
+  /// leaves the slot in place and still answers `null`, so a second read
+  /// through the decorator would return `null` once more and this check would
+  /// wave the loss through. The raw look needs no cipher and cannot.
+  ///
+  /// A provably broken ciphertext stays "empty": the decorator PURGES such a
+  /// slot on read, so the raw look finds nothing — correct, since nothing is
+  /// left that overwriting could lose.
+  ///
+  /// P3-02c: the throw carries [UnreadableCacheSlot.transient], so the caller
+  /// can tell a slot that is merely unreadable RIGHT NOW from one whose
+  /// content is provably beyond repair.
   Future<void> _assertSlotEmpty(String key, String slot) async {
-    final String? raw;
+    final store = _store;
+    // `is` does not promote to an unrelated interface, hence the cast.
+    final probe = store is RawSlotProbe ? store as RawSlotProbe : null;
+    final RawSlotState zustand;
     try {
-      raw = await _store.getString(key);
+      zustand = probe != null
+          ? await probe.rawSlotState(key)
+          // No transforming store, hence no transient decryption failure:
+          // whatever is there is exactly what the reader could not parse.
+          : ((await store.getString(key))?.isNotEmpty ?? false)
+              ? RawSlotState.brokenContent
+              : RawSlotState.empty;
     } catch (e) {
       // Only the error type leaves. The caller reports the throw to the
       // CrashReporter, and e.g. a FormatException carries its source in the
       // message — here the decrypted slot content, i.e. health data.
-      throw UnreadableCacheSlot(slot, e.runtimeType.toString());
+      //
+      // Transient, fail-closed: a storage that refuses to answer may answer
+      // next time, and giving the slot up on a guess overwrites data.
+      throw UnreadableCacheSlot(slot, e.runtimeType.toString(),
+          transient: true);
     }
-    if (raw != null && raw.isNotEmpty) {
-      throw UnreadableCacheSlot(slot, 'Inhalt nicht deserialisierbar');
+    switch (zustand) {
+      case RawSlotState.empty:
+        return;
+      case RawSlotState.unreadableForNow:
+        throw UnreadableCacheSlot(slot, 'Entschluesselung nicht ausfuehrbar',
+            transient: true);
+      case RawSlotState.brokenContent:
+        throw UnreadableCacheSlot(slot, 'Inhalt nicht lesbar',
+            transient: false);
     }
   }
 
@@ -751,7 +900,7 @@ class LocalCache {
 /// (holds the user id) and never the value (health data), because the object
 /// goes into the crash report.
 class UnreadableCacheSlot implements Exception {
-  const UnreadableCacheSlot(this.slot, this.reason);
+  const UnreadableCacheSlot(this.slot, this.reason, {this.transient = true});
 
   /// Short name like `outbox`, deliberately not the storage key.
   final String slot;
@@ -759,8 +908,26 @@ class UnreadableCacheSlot implements Exception {
   /// Error type or short reason, never a value.
   final String reason;
 
+  /// Whether a LATER read of the same slot can succeed (P3-02c).
+  ///
+  /// `true` — the read failed at executing the decryption, or the storage
+  /// refused to answer at all. The bytes are intact, so the slot must keep its
+  /// protection for as long as it takes; the loss on giving up early is up to
+  /// [kOutboxMaxOps] undelivered writes.
+  ///
+  /// `false` — the bytes handed themselves over and the reader still could not
+  /// use them. That is a statement about the CONTENT and it is permanent, so
+  /// the caller may give up at once instead of protecting a slot that will
+  /// never open.
+  ///
+  /// Defaults to `true`, fail-closed: not knowing is not a licence to
+  /// overwrite.
+  final bool transient;
+
   @override
-  String toString() => 'UnreadableCacheSlot($slot): $reason';
+  String toString() =>
+      'UnreadableCacheSlot($slot, ${transient ? 'transient' : 'dauerhaft'}): '
+      '$reason';
 }
 
 /// A sync-state slot could not be WRITTEN — counterpart to

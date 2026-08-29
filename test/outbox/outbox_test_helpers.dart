@@ -60,8 +60,49 @@ class FakeServer {
   /// "offline" would be a lie there).
   bool rejectRecipeWrites = false;
 
+  /// ONLY the user_recipes READ fails (500). The boot load then gets an answer
+  /// for five collections and none for the sixth — the state
+  /// `userRecipesAuthoritative` has to tell apart (P3-04b).
+  bool rejectRecipeReads = false;
+
   /// ONLY record_tracking_day fails — the combination that lost the streak day.
   bool rejectTrackingDay = false;
+
+  /// record_tracking_day NEVER answers while this holds.
+  ///
+  /// The kill window of P1-05b: the meal PATCH is through, the booking is on
+  /// the wire, and the app dies before the answer. Neither `then` nor
+  /// `catchError` ever runs, so only something already PERSISTED can catch the
+  /// day. Requests already issued stay hanging when the flag is cleared —
+  /// which is exactly how the restarted session gets a real answer while the
+  /// session that died never gets one.
+  bool hangTrackingDay = false;
+
+  /// Mirrors the source proof of migration 20260811120000: the RPC counts a
+  /// day only once a logged_meals row carries that local_day, otherwise it
+  /// raises EX_DAY_NOT_LOGGED — SQLSTATE P0001, i.e. HTTP 400 with the code in
+  /// the body. Opt-in, so the suites that are not about that guard keep the
+  /// forgiving fake.
+  bool enforceTrackingDaySourceProof = false;
+
+  /// Days the source proof rejected. One entry means a wasted delivery
+  /// attempt: the RPC reached the server before the meal row did.
+  final List<String> trackingDayRejections = <String>[];
+
+  /// logged_meals writes wait for [releaseMealWrites] before they are applied
+  /// and answered: the window in which a LIVE write is still in flight while
+  /// another path runs (P1-01b).
+  Completer<void>? _mealWriteGate;
+
+  /// Opens the window; every logged_meals write from here on hangs.
+  void holdMealWrites() => _mealWriteGate ??= Completer<void>();
+
+  /// Closes it again and answers everything that piled up.
+  void releaseMealWrites() {
+    final gate = _mealWriteGate;
+    _mealWriteGate = null;
+    if (gate != null && !gate.isCompleted) gate.complete();
+  }
 
   /// Last day booked via record_tracking_day, i.e. last_workout_date.
   String? trackedDay;
@@ -141,12 +182,30 @@ class FakeServer {
       return ok(_statsRow());
     }
     if (path.contains('/rpc/record_tracking_day')) {
+      if (hangTrackingDay) return Completer<http.Response>().future;
       if (rejectTrackingDay) return fail();
       final body = jsonDecode(req.body) as Map<String, dynamic>;
-      trackedDay = body['p_day'] as String?;
+      final day = body['p_day'] as String?;
+      if (enforceTrackingDaySourceProof &&
+          !mealRows.values.any((r) => r['local_day'] == day)) {
+        trackingDayRejections.add(day ?? '');
+        return http.Response(
+            jsonEncode({
+              'code': 'P0001',
+              'message': 'EX_DAY_NOT_LOGGED',
+              'details': null,
+              'hint': null,
+            }),
+            400,
+            headers: const {'Content-Type': 'application/json'},
+            request: req);
+      }
+      trackedDay = day;
       return ok(_statsRow());
     }
     if (path.contains('/logged_meals')) {
+      final gate = _mealWriteGate;
+      if (gate != null && req.method != 'GET') await gate.future;
       if (poisonMealWrites && req.method != 'GET') return poison();
       if (req.method == 'POST') {
         if (rejectMealWrites) return fail();
@@ -221,6 +280,7 @@ class FakeServer {
         return Completer<http.Response>().future;
       }
       if (rejectRecipeWrites && req.method != 'GET') return fail();
+      if (rejectRecipeReads && req.method == 'GET') return fail();
       if (req.method == 'POST') {
         for (final row in rowsOf(req.body)) {
           recipeRows[row['slug'] as String] = row;
@@ -398,6 +458,9 @@ class DeltaLesefehlerCache extends LocalCache {
   // Two sessions sharing one server (kill simulation): dedup state and tables
   // must survive the "restart".
   FakeServer? geteilterServer,
+  // Off under fakeAsync: the teardown runs outside the fake zone, where a
+  // request that never answers would hang the dispose.
+  bool disposeClient = true,
 }) {
   final server = geteilterServer ?? FakeServer();
   final client = SupabaseClient(
@@ -407,7 +470,7 @@ class DeltaLesefehlerCache extends LocalCache {
     // No GoTrue auto-refresh ticker in tests (see clobber_guard_test).
     authOptions: const AuthClientOptions(autoRefreshToken: false),
   );
-  addTearDown(client.dispose);
+  if (disposeClient) addTearDown(client.dispose);
   final cache =
       injizierterCache ?? LocalCache(kv ?? InMemoryKeyValueStore(), 'user-outbox');
   final snacks = SnackCapture();

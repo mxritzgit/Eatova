@@ -10,11 +10,15 @@
 
 import { authFailGate } from '../_shared/auth_fail_gate.ts';
 import { clientIpSubject } from '../_shared/client_ip.ts';
-import { positiveIntFromEnv } from '../_shared/env.ts';
+import { EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS, positiveIntFromEnv } from '../_shared/env.ts';
+import { loggableFinishReason } from '../_shared/provider_log.ts';
 import { pruneRateLimits } from '../_shared/rate_limit_prune.ts';
 import {
+  hasEnergyStatement,
   isRecord,
   kcalPer100GMismatch,
+  loggableUsage,
+  missingContractFields,
   normalizeMealResult,
   redactedContentMeta,
   unparseableShape,
@@ -37,19 +41,67 @@ const ALLOWED_ORIGINS = (Deno.env.get('EATOVA_ALLOWED_ORIGINS') ?? '')
   .filter(Boolean);
 
 const MAX_CONTENT_LENGTH = 7_000_000;
-// Deliberately below the 60 s client timeout so a hanging provider yields a
-// clean provider_timeout JSON instead of the generic client timeout.
+// Ceiling for the provider roundtrip. Not the whole story: the effective value
+// is the smaller of this and what is left of REQUEST_BUDGET_MS (see below).
 const OPENROUTER_TIMEOUT_MS = 45_000;
+// P6-07: budget for the whole request. The client gives up after 75 s
+// (lib/src/services/eatova_http.dart, HttpTimeoutPolicy.mealAnalysis), so a
+// timeout that only covers the provider call is not enough — a PostgREST that
+// hangs 20 s used to push the total to 65 s and the caller saw exactly the
+// generic connection drop the provider timeout exists to prevent. Every
+// stage — every outbound call AND the client-paced body read (P6-01b) — is
+// therefore clamped to the remainder of this budget: a slow preliminary step
+// shortens the one after it instead of the total.
+// The env ceiling is the client's tolerance, not a round number: the client
+// waits total (75 s) minus connect (15 s) minus response transfer (5 s) = 55 s.
+// An operator may still SHORTEN the budget, but raising it past what the client
+// waits for cannot help: the function would keep working on a request nobody is
+// listening to any more, the caller would see a timeout, and the provider slot
+// would stay spent. A value above the ceiling is ignored (with a warning) and
+// this default applies. Raising it for real means raising
+// HttpTimeoutPolicy.mealAnalysis.total first — eatova_http_test.dart reads the
+// default below out of this file and turns red if the two drift apart.
+const REQUEST_BUDGET_MS = positiveIntFromEnv('ANALYZE_MEAL_REQUEST_BUDGET_MS', 55_000, 55_000);
+// Ceiling for ONE Supabase roundtrip (auth lookup, one rate-limit RPC, the
+// fail bucket). 5 s x 5 calls = 25 s worst case, which still leaves the
+// provider 30 s of the budget.
+const SUPABASE_TIMEOUT_MS = positiveIntFromEnv('ANALYZE_MEAL_SUPABASE_TIMEOUT_MS', 5_000, 120_000);
+// P6-01b: ceiling for reading the request body. This is the ONE stage the
+// client paces, and until it had a limit it was the way around the budget:
+// upload the body in slow chunks until REQUEST_BUDGET_MS is nearly spent, sail
+// through the fast day gates and leave the provider a few milliseconds — a
+// burnt slot in the shared bill cap at no model cost, i.e. exactly the
+// "outage for everyone without paying" class P6-01 closed for junk bodies.
+const BODY_READ_TIMEOUT_MS = positiveIntFromEnv('ANALYZE_MEAL_BODY_READ_TIMEOUT_MS', 15_000, 120_000);
+// A provider call below this is not worth making, so the body read has to
+// leave it (plus the two day gates that run in between) behind.
+const MIN_PROVIDER_MS = 15_000;
+// Floor for the body read: a deliberately small REQUEST_BUDGET_MS must slow
+// honest uploads down, not reject them. Capped by the remaining budget, so it
+// can never push the total past it.
+const MIN_BODY_READ_MS = 2_000;
 const MAX_IMAGE_BYTES = 5_000_000;
 const MIN_IMAGE_BYTES = 128;
 const MAX_HINT_CHARS = 400;
 // positiveIntFromEnv, not Number(): a non-numeric secret would become NaN ->
 // JSON null -> the SQL guard throws -> every request fails with
 // `rate_limit_unavailable`. A typo would be a total outage.
+// P6-03: WINDOWS pass EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS explicitly. Without
+// it the default cap is the LIMIT bound (10000), so an operator switching to a
+// day window (86400) silently got the code default back — 24x looser than
+// intended. Limits keep the default cap, which is their own RPC bound.
 const USER_LIMIT = positiveIntFromEnv('ANALYZE_MEAL_USER_LIMIT', 20);
-const USER_WINDOW_SECONDS = positiveIntFromEnv('ANALYZE_MEAL_USER_WINDOW_SECONDS', 3600);
+const USER_WINDOW_SECONDS = positiveIntFromEnv(
+  'ANALYZE_MEAL_USER_WINDOW_SECONDS',
+  3600,
+  EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS,
+);
 const IP_LIMIT = positiveIntFromEnv('ANALYZE_MEAL_IP_LIMIT', 60);
-const IP_WINDOW_SECONDS = positiveIntFromEnv('ANALYZE_MEAL_IP_WINDOW_SECONDS', 600);
+const IP_WINDOW_SECONDS = positiveIntFromEnv(
+  'ANALYZE_MEAL_IP_WINDOW_SECONDS',
+  600,
+  EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS,
+);
 // Day caps (F9-01): 20/h/user alone allowed 480 paid vision calls per user
 // and day, with free OTP signups and no ceiling on the bill at all.
 //  - analyze-meal:global, subject 'all': one bucket for everyone, the cost
@@ -150,8 +202,62 @@ type Secrets = {
   openRouterKey: string;
 };
 
+/** Wall-clock budget of one request (P6-07). Handed to every stage so none of
+ *  them can spend time the client is no longer waiting for. */
+type Deadline = { remainingMs(): number };
+
+function startDeadline(budgetMs: number): Deadline {
+  const endsAt = Date.now() + budgetMs;
+  return { remainingMs: () => endsAt - Date.now() };
+}
+
+/** Signal for one outbound call: the per-call ceiling or the rest of the
+ *  budget, whichever is smaller. Never 0 — AbortSignal.timeout(0) would fire
+ *  before the call even starts, turning an exhausted budget into a request
+ *  that never left. */
+function stepSignal(deadline: Deadline, capMs: number): AbortSignal {
+  return AbortSignal.timeout(Math.max(1, Math.min(capMs, deadline.remainingMs())));
+}
+
+function isTimeout(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'TimeoutError';
+}
+
+/**
+ * Time the body read may take (P6-01b): its own ceiling, reduced by what the
+ * stages behind it still need, never below MIN_BODY_READ_MS and never beyond
+ * what is left of the budget. All three inputs are server-side, so what the
+ * day gates and the provider see afterwards is no longer client-steerable.
+ */
+function bodyReadBudgetMs(deadline: Deadline): number {
+  const remaining = deadline.remainingMs();
+  // Behind the read: analyze-meal:user-day, analyze-meal:global, provider.
+  const reserve = 2 * SUPABASE_TIMEOUT_MS + MIN_PROVIDER_MS;
+  const spare = Math.max(MIN_BODY_READ_MS, remaining - reserve);
+  return Math.max(1, Math.min(BODY_READ_TIMEOUT_MS, spare, remaining));
+}
+
+/**
+ * Bounds work that cannot take a signal of its own and resolves to `onTimeout`
+ * instead. Only for calls whose result is optional — the underlying request
+ * keeps running, it is merely no longer waited for.
+ */
+async function withDeadline<T>(work: Promise<T>, ms: number, onTimeout: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const guard = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(onTimeout), Math.max(1, ms));
+  });
+  try {
+    return await Promise.race([work, guard]);
+  } finally {
+    // Always: a leftover timer would keep the isolate alive after the response.
+    clearTimeout(timer);
+  }
+}
+
 export async function handleRequest(request: Request): Promise<Response> {
   const requestId = crypto.randomUUID();
+  const deadline = startDeadline(REQUEST_BUDGET_MS);
   try {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: responseHeaders(request) });
@@ -165,7 +271,7 @@ export async function handleRequest(request: Request): Promise<Response> {
     assertConfigured(secrets);
     enforceContentLength(request);
 
-    const auth = await authenticateUser(request, secrets);
+    const auth = await authenticateUser(request, secrets, deadline);
     if ('rateLimited' in auth) {
       return rateLimitedResponse(request, auth.rateLimited, requestId);
     }
@@ -174,14 +280,54 @@ export async function handleRequest(request: Request): Promise<Response> {
     // is client-controlled. Reasoning: ../_shared/client_ip.ts.
     const ipSubject = clientIpSubject(request, user.id);
 
-    // Gate order: IP -> user-day -> user -> global. Abuse hits its originator
-    // first, and the global bucket counts only requests that would actually
-    // trigger a paid call — so it is a bill cap, not a shared victim of one
-    // flooding client.
-    const ipLimit = await consumeRateLimit(secrets, 'analyze-meal:ip', ipSubject, IP_LIMIT, IP_WINDOW_SECONDS);
+    // Gate order: IP -> user (hour) -> body validation -> user-day -> global.
+    //
+    // The first two are the flood dampers. They run before any work and count
+    // ATTEMPTS on purpose: a request must cost its originator something even
+    // when it turns out to be junk. Their windows roll (10 min / 1 h), so a
+    // burnt slot heals on its own.
+    //
+    // Everything AFTER the body validation counts only what reaches a paid
+    // provider call. Both day buckets snap to 00:00 UTC, so a slot burnt there
+    // stays burnt for the rest of the day — hence P6-01 (a rejected body must
+    // not empty the shared bill cap for everyone) and P6-02 (a request that
+    // already lost at the hourly gate must not cost a day slot the user never
+    // used for an analysis).
+    //
+    // Known remainder, accepted deliberately: a provider failure (502/504)
+    // still spends the global slot. consume_edge_rate_limit increments on
+    // call and there is no counterpart RPC, so a refund would need a schema
+    // change.
+    const ipLimit = await consumeRateLimit(
+      secrets,
+      'analyze-meal:ip',
+      ipSubject,
+      IP_LIMIT,
+      IP_WINDOW_SECONDS,
+      deadline,
+    );
     if (!ipLimit.allowed) {
       return rateLimitedResponse(request, ipLimit, requestId);
     }
+
+    const userLimit = await consumeRateLimit(
+      secrets,
+      'analyze-meal:user',
+      user.id,
+      USER_LIMIT,
+      USER_WINDOW_SECONDS,
+      deadline,
+    );
+    if (!userLimit.allowed) {
+      return rateLimitedResponse(request, userLimit, requestId);
+    }
+
+    // The dividing line: from here on a request is one that would be paid for.
+    // The read has a time budget of its own (P6-01b), so a body that trickles
+    // in ends here with a 408 — before the two day buckets, whose slots stay
+    // burnt until 00:00 UTC.
+    const body = await parseBody(request, deadline, requestId);
+    const prompt = buildPrompt(body.portionHint, body.freeTextHint, body.language);
 
     const userDayLimit = await consumeRateLimit(
       secrets,
@@ -189,14 +335,10 @@ export async function handleRequest(request: Request): Promise<Response> {
       user.id,
       USER_DAY_LIMIT,
       DAY_WINDOW_SECONDS,
+      deadline,
     );
     if (!userDayLimit.allowed) {
       return rateLimitedResponse(request, userDayLimit, requestId);
-    }
-
-    const userLimit = await consumeRateLimit(secrets, 'analyze-meal:user', user.id, USER_LIMIT, USER_WINDOW_SECONDS);
-    if (!userLimit.allowed) {
-      return rateLimitedResponse(request, userLimit, requestId);
     }
 
     const globalLimit = await consumeRateLimit(
@@ -205,6 +347,7 @@ export async function handleRequest(request: Request): Promise<Response> {
       GLOBAL_SUBJECT,
       GLOBAL_DAY_LIMIT,
       DAY_WINDOW_SECONDS,
+      deadline,
     );
     if (!globalLimit.allowed) {
       // Operator signal: this is the bill cap, not one abusive user.
@@ -217,10 +360,43 @@ export async function handleRequest(request: Request): Promise<Response> {
     // isolate mid model call (../_shared/rate_limit_prune.ts).
     void pruneRateLimits({ supabaseUrl: secrets.supabaseUrl, serviceKey: secrets.serviceKey });
 
-    const body = await parseBody(request);
-    const prompt = buildPrompt(body.portionHint, body.freeTextHint, body.language);
-    const providerResult = await callOpenRouter(secrets, body, prompt, requestId);
+    const providerResult = await callOpenRouter(secrets, body, prompt, requestId, deadline);
     const result = normalizeMealResult(providerResult);
+
+    // P6-06: valid JSON that matches nothing in the contract used to leave as a
+    // 200 with every number null and no log line at all — the exact shape a
+    // model downgrade takes, invisible in function_logs while every gate was
+    // spent and the provider paid.
+    //
+    // Two different situations, two different answers:
+    //  - no energy statement anywhere: this is not an analysis. The client
+    //    cannot log it either (the sheet's B7 guard refuses a 0-kcal result),
+    //    so a 200 would only dress a provider failure up as an empty meal.
+    //    502, same family as provider_empty_response.
+    //  - some required field missing but kcal present: a usable analysis with
+    //    a gap. It stays a 200 — the model that omits estimatedGrams is not
+    //    the model that stopped understanding the task — and only warns.
+    // Only field NAMES are logged; they come from REQUIRED_MEAL_FIELDS, never
+    // from the answer (CWE-532).
+    const missingFields = missingContractFields(providerResult, result);
+    if (!hasEnergyStatement(result)) {
+      console.error('analyze-meal unusable model result', {
+        requestId,
+        model: OPENROUTER_MODEL,
+        missing: missingFields.join(','),
+        keyCount: Object.keys(providerResult).length,
+        itemCount: result.items.length,
+      });
+      throw new HttpError(502, 'provider_unusable_result', 'Analyse-Antwort war unvollständig.');
+    }
+    if (missingFields.length > 0) {
+      console.warn('analyze-meal incomplete model result', {
+        requestId,
+        model: OPENROUTER_MODEL,
+        missing: missingFields.join(','),
+        itemCount: result.items.length,
+      });
+    }
 
     // The three numbers come from the model independently and can contradict
     // each other (Review 2026-08-08, B1). The server only reports it: which
@@ -302,24 +478,60 @@ function enforceContentLength(request: Request) {
   }
 }
 
-// Streams the body and aborts at maxBytes (null = too large) before it is
-// fully in memory.
-async function readBodyLimited(request: Request, maxBytes: number): Promise<string | null> {
+// Streams the body and gives up on two counts: at maxBytes (null = too large)
+// before it is fully in memory, and — P6-01b — at budgetMs, because the client
+// decides how slowly the bytes arrive (408, see the throw site).
+async function readBodyLimited(
+  request: Request,
+  maxBytes: number,
+  budgetMs: number,
+  requestId: string,
+): Promise<string | null> {
   if (!request.body) return '';
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (!value) continue;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel();
-      return null;
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      // Operator signal: separates a slow uploader from a budget that earlier
+      // stages already spent (bytesRead stays near 0 in the second case).
+      console.warn('analyze-meal body read timeout', { requestId, budgetMs, bytesRead: total });
+      // 408, not 413: nothing here is about size. RFC 9110 15.5.9 is exactly
+      // this case — the server did not get a complete request within the time
+      // it was prepared to wait. A 413 would tell the client to send a smaller
+      // photo, which fixes nothing when the upload is merely slow.
+      reject(new HttpError(408, 'request_timeout', 'Anfrage hat zu lange gedauert. Bitte erneut versuchen.'));
+    }, Math.max(1, budgetMs));
+  });
+
+  try {
+    while (true) {
+      const pending = reader.read();
+      // The losing side of the race stays unobserved; without this a later
+      // stream error would surface as an unhandled rejection.
+      pending.catch(() => {});
+      const { done, value } = await Promise.race([pending, expired]);
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
     }
-    chunks.push(value);
+  } catch (error) {
+    // Release the stream: an open reader would keep the isolate busy with an
+    // upload nobody is waiting for any more.
+    void reader.cancel().catch(() => {});
+    throw error;
+  } finally {
+    // Always: a leftover timer would keep the isolate alive after the response.
+    clearTimeout(timer);
   }
+
   const buf = new Uint8Array(total);
   let offset = 0;
   for (const chunk of chunks) {
@@ -329,7 +541,7 @@ async function readBodyLimited(request: Request, maxBytes: number): Promise<stri
   return new TextDecoder().decode(buf);
 }
 
-async function authenticateUser(request: Request, secrets: Secrets): Promise<AuthOutcome> {
+async function authenticateUser(request: Request, secrets: Secrets, deadline: Deadline): Promise<AuthOutcome> {
   const authorization = request.headers.get('authorization') ?? '';
   const match = authorization.match(/^Bearer\s+(.+)$/i);
   if (!match) {
@@ -343,23 +555,46 @@ async function authenticateUser(request: Request, secrets: Secrets): Promise<Aut
     throw new HttpError(401, 'user_token_required', 'Bitte erneut anmelden.');
   }
 
-  const response = await fetch(`${secrets.supabaseUrl}/auth/v1/user`, {
-    headers: {
-      apikey: secrets.anonKey,
-      authorization: `Bearer ${token}`,
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${secrets.supabaseUrl}/auth/v1/user`, {
+      headers: {
+        apikey: secrets.anonKey,
+        authorization: `Bearer ${token}`,
+      },
+      signal: stepSignal(deadline, SUPABASE_TIMEOUT_MS),
+    });
+  } catch (error) {
+    // P6-07: a hanging GoTrue is an outage, NOT a rejected token. Answering
+    // 401 here would sign the user out on the client
+    // (lib/src/services/meal_analyzer.dart maps 401/403 to an auth error), and
+    // counting it in the fail bucket would let a slow auth server 429 whole
+    // IPs — the same rule as the "200 without a usable id" case below.
+    if (isTimeout(error)) {
+      throw new HttpError(503, 'auth_unavailable', 'Anmeldung gerade nicht prüfbar. Bitte erneut versuchen.');
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     // F-28-1: the lookup cost a GoTrue roundtrip, so failures are capped per
     // IP before the 401 — only here, never for the local rejections above or
     // the unusable-id case below. Rules in ../_shared/auth_fail_gate.ts.
-    const gate = await authFailGate({
-      supabaseUrl: secrets.supabaseUrl,
-      serviceKey: secrets.serviceKey,
-      scope: 'analyze-meal:auth-fail',
-      subject: clientIpSubject(request, 'anon'),
-    });
+    //
+    // The helper is shared by three functions and takes no signal, so its
+    // deadline is applied here. Timing out means "not limited", exactly what
+    // it reports for any other limiter problem: a damper must never swallow
+    // the honest 401.
+    const gate = await withDeadline(
+      authFailGate({
+        supabaseUrl: secrets.supabaseUrl,
+        serviceKey: secrets.serviceKey,
+        scope: 'analyze-meal:auth-fail',
+        subject: clientIpSubject(request, 'anon'),
+      }),
+      Math.min(SUPABASE_TIMEOUT_MS, deadline.remainingMs()),
+      { limited: false },
+    );
     if (gate.limited) {
       return {
         rateLimited: {
@@ -387,21 +622,35 @@ async function consumeRateLimit(
   subject: string,
   limit: number,
   windowSeconds: number,
+  deadline: Deadline,
 ): Promise<RateLimitResult> {
-  const response = await fetch(`${secrets.supabaseUrl}/rest/v1/rpc/consume_edge_rate_limit`, {
-    method: 'POST',
-    headers: {
-      apikey: secrets.serviceKey,
-      authorization: `Bearer ${secrets.serviceKey}`,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      p_scope: scope,
-      p_subject: subject,
-      p_limit: limit,
-      p_window_seconds: windowSeconds,
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${secrets.supabaseUrl}/rest/v1/rpc/consume_edge_rate_limit`, {
+      method: 'POST',
+      headers: {
+        apikey: secrets.serviceKey,
+        authorization: `Bearer ${secrets.serviceKey}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        p_scope: scope,
+        p_subject: subject,
+        p_limit: limit,
+        p_window_seconds: windowSeconds,
+      }),
+      signal: stepSignal(deadline, SUPABASE_TIMEOUT_MS),
+    });
+  } catch (error) {
+    // P6-07: a hanging limiter is the same case as a failing one (E6) — an
+    // outage, not a measured limit. The request must not slip through to the
+    // paid call, so it fails closed.
+    if (isTimeout(error)) {
+      console.error(`consume_edge_rate_limit (${scope}) timeout`);
+      throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
@@ -423,15 +672,16 @@ async function consumeRateLimit(
   };
 }
 
-async function parseBody(request: Request): Promise<ParsedBody> {
+async function parseBody(request: Request, deadline: Deadline, requestId: string): Promise<ParsedBody> {
   const contentType = request.headers.get('content-type') ?? '';
   if (!contentType.toLowerCase().includes('application/json')) {
     throw new HttpError(415, 'unsupported_content_type', 'Bitte JSON senden.');
   }
 
   // Capped server-side rather than trusting content-length
-  // (enforceContentLength is only the cheap fast path).
-  const raw = await readBodyLimited(request, MAX_CONTENT_LENGTH);
+  // (enforceContentLength is only the cheap fast path), and capped in TIME as
+  // well: bytes and seconds are two different budgets (P6-01b).
+  const raw = await readBodyLimited(request, MAX_CONTENT_LENGTH, bodyReadBudgetMs(deadline), requestId);
   if (raw === null) {
     throw new HttpError(413, 'payload_too_large', 'Bild ist zu groß. Bitte kleineres Foto wählen.');
   }
@@ -531,10 +781,14 @@ async function callOpenRouter(
   body: ParsedBody,
   prompt: string,
   requestId: string,
+  deadline: Deadline,
 ): Promise<Record<string, unknown>> {
   // Log the model name (never the key) so a wrong OPENROUTER_MODEL secret is
   // immediately visible.
   console.log('analyze-meal openrouter request', { requestId, model: OPENROUTER_MODEL });
+  // What is left of the request budget, at most OPENROUTER_TIMEOUT_MS: the
+  // preliminary steps have already spent part of the 60 s the client waits.
+  const timeoutMs = Math.max(1, Math.min(OPENROUTER_TIMEOUT_MS, deadline.remainingMs()));
   let response: Response;
   let text: string;
   try {
@@ -549,7 +803,7 @@ async function callOpenRouter(
       // Hard cap on the whole provider roundtrip, including the body read
       // below. Without it the function would hang until the platform kills it
       // and the client would see a dropped connection, not an error JSON.
-      signal: AbortSignal.timeout(OPENROUTER_TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
       body: JSON.stringify({
         model: OPENROUTER_MODEL,
         messages: [
@@ -576,11 +830,11 @@ async function callOpenRouter(
     });
     text = await response.text();
   } catch (error) {
-    if (error instanceof DOMException && error.name === 'TimeoutError') {
+    if (isTimeout(error)) {
       console.error('OpenRouter timeout', {
         requestId,
         model: OPENROUTER_MODEL,
-        timeoutMs: OPENROUTER_TIMEOUT_MS,
+        timeoutMs,
       });
       throw new HttpError(
         504,
@@ -625,8 +879,11 @@ async function callOpenRouter(
     console.error('Empty model content', {
       requestId,
       model: OPENROUTER_MODEL,
-      finishReason,
-      usage: completion.usage,
+      // P6-04b: both values come from the provider, so both go through the
+      // allowlists in normalize.ts — this line is the one empty-answer
+      // diagnostic and used to pass them through unfiltered.
+      finishReason: loggableFinishReason(finishReason),
+      usage: loggableUsage(completion.usage),
     });
     throw new HttpError(502, 'provider_empty_response', 'Analyse-Antwort war leer.');
   }
@@ -643,7 +900,7 @@ async function callOpenRouter(
     console.error('Invalid model JSON', {
       requestId,
       model: OPENROUTER_MODEL,
-      finishReason,
+      finishReason: loggableFinishReason(finishReason),
       ...(await redactedContentMeta(rawContent)),
       shape: unparseableShape(jsonText, parseError),
     });

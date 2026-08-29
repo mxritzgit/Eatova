@@ -76,11 +76,17 @@ final t = context.t;
 | `snack` | vierte kategorische Farbe (Snack-Slot) |
 | `danger` `warning` | **nur** Zustands-Signale |
 | `shadowTint` | getönter Schatten, nie reines Schwarz |
+| `field` `fieldFocus` `fieldError` | Eingabe-Kapsel: Ruhe · Fokus (heller) · Fehler (danger-Tönung). **Nie** surf/surf2/tile für ein Eingabefeld |
+| `scrim` | Modal-Vorhang hinter Sheets und Dialogen |
 
 ### Form
 
-`rChip`=11 · `rControl`=15 · `rCard`=22 · `rSheet`=28 · `rHero`=28 · `rPill`.
-Wo die Vorlage einen anderen Wert nennt, gilt die Vorlage.
+`rChip`=11 · `rControl`=15 · `rButton`=18 · `rCard`=22 · `rSheet`=28 ·
+`rHero`=28 · `rPill`. Wo die Vorlage einen anderen Wert nennt, gilt die
+Vorlage. Dazu zwei Höhen: `kPrimaryButtonHeight`=54 (nur `PrimaryActionButton`
+und die `SheetScaffold`-Aktion) und `kButtonMinHeight`=48 (über das Theme
+gestylte Filled-/OutlinedButtons, damit eine Dialog-Aktion neben einem
+`TextButton` nicht aufragt).
 
 Achtung: Die Skala hat sich gegenüber `app_colors.dart` **verschoben**
 (vorher `rChip`=8 · `rControl`=12 · `rCard`=16 · `rSheet`=24). Code, der die
@@ -101,10 +107,11 @@ und bricht offline.
 
 ### Drei harte Regeln
 
-1. **`lib/src/theme/app_colors.dart` wird in neuem/angefasstem Code nicht mehr
-   importiert.** Die Datei lebt nur noch, bis der letzte Import weg ist; sie
-   wird am Ende gelöscht. Wenn du eine Datei anfasst, migriere ihre Farben.
-   Übersetzungstabelle:
+1. **`lib/src/theme/app_colors.dart` gibt es nicht mehr.** Sie ist mit der
+   Auth-Runde gelöscht worden; `test/repo_rules_test.dart` prüft sowohl, dass
+   die Datei fehlt, als auch, dass keine Quelle in `lib/` sie noch nennt. Die
+   Übersetzungstabelle bleibt nur als Lesehilfe für alten Code und alte
+   Reviews stehen:
    `bg`→`t.bg` · `surface`→`t.surf` · `surfaceSoft`→`t.surf2` · `hairline`→`t.line`
    · `textPrimary`→`t.ink` · `textMuted`→`t.ink2` · `lime`→`t.lime` (Fläche) bzw.
    `t.accent` (Strich/Text auf Karte) · `macroProtein`/`cyan`→`t.protein`/`t.carbs`
@@ -135,16 +142,74 @@ controller?.isDark(MediaQuery.platformBrightnessOf(context));
 Zeilen, Schalter und Sheets erneut zu bauen.** Inhalt:
 
 - `surfaces.dart` — `AppCard`, `ScreenTitle`, `SectionHeading`,
-  `ImagePlaceholder`, `DottedAddSlot`
-- `controls.dart` — `SquareIconButton`, `IconTile`, `AppToggle`,
-  `SegmentedPill`, `FilterChipPill`, `PrimaryActionButton`, `AppNavBar`
+  `HeadingSemantics`, `ImagePlaceholder`, `DottedAddSlot`
+- `controls.dart` — `SelectionTone` (Erweiterung auf `AppTokens`),
+  `SquareIconButton`, `IconTile`, `AppToggle`, `SegmentedPill`,
+  `FilterChipPill`, `PrimaryActionButton`, `AppNavBar` (+ `AppNavItem`)
 - `rows.dart` — `PageHeader`, `SettingsGroup`, `SettingsRow`
-- `sheets.dart` — `SheetScaffold`, `SheetField`, `showEatovaSheet`
+- `sheets.dart` — `SheetScaffold`, `SheetField`, `FieldCapsule`, `SheetHandle`,
+  `SheetDismissGuard`, `showEatovaSheet`, `sheetMaxHeight`/`sheetMaxHeightOf`
 - `meters.dart` — `TickGauge`, `MacroBar`, `MealAvatar`, `Sparkline`,
   `DotGridBackground`
+- `text_scale.dart` — `scaledWidth`, `ScaledWidth`
 
 Fehlt dir ein Baustein, den **mehrere** Screens brauchen: baue ihn dort,
 nicht in deinem Screen. Brauchst nur du ihn: baue ihn in deinem Paket.
+
+### Verbindliche Regeln der Bibliothek (Stand 2026-08-29)
+
+Die drei Fix-Wellen zum Review vom 29.08. haben vier Punkte dieses Abschnitts
+verändert. Sie stehen hier, weil sie für **jedes** eigene Control gelten, nicht
+nur für die Bibliothekswidgets:
+
+1. **Auswahlfarbe ist `ink`/`bg`, nicht mehr `forest`/`onForest`** (P9-02).
+   Ein gewähltes Segment, ein gewählter Chip, ein gewählter Kalendertag ist
+   eine gefüllte `AppTokens.ink`-Kapsel mit `AppTokens.bg`-Beschriftung —
+   dasselbe Paar, das `PrimaryActionButton` und der über das Theme gestylte
+   `FilledButton` tragen. Nimm die Erweiterung `SelectionTone` (`t.selectedFill` /
+   `t.onSelected`), nicht die Tokens direkt.
+   Grund: `forest` ist im Dunkelmodus selbst eine dunkle **Fläche**, das alte
+   Paar fiel dort auf 1,34:1 gegen `surf`, 1,10:1 gegen die `tile`-Spur und
+   2,59:1 zwischen den beiden Beschriftungen. `forest` behält jede Rolle, die
+   es als Fläche hat (Hero-Karten, Snackbar, Coach-Blase) — es ist nur kein
+   Zustandsträger mehr.
+2. **Kontrast-Untergrenzen.** Was den **Zustand** eines Controls zeigt
+   (Füllung, Zeiger, Punkt, Icon-Scheibe): **3:1** gegen alles, worauf es liegt
+   — inklusive der Spur und beider Gründe `bg` **und** `surf`, WCAG 1.4.11.
+   Text darauf: **4,5:1**, WCAG 1.4.3. Halbtransparente Gründe (`tile`, `line`)
+   vorher komponieren, `computeLuminance()` ignoriert Alpha. Und: **beide
+   Modi rechnen.** Ein Helligkeits-Abzweig ist verboten (§3, Regel 3), es
+   braucht also **ein** Paar, das in beiden Paletten trägt. Farbige Signale
+   (Toast-Tonspur) müssen zusätzlich **untereinander** unterscheidbar bleiben
+   — vier Töne, die alle 3:1 schaffen und gleich aussehen, sagen nichts.
+   Nachgerechnet und festgenagelt in `test/review0829_selection_contrast_test.dart`
+   und `test/fixwelle_p9_snack_tone_contrast_test.dart`.
+3. **Tippziel 44 pt**, auch wenn die gemalte Fläche kleiner bleibt. Der
+   zusätzliche Rand ist transparent und muss trotzdem treffen
+   (`HitTestBehavior.opaque`) und im Semantik-Knoten liegen. Ein bloßer
+   `GestureDetector` um ein Label ist kein Control: er trägt weder `button`
+   noch `selected`. Gepinnt in `review0819_controls_toggle_target_test.dart`
+   und `review0829_settings_pill_target_test.dart`.
+4. **Überschriften sind Sprungmarken** (P9-06). Jeder Screen-Titel und jede
+   Abschnittsüberschrift bekommt `HeadingSemantics` — Rang 1 = Screen-Titel,
+   Rang 2 = Abschnitt. `ScreenTitle`, `SectionHeading` und `PageHeader` tun
+   das bereits. **Nur den Titeltext umschließen:** legst du es um eine Zeile,
+   die auch einen Zurück-Knopf oder eine Aktion enthält, landen deren
+   Tipp-Aktionen im Überschriften-Knoten. `test/a11y_headings_test.dart` prüft
+   die vollständige Liste der Marken je Screen samt Rang und Lesereihenfolge.
+
+**`SegmentedPill` hat heute keinen Aufrufer in `lib/`.** Er bleibt gelistet,
+weil er das Segment-Control der Bibliothek ist und weil die *lebende*
+Umsetzung — `_SettingsChoicePill` in
+`lib/src/screens/settings/settings_controls.dart`, hinter
+`SettingsThemeModePill`/`SettingsLanguagePill` — eine Kopie seiner Geometrie
+ist; ein Fix, der nur an einer der beiden Stellen landet, treibt sie
+auseinander. Beide tragen deshalb `SelectionTone`. **Achtung, genau das ist
+mit dem Tippziel passiert:** P9-05 hat die Einstellungs-Pille auf 44 pt
+gezogen (gemessen 89,5 × 50), `SegmentedPill` steht weiter bei 44,5 × **26**.
+Wer ihn als Erster benutzt, zieht das Tippziel vorher nach. Und wenn die
+Einstellungs-Pillen eines Tages in `controls.dart` umziehen, verschwindet
+`SegmentedPill` zusammen mit diesem Absatz.
 
 ---
 

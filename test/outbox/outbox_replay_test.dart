@@ -258,6 +258,43 @@ void main() {
   });
 
   test(
+      'P1-02: ein Pass mit UEBERSPRUNGENER Op raeumt den Wecker nicht weg — '
+      'sonst liegt die Op ohne Zusteller in der Queue', () async {
+    final s = setup();
+    await boot(s.store);
+
+    // Erst ein echter Fehlschlag: er armiert den Backoff-Wecker.
+    s.server.offline = true;
+    final id = s.store.addResultToDailyTotal(mealResult('Wecker-Bowl'));
+    await settle();
+    expect(s.store.debugOutboxRetryTimerIsActive, isTrue,
+        reason: 'Vorbedingung: der fehlgeschlagene Write hat einen Wecker '
+            'gestellt');
+
+    // Jetzt ein haengender Live-Write: seine Op liegt in der Queue (Luecke B)
+    // und wird im Replay UEBERSPRUNGEN, ohne in `blocked` zu landen.
+    s.server.offline = false;
+    s.server.hangRecipeWrites = true;
+    s.store.createUserRecipe(userRecipe('user_uebersprungen'));
+    await settle();
+
+    // Der Pass stellt die Mahlzeit zu, ueberspringt das Rezept — und beendete
+    // sich frueher mit blocked.isEmpty, also mit abgeraeumtem Wecker.
+    s.store.flushPendingWrites();
+    await settle();
+
+    expect(s.server.mealRows.keys, contains(id),
+        reason: 'Vorbedingung: der Pass ist wirklich gelaufen');
+    expect(s.store.pendingOutbox.map((o) => o.entityKey),
+        contains('recipe:user_uebersprungen'),
+        reason: 'Vorbedingung: die uebersprungene Op liegt weiter unzugestellt '
+            'in der Queue');
+    expect(s.store.debugOutboxRetryTimerIsActive, isTrue,
+        reason: 'uebersprungen ist nicht zugestellt: ohne Wecker fasst die Op '
+            'bis zum naechsten Lifecycle-Ereignis niemand mehr an');
+  });
+
+  test(
       'Luecke B: auch der Mahlzeiten-Insert reiht ZUERST ein — die Op liegt '
       'auf der Platte, bevor der Server geantwortet hat', () async {
     final kv = InMemoryKeyValueStore();

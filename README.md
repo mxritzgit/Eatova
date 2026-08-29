@@ -241,14 +241,25 @@ flutter run --dart-define-from-file=dart_defines.json
 
 `--dart-define` values take precedence over the source defaults.
 
+**An empty value is not "unset".** `String.fromEnvironment` uses its
+`defaultValue` only when the key is *undefined*; a key present with `""`
+defines it as the empty string and overwrites the compiled-in default. So only
+list keys you actually want to override — the example file carries just the
+three that are either meant to be filled in or empty by default. In particular,
+adding `"OFF_MIRROR_SEARCH_KEY": ""` would ship a build with no search key: the
+product search then silently falls back to the public Open Food Facts search
+(see "Product-search key rotation") and still returns plausible results, so the
+misconfiguration does not show up as an error.
+
 ### Crash reporting (optional)
 
 Release builds can ship crash reporting via [Sentry](https://sentry.io). Set
 `SENTRY_DSN` in `dart_defines.json` (see `dart_defines.example.json`) — with an
 empty or missing DSN, Sentry is never initialized and the app runs exactly as
 before, so dev builds and CI are unaffected. The configuration is deliberately
-conservative (no PII, no screenshots, no replay, no performance tracing);
-app code reports handled errors through `lib/src/services/crash_reporter.dart`.
+conservative (no PII, no screenshots, no replay, no performance tracing, no
+automatic session tracking); app code reports handled errors through
+`lib/src/services/crash_reporter.dart`.
 
 ### Release build (Android)
 
@@ -328,7 +339,11 @@ The Meilisearch search-only key used by the product search is resolved at
 2. **Fetch** — the `search-key` edge function returns base URL + key together,
    so relocating the mirror is a single secret update.
 3. **Compile-time default** — `--dart-define=OFF_MIRROR_URL` /
-   `OFF_MIRROR_SEARCH_KEY`. Covers a fresh install with no network.
+   `OFF_MIRROR_SEARCH_KEY`. Covers a fresh install with no network. Both have
+   working defaults in `lib/src/config/search_config.dart`; defining either as
+   an empty string in a `dart_defines.json` *removes* that default (see "Point
+   at your own Supabase project"), which is why they are not in
+   `dart_defines.example.json`.
 4. **Mirror off** — empty credentials, search goes straight to Open Food Facts.
 
 Search never hard-fails because the key endpoint is unreachable; the worst case

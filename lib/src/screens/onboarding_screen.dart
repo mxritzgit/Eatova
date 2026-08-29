@@ -89,12 +89,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     } else {
       _direction = _GoalDirection.maintain;
     }
-    _target = p.targetWeightKg
-        .clamp(
-          ProfileLimits.targetWeightKgMin,
-          ProfileLimits.targetWeightKgMax,
-        )
-        .toInt();
+    _target = clampProfileTargetWeightKg(p.targetWeightKg);
     _diet = p.diet;
   }
 
@@ -124,21 +119,34 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   /// Bounds the target weight to the chosen direction (lose -> below, gain ->
   /// above). The only remaining narrowing against the DB, and the only one
   /// that cannot be mirrored because it depends on the current weight.
-  int get _targetMin => _direction == _GoalDirection.gain
-      ? _weight + 1
-      : ProfileLimits.targetWeightKgMin;
-  int get _targetMax => _direction == _GoalDirection.lose
-      ? _weight - 1
-      : ProfileLimits.targetWeightKgMax;
+  ///
+  /// The rule itself lives in `user_profile.dart` — the goals page enforces the
+  /// same one on typed input, and two copies drift (P9-08b).
+  int get _targetMin => targetWeightMinFor(_weightGoal, _weight);
+  int get _targetMax => targetWeightMaxFor(_weightGoal, _weight);
 
   /// clamp without an assert crash on inverted bounds (weight at an extreme).
   static int _safeClamp(int v, int lo, int hi) =>
       hi < lo ? lo : v.clamp(lo, hi).toInt();
 
+  /// The target weight actually in play: [_target] narrowed to the window the
+  /// direction leaves open. The ONE number the target step may show — picker,
+  /// footnote, BMI hint and the saved plan all read this.
+  ///
+  /// [_NumberPicker] clamps what it draws but cannot write back, so a raw
+  /// `_target` in the footnote made the sentence contradict the number right
+  /// above it as soon as the weight moved under a target picked earlier
+  /// (80 kg → "lose" → back → 60 kg showed "59 kg" over "15 kg abnehmen").
+  ///
+  /// The DB clamp on top catches the one window that inverts: gaining at
+  /// 300 kg leaves min 301 > max 300, and `_safeClamp` would hand 301 to a
+  /// column that ends at 300.
+  int get _targetSafe =>
+      clampProfileTargetWeightKg(_safeClamp(_target, _targetMin, _targetMax));
+
   UserProfile _draftProfile() {
-    final target = _direction == _GoalDirection.maintain
-        ? _weight
-        : _safeClamp(_target, _targetMin, _targetMax);
+    final target =
+        _direction == _GoalDirection.maintain ? _weight : _targetSafe;
     return widget.initialProfile.copyWith(
       sex: _sex,
       ageYears: _age,
@@ -203,22 +211,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   void _onDirectionChosen(_GoalDirection dir) {
     setState(() {
       _direction = dir;
-      // Pick a sensible default target weight for the direction.
-      if (dir == _GoalDirection.lose) {
-        _target = _safeClamp(
-          _weight - 5,
-          ProfileLimits.targetWeightKgMin,
-          _weight - 1,
-        );
-      } else if (dir == _GoalDirection.gain) {
-        _target = _safeClamp(
-          _weight + 5,
-          _weight + 1,
-          ProfileLimits.targetWeightKgMax,
-        );
-      } else {
-        _target = _weight;
-      }
+      // A sensible default INSIDE the window the new direction opens: 5 kg
+      // along it. The window itself comes from `_targetMin`/`_targetMax`, which
+      // already read the direction assigned one line above — spelling the
+      // bounds out a second time here is how the rule started drifting.
+      _target = dir == _GoalDirection.maintain
+          ? _weight
+          : _safeClamp(
+              dir == _GoalDirection.lose ? _weight - 5 : _weight + 5,
+              _targetMin,
+              _targetMax,
+            );
     });
   }
 
@@ -359,6 +362,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             min: ProfileLimits.weightKgMin,
             max: ProfileLimits.weightKgMax,
             unit: l10n.commonUnitKg,
+            // Deliberately does NOT follow the target weight along (P9-07b):
+            // [_targetSafe] already keeps every shown number inside the window,
+            // and writing the clamped value back would COST the choice. 80 kg
+            // with a target of 70, weight down to 60 and back to 80 then ended
+            // at 59 instead of the 70 the user had picked.
             onChanged: (v) => setState(() => _weight = v),
           ),
         ),
@@ -387,23 +395,25 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             children: [
               _NumberPicker(
                 field: 'target',
-                value: _target,
+                // [_targetSafe], not `_target`: number and footnote have to
+                // mean the same kilograms.
+                value: _targetSafe,
                 min: _targetMin,
                 max: _targetMax,
                 unit: l10n.commonUnitKg,
                 onChanged: (v) => setState(() => _target = v),
                 footnote: _direction == _GoalDirection.lose
                     ? l10n.onboardingTargetFootnoteLose(
-                        (_weight - _target).abs())
+                        (_weight - _targetSafe).abs())
                     : l10n.onboardingTargetFootnoteGain(
-                        (_weight - _target).abs()),
+                        (_weight - _targetSafe).abs()),
               ),
               // Soft, non-blocking BMI hint — same thresholds as the settings
               // sheet (below 18.5 / above 35).
               TargetBmiHint(
                 margin: const EdgeInsets.only(top: 16),
                 heightCm: _height,
-                targetWeightKg: _safeClamp(_target, _targetMin, _targetMax),
+                targetWeightKg: _targetSafe,
               ),
             ],
           ),
@@ -676,7 +686,10 @@ class _SexPicker extends StatelessWidget {
                       Icon(
                         labels[sex]!.$2,
                         size: 30,
-                        color: value == sex ? t.lime : t.ink2,
+                        // Glyph and label sit ON [_TileCard]'s fill, so they
+                        // take its counterpart — `lime` would be 1.07:1 there
+                        // in dark mode.
+                        color: value == sex ? t.onSelected : t.ink2,
                       ),
                       const SizedBox(height: 10),
                       Text(
@@ -686,7 +699,7 @@ class _SexPicker extends StatelessWidget {
                         style: AppType.ui(
                           14,
                           weight: FontWeight.w700,
-                          color: value == sex ? t.onForest : t.ink2,
+                          color: value == sex ? t.onSelected : t.ink2,
                         ),
                       ),
                     ],
@@ -1064,12 +1077,14 @@ class _TileCard extends StatelessWidget {
                 motionDuration(context, const Duration(milliseconds: 160)),
             padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 8),
             decoration: BoxDecoration(
-              // Selected means a full brand surface, not a tinted border, so
-              // the selection reads through contrast rather than hue.
-              color: selected ? t.forest : t.surf,
+              // Selected means a full fill, not a tinted border, so the
+              // selection reads through contrast rather than hue — and the
+              // fill is [SelectionTone], not `forest`: in dark mode `forest`
+              // is itself a surface and the card sat at 1.33:1 on `surf`.
+              color: selected ? t.selectedFill : t.surf,
               borderRadius: BorderRadius.circular(rCard),
               border: Border.all(
-                color: selected ? t.forest : t.line,
+                color: selected ? t.selectedFill : t.line,
               ),
             ),
             child: child,
@@ -1114,10 +1129,12 @@ class _RowCard extends StatelessWidget {
       child: AnimatedContainer(
         duration: motionDuration(context, const Duration(milliseconds: 160)),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        // [SelectionTone] — same language as [_TileCard] and every chip in
+        // the app. See there for why `forest` had to go.
         decoration: BoxDecoration(
-          color: selected ? t.forest : t.surf,
+          color: selected ? t.selectedFill : t.surf,
           borderRadius: BorderRadius.circular(rCard),
-          border: Border.all(color: selected ? t.forest : t.line),
+          border: Border.all(color: selected ? t.selectedFill : t.line),
         ),
         child: Row(
           children: [
@@ -1125,7 +1142,7 @@ class _RowCard extends StatelessWidget {
               Icon(
                 leadingIcon,
                 size: 22,
-                color: selected ? t.lime : t.ink2,
+                color: selected ? t.onSelected : t.ink2,
               ),
               const SizedBox(width: 14),
             ],
@@ -1138,7 +1155,7 @@ class _RowCard extends StatelessWidget {
                     style: AppType.ui(
                       15,
                       weight: FontWeight.w700,
-                      color: selected ? t.onForest : t.ink,
+                      color: selected ? t.onSelected : t.ink,
                       letterSpacing: -0.2,
                     ),
                   ),
@@ -1149,7 +1166,7 @@ class _RowCard extends StatelessWidget {
                       12.5,
                       weight: FontWeight.w500,
                       color: selected
-                          ? t.onForest.withValues(alpha: 0.78)
+                          ? t.onSelected.withValues(alpha: 0.78)
                           : t.ink2,
                       height: 1.3,
                     ),
@@ -1164,13 +1181,16 @@ class _RowCard extends StatelessWidget {
                 style: AppType.display(
                   13,
                   weight: FontWeight.w700,
-                  color: selected ? t.lime : t.ink2,
+                  color: selected ? t.onSelected : t.ink2,
                 ),
               ),
             ],
             if (selected) ...[
               const SizedBox(width: 10),
-              Icon(Icons.check_circle_rounded, color: t.lime, size: 20),
+              // The tick is the second state channel next to the fill, so it
+              // has to READ on that fill: `lime` on `ink` is 1.07:1 in dark
+              // mode, [SelectionTone.onSelected] is 16.35:1.
+              Icon(Icons.check_circle_rounded, color: t.onSelected, size: 20),
             ],
           ],
         ),
@@ -1451,6 +1471,11 @@ class _MacroChip extends StatelessWidget {
 
   final String label;
   final String value;
+
+  /// Macro tone for the MARKER only, never for the number: on `surf` in light
+  /// mode `carbs` reaches 3.39:1 and `fat` 3.73:1 — enough for a graphical
+  /// object (WCAG 1.4.11, 3:1), short of text (4.5:1). Same rule as
+  /// `trends_screen`: coloured dot, text in text tokens.
   final Color color;
 
   @override
@@ -1462,6 +1487,14 @@ class _MacroChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 6),
         child: Column(
           children: [
+            // Above the number, not beside it: three tiles share a phone width
+            // and a leading dot would eat the number's own line at 200 % font.
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+            ),
+            const SizedBox(height: 8),
             // No FittedBox (F8-09): the texts scale with the system font and
             // wrap inside the tile instead of shrinking back to 16/12 px.
             Text(
@@ -1469,7 +1502,7 @@ class _MacroChip extends StatelessWidget {
               maxLines: 2,
               textAlign: TextAlign.center,
               style:
-                  AppType.display(16, weight: FontWeight.w700, color: color),
+                  AppType.display(16, weight: FontWeight.w700, color: t.ink),
             ),
             const SizedBox(height: 4),
             Text(

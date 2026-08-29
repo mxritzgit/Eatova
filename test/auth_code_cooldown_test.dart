@@ -210,7 +210,9 @@ void main() {
       await tester.tap(_resendLink);
       await tester.pumpAndSettle();
 
-      expect(find.text(deL10n.authCodeRateLimited), findsOneWidget);
+      // Seit P4-03 nennt die Meldung die Sekundenzahl, die der Riegel wirklich
+      // haelt: der Server sagte 51 s, der eigene Cooldown ist die Untergrenze.
+      expect(find.text(deL10n.authCodeRateLimitedSeconds(60)), findsOneWidget);
       expect(find.textContaining('Bitte nochmal versuchen'), findsNothing,
           reason: 'die generische Meldung forderte woertlich zum naechsten '
               'Tap auf — genau der Schleife, die das Kontingent leerraeumt');
@@ -247,7 +249,7 @@ void main() {
       await tester.tap(_resendLink);
       await tester.pumpAndSettle();
 
-      expect(find.text(deL10n.authCodeRateLimited), findsOneWidget,
+      expect(find.text(deL10n.authCodeRateLimitedSeconds(60)), findsOneWidget,
           reason: 'ein aktueller Fehler hat Vorrang vor dem Dauerhinweis der '
               'Sperre');
       await _entsorgeScreen(tester);

@@ -17,6 +17,14 @@ import 'fitness_recipe.dart';
 /// 1/2 tomato 60 g, 1/4 cucumber 75 g, 1 bell pepper 150 g, 1/2 bell pepper
 /// 75 g; aromatics, herbs and spoon measures are ignored. Per-recipe
 /// arithmetic: test/fixlauf_i_recipe_catalog_test.dart.
+///
+/// `categories` are language-neutral. Most are editorial, but two are RULES:
+///  * `High Protein` follows [HighProteinRule] — >= 20 % of the energy from
+///    protein AND >= 30 g per portion, never a feeling about the dish
+///    (P2-04, fix run 2026-08-29).
+///  * `Fisch`/`Vegetarisch`/`Vegan` decide `matchesDiet`, which treats
+///    everything else as meat. A meat-free dish that carries none of them is
+///    withheld from vegetarians; a meat dish must carry none (P2-03).
 const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
   FitnessRecipe(
     slug: "hahnchen_mit_reis_and_brokkoli",
@@ -112,7 +120,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     carbsG: 18,
     fatG: 44,
     estimatedGrams: 600,
-    categories: <String>["Frühstück", "Low Carb"],
+    categories: <String>["Frühstück", "Vegetarisch", "Low Carb", "High Protein"],
   ),
   FitnessRecipe(
     slug: "thunfisch_mit_couscous_and_gemuse",
@@ -256,7 +264,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     carbsG: 34,
     fatG: 31,
     estimatedGrams: 375,
-    categories: <String>["Frühstück", "Vegetarisch", "High Protein"],
+    categories: <String>["Frühstück", "Vegetarisch"],
   ),
   FitnessRecipe(
     slug: "chicken_wrap_mit_joghurt_dressing",
@@ -432,7 +440,7 @@ const List<FitnessRecipe> recipeCatalogDe = <FitnessRecipe>[
     carbsG: 88,
     fatG: 10,
     estimatedGrams: 660,
-    categories: <String>["Vegetarisch", "Vegan", "High Protein", "Hauptgericht"],
+    categories: <String>["Vegetarisch", "Vegan", "Hauptgericht"],
   ),
   FitnessRecipe(
     slug: "kichererbsen_curry_mit_reis",

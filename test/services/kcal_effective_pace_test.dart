@@ -20,7 +20,13 @@ void main() {
   // Default profile: 78 kg / 178 cm / 30 y / neutral / sedentary.
   // BMR 1664.5 · maintenance 2164 (×1.3) · cap 825 kcal/day (1 % = 858,
   // rounded down to the 0.05 kg/week grid).
-  const standard = UserProfile();
+  //
+  // Wunschgewicht 70 statt der Vorgabe 78: seit P9-08d plant `calculate` mit
+  // dem WIRKSAMEN Ziel, und Wunsch == Gewicht heisst "erreicht" — ein
+  // Abnehm-Profil ohne Rest-Weg faellt auf Halten zurueck. Diese Suite misst
+  // aber genau die Defizit-Plaene. Auf die Zahlen unten wirkt das nicht: das
+  // Wunschgewicht geht nur in die Prognose ein, nicht in das Tagesziel.
+  const standard = UserProfile(targetWeightKg: 70);
 
   // Smaller female profile: 55 kg / 160 cm / 35 y / female / sedentary.
   // BMR 1214 · maintenance 1578 (×1.3) · cap 605 kcal/day.
@@ -325,11 +331,15 @@ void main() {
                   verstoesse.add('$wer: dynamisch $dynamisch < linear');
                 }
                 // The cap must never act in the gain direction and never
-                // enlarge the wanted deficit.
-                if (goal.isGain && t.appliedKcalDelta != goal.kcalDelta) {
+                // enlarge the wanted deficit. Measured against the WIRKSAME
+                // Richtung (P9-08d): am oberen Spaltenrand (296 kg + 8 = 304 >
+                // 300) laesst sich kein konsistentes Zunehm-Ziel mehr bilden,
+                // und dort plant `calculate` richtigerweise Halten.
+                final wirksam = profil.effectiveWeightGoal;
+                if (wirksam.isGain && t.appliedKcalDelta != wirksam.kcalDelta) {
                   verstoesse.add('$wer: Deckel bei Zunahme');
                 }
-                if (t.appliedKcalDelta < goal.kcalDelta) {
+                if (t.appliedKcalDelta < wirksam.kcalDelta) {
                   verstoesse.add('$wer: Deckel vergroessert das Defizit');
                 }
               }

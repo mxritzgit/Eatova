@@ -5,6 +5,65 @@ part of 'coach_chat_screen.dart';
 // text, mic, send tile. A tappable hint sits above it when the quota runs
 // low.
 // ---------------------------------------------------------------------------
+
+/// Client mirror of the coach-chat input cap, in UTF-16 code units.
+///
+/// `preFilter` refuses anything longer with a 413 (`MAX_INPUT_CHARS`,
+/// supabase/functions/coach-chat/prefilter.ts) — and by then the composer has
+/// already cleared the field, so the message exists only as a bubble (P5-03).
+/// NOT a second definition: `test/repo_rules_test.dart` reads the TS file and
+/// fails the moment the two numbers drift.
+const int kCoachMaxInputChars = 1000;
+
+/// Second half of the same server cap: the UTF-8 belt in
+/// `handler.ts` (`MAX_INPUT_BYTES`), pinned by the same rule.
+///
+/// A UTF-16 code unit costs at most 3 UTF-8 bytes, so [kCoachMaxInputChars]
+/// already keeps every draft under 3000 bytes and this belt never fires on its
+/// own. It is mirrored anyway because the server checks BOTH: dropping it here
+/// would make the client cap the looser of the two the day either number moves.
+const int kCoachMaxInputBytes = 4000;
+
+/// From which draft length the length counter appears. A permanent counter
+/// would nag on every three-word question; the last tenth is where the cap
+/// becomes relevant.
+const int _lengthHintFrom = kCoachMaxInputChars - 100;
+
+/// Keeps the draft inside the server's input cap instead of letting the user
+/// discover it as a 413 with an emptied field.
+///
+/// Deliberately NOT [LengthLimitingTextInputFormatter]: it counts GRAPHEME
+/// CLUSTERS, while the server counts UTF-16 code units (`String.length` in JS
+/// is Dart's `String.length`). A family emoji is one grapheme but up to eleven
+/// code units, so a 1000-grapheme cap would still walk into the 413.
+///
+/// Rejects instead of truncating, like the gram fields: a silently cut
+/// question is sent as half a sentence, and the tail is gone either way. An
+/// edit that REDUCES the overflow always passes, or a field filled past the cap
+/// from code (dictation writes the controller directly, bypassing formatters)
+/// could not even be shortened again.
+class _CoachInputLimit extends TextInputFormatter {
+  const _CoachInputLimit();
+
+  /// By how much [text] breaks the cap; <= 0 means it fits.
+  static int overflow(String text) => math.max(
+        text.length - kCoachMaxInputChars,
+        utf8.encode(text).length - kCoachMaxInputBytes,
+      );
+
+  static bool fits(String text) => overflow(text) <= 0;
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final neu = overflow(newValue.text);
+    if (neu <= 0 || neu < overflow(oldValue.text)) return newValue;
+    return oldValue;
+  }
+}
+
 class _Composer extends StatefulWidget {
   const _Composer({
     required this.controller,
@@ -67,6 +126,15 @@ class _ComposerState extends State<_Composer> {
     final l10n = context.l10n;
     final hasText = widget.draft.trim().isNotEmpty;
     final showQuotaHint = widget.remaining > 0 && widget.remaining <= 2;
+    // P5-06b: a count of 0 stopped meaning "blocked". A merely ASSUMED daily
+    // limit keeps the composer typable (fail-open, P5-06), and only [enabled]
+    // carries that decision — so the placeholder names the limit exactly when
+    // the limit is what locks the field, instead of contradicting it.
+    final limitReached = widget.remaining <= 0 && !widget.enabled;
+    // P5-03: the draft is over the server's cap. Reachable only from code
+    // (dictation writes the controller directly); typing stops at the cap.
+    final overLimit = !_CoachInputLimit.fits(widget.draft);
+    final showLengthHint = widget.draft.length >= _lengthHintFrom || overLimit;
     // No viewInsets padding: the home scaffold uses
     // `resizeToAvoidBottomInset: true`, so the keyboard is already accounted
     // for.
@@ -77,6 +145,7 @@ class _ComposerState extends State<_Composer> {
         children: <Widget>[
           if (showQuotaHint)
             _QuotaHint(remaining: widget.remaining, onTap: widget.onQuotaTap),
+          if (showLengthHint) _LengthHint(used: widget.draft.length),
           // Horizontal 0: the side margin comes from the shell. The shadow is
           // the only raised surface on this screen (composer above the list).
           FieldCapsule(
@@ -103,6 +172,12 @@ class _ComposerState extends State<_Composer> {
                     enabled: widget.enabled,
                     maxLines: 5,
                     minLines: 1,
+                    // No `maxLength`: it would hang Flutter's own counter under
+                    // the capsule AND enforce the cap in grapheme clusters,
+                    // which is not how the server counts.
+                    inputFormatters: const <TextInputFormatter>[
+                      _CoachInputLimit(),
+                    ],
                     textInputAction: TextInputAction.newline,
                     textCapitalization: TextCapitalization.sentences,
                     style: AppType.ui(15.5, color: t.ink, height: 1.3),
@@ -122,7 +197,7 @@ class _ComposerState extends State<_Composer> {
                           vertical: 14, horizontal: 6),
                       // C8: the placeholder names the AI — in a running chat
                       // the composer is the only always-visible spot.
-                      hintText: widget.remaining <= 0
+                      hintText: limitReached
                           ? l10n.coachComposerHintLimitReached
                           : widget.listening
                               ? l10n.coachComposerHintListening
@@ -145,7 +220,9 @@ class _ComposerState extends State<_Composer> {
                 const SizedBox(width: 2),
                 _SendButton(
                   active: hasText,
-                  enabled: widget.canSend && hasText,
+                  // `!overLimit`: sending would spend both rate-limit windows
+                  // on a guaranteed 413 and clear the field on the way.
+                  enabled: widget.canSend && hasText && !overLimit,
                   onTap: widget.onSubmit,
                 ),
               ],
@@ -205,6 +282,50 @@ class _QuotaHint extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Length counter above the composer — the visible reason for a keystroke that
+/// does not arrive.
+///
+/// Shows only near the cap (see [_lengthHintFrom]) and switches to a warning
+/// wording once the cap is reached: at that point [_CoachInputLimit] starts
+/// refusing input and the send tile goes quiet, which without a stated reason
+/// looks like a broken field. The state is in the WORDING, not only in the
+/// colour, so it survives colour blindness and a screen reader.
+class _LengthHint extends StatelessWidget {
+  const _LengthHint({required this.used});
+
+  /// Draft length in UTF-16 code units — the unit the server counts in.
+  final int used;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    final reached = used >= kCoachMaxInputChars;
+    return Padding(
+      padding: const EdgeInsets.only(right: 6, bottom: 6),
+      child: Align(
+        alignment: Alignment.centerRight,
+        child: Semantics(
+          // The counter changes while typing and is never focused, so without
+          // a live region a screen reader never learns the field is full.
+          liveRegion: true,
+          child: Text(
+            reached
+                ? l10n.coachComposerLengthReached(kCoachMaxInputChars)
+                : l10n.coachComposerLengthHint(used, kCoachMaxInputChars),
+            key: const ValueKey('coach-length-hint'),
+            style: AppType.ui(
+              11.5,
+              weight: FontWeight.w600,
+              color: reached ? t.warning : t.ink2,
             ),
           ),
         ),

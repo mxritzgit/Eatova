@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:developer' as dev;
 
+import 'package:clock/clock.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/favorite_meal.dart';
@@ -44,7 +45,14 @@ class MealsSync {
     try {
       // Window on logged_at (indexed user_id+logged_at desc), not local_day:
       // older rows may carry local_day=null and would silently be missing.
-      final cutoffIso = DateTime.now()
+      //
+      // P1-06: `clock.now()`, not `DateTime.now()`. The store's window
+      // predicate (`_isOutsideBootWindow`) reads the injectable clock, so the
+      // two measured against different clocks under `withClock` and the
+      // invariant "a day the store treats as inside the window really was
+      // loaded" was not provable for any test. In production both are the
+      // same wall clock.
+      final cutoffIso = clock.now()
           .toUtc()
           .subtract(const Duration(days: loggedMealsWindowDays))
           .toIso8601String();

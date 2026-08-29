@@ -437,6 +437,16 @@ class MacroTile extends StatelessWidget {
 
   final String label;
   final String value;
+
+  /// Nutrient tone for the MARKER only, never for the number — and here not
+  /// even raw. Unlike the plan hero and the recipe tiles this one sits on
+  /// `surf2`, one step darker than `surf`, and that half point is the whole
+  /// difference: in light mode the raw tones drop to protein 4.68:1, fat
+  /// 3.04:1 and carbs 2.77:1, so the number misses text AA (4.5:1) and the
+  /// DOT misses even the 3:1 WCAG 1.4.11 asks of a graphical object.
+  /// [AppTokens.readableOnTint] is the app's correction for exactly that case
+  /// and lifts the three to 5.76 … 7.93:1 (hell) / 8.16 … 10.05:1 (dunkel),
+  /// hue intact, without a brightness branch.
   final Color color;
 
   @override
@@ -451,19 +461,37 @@ class MacroTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: AppType.ui(
-              11,
-              weight: FontWeight.w500,
-              color: t.ink2,
-              letterSpacing: 0.4,
-            ),
+          // Beside the LABEL, not the number: three tiles share a phone width
+          // and the number is the one line that may not be pushed into its
+          // ellipsis. The label wraps, so the dot costs no height.
+          Row(
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: t.readableOnTint(color),
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  label,
+                  style: AppType.ui(
+                    11,
+                    weight: FontWeight.w500,
+                    color: t.ink2,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 4),
           Text(
             value,
-            style: AppType.display(13, weight: FontWeight.w700, color: color),
+            style: AppType.display(13, weight: FontWeight.w700, color: t.ink),
           ),
         ],
       ),

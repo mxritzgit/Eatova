@@ -692,9 +692,15 @@ class MealAnalysisResult {
     final nutriments = product['nutriments'] is Map<String, dynamic>
         ? product['nutriments'] as Map<String, dynamic>
         : <String, dynamic>{};
+    // P2-01b: the code is NOT only what the scanner read — it is pinned to
+    // EAN-8/EAN-13/UPC-A, but `ProductSearchResult.fromOpenFoodFacts` takes
+    // `product['code']` verbatim out of the Meilisearch/OFF index. Past 64
+    // chars that breaks `logged_meals.barcode`, past 172 the `favorite_key`
+    // built from it. Foreign source, nobody to ask -> clamp (model_limits.dart).
+    final code = clampBarcode(barcode) ?? '';
     final productName =
         _firstNonEmptyString(product, const ['product_name', 'generic_name']) ??
-        'Produkt $barcode';
+        'Produkt $code';
     final brand = clampBrand(_firstNonEmptyString(product, const ['brands']));
     final kcalPer100G = _offKcalPer100G(product, nutriments) ?? 0;
     final servingGrams = _offServingGrams(product);
@@ -708,7 +714,7 @@ class MealAnalysisResult {
     // German paragraph in the payload survived every language switch. Under
     // deL10n `MealResultOffNote.text()` yields the same wording as before.
     final hinweis = MealResultOffNote(
-      barcode: barcode,
+      barcode: code,
       brand: brand,
       package: quantity,
       serving: servingSize,
@@ -727,7 +733,7 @@ class MealAnalysisResult {
       confidence: _MealResultConfidenceCodes.database,
       portionNotes: hinweis.encode(),
       sourceLabel: MealResultSource.openFoodFacts.code,
-      barcode: barcode,
+      barcode: code,
       brand: brand,
       // Only an EXPLICITLY reported 0 (water, zero drink) is a measurement; the
       // `?? 0` parser fallback above never satisfies this, because the detector

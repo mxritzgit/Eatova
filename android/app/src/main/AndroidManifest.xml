@@ -29,6 +29,36 @@
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         tools:node="remove" />
 
+    <!-- P10-06: androidx.biometric:1.1.0 declares both of these in its AAR
+         manifest and rides in transitively via google_sign_in_android ->
+         androidx.credentials, so the merged manifest advertised biometric and
+         fingerprint hardware for an app that has no biometric feature at all:
+         no local_auth in pubspec.lock, and flutter_secure_storage
+         deliberately leaves setUserAuthenticationRequired unset (see
+         secure_cache_store.dart).
+
+         Checked before removing, because Credential Manager CAN raise a
+         biometric prompt: in androidx.credentials-1.6.0 every class that
+         references androidx.biometric.BiometricPrompt lives in
+         androidx.credentials.provider.* (BiometricPromptData, the
+         *Entry$Api35Impl classes, CryptoObjectUtils) — the API for apps that
+         PROVIDE credentials. Eatova only consumes one (GetGoogleIdOption via
+         google_sign_in), credentials-play-services-auth references
+         androidx.biometric nowhere, and its account sheet is drawn by Play
+         services in ANOTHER process, where this manifest does not apply.
+
+         Residual risk, documented on purpose: if sign-in ever moves to
+         passkeys or a provider returns BiometricPromptData, the in-process
+         BiometricPrompt needs USE_BIOMETRIC back. The symptom would be a
+         SecurityException on the Google login path, so a device sign-in is
+         the check after changing anything in that area. -->
+    <uses-permission
+        android:name="android.permission.USE_BIOMETRIC"
+        tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.USE_FINGERPRINT"
+        tools:node="remove" />
+
     <application
         android:label="Eatova"
         android:name="${applicationName}"

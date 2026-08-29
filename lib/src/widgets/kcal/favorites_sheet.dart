@@ -184,10 +184,11 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // `header: true` lets a screen reader jump to the sheet title
-              // (semantics test 2026-08-27).
-              Semantics(
-                header: true,
+              // Sheet title, so rank 1 (P9-06b): the shared widget adds the
+              // `header` trait AND the rank the hand-written Semantics here
+              // never carried. Type stays display-24 — a11y fix, no redesign.
+              HeadingSemantics(
+                level: 1,
                 child: Text(
                   l10n.foodFavoritesSheetTitle(pinned.length),
                   key: const ValueKey('favorites-sheet-title'),

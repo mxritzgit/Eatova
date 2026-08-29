@@ -169,6 +169,8 @@
   "foodSearchMinCharsHint": "At least 2 characters, e.g. Dr Oetker Salami.",
   "foodSearchNoResultsHint": "No matching products found. Try a brand plus product name.",
   "foodSearchUnreachableHint": "OpenFoodFacts is currently unreachable.",
+  "foodSearchTimeoutHint": "The search took too long. Add the product manually for now.",
+  "foodSearchCanceledHint": "Search canceled.",
   "foodCameraPermissionError": "Couldn't open the camera. Check the permission.",
   "foodGalleryPermissionError": "Couldn't open the gallery. Check the permission.",
   "foodSectionSearchResults": "Search results",
@@ -346,6 +348,13 @@
     }
   },
   "foodAtLeastOneItemRequired": "At least one ingredient must remain.",
+  "foodItemWeightInvalidHint": "Every weight needs a number between {min} and {max} g.",
+  "@foodItemWeightInvalidHint": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
   "foodApplyButton": "Apply",
   "foodDecreaseItemSemantics": "Less {name}",
   "@foodDecreaseItemSemantics": {
@@ -375,6 +384,13 @@
   "foodAddItemNameHint": "e.g. Tomato",
   "foodAddItemWeightLabel": "Weight",
   "foodAddItemCaloriesLabel": "Calories",
+  "foodAddItemCaloriesRangeHint": "Calories between {min} and {max}.",
+  "@foodAddItemCaloriesRangeHint": {
+    "placeholders": {
+      "min": { "type": "int" },
+      "max": { "type": "int" }
+    }
+  },
   "foodAddItemMacrosToggle": "Add macros (optional)",
   "foodMacroRangeHint": "Macros in grams, each between 0 and 1000.",
   "foodBarcodeHintText": "Hold the barcode inside the frame",
@@ -544,6 +560,8 @@
   "coachComposerHintLimitReached": "Limit reached for today",
   "coachComposerHintListening": "Listening…",
   "coachComposerHintDefault": "Ask the AI coach…",
+  "coachComposerLengthHint": "{used}/{max} characters",
+  "coachComposerLengthReached": "Maximum length reached ({max} characters)",
   "coachQuotaHint": "{count, plural, one{1 question left today} other{{count} questions left today}}",
   "@coachQuotaHint": {
     "placeholders": {
@@ -610,6 +628,7 @@
   "coachErrorNoSession": "Could not load a coach session.",
   "coachErrorHistoryUnavailable": "Your history could not be loaded. Check your connection and try again.",
   "coachErrorDeleteFailed": "The conversation could not be deleted. Check your connection and try again.",
+  "coachSessionSwitchedNotice": "This conversation no longer exists. Your question and the answer are now in another conversation — it is open.",
   "coachImageDefaultCaption": "Analyze this image in a fitness context.",
   "coachErrorDailyLimitReached": "Daily limit reached ({limit} coach questions per day). More tomorrow.",
   "@coachErrorDailyLimitReached": {
@@ -947,6 +966,7 @@
   "commonSyncErrorOffline": "Offline — that didn't work just now. Please try again with an internet connection.",
   "commonOutboxLossHint": "Some changes couldn't be saved and were discarded.",
   "commonOutboxDeleteLossHint": "A deletion couldn't be saved — the entry is back. Please delete it again.",
+  "commonCacheResetNotice": "The offline storage had to be created from scratch. Your data on the server is untouched — only entries that had not been synced yet are lost.",
   "commonBootUnansweredTitle": "Slow connection",
   "commonBootUnansweredBody": "Your data couldn't be loaded from the server yet. Check your connection and try again.",
   "commonBootUnansweredRetry": "Try again",
@@ -1015,6 +1035,8 @@
   "goalsFieldActivity": "Activity level",
   "goalsFieldActivitySubtitle": "Determines your needs without walking and running – counted steps are added on top.",
   "goalsFieldTargetWeight": "Target weight",
+  "goalsTargetWeightReachedLose": "Goal reached! At {weight} kg you have hit your target weight of {target} kg. Your plan switches to holding — for a new goal, enter a lower target weight.",
+  "goalsTargetWeightReachedGain": "Goal reached! At {weight} kg you have hit your target weight of {target} kg. Your plan switches to holding — for a new goal, enter a higher target weight.",
   "goalsFieldWeightGoal": "Weight goal",
   "goalsGroupEnergyMacros": "ENERGY & MACROS",
   "goalsFieldManual": "Manual",
@@ -1152,6 +1174,11 @@
   "settingsEmailChangeOldCodeLabel": "Code to the current address",
   "settingsEmailChangeNewCodeLabel": "Code to the new address",
   "settingsEmailChangeBothCodesHint": "Both codes are required. With only one, your current address stays in place — that's exactly what protects you if someone gained access to only one of the two inboxes.",
+  "settingsAccountDiscardTitle": "Cancel this change?",
+  "settingsAccountDiscardBody": "The code from your e-mail expires with it. A fresh attempt needs a fresh code — and only a few of those go out per hour.",
+  "settingsAccountDiscardBodyConfirmed": "The first code is already confirmed and used up. Cancelling now restarts the address change from scratch, with two new codes.",
+  "settingsAccountDiscardKeep": "Keep going",
+  "settingsAccountDiscardConfirm": "Cancel",
 
   "exportSheetLoadingSubtitle": "Your data is loading from the server …",
   "exportSheetErrorSubtitle": "Server not reachable — please reopen the full copy with an internet connection.",
@@ -1301,6 +1328,7 @@
 
   "coachErrorEmptyReply": "Empty reply from the coach.",
   "coachErrorUnreachable": "The coach isn't reachable right now. Please try again shortly.",
+  "coachErrorTimeout": "The coach took too long to answer. Please try again.",
   "coachErrorNoConnection": "No connection to the coach. Check your internet connection and try again.",
   "coachErrorSessionExpired": "Your session has expired. Please sign in again, then the coach will respond again.",
   "coachErrorQuotaFallback": "Daily limit reached. More tomorrow.",
@@ -1372,10 +1400,32 @@
   "notifStreakStartBody": "One log is enough to start your streak.",
 
   "authCodeRateLimited": "Too many requests in a short time. Sending is paused for now — please wait about a minute before trying again.",
+  "authCodeRateLimitedSeconds": "Too many requests in a short time. Sending stays blocked for another {sekunden} s.",
+  "@authCodeRateLimitedSeconds": {
+    "placeholders": {
+      "sekunden": { "type": "int" }
+    }
+  },
+  "authCodeRateLimitedMinutes": "Too many requests in a short time. Sending stays blocked for another {minuten} min.",
+  "@authCodeRateLimitedMinutes": {
+    "placeholders": {
+      "minuten": { "type": "int" }
+    }
+  },
+  "authCodeQuotaExhausted": "Too many codes have been requested for this address. The quota refills gradually — the next mail should be possible in a little over half an hour. A code already sitting in your inbox still works.",
+  "authCodeSendAnyway": "Nothing arrived? Try anyway",
+  "authCodeSendAnywayUsed": "That attempt already ran — the server really is letting no mail through right now. A code from an earlier mail still works; otherwise only waiting helps.",
+  "authCodeOfflineError": "Offline — the server could not be reached. Please check your internet connection and try again.",
   "authCodeResendCountdown": "Request a new code in {sekunden} s",
   "@authCodeResendCountdown": {
     "placeholders": {
       "sekunden": { "type": "int" }
+    }
+  },
+  "authCodeResendCountdownMinutes": "Request a new code in {minuten} min",
+  "@authCodeResendCountdownMinutes": {
+    "placeholders": {
+      "minuten": { "type": "int" }
     }
   },
   "authCodeThrottleWait": "Too many requests. The next code can be requested in {sekunden} s.",
@@ -1384,8 +1434,15 @@
       "sekunden": { "type": "int" }
     }
   },
+  "authCodeThrottleWaitMinutes": "Too many requests. The next code can be requested in {minuten} min.",
+  "@authCodeThrottleWaitMinutes": {
+    "placeholders": {
+      "minuten": { "type": "int" }
+    }
+  },
   "authCodeTooManyAttempts": "Too many incorrect codes. For security reasons, please request a new code.",
   "authSignupExistingAccountHint": "If an account already exists for this address, please sign in.",
+  "authSessionExpired": "Your session has expired. Please sign in again.",
   "authBackSemanticLabel": "Back",
   "authEyebrowLogin": "WELCOME BACK",
   "authEyebrowRegister": "CREATE ACCOUNT",
@@ -1415,6 +1472,12 @@
   "authConsentMiddle": " and consent to the processing of your health and nutrition data as described in our ",
   "authConsentPrivacy": "Privacy Policy",
   "authConsentSuffix": ".",
+  "authLegalLinkFailed": "That link would not open on this device. You can read the text at {url}.",
+  "@authLegalLinkFailed": {
+    "placeholders": {
+      "url": { "type": "String" }
+    }
+  },
   "authErrorInvalidEmail": "Please enter a valid email address.",
   "authErrorPasswordTooShort": "Your password needs at least {minLength} characters.",
   "@authErrorPasswordTooShort": {
