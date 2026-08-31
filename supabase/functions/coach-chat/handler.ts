@@ -765,15 +765,21 @@ async function handleRecipeMode(params: {
     return json({ error: "provider_error", session_id: sessionId }, 502);
   }
 
-  const image = await generateRecipeImage(openRouterKey, recipeImagePrompt(draft));
-
   // Best effort: the summary keeps the transcript coherent and the image bytes
-  // are NEVER persisted, same rule as for user photos.
+  // are NEVER persisted, same rule as for user photos. Because the stored row
+  // never contains the image, the (up to 30 s) image call, the message store
+  // and the session touch are independent — they run concurrently instead of
+  // serialising two round-trips behind the image budget. generateRecipeImage
+  // never throws (it returns null on every failure), so Promise.all surfaces
+  // exactly the store/touch errors the serial code surfaced.
   const summary = recipeSummary(draft, locale);
-  const assistantMessageId = await storeRecipeMessage(serviceKey, supabaseUrl, {
-    user_id: userId, session_id: sessionId, content: summary, recipe: draft,
-  });
-  await touchSession(serviceKey, supabaseUrl, sessionId);
+  const [image, assistantMessageId] = await Promise.all([
+    generateRecipeImage(openRouterKey, recipeImagePrompt(draft)),
+    storeRecipeMessage(serviceKey, supabaseUrl, {
+      user_id: userId, session_id: sessionId, content: summary, recipe: draft,
+    }),
+    touchSession(serviceKey, supabaseUrl, sessionId),
+  ]);
 
   return json({
     reply: summary,
@@ -1097,7 +1103,10 @@ async function loadHistory(
   // HISTORY_LIMIT. The filter runs here, not in the query, because the pair
   // has to be seen together; the user row keeps refusal=false in the DB
   // (the client renders that column).
-  const url = `${supabaseUrl}/rest/v1/chat_messages?user_id=eq.${userId}&session_id=eq.${sessionId}&role=in.(user,assistant)&order=created_at.desc&limit=${HISTORY_LIMIT * 2}`;
+  // select= keeps the payload to the three fields the mapper reads — without
+  // it PostgREST ships every column, including up to 16 KB of recipe jsonb
+  // per row for sessions that used /rezept.
+  const url = `${supabaseUrl}/rest/v1/chat_messages?user_id=eq.${userId}&session_id=eq.${sessionId}&role=in.(user,assistant)&select=role,content,refusal&order=created_at.desc&limit=${HISTORY_LIMIT * 2}`;
   let resp: Response;
   try {
     resp = await supabaseFetch(url, {
@@ -1270,9 +1279,12 @@ async function touchSession(
   }
 }
 
-// Titles that still count as "unnamed" for the auto-title. "" covers an
-// empty or null column.
-const DEFAULT_SESSION_TITLES = new Set(["", "Neue Unterhaltung", "New conversation", "Allgemein"]);
+// Titles that still count as "unnamed" for the auto-title. The client sends
+// localised default titles since the i18n round (F9-04); the DB default and
+// the legacy "Allgemein" stay recognised. "" covers an empty column — the
+// schema is NOT NULL and every write path trims, so no other spelling of
+// "empty" can occur.
+const DEFAULT_SESSION_TITLES = ["", "Neue Unterhaltung", "New conversation", "Allgemein"];
 
 async function maybeAutoTitle(
   serviceKey: string,
@@ -1281,14 +1293,32 @@ async function maybeAutoTitle(
   sessionId: string,
   firstUserMessage: string,
 ): Promise<void> {
-  // Only while the session still has the default title. user_id=eq. on BOTH
-  // requests: these run as service_role and were safe only because
-  // ensureSession had checked ownership — an invariant no compiler holds.
-  let check: Response;
+  const trimmed = firstUserMessage.trim().replace(/\s+/g, " ");
+  if (trimmed.length === 0) return;
+  const title = trimmed.length > 40 ? `${trimmed.slice(0, 40)}…` : trimmed;
+  // ONE conditional PATCH instead of the old GET+PATCH: the title=in. filter
+  // makes the write a DB-side no-op while the session carries a custom title,
+  // which saves a round-trip per message (the GET was pure overhead from the
+  // second message on) and closes the old check-then-write TOCTOU. user_id=eq.
+  // keeps the write ownership-bound: this runs as service_role and was safe
+  // only because ensureSession had checked ownership — an invariant no
+  // compiler holds.
+  const titleFilter = `in.(${DEFAULT_SESSION_TITLES.map((t) => `"${t}"`).join(",")})`;
   try {
-    check = await supabaseFetch(
-      `${supabaseUrl}/rest/v1/chat_sessions?id=eq.${sessionId}&user_id=eq.${userId}&select=title`,
-      { headers: { "Authorization": `Bearer ${serviceKey}`, "apikey": serviceKey } },
+    await supabaseFetch(
+      `${supabaseUrl}/rest/v1/chat_sessions?id=eq.${sessionId}&user_id=eq.${userId}&title=${
+        encodeURIComponent(titleFilter)
+      }`,
+      {
+        method: "PATCH",
+        headers: {
+          "Authorization": `Bearer ${serviceKey}`,
+          "apikey": serviceKey,
+          "Content-Type": "application/json",
+          "Prefer": "return=minimal",
+        },
+        body: JSON.stringify({ title, updated_at: new Date().toISOString() }),
+      },
     );
   } catch (e) {
     if (!isAbortError(e)) throw e;
@@ -1297,32 +1327,6 @@ async function maybeAutoTitle(
     // NOT refunded: the slot pays for the answer, which is still coming — the
     // session just keeps its default title. Without the deadline this was the
     // gap where a stalled PostgREST burned the slot with nothing delivered.
-    console.error("maybeAutoTitle timeout");
-    return;
-  }
-  if (!check.ok) return;
-  const rows = await check.json();
-  const currentTitle = Array.isArray(rows) && rows[0]?.title ? String(rows[0].title) : "";
-  // The client sends localised default titles since the i18n round (F9-04);
-  // the DB default and the legacy "Allgemein" stay recognised.
-  const isDefault = DEFAULT_SESSION_TITLES.has(currentTitle.trim());
-  if (!isDefault) return;
-  const trimmed = firstUserMessage.trim().replace(/\s+/g, " ");
-  if (trimmed.length === 0) return;
-  const title = trimmed.length > 40 ? `${trimmed.slice(0, 40)}…` : trimmed;
-  try {
-    await supabaseFetch(`${supabaseUrl}/rest/v1/chat_sessions?id=eq.${sessionId}&user_id=eq.${userId}`, {
-      method: "PATCH",
-      headers: {
-        "Authorization": `Bearer ${serviceKey}`,
-        "apikey": serviceKey,
-        "Content-Type": "application/json",
-        "Prefer": "return=minimal",
-      },
-      body: JSON.stringify({ title, updated_at: new Date().toISOString() }),
-    });
-  } catch (e) {
-    if (!isAbortError(e)) throw e;
     console.error("maybeAutoTitle PATCH timeout");
   }
 }
@@ -1784,12 +1788,16 @@ export async function handleRequest(req: Request): Promise<Response> {
   }
 
   // Deliberately unchecked: the answer exists and the slot is spent, so
-  // withholding it over a persistence hiccup would be the bigger harm.
-  await storeMessage(serviceKey, supabaseUrl, {
-    user_id: userId, session_id: sessionId, role: "assistant", content: reply,
-    refusal, refusal_reason: refusal ? "model_refusal" : null,
-  });
-  await touchSession(serviceKey, supabaseUrl, sessionId);
+  // withholding it over a persistence hiccup would be the bigger harm. The two
+  // writes are independent (different tables, both best-effort), so they run
+  // concurrently — the response waits only for the slower one, not the sum.
+  await Promise.all([
+    storeMessage(serviceKey, supabaseUrl, {
+      user_id: userId, session_id: sessionId, role: "assistant", content: reply,
+      refusal, refusal_reason: refusal ? "model_refusal" : null,
+    }),
+    touchSession(serviceKey, supabaseUrl, sessionId),
+  ]);
 
   return json({
     reply,

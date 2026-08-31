@@ -622,21 +622,32 @@ class HomeStore extends _HomeStoreBase
     final today = clock.now();
     var outboxLesefehler = false;
     var deltaLesefehler = false;
-    final cachedProfile = await _leseSlot('profile', cache.readProfile);
+    // The nine slot reads are independent, so they run concurrently and the
+    // boot gate waits for the slowest decrypt instead of the sum (perf
+    // finding 4, 2026-08-31). Waves of three, not one big Future.wait: each
+    // read decrypts in its own compute() isolate, and an unbounded spawn
+    // burst at cold start is exactly the memory pressure the slot-repair
+    // paths anticipate failing under. [_leseSlot] never throws, so a wave
+    // cannot end in a ParallelWaitError. Pinned in
+    // home_store_hydration_parallel_test.dart.
+    final (cachedProfile, cachedStats, cachedMeals) = await (
+      _leseSlot('profile', cache.readProfile),
+      _leseSlot('stats', cache.readLifetimeStats),
+      _leseSlot('logged_meals', cache.readLoggedMeals),
+    ).wait;
     _cachedProfileAtBoot = cachedProfile;
-    final cachedStats = await _leseSlot('stats', cache.readLifetimeStats);
-    final cachedMeals = await _leseSlot('logged_meals', cache.readLoggedMeals);
-    final cachedFavorites = await _leseSlot('favorites', cache.readFavorites);
-    final cachedWeightLog = await _leseSlot('weight_log', cache.readWeightLog);
-    final cachedOutbox = await _leseSlot('outbox', cache.readOutboxOrThrow,
-        onFehler: () => outboxLesefehler = true);
-    final cachedDeltas = await _leseSlot(
-        'pending_stats', cache.readPendingStatsDeltasOrThrow,
-        onFehler: () => deltaLesefehler = true);
-    final cachedRecipes =
-        await _leseSlot('user_recipes', cache.readUserRecipes);
-    final cachedActivity =
-        await _leseSlot('daily_activity', cache.readDailyActivity);
+    final (cachedFavorites, cachedWeightLog, cachedOutbox) = await (
+      _leseSlot('favorites', cache.readFavorites),
+      _leseSlot('weight_log', cache.readWeightLog),
+      _leseSlot('outbox', cache.readOutboxOrThrow,
+          onFehler: () => outboxLesefehler = true),
+    ).wait;
+    final (cachedDeltas, cachedRecipes, cachedActivity) = await (
+      _leseSlot('pending_stats', cache.readPendingStatsDeltasOrThrow,
+          onFehler: () => deltaLesefehler = true),
+      _leseSlot('user_recipes', cache.readUserRecipes),
+      _leseSlot('daily_activity', cache.readDailyActivity),
+    ).wait;
     if (_disposed) return;
     // Leave the persisted blob untouched while it could not be read, or the
     // next write would overwrite it.

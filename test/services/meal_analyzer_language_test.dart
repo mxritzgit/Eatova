@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -74,6 +75,26 @@ void main() {
       );
       expect(body.containsKey('imageBase64'), isFalse);
       expect(body['language'], 'en');
+    });
+  });
+
+  group('encodeAnalyzeMealBody — Body-Aufbau laeuft im Isolate', () {
+    // Perf round 2026-08-31, finding 6: base64 + jsonEncode of a photo (worst
+    // case >13 MB string churn) ran on the UI isolate, right as the scan
+    // spinner starts. The top-level encode function is what analyze() hands to
+    // compute(); it must produce byte-identical JSON.
+    test('liefert dasselbe JSON wie jsonEncode(buildAnalyzeMealBody(...))', () {
+      final request = MealAnalysisRequest(
+        imageId: 'photo.jpg',
+        imageBytes: imageBytes,
+        portionHint: MealPortionHint.large,
+        freeTextHint: '  viel   Sauce  ',
+        language: 'en',
+      );
+      expect(
+        encodeAnalyzeMealBody(request),
+        jsonEncode(buildAnalyzeMealBody(request)),
+      );
     });
   });
 }

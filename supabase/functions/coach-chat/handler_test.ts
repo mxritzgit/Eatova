@@ -116,8 +116,6 @@ interface StubOptions {
   authFailBudget?: number;
   /** finish_reason of the answer call (default: "stop"). */
   answerFinishReason?: string;
-  /** Current title of the session (default: the German default title). */
-  sessionTitle?: string | null;
 }
 
 interface FetchStub {
@@ -280,12 +278,9 @@ function installFetch(options: StubOptions = {}): FetchStub {
       return jsonRes(options.historyRows ?? []);
     }
     if (url.includes("/rest/v1/chat_sessions")) {
+      // PATCH = the conditional auto-title write (the title=in. filter decides
+      // in the DB; return=minimal answers 204 whether it matched or not).
       if (method === "PATCH") return new Response(null, { status: 204 });
-      if (url.includes("select=title")) {
-        return jsonRes([{
-          title: options.sessionTitle === undefined ? "Neue Unterhaltung" : options.sessionTitle,
-        }]);
-      }
       return jsonRes([]);
     }
     throw new Error(`Unerwarteter fetch im Test: ${method} ${url}`);
@@ -1166,18 +1161,28 @@ Deno.test("Lokalisierung: EN off_topic (Layer 2, Nicht-Krise)", async () => {
 // ---------------------------------------------------------------------------
 // maybeAutoTitle used to read and patch chat_sessions with service_role by
 // session id alone, safe only because ensureSession checks ownership first —
-// an invariant no compiler holds. Both requests must carry the user_id filter
-// so the write itself is ownership-bound.
+// an invariant no compiler holds. The write must carry the user_id filter so
+// it is ownership-bound by itself. Since the perf round 2026-08-31 it is ONE
+// conditional PATCH (title=in. on the default titles) instead of GET+PATCH:
+// one round-trip less per message, and the check-then-write TOCTOU is gone.
 // ---------------------------------------------------------------------------
 
-Deno.test("Auto-Titel: GET und PATCH auf chat_sessions tragen den user_id-Filter", async () => {
+Deno.test("Auto-Titel: ein konditionaler PATCH mit user_id-Filter, kein Lese-GET", async () => {
   const stub = installFetch({});
   try {
     const res = await handleRequest(makeRequest({ message: "Wie viel Protein brauche ich am Tag?" }));
     assertEquals(res.status, 200, "Status");
     const sessionCalls = stub.callsTo("/rest/v1/chat_sessions");
+    const titleGets = sessionCalls.filter(
+      (call) => call.method === "GET" && call.url.includes("select=title"),
+    );
+    assertEquals(titleGets.length, 0, "kein Titel-GET (eingesparter Roundtrip)");
     const patches = sessionCalls.filter((call) => call.method === "PATCH");
     assertEquals(patches.length, 1, "genau ein Auto-Titel-PATCH");
+    assert(
+      patches[0].url.includes("title=in."),
+      `PATCH ohne Titel-Bedingung (wuerde eigene Titel ueberschreiben): ${patches[0].url}`,
+    );
     for (const call of sessionCalls) {
       assert(
         call.url.includes(`user_id=eq.${USER_ID}`),
@@ -1185,6 +1190,66 @@ Deno.test("Auto-Titel: GET und PATCH auf chat_sessions tragen den user_id-Filter
       );
     }
   } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("PERF: loadHistory projiziert nur role,content,refusal", async () => {
+  // Without the projection PostgREST ships every column — including up to
+  // 16 KB of recipe jsonb per row that the mapper throws away.
+  const stub = installFetch({ classifierCategory: "fitness" });
+  try {
+    const res = await handleRequest(makeRequest({ message: "Wie viel Protein brauche ich am Tag?" }));
+    assertEquals(res.status, 200, "Status");
+    const historyGets = stub
+      .callsTo("/rest/v1/chat_messages")
+      .filter((call) => call.method === "GET");
+    assertEquals(historyGets.length, 1, "ein History-GET");
+    assert(
+      historyGets[0].url.includes("select=role,content,refusal"),
+      `History-GET ohne Spaltenprojektion: ${historyGets[0].url}`,
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("PERF: Assistant-Store und touch_chat_session laufen nebenlaeufig", async () => {
+  // Both tail writes are best-effort and independent; serialising them adds a
+  // round-trip to every delivered answer. The assistant INSERT below answers
+  // only after 40 ms — a serial flow would issue the touch after that, a
+  // concurrent one while the INSERT is still pending.
+  const stub = installFetch({ classifierCategory: "fitness" });
+  const stubFetch = globalThis.fetch;
+  let assistantStoreResolved = false;
+  let touchWhileStorePending = false;
+  globalThis.fetch = (async (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const method = (init?.method ?? "GET").toUpperCase();
+    const body = typeof init?.body === "string" ? init.body : "";
+    if (url.includes("/rest/v1/chat_messages") && method === "POST" && body.includes('"assistant"')) {
+      const res = await stubFetch(input, init);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      assistantStoreResolved = true;
+      return res;
+    }
+    if (url.includes("touch_chat_session") && !assistantStoreResolved) {
+      touchWhileStorePending = true;
+    }
+    return stubFetch(input, init);
+  }) as typeof globalThis.fetch;
+  try {
+    const res = await handleRequest(makeRequest({ message: "Wie viel Protein brauche ich am Tag?" }));
+    assertEquals(res.status, 200, "Status");
+    assert(
+      touchWhileStorePending,
+      "touch_chat_session wartete auf den Assistant-Store (seriell statt nebenlaeufig)",
+    );
+  } finally {
+    globalThis.fetch = stubFetch;
     stub.restore();
   }
 });
@@ -1741,25 +1806,30 @@ Deno.test("F5-08: nach dem Paar-Filter greift HISTORY_LIMIT (10) auf den neueste
   }
 });
 
-Deno.test("F9-04: Auto-Titel behandelt 'New conversation', leer und null als Default", async () => {
-  for (const title of ["New conversation", "Neue Unterhaltung", "", null]) {
-    const stub = installFetch({ classifierCategory: "fitness", sessionTitle: title });
-    try {
-      await handleRequest(makeRequest({ message: "Wie viel Protein brauche ich am Tag?" }));
-      const patches = stub.callsTo("/rest/v1/chat_sessions").filter((c) => c.method === "PATCH");
-      assertEquals(patches.length, 1, `${JSON.stringify(title)}: Auto-Titel-PATCH`);
-    } finally {
-      stub.restore();
-    }
-  }
-});
-
-Deno.test("F9-04: ein vom Nutzer gesetzter Titel wird nicht ueberschrieben", async () => {
-  const stub = installFetch({ classifierCategory: "fitness", sessionTitle: "Mein Proteinplan" });
+Deno.test("F9-04: die PATCH-Bedingung nennt genau die Default-Titel, eigene Titel matchen nie", async () => {
+  // Whether the write fires now lives in the DB-side title=in. filter, so the
+  // pin moves onto that filter: it must list exactly the recognised default
+  // titles (both app languages, the DB default, the legacy "Allgemein" and the
+  // empty column) and nothing else — a closed set can never match a title the
+  // user chose. The schema is NOT NULL and every write path trims, so "" is
+  // the only empty spelling that can occur.
+  const stub = installFetch({ classifierCategory: "fitness" });
   try {
     await handleRequest(makeRequest({ message: "Wie viel Protein brauche ich am Tag?" }));
     const patches = stub.callsTo("/rest/v1/chat_sessions").filter((c) => c.method === "PATCH");
-    assertEquals(patches.length, 0, "kein PATCH auf eigenen Titel");
+    assertEquals(patches.length, 1, "Auto-Titel-PATCH");
+    const rawFilter = new URL(patches[0].url).searchParams.get("title");
+    assert(
+      rawFilter !== null && rawFilter.startsWith("in.(") && rawFilter.endsWith(")"),
+      `title-Filter fehlt oder ist kein in.(): ${patches[0].url}`,
+    );
+    const values = [...rawFilter!.slice("in.(".length, -1).matchAll(/"((?:[^"\\]|\\.)*)"/g)]
+      .map((m) => m[1]);
+    const expected = ["", "Neue Unterhaltung", "New conversation", "Allgemein"];
+    assertEquals(values.length, expected.length, `Filtermenge: ${rawFilter}`);
+    for (const title of expected) {
+      assert(values.includes(title), `Default-Titel fehlt im Filter: ${JSON.stringify(title)}`);
+    }
   } finally {
     stub.restore();
   }

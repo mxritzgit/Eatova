@@ -49,10 +49,23 @@ class MealPreviewCard extends StatelessWidget {
                       ),
                     ],
                   )
-                : Image.memory(
-                    imageBytes!,
-                    fit: BoxFit.cover,
-                    gaplessPlayback: true,
+                : LayoutBuilder(
+                    builder: (context, constraints) {
+                      // Decode at card width (pattern of the coach recipe
+                      // card): the bytes are the scrubbed UPLOAD image, up to
+                      // 1600 px — full size is a multi-MB texture for a
+                      // 170-px slot.
+                      final dpr = MediaQuery.devicePixelRatioOf(context);
+                      final w = constraints.maxWidth.isFinite
+                          ? constraints.maxWidth
+                          : 320.0;
+                      return Image.memory(
+                        imageBytes!,
+                        fit: BoxFit.cover,
+                        gaplessPlayback: true,
+                        cacheWidth: (w * dpr).round().clamp(1, 1600),
+                      );
+                    },
                   ),
           ),
         ],

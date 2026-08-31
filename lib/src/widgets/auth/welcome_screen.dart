@@ -86,7 +86,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     _bootStarted = true;
     // A11y: with reduced motion, no intro and no endless loop — the mark is
     // assembled immediately. Tests rely on nothing ticking here.
-    _reduceMotion = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    _reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
     if (_reduceMotion) {
       _introController.value = 1;
       _assembleController.value = 1;

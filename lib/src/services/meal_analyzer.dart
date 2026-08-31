@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show compute;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config/supabase_config.dart';
@@ -99,6 +100,14 @@ Map<String, dynamic> buildAnalyzeMealBody(MealAnalysisRequest request) {
     'language': request.language,
   };
 }
+
+/// Top-level for `compute()`: builds and encodes the body off the UI isolate.
+/// base64 of a photo plus its jsonEncode copy are worst-case >13 MB of string
+/// churn, paid right as the scan spinner starts (perf finding 6, 2026-08-31).
+/// Callers hand in a request WITHOUT [MealAnalysisRequest.cancellation] — its
+/// closures cannot cross the isolate boundary.
+String encodeAnalyzeMealBody(MealAnalysisRequest request) =>
+    jsonEncode(buildAnalyzeMealBody(request));
 
 /// Turns a raw `analyze-meal` answer into a result or a typed error. Status
 /// codes are checked BEFORE the body is trusted: a 429/502 from the gateway
@@ -226,6 +235,21 @@ class EdgeFunctionMealAnalyzer implements MealAnalyzer {
     // a transport error, which the catch below renames to "cancelled".
     final unregister = cancellation?.register(() => client.close(force: true));
     try {
+      // Body built in an isolate; a stripped copy travels because the
+      // cancellation hook's closures cannot cross the isolate boundary.
+      final body = await compute(
+        encodeAnalyzeMealBody,
+        MealAnalysisRequest(
+          imageId: request.imageId,
+          imageBytes: request.imageBytes,
+          portionHint: request.portionHint,
+          freeTextHint: request.freeTextHint,
+          language: request.language,
+        ),
+      );
+      if (cancellation?.isCancelled ?? false) {
+        throw const MealAnalysisCancelled();
+      }
       final uri = Uri.parse('$_baseUrl$_functionPath');
       final response = await sendTextRequest(
         client,
@@ -238,7 +262,7 @@ class EdgeFunctionMealAnalyzer implements MealAnalyzer {
           httpRequest.headers.set('apikey', _anonKey);
           httpRequest.headers.set('Authorization', 'Bearer $accessToken');
         },
-        body: jsonEncode(buildAnalyzeMealBody(request)),
+        body: body,
       );
       if (cancellation?.isCancelled ?? false) {
         throw const MealAnalysisCancelled();

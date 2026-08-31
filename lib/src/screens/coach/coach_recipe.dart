@@ -143,11 +143,25 @@ class _RecipeAddSheet extends StatelessWidget {
                       if (bytes != null) ...<Widget>[
                         ClipRRect(
                           borderRadius: BorderRadius.circular(rCard),
-                          child: Image.memory(
-                            bytes,
-                            height: 170,
-                            width: double.infinity,
-                            fit: BoxFit.cover,
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              // Same decode budget as the card above: the
+                              // sheet shows the SAME bytes, and without
+                              // cacheWidth they were decoded a second time at
+                              // full size into a second cache entry.
+                              final dpr =
+                                  MediaQuery.devicePixelRatioOf(context);
+                              final w = constraints.maxWidth.isFinite
+                                  ? constraints.maxWidth
+                                  : 320.0;
+                              return Image.memory(
+                                bytes,
+                                height: 170,
+                                width: double.infinity,
+                                fit: BoxFit.cover,
+                                cacheWidth: (w * dpr).round().clamp(1, 1600),
+                              );
+                            },
                           ),
                         ),
                         const SizedBox(height: 12),

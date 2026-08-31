@@ -280,6 +280,39 @@ void main() {
   });
 
   testWidgets(
+    'PERF: Karten- und Sheet-Bild decodieren auf Slotgroesse (ResizeImage)',
+    (tester) async {
+      // Perf round 2026-08-31, finding 5: the confirm sheet decoded the SAME
+      // bytes a second time at full size — two decodes, two cache entries.
+      final svc = _RecipeCoach.create();
+      await _pumpCoach(tester, service: svc, created: <FitnessRecipe>[]);
+      await _type(tester, '/recipe Huehnchenauflauf');
+
+      final cardImage = tester.widget<Image>(
+        find.descendant(
+          of: find.byKey(const ValueKey('coach-recipe-card')),
+          matching: find.byType(Image),
+        ),
+      );
+      expect(cardImage.image, isA<ResizeImage>(),
+          reason: 'die Karte decodiert seit jeher auf Slotbreite — Regression');
+
+      await tester.tap(find.byKey(const ValueKey('coach-recipe-add')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('coach-recipe-sheet')), findsOneWidget);
+      final sheetImage = tester.widget<Image>(
+        find.descendant(
+          of: find.byKey(const ValueKey('coach-recipe-sheet')),
+          matching: find.byType(Image),
+        ),
+      );
+      expect(sheetImage.image, isA<ResizeImage>(),
+          reason: 'das Bestaetigungs-Sheet muss dieselben Bytes auf '
+              'Slotbreite decodieren statt full-size ein zweites Mal');
+    },
+  );
+
+  testWidgets(
     'Bestaetigen speichert einmal; Loeschen im Rezepte-Tab reaktiviert den Button',
     (tester) async {
       final svc = _RecipeCoach.create()

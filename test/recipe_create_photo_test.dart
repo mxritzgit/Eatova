@@ -232,6 +232,12 @@ void main() {
       expect(quelle.gefragt, <ImageSource>[ImageSource.camera]);
       expect(find.byKey(const ValueKey('recipe-create-photo-preview')),
           findsOneWidget);
+      // Perf round 2026-08-31, finding 5: the 60-px thumbnail decoded the
+      // freshly scrubbed photo (up to 1600 px) at full size.
+      final vorschau = tester.widget<Image>(
+          find.byKey(const ValueKey('recipe-create-photo-preview')));
+      expect(vorschau.image, isA<ResizeImage>(),
+          reason: 'das 60-px-Thumbnail muss auf Slotgroesse decodieren');
     });
 
     testWidgets('Galerie-Knopf fragt die Galerie', (tester) async {

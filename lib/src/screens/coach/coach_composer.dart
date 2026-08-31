@@ -432,7 +432,7 @@ class _MicButtonState extends State<_MicButton>
   }
 
   void _syncPulse() {
-    final reduce = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final reduce = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
     if (widget.listening && !reduce) {
       if (!_pulse.isAnimating) _pulse.repeat();
     } else {
@@ -445,7 +445,7 @@ class _MicButtonState extends State<_MicButton>
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    final reduce = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final reduce = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
     final color = widget.listening
         ? t.accent
         : (widget.enabled ? t.ink2 : t.ink2.withValues(alpha: 0.5));
