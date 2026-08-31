@@ -129,10 +129,16 @@ AuthApiException _otpAbgeschaltet() => const AuthApiException(
     );
 
 /// A plain server fault: no wait named, nothing to classify as a throttle.
-AuthApiException _serverfehler500() => const AuthApiException(
-      'Unexpected failure, please check server logs for more information',
+///
+/// The REAL shape (H1, 2026-08-31): gotrue 2.27.2 turns EVERY response with
+/// status >= 500 into an `AuthRetryableFetchException` in `fetch.dart`
+/// (`_handleError`) and never reaches the `AuthApiException` branch — the
+/// `AuthApiException(statusCode: '500')` that stood here is a form gotrue
+/// cannot produce, so the real 5xx path was untested. What the SENTENCE for it
+/// has to be is pinned in `test/review_31/h_auth_server_fault_test.dart`.
+AuthRetryableFetchException _serverfehler500() => AuthRetryableFetchException(
+      message: '{"code":500,"message":"Unexpected failure"}',
       statusCode: '500',
-      code: 'unexpected_failure',
     );
 
 /// Taps "request a new code" once and settles.

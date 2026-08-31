@@ -80,6 +80,11 @@ String _mealAnalysisExceptionMessage(
         'provider_not_configured' ||
         'server_misconfigured' ||
         'rate_limit_unavailable' ||
+        // 503 when the GoTrue lookup runs into its step deadline. The server
+        // answers 503 there on purpose instead of 401 (a 401 would sign the
+        // user out over an auth OUTAGE), so this belongs with the other
+        // outages — not on the fallback, which blames the user's connection.
+        'auth_unavailable' ||
         'internal_error' =>
           l10n.foodAnalysisServiceUnavailableMessage,
         'missing_image' ||

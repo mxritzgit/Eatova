@@ -74,8 +74,11 @@ class RecipesScreen extends StatefulWidget {
   final List<FitnessRecipe> initialUserRecipes;
 
   /// Whether [initialUserRecipes] is COMPLETE — the boot load has answered for
-  /// user_recipes (`HomeStore.userRecipesAuthoritative`). False means the list
-  /// may still grow, and an entry missing from it says nothing.
+  /// user_recipes AND that answer covers the whole collection
+  /// (`HomeStore.userRecipesAuthoritative`). False means the list may still
+  /// grow, and an entry missing from it says nothing: the answer is still out,
+  /// or it filled its page and left the older recipes behind, or a queued
+  /// recipe never made it back out of an unreadable outbox slot.
   ///
   /// Only the photo sweep reads this (P3-04b); the display shows whatever is
   /// there, finished or not. Default false: without a store saying otherwise,
@@ -217,7 +220,12 @@ class _RecipesScreenState extends State<RecipesScreen> {
   ///
   /// An `isNotEmpty` guard would be the wrong repair: "the user deleted all
   /// recipes" is a valid state that MUST collect. Empty is not the problem —
-  /// unfinished is.
+  /// unfinished is. And unfinished has three shapes, all of them behind the
+  /// one flag (review 2026-08-31, A): the answer is still out, the answer
+  /// filled its page and stops at the newest `userRecipesLimit` recipes, or a
+  /// queued recipe is stuck in an unreadable outbox slot. The last two look
+  /// exactly like a finished list from here, which is why the flag — not this
+  /// screen — decides.
   ///
   /// [_userRecipes] rather than [_visibleUserRecipes]: a recipe inside its undo
   /// window still needs its bytes.

@@ -19,6 +19,8 @@
 //  - A limiter outage never blocks the 401: this is a damper, not an auth
 //    boundary — unlike the gates behind it, which protect paid work. The
 //    helper therefore never throws and never reports `limited` on an error.
+//  - The deadline belongs to the CALLER (`options.signal`, E1): a stalling
+//    PostgREST must not hold the 401 path open past the client's own budget.
 //  - The subject is the client IP, `clientIpSubject(req, "anon")`; without an
 //    IP header that is the SHARED "uid:anon" bucket, acceptable because only
 //    failed logins land in it.
@@ -62,6 +64,19 @@ export type AuthFailGateOptions = {
   subject: string;
   limit?: number;
   windowSeconds?: number;
+  /**
+   * Deadline for the one RPC roundtrip below (E1, review 2026-08-31).
+   *
+   * This runs on the 401 path of every function, so a stalling PostgREST used
+   * to hold the request open until the platform killed the isolate while the
+   * client had long given up. The signal belongs to the CALLER because only it
+   * knows what is left of its own request budget; without one the fetch is
+   * unbounded, which is why all three callers pass one.
+   *
+   * An abort is a limiter problem like any other: it lands in the catch below
+   * and reports `{ limited: false }`. The helper still never throws.
+   */
+  signal?: AbortSignal;
 };
 
 export type AuthFailGateResult =
@@ -79,7 +94,8 @@ export type AuthFailGateResult =
 
 /**
  * Consumes one slot of the fail bucket and reports whether the caller should
- * answer 429 instead of 401. ALWAYS resolves; on any limiter problem the
+ * answer 429 instead of 401. ALWAYS resolves; on any limiter problem — HTTP
+ * error, broken shape, network failure, or an aborted `options.signal` — the
  * result is `{ limited: false }` with one console.error line.
  */
 export async function authFailGate(options: AuthFailGateOptions): Promise<AuthFailGateResult> {
@@ -102,6 +118,9 @@ export async function authFailGate(options: AuthFailGateOptions): Promise<AuthFa
         p_limit: limit,
         p_window_seconds: windowSeconds,
       }),
+      // Undefined is exactly "no signal", the pre-E1 behaviour, so a caller
+      // that has no deadline of its own keeps compiling and working.
+      signal: options.signal,
     });
     // Status only, never the body: nothing in it is needed here.
     if (!response.ok) {

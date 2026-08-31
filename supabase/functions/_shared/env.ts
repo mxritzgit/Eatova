@@ -44,17 +44,48 @@ export function positiveIntFromEnv(
   const raw = Deno.env.get(name)?.trim();
   // Unset or empty is the normal case, not a config error: stays silent.
   if (!raw) return fallback;
-  const parsed = /^\d+$/.test(raw) ? Number.parseInt(raw, 10) : Number.NaN;
+  const isPlainInteger = /^\d+$/.test(raw);
+  const parsed = isPlainInteger ? Number.parseInt(raw, 10) : Number.NaN;
   if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > max) {
-    // The value is operator configuration (a plain number), never a secret;
-    // truncated anyway so a pasted blob cannot flood the log.
+    // E2 (review 2026-08-31), CWE-532: the value is NEVER logged. The old line
+    // wrote 32 characters of it, and this branch fires precisely when the slot
+    // does NOT hold a number — i.e. in the case it exists for: a secret that
+    // slipped into a numeric slot (`ANALYZE_MEAL_USER_LIMIT=<service-role
+    // JWT>` from a misaligned bulk paste) would have put its header and the
+    // start of its payload into function_logs on EVERY cold start of all three
+    // functions, for the whole log retention.
+    //
+    // Nothing diagnostic is lost: the variable NAME says what to fix, `reason`
+    // says why it was rejected, `max`/`fallback` say what applies instead, and
+    // length plus fingerprint tell two wrong values apart and show whether a
+    // corrected secret actually reached the deployment. The fingerprint is
+    // FNV-1a rather than SHA-256 because callers are module-level constants and
+    // crypto.subtle is async.
     console.warn('env value ignored, code default applies', {
       name,
-      value: raw.slice(0, 32),
+      reason: !isPlainInteger
+        ? 'not a plain integer'
+        : parsed <= 0
+        ? 'not positive'
+        : 'out of range',
+      valueLength: raw.length,
+      valueFingerprint: fingerprint(raw),
       max,
       fallback,
     });
     return fallback;
   }
   return parsed;
+}
+
+/** FNV-1a/32 as 8 hex chars: identifies a value across restarts without
+ *  carrying any of it. Not a security primitive, and never used as one. */
+function fingerprint(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    // 32-bit FNV prime multiply, kept in range via Math.imul.
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
 }

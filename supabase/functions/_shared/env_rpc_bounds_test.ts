@@ -115,9 +115,12 @@ Deno.test("P6-03: ein gesetzter, verworfener Wert wird geloggt", () => {
   const joined = warnings.join("\n");
   assertEquals(warnings.length, 1, `genau eine Warnung erwartet, waren: ${joined}`);
   assert(joined.includes(VAR), `Variablenname fehlt: ${joined}`);
-  assert(joined.includes("86400"), `der verworfene Wert fehlt: ${joined}`);
   assert(joined.includes(String(FALLBACK)), `der wirksame Default fehlt: ${joined}`);
   assert(joined.includes(String(EDGE_RATE_LIMIT_MAX_LIMIT)), `die verletzte Grenze fehlt: ${joined}`);
+  // E2: der Wert selbst steht NICHT mehr drin (siehe unten), aber die Zeile
+  // muss weiter sagen, WARUM verworfen wurde und wie gross der Wert war.
+  assert(joined.includes("out of range"), `der Grund fehlt: ${joined}`);
+  assert(joined.includes("valueLength"), `die Laenge fehlt: ${joined}`);
 });
 
 Deno.test("P6-03: auch unbrauchbare Formate warnen", () => {
@@ -138,6 +141,79 @@ Deno.test("P6-03: nicht gesetzt, leer und gueltig bleiben still", () => {
   assertEquals(warnings.length, 0, `gueltiger Wert hat gewarnt: ${warnings.join("|")}`);
   assertEquals(parsed("86400", EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS), 86400, "gueltig mit weiterem max");
   assertEquals(warnings.length, 0, `gueltiger Wert hat gewarnt: ${warnings.join("|")}`);
+});
+
+// ---------------------------------------------------------------------------
+// E2 (Review 2026-08-31), CWE-532: der verworfene Wert darf NICHT im Klartext
+// in die Logzeile. Der Zweig feuert bei jedem Kaltstart aller drei Functions
+// und genau dann, wenn in einem Zahlen-Slot keine Zahl steht — also im Fall
+// des vertippten oder verrutschten Secrets.
+// ---------------------------------------------------------------------------
+
+/** JWT-Attrappe, zur Laufzeit zusammengesetzt: ein Literal mit den Punkten
+ *  drin faellt in die gitleaks-JWT-Regel, und die prueft die HISTORIE. */
+const FAKE_JWT = [
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+  "eyJyb2xlIjoic2VydmljZV9yb2xlIiwiaXNzIjoic3VwYWJhc2UifQ",
+  "c2lnbmF0dXItYXR0cmFwcGU",
+].join(".");
+
+Deno.test("E2: ein in einen Zahlen-Slot gerutschtes Secret steht nicht im Log", () => {
+  // `supabase secrets set ANALYZE_MEAL_USER_LIMIT=<service-role JWT>` durch
+  // eine verrutschte Zeile: die alte Zeile schrieb 32 Zeichen davon — Header
+  // plus Anfang der Nutzlast — bei JEDEM Isolate-Start in function_logs.
+  assertEquals(parsed(FAKE_JWT), FALLBACK, "unbrauchbarer Wert faellt auf den Default");
+  const joined = warnings.join("\n");
+  assertEquals(warnings.length, 1, `genau eine Warnung erwartet: ${joined}`);
+  assert(!joined.includes(FAKE_JWT), `der Rohwert steht im Log: ${joined}`);
+  assert(!joined.includes(FAKE_JWT.slice(0, 32)), `die alten 32 Zeichen stehen im Log: ${joined}`);
+  assert(!joined.includes(FAKE_JWT.slice(0, 12)), `ein Praefix steht im Log: ${joined}`);
+  // Kein Fenster von 12 Zeichen aus dem Wert darf auftauchen — auch nicht aus
+  // der Mitte, falls jemand statt slice(0, n) irgendwann anders kuerzt.
+  for (let i = 0; i + 12 <= FAKE_JWT.length; i++) {
+    assert(
+      !joined.includes(FAKE_JWT.slice(i, i + 12)),
+      `ein Fragment ab Position ${i} steht im Log: ${joined}`,
+    );
+  }
+});
+
+Deno.test("E2: der diagnostische Wert bleibt vollstaendig erhalten", () => {
+  assertEquals(parsed(FAKE_JWT), FALLBACK, "Default greift");
+  const joined = warnings.join("\n");
+  // Was der Betreiber braucht: WELCHE Variable, WARUM verworfen, was
+  // stattdessen gilt, und wie gross der Wert war.
+  assert(joined.includes(VAR), `Variablenname fehlt: ${joined}`);
+  assert(joined.includes("not a plain integer"), `Grund fehlt: ${joined}`);
+  assert(joined.includes(String(FAKE_JWT.length)), `Laenge fehlt: ${joined}`);
+  assert(joined.includes(String(FALLBACK)), `wirksamer Default fehlt: ${joined}`);
+  assert(joined.includes(String(EDGE_RATE_LIMIT_MAX_LIMIT)), `Grenze fehlt: ${joined}`);
+});
+
+Deno.test("E2: der Fingerabdruck ist stabil und unterscheidet Werte", () => {
+  // Dafuer ist er da: der Betreiber sieht nach dem Nachziehen des Secrets, ob
+  // wirklich ein ANDERER Wert ankommt — ohne dass der Wert selbst im Log steht.
+  function fingerabdruck(value: string): string {
+    parsed(value);
+    const match = warnings.join("\n").match(/"valueFingerprint":"([0-9a-f]{8})"/);
+    assert(match !== null, `kein Fingerabdruck in: ${warnings.join("\n")}`);
+    return match![1];
+  }
+  const ersterLauf = fingerabdruck(FAKE_JWT);
+  assertEquals(fingerabdruck(FAKE_JWT), ersterLauf, "gleicher Wert, gleicher Abdruck");
+  assert(fingerabdruck(`${FAKE_JWT}x`) !== ersterLauf, "anderer Wert, anderer Abdruck");
+  assert(fingerabdruck("abc") !== fingerabdruck("abd"), "kleine Aenderung faellt auf");
+});
+
+Deno.test("E2: auch eine reine Zahl ueber der Grenze wird nicht ausgeschrieben", () => {
+  // Die Grenzziehung ist bewusst nicht "nur Nicht-Zahlen schwaerzen": eine
+  // Regel mit Ausnahme ist eine Regel, die beim naechsten Umbau kippt. Name,
+  // Grund, Grenze und Default reichen dem Betreiber auch hier.
+  assertEquals(parsed("999999999"), FALLBACK, "offensichtlicher Unsinn");
+  const joined = warnings.join("\n");
+  assert(!joined.includes("999999999"), `der Rohwert steht im Log: ${joined}`);
+  assert(joined.includes("out of range"), `Grund fehlt: ${joined}`);
+  assert(joined.includes('"valueLength":9'), `Laenge fehlt: ${joined}`);
 });
 
 Deno.test("bisheriges Verhalten bleibt: unbrauchbare Werte -> Default", () => {

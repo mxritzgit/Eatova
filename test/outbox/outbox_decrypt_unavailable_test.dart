@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'dart:isolate';
 
+import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pointycastle/api.dart' show InvalidCipherTextException;
 
-import 'package:eatova/src/app/home_store.dart' show kOutboxRepairMaxAttempts;
+import 'package:eatova/src/app/home_store.dart'
+    show kOutboxRepairMaxAttempts, kOutboxRepairMinSpacing;
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/secure_cache_store.dart';
@@ -282,26 +284,33 @@ void main() {
     test(
         'bleibt der Slot dauerhaft unlesbar, gewinnen irgendwann die Writes '
         'dieser Sitzung', () async {
-      final (raw, cipher, store) = _stapel();
-      await _seedOutbox(store);
-      final vorher = raw.snapshot[_outboxKey];
-      cipher.blockiert = true;
+      // Review 2026-08-31, B: the budget counts MOMENTS, not taps — a burst
+      // in the same second is one chance. So the clock has to move, and the
+      // fake one makes that deterministic.
+      var jetzt = DateTime(2026, 8, 31, 9);
+      await withClock(Clock(() => jetzt), () async {
+        final (raw, cipher, store) = _stapel();
+        await _seedOutbox(store);
+        final vorher = raw.snapshot[_outboxKey];
+        cipher.blockiert = true;
 
-      final a = setup(injizierterCache: LocalCache(store, _uid));
-      a.server.offline = true;
-      await boot(a.store);
+        final a = setup(injizierterCache: LocalCache(store, _uid));
+        a.server.offline = true;
+        await boot(a.store);
 
-      // Every write retries the read; after the bounded number of attempts the
-      // session's own durability wins.
-      for (var i = 0; i < kOutboxRepairMaxAttempts + 1; i++) {
-        a.store.addResultToDailyTotal(mealResult('Bowl-$i'));
-        await settle();
-      }
+        // Every write retries the read; after the bounded number of attempts,
+        // spread over the wall clock, the session's own durability wins.
+        for (var i = 0; i < kOutboxRepairMaxAttempts + 1; i++) {
+          jetzt = jetzt.add(kOutboxRepairMinSpacing);
+          a.store.addResultToDailyTotal(mealResult('Bowl-$i'));
+          await settle();
+        }
 
-      expect(raw.snapshot[_outboxKey], isNot(vorher),
-          reason: 'ein Slot, der nach mehreren Versuchen immer noch nicht '
-              'aufgeht, darf die Sitzung nicht dauerhaft ohne Persistenz '
-              'lassen — sonst nimmt ein Kill ALLE neuen Writes mit');
+        expect(raw.snapshot[_outboxKey], isNot(vorher),
+            reason: 'ein Slot, der nach mehreren Versuchen immer noch nicht '
+                'aufgeht, darf die Sitzung nicht dauerhaft ohne Persistenz '
+                'lassen — sonst nimmt ein Kill ALLE neuen Writes mit');
+      });
     });
   });
 

@@ -259,8 +259,8 @@ mixin _HomeStoreMealsPart
       dailyConsumedKcal = consumedKcalForFoodDate(clock.now());
       macroProgress = macroProgressForFoodDate(clock.now());
       if (recordToday) {
-        // Optimistic like a fresh log; the server refresh via
-        // _recordTrackingDay then adopts the authoritative row.
+        // Optimistic like a fresh log; the trackingDay op queued below adopts
+        // the authoritative row when it is delivered.
         lifetimeStats = lifetimeStats.recordTrackedDay(clock.now());
       }
     });
@@ -271,26 +271,33 @@ mixin _HomeStoreMealsPart
     // the RPC's source proof compares against.
     final trackedDay =
         recordToday ? DateTime.parse(updated.effectiveLocalDay) : null;
+    // NO `onDelivered: _recordTrackingDay` here — the queued op below is the
+    // ONE path that books the day, live and offline alike. Both together fired
+    // record_tracking_day TWICE per live move (C-01): the callback runs in the
+    // PATCH's `then`, and the `_onSyncSuccess` two lines further down starts
+    // the replay of the queued twin in the SAME microtask. Two concurrent RPCs,
+    // two lifetimeStats adoptions — and the callback's answer then filtered the
+    // outbox (`_clearQueuedTrackingDay`) WHILE that replay was walking it,
+    // which cost the replay cursor the op that moved up.
     _syncOrQueue(
       'Mahlzeit-Update',
       () => sync!.meals.updateLoggedMeal(updated),
       () => SyncOp.mealUpsert(updated),
-      // P1-05: record_tracking_day needs a logged_meals row for the day
-      // (EX_DAY_NOT_LOGGED -> P0001), and a move ONTO today is exactly the
-      // case where today may still be empty. Booking before the upsert
-      // therefore burned a delivery attempt every time. Live only after the
-      // PATCH, as in addResultToDailyTotal.
-      onDelivered: trackedDay == null
-          ? null
-          : () => _recordTrackingDay(day: trackedDay),
     );
     if (trackedDay != null) {
-      // The queued twin for every path the live callback cannot reach:
-      // offline, entity already busy, a request that never answers, a kill in
-      // between. SyncOp.mealUpsert carries no `trackDay` flag (unlike
-      // mealInsert), so the day needs its own op — enqueued AFTER the upsert,
-      // so the FIFO replay writes the row first. Coalesced per day, and a
-      // successful live RPC removes it again (_clearQueuedTrackingDay).
+      // The day gets its own op: SyncOp.mealUpsert carries no `trackDay` flag
+      // (unlike mealInsert), so nothing else would ever book it. Enqueued AFTER
+      // the upsert, so the FIFO replay writes the row first — P1-05:
+      // record_tracking_day needs a logged_meals row for the day
+      // (EX_DAY_NOT_LOGGED -> P0001), and a move ONTO today is exactly the case
+      // where today may still be empty.
+      //
+      // It carries the live path too, not just the offline one: the PATCH's
+      // success runs `_onSyncSuccess` -> `_replayOutbox`, which plays this op
+      // once the row exists — one RPC, in order. And it is the only form that
+      // survives what a delivery callback cannot reach: offline, entity already
+      // busy, a request that never answers, a kill in between. Coalesced per
+      // day.
       _queueTrackingDay(trackedDay);
     }
   }

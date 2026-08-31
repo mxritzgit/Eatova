@@ -15,10 +15,16 @@ import 'fixlauf_a_helpers.dart';
 // collection was not mutated during the load; otherwise it is merged (local
 // wins, missing server ids are added, locally deleted ids stay deleted).
 
+/// The cached meals count towards TODAY, so their timestamp must not be able
+/// to slip over midnight: `DateTime.now() - 1 h` put them on the PREVIOUS day
+/// between 00:00 and 01:00 local, `dailyConsumedKcal` then saw only the live
+/// meal, and the test was red every night in that hour (CI hit it on
+/// 2026-08-31 at 00:41 UTC: expected 800, got 300). [heuteUm] anchors to today
+/// instead of to a fixed date, which would only rot differently.
 LoggedMeal _cachedMeal(String id, String name) => LoggedMeal(
       id: id,
       result: mealResult(name, kcal: 250),
-      loggedAt: DateTime.now().subtract(const Duration(hours: 1)),
+      loggedAt: heuteUm(),
     );
 
 /// Cache + server both know m1 and m2; the gate opens on the cached profile

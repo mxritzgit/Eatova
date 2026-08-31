@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../config/legal_links.dart';
 import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
+import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/motion.dart';
 // Only for [SelectionTone]: these pills are a clone of [SegmentedPill] and
 // must speak the same selection language, not a second one.
@@ -445,6 +446,38 @@ class SettingsSecondaryButton extends StatelessWidget {
   }
 }
 
+/// Opens a legal page in the browser and SAYS SO when that fails (P4-05).
+///
+/// `launchUrl` reports "no handler" in two shapes: `false`, and — on Android —
+/// a thrown `PlatformException('ACTIVITY_NOT_FOUND')`. Reading neither made the
+/// tap do visibly nothing on a device without a browser handler (work profile,
+/// kiosk, stripped ROM) and sent the exception on to
+/// `PlatformDispatcher.onError`, i.e. a Sentry event nobody could tie to a
+/// user. Imprint, terms and privacy are § 5 DDG / GDPR Art. 13 and app-store
+/// obligations, so the fallback names the URL to type by hand.
+///
+/// ONE helper for every legal link, not one copy per call site: the auth
+/// screen's consent notice fixed this for itself and left the three settings
+/// links behind (J2). `auth_screen.dart` still carries its own byte-identical
+/// `_open` and should call this instead — it is public and takes nothing but a
+/// context and the URL.
+Future<void> openLegalLink(BuildContext context, String url) async {
+  var geoeffnet = false;
+  try {
+    geoeffnet =
+        await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+  } catch (_) {
+    geoeffnet = false;
+  }
+  if (geoeffnet || !context.mounted) return;
+  showAppSnack(
+    context,
+    context.l10n.authLegalLinkFailed(url),
+    icon: Icons.link_off_rounded,
+    tone: SnackTone.warning,
+  );
+}
+
 /// Legal links in the page footer. GDPR Art. 13 / § 5 DDG / app stores: they
 /// must stay reachable after login, not only on the auth screen.
 class SettingsLegalLinks extends StatelessWidget {
@@ -490,10 +523,7 @@ class _LegalLink extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     return TextButton(
-      onPressed: () => launchUrl(
-        Uri.parse(url),
-        mode: LaunchMode.externalApplication,
-      ),
+      onPressed: () => openLegalLink(context, url),
       style: TextButton.styleFrom(
         foregroundColor: t.ink2,
         minimumSize: Size.zero,

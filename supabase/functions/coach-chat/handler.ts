@@ -68,11 +68,37 @@ export const PROVIDER_TIMEOUTS_MS = {
   image: 30_000,
 };
 
+// Hard deadline for ONE Supabase roundtrip (E1, review 2026-08-31), the same
+// 5 s analyze-meal uses for its PostgREST/GoTrue calls — one set of numbers.
+// PostgREST answers these in milliseconds; 5 s is 50x the worst honest case.
+//
+// Every one of these fetches used to be unbounded, and the one that hurt sits
+// AFTER claim_chat_quota: a stalling PostgREST held the isolate until the
+// platform killed it, the client gave up at its own 75 s deadline, and because
+// no catch ever ran, the claimed daily slot was silently gone. The rule that
+// closes it: after the claim, every call either finishes, reaches a refund, or
+// is cosmetic — see the call sites. Mutable so tests can shorten it.
+export const SUPABASE_TIMEOUTS_MS = { call: 5_000 };
+
+/** One Supabase roundtrip under the shared deadline. Callers translate an
+ *  abort into their OWN outage channel (isAbortError); nothing here decides
+ *  what a timeout means. */
+function supabaseFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(SUPABASE_TIMEOUTS_MS.call) });
+}
+
 // AbortSignal.timeout rejects fetch AND body read with a "TimeoutError".
 // Handled like any provider infra error, but with the honest status pair
 // 502 provider_error / 504 provider_timeout.
 function isProviderTimeout(e: unknown): boolean {
   return e instanceof DOMException && e.name === "TimeoutError";
+}
+
+// Same test for the Supabase calls. Deliberately NOT a catch-all: a genuine
+// network error keeps propagating exactly as before, so an outage cannot hide
+// behind the timeout handling.
+function isAbortError(e: unknown): boolean {
+  return e instanceof DOMException && (e.name === "TimeoutError" || e.name === "AbortError");
 }
 
 // Provider error WITH HTTP status: a bare Error made the catch blocks refund
@@ -604,24 +630,34 @@ async function storeRecipeMessage(
     recipe: RecipeDraft;
   },
 ): Promise<string | null> {
-  const resp = await fetch(`${supabaseUrl}/rest/v1/chat_messages?select=id`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${serviceKey}`,
-      "apikey": serviceKey,
-      "Content-Type": "application/json",
-      "Prefer": "return=representation",
-    },
-    body: JSON.stringify({
-      user_id: row.user_id,
-      session_id: row.session_id,
-      role: "assistant",
-      content: row.content,
-      refusal: false,
-      refusal_reason: null,
-      recipe: row.recipe,
-    }),
-  });
+  let resp: Response;
+  try {
+    resp = await supabaseFetch(`${supabaseUrl}/rest/v1/chat_messages?select=id`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${serviceKey}`,
+        "apikey": serviceKey,
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+      },
+      body: JSON.stringify({
+        user_id: row.user_id,
+        session_id: row.session_id,
+        role: "assistant",
+        content: row.content,
+        refusal: false,
+        refusal_reason: null,
+        recipe: row.recipe,
+      }),
+    });
+  } catch (e) {
+    if (!isAbortError(e)) throw e;
+    // E1: like every store AFTER a delivered result — null leaves the card
+    // ephemeral, the recipe still reaches the client. No refund: it was paid
+    // for and it arrives.
+    console.error("storeRecipeMessage timeout");
+    return null;
+  }
   if (!resp.ok) {
     console.error(`storeRecipeMessage failed: ${resp.status}`);
     return null;
@@ -895,15 +931,28 @@ async function rpcClaimQuota(
   supabaseUrl: string,
   userId: string,
 ): Promise<{ used: number | null; remaining: number | null } | { error: string }> {
-  const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/claim_chat_quota`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${serviceKey}`,
-      "apikey": serviceKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ p_user_id: userId, p_daily_limit: DAILY_LIMIT }),
-  });
+  let resp: Response;
+  try {
+    resp = await supabaseFetch(`${supabaseUrl}/rest/v1/rpc/claim_chat_quota`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${serviceKey}`,
+        "apikey": serviceKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ p_user_id: userId, p_daily_limit: DAILY_LIMIT }),
+    });
+  } catch (e) {
+    if (!isAbortError(e)) throw e;
+    // E1: deliberately NO refund. The claim is atomic on the server, so a lost
+    // ANSWER says nothing about whether the row was written — refunding a claim
+    // that never happened would hand out a free slot on every hiccup. The user
+    // gets an honest 500 in seconds instead of the client's 75 s timeout, and
+    // at worst one of five slots is gone; every path BEHIND this point is the
+    // one that must not lose a slot silently, and does not.
+    console.error("claim_chat_quota timeout");
+    return { error: "rpc_unavailable" };
+  }
   if (!resp.ok) {
     const text = await resp.text();
     if (text.includes("EX_QUOTA_EXCEEDED")) return { error: "quota_exceeded" };
@@ -937,7 +986,7 @@ async function rpcRefundQuota(
   userId: string,
 ): Promise<void> {
   try {
-    const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/refund_chat_quota`, {
+    const resp = await supabaseFetch(`${supabaseUrl}/rest/v1/rpc/refund_chat_quota`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${serviceKey}`,
@@ -962,20 +1011,30 @@ async function rpcConsumeEdgeRateLimit(
   limit: number,
   windowSeconds: number,
 ): Promise<{ allowed: boolean; remaining: number; resetAt: string; windowSeconds: number } | { error: string }> {
-  const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/consume_edge_rate_limit`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${serviceKey}`,
-      "apikey": serviceKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      p_scope: scope,
-      p_subject: subject,
-      p_limit: limit,
-      p_window_seconds: windowSeconds,
-    }),
-  });
+  let resp: Response;
+  try {
+    resp = await supabaseFetch(`${supabaseUrl}/rest/v1/rpc/consume_edge_rate_limit`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${serviceKey}`,
+        "apikey": serviceKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        p_scope: scope,
+        p_subject: subject,
+        p_limit: limit,
+        p_window_seconds: windowSeconds,
+      }),
+    });
+  } catch (e) {
+    if (!isAbortError(e)) throw e;
+    // E1: a hanging limiter is the same case as a failing one (E6) — an
+    // outage, not a measured limit. Fails CLOSED: these gates sit in front of
+    // the paid calls, so the request must not slip past them.
+    console.error(`consume_edge_rate_limit (${scope}) timeout`);
+    return { error: "rate_limit_unavailable" };
+  }
   if (!resp.ok) {
     const text = await resp.text();
     console.error(`consume_edge_rate_limit failed: ${resp.status} ${text.slice(0, 200)}`);
@@ -1039,12 +1098,21 @@ async function loadHistory(
   // has to be seen together; the user row keeps refusal=false in the DB
   // (the client renders that column).
   const url = `${supabaseUrl}/rest/v1/chat_messages?user_id=eq.${userId}&session_id=eq.${sessionId}&role=in.(user,assistant)&order=created_at.desc&limit=${HISTORY_LIMIT * 2}`;
-  const resp = await fetch(url, {
-    headers: {
-      "Authorization": `Bearer ${serviceKey}`,
-      "apikey": serviceKey,
-    },
-  });
+  let resp: Response;
+  try {
+    resp = await supabaseFetch(url, {
+      headers: {
+        "Authorization": `Bearer ${serviceKey}`,
+        "apikey": serviceKey,
+      },
+    });
+  } catch (e) {
+    if (!isAbortError(e)) throw e;
+    // E1: a timeout is "history not loadable" like any other failure — and it
+    // happens BEFORE the quota claim, so it costs nothing.
+    console.error("loadHistory timeout");
+    return null;
+  }
   if (!resp.ok) {
     console.error(`loadHistory failed: ${resp.status}`);
     return null;
@@ -1089,23 +1157,34 @@ async function storeMessage(
     refusal_reason?: string | null;
   },
 ): Promise<boolean> {
-  const resp = await fetch(`${supabaseUrl}/rest/v1/chat_messages`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${serviceKey}`,
-      "apikey": serviceKey,
-      "Content-Type": "application/json",
-      "Prefer": "return=minimal",
-    },
-    body: JSON.stringify({
-      user_id: row.user_id,
-      session_id: row.session_id,
-      role: row.role,
-      content: row.content,
-      refusal: row.refusal ?? false,
-      refusal_reason: row.refusal_reason ?? null,
-    }),
-  });
+  let resp: Response;
+  try {
+    resp = await supabaseFetch(`${supabaseUrl}/rest/v1/chat_messages`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${serviceKey}`,
+        "apikey": serviceKey,
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+      },
+      body: JSON.stringify({
+        user_id: row.user_id,
+        session_id: row.session_id,
+        role: row.role,
+        content: row.content,
+        refusal: row.refusal ?? false,
+        refusal_reason: row.refusal_reason ?? null,
+      }),
+    });
+  } catch (e) {
+    if (!isAbortError(e)) throw e;
+    // E1: a timeout is "not stored", the same answer as a failed INSERT. That
+    // matters for the ONE caller that checks it — the user row right after the
+    // quota claim, whose `false` triggers the refund. Without the deadline the
+    // request hung there until the platform kill and the slot was gone.
+    console.error(`storeMessage timeout (${row.role})`);
+    return false;
+  }
   // E5: success is reported, not assumed. A failed INSERT still meant HTTP 200
   // for the client, with a reply that vanished on reload.
   if (!resp.ok) console.error(`storeMessage failed: ${resp.status} (${row.role})`);
@@ -1121,29 +1200,45 @@ async function ensureSession(
   // If the client supplied a session, verify it belongs to this user — the
   // service_role key would otherwise bypass any session ownership.
   if (requestedSessionId) {
-    const resp = await fetch(
-      `${supabaseUrl}/rest/v1/chat_sessions?id=eq.${requestedSessionId}&user_id=eq.${userId}&select=id`,
-      { headers: { "Authorization": `Bearer ${serviceKey}`, "apikey": serviceKey } },
-    );
-    // E4: a TRANSIENT ownership-check failure is not "not your session"; it
-    // used to fall through into the default session. null => 500.
-    if (!resp.ok) {
-      console.error(`ensureSession ownership check failed: ${resp.status}`);
+    let check: Response;
+    try {
+      check = await supabaseFetch(
+        `${supabaseUrl}/rest/v1/chat_sessions?id=eq.${requestedSessionId}&user_id=eq.${userId}&select=id`,
+        { headers: { "Authorization": `Bearer ${serviceKey}`, "apikey": serviceKey } },
+      );
+    } catch (e) {
+      if (!isAbortError(e)) throw e;
+      // E1 + E4: a timeout is a TRANSIENT failure, never "not your session" —
+      // falling through would put the message into the default conversation.
+      console.error("ensureSession ownership check timeout");
       return null;
     }
-    const data = await resp.json();
+    // E4: a TRANSIENT ownership-check failure is not "not your session"; it
+    // used to fall through into the default session. null => 500.
+    if (!check.ok) {
+      console.error(`ensureSession ownership check failed: ${check.status}`);
+      return null;
+    }
+    const data = await check.json();
     if (Array.isArray(data) && data.length > 0) return requestedSessionId;
     // Only proven non-ownership falls through to the default session.
   }
-  const resp = await fetch(`${supabaseUrl}/rest/v1/rpc/ensure_default_chat_session`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${serviceKey}`,
-      "apikey": serviceKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ p_user_id: userId }),
-  });
+  let resp: Response;
+  try {
+    resp = await supabaseFetch(`${supabaseUrl}/rest/v1/rpc/ensure_default_chat_session`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${serviceKey}`,
+        "apikey": serviceKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ p_user_id: userId }),
+    });
+  } catch (e) {
+    if (!isAbortError(e)) throw e;
+    console.error("ensure_default_chat_session timeout");
+    return null;
+  }
   if (!resp.ok) return null;
   const data = await resp.json();
   if (typeof data === "string") return data;
@@ -1156,15 +1251,23 @@ async function touchSession(
   supabaseUrl: string,
   sessionId: string,
 ): Promise<void> {
-  await fetch(`${supabaseUrl}/rest/v1/rpc/touch_chat_session`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${serviceKey}`,
-      "apikey": serviceKey,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ p_session_id: sessionId }),
-  });
+  try {
+    await supabaseFetch(`${supabaseUrl}/rest/v1/rpc/touch_chat_session`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${serviceKey}`,
+        "apikey": serviceKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ p_session_id: sessionId }),
+    });
+  } catch (e) {
+    if (!isAbortError(e)) throw e;
+    // E1: cosmetic (the session's sort order). Every caller sits on a finished
+    // answer or a finished error, so a stalled touch must not hold either back
+    // — and it must NOT refund: the slot already bought what it bought.
+    console.error("touch_chat_session timeout");
+  }
 }
 
 // Titles that still count as "unnamed" for the auto-title. "" covers an
@@ -1181,10 +1284,22 @@ async function maybeAutoTitle(
   // Only while the session still has the default title. user_id=eq. on BOTH
   // requests: these run as service_role and were safe only because
   // ensureSession had checked ownership — an invariant no compiler holds.
-  const check = await fetch(
-    `${supabaseUrl}/rest/v1/chat_sessions?id=eq.${sessionId}&user_id=eq.${userId}&select=title`,
-    { headers: { "Authorization": `Bearer ${serviceKey}`, "apikey": serviceKey } },
-  );
+  let check: Response;
+  try {
+    check = await supabaseFetch(
+      `${supabaseUrl}/rest/v1/chat_sessions?id=eq.${sessionId}&user_id=eq.${userId}&select=title`,
+      { headers: { "Authorization": `Bearer ${serviceKey}`, "apikey": serviceKey } },
+    );
+  } catch (e) {
+    if (!isAbortError(e)) throw e;
+    // E1: the auto-title is cosmetic and runs AFTER the quota claim, between
+    // the stored user message and the paid answer. Deliberately swallowed and
+    // NOT refunded: the slot pays for the answer, which is still coming — the
+    // session just keeps its default title. Without the deadline this was the
+    // gap where a stalled PostgREST burned the slot with nothing delivered.
+    console.error("maybeAutoTitle timeout");
+    return;
+  }
   if (!check.ok) return;
   const rows = await check.json();
   const currentTitle = Array.isArray(rows) && rows[0]?.title ? String(rows[0].title) : "";
@@ -1195,16 +1310,21 @@ async function maybeAutoTitle(
   const trimmed = firstUserMessage.trim().replace(/\s+/g, " ");
   if (trimmed.length === 0) return;
   const title = trimmed.length > 40 ? `${trimmed.slice(0, 40)}…` : trimmed;
-  await fetch(`${supabaseUrl}/rest/v1/chat_sessions?id=eq.${sessionId}&user_id=eq.${userId}`, {
-    method: "PATCH",
-    headers: {
-      "Authorization": `Bearer ${serviceKey}`,
-      "apikey": serviceKey,
-      "Content-Type": "application/json",
-      "Prefer": "return=minimal",
-    },
-    body: JSON.stringify({ title, updated_at: new Date().toISOString() }),
-  });
+  try {
+    await supabaseFetch(`${supabaseUrl}/rest/v1/chat_sessions?id=eq.${sessionId}&user_id=eq.${userId}`, {
+      method: "PATCH",
+      headers: {
+        "Authorization": `Bearer ${serviceKey}`,
+        "apikey": serviceKey,
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+      },
+      body: JSON.stringify({ title, updated_at: new Date().toISOString() }),
+    });
+  } catch (e) {
+    if (!isAbortError(e)) throw e;
+    console.error("maybeAutoTitle PATCH timeout");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1217,7 +1337,7 @@ async function maybeAutoTitle(
 // id) gets no fail bucket, so a broken auth server cannot 429 whole IPs.
 type AuthOutcome =
   | { ok: true; userId: string }
-  | { ok: false; reason: "no_token" | "lookup_failed" | "invalid_user" };
+  | { ok: false; reason: "no_token" | "lookup_failed" | "invalid_user" | "auth_unavailable" };
 
 async function userIdFromJwt(
   authHeader: string | null,
@@ -1228,9 +1348,20 @@ async function userIdFromJwt(
   if (!match) return { ok: false, reason: "no_token" };
   const token = match[1].trim();
   if (!token || token === anonKey) return { ok: false, reason: "no_token" };
-  const resp = await fetch(`${supabaseUrl}/auth/v1/user`, {
-    headers: { "Authorization": `Bearer ${token}`, "apikey": anonKey },
-  });
+  let resp: Response;
+  try {
+    resp = await supabaseFetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: { "Authorization": `Bearer ${token}`, "apikey": anonKey },
+    });
+  } catch (e) {
+    if (!isAbortError(e)) throw e;
+    // E1, same rule analyze-meal writes down at P6-07: a hanging GoTrue is an
+    // OUTAGE, not a rejected token. As "lookup_failed" it would answer 401 —
+    // which signs the user out on the client — and would count a slow auth
+    // server into the fail bucket, letting it 429 whole IPs.
+    console.error("auth lookup timeout");
+    return { ok: false, reason: "auth_unavailable" };
+  }
   if (!resp.ok) return { ok: false, reason: "lookup_failed" };
   const data = await resp.json();
   if (typeof data?.id !== "string" || data.id.length === 0) {
@@ -1308,6 +1439,11 @@ export async function handleRequest(req: Request): Promise<Response> {
   // rejected LOCALLY in userIdFromJwt, so they cost no auth roundtrip.
   const auth = await userIdFromJwt(req.headers.get("authorization"), supabaseUrl, anonKey);
   if (!auth.ok) {
+    // E1: the auth server did not answer in time. 503, not 401 — the client
+    // maps 401/403 to "session over" and signs out.
+    if (auth.reason === "auth_unavailable") {
+      return json({ error: "auth_unavailable" }, 503);
+    }
     if (auth.reason === "lookup_failed") {
       // Pre-auth IP limiter for auth FAILURES, shared with analyze-meal and
       // search-key since F-28-1; rules (consume only on failure, limiter
@@ -1318,6 +1454,10 @@ export async function handleRequest(req: Request): Promise<Response> {
         serviceKey,
         scope: "coach-chat:auth-fail",
         subject: clientIpSubject(req, "anon"),
+        // E1: the damper gets the same deadline as every other Supabase call.
+        // A timeout reports "not limited", exactly what it reports for any
+        // other limiter problem — it must never swallow the honest 401.
+        signal: AbortSignal.timeout(SUPABASE_TIMEOUTS_MS.call),
       });
       if (failGate.limited) {
         return json(

@@ -5,7 +5,7 @@ import 'dart:io';
 // demoted in analysis_options.yaml.
 import 'package:http/http.dart' show ClientException;
 import 'package:supabase_flutter/supabase_flutter.dart'
-    show AuthRetryableFetchException, PostgrestException;
+    show AuthException, AuthRetryableFetchException, PostgrestException;
 
 import '../l10n/l10n.dart';
 import 'sync_outbox.dart'
@@ -26,6 +26,31 @@ bool isNetworkSyncError(Object error) =>
     error is TimeoutException ||
     error is ClientException ||
     error is AuthRetryableFetchException;
+
+/// True for a GoTrue answer that CAME BACK carrying an HTTP status >= 500.
+///
+/// gotrue 2.27.2 wraps EVERY response with status >= 500 in an
+/// [AuthRetryableFetchException] (`fetch.dart`, `_handleError`) — the same type
+/// it throws when the request never left the device (socket failure, CORS). The
+/// two are told apart by [AuthException.statusCode]: only the response path
+/// fills it in (`response.statusCode.toString()`), both transport paths leave
+/// it null.
+///
+/// [isNetworkSyncError] keeps counting that wrapper as a network error ON
+/// PURPOSE: on the sync paths a misjudged error costs retries, not data, and a
+/// 5xx wants a retry anyway. On the AUTH screens the same verdict turns into a
+/// lie — "check your internet connection" blames the device for an outage the
+/// server reported itself. Hence this split instead of a change up there.
+bool isAuthServerFaultError(Object error) {
+  if (error is! AuthException) return false;
+  final status = int.tryParse(error.statusCode ?? '');
+  return status != null && status >= 500;
+}
+
+/// [isNetworkSyncError] minus [isAuthServerFaultError]: the predicate an auth
+/// screen has to pass before it may claim the device is offline.
+bool isAuthNetworkError(Object error) =>
+    isNetworkSyncError(error) && !isAuthServerFaultError(error);
 
 /// What actually happened to a write, for callers showing their own success
 /// message. Three cases, not a bool: queued-after-rejection must not claim

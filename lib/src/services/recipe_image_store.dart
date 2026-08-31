@@ -449,13 +449,24 @@ class RecipeImageStore {
   /// non-local ones (bundle assets, empty) are ignored. A COMPARISON, not a
   /// cap: a cap would delete by age and take photos whose recipe still exists.
   ///
-  /// **The caller vouches for the list.** An empty or half-loaded one deletes
-  /// everything, so only sweep once the boot load has ANSWERED for the recipes
-  /// (`HomeStore.userRecipesAuthoritative`, P3-04b) — a list the store merely
-  /// assigned can still be a stale-empty cache slot
-  /// (see `_RecipesScreenState._sweepOrphanPhotos`). Spared regardless:
-  /// proposal images (own lifetime, see [proposalImageCap]) and everything
-  /// [save] wrote in this process ([_writtenThisSession]).
+  /// **The caller vouches for the list — COMPLETE, not just present.** Every
+  /// entry this store cannot see counts as an orphan and falls, and the bytes
+  /// exist nowhere else. The store cannot check that: one reference list looks
+  /// like the next. So the single gate is
+  /// `HomeStore.userRecipesAuthoritative` (P3-04b, tightened in review
+  /// 2026-08-31), which says no while any of these hold:
+  ///
+  ///   * the boot load has not ANSWERED for user_recipes — a list the store
+  ///     merely assigned can be a stale-empty cache slot;
+  ///   * the answer filled its page (`UserRecipesSync.userRecipesLimit`), so
+  ///     it holds the newest recipes and not the older ones;
+  ///   * the outbox slot was unreadable, so a queued recipe never made it back
+  ///     into the list.
+  ///
+  /// A new call site inherits none of that automatically — go through
+  /// `_RecipesScreenState._sweepOrphanPhotos` or repeat its gate. Spared
+  /// regardless: proposal images (own lifetime, see [proposalImageCap]) and
+  /// everything [save] wrote in this process ([_writtenThisSession]).
   Future<int> reconcileRecipePhotos(Iterable<String> liveReferences) async {
     final uid = _activeUserId;
     if (uid == null) return 0;

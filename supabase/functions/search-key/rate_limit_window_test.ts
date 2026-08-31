@@ -160,7 +160,11 @@ Deno.test("P6-03: ueber der RPC-Obergrenze bleibt es beim Default (und warnt)", 
     assertEquals(stub.params("search-key:user")?.p_window_seconds, 3600, "Default-Fenster");
     const joined = warnings.join("\n");
     assert(joined.includes("SEARCH_KEY_USER_WINDOW_SECONDS"), `keine Warnung: ${joined}`);
-    assert(joined.includes("172800"), `verworfener Wert fehlt in der Warnung: ${joined}`);
+    // E2 (Review 2026-08-31): der Rohwert steht seit der CWE-532-Schwaerzung
+    // nicht mehr drin — Grund, Laenge und Grenze sagen dasselbe aus.
+    assert(!joined.includes("172800"), `verworfener Rohwert im Log: ${joined}`);
+    assert(joined.includes("out of range"), `Grund fehlt in der Warnung: ${joined}`);
+    assert(joined.includes("86400"), `die verletzte Grenze fehlt in der Warnung: ${joined}`);
   } finally {
     console.warn = originalWarn;
     stub.restore();

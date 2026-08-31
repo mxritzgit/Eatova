@@ -24,8 +24,7 @@ import '../widgets/shared/target_bmi_hint.dart';
 /// users (210 kg, 115 cm) to values they never entered.
 ///
 /// The only remaining narrowing is the target weight, dynamically via
-/// [_targetMin] / [_targetMax] — a consistency bound, not a range, so it
-/// cannot drift.
+/// `_targetWindow` — a consistency bound, not a range, so it cannot drift.
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({
     super.key,
@@ -93,7 +92,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     _diet = p.diet;
   }
 
-  /// Visible steps — target weight and pace are skipped for "maintain".
+  /// Visible steps — target weight and pace are skipped for "maintain", and
+  /// for a direction that has no target left to offer ([_targetWindow] null).
+  ///
+  /// The second case is the same statement as the first: gaining at the 300 kg
+  /// column end has nothing to aim at, so the plan IS maintain (the calculator
+  /// derives exactly that, see [UserProfile.effectiveWeightGoal]). Two steps
+  /// whose only value is today's weight would be dead controls over a footnote
+  /// reading "0 kg", which is what the picker used to draw.
   List<_Step> get _steps => [
         _Step.intro,
         _Step.sex,
@@ -102,7 +108,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         _Step.weight,
         _Step.activity,
         _Step.goal,
-        if (_direction != _GoalDirection.maintain) ...[
+        if (_direction != _GoalDirection.maintain && _targetWindow != null) ...[
           _Step.target,
           _Step.pace,
         ],
@@ -116,33 +122,46 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         _GoalDirection.gain => _gainPace,
       };
 
-  /// Bounds the target weight to the chosen direction (lose -> below, gain ->
-  /// above). The only remaining narrowing against the DB, and the only one
-  /// that cannot be mirrored because it depends on the current weight.
+  /// The target weights the chosen direction leaves open (lose -> below today's
+  /// weight, gain -> above), or `null` when it leaves none.
+  ///
+  /// ONE window, read by everything on the target step: picker bounds, the
+  /// number, the footnote, the BMI hint and the saved plan. TWO clamps with
+  /// different rules were the actual defect (J1) — `_targetSafe` folded an
+  /// inverted window down onto the DB ceiling while [_NumberPicker] folded it
+  /// up onto its own `min`, so the step showed 301 above a footnote reading
+  /// "0 kg" and every button was dead.
   ///
   /// The rule itself lives in `user_profile.dart` — the goals page enforces the
   /// same one on typed input, and two copies drift (P9-08b).
-  int get _targetMin => targetWeightMinFor(_weightGoal, _weight);
-  int get _targetMax => targetWeightMaxFor(_weightGoal, _weight);
+  ///
+  /// `null` is an EMPTY window, not an error: gaining at the 300 kg end of the
+  /// column (min 301 > max 300) and losing at the 30 kg one (min 30 > max 29)
+  /// leave no weight that still means the direction. Since the window is
+  /// bounded by the column on the far side, an inverted window and an empty
+  /// one are the same thing.
+  ({int min, int max})? get _targetWindow {
+    final min = targetWeightMinFor(_weightGoal, _weight);
+    final max = targetWeightMaxFor(_weightGoal, _weight);
+    return min > max ? null : (min: min, max: max);
+  }
 
-  /// clamp without an assert crash on inverted bounds (weight at an extreme).
-  static int _safeClamp(int v, int lo, int hi) =>
-      hi < lo ? lo : v.clamp(lo, hi).toInt();
-
-  /// The target weight actually in play: [_target] narrowed to the window the
-  /// direction leaves open. The ONE number the target step may show — picker,
-  /// footnote, BMI hint and the saved plan all read this.
+  /// The target weight actually in play: [_target] narrowed to [_targetWindow].
+  /// The ONE number the target step may show.
   ///
   /// [_NumberPicker] clamps what it draws but cannot write back, so a raw
   /// `_target` in the footnote made the sentence contradict the number right
   /// above it as soon as the weight moved under a target picked earlier
   /// (80 kg → "lose" → back → 60 kg showed "59 kg" over "15 kg abnehmen").
   ///
-  /// The DB clamp on top catches the one window that inverts: gaining at
-  /// 300 kg leaves min 301 > max 300, and `_safeClamp` would hand 301 to a
-  /// column that ends at 300.
-  int get _targetSafe =>
-      clampProfileTargetWeightKg(_safeClamp(_target, _targetMin, _targetMax));
+  /// With an empty window today's weight is the only value left; the target
+  /// step is dropped there (see [_steps]) and the plan reads as maintain
+  /// through [UserProfile.effectiveWeightGoal], which is what it is.
+  int get _targetSafe {
+    final window = _targetWindow;
+    if (window == null) return _weight;
+    return _target.clamp(window.min, window.max).toInt();
+  }
 
   UserProfile _draftProfile() {
     final target =
@@ -212,16 +231,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     setState(() {
       _direction = dir;
       // A sensible default INSIDE the window the new direction opens: 5 kg
-      // along it. The window itself comes from `_targetMin`/`_targetMax`, which
-      // already read the direction assigned one line above — spelling the
-      // bounds out a second time here is how the rule started drifting.
-      _target = dir == _GoalDirection.maintain
+      // along it. The window itself comes from [_targetWindow], which already
+      // reads the direction assigned one line above — spelling the bounds out a
+      // second time here is how the rule started drifting.
+      final window = dir == _GoalDirection.maintain ? null : _targetWindow;
+      _target = window == null
           ? _weight
-          : _safeClamp(
-              dir == _GoalDirection.lose ? _weight - 5 : _weight + 5,
-              _targetMin,
-              _targetMax,
-            );
+          : (dir == _GoalDirection.lose ? _weight - 5 : _weight + 5)
+              .clamp(window.min, window.max)
+              .toInt();
     });
   }
 
@@ -386,38 +404,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             onChanged: _onDirectionChosen,
           ),
         ),
-      _Step.target => _StepFrame(
-          title: l10n.onboardingTargetStepTitle,
-          subtitle: _direction == _GoalDirection.lose
-              ? l10n.onboardingTargetStepSubtitleLose
-              : l10n.onboardingTargetStepSubtitleGain,
-          child: Column(
-            children: [
-              _NumberPicker(
-                field: 'target',
-                // [_targetSafe], not `_target`: number and footnote have to
-                // mean the same kilograms.
-                value: _targetSafe,
-                min: _targetMin,
-                max: _targetMax,
-                unit: l10n.commonUnitKg,
-                onChanged: (v) => setState(() => _target = v),
-                footnote: _direction == _GoalDirection.lose
-                    ? l10n.onboardingTargetFootnoteLose(
-                        (_weight - _targetSafe).abs())
-                    : l10n.onboardingTargetFootnoteGain(
-                        (_weight - _targetSafe).abs()),
-              ),
-              // Soft, non-blocking BMI hint — same thresholds as the settings
-              // sheet (below 18.5 / above 35).
-              TargetBmiHint(
-                margin: const EdgeInsets.only(top: 16),
-                heightCm: _height,
-                targetWeightKg: _targetSafe,
-              ),
-            ],
-          ),
-        ),
+      _Step.target => _buildTargetStep(),
       _Step.pace => _StepFrame(
           title: l10n.onboardingPaceStepTitle,
           subtitle: _direction == _GoalDirection.lose
@@ -452,6 +439,48 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           profile: _draftProfile(),
         ),
     };
+  }
+
+  /// The target-weight step.
+  ///
+  /// [_steps] offers it only while [_targetWindow] is non-null, so the picker
+  /// never sees an inverted window and needs no rule of its own — that second
+  /// rule was J1.
+  Widget _buildTargetStep() {
+    final l10n = context.l10n;
+    final window = _targetWindow!;
+    final abnehmen = _direction == _GoalDirection.lose;
+    final delta = (_weight - _targetSafe).abs();
+    return _StepFrame(
+      title: l10n.onboardingTargetStepTitle,
+      subtitle: abnehmen
+          ? l10n.onboardingTargetStepSubtitleLose
+          : l10n.onboardingTargetStepSubtitleGain,
+      child: Column(
+        children: [
+          _NumberPicker(
+            field: 'target',
+            // [_targetSafe], not `_target`: number and footnote have to mean
+            // the same kilograms.
+            value: _targetSafe,
+            min: window.min,
+            max: window.max,
+            unit: l10n.commonUnitKg,
+            onChanged: (v) => setState(() => _target = v),
+            footnote: abnehmen
+                ? l10n.onboardingTargetFootnoteLose(delta)
+                : l10n.onboardingTargetFootnoteGain(delta),
+          ),
+          // Soft, non-blocking BMI hint — same thresholds as the settings
+          // sheet (below 18.5 / above 35).
+          TargetBmiHint(
+            margin: const EdgeInsets.only(top: 16),
+            heightCm: _height,
+            targetWeightKg: _targetSafe,
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -876,6 +905,14 @@ class _PacePicker extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _NumberPicker extends StatelessWidget {
+  /// [min] .. [max] must be a real window.
+  ///
+  /// The picker used to fold an inverted one up onto [min] — a SECOND clamping
+  /// rule next to the caller's, and the two disagreed: the target step drew
+  /// 301 while footnote, BMI hint and the saved plan said 300 / "0 kg", and
+  /// the steppers wrote a value the caller clamped straight back away (J1).
+  /// An empty window has nothing to pick, so the caller drops the step (see
+  /// `_targetWindow`) instead of asking for controls that cannot move.
   const _NumberPicker({
     required this.field,
     required this.value,
@@ -884,7 +921,7 @@ class _NumberPicker extends StatelessWidget {
     required this.unit,
     required this.onChanged,
     this.footnote,
-  });
+  }) : assert(min <= max, 'inverted window: nothing to pick');
 
   final String field;
   final int value;
@@ -894,17 +931,13 @@ class _NumberPicker extends StatelessWidget {
   final ValueChanged<int> onChanged;
   final String? footnote;
 
-  // Defensive against inverted windows (e.g. "lose" at the weight minimum):
-  // clamp and Slider assert lower <= upper.
-  int get _hi => max < min ? min : max;
-
-  void _set(int v) => onChanged(v.clamp(min, _hi).toInt());
+  void _set(int v) => onChanged(v.clamp(min, max).toInt());
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    final safeValue = value.clamp(min, _hi).toInt();
+    final safeValue = value.clamp(min, max).toInt();
     String spoken(double v) => '${v.round()} $unit';
     return Column(
       children: [
@@ -959,7 +992,8 @@ class _NumberPicker extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 24),
-        if (_hi > min)
+        // A single-value window (e.g. gaining at 299 kg) has nothing to slide.
+        if (max > min)
           SliderTheme(
             data: SliderThemeData(
               activeTrackColor: t.accent,
@@ -972,7 +1006,7 @@ class _NumberPicker extends StatelessWidget {
               key: ValueKey('onboarding-$field-slider'),
               value: safeValue.toDouble(),
               min: min.toDouble(),
-              max: _hi.toDouble(),
+              max: max.toDouble(),
               // A screen reader hears "75 kg", not a percentage.
               label: spoken(safeValue.toDouble()),
               semanticFormatterCallback: spoken,
@@ -1223,7 +1257,12 @@ class _SummaryStep extends StatelessWidget {
     // instead of running `calculate` a second time.
     final weeks =
         const KcalCalculator().weeksToGoalRange(profile, targets: targets);
-    final goal = profile.weightGoal;
+    // The EFFECTIVE goal, like the row above it (which shows
+    // `targets.effectivePaceLabel`): a direction with no reachable target —
+    // gaining at the 300 kg column end — plans maintain, and answering "no
+    // reliable forecast" there while the card says "Gewicht stabil" left the
+    // one honest sentence unsaid.
+    final goal = profile.effectiveWeightGoal;
 
     // `weeks == null` means there is no honest forecast (target reached, rate
     // in the rounding noise, or the floor flips the direction). Better no

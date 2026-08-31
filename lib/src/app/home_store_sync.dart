@@ -50,10 +50,37 @@ const Duration kCacheSnapshotWaitBudget = Duration(seconds: 3);
 /// single attempt. What is left is transient by nature (isolate spawn, OOM)
 /// and gone within a few attempts; a slot that still will not open after that
 /// is broken in a way this layer cannot name, and blocking every write of the
-/// session forever is the worse loss. Attempts, not wall clock: each one is
-/// triggered by a write, so the count is exactly the number of chances the
-/// slot got.
+/// session forever is the worse loss.
+///
+/// Counted honestly (review 2026-08-31, B): the number is the number of
+/// PROTECTED attempts, so the takeover happens on attempt
+/// `kOutboxRepairMaxAttempts + 1`. It used to be `attempts <` the bound, which
+/// protected only two.
 const int kOutboxRepairMaxAttempts = 3;
+
+/// Minimum wall-clock spacing between two COUNTED re-hydration failures of the
+/// same slot (review 2026-08-31, B).
+///
+/// [kOutboxRepairMaxAttempts] alone measures the wrong quantity. EVERY
+/// machine-triggered persist runs through the brake — the enqueue of a write,
+/// the dequeue after it was delivered, one per op of a replay pass — so three
+/// user actions in two seconds used to spend the whole budget on ONE moment of
+/// memory pressure, and the slot was overwritten while the cause (no isolate,
+/// no memory) had not even had a chance to pass. Three reads of the same
+/// instant are one chance, not three.
+///
+/// It throttles the COUNTER, not the read: a failure inside the spacing still
+/// re-reads (so a slot that healed is adopted the moment it heals, which is
+/// what keeps this session's unpersisted window short) but does not spend an
+/// attempt. Together with the bound above the persisted blob therefore gets at
+/// least `kOutboxRepairMaxAttempts * kOutboxRepairMinSpacing` of wall clock —
+/// the same "attempts AND time" shape as [kOutboxMinAgeBeforeDrop], and for
+/// the same reason: a counter that lifecycle churn inflates is no bound.
+///
+/// Why 30 s: the base delay of the outbox backoff, i.e. the cadence at which
+/// this layer already retries. Longer would leave this session's own writes
+/// unpersisted for no added chance; shorter would not outlast a memory spike.
+const Duration kOutboxRepairMinSpacing = Duration(seconds: 30);
 
 /// The payload of an outbox op is unreadable (Review 2026-08-08, A8).
 ///
@@ -97,8 +124,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// Gap F: reading the outbox slot THREW (as opposed to: the slot was empty).
   /// While this holds, the in-memory state is not a valid version of the
   /// persisted blob and must not overwrite it — [_persistOutbox] retries
-  /// hydration instead (up to [kOutboxRepairMaxAttempts] times while the slot
-  /// is still occupied, P3-02b).
+  /// hydration instead ([kOutboxRepairMaxAttempts] protected attempts, at
+  /// least [kOutboxRepairMinSpacing] apart, while the slot is still occupied,
+  /// P3-02b).
   bool _outboxHydrationFailed = false;
   bool _outboxRepairInFlight = false;
 
@@ -107,13 +135,20 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// worked.
   int _outboxRepairAttempts = 0;
 
+  /// When [_outboxRepairAttempts] last went up, or null while none is
+  /// outstanding (review 2026-08-31, B). A failure closer than
+  /// [kOutboxRepairMinSpacing] to it still re-reads but does not count, so a
+  /// burst of user actions cannot burn the budget on a single instant.
+  DateTime? _outboxRepairCountedAt;
+
   /// Same for the deltas slot (W7b). [_persistPendingStatsDeltas] always
   /// rewrites the slot wholesale, so a swallowed read error would restart it
   /// at 0 and leave the lifetime counters too low. Same mechanism as above
-  /// (flag + bounded re-hydration).
+  /// (flag + bounded, spaced re-hydration).
   bool _statsHydrationFailed = false;
   bool _statsRepairInFlight = false;
   int _statsRepairAttempts = 0;
+  DateTime? _statsRepairCountedAt;
 
   /// The subtle queue hint (offline OR "will retry") is shown ONCE per error
   /// episode, reset on the next sync success. Which of the two texts appears
@@ -370,14 +405,41 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
             laufend.kind == SyncOpKind.weightInsert);
   }
 
+  /// May [op] still coalesce while a replay pass is walking the queue?
+  ///
+  /// The append-only rule of a running pass protects the op that pass may be
+  /// delivering RIGHT NOW: a coalesce REPLACES it, and the newer payload would
+  /// then be lost when the delivered op leaves the queue. That reasoning needs
+  /// a payload. A [SyncOpKind.trackingDay] op has none — it is nothing but its
+  /// entity key (`tracking:<day>`), the RPC is idempotent per day, and it books
+  /// no counter ([_statsFollowUpFor] returns null for it), so two ops for the
+  /// same day are interchangeable, not two states of one entity.
+  ///
+  /// Appending them is therefore pure loss (review 2026-08-31, K2 follow-up):
+  /// a pass runs on every foreign live success, and `_recordTrackingDay`'s
+  /// `catchError` fires inside exactly that window, so EVERY meal logged while
+  /// the day is undelivered used to add one more identical op — the queue grows
+  /// per log until the cap sheds real writes.
+  ///
+  /// Worst case of coalescing under a running pass is ONE redundant RPC: the
+  /// pass delivers the op it holds, finds it gone from the queue (removal is by
+  /// identity) and leaves the twin behind, which the next pass delivers as a
+  /// server-side no-op. A failure is even cheaper — the twin is fresh, so no
+  /// attempt is spent on it.
+  bool _koaleszenzTrotzReplaySicher(SyncOp op) =>
+      op.kind == SyncOpKind.trackingDay;
+
   void _enqueueOp(SyncOp op) {
     // Append-only during a running replay: it may be playing exactly the op
-    // whose payload would otherwise be coalesced (and dropped on removal).
+    // whose payload would otherwise be coalesced (and dropped on removal) —
+    // unless the op has no payload to lose ([_koaleszenzTrotzReplaySicher]).
     // Same for an op with a live write in flight (see _koaleszenzUnsicher).
-    _outbox = enqueueCoalesced(_outbox, op,
-        appendOnly: _outboxReplayInFlight || _koaleszenzUnsicher(op));
-    // Cap only outside a running replay: the replay loop walks indices, and a
-    // head trim would pull its cursor out from under it. The next enqueue
+    final nurAnhaengen =
+        (_outboxReplayInFlight && !_koaleszenzTrotzReplaySicher(op)) ||
+            _koaleszenzUnsicher(op);
+    _outbox = enqueueCoalesced(_outbox, op, appendOnly: nurAnhaengen);
+    // Cap only outside a running replay: a trim would shed ops the running pass
+    // is about to deliver and mark their entities orphaned. The next enqueue
     // afterwards trims the few extra ops again.
     if (!_outboxReplayInFlight) {
       final capped = capOutbox(_outbox);
@@ -674,9 +736,32 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     var uebersprungenImFlug = false;
     final droppedDeletes = <SyncOp>[];
     try {
-      var i = 0;
-      while (i < _outbox.length) {
-        final op = _outbox[i];
+      // Walked by IDENTITY, not by position (review 2026-08-31, K1). The queue
+      // shrinks under the loop during an `await`: `_clearQueuedTrackingDay`
+      // (fired unawaited by `_performOp` for every replayed meal) and
+      // `_dequeueDeliveredOp` of a parallel live write both do it. When the op
+      // being processed fell out during its OWN await, the index cursor counted
+      // up all the same and skipped exactly the op that had moved up into its
+      // place — that one then sat there until the 30 s timer.
+      //
+      // Deliberately NO snapshot: ops appended DURING the pass (the stats
+      // follow-up below, a parallel `_enqueueOp`) must still be reached. The
+      // pass always ends because every iteration marks exactly one op and a
+      // marked op is never picked again, so it cannot run longer than there are
+      // distinct ops.
+      final erledigt = Set<SyncOp>.identity();
+      while (true) {
+        SyncOp? naechste;
+        for (final kandidat in _outbox) {
+          if (erledigt.contains(kandidat)) continue;
+          naechste = kandidat;
+          break;
+        }
+        if (naechste == null) break;
+        final op = naechste;
+        // Marked BEFORE the body: every path below (skip, drop, failure,
+        // success) has to leave this op behind, or the pass never terminates.
+        erledigt.add(op);
         // If a live write is running for the entity, the op belongs to it
         // (gap B) — replaying it too would write the same row twice and a
         // mealInsert would count the meal twice. No `blocked` entry: nothing
@@ -689,7 +774,30 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         final imFlug = _inFlightOps.containsKey(op.entityKey);
         if (istBlockiert || imFlug) {
           if (imFlug && !istBlockiert) uebersprungenImFlug = true;
-          i++;
+          continue;
+        }
+        // P1-05c (review 2026-08-31, K2): a day op must not overtake the meal
+        // write that PROVES it. `record_tracking_day` counts a day only against
+        // a logged_meals row carrying that local_day (source proof of migration
+        // 20260811120000) — without the row it raises EX_DAY_NOT_LOGGED /
+        // P0001, which classifies as `retryCounted` and burns one of the few
+        // delivery attempts on an op that COULD not have worked yet.
+        //
+        // The entity guard above cannot see it: the meal and the day are two
+        // different entities (`meal:<uuid>` vs `tracking:<day>`), so a pass that
+        // starts while the upsert is on the wire skipped the meal and played the
+        // day first — exactly the order `_applyLoggedMealDetails` enqueues
+        // against. Counted as skipped-in-flight, so the end of the pass arms the
+        // alarm and the op is picked up again (nothing stays lying around).
+        //
+        // A skip returns to the loop WITHOUT an await, so this pass ends earlier
+        // and the next one starts later — which moved the replay window right
+        // onto `_recordTrackingDay`'s `catchError` and made a latent duplicate
+        // visible. That is fixed where it belongs, on the enqueue side
+        // ([_koaleszenzTrotzReplaySicher]), not by leaving the day op in front
+        // of its own proof.
+        if (op.kind == SyncOpKind.trackingDay && _mealWriteImFlug(op.entityId)) {
+          uebersprungenImFlug = true;
           continue;
         }
         try {
@@ -724,16 +832,19 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
             if (at >= 0) {
               _outbox = [..._outbox]..removeAt(at);
               _persistOutbox();
-              // The op that moved up now sits at this position and is next.
-              i = at;
-            } else {
-              i++;
             }
             continue;
           }
           if (verdict == OutboxVerdict.retryCounted && at >= 0) {
-            _outbox = [..._outbox]..[at] = op.incrementAttempt();
+            final nachgezaehlt = op.incrementAttempt();
+            _outbox = [..._outbox]..[at] = nachgezaehlt;
             _persistOutbox();
+            // The counted copy REPLACES the op: a fresh instance the identity
+            // set does not know yet. `blocked` below already keeps this pass off
+            // its entity, but the set must not lean on that — an op replayed
+            // twice in one pass is exactly what the walk is supposed to rule
+            // out.
+            erledigt.add(nachgezaehlt);
           }
           dev.log('Outbox-Replay: ${op.kind.name} bleibt liegen',
               error: e, name: 'eatova_sync');
@@ -742,7 +853,6 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           unawaited(CrashReporter.captureSyncFailure(e, st,
               context: 'outbox-replay-${op.kind.name}'));
           blocked.add(op.entityKey);
-          i++;
           continue;
         }
         anySuccess = true;
@@ -758,8 +868,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         // update and thus ONE persisted blob write, so a kill hits either the
         // state before (op present, no entry; the next replay recreates it with
         // the SAME derived id) or after. Appended at the end: the loop still
-        // reaches it this pass. The duplicate check is queue hygiene only — a
-        // double entry is a server-side no-op thanks to the identical id.
+        // reaches it this pass (it is a new instance, so `erledigt` does not
+        // hold it). The duplicate check is queue hygiene only — a double entry
+        // is a server-side no-op thanks to the identical id.
         final followUp = _statsFollowUpFor(op);
         final followUpId = followUp?.entityId;
         bool traegtFollowUp(List<SyncOp> q) =>
@@ -772,17 +883,15 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           if (followUp != null && !traegtFollowUp(next)) next.add(followUp);
           _outbox = next;
           _persistOutbox();
-          // The op that moved up now sits at this position.
-          i = at;
         } else {
-          // Already removed elsewhere. The follow-up is still created: a
-          // coalesced twin replaying later produces the same id, caught locally
-          // by the check and server-side by the dedup.
+          // Already removed elsewhere (K1: possibly during this op's own
+          // await). The follow-up is still created: a coalesced twin replaying
+          // later produces the same id, caught locally by the check and
+          // server-side by the dedup.
           if (followUp != null && !traegtFollowUp(_outbox)) {
             _outbox = [..._outbox, followUp];
             _persistOutbox();
           }
-          i++;
         }
       }
     } finally {
@@ -839,6 +948,23 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       _scheduleOutboxRetry();
     }
   }
+
+  /// Is a meal write for the local day [localDay] still on the wire (P1-05c)?
+  ///
+  /// [localDay] is a `YYYY-MM-DD` key — the [SyncOp.entityId] of a
+  /// [SyncOpKind.trackingDay] op ([SyncOp.trackingDay] takes exactly the
+  /// `localDayKey` value). It is compared against [LoggedMeal.effectiveLocalDay]
+  /// of the queued write, which is `local_day` — the same column the RPC's
+  /// source proof reads, produced by the same `localDayKey`. Both callers of
+  /// [_queueTrackingDay] derive the day from that very field, so the two strings
+  /// are the same value, not merely the same shape.
+  ///
+  /// Only the two meal WRITE kinds are asked: a delete carries no payload, and
+  /// parsing `op.meal` (full JSON round trip) for every in-flight op would be
+  /// wasted work.
+  bool _mealWriteImFlug(String localDay) => _inFlightOps.values.any((o) =>
+      (o.kind == SyncOpKind.mealInsert || o.kind == SyncOpKind.mealUpsert) &&
+      o.meal?.effectiveLocalDay == localDay);
 
   /// Decides what happens to a failed op. Thin wrapper around
   /// [classifyOutboxFailure]; the two state-dependent rules live here:
@@ -1332,6 +1458,19 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     unawaited(_cache?.writeOutbox(_outbox) ?? Future<void>.value());
   }
 
+  /// Whether a failed re-hydration at [jetzt] is far enough from the last
+  /// COUNTED one to be a chance of its own (review 2026-08-31, B).
+  ///
+  /// A BACKWARDS jump of the wall clock (time zone, NTP correction) counts:
+  /// it is no evidence that no time passed, and reading it as "too soon"
+  /// would hold the brake until the clock caught up — a whole session with no
+  /// durability at all.
+  static bool _zaehltAlsReparaturversuch(DateTime? zuletzt, DateTime jetzt) {
+    if (zuletzt == null) return true;
+    final abstand = jetzt.difference(zuletzt);
+    return abstand.isNegative || abstand >= kOutboxRepairMinSpacing;
+  }
+
   /// Retries a failed outbox hydration before the first write.
   ///
   /// A second read instead of a permanent write lock, because a lock would make
@@ -1347,14 +1486,16 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   ///    decorator on read and comes back as plain `null`, without a throw. Not
   ///    readable is not the same as not there, so the brake stays on and
   ///    nothing is written; the next write retries the read. Bounded by
-  ///    [kOutboxRepairMaxAttempts], or a slot that never opens would leave the
+  ///    [kOutboxRepairMaxAttempts] PROTECTED attempts no closer together than
+  ///    [kOutboxRepairMinSpacing], or a slot that never opens would leave the
   ///    whole session without durability.
   ///  * it throws [UnreadableCacheSlot] with `transient: false` -> the bytes
   ///    handed themselves over and the reader still could not use them
   ///    (P3-02d). Every further read produces the same bytes and the same
-  ///    failure, so protecting the slot can never gain anything and costs this
-  ///    session up to [kOutboxRepairMaxAttempts] unpersisted writes. Give up
-  ///    at once instead.
+  ///    failure, so protecting the slot can never gain anything and would cost
+  ///    this session every write of the next
+  ///    `kOutboxRepairMaxAttempts * kOutboxRepairMinSpacing`. Give up at once
+  ///    instead.
   ///  * it fails otherwise, or the bound is spent -> the blob is unreadable and
   ///    hence undeliverable. It is already lost, and keeping it would drag THIS
   ///    session's writes down too.
@@ -1374,17 +1515,30 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     try {
       blob = await _cache?.readOutboxOrThrow();
       _outboxRepairAttempts = 0;
+      _outboxRepairCountedAt = null;
     } catch (e, st) {
-      _outboxRepairAttempts++;
+      // B (review 2026-08-31): count MOMENTS, not events. Every
+      // machine-triggered [_persistOutbox] lands here — enqueue, dequeue after
+      // delivery, one per replayed op — so a handful of taps used to spend the
+      // whole budget while the cause (no isolate, no memory) had not had a
+      // second to pass. The read above still ran, so a slot that healed is
+      // adopted right away; only the counter waits.
+      final jetzt = clock.now();
+      if (_zaehltAlsReparaturversuch(_outboxRepairCountedAt, jetzt)) {
+        _outboxRepairAttempts++;
+        _outboxRepairCountedAt = jetzt;
+      }
       // P3-02d: the TYPE alone is not the verdict — `transient` is. Bytes that
       // handed themselves over and still could not be parsed are a statement
       // about the CONTENT, and it is permanent: every further attempt reads
       // the same bytes and fails the same way, while the brake keeps this
       // session's own writes off disk. Only "unreadable right now" earns
       // protection.
+      // `<=`, not `<` (review 2026-08-31, B): the bound names the number of
+      // PROTECTED attempts, so the takeover belongs on the one after it.
       slotGeschuetzt = e is UnreadableCacheSlot &&
           e.transient &&
-          _outboxRepairAttempts < kOutboxRepairMaxAttempts;
+          _outboxRepairAttempts <= kOutboxRepairMaxAttempts;
       dev.log(
           slotGeschuetzt
               ? 'Outbox-Nachhydration fehlgeschlagen — der Slot ist noch '
@@ -1464,10 +1618,11 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   ///
   /// P3-02b applies here too: a TRANSIENT [UnreadableCacheSlot] means the slot
   /// still holds bytes, so the numbers are not lost — only unreadable right
-  /// now. The brake stays on for [kOutboxRepairMaxAttempts] attempts before
-  /// the session's own bundle takes the slot over. P3-02d: a slot whose
-  /// CONTENT is provably broken (`transient: false`) skips the brake
-  /// altogether — no later read can turn those bytes into numbers.
+  /// now. The brake stays on for [kOutboxRepairMaxAttempts] protected
+  /// attempts, at least [kOutboxRepairMinSpacing] apart, before the session's
+  /// own bundle takes the slot over. P3-02d: a slot whose CONTENT is provably
+  /// broken (`transient: false`) skips the brake altogether — no later read
+  /// can turn those bytes into numbers.
   ///
   /// Runs at most once concurrently.
   Future<void> _repairStatsHydration() async {
@@ -1478,13 +1633,22 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     try {
       blob = await _cache?.readPendingStatsDeltasOrThrow();
       _statsRepairAttempts = 0;
+      _statsRepairCountedAt = null;
     } catch (e, st) {
-      _statsRepairAttempts++;
+      // Same spacing rule as in [_repairOutboxHydration] (B, review
+      // 2026-08-31), and for the same reason: every flush of the deltas runs
+      // through this brake, so an event counter measured taps, not chances.
+      final jetzt = clock.now();
+      if (_zaehltAlsReparaturversuch(_statsRepairCountedAt, jetzt)) {
+        _statsRepairAttempts++;
+        _statsRepairCountedAt = jetzt;
+      }
       // Same verdict as in [_repairOutboxHydration] (P3-02d): provably broken
-      // content is not worth a single protected attempt.
+      // content is not worth a single protected attempt. Same `<=` too — the
+      // bound counts protected attempts, not the one that gives up.
       slotGeschuetzt = e is UnreadableCacheSlot &&
           e.transient &&
-          _statsRepairAttempts < kOutboxRepairMaxAttempts;
+          _statsRepairAttempts <= kOutboxRepairMaxAttempts;
       dev.log(
           slotGeschuetzt
               ? 'Deltas-Nachhydration fehlgeschlagen — der Slot ist noch '

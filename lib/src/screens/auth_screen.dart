@@ -10,7 +10,8 @@ import '../auth/auth_repository.dart';
 import '../config/legal_links.dart';
 import '../l10n/l10n.dart';
 import '../services/secure_screen.dart';
-import '../services/sync_error_messages.dart' show isNetworkSyncError;
+import '../services/sync_error_messages.dart'
+    show isAuthNetworkError, isAuthServerFaultError;
 import '../theme/app_tokens.dart';
 import '../widgets/auth/auth_controls.dart';
 import '../widgets/common/app_snack.dart';
@@ -198,12 +199,17 @@ class _AuthScreenState extends State<AuthScreen> {
     final l10n = context.l10n;
     if (error is AuthCancelledException) return l10n.authErrorCancelled;
     if (error is AuthUnavailableException) return l10n.authErrorUnavailable;
+    // A 5xx BEFORE the offline branch: gotrue wraps every HTTP >= 500 in the
+    // same AuthRetryableFetchException a dead radio cell produces, so the
+    // offline sentence told the user to check a connection that had just
+    // carried the server's own answer (see [isAuthServerFaultError]).
+    if (isAuthServerFaultError(error)) return l10n.authErrorServerFault;
     // Same TYPED branch and same position as `auth_code_screen.dart` (P4-02b):
     // offline there is no server text to classify, so a dead radio cell used to
     // fall through to `authErrorGeneric` and let the user suspect their
     // password. A 429 arrives as an AuthApiException, so no throttle is
     // swallowed here.
-    if (isNetworkSyncError(error)) return l10n.authCodeOfflineError;
+    if (isAuthNetworkError(error)) return l10n.authCodeOfflineError;
     if (_matches(error, 'invalid_credentials', 'invalid login') ||
         _matches(error, 'invalid_credentials', 'invalid credentials')) {
       return l10n.authErrorInvalidCredentials;

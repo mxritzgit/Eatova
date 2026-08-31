@@ -34,6 +34,7 @@ import '../services/stale_auth_retry.dart';
 import '../services/streak_reminder_planner.dart';
 import '../services/sync_error_messages.dart';
 import '../services/sync_outbox.dart';
+import '../services/user_recipes_sync.dart' show UserRecipesSync;
 import '../services/uuid.dart';
 import '../widgets/common/app_snack.dart';
 // P1-03: `signOutCleanup` is the only code that knows when the cleanup ended,
@@ -448,6 +449,18 @@ class HomeStore extends _HomeStoreBase
   /// An error, a timeout or a still-running load is not an answer.
   bool _serverRecipesAnswered = false;
 
+  /// The answered recipe load came back with a FULL page
+  /// ([UserRecipesSync.userRecipesLimit] rows), so the account may hold older
+  /// recipes this list never saw (review 2026-08-31, A).
+  ///
+  /// An answer is not the same as a complete answer. `load()` reads the newest
+  /// 200 rows while the table itself allows 5000 (migration 20260829120000),
+  /// so above 200 recipes the boot list is a WINDOW. Everything that only
+  /// READS it survives that fine — but the orphan photo sweep draws a
+  /// conclusion from what is MISSING, and a window's missing entries are not
+  /// missing entries.
+  bool _serverRecipesPageFull = false;
+
   /// A server load is running ([_bootFromSupabase]); the shell shows progress
   /// instead of the retry button. Also the re-entry guard of that method.
   bool _bootLoadInFlight = false;
@@ -481,7 +494,31 @@ class HomeStore extends _HomeStoreBase
   /// Deliberately the recipe load, not the end of [_bootFromSupabase]: the six
   /// loads answer independently, and a failed recipe load leaves the list as
   /// provisional as it was before.
-  bool get userRecipesAuthoritative => _serverRecipesAnswered;
+  ///
+  /// An ANSWER alone is not enough (review 2026-08-31, A). Two more states
+  /// look like a complete list and are not, and both end in deleted photos
+  /// that exist nowhere else:
+  ///
+  ///   * [_serverRecipesPageFull] — the server page is exhausted, so recipe
+  ///     #201 and older are simply not in it. Whoever has more recipes than
+  ///     the page holds would lose every photo of the older ones on the first
+  ///     boot whose recipe cache slot fails to hydrate.
+  ///   * [_outboxHydrationFailed] — the outbox slot threw on read, so a queued
+  ///     `recipeUpsert` was never replayed into the list. That recipe exists
+  ///     (on this device, undelivered), its photo exists, and neither is in
+  ///     the list. The brake lifts by itself once [_repairOutboxHydration]
+  ///     recovers the ops and `_applyPendingOpsToState` puts them back.
+  ///
+  /// The page-full test says "possibly truncated", not "truncated": exactly
+  /// 200 recipes trips it too, and then the sweep never runs again for that
+  /// account. Deliberate — the cost of that mistake is uncollected bytes, the
+  /// cost of the opposite is the user's photos. Reading one row beyond the cap
+  /// would sharpen the test, but only for the exactly-200 case: above it the
+  /// list stays a window either way.
+  bool get userRecipesAuthoritative =>
+      _serverRecipesAnswered &&
+      !_serverRecipesPageFull &&
+      !_outboxHydrationFailed;
 
   /// Retry button of the unanswered state: runs the server load again. No-op
   /// while the boot chain or a load is running — two taps are one load.
@@ -833,6 +870,12 @@ class HomeStore extends _HomeStoreBase
         // The server named the account's recipes; from here the list is a
         // statement, not a guess ([userRecipesAuthoritative], P3-04b).
         _serverRecipesAnswered = true;
+        // ... unless the page is exhausted, in which case it names only the
+        // NEWEST ones and says nothing about the rest (review 2026-08-31, A).
+        // Recomputed per answered load, so a shrinking library becomes
+        // authoritative again.
+        _serverRecipesPageFull =
+            loadedRecipes.length >= UserRecipesSync.userRecipesLimit;
         _userRecipes = vorher.userRecipesVersion == _userRecipesVersion
             ? _mergeUserRecipes(loadedRecipes)
             : _mergeRacedLoad(
