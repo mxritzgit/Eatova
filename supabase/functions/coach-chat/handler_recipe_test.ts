@@ -241,7 +241,6 @@ function installFetch(options: StubOptions = {}): FetchStub {
     }
     if (url.includes("/rest/v1/chat_sessions")) {
       if (method === "PATCH") return new Response(null, { status: 204 });
-      if (url.includes("select=title")) return jsonRes([{ title: "Neue Unterhaltung" }]);
       return jsonRes([]);
     }
     throw new Error(`Unerwarteter fetch im Test: ${method} ${url}`);
@@ -931,6 +930,52 @@ Deno.test("locale=en: Summary ist englisch", async () => {
       `Summary englisch, war: ${String(body.reply)}`,
     );
   } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("PERF: der Rezept-Store wartet nicht auf den Bildcall", async () => {
+  // The stored row never contains image bytes, so store and image call are
+  // independent. The image call below answers only after 40 ms — a serial flow
+  // issues the recipe-row INSERT after that, a concurrent one while the image
+  // is still pending. Serialising the store behind the (up to 30 s) image
+  // budget was pure added latency.
+  const stub = installFetch({});
+  const stubFetch = globalThis.fetch;
+  let imageResolved = false;
+  let storeWhileImagePending = false;
+  globalThis.fetch = (async (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ): Promise<Response> => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const method = (init?.method ?? "GET").toUpperCase();
+    if (url.includes("openrouter.ai/api/v1/images")) {
+      const res = await stubFetch(input, init);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      imageResolved = true;
+      return res;
+    }
+    if (
+      url.includes("/rest/v1/chat_messages") && method === "POST" &&
+      url.includes("select=id") && !imageResolved
+    ) {
+      storeWhileImagePending = true;
+    }
+    return stubFetch(input, init);
+  }) as typeof globalThis.fetch;
+  try {
+    const res = await handleRequest(makeRecipeRequest());
+    assertEquals(res.status, 200, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.image_base64, IMAGE_B64, "Bild da");
+    assertEquals(body.assistant_message_id, ASSISTANT_MSG_ID, "Message-Id da");
+    assert(
+      storeWhileImagePending,
+      "storeRecipeMessage wartete auf den Bildcall (seriell statt nebenlaeufig)",
+    );
+  } finally {
+    globalThis.fetch = stubFetch;
     stub.restore();
   }
 });

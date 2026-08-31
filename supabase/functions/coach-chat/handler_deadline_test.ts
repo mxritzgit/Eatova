@@ -171,7 +171,6 @@ function installFetch(options: StubOptions = {}): FetchStub {
     }
     if (url.includes("/rest/v1/chat_sessions")) {
       if (method === "PATCH") return new Response(null, { status: 204 });
-      if (url.includes("select=title")) return jsonRes([{ title: "Neue Unterhaltung" }]);
       return jsonRes([]);
     }
     throw new Error(`Unerwarteter fetch im Test: ${method} ${url}`);
@@ -251,8 +250,10 @@ Deno.test("E1: ein haengender Auto-Titel kostet weder die Antwort noch den Slot"
   // Bewusste Grenzziehung: der Auto-Titel laeuft NACH dem Anspruch, ist aber
   // kosmetisch. Er wird geschluckt, nicht erstattet — der Slot bezahlt die
   // Antwort, und die kommt. Vorher hing die ganze Anfrage an dieser Stelle.
+  // Seit dem Perf-Umbau ist der Auto-Titel EIN konditionaler PATCH; sein
+  // title=in.-Filter ist das Stall-Fragment.
   await mitKurzerFrist(async () => {
-    const stub = installFetch({ stall: "select=title" });
+    const stub = installFetch({ stall: "title=in.", stallMethod: "PATCH" });
     try {
       const res = await ohneHaenger(handleRequest(makeRequest()));
       assertEquals(res.status, 200, "Status");
