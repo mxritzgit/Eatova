@@ -241,6 +241,36 @@ void main() {
     expect(tester.widget<Text>(find.text('Meine Antwort')).style?.color, t.ink);
   });
 
+  testWidgets('Tippen rebuildet die Konversation nicht — nur der Composer '
+      'haengt am Entwurf', (tester) async {
+    // Perf round 2026-08-31, finding 3: the draft lived as screen state, so
+    // every keystroke rebuilt the whole screen including all visible bubbles.
+    final svc = _FakeCoach.create()
+      ..history = <ChatMessage>[
+        _msg('Was soll ich abends essen?', ChatRole.user),
+        _msg('Nimm Lachs mit Suesskartoffel.', ChatRole.assistant),
+      ];
+    await _pumpCoach(tester, service: svc);
+
+    final vorher = tester.widget(find.byType(ListView));
+    await tester.enterText(
+        find.byKey(const ValueKey('coach-input')), 'Wie viel Protein noch?');
+    await tester.pump();
+    final nachher = tester.widget(find.byType(ListView));
+    expect(identical(vorher, nachher), isTrue,
+        reason: 'Ein Tastendruck darf nicht die Nachrichtenliste neu bauen — '
+            'der Entwurf gehoert allein dem Composer und dem Befehls-Menue.');
+
+    // The draft still reaches its two consumers: "/" opens the command menu,
+    // a non-command draft closes it again.
+    await tester.enterText(find.byKey(const ValueKey('coach-input')), '/');
+    await tester.pump();
+    expect(find.byKey(const ValueKey('coach-command-menu')), findsOneWidget);
+    await tester.enterText(find.byKey(const ValueKey('coach-input')), 'x');
+    await tester.pump();
+    expect(find.byKey(const ValueKey('coach-command-menu')), findsNothing);
+  });
+
   testWidgets('Composer-Feld traegt keine Theme-Fuellung und keinen Rahmen',
       (tester) async {
     await _pumpCoach(tester, service: _FakeCoach.create());

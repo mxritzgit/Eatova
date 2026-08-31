@@ -115,8 +115,13 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   String? _activeSessionId;
   bool _loading = true;
   bool _listening = false;
-  String _draft = '';
   String? _error;
+
+  /// Draft text as a [ValueNotifier], deliberately NOT screen state: its only
+  /// consumers are the composer and the command menu, and a per-keystroke
+  /// `setState` rebuilt the whole screen including every visible bubble (perf
+  /// finding 3, 2026-08-31). The send paths read `_input.text` directly.
+  final ValueNotifier<String> _draft = ValueNotifier<String>('');
 
   /// The active session's history failed to load — the hero empty state must
   /// then not present it as "empty".
@@ -181,9 +186,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _input.addListener(() {
-      if (_draft != _input.text) setState(() => _draft = _input.text);
-    });
+    // ValueNotifier dedupes identical assignments, so no equality check here.
+    _input.addListener(() => _draft.value = _input.text);
     // No service = not logged in; that branch needs a localized error text and
     // `context.l10n` is not allowed in initState — didChangeDependencies does
     // it once before the first frame.
@@ -263,6 +267,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _input.dispose();
+    _draft.dispose();
     _scroll.dispose();
     _inputFocus.dispose();
     super.dispose();
@@ -590,7 +595,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       if (_wiederholtFehlschlag(displayText)) _fehlgeschlagen = null;
       _sendendeSessionId = sessionId;
       _input.clear();
-      _draft = '';
+      _draft.value = '';
       _laufendeSendungen++;
       _error = null;
     });
@@ -810,8 +815,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
 
   /// The command menu shows while the draft looks like a started command:
   /// starts with "/", no whitespace yet, and is a prefix of "/recipe".
-  bool get _commandMenuVisible {
-    final draft = _draft.trimLeft();
+  bool _commandMenuVisibleFor(String draftText) {
+    final draft = draftText.trimLeft();
     if (!draft.startsWith('/')) return false;
     if (draft.contains(' ') || draft.contains('\n')) return false;
     return '/recipe'.startsWith(draft.toLowerCase());
@@ -891,7 +896,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       if (_wiederholtFehlschlag(displayText)) _fehlgeschlagen = null;
       _sendendeSessionId = sessionId;
       _input.clear();
-      _draft = '';
+      _draft.value = '';
       _laufendeSendungen++;
       _error = null;
     });
@@ -1355,24 +1360,37 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         if (_fehlgeschlagen != null)
           _UnsentNotice(canRetry: _canInteract, onRetry: _wiederholen),
         if (_error != null) _ErrorBanner(text: _error!),
-        // Command menu: appears above the composer when typing "/"; a tap
-        // completes the command.
-        if (_commandMenuVisible) _CommandSuggestions(onPick: _applyCommand),
-        const SizedBox(height: 8),
-        _Composer(
-          controller: _input,
-          focus: _inputFocus,
-          enabled: _canType,
-          canSend: _canInteract,
-          // Display value, not a state: an unknown quota shows the default
-          // limit so the composer claims neither exhausted nor a count.
-          remaining: _restFuerAnzeige,
-          draft: _draft,
-          listening: _listening,
-          onSubmit: () => _send(),
-          onMic: _toggleSpeechInput,
-          onAttach: _openAttachSheet,
-          onQuotaTap: _openCoachInfoSheet,
+        // Only the draft's two consumers rebuild per keystroke; the
+        // conversation above stays untouched (perf finding 3, 2026-08-31).
+        ValueListenableBuilder<String>(
+          valueListenable: _draft,
+          builder: (context, draft, _) => Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Command menu: appears above the composer when typing "/"; a
+              // tap completes the command.
+              if (_commandMenuVisibleFor(draft))
+                _CommandSuggestions(onPick: _applyCommand),
+              const SizedBox(height: 8),
+              _Composer(
+                controller: _input,
+                focus: _inputFocus,
+                enabled: _canType,
+                canSend: _canInteract,
+                // Display value, not a state: an unknown quota shows the
+                // default limit so the composer claims neither exhausted nor
+                // a count.
+                remaining: _restFuerAnzeige,
+                draft: draft,
+                listening: _listening,
+                onSubmit: () => _send(),
+                onMic: _toggleSpeechInput,
+                onAttach: _openAttachSheet,
+                onQuotaTap: _openCoachInfoSheet,
+              ),
+            ],
+          ),
         ),
       ],
     );
