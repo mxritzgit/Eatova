@@ -21,7 +21,7 @@ class _CoachOrbState extends State<CoachOrb> with TickerProviderStateMixin {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final reduce = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final reduce = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
     if (reduce) {
       _spin.stop();
       _breathe.stop();

@@ -45,7 +45,7 @@ class _LivelyEntranceState extends State<LivelyEntrance>
   @override
   Widget build(BuildContext context) {
     // A11y: respect "reduce motion" — show the content statically.
-    if (MediaQuery.maybeOf(context)?.disableAnimations ?? false) {
+    if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) {
       return widget.child;
     }
     // FadeTransition instead of a raw animated Opacity: the latter forces a

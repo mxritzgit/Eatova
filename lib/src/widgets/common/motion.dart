@@ -1,8 +1,13 @@
 import 'package:flutter/widgets.dart';
 
 /// True when the platform asks for reduced motion.
+///
+/// Aspect lookup, NOT a `maybeOf` read of the flag: the full lookup depends
+/// on the whole MediaQueryData, so every keyboard-inset frame rebuilt all ~42
+/// call sites of this helper. The aspect variant rebuilds only when the flag
+/// itself flips (pinned in motion_media_query_test.dart).
 bool reducedMotion(BuildContext context) =>
-    MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    MediaQuery.maybeDisableAnimationsOf(context) ?? false;
 
 /// A11y helper for "reduce motion": returns [base], or `Duration.zero` when
 /// the user reduced motion, collapsing intro gates and decorative animations.

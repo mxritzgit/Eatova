@@ -213,7 +213,7 @@ class _ThinkingRowState extends State<_ThinkingRow>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final reduce = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    final reduce = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
     if (reduce) {
       if (_c.isAnimating) _c.stop();
       _c.value = 0;
