@@ -338,6 +338,20 @@ class StummerFotoStore extends RecipeImageStore {
   Future<void> clear() => Future<void>.value();
 }
 
+/// A timestamp that is guaranteed to sit on TODAY's local calendar day, at
+/// [stunde]:[minute] wall clock (default local midnight, so it is never in the
+/// future).
+///
+/// `DateTime.now().subtract(...)` is the trap this replaces: run between 00:00
+/// and 01:00 local, "an hour ago" is YESTERDAY, and everything bucketed per
+/// local day (`dailyConsumedKcal`, `mealsForFoodDate`) drops the entry. A
+/// fixed calendar date would survive that hour but rot with the calendar, so
+/// the anchor stays relative to today and only the time of day is pinned.
+DateTime heuteUm({int stunde = 0, int minute = 0}) {
+  final heute = DateTime.now();
+  return DateTime(heute.year, heute.month, heute.day, stunde, minute);
+}
+
 Future<void> settle({int times = 60}) => pumpEventQueue(times: times);
 
 Future<void> bootStore(HomeStore store) async {

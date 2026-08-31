@@ -123,7 +123,12 @@ void main() {
       _seedRezepte(s.server, UserRecipesSync.userRecipesLimit,
           mitFoto: aufDerSeite);
 
-      await boot(s.store);
+      // Wait for the CONDITION, not for 60 turns of the event queue: 200 rows
+      // are ~50 kB on the wire, and postgrest decodes anything over 10 kB in a
+      // background isolate. That round trip costs wall clock, so `boot()` came
+      // back with an empty list wherever the turns were cheap (CI, 2026-08-31:
+      // "Expected: length 200, Actual: []").
+      await bootUntilIdle(s.store);
 
       expect(s.store.userRecipes, hasLength(UserRecipesSync.userRecipesLimit),
           reason: 'Vorbedingung: der Boot-Load hat geantwortet und die Seite '
@@ -155,7 +160,7 @@ void main() {
       _seedRezepte(s.server, UserRecipesSync.userRecipesLimit - 1,
           mitFoto: behalten);
 
-      await boot(s.store);
+      await bootUntilIdle(s.store);
 
       expect(s.store.userRecipesAuthoritative, isTrue,
           reason: 'Wer unter dem Limit bleibt, hat die ganze Sammlung — sonst '
@@ -179,7 +184,7 @@ void main() {
       final a = setup(kv: kv);
       await a.cache.writeProfile(
           const UserProfile(weightKg: 80, onboardingCompleted: true));
-      await boot(a.store);
+      await bootUntilIdle(a.store);
 
       // Offline angelegt: die Op liegt persistiert in der Outbox, der Server
       // erfaehrt nichts davon.
@@ -197,7 +202,7 @@ void main() {
       // nicht nachgelegt, und der Server kennt das Rezept nicht.
       final b =
           setup(injizierterCache: OutboxLesefehlerCache(kv, 'user-outbox'));
-      await boot(b.store);
+      await bootUntilIdle(b.store);
 
       expect(b.store.userRecipes, isEmpty,
           reason: 'Vorbedingung: weder Cache noch Outbox noch Server nennen '
@@ -224,7 +229,7 @@ void main() {
       final s = setup(kv: kv);
       await s.cache.writeProfile(
           const UserProfile(weightKg: 80, onboardingCompleted: true));
-      await boot(s.store);
+      await bootUntilIdle(s.store);
 
       expect(s.store.userRecipes, isEmpty);
       expect(s.store.userRecipesAuthoritative, isTrue,

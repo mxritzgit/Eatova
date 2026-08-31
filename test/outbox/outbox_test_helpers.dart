@@ -619,6 +619,47 @@ Future<void> boot(HomeStore store) async {
   await settle();
 }
 
+/// Pumps the event queue until [bedingung] holds, bounded by [frist].
+///
+/// [settle] spends a FIXED number of event-queue turns, which is enough only
+/// while every step is a plain Dart future. Postgrest breaks that assumption:
+/// a response body over 10 kB is decoded in a background isolate
+/// (`yet_another_json_isolate`), and an isolate round trip costs WALL CLOCK,
+/// not turns. A machine that drains 60 turns faster than the isolate answers
+/// — a Linux CI runner does, Windows does not — reaches the assertion with
+/// the collections still empty.
+///
+/// The bound is wall clock as well, so a condition that never holds ends in
+/// the caller's FAILING expect instead of hanging the suite.
+Future<void> pumpUntil(
+  bool Function() bedingung, {
+  Duration frist = const Duration(seconds: 5),
+}) async {
+  final uhr = Stopwatch()..start();
+  while (!bedingung() && uhr.elapsed < frist) {
+    await pumpEventQueue(times: 1);
+  }
+}
+
+/// Starts the store and waits for the WHOLE boot chain to finish, instead of
+/// for a guessed number of event-queue turns ([pumpUntil]).
+///
+/// Use wherever an assertion depends on the server answer — above all where
+/// the seeded collection is big enough for postgrest's isolate decode. [boot]
+/// stays for the suites whose fake server deliberately never answers; there
+/// `bootLoadInFlight` would never clear.
+Future<void> bootUntilIdle(
+  HomeStore store, {
+  Duration frist = const Duration(seconds: 5),
+}) async {
+  store.start();
+  await store.profileReady;
+  await pumpUntil(() => !store.bootLoadInFlight, frist: frist);
+  // The tail that hangs off the chain without being awaited by it (stats-delta
+  // flush, cache write-through).
+  await settle();
+}
+
 /// Writes outbox rows RAW into the key-value store, bypassing
 /// [LocalCache.writeOutbox] and the [SyncOp] factories — the only way to build
 /// wire forms no production path creates (unreadable payload A8, ancient
