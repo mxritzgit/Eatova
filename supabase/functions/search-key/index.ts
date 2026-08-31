@@ -97,6 +97,40 @@ const USER_WINDOW_SECONDS = positiveIntFromEnv(
   EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS,
 );
 
+// E1 (review 2026-08-31). Every outbound call here used to be unbounded: one
+// GoTrue introspection plus up to two consume_edge_rate_limit roundtrips (or
+// the shared auth-fail gate). A stalling PostgREST held the isolate until the
+// platform killed it, while the CLIENT gives up after 10 s
+// (HttpTimeoutPolicy.mirror in lib/src/services/eatova_http.dart).
+//
+// So the function gets its own wall clock, one second under the client's: past
+// 9 s nobody is listening any more, and giving up first means the honest error
+// still arrives instead of the client's own timeout. Per call the ceiling is
+// the 5 s analyze-meal uses for the same two servers — one set of numbers.
+const REQUEST_BUDGET_MS = positiveIntFromEnv('SEARCH_KEY_REQUEST_BUDGET_MS', 9_000, 30_000);
+const SUPABASE_TIMEOUT_MS = positiveIntFromEnv('SEARCH_KEY_SUPABASE_TIMEOUT_MS', 5_000, 120_000);
+
+/** Wall-clock budget of one request; handed to every stage so none of them can
+ *  spend time the client is no longer waiting for. */
+type Deadline = { remainingMs(): number };
+
+function startDeadline(budgetMs: number): Deadline {
+  const endsAt = Date.now() + budgetMs;
+  return { remainingMs: () => endsAt - Date.now() };
+}
+
+/** Signal for one outbound call: the per-call ceiling or the rest of the
+ *  budget, whichever is smaller. Never 0 — AbortSignal.timeout(0) would fire
+ *  before the call even starts, turning an exhausted budget into a request
+ *  that never left. */
+function stepSignal(deadline: Deadline, capMs: number): AbortSignal {
+  return AbortSignal.timeout(Math.max(1, Math.min(capMs, deadline.remainingMs())));
+}
+
+function isTimeout(error: unknown): boolean {
+  return error instanceof DOMException && (error.name === 'TimeoutError' || error.name === 'AbortError');
+}
+
 type AuthUser = { id: string; email?: string };
 type RateLimitResult = {
   allowed: boolean;
@@ -111,6 +145,7 @@ type AuthOutcome = { user: AuthUser } | { rateLimited: RateLimitResult };
 
 Deno.serve(async (request) => {
   const requestId = crypto.randomUUID();
+  const deadline = startDeadline(REQUEST_BUDGET_MS);
   try {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: responseHeaders(request) });
@@ -122,7 +157,7 @@ Deno.serve(async (request) => {
 
     assertConfigured();
 
-    const auth = await authenticateUser(request);
+    const auth = await authenticateUser(request, deadline);
     if ('rateLimited' in auth) {
       return rateLimitedResponse(request, auth.rateLimited, requestId);
     }
@@ -131,12 +166,18 @@ Deno.serve(async (request) => {
     // leftmost entry is client-controlled. See ../_shared/client_ip.ts.
     const ipSubject = clientIpSubject(request, user.id);
 
-    const ipLimit = await consumeRateLimit('search-key:ip', ipSubject, IP_LIMIT, IP_WINDOW_SECONDS);
+    const ipLimit = await consumeRateLimit('search-key:ip', ipSubject, IP_LIMIT, IP_WINDOW_SECONDS, deadline);
     if (!ipLimit.allowed) {
       return rateLimitedResponse(request, ipLimit, requestId);
     }
 
-    const userLimit = await consumeRateLimit('search-key:user', user.id, USER_LIMIT, USER_WINDOW_SECONDS);
+    const userLimit = await consumeRateLimit(
+      'search-key:user',
+      user.id,
+      USER_LIMIT,
+      USER_WINDOW_SECONDS,
+      deadline,
+    );
     if (!userLimit.allowed) {
       return rateLimitedResponse(request, userLimit, requestId);
     }
@@ -256,7 +297,7 @@ function clampTtl(raw: string | undefined): number {
   return Math.round(Math.min(MAX_TTL_SECONDS, Math.max(MIN_TTL_SECONDS, parsed)));
 }
 
-async function authenticateUser(request: Request): Promise<AuthOutcome> {
+async function authenticateUser(request: Request, deadline: Deadline): Promise<AuthOutcome> {
   const authorization = request.headers.get('authorization') ?? '';
   const match = authorization.match(/^Bearer\s+(.+)$/i);
   if (!match) {
@@ -271,12 +312,25 @@ async function authenticateUser(request: Request): Promise<AuthOutcome> {
     throw new HttpError(401, 'user_token_required', 'Bitte erneut anmelden.');
   }
 
-  const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-    headers: {
-      apikey: SUPABASE_ANON_KEY,
-      authorization: `Bearer ${token}`,
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: {
+        apikey: SUPABASE_ANON_KEY,
+        authorization: `Bearer ${token}`,
+      },
+      signal: stepSignal(deadline, SUPABASE_TIMEOUT_MS),
+    });
+  } catch (error) {
+    // E1, same rule as analyze-meal's P6-07: a hanging GoTrue is an outage,
+    // NOT a rejected token. A 401 here would drop the client's credentials for
+    // a server problem, and counting it in the fail bucket would let a slow
+    // auth server 429 whole IPs.
+    if (isTimeout(error)) {
+      throw new HttpError(503, 'auth_unavailable', 'Anmeldung gerade nicht prüfbar.');
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     // F-28-1: the lookup cost a GoTrue roundtrip, so failures are capped per
@@ -287,6 +341,9 @@ async function authenticateUser(request: Request): Promise<AuthOutcome> {
       serviceKey: SUPABASE_SERVICE_ROLE_KEY,
       scope: 'search-key:auth-fail',
       subject: clientIpSubject(request, 'anon'),
+      // E1: the damper runs under the same budget as everything else. A
+      // timeout reports "not limited", so the honest 401 is never swallowed.
+      signal: stepSignal(deadline, SUPABASE_TIMEOUT_MS),
     });
     if (gate.limited) {
       return {
@@ -314,21 +371,35 @@ async function consumeRateLimit(
   subject: string,
   limit: number,
   windowSeconds: number,
+  deadline: Deadline,
 ): Promise<RateLimitResult> {
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/consume_edge_rate_limit`, {
-    method: 'POST',
-    headers: {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      p_scope: scope,
-      p_subject: subject,
-      p_limit: limit,
-      p_window_seconds: windowSeconds,
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/consume_edge_rate_limit`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        p_scope: scope,
+        p_subject: subject,
+        p_limit: limit,
+        p_window_seconds: windowSeconds,
+      }),
+      signal: stepSignal(deadline, SUPABASE_TIMEOUT_MS),
+    });
+  } catch (error) {
+    // E1: a hanging limiter is the same case as a failing one (E6) — an
+    // outage, not a measured limit. Fails CLOSED, like the !ok branch below:
+    // these gates keep the endpoint from being used as a key oracle.
+    if (isTimeout(error)) {
+      console.error(`consume_edge_rate_limit (${scope}) timeout`);
+      throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');

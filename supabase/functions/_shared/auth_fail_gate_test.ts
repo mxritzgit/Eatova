@@ -339,6 +339,104 @@ Deno.test("P6-05: der ungedrosselte anon-Bucket warnt nicht bei jedem Fehlschlag
   }
 });
 
+// --- E1 (Review 2026-08-31): die Frist gehoert in den geteilten Helfer ------
+//
+// Der fetch trug kein AbortSignal. Der Gate laeuft auf dem 401-Pfad ALLER drei
+// Functions, also hielt ein stockendes PostgREST die Anfrage offen, bis die
+// Plattform das Isolate killte — waehrend der Client laengst aufgegeben hatte.
+// Die Frist kann nur der Aufrufer kennen (er weiss, was von seinem Budget noch
+// uebrig ist), deshalb ist `signal` optional und wird durchgereicht.
+
+/** Haengender RPC-Aufruf: loest nie von selbst auf und rejectet mit
+ *  signal.reason beim Abbruch, wie ein echter fetch gegen einen toten Server.
+ *  OHNE Signal schlaegt er laut fehl — genau das ist die Regressionswache. */
+function haengtBisAbbruch(init?: RequestInit): Promise<Response> {
+  const signal = init?.signal;
+  return new Promise((_, reject) => {
+    if (!signal) {
+      reject(new Error("haengender RPC ohne AbortSignal — die Frist (E1) fehlt"));
+      return;
+    }
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  });
+}
+
+Deno.test("E1: ein feuerndes Signal bricht den Consume ab und meldet limited:false", async () => {
+  const original = globalThis.fetch;
+  const aufrufe: FetchAufruf[] = [];
+  globalThis.fetch = ((input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    aufrufe.push({ url, init });
+    return haengtBisAbbruch(init);
+  }) as typeof globalThis.fetch;
+  const log = installErrorLog();
+  const signal = AbortSignal.timeout(20);
+  try {
+    const result = await authFailGate({ ...OPTIONS, signal });
+    // Die Zusage des Helfers bleibt: er wirft nie und drosselt nie auf einen
+    // Limiter-Fehler — ein Abbruch ist genau so einer.
+    assertEquals(result.limited, false, "Abbruch darf nie drosseln");
+    assertEquals(aufrufe.length, 1, "genau ein RPC-Aufruf");
+    // Das eigentliche Pin: das Signal des Aufrufers landet am fetch. Ohne
+    // diese Durchreichung liefe der Aufruf unbegrenzt weiter.
+    assertEquals(aufrufe[0].init?.signal, signal, "das Signal des Aufrufers muss am fetch ankommen");
+    const zeilen = log.zeilen.join("\n");
+    assert(zeilen.includes("consume_edge_rate_limit"), `der Abbruch muss geloggt werden: ${zeilen}`);
+    // Der Grund ist der Timeout, nicht die Wache oben: waere das Signal nicht
+    // durchgereicht, stuende hier "die Frist (E1) fehlt".
+    assert(
+      zeilen.toLowerCase().includes("timed out") || zeilen.toLowerCase().includes("timeout"),
+      `der Abbruchgrund muss diagnostizierbar sein: ${zeilen}`,
+    );
+    assert(!zeilen.includes("die Frist (E1) fehlt"), `das Signal erreicht den fetch nicht: ${zeilen}`);
+  } finally {
+    log.restore();
+    globalThis.fetch = original;
+  }
+});
+
+Deno.test("E1: ein bereits abgebrochenes Signal wirft nicht nach aussen", async () => {
+  // Ein Aufrufer mit aufgebrauchtem Budget uebergibt ein Signal, das schon
+  // gefeuert hat. Ein echter fetch rejectet dann sofort — auch das muss in der
+  // Zusage "wirft nie" landen und nicht als 500 beim Nutzer.
+  const original = globalThis.fetch;
+  globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit): Promise<Response> =>
+    haengtBisAbbruch(init)) as typeof globalThis.fetch;
+  const log = installErrorLog();
+  const controller = new AbortController();
+  controller.abort();
+  try {
+    const result = await authFailGate({ ...OPTIONS, signal: controller.signal });
+    assertEquals(result.limited, false, "auch hier: nie drosseln, nie werfen");
+    const zeilen = log.zeilen.join("\n");
+    assert(zeilen.includes("consume_edge_rate_limit"), `der Abbruch muss geloggt werden: ${zeilen}`);
+    // Die Wache der Attrappe: taucht ihre Zeile auf, kam das Signal nie am
+    // fetch an und der Aufruf waere unbegrenzt weitergelaufen.
+    assert(!zeilen.includes("die Frist (E1) fehlt"), `das Signal erreicht den fetch nicht: ${zeilen}`);
+  } finally {
+    log.restore();
+    globalThis.fetch = original;
+  }
+});
+
+Deno.test("E1: ohne Signal bleibt der Aufruf unveraendert (optional fuer Aufrufer)", async () => {
+  // Die Schnittstelle ist bewusst optional: analyze-meal legt seine Frist
+  // heute an der Aufrufstelle an (withDeadline), und keine Seite darf an der
+  // anderen brechen.
+  const fetchStub = installFetch(erlaubt());
+  try {
+    const result = await authFailGate(OPTIONS);
+    assertEquals(result.limited, false, "Erfolgsfall bleibt Erfolgsfall");
+    assertEquals(fetchStub.aufrufe[0].init?.signal, undefined, "ohne Option kein Signal am fetch");
+  } finally {
+    fetchStub.restore();
+  }
+});
+
 Deno.test("der Service-Key steht nie in der Fehlerzeile", async () => {
   const faelle: (() => Promise<Response>)[] = [
     () => Promise.reject(new TypeError(`error sending request for ${RPC_URL}`)),

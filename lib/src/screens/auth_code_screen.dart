@@ -4,159 +4,31 @@ import 'dart:convert';
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
 
 import '../auth/auth_repository.dart';
 import '../l10n/l10n.dart';
 import '../services/local_cache.dart'
     show KeyValueStore, SharedPreferencesStore;
 import '../services/secure_screen.dart';
-import '../services/sync_error_messages.dart' show isNetworkSyncError;
 import '../theme/app_tokens.dart';
 import '../widgets/auth/auth_controls.dart';
 import '../widgets/common/app_snack.dart';
 import '../widgets/design/controls.dart';
 import '../widgets/design/sheets.dart';
 import 'settings/account_change_messages.dart'
-    show kAccountCodeLength, kAccountMinPasswordLength;
+    show
+        AuthErrorBefund,
+        AuthErrorKind,
+        classifyAuthError,
+        kAccountCodeLength,
+        kAccountMinPasswordLength;
 
 /// Which code flow is running: password reset or signup confirmation.
 enum AuthCodeFlow { recovery, signup }
 
-/// Coarse classification of an auth error — one branch per statement this page
-/// can honestly make.
-///
-/// The first two are TYPED (P4-02). Classifying by server text alone had no
-/// answer offline (there is no server text to read) and none for a failed auth
-/// layer, so both landed in [unknown] — "please try again", advice that cannot
-/// work in either case.
-enum _AuthErrorKind {
-  /// The auth layer never came up (see `UnavailableAuthRepository`); only a
-  /// restart helps. Same statement as `auth_screen.dart` makes.
-  unavailable,
-
-  /// No connection to the server: nothing was sent, nothing was checked.
-  offline,
-
-  /// GoTrue's PER-REQUEST send lock, which names the seconds it has left.
-  sendThrottled,
-
-  /// GoTrue's HOURLY mail quota (`rate_limit_email_sent` = 2, see
-  /// supabase/AUTH_EMAIL_OTP.md) is spent. That is minutes to an hour, not
-  /// the "about a minute" both throttles used to claim.
-  quotaExhausted,
-
-  /// A throttle without a usable number in it.
-  rateLimited,
-
-  /// The server really did check the code and refused it.
-  codeRejected,
-
-  unknown,
-}
-
-/// A classified error plus what the server said about the wait.
-class _AuthErrorBefund {
-  const _AuthErrorBefund(this.kind, {this.retryAfter});
-
-  final _AuthErrorKind kind;
-
-  /// The wait GoTrue named, when it named one at all.
-  final Duration? retryAfter;
-}
-
-/// GoTrue's per-request lock carries its remaining time in the message:
-/// "For security purposes, you can only request this after 51 seconds."
-final RegExp _sekundenImText = RegExp(r'(\d+)\s*second');
-
 /// Above this many seconds the wait is spoken in minutes — a half-hour quota
 /// block would otherwise read "in 1800 s".
 const int _minutenSchwelleSekunden = 120;
-
-/// GoTrue codes that really mean "the code the user typed did not work".
-///
-/// `otp_disabled` is deliberately NOT here (P4-02d): it means the PROJECT has
-/// OTP sign-in switched off ("Signups not allowed for otp"), a server
-/// configuration fault the user cannot answer for. Counting it as a rejection
-/// showed "Der Code stimmt nicht" and burned all five attempts against a
-/// lockout only a new code can lift — while no new code can ever be issued.
-/// That is the same misclassification P4-02c removed for `Invalid API key`,
-/// only moved from the text fallback into the code list.
-const Set<String> _abgelehnteCodes = <String>{
-  'otp_expired',
-  'invalid_credentials',
-};
-
-/// Text fallback for GoTrue answers that carry NO code ("Token has expired or
-/// is invalid", "Invalid token"). A bare `invalid` is missing on purpose — see
-/// [_classifyAuthError].
-final RegExp _abgelehntImText =
-    RegExp(r'expired|invalid token|invalid otp|invalid code|\botp\b');
-
-/// Classifies [error] for [_AuthCodeScreenState._friendlyError].
-///
-/// TYPE first, text fragments only as the last stage. The reverse order let
-/// "invalid certificate" pass as an expired code and dropped every offline
-/// error into the catch-all (P4-02).
-_AuthErrorBefund _classifyAuthError(Object error) {
-  if (error is AuthUnavailableException) {
-    return const _AuthErrorBefund(_AuthErrorKind.unavailable);
-  }
-  // Same helper and same position as `settings/account_change_messages.dart`:
-  // IOException (Socket/Tls), TimeoutException, ClientException and GoTrue's
-  // own AuthRetryableFetchException. A 429 becomes an AuthApiException in
-  // gotrue's fetch.dart, so this branch cannot swallow a throttle.
-  if (isNetworkSyncError(error)) {
-    return const _AuthErrorBefund(_AuthErrorKind.offline);
-  }
-
-  final raw = error.toString().toLowerCase();
-  final code = error is AuthException ? error.code : null;
-  final istMailDrossel = code == 'over_email_send_rate_limit';
-  final istDrossel = istMailDrossel ||
-      code == 'over_request_rate_limit' ||
-      raw.contains('rate limit') ||
-      raw.contains('rate_limit') ||
-      raw.contains('too many') ||
-      raw.contains('for security purposes');
-
-  if (istDrossel) {
-    // Both mail throttles ship the SAME error code; only the message tells
-    // them apart — the per-request lock names its seconds, the hourly quota
-    // does not (P4-03).
-    final treffer = _sekundenImText.firstMatch(raw);
-    final sekunden = treffer == null ? null : int.tryParse(treffer.group(1)!);
-    if (sekunden != null && sekunden > 0) {
-      return _AuthErrorBefund(
-        _AuthErrorKind.sendThrottled,
-        retryAfter: Duration(seconds: sekunden),
-      );
-    }
-    if (istMailDrossel || raw.contains('email rate limit')) {
-      return const _AuthErrorBefund(_AuthErrorKind.quotaExhausted);
-    }
-    return const _AuthErrorBefund(_AuthErrorKind.rateLimited);
-  }
-
-  // GoTrue's OWN code for a refused code first (P4-02c) — `auth_screen.dart`
-  // takes exactly this route for `invalid_credentials`.
-  if (code != null && _abgelehnteCodes.contains(code)) {
-    return const _AuthErrorBefund(_AuthErrorKind.codeRejected);
-  }
-  // Text fallback ONLY for answers without a code. The bare `invalid` that used
-  // to stand here also caught `AuthApiException('Invalid API key')` — a
-  // misconfigured anon key read as "your code is wrong" AND burned one of the
-  // five attempts against a lockout only a new code can lift.
-  //
-  // The `code == null` guard is what keeps that shut (P4-02d): once GoTrue
-  // names a code, that code is the answer — reading its prose on top would let
-  // `otp_disabled` ("Signups not allowed for otp") back in through `\botp\b`,
-  // and every future config code whose sentence happens to say "otp" with it.
-  if (code == null && _abgelehntImText.hasMatch(raw)) {
-    return const _AuthErrorBefund(_AuthErrorKind.codeRejected);
-  }
-  return const _AuthErrorBefund(_AuthErrorKind.unknown);
-}
 
 /// Guard state for ONE address.
 class _ThrottleState {
@@ -666,25 +538,42 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
   }
 
   String _friendlyError(Object error) {
-    final befund = _classifyAuthError(error);
+    final befund = classifyAuthError(error);
     switch (befund.kind) {
-      case _AuthErrorKind.unavailable:
+      case AuthErrorKind.unavailable:
         return _l10n.authErrorUnavailable;
-      case _AuthErrorKind.offline:
+      case AuthErrorKind.offline:
         return _l10n.authCodeOfflineError;
-      case _AuthErrorKind.sendThrottled:
+      case AuthErrorKind.serverFault:
+        // gotrue reports EVERY 5xx as AuthRetryableFetchException, the same
+        // type a dead radio cell produces. Sent as "offline" it told the user
+        // to check a connection that was demonstrably fine — the server had
+        // answered.
+        return _l10n.authErrorServerFault;
+      case AuthErrorKind.sendThrottled:
         // The number the guard really holds — not the server's raw one, which
         // can be below our own floor. Seconds or minutes by the SAME threshold
         // as the countdown link (P4-03c): a 180 s lock used to read "noch 180 s
         // gesperrt" right above "Neuen Code in 3 min anfordern".
         return _drosselHinweis(_sperrDauer(befund).inSeconds);
-      case _AuthErrorKind.quotaExhausted:
+      case AuthErrorKind.quotaExhausted:
         return _l10n.authCodeQuotaExhausted;
-      case _AuthErrorKind.rateLimited:
+      case AuthErrorKind.rateLimited:
         return _l10n.authCodeRateLimited;
-      case _AuthErrorKind.codeRejected:
+      case AuthErrorKind.emailInvalid:
+        // Reachable on the ADDRESS step: our own check is shape-only, GoTrue's
+        // is stricter.
+        return _l10n.authErrorInvalidEmail;
+      case AuthErrorKind.passwordSameAsOld:
+        return _l10n.settingsAccountPasswordSameAsOld;
+      case AuthErrorKind.passwordWeak:
+        return _l10n.settingsAccountPasswordWeak;
+      case AuthErrorKind.codeRejected:
         return _l10n.authCodeErrorRejected;
-      case _AuthErrorKind.unknown:
+      // Naming a taken address here would confirm account existence to whoever
+      // typed it (house rule against enumeration), so it stays generic.
+      case AuthErrorKind.emailTaken:
+      case AuthErrorKind.unknown:
         return _l10n.authErrorGeneric;
     }
   }
@@ -695,21 +584,28 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
   /// [_OtpSendThrottle.cooldown] stays the floor: a server wait BELOW it must
   /// not weaken our own abuse brake, and the message quotes exactly the value
   /// used here, so hint and countdown can never disagree.
-  Duration _sperrDauer(_AuthErrorBefund befund) {
+  Duration _sperrDauer(AuthErrorBefund befund) {
     switch (befund.kind) {
-      case _AuthErrorKind.quotaExhausted:
+      case AuthErrorKind.quotaExhausted:
         return _OtpSendThrottle.quotaCooldown;
-      case _AuthErrorKind.sendThrottled:
+      case AuthErrorKind.sendThrottled:
         final genannt = befund.retryAfter ?? Duration.zero;
         return genannt > _OtpSendThrottle.cooldown
             ? genannt
             : _OtpSendThrottle.cooldown;
-      case _AuthErrorKind.rateLimited:
+      case AuthErrorKind.rateLimited:
         return _OtpSendThrottle.cooldown;
-      case _AuthErrorKind.unavailable:
-      case _AuthErrorKind.offline:
-      case _AuthErrorKind.codeRejected:
-      case _AuthErrorKind.unknown:
+      // A 5xx says nothing about sending: locking the button for it would
+      // punish the user for a server outage.
+      case AuthErrorKind.serverFault:
+      case AuthErrorKind.unavailable:
+      case AuthErrorKind.offline:
+      case AuthErrorKind.emailTaken:
+      case AuthErrorKind.emailInvalid:
+      case AuthErrorKind.passwordSameAsOld:
+      case AuthErrorKind.passwordWeak:
+      case AuthErrorKind.codeRejected:
+      case AuthErrorKind.unknown:
         return Duration.zero;
     }
   }
@@ -728,7 +624,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
     try {
       await versand();
     } catch (error) {
-      final sperre = _sperrDauer(_classifyAuthError(error));
+      final sperre = _sperrDauer(classifyAuthError(error));
       if (sperre > Duration.zero) {
         // [trotzdem] carries into the new stamp: the escape is one per lock,
         // and a failed escape must not hand out the next one.
@@ -843,7 +739,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
       } catch (error) {
         // Only a truly REJECTED code counts: a network or throttle error means
         // the server never checked it.
-        if (_classifyAuthError(error).kind == _AuthErrorKind.codeRejected) {
+        if (classifyAuthError(error).kind == AuthErrorKind.codeRejected) {
           _countFailedAttempt(email);
           if (_locked) {
             // This attempt just triggered the lockout; from here the standing

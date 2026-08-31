@@ -20,27 +20,67 @@ import 'sync_error_messages.dart';
 /// public.chat_messages (RLS scopes it to the user), invokes the function,
 /// reads the counter via get_chat_quota_today, and manages sessions by RPC.
 class CoachChatService {
-  CoachChatService(this._client, this._userId);
+  /// [chatFrist], [rezeptFrist] and [fristPuffer] exist for the test suite
+  /// alone and default to the constants below. The real deadlines are minutes
+  /// long, so no test can sit one out; the timing cases run the same ledger at
+  /// a fraction of its scale, with their numbers still DERIVED from
+  /// [chatDeadline] / [recipeDeadline] so a changed constant changes the case.
+  CoachChatService(
+    this._client,
+    this._userId, {
+    Duration? chatFrist,
+    Duration? rezeptFrist,
+    Duration? fristPuffer,
+  })  : _chatFrist = chatFrist ?? chatDeadline,
+        _rezeptFrist = rezeptFrist ?? recipeDeadline,
+        _fristPuffer = fristPuffer ?? _deadlineGrace;
 
   final SupabaseClient _client;
   final String _userId;
+  final Duration _chatFrist;
+  final Duration _rezeptFrist;
+  final Duration _fristPuffer;
 
   // -------------------------------------------------------------------------
   // Deadlines
   // -------------------------------------------------------------------------
   /// Deadline for a plain coach question.
   ///
-  /// The function budgets 15 s for the safety classification plus 45 s for the
-  /// answer (`PROVIDER_TIMEOUTS_MS` in handler.ts), so 75 s outlasts the server
-  /// by the same 15 s of headroom `HttpTimeoutPolicy.mealAnalysis` gives
-  /// analyze-meal. Without any deadline a network switch left the future
-  /// hanging until the OS tore the connection down, and the composer stayed
-  /// dead the whole time.
-  static const Duration chatDeadline = Duration(seconds: 75);
+  /// Calibrated against what the SERVER can really spend, not against its
+  /// provider caps alone. `coach-chat` has no request budget of its own —
+  /// unlike analyze-meal, whose `ANALYZE_MEAL_REQUEST_BUDGET_MS` (55 s) is
+  /// exactly what `HttpTimeoutPolicy.mealAnalysis` is derived from. Only the
+  /// two provider round trips are capped (`PROVIDER_TIMEOUTS_MS` in handler.ts:
+  /// 15 s classify + 45 s answer); the ten Supabase hops around them —
+  /// /auth/v1/user, both request gates, the auth-fail gate, loadHistory,
+  /// claim_chat_quota, the two stores, maybeAutoTitle, touchSession — carry a
+  /// per-call deadline at best and no sum at all, so they come on top. The
+  /// ledger:
+  ///
+  ///     15 s  connect plus body upload (an image may ride along; the same
+  ///           allowance `mealAnalysis` budgets for its upload)
+  ///   + 15 s  those ten round trips (one client-side PostgREST timeout)
+  ///   + 60 s  the two provider caps
+  ///   +  5 s  the small JSON answer coming back
+  ///   = 95 s
+  ///
+  /// The old 75 s claimed "15 s of headroom over the server" but covered the
+  /// two caps only, so 14 s of upload plus a provider using its full budget cut
+  /// the connection while the server was still writing an answer it had already
+  /// charged a daily slot for. Move this together with `PROVIDER_TIMEOUTS_MS` —
+  /// and keep [_nachzuegler] either way: while the server has no total budget,
+  /// no client-side number can be the right one.
+  ///
+  /// Without any deadline at all a network switch left the future hanging until
+  /// the OS tore the connection down, and the composer stayed dead meanwhile.
+  static const Duration chatDeadline = Duration(seconds: 95);
 
-  /// Deadline for /recipe: three provider round trips (15 s classification +
-  /// 45 s draft + 30 s image) plus the base64 image travelling back.
-  static const Duration recipeDeadline = Duration(seconds: 120);
+  /// Deadline for /recipe: the same ledger as [chatDeadline] with three provider
+  /// round trips (15 s classification + 45 s draft + 30 s image = 90 s) and a
+  /// base64 image travelling back, which gets 15 s instead of 5 s —
+  /// 15 + 15 + 90 + 15 = 135 s. The old 120 s left 30 s for everything that is
+  /// not a provider call, which the upload and the DB hops eat by themselves.
+  static const Duration recipeDeadline = Duration(seconds: 135);
 
   /// Grace the outer `timeout` gets on top of the abort signal. The signal is
   /// the clean exit (it tears the socket down); the timeout is the guarantee,
@@ -80,8 +120,120 @@ class CoachChatService {
       if (!abbruch.isCompleted) abbruch.complete();
     });
     return aufruf(abbruch.future)
-        .timeout(frist + _deadlineGrace)
+        .timeout(frist + _fristPuffer)
         .whenComplete(wecker.cancel);
+  }
+
+  // -------------------------------------------------------------------------
+  // After the deadline: did the request land anyway?
+  // -------------------------------------------------------------------------
+  /// Clock-skew allowance for [_nachzuegler].
+  ///
+  /// `created_at` is server time, the send started on the device clock. Wide
+  /// enough that a few minutes of skew never hide a real straggler, narrow
+  /// enough that the same question asked earlier today is never replayed as the
+  /// answer to this one.
+  static const Duration _uhrenversatz = Duration(minutes: 5);
+
+  /// The answer to [gesendet] when the server finished after the client gave
+  /// up — null if it did not, or if that cannot be established.
+  ///
+  /// A deadline hit says nothing about whether the request died. The function
+  /// claims the non-refundable daily slot BEFORE the first provider call and
+  /// has no total budget, so a cut-off connection typically leaves a spent
+  /// slot, a fully persisted exchange, and nothing missing but the response.
+  /// Reporting "not sent" then invites a retry that claims a SECOND of the five
+  /// daily slots and writes the same question into the transcript twice.
+  ///
+  /// So the transcript gets asked before the timeout is reported. Accepted only
+  /// when the last two rows of the session are exactly this question and an
+  /// answer to it, and that answer is young enough to belong to this attempt.
+  /// Anything else — a failing lookup included — returns null and the timeout
+  /// stands: missing proof is not proof of the opposite.
+  Future<ChatMessage?> _nachzuegler({
+    required String sessionId,
+    required String gesendet,
+    required DateTime begonnen,
+  }) async {
+    final List<ChatMessage> verlauf;
+    try {
+      verlauf = await loadHistory(sessionId, limit: 2);
+    } catch (_) {
+      // Already logged and reported by loadHistory; here it only means the
+      // straggler cannot be proven.
+      return null;
+    }
+    if (verlauf.length < 2) return null;
+    final antwort = verlauf[verlauf.length - 1];
+    final frage = verlauf[verlauf.length - 2];
+    if (antwort.role != ChatRole.assistant || frage.role != ChatRole.user) {
+      return null;
+    }
+    if (frage.content.trim() != gesendet.trim()) return null;
+    if (antwort.content.trim().isEmpty) return null;
+    if (antwort.createdAt.isBefore(begonnen.subtract(_uhrenversatz))) {
+      return null;
+    }
+    return antwort;
+  }
+
+  /// The deadline's verdict for [send]: the straggler if the server finished
+  /// anyway, otherwise the timeout the caller has always seen.
+  ///
+  /// `remaining` and `dailyLimit` stay null on purpose. Both are unknown here,
+  /// and the screen reads a null `remaining` as "keep the counter you have" —
+  /// exactly what it did on the old error path, so nothing regresses. Fetching
+  /// the counter would add a second round trip to an already slow request and,
+  /// as long as the server has not named COACH_DAILY_LIMIT itself, would only
+  /// echo the client's own assumption back at the user.
+  Future<CoachChatReply> _antwortNachFrist(
+    String sessionId,
+    String gesendet,
+    DateTime begonnen,
+  ) async {
+    final antwort = await _nachzuegler(
+      sessionId: sessionId,
+      gesendet: gesendet,
+      begonnen: begonnen,
+    );
+    if (antwort == null) throw CoachChatException(_l10n.coachErrorTimeout);
+    return CoachChatReply(
+      reply: antwort.content,
+      refusal: antwort.refusal,
+      sessionId: sessionId,
+    );
+  }
+
+  /// [requestRecipe]'s counterpart to [_antwortNachFrist].
+  ///
+  /// The persisted row carries the recipe JSON but never the image
+  /// (`handleRecipeMode` stores none, same rule as for user photos), so the
+  /// card comes back without its picture — the placeholder state a second
+  /// device shows anyway. A row that is neither a refusal nor a recipe is no
+  /// answer to a wish, so the timeout stands.
+  Future<CoachRecipeReply> _rezeptNachFrist(
+    String sessionId,
+    String wunsch,
+    DateTime begonnen,
+  ) async {
+    final antwort = await _nachzuegler(
+      sessionId: sessionId,
+      gesendet: wunsch,
+      begonnen: begonnen,
+    );
+    final vorschlag = antwort?.recipeProposal;
+    if (antwort == null || (vorschlag == null && !antwort.refusal)) {
+      throw CoachChatException(_l10n.coachErrorTimeout);
+    }
+    return CoachRecipeReply(
+      reply: antwort.content,
+      refusal: antwort.refusal,
+      proposal: vorschlag,
+      sessionId: sessionId,
+      // Key of the local image store. The bytes are gone with the response, so
+      // the card renders its placeholder until /recipe runs again.
+      assistantMessageId: antwort.id.isEmpty ? null : antwort.id,
+    );
   }
 
   /// Locale pack for the user-visible fallback error texts. Set via setter
@@ -361,9 +513,12 @@ class CoachChatService {
     String? imageMimeType,
     String? userContext,
   }) async {
+    // Reference point for [_nachzuegler]: everything it may accept as this
+    // request's answer has to be younger than the request itself.
+    final begonnen = DateTime.now();
     try {
       final res = await _mitFrist(
-        chatDeadline,
+        _chatFrist,
         (abbruch) => _client.functions.invoke(
           'coach-chat',
           body: {
@@ -413,13 +568,14 @@ class CoachChatService {
       rethrow;
     } on TimeoutException catch (e, stack) {
       // Deadline hit. Deliberately unreported, like the offline case: a slow
-      // network or a slow provider is not an outage only we can see.
+      // network or a slow provider is not an outage only we can see. Whether
+      // this is an error at all is decided by the transcript, not by the clock.
       _logSendFailure(e, stack);
-      throw CoachChatException(_l10n.coachErrorTimeout);
+      return _antwortNachFrist(sessionId, message, begonnen);
     } on RequestAbortedException catch (e, stack) {
       // Same deadline, taken by the abort signal instead of the timeout.
       _logSendFailure(e, stack);
-      throw CoachChatException(_l10n.coachErrorTimeout);
+      return _antwortNachFrist(sessionId, message, begonnen);
     } on FunctionsHttpException catch (e, stack) {
       // The edge function itself answered with a non-2xx status.
       _logSendFailure(e, stack);
@@ -460,9 +616,11 @@ class CoachChatService {
     required String sessionId,
     required String locale,
   }) async {
+    // As in [send]: reference point for [_nachzuegler].
+    final begonnen = DateTime.now();
     try {
       final res = await _mitFrist(
-        recipeDeadline,
+        _rezeptFrist,
         (abbruch) => _client.functions.invoke(
           'coach-chat',
           body: {
@@ -528,12 +686,13 @@ class CoachChatService {
     } on CoachChatException {
       rethrow;
     } on TimeoutException catch (e, stack) {
-      // As in [send]: the deadline, deliberately unreported.
+      // As in [send]: the deadline, deliberately unreported, and the transcript
+      // decides whether the slot was spent for nothing.
       _logSendFailure(e, stack);
-      throw CoachChatException(_l10n.coachErrorTimeout);
+      return _rezeptNachFrist(sessionId, wish, begonnen);
     } on RequestAbortedException catch (e, stack) {
       _logSendFailure(e, stack);
-      throw CoachChatException(_l10n.coachErrorTimeout);
+      return _rezeptNachFrist(sessionId, wish, begonnen);
     } on FunctionsHttpException catch (e, stack) {
       _logSendFailure(e, stack);
       if (_statusIstVorfall(e.status)) _melde('coach.recipe.http', e, stack);

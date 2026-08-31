@@ -62,20 +62,48 @@ const OPENROUTER_TIMEOUT_MS = 45_000;
 // HttpTimeoutPolicy.mealAnalysis.total first — eatova_http_test.dart reads the
 // default below out of this file and turns red if the two drift apart.
 const REQUEST_BUDGET_MS = positiveIntFromEnv('ANALYZE_MEAL_REQUEST_BUDGET_MS', 55_000, 55_000);
-// Ceiling for ONE Supabase roundtrip (auth lookup, one rate-limit RPC, the
-// fail bucket). 5 s x 5 calls = 25 s worst case, which still leaves the
-// provider 30 s of the budget.
-const SUPABASE_TIMEOUT_MS = positiveIntFromEnv('ANALYZE_MEAL_SUPABASE_TIMEOUT_MS', 5_000, 120_000);
-// P6-01b: ceiling for reading the request body. This is the ONE stage the
-// client paces, and until it had a limit it was the way around the budget:
-// upload the body in slow chunks until REQUEST_BUDGET_MS is nearly spent, sail
-// through the fast day gates and leave the provider a few milliseconds — a
-// burnt slot in the shared bill cap at no model cost, i.e. exactly the
-// "outage for everyone without paying" class P6-01 closed for junk bodies.
-const BODY_READ_TIMEOUT_MS = positiveIntFromEnv('ANALYZE_MEAL_BODY_READ_TIMEOUT_MS', 15_000, 120_000);
 // A provider call below this is not worth making, so the body read has to
 // leave it (plus the two day gates that run in between) behind.
 const MIN_PROVIDER_MS = 15_000;
+// P6-01c: the upload window an honest client must keep, whatever an operator
+// configures. 300 kbit/s is a bad but real mobile uplink and a 0.6 MB photo is
+// ~0.8 MB as base64, i.e. ~21 s on the wire — a window below that rejects
+// pictures the client itself considers fine (its own cap is 5 MB). Used twice:
+// as the divisor of the Supabase ceiling below and as the line whose crossing
+// gets logged in bodyReadBudget().
+const MIN_UPLOAD_WINDOW_MS = 25_000;
+// Ceiling for ONE Supabase roundtrip (auth lookup, one rate-limit RPC, the
+// fail bucket). 5 s x 5 calls = 25 s worst case, which still leaves the
+// provider 30 s of the budget.
+// The env ceiling is DERIVED, not a round number: bodyReadBudget() reserves
+// TWO of these roundtrips plus MIN_PROVIDER_MS, so every second added here
+// costs the upload two. At the old flat ceiling of 120 s any value from ~19 s
+// up — a plausible reaction to a slow PostgREST — silently collapsed the
+// upload window onto MIN_BODY_READ_MS and answered 408 to every photo, with
+// the hourly gates already spent and no refund. Above the ceiling the value is
+// ignored with a warning (../_shared/env.ts) and the default applies.
+// This bounds the CONFIGURED share only; stages that actually run slowly still
+// eat into the window, which is why bodyReadBudget() also logs.
+const SUPABASE_TIMEOUT_CEILING_MS = Math.max(
+  1_000,
+  Math.floor((REQUEST_BUDGET_MS - MIN_PROVIDER_MS - MIN_UPLOAD_WINDOW_MS) / 2),
+);
+const SUPABASE_TIMEOUT_MS = positiveIntFromEnv(
+  'ANALYZE_MEAL_SUPABASE_TIMEOUT_MS',
+  5_000,
+  SUPABASE_TIMEOUT_CEILING_MS,
+);
+// P6-01b: ceiling for a GAP in the request body — how long the server waits
+// for the NEXT chunk, re-armed on every one. Deliberately NOT the total: this
+// is the ONE stage the client paces, and until it had a limit it was the way
+// around the budget (upload in slow chunks until REQUEST_BUDGET_MS is nearly
+// spent, sail through the fast day gates and leave the provider a few
+// milliseconds — a burnt slot in the shared bill cap at no model cost). As a
+// single wall-clock cap it closed that hole by also rejecting honest slow
+// uplinks: 15 s carries ~562 kB at 300 kbit/s, so a normal photo timed out.
+// What deserves a cap is a HANGING upload; the total is capped separately, out
+// of the request budget, by bodyReadBudget().
+const BODY_READ_IDLE_MS = positiveIntFromEnv('ANALYZE_MEAL_BODY_READ_TIMEOUT_MS', 15_000, 120_000);
 // Floor for the body read: a deliberately small REQUEST_BUDGET_MS must slow
 // honest uploads down, not reject them. Capped by the remaining budget, so it
 // can never push the total past it.
@@ -223,18 +251,38 @@ function isTimeout(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'TimeoutError';
 }
 
+/** Two different clocks for one stream (P6-01b): `idleMs` bounds the wait for
+ *  the NEXT chunk and starts over on every one, `totalMs` bounds the read as a
+ *  whole and never does. Slow is allowed, stalled and endless are not. */
+type BodyReadBudget = { idleMs: number; totalMs: number };
+
 /**
- * Time the body read may take (P6-01b): its own ceiling, reduced by what the
- * stages behind it still need, never below MIN_BODY_READ_MS and never beyond
- * what is left of the budget. All three inputs are server-side, so what the
- * day gates and the provider see afterwards is no longer client-steerable.
+ * Time the body read may take (P6-01b): what is left of the budget minus what
+ * the stages behind it still need, never below MIN_BODY_READ_MS and never
+ * beyond the remainder itself. Both inputs are server-side, so what the day
+ * gates and the provider see afterwards is not client-steerable.
  */
-function bodyReadBudgetMs(deadline: Deadline): number {
+function bodyReadBudget(deadline: Deadline, requestId: string): BodyReadBudget {
   const remaining = deadline.remainingMs();
   // Behind the read: analyze-meal:user-day, analyze-meal:global, provider.
   const reserve = 2 * SUPABASE_TIMEOUT_MS + MIN_PROVIDER_MS;
-  const spare = Math.max(MIN_BODY_READ_MS, remaining - reserve);
-  return Math.max(1, Math.min(BODY_READ_TIMEOUT_MS, spare, remaining));
+  const spare = remaining - reserve;
+  const totalMs = Math.max(1, Math.min(Math.max(MIN_BODY_READ_MS, spare), remaining));
+  if (totalMs < MIN_UPLOAD_WINDOW_MS) {
+    // P6-01c: the floor exists so a tight budget SLOWS honest uploads, and
+    // silence used to let it reject them instead. An operator seeing this line
+    // repeatedly has either shortened REQUEST_BUDGET_MS too far or has stages
+    // in front of the read that are slower than their configured share.
+    console.warn('analyze-meal upload window below minimum', {
+      requestId,
+      totalMs,
+      minMs: MIN_UPLOAD_WINDOW_MS,
+      remainingMs: remaining,
+      reserveMs: reserve,
+    });
+  }
+  // An idle gap longer than the whole window would never be the binding one.
+  return { idleMs: Math.max(1, Math.min(BODY_READ_IDLE_MS, totalMs)), totalMs };
 }
 
 /**
@@ -478,13 +526,14 @@ function enforceContentLength(request: Request) {
   }
 }
 
-// Streams the body and gives up on two counts: at maxBytes (null = too large)
-// before it is fully in memory, and — P6-01b — at budgetMs, because the client
-// decides how slowly the bytes arrive (408, see the throw site).
+// Streams the body and gives up on three counts: at maxBytes (null = too
+// large) before it is fully in memory, and — P6-01b — on either of the two
+// clocks in BodyReadBudget, because the client decides how slowly the bytes
+// arrive (408, see the throw site).
 async function readBodyLimited(
   request: Request,
   maxBytes: number,
-  budgetMs: number,
+  budget: BodyReadBudget,
   requestId: string,
 ): Promise<string | null> {
   if (!request.body) return '';
@@ -492,21 +541,42 @@ async function readBodyLimited(
   const chunks: Uint8Array[] = [];
   let total = 0;
 
+  const endsAt = Date.now() + Math.max(1, budget.totalMs);
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let expire!: (error: unknown) => void;
   const expired = new Promise<never>((_resolve, reject) => {
+    expire = reject;
+  });
+
+  /** (Re)starts the clock: whichever of the two bounds runs out first wins.
+   *  Called once before the first read and again after every chunk — progress
+   *  buys time, a stall does not. */
+  function arm(): void {
+    clearTimeout(timer);
+    const untilTotal = endsAt - Date.now();
+    // Decided here, not when it fires: the shorter bound is the one armed.
+    const reason = untilTotal > budget.idleMs ? 'idle' : 'budget';
     timer = setTimeout(() => {
-      // Operator signal: separates a slow uploader from a budget that earlier
-      // stages already spent (bytesRead stays near 0 in the second case).
-      console.warn('analyze-meal body read timeout', { requestId, budgetMs, bytesRead: total });
+      // Operator signal: 'idle' is an upload that stopped mid-stream, 'budget'
+      // one that stayed inside every gap but ran out of request budget — and
+      // bytesRead near 0 with 'budget' means earlier stages spent it.
+      console.warn('analyze-meal body read timeout', {
+        requestId,
+        reason,
+        idleMs: budget.idleMs,
+        totalMs: budget.totalMs,
+        bytesRead: total,
+      });
       // 408, not 413: nothing here is about size. RFC 9110 15.5.9 is exactly
       // this case — the server did not get a complete request within the time
       // it was prepared to wait. A 413 would tell the client to send a smaller
       // photo, which fixes nothing when the upload is merely slow.
-      reject(new HttpError(408, 'request_timeout', 'Anfrage hat zu lange gedauert. Bitte erneut versuchen.'));
-    }, Math.max(1, budgetMs));
-  });
+      expire(new HttpError(408, 'request_timeout', 'Anfrage hat zu lange gedauert. Bitte erneut versuchen.'));
+    }, Math.max(1, Math.min(budget.idleMs, untilTotal)));
+  }
 
   try {
+    arm();
     while (true) {
       const pending = reader.read();
       // The losing side of the race stays unobserved; without this a later
@@ -521,6 +591,7 @@ async function readBodyLimited(
         return null;
       }
       chunks.push(value);
+      arm();
     }
   } catch (error) {
     // Release the stream: an open reader would keep the isolate busy with an
@@ -581,18 +652,24 @@ async function authenticateUser(request: Request, secrets: Secrets, deadline: De
     // IP before the 401 — only here, never for the local rejections above or
     // the unusable-id case below. Rules in ../_shared/auth_fail_gate.ts.
     //
-    // The helper is shared by three functions and takes no signal, so its
-    // deadline is applied here. Timing out means "not limited", exactly what
-    // it reports for any other limiter problem: a damper must never swallow
-    // the honest 401.
+    // Timing out means "not limited", exactly what the helper reports for any
+    // other limiter problem: a damper must never swallow the honest 401.
+    //
+    // Two layers, because they bound different things: `signal` aborts the RPC
+    // itself, so a stalled PostgREST cannot keep the isolate alive after the
+    // response went out; `withDeadline` bounds the WAIT, so we answer even if
+    // the abort is slow to surface. The signal is the one that matters here —
+    // without it the fetch outlives the request (see ../_shared/auth_fail_gate.ts).
+    const gateBudgetMs = Math.min(SUPABASE_TIMEOUT_MS, deadline.remainingMs());
     const gate = await withDeadline(
       authFailGate({
         supabaseUrl: secrets.supabaseUrl,
         serviceKey: secrets.serviceKey,
         scope: 'analyze-meal:auth-fail',
         subject: clientIpSubject(request, 'anon'),
+        signal: AbortSignal.timeout(Math.max(1, gateBudgetMs)),
       }),
-      Math.min(SUPABASE_TIMEOUT_MS, deadline.remainingMs()),
+      gateBudgetMs,
       { limited: false },
     );
     if (gate.limited) {
@@ -609,7 +686,21 @@ async function authenticateUser(request: Request, secrets: Secrets, deadline: De
     throw new HttpError(401, 'invalid_user_token', 'Bitte erneut anmelden.');
   }
 
-  const user = await response.json() as Partial<AuthUser>;
+  let user: Partial<AuthUser>;
+  try {
+    user = await response.json() as Partial<AuthUser>;
+  } catch (error) {
+    // P6-07: the step signal covers the BODY too, and GoTrue answers with its
+    // headers long before it is done — a stalled body aborts exactly here.
+    // Outside this try it was a bare DOMException, so the outer catch turned
+    // the designed outage answer into 500 internal_error without a word about
+    // which stage failed.
+    if (isTimeout(error)) {
+      console.error('auth lookup body timeout', { timeoutMs: SUPABASE_TIMEOUT_MS });
+      throw new HttpError(503, 'auth_unavailable', 'Anmeldung gerade nicht prüfbar. Bitte erneut versuchen.');
+    }
+    throw error;
+  }
   if (typeof user.id !== 'string' || user.id.length < 10) {
     throw new HttpError(401, 'invalid_user_token', 'Bitte erneut anmelden.');
   }
@@ -656,7 +747,21 @@ async function consumeRateLimit(
     throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
   }
 
-  const data = await response.json() as Partial<RateLimitResult>;
+  let data: Partial<RateLimitResult>;
+  try {
+    data = await response.json() as Partial<RateLimitResult>;
+  } catch (error) {
+    // Same case as the hanging fetch above: PostgREST sends 200 and its
+    // headers, then stalls on the row. Outside this try the step signal's
+    // DOMException reached the outer catch as 500 internal_error — the right
+    // status by accident, the wrong code, and no operator line naming the
+    // limiter. It still fails CLOSED: no slipping through to the paid call.
+    if (isTimeout(error)) {
+      console.error(`consume_edge_rate_limit (${scope}) body timeout`);
+      throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
+    }
+    throw error;
+  }
   // Sentinel E6, same guard as search-key and coach-chat: a broken response
   // shape is a limiter outage, not a measured limit.
   if (typeof data.allowed !== 'boolean') {
@@ -681,7 +786,7 @@ async function parseBody(request: Request, deadline: Deadline, requestId: string
   // Capped server-side rather than trusting content-length
   // (enforceContentLength is only the cheap fast path), and capped in TIME as
   // well: bytes and seconds are two different budgets (P6-01b).
-  const raw = await readBodyLimited(request, MAX_CONTENT_LENGTH, bodyReadBudgetMs(deadline), requestId);
+  const raw = await readBodyLimited(request, MAX_CONTENT_LENGTH, bodyReadBudget(deadline, requestId), requestId);
   if (raw === null) {
     throw new HttpError(413, 'payload_too_large', 'Bild ist zu groß. Bitte kleineres Foto wählen.');
   }

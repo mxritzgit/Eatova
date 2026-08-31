@@ -1,10 +1,16 @@
-// P10-07 — a clean empty answer must not be overwritten by a later error.
+// When is "nothing found" an answer, and when is it a lie?
 //
-// `OpenFoodFactsProductService.searchProducts` walks `de` and then `world`.
-// `lastError` used to live OUTSIDE that loop, so an empty (but perfectly
-// valid) `de` answer followed by a 502 from `world` threw: the user got an
-// error message instead of the empty view with the "add manually" offer — and
-// the error dragged the sheet's three retries along with it.
+// `OpenFoodFactsProductService.searchProducts` walks `de`, then `world`.
+// P10-07 let ONE cleanly empty leg speak for the whole chain
+// (`cleanlyEmpty || lastError == null`). Review 2026-08-31 (finding G)
+// narrowed that: empty counts only when EVERY leg walked answered. A leg that
+// failed leaves its catalog unknown, and unknown is not empty — the add sheet
+// caches an authoritative `[]` as "known empty" for its whole lifetime, and
+// the schema alarm in FallbackProductService only ever sees what is thrown.
+//
+// One carve-out stays (P10-02): when the CHAIN budget runs out, it was not a
+// source that failed but our own budget, so the clean answer already in hand
+// stands (that case lives in produktsuche_gesamtfrist_test.dart).
 //
 // Real loopback servers, real bytes: the whole point is the interplay of
 // status code, JSON body and the loop's bookkeeping, which a Dart map fake
@@ -65,7 +71,7 @@ class _SuchStub {
 
 void main() {
   test(
-    'leeres de plus 502 bei world ergibt "nichts gefunden", keinen Fehler',
+    'leeres de plus 502 bei world ist KEIN "nichts gefunden"',
     () async {
       final stub = await _SuchStub.start(<String, ({int status, String body})>{
         'de': (status: 200, body: _SuchStub.leer),
@@ -73,24 +79,44 @@ void main() {
       });
       addTearDown(stub.close);
 
-      final treffer = await OpenFoodFactsProductService(
-        searchBaseUrls: stub.searchBaseUrls,
-      ).searchProducts('bauernmozzarella');
-
-      expect(
-        treffer,
-        isEmpty,
-        reason: 'de hat sauber geantwortet — das ist eine Auskunft, '
-            'kein Fehler',
+      await expectLater(
+        OpenFoodFactsProductService(
+          searchBaseUrls: stub.searchBaseUrls,
+        ).searchProducts('bauernmozzarella'),
+        throwsA(isA<HttpException>()),
+        reason: 'de kennt nur den deutschen Katalog — solange world schweigt, '
+            'ist "gibt es nicht" eine Behauptung ueber einen Katalog, den '
+            'niemand gelesen hat',
       );
       expect(stub.gefragt, <String>['de', 'world']);
     },
   );
 
-  test('502 bei de plus leeres world ergibt ebenfalls "nichts gefunden"',
+  test('502 bei de plus leeres world ist ebenfalls kein "nichts gefunden"',
       () async {
+    // The same rule the other way round: one clean answer does not heal the
+    // leg next to it. The service only knows an ordered list of endpoints, not
+    // a promise that the last one covers the first one's catalog.
     final stub = await _SuchStub.start(<String, ({int status, String body})>{
       'de': (status: 502, body: '<html>bad gateway</html>'),
+      'world': (status: 200, body: _SuchStub.leer),
+    });
+    addTearDown(stub.close);
+
+    await expectLater(
+      OpenFoodFactsProductService(
+        searchBaseUrls: stub.searchBaseUrls,
+      ).searchProducts('bauernmozzarella'),
+      throwsA(isA<HttpException>()),
+    );
+    expect(stub.gefragt, <String>['de', 'world']);
+  });
+
+  test('beide Beine sauber leer -> [] ohne Wurf', () async {
+    // The counter-check against overcorrection: a genuine non-hit is the
+    // search's normal outcome and must never come back as an error.
+    final stub = await _SuchStub.start(<String, ({int status, String body})>{
+      'de': (status: 200, body: _SuchStub.leer),
       'world': (status: 200, body: _SuchStub.leer),
     });
     addTearDown(stub.close);

@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../config/legal_links.dart';
 import '../../app/locale_controller.dart';
@@ -531,10 +530,9 @@ class _LegalRow extends StatelessWidget {
       title: title,
       chevron: false,
       trailing: Icon(Icons.open_in_new_rounded, size: 15, color: t.ink2),
-      onTap: () => launchUrl(
-        Uri.parse(url),
-        mode: LaunchMode.externalApplication,
-      ),
+      // [openLegalLink], not a bare `launchUrl`: a device without a browser
+      // handler otherwise answers a legally required row with nothing (J2).
+      onTap: () => openLegalLink(context, url),
     );
   }
 }
@@ -655,10 +653,7 @@ class _PrivacyLinkRow extends StatelessWidget {
     final t = context.t;
     return InkWell(
       key: const ValueKey('profile-privacy-link'),
-      onTap: () => launchUrl(
-        Uri.parse(kPrivacyUrl),
-        mode: LaunchMode.externalApplication,
-      ),
+      onTap: () => openLegalLink(context, kPrivacyUrl),
       borderRadius: BorderRadius.circular(rControl),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),

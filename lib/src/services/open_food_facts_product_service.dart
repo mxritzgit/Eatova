@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -198,56 +199,78 @@ class OpenFoodFactsProductService implements ProductLookupService {
     );
     try {
       Object? lastError;
-      // An endpoint that answered 2xx with a well-formed, EMPTY product list
-      // has spoken: "not in this index". P10-07 — `lastError` used to live
-      // outside the loop, so an empty `de` followed by a 502 from `world`
-      // threw, and the user saw an error instead of the empty view with the
-      // manual-entry offer (plus three retries on top of it).
-      var cleanlyEmpty = false;
+      // "Nothing found" is an ANSWER, and only the sources can give it — so it
+      // counts as one only when EVERY leg walked actually answered (2xx with a
+      // real product list). A leg that failed leaves its catalog UNKNOWN, and
+      // unknown is not empty (review 2026-08-31, G).
+      //
+      // P10-07 once let a single clean leg speak for the whole chain
+      // (`cleanlyEmpty || lastError == null`), which hid two things behind an
+      // authoritative `[]`: a `world` outage behind an empty `de` — the add
+      // sheet caches such a query as "known empty" for its whole lifetime, so
+      // a product listed only on `world` stayed invisible even after `world`
+      // recovered — and a parse error, whose schema alarm then never reached
+      // the CrashReporter (`FallbackProductService` only classifies what it
+      // catches).
+      var everyLegAnswered = true;
+      // At least one leg said "not in this index". Only relevant for the one
+      // carve-out below, where our own budget cut the walk short.
+      var anyLegAnsweredEmpty = false;
 
       for (final baseUrl in searchBaseUrls) {
-        if (deadline.isExpired) break;
+        if (deadline.isExpired) {
+          everyLegAnswered = false;
+          break;
+        }
         try {
-          final answer = await deadline.guard(
+          final hits = await deadline.guard(
             _searchProductsFromEndpoint(
               client: client,
               baseUrl: baseUrl,
               query: cleanQuery,
             ),
           );
-          if (answer.hits.isNotEmpty) {
-            return answer.hits;
+          if (hits.isNotEmpty) {
+            return hits;
           }
-          // Only a REAL product list counts as "nothing found"; a 2xx without
-          // one is a broken endpoint (see [_searchProductsFromEndpoint]).
-          cleanlyEmpty |= answer.wellFormed;
+          anyLegAnsweredEmpty = true;
         } catch (error) {
           lastError = error;
+          everyLegAnswered = false;
         }
       }
 
-      // Order matters: "nothing found" beats a later leg's error, an error
-      // only wins when NO leg answered cleanly.
-      if (cleanlyEmpty || lastError == null) {
+      if (everyLegAnswered) {
+        // The legitimate empty result: every source answered, none of them
+        // knows the query. This is the one case that must never throw — a real
+        // non-hit is the search's normal outcome, not an error.
         return const <ProductSearchResult>[];
       }
-      throw lastError;
+      if (deadline.isExpired && anyLegAnsweredEmpty) {
+        // Not a source that failed: OUR OWN budget stopped the walk (P10-02).
+        // The chain has already burned its full budget, so throwing would buy
+        // the caller another budget per retry and no new information — the
+        // clean answer in hand stands.
+        return const <ProductSearchResult>[];
+      }
+      throw lastError ??
+          TimeoutException('off.searchProducts', searchChainBudget);
     } finally {
       deadline.dispose();
       client.close(force: true);
     }
   }
 
-  /// One endpoint's answer: the loggable hits, plus whether the response even
-  /// WAS a search response.
+  /// One endpoint's loggable hits — or a throw.
   ///
-  /// The flag is the difference P10-07 turns on: `wellFormed: true` with no
-  /// hits means "not in this index" — an answer — while a 2xx without a
-  /// `products` list (proxy error page, schema change) is a broken endpoint
-  /// that must not silence a later leg's error. Both still fall through to the
-  /// next endpoint.
-  Future<({List<ProductSearchResult> hits, bool wellFormed})>
-  _searchProductsFromEndpoint({
+  /// Exactly two outcomes count as an answer: hits, or an EMPTY list from a
+  /// 2xx with a real `products` list ("not in this index"). Everything else
+  /// throws, including a 2xx WITHOUT that list, because a proxy error page or
+  /// a changed schema is a broken endpoint, not an empty search. The caller
+  /// catches either way and walks on to the next endpoint; the difference is
+  /// that a throw keeps the overall result from passing as authoritative
+  /// empty.
+  Future<List<ProductSearchResult>> _searchProductsFromEndpoint({
     required HttpClient client,
     required String baseUrl,
     required String query,
@@ -280,7 +303,14 @@ class OpenFoodFactsProductService implements ProductLookupService {
     final decoded = jsonDecode(response.body) as Map<String, dynamic>;
     final products = decoded['products'];
     if (products is! List) {
-      return (hits: const <ProductSearchResult>[], wellFormed: false);
+      // An empty search answers `products: []`, so a 2xx without that list is
+      // a proxy error page or a schema change. [FormatException], like the
+      // `jsonDecode` above: it lands in `FallbackProductService`'s UNEXPECTED
+      // branch and reaches the CrashReporter, which an [HttpException] — an
+      // IOException, and thus expected network noise there — would not.
+      throw const FormatException(
+        'OpenFoodFacts search returned no product list.',
+      );
     }
 
     // A loop, not a map/where chain: the plausibility filter needs the raw
@@ -302,10 +332,7 @@ class OpenFoodFactsProductService implements ProductLookupService {
       }
       treffer.add(hit);
     }
-    return (
-      hits: List<ProductSearchResult>.unmodifiable(treffer),
-      wellFormed: true,
-    );
+    return List<ProductSearchResult>.unmodifiable(treffer);
   }
 
   /// Raw kcal/100 g straight from the OFF record.

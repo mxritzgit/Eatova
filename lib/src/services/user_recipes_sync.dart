@@ -16,6 +16,14 @@ class UserRecipesSync {
 
   /// Generous cap for user recipes (newest first). Recipes are created one by
   /// one, so 200 is far above any real count but bounds the boot read.
+  ///
+  /// "Far above" is a guess, not a guarantee — the table itself allows 5000
+  /// (migration 20260829120000). A caller that gets exactly this many rows
+  /// holds a WINDOW on the newest recipes, not the collection, and must not
+  /// conclude anything from an entry it does not see: `HomeStore` turns a full
+  /// page into `userRecipesAuthoritative == false`, which stops the orphan
+  /// photo sweep from deleting the older recipes' photos (review 2026-08-31,
+  /// A).
   static const int userRecipesLimit = 200;
 
   Future<List<FitnessRecipe>> load() async {

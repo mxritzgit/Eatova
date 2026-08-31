@@ -83,6 +83,8 @@ interface StubOptions {
   globalAllowed?: boolean;
   /** Substrings of URLs whose fetch never answers on its own. */
   hangOn?: ('auth' | 'gate' | 'auth-fail' | 'prune' | 'openrouter')[];
+  /** Routes that answer 200 WITH HEADERS and then stall on the body (P6-07b). */
+  stallBodyOn?: ('auth' | 'gate')[];
 }
 
 interface FetchStub {
@@ -111,10 +113,35 @@ function hang(signal: AbortSignal | null | undefined): Promise<Response> {
   });
 }
 
+/**
+ * The other half of a hanging call: headers arrive at once, the BODY then
+ * stalls — GoTrue and PostgREST both answer that way under load. The stream is
+ * errored with the signal's OWN reason, exactly as a real fetch aborts a body
+ * mid-read, so `await response.json()` sees the step signal's DOMException.
+ */
+function stallingBody(signal: AbortSignal | null | undefined, head: string): Response {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(head));
+      if (!signal) return;
+      // try/catch: a body already cancelled by the reader cannot be errored.
+      const fail = () => {
+        try {
+          controller.error(signal.reason);
+        } catch { /* stream already closed */ }
+      };
+      if (signal.aborted) fail();
+      else signal.addEventListener('abort', fail, { once: true });
+    },
+  });
+  return new Response(stream, { status: 200, headers: { 'content-type': 'application/json' } });
+}
+
 function installFetch(options: StubOptions = {}): FetchStub {
   const calls: RecordedCall[] = [];
   const original = globalThis.fetch;
   const hangOn = new Set(options.hangOn ?? []);
+  const stallBodyOn = new Set(options.stallBodyOn ?? []);
 
   function route(call: RecordedCall): Promise<Response> {
     const { url, body, signal } = call;
@@ -123,6 +150,8 @@ function installFetch(options: StubOptions = {}): FetchStub {
       if (options.authStatus !== undefined) {
         return Promise.resolve(jsonRes({ message: 'invalid token' }, options.authStatus));
       }
+      // Opening of a valid identity, never completed.
+      if (stallBodyOn.has('auth')) return Promise.resolve(stallingBody(signal, '{"id":"'));
       return Promise.resolve(jsonRes({ id: USER_ID }));
     }
     if (url.includes('/rest/v1/rpc/consume_edge_rate_limit')) {
@@ -133,6 +162,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
         return Promise.resolve(jsonRes(limitBody(params, true)));
       }
       if (hangOn.has('gate')) return hang(signal);
+      if (stallBodyOn.has('gate')) return Promise.resolve(stallingBody(signal, '{"allowed"'));
       const allowedByScope: Record<string, boolean | undefined> = {
         'analyze-meal:ip': options.ipAllowed,
         'analyze-meal:user': options.userAllowed,
@@ -239,12 +269,87 @@ function makeStreamingRequest(chunks: string[], gapMs: number, endless = false):
   } as RequestInit);
 }
 
+/**
+ * A body the client paces, delivered ON DEMAND: every chunk arrives `gapMs`
+ * after the reader asks for it, so an upload that is merely slow is
+ * distinguishable from one that stopped. With `stall` the stream stays open
+ * after the last chunk and schedules NOTHING — the hanging upload, and no
+ * pending timer at the end of the test. `stop()` clears the one pull that may
+ * still be in flight when the handler has given up.
+ *
+ * No content-length either, so the cheap 413 fast path cannot fire.
+ */
+function makePacedRequest(
+  chunks: string[],
+  gapMs: number,
+  stall = false,
+): { request: Request; stop: () => void } {
+  const encoder = new TextEncoder();
+  let index = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let stopped = false;
+  const stop = () => {
+    stopped = true;
+    clearTimeout(timer);
+  };
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (stopped) return;
+      if (index >= chunks.length) {
+        if (stall) return new Promise<void>(() => {});
+        controller.close();
+        return;
+      }
+      const chunk = chunks[index++];
+      return new Promise<void>((resolve) => {
+        timer = setTimeout(() => {
+          if (!stopped) controller.enqueue(encoder.encode(chunk));
+          resolve();
+        }, gapMs);
+      });
+    },
+    cancel: stop,
+  });
+  const request = new Request('https://edge.test.invalid/analyze-meal', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${USER_JWT}`, 'content-type': 'application/json' },
+    body,
+    // Required for a streamed request body; not in Deno's RequestInit types.
+    ...{ duplex: 'half' },
+  } as RequestInit);
+  return { request, stop };
+}
+
+/** Splits a real request body into `parts` pieces — a chunked upload, not a
+ *  concatenation of made-up fragments. */
+function sliceBody(payload: JsonRecord, parts: number): string[] {
+  const raw = JSON.stringify(payload);
+  const size = Math.ceil(raw.length / parts);
+  const out: string[] = [];
+  for (let offset = 0; offset < raw.length; offset += size) out.push(raw.slice(offset, offset + size));
+  return out;
+}
+
+/** Collects console.warn messages: some of the findings below are ABOUT the
+ *  operator line, not only about the status code. */
+function captureWarnings(): { messages: string[]; restore: () => void } {
+  const original = console.warn;
+  const messages: string[] = [];
+  console.warn = (...args: unknown[]) => {
+    messages.push(String(args[0]));
+  };
+  return { messages, restore: () => { console.warn = original; } };
+}
+
 // One module instance per timing profile. Specifiers must be string literals.
 const LOADERS: Record<string, () => Promise<{ handleRequest: Handler }>> = {
   'quick-steps': () => import('./handler.ts?p6=quick-steps'),
   'tiny-budget': () => import('./handler.ts?p6=tiny-budget'),
   'slow-body': () => import('./handler.ts?p6=slow-body'),
   'day-window': () => import('./handler.ts?p6=day-window'),
+  'slow-supabase': () => import('./handler.ts?p6=slow-supabase'),
+  'tight-budget': () => import('./handler.ts?p6=tight-budget'),
+  'tight-drip': () => import('./handler.ts?p6=tight-drip'),
 };
 
 /** Loads a fresh handler instance with `env` applied for the duration of the
@@ -424,8 +529,8 @@ Deno.test('P6-07: haengendes Rate-Limit-RPC bricht ab statt zu blockieren', asyn
 });
 
 Deno.test('P6-07: haengendes Fail-Bucket blockiert die ehrliche 401 nicht', async () => {
-  // authFailGate lives in _shared and has no signal of its own, so the caller
-  // bounds it. Falling back to "nicht limitiert" is the helper's own outage
+  // Two layers bound this call: the signal aborts the RPC, withDeadline bounds
+  // the wait. Falling back to "nicht limitiert" is the helper's own outage
   // rule: a damper must never swallow the 401.
   const handler = await loadHandler('quick-steps', QUICK_STEPS);
   const stub = installFetch({ authStatus: 401, hangOn: ['auth-fail'] });
@@ -435,6 +540,28 @@ Deno.test('P6-07: haengendes Fail-Bucket blockiert die ehrliche 401 nicht', asyn
     assert(Date.now() - started < 5_000, 'Fail-Bucket lief in kein Zeitlimit');
     assertEquals(res.status, 401, 'Status');
     assertEquals((await res.json() as JsonRecord).error, 'invalid_user_token', 'Fehlercode');
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test('F-31: der Fail-Bucket-Aufruf traegt ein Abbruchsignal', async () => {
+  // withDeadline alone only stops the WAITING - its own doc says "the
+  // underlying request keeps running". A stalled PostgREST would then outlive
+  // the response and keep the isolate alive. The signal is what actually ends
+  // the RPC, so it is the thing worth pinning; the same guarantee is pinned on
+  // the coach-chat and search-key side of the shared helper.
+  const handler = await loadHandler('quick-steps', QUICK_STEPS);
+  const stub = installFetch({ authStatus: 401 });
+  try {
+    await handleWithGuard(handler, makeRequest({ imageBase64: IMAGE_BASE64 }));
+    const gateCalls = stub.calls.filter((call) => call.body.includes('analyze-meal:auth-fail'));
+    assertEquals(gateCalls.length, 1, 'genau ein Fail-Bucket-Aufruf');
+    assert(
+      gateCalls[0].signal instanceof AbortSignal,
+      'der Fail-Bucket-fetch lief ohne AbortSignal - ein stockendes PostgREST ueberlebt die Antwort',
+    );
+    assertEquals(gateCalls[0].signal?.aborted, false, 'das Signal war beim Absenden noch nicht ausgeloest');
   } finally {
     stub.restore();
   }
@@ -553,6 +680,190 @@ Deno.test('P6-03: ANALYZE_MEAL_USER_WINDOW_SECONDS=86400 kommt bei der RPC an', 
     assertEquals(stub.rateLimitParams('analyze-meal:user')?.p_window_seconds, 86400, 'Nutzer-Fenster');
     assertEquals(stub.rateLimitParams('analyze-meal:ip')?.p_window_seconds, 86400, 'IP-Fenster');
   } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// P6-01b/2 (review 2026-08-31, D1): the body ceiling is an IDLE ceiling.
+// One setTimeout for the whole read, never restarted, capped the UPLOAD at
+// 15 s wall clock although the client waits 60 s for this stage. 300 kbit/s
+// with a 0.6 MB photo (~0.8 MB base64, inside the client's own 5 MB cap) is
+// ~21 s on the wire: the honest uplink got a 408 while the hourly IP and user
+// buckets were already spent — consume_edge_rate_limit has no refund, so every
+// retry failed identically. What must be capped is a HANGING upload; the
+// endless one is now stopped by the separate total instead.
+// ---------------------------------------------------------------------------
+
+/** Budget 3000 ms -> the body window lands on MIN_BODY_READ_MS (2 s), the
+ *  smallest total the code allows. */
+const TIGHT_BUDGET = { ANALYZE_MEAL_REQUEST_BUDGET_MS: '3000' };
+
+Deno.test('D1: ein langsamer, aber stetig liefernder Upload laeuft durch', async () => {
+  // 10 chunks 80 ms apart: every GAP stays far below the 400 ms ceiling while
+  // the upload as a whole is twice as long as it. This is the finding — a
+  // single wall-clock timer answered 408 to exactly this client.
+  const handler = await loadHandler('slow-body', SLOW_BODY);
+  const stub = installFetch();
+  const started = Date.now();
+  const paced = makePacedRequest(sliceBody({ imageBase64: IMAGE_BASE64 }, 10), 80);
+  try {
+    const res = await handleWithGuard(handler, paced.request);
+    const elapsed = Date.now() - started;
+    assertEquals(res.status, 200, 'Status');
+    assert(
+      elapsed > 600,
+      `Upload dauerte nur ${elapsed} ms — er hat die Leerlaufgrenze gar nicht ueberschritten`,
+    );
+    assertEquals(stub.rateLimitScopes().join(','), GATE_ORDER, 'Gate-Reihenfolge');
+    assertEquals(stub.callsTo('openrouter.ai').length, 1, 'Provider-Calls');
+  } finally {
+    paced.stop();
+    stub.restore();
+  }
+});
+
+Deno.test('D1: ein Upload, der nach Fortschritt stehen bleibt, endet weiterhin in 408', async () => {
+  // The other half of the same rule: three chunks, then nothing. The clock now
+  // starts over per chunk, so it fires 400 ms after the LAST byte instead of
+  // 400 ms after the first — later, but it still fires.
+  const handler = await loadHandler('slow-body', SLOW_BODY);
+  const stub = installFetch();
+  const started = Date.now();
+  const paced = makePacedRequest(sliceBody({ imageBase64: IMAGE_BASE64 }, 10).slice(0, 3), 80, true);
+  try {
+    const res = await handleWithGuard(handler, paced.request);
+    const elapsed = Date.now() - started;
+    assertEquals(res.status, 408, 'Status');
+    assertEquals((await res.json() as JsonRecord).error, 'request_timeout', 'Fehlercode');
+    assert(elapsed >= 400, `Abbruch nach ${elapsed} ms — die Leerlaufuhr laeuft gar nicht`);
+    assert(elapsed < 3_000, `Abbruch dauerte ${elapsed} ms — der haengende Upload wird nicht gedeckelt`);
+    assertEquals(stub.rateLimitScopes().join(','), ATTEMPT_GATES, 'Gate-Reihenfolge');
+    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+  } finally {
+    paced.stop();
+    stub.restore();
+  }
+});
+
+Deno.test('D1: ein endlos tropfender Upload laeuft in die Gesamtgrenze', async () => {
+  // Counter-check to the idle clock, and the reason it may not stand alone:
+  // 150 ms gaps stay inside the 400 ms idle ceiling forever, so ONLY the
+  // second clock can end this. Without it the slow-chunk route around the
+  // budget from P6-01b would be open again and this would never answer — the
+  // 2 s window here against a drip that would need 4.35 s.
+  const handler = await loadHandler('tight-drip', { ...TIGHT_BUDGET, ...SLOW_BODY });
+  const stub = installFetch();
+  const started = Date.now();
+  const paced = makePacedRequest(sliceBody({ imageBase64: IMAGE_BASE64 }, 30).slice(0, 29), 150, true);
+  try {
+    const res = await handleWithGuard(handler, paced.request);
+    const elapsed = Date.now() - started;
+    assertEquals(res.status, 408, 'Status');
+    assertEquals((await res.json() as JsonRecord).error, 'request_timeout', 'Fehlercode');
+    assert(elapsed >= 1_800, `Abbruch nach ${elapsed} ms — die Gesamtgrenze greift zu frueh`);
+    assertEquals(stub.rateLimitScopes().join(','), ATTEMPT_GATES, 'Gate-Reihenfolge');
+    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+  } finally {
+    paced.stop();
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// P6-07b (review 2026-08-31, D2): the step signal covers the response BODY,
+// and `await response.json()` used to sit OUTSIDE the try that maps its
+// DOMException. GoTrue and PostgREST send their headers fast and can stall on
+// the body afterwards; the abort then landed in the outer catch as a bare
+// 500 internal_error — not the designed outage answer, and without the
+// operator line naming the stage.
+// ---------------------------------------------------------------------------
+
+Deno.test('D2: stockender Auth-Body ergibt 503 auth_unavailable, nicht 500', async () => {
+  const handler = await loadHandler('quick-steps', QUICK_STEPS);
+  const stub = installFetch({ stallBodyOn: ['auth'] });
+  const started = Date.now();
+  try {
+    const res = await handleWithGuard(handler, makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assert(Date.now() - started < 5_000, 'Auth-Body lief in kein Zeitlimit');
+    // Never a 401 and never a 500: the token was never judged, and the client
+    // signs the user out on 401/403 (lib/src/services/meal_analyzer.dart).
+    assertEquals(res.status, 503, 'Status');
+    assertEquals((await res.json() as JsonRecord).error, 'auth_unavailable', 'Fehlercode');
+    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test('D2: stockender Limiter-Body ergibt rate_limit_unavailable, nicht internal_error', async () => {
+  const handler = await loadHandler('quick-steps', QUICK_STEPS);
+  const stub = installFetch({ stallBodyOn: ['gate'] });
+  const started = Date.now();
+  try {
+    const res = await handleWithGuard(handler, makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assert(Date.now() - started < 5_000, 'Limiter-Body lief in kein Zeitlimit');
+    // Same STATUS as the generic failure on purpose (the limiter outage has
+    // always been a 500) — what the finding is about is the CODE the client
+    // maps and the operator line that names the limiter.
+    assertEquals(res.status, 500, 'Status');
+    assertEquals((await res.json() as JsonRecord).error, 'rate_limit_unavailable', 'Fehlercode');
+    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// P6-01c (review 2026-08-31, D3): bodyReadBudget reserves TWO Supabase
+// roundtrips plus MIN_PROVIDER_MS, so every second of
+// ANALYZE_MEAL_SUPABASE_TIMEOUT_MS costs the upload two. At the old flat
+// ceiling of 120 s any value from ~19 s up — a plausible reaction to a slow
+// PostgREST — silently collapsed the window onto the 2 s floor and answered
+// 408 to every photo of more than a few hundred kB, for every user, with the
+// gates spent. A floor that rejects every upload is not a floor.
+// ---------------------------------------------------------------------------
+
+const SLOW_SUPABASE = { ANALYZE_MEAL_SUPABASE_TIMEOUT_MS: '20000' };
+
+Deno.test('D3: grosser ANALYZE_MEAL_SUPABASE_TIMEOUT_MS laesst das Upload-Fenster brauchbar', async () => {
+  // The operator value from the finding. 8 chunks 300 ms apart = 2.4 s of
+  // upload: over the 2 s floor the old reserve collapsed onto, far under the
+  // ~30 s the budget really has left. No handleWithGuard — the read is timed
+  // either way, and the pacing alone is longer than its 4 s ceiling allows for.
+  const handler = await loadHandler('slow-supabase', SLOW_SUPABASE);
+  const stub = installFetch();
+  const started = Date.now();
+  const paced = makePacedRequest(sliceBody({ imageBase64: IMAGE_BASE64 }, 8), 300);
+  try {
+    const res = await handler(paced.request);
+    const elapsed = Date.now() - started;
+    assertEquals(res.status, 200, 'Status');
+    assert(elapsed >= 2_100, `Upload dauerte nur ${elapsed} ms — er blieb unter dem alten 2-s-Boden`);
+    assertEquals(stub.rateLimitScopes().join(','), GATE_ORDER, 'Gate-Reihenfolge');
+    assertEquals(stub.callsTo('openrouter.ai').length, 1, 'Provider-Calls');
+  } finally {
+    paced.stop();
+    stub.restore();
+  }
+});
+
+Deno.test('D3: ein geschrumpftes Upload-Fenster wird fuer den Betreiber protokolliert', async () => {
+  // The second half of the finding: the collapse was SILENT. A window under
+  // the honest minimum may still happen (a budget an operator shortened, or
+  // stages in front that are slower than their share) — it must not be quiet.
+  const handler = await loadHandler('tight-budget', TIGHT_BUDGET);
+  const stub = installFetch();
+  const warnings = captureWarnings();
+  try {
+    const res = await handler(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 200, 'Status');
+    assert(
+      warnings.messages.some((line) => line.includes('upload window below minimum')),
+      `keine Betreiber-Zeile zum geschrumpften Upload-Fenster: ${warnings.messages.join(' | ')}`,
+    );
+  } finally {
+    warnings.restore();
     stub.restore();
   }
 });

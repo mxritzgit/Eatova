@@ -186,10 +186,18 @@ Future<void> _pumpFoodTab(
   );
 }
 
+/// Today, because the chip strip is `recentDaysDescending`: `edit-day-chip-0`
+/// is ALWAYS today, never the meal's day. A meal pinned to a fixed calendar day
+/// therefore stops being the SELECTED chip the day after this file is written,
+/// and the selection assertions below then compare two UNSELECTED chips —
+/// contrast 1.0 against a floor of 3.0. Pinned to 2026-08-29, this group was
+/// green on exactly one day and red from 2026-08-30 on.
+final DateTime _heute = DateUtils.dateOnly(DateTime.now());
+
 LoggedMeal _mahlzeit() => LoggedMeal(
       id: 'm1',
-      loggedAt: DateTime(2026, 8, 29, 12),
-      localDay: localDayKey(DateTime(2026, 8, 29)),
+      loggedAt: _heute.add(const Duration(hours: 12)),
+      localDay: localDayKey(_heute),
       result: const MealAnalysisResult(
         mealName: 'Test-Bowl',
         caloriesKcal: 350,
