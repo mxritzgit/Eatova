@@ -802,6 +802,12 @@ class _RecipePhotoPicker extends StatelessWidget {
                           fit: BoxFit.cover,
                           width: 60,
                           height: 60,
+                          // Fixed 60-px slot: decode there instead of the
+                          // full 1600-px scrub (worst decode/display ratio in
+                          // the app before the perf round 2026-08-31).
+                          cacheWidth:
+                              (60 * MediaQuery.devicePixelRatioOf(context))
+                                  .round(),
                         )
                       : ImagePlaceholder(
                           radius: rControl,
