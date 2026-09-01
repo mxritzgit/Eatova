@@ -26,15 +26,22 @@ class _ZaehlenderPostgrest {
   _ZaehlenderPostgrest({
     this.vorhanden = const <String, int>{},
     this.statusCode = 200,
+    this.serverMax = 1000,
+    this.zaehltMit = true,
   });
 
   /// Table -> rows the user really has on the server.
   final Map<String, int> vorhanden;
 
   /// What PostgREST hands out at most (`db-max-rows`). Supabase default 1000,
-  /// well below [DataExportService.einSeitenLimit] — that is the whole point.
-  /// Hardwired: the tests need exactly this default.
-  final int serverMax = 1000;
+  /// well below [DataExportService.einSeitenLimit] — that is the whole point
+  /// of the truncation tests. Raised only where OUR OWN cap has to bite.
+  final int serverMax;
+
+  /// `false` = a peer that never sends a total (proxy, older PostgREST): the
+  /// `Content-Range` stays `*` even under `Prefer: count=exact`, which is the
+  /// only situation the over-fetch fallback exists for.
+  final bool zaehltMit;
 
   /// 200, or an error status for the "nothing loaded at all" case.
   final int statusCode;
@@ -65,7 +72,7 @@ class _ZaehlenderPostgrest {
         .min(math.min(gewuenscht, serverMax), math.max(gesamt - offset, 0));
 
     final prefer = req.headers['Prefer'] ?? req.headers['prefer'] ?? '';
-    final zaehlt = prefer.contains('count=exact');
+    final zaehlt = zaehltMit && prefer.contains('count=exact');
     return http.Response(
       jsonEncode(List.generate(
         geliefert,
@@ -169,6 +176,59 @@ void main() {
 
       expect(json.containsKey('gekappt'), isFalse);
       expect(json['weight_log'], hasLength(12));
+    });
+
+    test('auch EINE fehlende Zeile ist eine Kappung', () async {
+      // The other side of the same comparison. Both existing cases sit far
+      // apart (4200 vs. 1000 / 12 vs. 12), so the check could drift to
+      // "clearly fewer" and still pass — while an export missing a single
+      // entry would call itself complete.
+      final server = _ZaehlenderPostgrest(
+        vorhanden: const <String, int>{'weight_log': 1001},
+      );
+      final json = jsonDecode(await service(server).buildExportJson())
+          as Map<String, dynamic>;
+
+      expect(json['weight_log'], hasLength(1000));
+      final gekappt = json['gekappt'] as Map<String, dynamic>?;
+      expect(gekappt, isNotNull);
+      expect(gekappt!['sektionen'], contains('weight_log'));
+      expect((gekappt['zeilenAufDemServer'] as Map)['weight_log'], 1001);
+    });
+
+    test('zaehlt der Server gar nicht mit, faengt die Ueberholzeile UNSEREN '
+        'eigenen Deckel', () async {
+      // The only path that exercises einSeitenLimit itself: no total in the
+      // Content-Range, so the counting request throws and the fallback
+      // over-fetches by one. Every other test here stays under db-max-rows
+      // (1000), where our own 10 000 cap is never reached — so all three of
+      // "fetch limit + 1", "report the cut" and "trim the probe row away"
+      // could be removed without a single red test.
+      const grenze = DataExportService.einSeitenLimit;
+      final server = _ZaehlenderPostgrest(
+        vorhanden: const <String, int>{'weight_log': grenze + 5},
+        serverMax: grenze + 5,
+        zaehltMit: false,
+      );
+      final json = jsonDecode(await service(server).buildExportJson())
+          as Map<String, dynamic>;
+
+      final gekappt = json['gekappt'] as Map<String, dynamic>?;
+      expect(gekappt, isNotNull, reason: 'unser eigener Deckel schneidet ab');
+      expect(gekappt!['sektionen'], contains('weight_log'));
+      expect(gekappt['grenzeProSektion'], grenze);
+      expect(
+        (gekappt['zeilenAufDemServer'] as Map?)?.containsKey('weight_log'),
+        isNot(isTrue),
+        reason: 'ohne Serverzaehler darf keine Zeilenzahl erfunden werden',
+      );
+      expect(
+        json['weight_log'],
+        hasLength(grenze),
+        reason: 'die Ueberholzeile ist Messmittel, kein Exportinhalt',
+      );
+      expect(server.requests['weight_log'], 2,
+          reason: 'genau eine Zaehl-Runde und eine Rueckfall-Runde');
     });
 
     test('der Zaehler kommt im SELBEN Request mit — keine zweite Runde pro '

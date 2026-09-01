@@ -81,6 +81,53 @@ void main() {
     });
   });
 
+  // The test above only reaches the STATS leg: its outbox is empty, so
+  // `_replayOutbox()` returns before it touches the socket and its own
+  // `.timeout(kSignOutDeliveryBudget)` is never exercised. Dropping that
+  // deckel went unnoticed by the whole suite — hence this case, which puts an
+  // undeliverable op in front of the logout.
+  test('auch der Replay-Zweig des Logouts ist gedeckelt: eine unzustellbare '
+      'Op haelt den Logout nicht fest', () {
+    RecipeImageStore.instance = StummerFotoStore();
+    addTearDown(RecipeImageStore.resetInstance);
+    fakeAsync((async) {
+      final s = fixlaufSetup(disposeClient: false);
+      s.server.profileRow = serverProfileRow(completedProfile);
+      s.store.start();
+      async.flushMicrotasks();
+      async.elapse(Duration.zero);
+      async.flushMicrotasks();
+      expect(s.store.profile.onboardingCompleted, isTrue,
+          reason: 'Vorbedingung');
+
+      // Offline write -> the op stays queued. Only THEN does the socket go
+      // silent, so the boot replay is already through and the logout's first
+      // await is the one that hangs.
+      s.server.offline = true;
+      s.store.addResultToDailyTotal(mealResult('Unzustellbar'));
+      async.flushMicrotasks();
+      expect(s.store.pendingOutbox, isNotEmpty,
+          reason: 'Vorbedingung: der Replay hat etwas zu tun');
+      s.server.offline = false;
+      s.server.silent = true;
+
+      var fertig = false;
+      s.store.signOutCleanup().then((_) => fertig = true);
+      async.flushMicrotasks();
+      expect(fertig, isFalse, reason: 'der Replay haengt am stummen Socket');
+
+      // One budget for the replay leg, one for the stats leg behind it.
+      async.elapse(kSignOutDeliveryBudget * 2 + const Duration(seconds: 2));
+      async.flushMicrotasks();
+
+      expect(fertig, isTrue,
+          reason: 'ohne Deckel auf dem Replay-Zweig bliebe der Logout am '
+              'stummen Socket haengen');
+      expect(s.store.pendingOutbox, isNotEmpty,
+          reason: 'was nicht zugestellt wurde, bleibt in der Queue');
+    });
+  });
+
   test('Delta waehrend des Flugs gebucht: nach der Deadline traegt der Slot '
       'BEIDE Deltas unter der Id des Flugs', () {
     RecipeImageStore.instance = StummerFotoStore();

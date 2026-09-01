@@ -4,6 +4,7 @@
 // manual-entry sheet in the chosen slot. Driven through the real callers
 // (food tab via the MealCameraLauncher seam, add sheet via MealPhotoInput).
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
@@ -174,35 +175,44 @@ void main() {
 
     testWidgets('„Manuell eintragen" öffnet das Manuell-Sheet und loggt in '
         'den Slot der Aufnahme', (tester) async {
-      _telefon(tester);
-      final geloggt = <(MealAnalysisResult, MealSlot)>[];
-      await tester.pumpWidget(_app(MealAnalysisScreen(
-        dailyConsumedKcal: 0,
-        analyzer: _ZweiterVersuchAnalyzer(),
-        cameraLauncher: _Kamera(),
-        productService: _StummerProduktdienst(),
-        onAddMeal: (result, slot) {
-          geloggt.add((result, slot));
-          return 'id-1';
-        },
-      )));
-      await tester.pumpAndSettle();
+      // Pinned clock, and the reason is the whole point of the case:
+      // `currentMealSlot()` is dinner between 15:00 and 21:00, exactly what
+      // the capture says. Unpinned, "the capture's slot, not the clock" was a
+      // tautology for six hours of every day — swapping the source for
+      // `currentMealSlot()` stayed green all afternoon. 09:00 is breakfast, so
+      // the two sources are now told apart whatever time the suite runs.
+      await withClock(Clock.fixed(DateTime(2026, 8, 27, 9)), () async {
+        _telefon(tester);
+        final geloggt = <(MealAnalysisResult, MealSlot)>[];
+        await tester.pumpWidget(_app(MealAnalysisScreen(
+          dailyConsumedKcal: 0,
+          analyzer: _ZweiterVersuchAnalyzer(),
+          cameraLauncher: _Kamera(),
+          productService: _StummerProduktdienst(),
+          onAddMeal: (result, slot) {
+            geloggt.add((result, slot));
+            return 'id-1';
+          },
+        )));
+        await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const ValueKey('food-action-ai')));
-      await _flush(tester);
-      await tester.tap(find.byKey(const ValueKey('analyse-manual-entry')));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('food-action-ai')));
+        await _flush(tester);
+        await tester.tap(find.byKey(const ValueKey('analyse-manual-entry')));
+        await tester.pumpAndSettle();
 
-      expect(find.byKey(const ValueKey('manual-meal-save')), findsOneWidget);
-      expect(find.byKey(const ValueKey('analyse-error')), findsNothing);
-      await _fillManualForm(tester);
+        expect(find.byKey(const ValueKey('manual-meal-save')), findsOneWidget);
+        expect(find.byKey(const ValueKey('analyse-error')), findsNothing);
+        await _fillManualForm(tester);
 
-      expect(geloggt, hasLength(1));
-      expect(geloggt.single.$1.mealName, 'Bauern-Mozzarella');
-      expect(geloggt.single.$1.caloriesKcal, 331);
-      expect(geloggt.single.$2, MealSlot.dinner,
-          reason: 'der Slot der Aufnahme, nicht die Uhrzeit');
-      expect(find.text('331 kcal zu Abendessen hinzugefügt.'), findsOneWidget);
+        expect(geloggt, hasLength(1));
+        expect(geloggt.single.$1.mealName, 'Bauern-Mozzarella');
+        expect(geloggt.single.$1.caloriesKcal, 331);
+        expect(geloggt.single.$2, MealSlot.dinner,
+            reason: 'der Slot der Aufnahme, nicht die Uhrzeit');
+        expect(
+            find.text('331 kcal zu Abendessen hinzugefügt.'), findsOneWidget);
+      });
     });
   });
 
@@ -247,26 +257,31 @@ void main() {
 
     testWidgets('„Manuell eintragen" öffnet das Manuell-Sheet, der Eintrag '
         'landet im gewählten Slot und in der Liste', (tester) async {
-      final geloggt = <MealSlot>[];
-      await pumpSheet(tester, onAdd: (_, slot) {
-        geloggt.add(slot);
-        return 'id-1';
+      // Same pin as the camera case above: the sheet's slot is lunch, so
+      // between 11:00 and 15:00 the clock says lunch too and "the chosen
+      // slot" could not be told from "the current hour". 09:00 is breakfast.
+      await withClock(Clock.fixed(DateTime(2026, 8, 27, 9)), () async {
+        final geloggt = <MealSlot>[];
+        await pumpSheet(tester, onAdd: (_, slot) {
+          geloggt.add(slot);
+          return 'id-1';
+        });
+
+        await tester.tap(find.byKey(const ValueKey('analyse-manual-entry')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('manual-meal-save')), findsOneWidget);
+        await _fillManualForm(tester);
+
+        expect(geloggt, [MealSlot.lunch]);
+        // F3-01 mirror: the manual entry shows up in "already added" at once.
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('analyse-existing-meals')),
+            matching: find.text('Bauern-Mozzarella'),
+          ),
+          findsOneWidget,
+        );
       });
-
-      await tester.tap(find.byKey(const ValueKey('analyse-manual-entry')));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('manual-meal-save')), findsOneWidget);
-      await _fillManualForm(tester);
-
-      expect(geloggt, [MealSlot.lunch]);
-      // F3-01 mirror: the manual entry shows up in "already added" at once.
-      expect(
-        find.descendant(
-          of: find.byKey(const ValueKey('analyse-existing-meals')),
-          matching: find.text('Bauern-Mozzarella'),
-        ),
-        findsOneWidget,
-      );
     });
   });
 }

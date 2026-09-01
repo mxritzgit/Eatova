@@ -131,16 +131,15 @@ void main() {
     test('mehrere Slots in Tagesreihenfolge, Singular bei einem Eintrag', () {
       withClock(Clock.fixed(_heute), () {
         final store = _store();
-        // Logged against day order (dinner first): the line must still read in
-        // slot order, not newest-first like loggedMeals.
-        for (final m in _fuenfAbendessen) {
-          store.addResultToDailyTotal(m, slot: MealSlot.dinner);
-        }
-        store.addResultToDailyTotal(
-          _meal('Pasta Bolognese',
-              kcal: 610, protein: '38 g', carbs: '70 g', fat: '20 g'),
-          slot: MealSlot.lunch,
-        );
+        // In Tagesreihenfolge geloggt — und deshalb steht `loggedMeals`
+        // (newest first) genau ANDERSHERUM als die Zeile lesen soll.
+        //
+        // Der Fall lief bis 2026-09-01 in der umgekehrten Reihenfolge und war
+        // damit wertlos: das Abendessen zuerst zu loggen bringt das Fruehstueck
+        // in `loggedMeals` nach vorn, also entsprach die reine
+        // Einfuegereihenfolge zufaellig schon der Slot-Reihenfolge — die
+        // Sortierung nach `MealSlot.values` liess sich ersatzlos streichen,
+        // ohne dass der Fall rot wurde (Mutationslauf T4).
         // 12.6 + 12.6 = 25.2 -> 25 g: grams are rounded.
         store.addResultToDailyTotal(
           _meal('Haferflocken mit Milch',
@@ -151,6 +150,21 @@ void main() {
           _meal('Banane und Quark',
               kcal: 200, protein: '12.6 g', carbs: '25 g', fat: '6 g'),
           slot: MealSlot.breakfast,
+        );
+        store.addResultToDailyTotal(
+          _meal('Pasta Bolognese',
+              kcal: 610, protein: '38 g', carbs: '70 g', fat: '20 g'),
+          slot: MealSlot.lunch,
+        );
+        for (final m in _fuenfAbendessen) {
+          store.addResultToDailyTotal(m, slot: MealSlot.dinner);
+        }
+        expect(
+          store.loggedMeals.map((m) => m.slot).toSet().toList(),
+          <MealSlot>[MealSlot.dinner, MealSlot.lunch, MealSlot.breakfast],
+          reason: 'Vorbedingung: die Einfuegereihenfolge muss der '
+              'Slot-Reihenfolge WIDERSPRECHEN, sonst prueft die Zusicherung '
+              'unten nichts',
         );
 
         expect(
@@ -232,6 +246,16 @@ void main() {
         expect(slotZeile, contains('Frühstück 3702 kcal'));
         expect(slotZeile, contains('Snacks 3702 kcal'));
         expect(slotZeile, contains('3 Einträge'));
+        // Und die Essensliste selbst ist gedeckelt: 12 Eintraege, aber nur
+        // `maxFoods` = 10 stehen drin, erkennbar am abschliessenden „…".
+        // Ohne den Deckel waechst genau die Zeile, die dem Server-Cap am
+        // naechsten steht (Mutationslauf T4: `maxFoods` liess sich beliebig
+        // hochsetzen, ohne einen Fall rot zu machen).
+        expect(ctx, endsWith(' ….'),
+            reason: 'die gekuerzte Essensliste endet mit dem Auslassungs-'
+                'Zeichen; ohne Deckel stuende dort der letzte Name');
+        expect(RegExp(r'kcal\)').allMatches(ctx).length, 10,
+            reason: 'genau zehn Namen, nicht alle zwoelf');
       });
     });
 

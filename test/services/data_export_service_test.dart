@@ -32,6 +32,12 @@ class _FakePostgrest {
   final List<http.Request> requests = <http.Request>[];
   bool failChatMessages = false;
 
+  /// Simulates what an offset scan really does when a row is inserted while
+  /// the export runs: the window slides and the following page repeats a row
+  /// that was already delivered. Only with this does the id set in
+  /// `_alleLoggedMeals` have anything to do.
+  bool wiederholtEineZeile = false;
+
   http.Client client() => MockClient(_handle);
 
   Future<http.Response> _handle(http.Request req) async {
@@ -68,6 +74,7 @@ class _FakePostgrest {
           to = int.parse(m.group(2)!);
         }
       }
+      if (wiederholtEineZeile && from > 0) from -= 1;
       if (from >= _mealRows.length) return ok(const <dynamic>[]);
       final slice = _mealRows.sublist(
           from, (to + 1).clamp(0, _mealRows.length));
@@ -151,11 +158,35 @@ void main() {
     expect(ids.toSet(), _mealRows.map((r) => r['id']).toSet());
     expect(ids.length, ids.toSet().length, reason: 'keine Duplikate');
     // Proof that pagination really happened (5 rows / page size 2).
-    expect(
-        server.requests
-            .where((r) => r.url.path.contains('/logged_meals'))
-            .length,
-        greaterThanOrEqualTo(3));
+    final seiten = server.requests
+        .where((r) => r.url.path.contains('/logged_meals'))
+        .toList();
+    expect(seiten.length, greaterThanOrEqualTo(3));
+    // The requested windows themselves, not just the merged result: a window
+    // one row too wide overlaps and only the id set hides it, so both guards
+    // would mask each other's loss.
+    for (var i = 0; i < seiten.length; i++) {
+      expect(seiten[i].url.queryParameters['limit'], '2',
+          reason: 'Seite $i fordert genau pageSize Zeilen an');
+      expect(seiten[i].url.queryParameters['offset'], '${i * 2}',
+          reason: 'die Fenster stossen lueckenlos aneinander');
+    }
+  });
+
+  test('wiederholt der Server eine Zeile am Seitenrand, steht sie trotzdem '
+      'nur einmal im Export', () async {
+    final (service, server) = setup(pageSize: 2);
+    server.wiederholtEineZeile = true;
+    final json =
+        jsonDecode(await service.buildExportJson()) as Map<String, dynamic>;
+
+    final ids = (json['logged_meals'] as List)
+        .map((r) => (r as Map)['id'])
+        .toList();
+    expect(ids.length, _mealRows.length,
+        reason: 'ohne den id-Filter stuenden Mahlzeiten doppelt in der '
+            'Auskunft und der Empfaenger zaehlt falsch');
+    expect(ids.toSet(), _mealRows.map((r) => r['id']).toSet());
   });
 
   test('eine nicht lesbare Tabelle macht den Export nicht kaputt — sie wird '

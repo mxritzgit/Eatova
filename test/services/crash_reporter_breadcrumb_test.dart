@@ -190,9 +190,35 @@ void main() {
           reason: 'auch in http gilt Allowlist, nicht Blocklist');
     });
 
+    test('die native Request-Zeile in `message` faellt weg — sie ist die URL '
+        'noch einmal', () {
+      // Only `data` was ever inspected. Under native instrumentation the whole
+      // request line sits in the free-text `message`, which travels around the
+      // data allowlist untouched: dropping that one line changed nothing here.
+      final crumb = Breadcrumb(
+        category: 'http',
+        type: 'http',
+        message: 'GET https://abcdefg.supabase.co/rest/v1/logged_meals'
+            '?user_id=eq.0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0 [200]',
+        data: <String, dynamic>{
+          'url': 'https://abcdefg.supabase.co/rest/v1/logged_meals'
+              '?user_id=eq.0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0',
+          'method': 'GET',
+        },
+      );
+
+      final gefiltert = sanitizeSentryBreadcrumb(crumb, Hint())!;
+      expect(gefiltert.message, isNull);
+      expect(gefiltert.data!['url'], 'https://abcdefg.supabase.co');
+      expect(gefiltert.data!['method'], 'GET');
+    });
+
     test('http ohne data ueberlebt ohne Absturz', () {
       final crumb = Breadcrumb(category: 'http', type: 'http');
-      expect(sanitizeSentryBreadcrumb(crumb, Hint()), isNotNull);
+      final gefiltert = sanitizeSentryBreadcrumb(crumb, Hint());
+      expect(gefiltert, isNotNull);
+      expect(gefiltert!.message, isNull,
+          reason: 'auch ohne data darf die Request-Zeile nicht stehenbleiben');
     });
   });
 

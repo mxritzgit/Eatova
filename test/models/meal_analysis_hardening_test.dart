@@ -37,6 +37,12 @@ void main() {
     test('Portionsaenderung skaliert aus caloriesKcal statt aus der 0-Dichte', () {
       final r = tellerOhneDichte.adjustedToGrams(150);
       expect(r.caloriesKcal, 390);
+      // The macros belong to the same portion: only kcal was measured, so a
+      // factor stuck at 1.0 would have shown half the calories next to the
+      // full protein/carb/fat numbers.
+      expect(r.protein, '15 g');
+      expect(r.carbs, '40 g');
+      expect(r.fat, '12,5 g');
     });
 
     test('die abgeleitete Dichte wird mitgefuehrt statt bei 0 zu bleiben', () {
@@ -61,6 +67,43 @@ void main() {
       final r = widerspruch.adjustedToGrams(300);
       expect(r.caloriesKcal, 850, reason: 'blosses Bestaetigen darf nichts aendern');
       expect(r.kcalPer100G, closeTo(850 * 100 / 300, 0.001));
+    });
+
+    test('unplausible Dichte erfindet keine Kalorien, wo keine gemessen sind',
+        () {
+      // The second guard in effectiveKcalPer100G: 2180 kcal/100 g is above
+      // anything edible (900) and the only caller is adjustedToGrams, which
+      // falls back to the density exactly when kcal or grams are missing.
+      // Without the plausibility check a 0-kcal entry silently gains 2180 kcal
+      // on the first portion change — and nothing in the suite noticed the
+      // check was gone.
+      const ohneKalorien = MealAnalysisResult(
+        mealName: 'Unbekannt',
+        caloriesKcal: 0,
+        estimatedGrams: 200,
+        kcalPer100G: 2180,
+        protein: '',
+        carbs: '',
+        fat: '',
+        confidence: 'Niedrig',
+        portionNotes: '',
+      );
+      expect(ohneKalorien.effectiveKcalPer100G, isNull);
+      expect(ohneKalorien.adjustedToGrams(100).caloriesKcal, 0);
+      // The counter-case: a plausible density IS used.
+      const mitDichte = MealAnalysisResult(
+        mealName: 'Unbekannt',
+        caloriesKcal: 0,
+        estimatedGrams: 200,
+        kcalPer100G: 260,
+        protein: '',
+        carbs: '',
+        fat: '',
+        confidence: 'Niedrig',
+        portionNotes: '',
+      );
+      expect(mitDichte.effectiveKcalPer100G, 260);
+      expect(mitDichte.adjustedToGrams(100).caloriesKcal, 260);
     });
 
     test('geklemmte Portion: mehr als 10000 g sind nicht schreibbar', () {

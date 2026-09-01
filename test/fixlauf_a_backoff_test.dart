@@ -153,13 +153,30 @@ void main() {
       async.elapse(const Duration(seconds: 1)); // debounce 600 ms -> fails
       async.flushMicrotasks();
       expect(s.server.mealsCounted, 0, reason: 'Vorbedingung');
+      expect(s.store.debugOutboxRetryStage, 0,
+          reason: 'Vorbedingung: der Wecker steht auf der ersten Stufe');
+
+      // t = 31 s: the tick has no replay end to escalate at (the outbox is
+      // empty, the meal went live), so it climbs the ladder itself before the
+      // flush — which fails again and arms at 60 s.
+      async.elapse(const Duration(seconds: 30));
+      async.flushMicrotasks();
+      expect(s.store.debugOutboxRetryStage, 1,
+          reason: 'ohne die Eskalation im Tick tickte der Delta-Kanal ewig im '
+              '30-s-Takt');
 
       s.server.offline = false;
-      async.elapse(const Duration(seconds: 31));
+      async.elapse(const Duration(seconds: 61)); // t = 92 s
       async.flushMicrotasks();
 
       expect(s.server.mealsCounted, 1,
-          reason: 'der 30-s-Timer bedient auch den Stats-Kanal');
+          reason: 'der Timer bedient auch den Stats-Kanal');
+      // The reset that _onSyncSuccess owns: no replay pass runs here (empty
+      // outbox), so the end-of-pass reset cannot cover for it. Without it the
+      // next delta would wait 60 s instead of 30 s, and after four outages
+      // 4 min.
+      expect(s.store.debugOutboxRetryStage, 0,
+          reason: 'der Erfolg setzt die Leiter zurueck');
     });
   });
 }

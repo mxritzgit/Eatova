@@ -12,6 +12,7 @@
 //     enthalten: `filteredRecipes` matcht auf `recipeCategoryLabel`, und
 //     dieselbe Query liefert unter de und en verschiedene Ergebnisse.
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -111,15 +112,28 @@ Future<void> _suche(WidgetTester tester, String query) async {
 }
 
 const _tilePrefix = 'recipe-tile-';
+const _cardPrefix = 'recipe-recommended-';
 
-/// Slugs of the rendered result list, in list order.
-List<String> _slugs(WidgetTester tester) => tester
+/// Slugs carried by the keys with [prefix], in tree order.
+List<String> _keySlugs(WidgetTester tester, String prefix) => tester
     .widgetList(find.byWidgetPredicate((w) {
       final key = w.key;
-      return key is ValueKey<String> && key.value.startsWith(_tilePrefix);
+      return key is ValueKey<String> && key.value.startsWith(prefix);
     }))
-    .map((w) => (w.key! as ValueKey<String>).value.substring(_tilePrefix.length))
+    .map((w) => (w.key! as ValueKey<String>).value.substring(prefix.length))
     .toList(growable: false);
+
+/// Slugs of the rendered result list, in list order.
+List<String> _slugs(WidgetTester tester) => _keySlugs(tester, _tilePrefix);
+
+/// Slugs of the rendered recommendation cards. Only the carousel keys its
+/// cards; the goal-match cards carry no key, so this cannot mix them up.
+List<String> _empfehlungen(WidgetTester tester) =>
+    _keySlugs(tester, _cardPrefix);
+
+bool _istVegan(String slug) => recipeCatalogForLocale('de')
+    .firstWhere((r) => r.slug == slug)
+    .matchesDiet(DietPreference.vegan);
 
 /// The pre-memo implementation, copied verbatim out of recipes_screen.dart as
 /// it stood before the perf audit. Everything the screen renders now has to
@@ -313,38 +327,86 @@ void main() {
       );
     });
 
-    testWidgets('die Ernaehrungsform', (tester) async {
+    testWidgets('die Ernaehrungsform — auch der Karussell-Pool folgt ihr',
+        (tester) async {
       _grosseFlaeche(tester);
-      await _pump(tester, remaining: _rest);
-      final diet = RecipeMemoStats.dietRuns;
-      final goal = RecipeMemoStats.goalRuns;
+      // Fester Tag: die Karussell-Auswahl haengt am Kalendertag. Mit der
+      // echten Uhr waere dieser Fall datumsabhaengig (Vorfall K-02).
+      await withClock(Clock.fixed(DateTime(2026, 9, 1, 12)), () async {
+        await _pump(tester, remaining: _rest);
+        final diet = RecipeMemoStats.dietRuns;
+        final goal = RecipeMemoStats.goalRuns;
+        final vorher = _empfehlungen(tester);
+        expect(vorher.any((slug) => !_istVegan(slug)), isTrue,
+            reason: 'Vorbedingung: ohne Diaet steht mindestens eine nicht '
+                'vegane Karte im Karussell, sonst zeigt der Wechsel nichts.');
 
-      await _pump(
-        tester,
-        remaining: _rest,
-        diet: DietPreference.vegan,
-      );
+        await _pump(
+          tester,
+          remaining: _rest,
+          diet: DietPreference.vegan,
+        );
 
-      expect(RecipeMemoStats.dietRuns, diet + 1);
-      expect(RecipeMemoStats.goalRuns, goal + 1);
+        expect(RecipeMemoStats.dietRuns, diet + 1);
+        expect(RecipeMemoStats.goalRuns, goal + 1);
+        // `catalogPool` hat einen EIGENEN Schluessel, und der stand bis hierher
+        // ungeprueft: die Zaehler oben laufen ueber `forDiet`/`goalMatches`.
+        // Ein Wechsel der Ernaehrungsform in den Einstellungen liess den alten
+        // Pool stehen — der Screen bleibt im IndexedStack gemountet.
+        final nachher = _empfehlungen(tester);
+        expect(nachher, isNotEmpty);
+        for (final slug in nachher) {
+          expect(_istVegan(slug), isTrue,
+              reason: '„$slug" ist nicht vegan und darf nach dem Wechsel nicht '
+                  'mehr empfohlen werden.');
+        }
+      });
     });
 
-    testWidgets('ein anderer Makro-Rest', (tester) async {
+    testWidgets('jeder EINZELNE Makro-Wert macht den Ziel-Cache ungueltig',
+        (tester) async {
+      // Vorher drehte dieser Fall alle vier Zahlen auf einmal. Damit blieb
+      // jeder einzelne Bestandteil des Schluessels ungeprueft: ein Cache, der
+      // nur drei der vier Werte kennt, reichte den alten Stand weiter — und
+      // die Ziel-Sektion zeigte Vorschlaege zu einem Rest, den es nicht mehr
+      // gibt.
       _grosseFlaeche(tester);
       await _pump(tester, remaining: _rest);
-      final goal = RecipeMemoStats.goalRuns;
+      var goal = RecipeMemoStats.goalRuns;
+      var rest = _rest;
 
-      await _pump(
-        tester,
-        remaining: const MacroProgress(
-          proteinG: 10,
-          carbsG: 20,
-          fatG: 5,
-          kcal: 300,
-        ),
-      );
+      final aenderungen =
+          <String, MacroProgress Function(MacroProgress)>{
+        'Protein': (r) => MacroProgress(
+            proteinG: r.proteinG + 25,
+            carbsG: r.carbsG,
+            fatG: r.fatG,
+            kcal: r.kcal),
+        'Kohlenhydrate': (r) => MacroProgress(
+            proteinG: r.proteinG,
+            carbsG: r.carbsG + 40,
+            fatG: r.fatG,
+            kcal: r.kcal),
+        'Fett': (r) => MacroProgress(
+            proteinG: r.proteinG,
+            carbsG: r.carbsG,
+            fatG: r.fatG + 20,
+            kcal: r.kcal),
+        'kcal': (r) => MacroProgress(
+            proteinG: r.proteinG,
+            carbsG: r.carbsG,
+            fatG: r.fatG,
+            kcal: r.kcal + 400),
+      };
 
-      expect(RecipeMemoStats.goalRuns, goal + 1);
+      for (final eintrag in aenderungen.entries) {
+        rest = eintrag.value(rest);
+        await _pump(tester, remaining: rest);
+        expect(RecipeMemoStats.goalRuns, goal + 1,
+            reason: 'Nur ${eintrag.key} geaendert — genau dieser Wert steht im '
+                'Schluessel, also muss die Rangliste neu laufen.');
+        goal = RecipeMemoStats.goalRuns;
+      }
     });
 
     testWidgets('DIE SPRACHE — dieselbe Query liefert unter de etwas anderes '

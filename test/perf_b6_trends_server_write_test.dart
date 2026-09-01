@@ -67,12 +67,14 @@ void main() {
         reason: 'nach der Zustellung muss das Fenster erneut fallen');
   });
 
-  test('REPLAY: ein spaet gelandeter Outbox-Lauf verwirft es ebenfalls', () async {
+  test(
+      'REPLAY: ein spaet gelandeter Outbox-Lauf verwirft es ebenfalls — der '
+      'Insert wie der Delete', () async {
     final s = setupOhneCache();
     // Offline geloggt: der Schreibvorgang scheitert und die Op bleibt liegen.
     s.server.offline = true;
     await bootUntilIdle(s.store);
-    s.store.addResultToDailyTotal(_meal('Bowl'));
+    final id = s.store.addResultToDailyTotal(_meal('Bowl'));
     await settle();
     expect(s.store.pendingOutbox, isNotEmpty,
         reason: 'Vorbedingung: die Op muss wirklich in der Outbox liegen');
@@ -88,5 +90,26 @@ void main() {
 
     expect(TrendTotalsCache.instance.debugHasEntry, isFalse,
         reason: 'der Replay schreibt die Zeile, also muss das Fenster fallen');
+
+    // Dasselbe fuer den DELETE. `_opTouchesTrendWindow` zaehlt drei Op-Arten
+    // auf, und bis zur Haertung deckten beide Faelle nur den Insert ab: der
+    // Delete liess sich aus der Liste streichen, ohne dass ein Fall der Suite
+    // rot wurde (Mutationslauf T4, 2026-09-01). Eine offline geloeschte
+    // Mahlzeit blieb dann bis zum Ablauf der TTL in der Kurve stehen.
+    s.server.offline = true;
+    s.store.removeLoggedMeal(id);
+    await settle();
+    expect(s.store.pendingOutbox, isNotEmpty,
+        reason: 'Vorbedingung: der Delete muss in der Outbox liegen');
+
+    await _fuelleCache();
+
+    s.server.offline = false;
+    s.store.flushPendingWrites();
+    await settle();
+
+    expect(TrendTotalsCache.instance.debugHasEntry, isFalse,
+        reason: 'der Replay loescht die Zeile, also muss das Fenster ebenso '
+            'fallen wie beim Insert');
   });
 }

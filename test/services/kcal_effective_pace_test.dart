@@ -171,6 +171,15 @@ void main() {
       expect(KcalCalculator.maxDeficitKcalPerDay(99), 1045); // 1089 → 0,95
       expect(KcalCalculator.maxDeficitKcalPerDay(100), 1100);
       expect(KcalCalculator.maxDeficitKcalPerDay(300), 3300);
+      // Lower bound of the cap: below ~25 kg the 1 % rule would fall under the
+      // gentlest pace and forbid even −0,25 kg/Woche. Unreachable through a
+      // valid profile (weightKgMin 30), which is exactly why nothing else
+      // pins it — the guard would be free to disappear unnoticed.
+      expect(
+        KcalCalculator.maxDeficitKcalPerDay(10),
+        WeightGoal.lose025kg.kcalDelta.abs(),
+        reason: 'der Deckel darf das sanfteste Tempo nie unterbieten',
+      );
     });
   });
 
@@ -288,6 +297,19 @@ void main() {
         () {
       final verstoesse = <String>[];
 
+      // The whole file measures against `kcal − maintenance`, so the PAL
+      // ladder is the silent premise of every number here. Pinned as a
+      // literal AND against what `calculate` really multiplies with: the
+      // sweep used to walk all five levels while only checking finiteness,
+      // so 1,45 → 1,5 passed through unseen.
+      const palLeiter = <ActivityLevel, double>{
+        ActivityLevel.sedentary: 1.3,
+        ActivityLevel.light: 1.45,
+        ActivityLevel.moderate: 1.6,
+        ActivityLevel.active: 1.75,
+        ActivityLevel.athlete: 1.9,
+      };
+
       for (var weight = ProfileLimits.weightKgMin;
           weight <= ProfileLimits.weightKgMax;
           weight += 7) {
@@ -310,6 +332,21 @@ void main() {
                 final wer = '$weight kg / $height cm / ${sex.name} / '
                     '${level.name} / ${goal.name}';
 
+                if (level.palFactor != palLeiter[level]) {
+                  verstoesse.add('$wer: PAL ${level.palFactor}');
+                }
+                final erwarteteErhaltung = (calc.basalMetabolicRate(
+                      weightKg: weight,
+                      heightCm: height,
+                      ageYears: 42,
+                      sex: sex,
+                    ) *
+                        palLeiter[level]!)
+                    .round();
+                if (t.maintenanceKcal != erwarteteErhaltung) {
+                  verstoesse.add('$wer: Erhaltung ${t.maintenanceKcal} statt '
+                      '$erwarteteErhaltung');
+                }
                 if (!t.effectiveWeeklyRateKg.isFinite) {
                   verstoesse.add('$wer: Rate ${t.effectiveWeeklyRateKg}');
                 }
@@ -354,7 +391,18 @@ void main() {
   });
 
   group('B2 · Formatierung der Rate', () {
-    test('die sieben Ziel-Labels bleiben unveraendert', () {
+    test('die sieben Ziel-Labels und ihre kcal-Deltas bleiben unveraendert',
+        () {
+      // The delta ladder is what the label is derived from, and the 0,05 grid
+      // swallows a drift of up to ~27 kcal/day — so the labels alone leave the
+      // ladder free to move without a single test turning red.
+      expect(WeightGoal.lose1kg.kcalDelta, -1100);
+      expect(WeightGoal.lose075kg.kcalDelta, -825);
+      expect(WeightGoal.lose05kg.kcalDelta, -550);
+      expect(WeightGoal.lose025kg.kcalDelta, -275);
+      expect(WeightGoal.maintain.kcalDelta, 0);
+      expect(WeightGoal.gain025kg.kcalDelta, 275);
+      expect(WeightGoal.gain05kg.kcalDelta, 550);
       // paceLabel now routes through paceLabelForWeeklyRateKg; the picker
       // output must not shift because of it.
       expect(WeightGoal.lose1kg.paceLabel(), '−1 kg/Woche');

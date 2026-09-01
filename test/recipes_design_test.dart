@@ -514,8 +514,13 @@ void main() {
   testWidgets('unter en ist der Katalog selbst uebersetzt, nicht nur die '
       'Schale', (tester) async {
     // The `en` chrome is covered by the matrix at the top of this file; what
-    // it cannot show is that the CATALOG is bilingual too. The first catalog
-    // recipe always shows in the carousel without scrolling.
+    // it cannot show is that the CATALOG is bilingual too.
+    //
+    // The title is found in the MAIN LIST, not in the carousel: the carousel
+    // rotates by calendar day (`rotatedRecommendations`), so the first catalog
+    // recipe stands in it on only four days out of thirty. The main list
+    // always starts with it, and the ListView builds it into the cache area
+    // without scrolling — hence `findsWidgets`, not `findsOneWidget`.
     pinPhoneViewport(tester);
     await pumpLocalized(
       tester,
