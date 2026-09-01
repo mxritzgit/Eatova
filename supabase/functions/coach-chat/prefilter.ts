@@ -35,7 +35,16 @@ export const BANNED_PATTERNS: { pattern: RegExp; reason: string }[] = [
   // Prompt injection. No "act as|act like": it would block normal English
   // nutrition questions, and real roleplay injections are layer 2's job.
   // "du bist jetzt" stays, minus the harmless "du bist jetzt mein …coach".
-  { pattern: /\b(ignor(e|iere)\s*(all|alle|deine|previous|vorher|the)\s*(instruction|anweisung|prompt|rule)|system\s*prompt|du\s*bist\s*jetzt(?!\s+mein\s+\S*coach\b)|jailbreak|dan\s*mode|developer\s*mode|reveal\s*(your|the)\s*prompt|zeig\s*(mir|uns)?\s*(deinen|den)\s*system)/i, reason: "prompt_injection" },
+  //
+  // The ignore-branch takes a CHAIN of filler words, not exactly one. It read
+  // `(all|alle|deine|…)` singular until 2026-09-01, so "Ignore previous
+  // instructions" blocked while "Ignore ALL previous instructions" — the most
+  // common English phrasing — and the German "Ignoriere alle vorherigen
+  // Anweisungen" walked straight through (found by the mutation run, T15).
+  // The chain is bounded to a closed word list rather than `.*`, so
+  // "Ignoriere alle Kohlenhydrate in dem Rezept" still passes: the filler has
+  // to come from the list AND the noun has to be an instruction word.
+  { pattern: /\b(ignor(e|iere)(\s+(all|alle|any|previous|vorher|vorherigen|deine|your|the|die|den|obigen|above))+\s*(instruction|instructions|anweisung|anweisungen|prompt|rule|rules|regeln)|system\s*prompt|du\s*bist\s*jetzt(?!\s+mein\s+\S*coach\b)|jailbreak|dan\s*mode|developer\s*mode|reveal\s*(your|the)\s*prompt|zeig\s*(mir|uns)?\s*(deinen|den)\s*system)/i, reason: "prompt_injection" },
 ];
 
 export function preFilter(

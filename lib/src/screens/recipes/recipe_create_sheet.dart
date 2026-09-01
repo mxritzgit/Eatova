@@ -5,6 +5,27 @@ part of 'recipes_screen.dart';
 // nutrition, ingredients), incl. field, photo picker and discard guard.
 // ---------------------------------------------------------------------------
 
+/// Ergebnis des Anlege-Sheets: das Rezept plus die Frage, ob sein Foto
+/// unterwegs verloren ging.
+///
+/// Ohne dieses Flag konnte der Aufrufer ein leeres `imageAsset` nicht von
+/// "kein Foto gewaehlt" unterscheiden — und das Sheet selbst kann die Meldung
+/// nicht zeigen, weil es unmittelbar danach schliesst und der Erfolgs-Toast
+/// sich darueberlegt (Mutationslauf 2026-09-01, T6).
+class RezeptEntwurfErgebnis {
+  const RezeptEntwurfErgebnis({
+    required this.rezept,
+    required this.fotoFehlgeschlagen,
+  });
+
+  final FitnessRecipe rezept;
+
+  /// Es lag ein Foto vor, aber die Ablage auf dem Geraet schlug fehl. Das
+  /// Rezept wurde trotzdem gespeichert — ohne Bild, weil eine baumelnde
+  /// Referenz schlimmer waere als keine.
+  final bool fotoFehlgeschlagen;
+}
+
 /// Limits mirrored from `LoggedMealLimits` / `PlausibilityLimits` instead of
 /// imported: this file is a `part of 'recipes_screen.dart'` and cannot carry
 /// import directives. test/recipe_create_sheet_test.dart derives every limit
@@ -375,7 +396,6 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   /// disabled), which recipe_create_sheet_test relies on.
   Future<void> _save() async {
     if (!_isValid || _saving) return;
-    final l10n = context.l10n;
     // `maxLength` caps the name at 160 GRAPHEMES, which can still be more
     // than the 300 code points Postgres' `char_length` allows; `_isValid`
     // (via `_nameFehler`) has already rejected that case. Only trim left.
@@ -399,6 +419,12 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     // the write fails, the recipe is saved without an image — a dangling
     // reference would be worse than none.
     var imageAsset = '';
+    // Reist mit dem Ergebnis nach draussen: das Sheet darf das Scheitern NICHT
+    // selbst melden. Es poppt unmittelbar danach, und der Erfolgs-Toast des
+    // Aufrufers legt sich sofort darueber — die Meldung erreichte den Nutzer
+    // nie, er las "gespeichert", waehrend sein Foto fehlte (Mutationslauf
+    // 2026-09-01, T6). Der Aufrufer entscheidet jetzt, was er sagt.
+    var fotoFehlgeschlagen = false;
     final bytes = _photoBytes;
     if (bytes != null) {
       setState(() => _saving = true);
@@ -406,7 +432,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
       if (!mounted) return;
       setState(() => _saving = false);
       if (referenz == null) {
-        _melde(l10n.recipesPhotoSaveFailedError);
+        fotoFehlgeschlagen = true;
       } else {
         imageAsset = referenz;
       }
@@ -414,22 +440,25 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
 
     if (!mounted) return;
     Navigator.of(context).pop(
-      FitnessRecipe(
-        slug: slug,
-        title: name,
-        description: '',
-        portion: portion,
-        ingredients: ingredients,
-        preparation: '',
-        professionalHint: '',
-        imageAsset: imageAsset,
-        caloriesKcal: _zahl(_kcal),
-        proteinG: _zahl(_protein),
-        carbsG: _zahl(_carbs),
-        fatG: _zahl(_fat),
-        estimatedGrams: _zahl(_grams),
-        categories: const <String>['Eigene'],
-        userCreated: true,
+      RezeptEntwurfErgebnis(
+        fotoFehlgeschlagen: fotoFehlgeschlagen,
+        rezept: FitnessRecipe(
+          slug: slug,
+          title: name,
+          description: '',
+          portion: portion,
+          ingredients: ingredients,
+          preparation: '',
+          professionalHint: '',
+          imageAsset: imageAsset,
+          caloriesKcal: _zahl(_kcal),
+          proteinG: _zahl(_protein),
+          carbsG: _zahl(_carbs),
+          fatG: _zahl(_fat),
+          estimatedGrams: _zahl(_grams),
+          categories: const <String>['Eigene'],
+          userCreated: true,
+        ),
       ),
     );
   }
@@ -456,7 +485,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   @override
   Widget build(BuildContext context) {
     final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
-    return PopScope<FitnessRecipe?>(
+    return PopScope<RezeptEntwurfErgebnis?>(
       // Only while something is actually filled in; an empty sheet closes
       // immediately.
       canPop: !_dirty,

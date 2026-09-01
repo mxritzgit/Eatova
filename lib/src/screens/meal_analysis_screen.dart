@@ -819,6 +819,16 @@ class _KcalTile extends StatelessWidget {
 class _ProfileBadge extends StatelessWidget {
   const _ProfileBadge({required this.onTap, this.initial});
 
+  /// Side length at text scale 1.0.
+  static const double _seiteBasis = 34;
+
+  /// Upper bound: past this the badge crowds the rest of the top bar, and the
+  /// 13 pt initial already fits with room to spare.
+  static const double _seiteMax = 48;
+
+  /// 11/34 — keeps the original corner softness at every size.
+  static const double _radiusAnteil = 11 / _seiteBasis;
+
   final VoidCallback onTap;
   final String? initial;
 
@@ -826,6 +836,16 @@ class _ProfileBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final showInitial = initial != null && initial!.isNotEmpty;
+    // The capsule GROWS with the font instead of clipping the letter. At 34 px
+    // fixed, a 13 pt initial at 200 % system font needs 38 px and lost roughly
+    // two pixels of ascender and descender (found 2026-09-01 by the text-scale
+    // sweep, which had to carve out an exception for exactly this widget).
+    // Capped at 48: beyond that the top bar starts pushing its neighbours
+    // around, and the letter fits comfortably by then.
+    final skala = MediaQuery.textScalerOf(context);
+    final seite = skala.scale(_seiteBasis).clamp(_seiteBasis, _seiteMax);
+    // Keep the corner proportional, or a grown capsule reads as a square.
+    final radius = seite * _radiusAnteil;
     // A11y: the capsule shows only an initial/icon, so it needs a label.
     return Semantics(
       button: true,
@@ -835,13 +855,13 @@ class _ProfileBadge extends StatelessWidget {
       child: Material(
         key: const ValueKey('topbar-profile'),
         color: t.forest,
-        borderRadius: BorderRadius.circular(11),
+        borderRadius: BorderRadius.circular(radius),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(11),
+          borderRadius: BorderRadius.circular(radius),
           child: Container(
-            width: 34,
-            height: 34,
+            width: seite,
+            height: seite,
             alignment: Alignment.center,
             child: showInitial
                 ? Text(

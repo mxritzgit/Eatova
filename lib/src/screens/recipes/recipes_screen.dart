@@ -610,7 +610,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
     // and a drag on the handle goes through `BottomSheet._handleDragEnd →
     // Navigator.pop`, bypassing both `PopScope` and `_DiscardDragGuard` — a
     // silent hole in the D5 discard guard.
-    final recipe = await showModalBottomSheet<FitnessRecipe>(
+    final ergebnis = await showModalBottomSheet<RezeptEntwurfErgebnis>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -618,7 +618,8 @@ class _RecipesScreenState extends State<RecipesScreen> {
         photoInput: widget.photoInput ?? DeviceMealPhotoInput(),
       ),
     );
-    if (recipe == null || !mounted) return;
+    if (ergebnis == null || !mounted) return;
+    final recipe = ergebnis.rezept;
     setState(() => _userRecipes.insert(0, recipe));
     // Gap E: the message waits for the outcome instead of asserting it. It
     // arrives after [kSyncDeliveryWindow] at the latest — the store caps the
@@ -628,7 +629,13 @@ class _RecipesScreenState extends State<RecipesScreen> {
     showAppSnack(
       context,
       deliveryHint(
-        context.l10n.recipesSavedSuccess(recipe.title),
+        // Ehrlich statt beruhigend: ist das Foto unterwegs verloren gegangen,
+        // sagt die Meldung das. Frueher zeigte das Sheet dafuer eine eigene
+        // Fehlermeldung, die dieser Toast eine Lidschlagszeit spaeter
+        // ueberdeckte — der Nutzer las nur "gespeichert".
+        ergebnis.fotoFehlgeschlagen
+            ? context.l10n.recipesSavedWithoutPhoto(recipe.title)
+            : context.l10n.recipesSavedSuccess(recipe.title),
         ausgang,
         context.l10n,
       ),

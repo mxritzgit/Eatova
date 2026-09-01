@@ -452,6 +452,12 @@
       "title": { "type": "String" }
     }
   },
+  "recipesSavedWithoutPhoto": "„{title}\" gespeichert — ohne Foto, das Ablegen ist fehlgeschlagen",
+  "@recipesSavedWithoutPhoto": {
+    "placeholders": {
+      "title": { "type": "String" }
+    }
+  },
   "recipesRecommendedBadge": "EMPFOHLEN",
   "recipesEmptyStateMessage": "Kein Rezept gefunden. Versuch eine andere Kategorie oder Suche.",
   "recipesImagePlaceholderLabel": "REZEPT",
