@@ -887,8 +887,19 @@ Deno.test("P6-02: abgelehntes IP-Tor -> kurzer Text, IP-Retry-After, User-Tor un
     assert(retry > 590 && retry <= 600, `Retry-After aus dem IP-Fenster erwartet, war ${retry}`);
 
     // Das User-Bucket wird nicht verbraucht: es gibt keinen zweiten Aufruf,
-    // und die RPC hat hinter der Ablehnung nichts mehr angefasst.
-    assertEquals(stub.callsTo("consume_edge_rate_limit").length, 1, "genau ein Limiter-Call");
+    // und die RPC hat hinter der Ablehnung nichts mehr angefasst. callsTo()
+    // ist eine Teilstring-Suche und der Einzel-RPC-Pfad ein PRAEFIX des
+    // gebuendelten — die beiden trennt nur ein endsWith (wie oben).
+    assertEquals(
+      stub.callsTo("/rpc/consume_edge_rate_limits").length,
+      1,
+      "genau ein gebuendelter Limiter-Call",
+    );
+    assertEquals(
+      stub.calls.filter((c) => c.url.endsWith("/rpc/consume_edge_rate_limit")).length,
+      0,
+      "keine Einzel-RPC",
+    );
     assertEquals(stub.callsTo("claim_chat_quota").length, 0, "keine Quota hinter dem Tor");
     assertEquals(stub.openRouterBodies.length, 0, "kein bezahlter Aufruf");
   } finally {
@@ -961,6 +972,103 @@ Deno.test("P6-02: leeres Ergebnis-Array ist ein Ausfall, kein freier Durchlauf",
     const res = await handleRequest(makeRequest({ message: "Wie viel Protein am Tag?" }));
     assertEquals(res.status, 500, "Status");
     assertEquals((await res.json() as JsonRecord).error, "rate_limit_unavailable", "Fehlercode");
+    assertEquals(stub.openRouterBodies.length, 0, "kein bezahlter Aufruf");
+  } finally {
+    stub.restore();
+  }
+});
+
+/** Faengt console.error waehrend `run` ab. */
+async function mitErrorLog(run: () => Promise<Response>): Promise<{
+  res: Response;
+  zeilen: string[];
+}> {
+  const zeilen: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => {
+    zeilen.push(args.map((a) => String(a)).join(" "));
+  };
+  try {
+    return { res: await run(), zeilen };
+  } finally {
+    console.error = original;
+  }
+}
+
+Deno.test("P6-02: das kurze Ergebnis weist schon der HELFER ab, nicht erst der Aufrufer", async () => {
+  // Beide Riegel enden in derselben 500 — der im Helfer (kurzes Array ohne
+  // Ablehnung) und der im Aufrufer (fehlendes User-Element). Deshalb blieb
+  // gruen, wer einen von beiden loeschte. Die Log-Zeile ist die einzige Spur,
+  // die sagt, WER gezogen hat, und pinnt damit den Riegel im Helfer allein.
+  const stub = installFetch({
+    gateBody: [{
+      allowed: true,
+      limit: 120,
+      remaining: 119,
+      resetAt: new Date(Date.now() + 600_000).toISOString(),
+      windowSeconds: 600,
+    }],
+  });
+  try {
+    const { res, zeilen } = await mitErrorLog(() =>
+      handleRequest(makeRequest({ message: "Wie viel Protein am Tag?" }))
+    );
+    assertEquals(res.status, 500, "Status");
+    assertEquals((await res.json() as JsonRecord).error, "rate_limit_unavailable", "Fehlercode");
+    assert(
+      zeilen.some((zeile) => zeile.includes("nur 1/2 Tore")),
+      `der Helfer hat den Kurzschluss nicht gemeldet: ${zeilen.join(" | ")}`,
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P6-02: MEHR Elemente als Tore ist ebenfalls ein Ausfall", async () => {
+  // Ein Array, das laenger ist als die Eingabe, laesst sich den Toren gar
+  // nicht mehr zuordnen — dieselbe Klasse wie die umgeformte Antwort (E6).
+  // Die Elemente sind absichtlich VOLLSTAENDIG: sonst faellt die Mutation
+  // ueber ein fehlendes gates[2] und der Test waere aus dem falschen Grund
+  // gruen.
+  const voll = (limit: number, windowSeconds: number): JsonRecord => ({
+    allowed: true,
+    limit,
+    remaining: limit - 1,
+    resetAt: new Date(Date.now() + windowSeconds * 1000).toISOString(),
+    windowSeconds,
+  });
+  const stub = installFetch({ gateBody: [voll(120, 600), voll(60, 3600), voll(60, 3600)] });
+  try {
+    const res = await handleRequest(makeRequest({ message: "Wie viel Protein am Tag?" }));
+    assertEquals(res.status, 500, "Status");
+    assertEquals((await res.json() as JsonRecord).error, "rate_limit_unavailable", "Fehlercode");
+    assertEquals(stub.callsTo("claim_chat_quota").length, 0, "keine Quota");
+    assertEquals(stub.openRouterBodies.length, 0, "kein bezahlter Aufruf");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P6-02: fehlende Ersatzwerte kommen aus DEM Tor, nicht aus dem ersten", async () => {
+  // Laesst die RPC resetAt/windowSeconds weg, setzt der Helfer sie aus dem
+  // Tor an DERSELBEN Position. Nimmt er stattdessen das erste Tor, bekommt
+  // eine Stunden-Sperre das 10-Minuten-Fenster als Retry-After — der Client
+  // fragt dann 50 Minuten zu frueh wieder an.
+  const stub = installFetch({ gateBody: [{ allowed: true }, { allowed: false }] });
+  try {
+    const res = await handleRequest(makeRequest({ message: "Wie viel Protein am Tag?" }));
+    assertEquals(res.status, 429, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals(
+      body.reply,
+      "Zu viele Coach-Anfragen. Bitte später erneut versuchen.",
+      "langer Text (User-Tor)",
+    );
+    const retry = retryAfterOf(res);
+    assert(
+      retry > 3590 && retry <= 3600,
+      `Retry-After aus dem Stunden-Fenster des User-Tors erwartet, war ${retry}`,
+    );
     assertEquals(stub.openRouterBodies.length, 0, "kein bezahlter Aufruf");
   } finally {
     stub.restore();

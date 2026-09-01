@@ -90,6 +90,14 @@ interface StubOptions {
    * caller must never read as "the missing gate was allowed".
    */
   shortBatch?: boolean;
+  /**
+   * A6: one element MORE than gates were sent, and that element DENIES. An
+   * element without a gate cannot be mapped at all; read positionally it
+   * denies on behalf of a gate nobody asked for.
+   */
+  longBatch?: boolean;
+  /** A6: 200 with an EMPTY array — not one gate consumed, nothing to read. */
+  emptyBatch?: boolean;
 }
 
 /** One element of the p_gates array (contract of
@@ -181,6 +189,9 @@ function installFetch(options: StubOptions = {}): FetchStub {
     if (url.includes('/rest/v1/rpc/consume_edge_rate_limits')) {
       if (hangOn.has('gate')) return hang(signal);
       if (stallBodyOn.has('gate')) return Promise.resolve(stallingBody(signal, '[{"allowed"'));
+      // Nothing consumed, nothing recorded: an empty answer is the RPC saying
+      // it did not run, not a row per gate (A6).
+      if (options.emptyBatch) return Promise.resolve(jsonRes([]));
       const gates = (JSON.parse(body) as { p_gates: GateParams[] }).p_gates;
       const results: JsonRecord[] = [];
       for (const gate of gates) {
@@ -204,6 +215,11 @@ function installFetch(options: StubOptions = {}): FetchStub {
         // consumed, and the handler must not treat it as passed.
         results.pop();
         consumed.pop();
+      }
+      if (options.longBatch && results.length === gates.length) {
+        // A row for a gate that was never sent — and it denies. NOT recorded
+        // in `consumed`: this endpoint never asked for it (A6).
+        results.push(limitBody(1, 60, false));
       }
       return Promise.resolve(jsonRes(results));
     }
@@ -1132,6 +1148,46 @@ Deno.test('A4: ein kurzes Ergebnis ohne Absage ist ein Ausfall, kein Freibrief',
     assertEquals(res.status, 500, 'Status');
     assertEquals((await res.json() as JsonRecord).error, 'rate_limit_unavailable', 'Fehlercode');
     assertEquals(stub.rateLimitScopes().join(','), 'analyze-meal:ip', 'verbrauchte Gates');
+    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// A6 (review 2026-09-01): the short answer above was pinned, the two other
+// unreadable LENGTHS were not. Both are limiter outages and must fail closed
+// with the same code as every other one — never a 429 for a gate nobody sent,
+// never a generic internal_error, and above all never a provider call.
+// ---------------------------------------------------------------------------
+
+Deno.test('A6: mehr Elemente als Gates ist ein Ausfall, kein Urteil fuer ein nie gesendetes Tor', async () => {
+  // A row without a gate cannot be mapped: read positionally its numbers get
+  // attributed to a gate that is not in the array, which is how the reply of a
+  // CHANGED RPC signature would look. The answer must name the limiter, not
+  // pass an invented denial (429) or a bare crash (500 internal_error) on.
+  const stub = installFetch({ longBatch: true });
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 500, 'Status');
+    assertEquals((await res.json() as JsonRecord).error, 'rate_limit_unavailable', 'Fehlercode');
+    assertEquals(stub.rateLimitCalls(), 1, 'nach dem ersten Batch ist Schluss');
+    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test('A6: ein leeres Ergebnis-Array ist ein Ausfall, kein Freibrief', async () => {
+  // 200 with `[]`: the RPC reports that it consumed nothing. Reading that as
+  // "nothing denied" would send an entirely unmetered request to the paid
+  // provider call — the same hole as the short answer, one step further.
+  const stub = installFetch({ emptyBatch: true });
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 500, 'Status');
+    assertEquals((await res.json() as JsonRecord).error, 'rate_limit_unavailable', 'Fehlercode');
+    assertEquals(stub.rateLimitScopes().length, 0, 'kein Tor verbraucht');
     assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
   } finally {
     stub.restore();

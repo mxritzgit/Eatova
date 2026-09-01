@@ -327,6 +327,10 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       // (there the write is a full upsert, so the success is real); the price
       // is one queue detour for the next write to that entity.
       _dequeueDeliveredOp(op);
+      // The server has the row now — drop the trend window a SECOND time. The
+      // optimistic drop in HomeStore ran before this write was issued, so a
+      // Trends open in between had already re-cached the pre-write state.
+      if (_opTouchesTrendWindow(op)) _invalidateTrendWindow();
       onDelivered?.call();
       _onSyncSuccess();
       return SyncDelivery.delivered;
@@ -1055,7 +1059,28 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// with the op's removal instead (see [_statsFollowUpFor], [_replayOutbox]),
   /// so a kill in between cannot count twice. The streak day stays here:
   /// [_recordTrackingDay] is idempotent per day server-side.
+  /// True for the ops that change what TrendService reads from the SERVER.
+  ///
+  /// The trend window is fetched straight from logged_meals, so it must be
+  /// dropped when the ROW changes, not when the local list does. Invalidating
+  /// only optimistically (HomeStore, before the write is issued) left two
+  /// holes: an outbox replay landing later had no hook at all, and even online
+  /// a Trends open between the optimistic drop and the write completing
+  /// re-cached pre-write data for the whole TTL. Both are closed by dropping
+  /// again HERE, once the server has actually taken the write.
+  ///
+  /// Weight and steps are absent on purpose: the projection is kcal + macros.
+  static bool _opTouchesTrendWindow(SyncOp op) =>
+      op.kind == SyncOpKind.mealInsert ||
+      op.kind == SyncOpKind.mealUpsert ||
+      op.kind == SyncOpKind.mealDelete;
+
   Future<void> _performOp(EatovaSync s, SyncOp op) async {
+    if (_opTouchesTrendWindow(op)) {
+      // Registered before the await so the drop also happens when the write
+      // succeeds but this isolate dies before the continuation runs.
+      _invalidateTrendWindow();
+    }
     switch (op.kind) {
       case SyncOpKind.mealInsert:
         final meal = op.meal;

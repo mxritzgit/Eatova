@@ -17,7 +17,7 @@
 //
 // Attrappen-Stream statt Netz; `deno test --allow-env`.
 
-import { handleRequest, PROVIDER_TIMEOUTS_MS } from "./handler.ts";
+import { handleRequest, PROMPT_LEAK_GUARD, PROVIDER_TIMEOUTS_MS } from "./handler.ts";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const SESSION_ID = "22222222-2222-4222-8222-222222222222";
@@ -89,6 +89,13 @@ function deltaFrame(text: string, finishReason: string | null = null): string {
 
 const DONE_FRAME = "data: [DONE]\n\n";
 
+/** Ein Fehler-Frame, wie OpenRouter ihn mitten im Stream schickt (F2). */
+function errorFrame(code: unknown): string {
+  return `data: ${
+    JSON.stringify({ error: { ...(code === undefined ? {} : { code }), message: "upstream sagt nein" } })
+  }\n\n`;
+}
+
 /** Wie der Attrappen-Stream endet, nachdem seine Bloecke raus sind. */
 type StreamEnde =
   /** Sauber geschlossen. */
@@ -96,17 +103,24 @@ type StreamEnde =
   /** Anbieter-Ausfall mitten in der Antwort. */
   | "fail"
   /** Stiller Upstream: nur die Frist beendet das noch. */
-  | "stall";
+  | "stall"
+  /** Haelt an, bis der Test das Tor oeffnet — dann sauber geschlossen. */
+  | "tor";
 
 /**
  * Antwort-Body des Anbieters. Die Bloecke sind BYTE-Bloecke, keine Frames —
  * genau so laesst sich nachstellen, was ein echter Stream tut: mehrere Frames
  * in einem Read, ein Frame ueber zwei Reads verteilt, Keep-Alive-Kommentare.
+ *
+ * `beiCancel` meldet, dass der Handler den Anbieter-Reader freigegeben hat —
+ * eine offene Verbindung waere sonst unsichtbar.
  */
 function providerBody(
   bloecke: string[],
   ende: StreamEnde,
   signal: AbortSignal | null | undefined,
+  beiCancel: () => void,
+  tor?: Promise<void>,
 ): ReadableStream<Uint8Array> {
   const enc = new TextEncoder();
   let i = 0;
@@ -124,6 +138,9 @@ function providerBody(
         controller.error(new Error("upstream stream broke"));
         return;
       }
+      if (ende === "tor") {
+        return (tor ?? Promise.resolve()).then(() => controller.close());
+      }
       // Ohne Signal laut scheitern: das ist die Regressionswache gegen eine
       // entfernte Frist auf dem gestreamten Body.
       return new Promise<void>((_, reject) => {
@@ -137,6 +154,9 @@ function providerBody(
         }
         signal.addEventListener("abort", () => reject(signal.reason), { once: true });
       });
+    },
+    cancel() {
+      beiCancel();
     },
   });
 }
@@ -178,6 +198,8 @@ interface StubOptions {
   answerFinishReason?: string;
   /** Wie der Stream nach seinen Bloecken endet (Standard: sauber). */
   answerEnde?: StreamEnde;
+  /** Tor fuer answerEnde: "tor" — der Anbieter haelt an, bis das aufloest. */
+  answerTor?: Promise<void>;
   /** HTTP-Status des Antwort-Calls (Ausfall vor jedem Byte). */
   answerStatus?: number;
   /** Inhalt des GEPUFFERTEN Antwort-Calls (Pfad ohne Opt-in). */
@@ -194,6 +216,8 @@ interface FetchStub {
   assistantRows(): JsonRecord[];
   /** Ledger: der Anspruch zaehlt hoch, die Erstattung wieder runter. */
   quotaUsed(): number;
+  /** Wurde der Anbieter-Reader freigegeben? (offene Verbindung sonst blind) */
+  providerCancelled(): boolean;
   restore(): void;
 }
 
@@ -201,6 +225,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
   const calls: RecordedCall[] = [];
   const original = globalThis.fetch;
   let quotaUsed = 0;
+  let providerCancelled = false;
 
   function streamedAnswer(signal: AbortSignal | null | undefined): Response {
     const ende = options.answerEnde ?? "close";
@@ -213,10 +238,12 @@ function installFetch(options: StubOptions = {}): FetchStub {
         // Definition, BEVOR der Anbieter sein Ende schickt.
         ...(ende === "close" ? [DONE_FRAME] : []),
       ];
-    return new Response(providerBody(bloecke, ende, signal), {
-      status: 200,
-      headers: { "content-type": "text/event-stream" },
-    });
+    return new Response(
+      providerBody(bloecke, ende, signal, () => {
+        providerCancelled = true;
+      }, options.answerTor),
+      { status: 200, headers: { "content-type": "text/event-stream" } },
+    );
   }
 
   function route(
@@ -335,6 +362,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
         .map((call) => JSON.parse(call.body) as JsonRecord)
         .filter((row) => row.role === "assistant"),
     quotaUsed: () => quotaUsed,
+    providerCancelled: () => providerCancelled,
     restore: () => {
       globalThis.fetch = original;
     },
@@ -947,6 +975,426 @@ Deno.test("A3: eine zu lange Nachricht bleibt eine 413, auch mit Accept-Header",
     assertEquals(res.status, 413, "Status");
     assertEquals(res.headers.get("content-type"), "application/json; charset=utf-8", "Content-Type");
     assertEquals((await res.json() as JsonRecord).error, "message_too_long", "Fehlercode");
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 8) F1 — das Leck-Netz greift auf INHALT, nicht nur auf die Phrase
+//
+// PROMPT_LEAK_RE feuert erst, wenn das Modell den Prompt BENENNT, also am ENDE
+// eines Lecks. Gepuffert reicht das (die ganze Antwort wird getauscht),
+// gestreamt nicht: wer erst zitiert und zuletzt "das war mein system prompt"
+// schreibt, hat den Inhalt laengst auf der Leitung — zurueckgehalten werden nur
+// LEAK_GUARD_TAIL Zeichen. Keine Riegelgroesse schliesst das, die Trigger-
+// Phrase kann beliebig spaet kommen. Deshalb prueft das Netz jetzt auch auf die
+// WORTFOLGEN des Prompts selbst.
+//
+// Die Gegenrichtung ist das teurere Risiko: eine faelschlich als Leck erkannte
+// Antwort kostet einen von fuenf Tagesslots und sieht aus wie ein Fehler. Die
+// Matrix und die letzten beiden Tests halten genau das fest.
+// ---------------------------------------------------------------------------
+
+// Byte-Kopien aus ANSWER_SYSTEM_PROMPT (handler.ts) — dieselbe Regel wie bei
+// den Katalogtexten: wird der Prompt umformuliert, muss das hier rot werden.
+const PROMPT_ZEILE_1 =
+  "You are Eatova Coach - a friendly fitness and nutrition coach inside a mobile app. " +
+  "The app's primary user-language is German but you must adapt.";
+const PROMPT_ZEILE_2 =
+  "- Detect the user's message language and ALWAYS reply in that same language.";
+
+Deno.test("F1: Prompt-Inhalt zuerst, Trigger-Phrase zuletzt — nichts davon geht raus", async () => {
+  // Der Angriff aus dem Review: das Modell zitiert erst den Prompt und benennt
+  // ihn erst im letzten Satz. Vorher gingen 151 Zeichen Prompt raus, weil nur
+  // die letzten 64 Zeichen zurueckgehalten wurden.
+  const stub = installFetch({
+    answerDeltas: [
+      "Klar, ich erklaere dir gern, wie ich arbeite. ",
+      PROMPT_ZEILE_1,
+      PROMPT_ZEILE_2,
+      " Das war mein system prompt.",
+    ],
+  });
+  try {
+    const res = await handleRequest(makeRequest({ message: FRAGE }, true));
+    const events = parseSse(await res.text());
+    const geliefert = deltaTexte(events).join("");
+    for (const teil of ["Eatova Coach", "friendly fitness", "Detect the user", "ALWAYS reply"]) {
+      assert(!geliefert.includes(teil), `Prompt-Inhalt auf der Leitung: ${geliefert}`);
+    }
+    assertEquals(deltaTexte(events).length, 0, "gar kein delta");
+    const done = events[events.length - 1].data;
+    assertEquals(done.reply, PROMPT_LEAK_REPLY, "done traegt den Katalogtext");
+    assertEquals(done.refusal, true, "refusal");
+    assertEquals(stub.assistantRows()[0].content, PROMPT_LEAK_REPLY, "persistierter Text");
+    // Dieselbe Buchhaltung wie beim Phrasen-Treffer: kein Refund.
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
+    assertEquals(stub.quotaUsed(), 1, "der Slot bleibt verbraucht");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("F1: der Riegel deckt genau das Fenster, das die Tabelle nicht sieht", () => {
+  // Die Garantie "kein Prompt-Zeichen erreicht den Client" ist eine Relation:
+  // die Tabelle feuert erst nach `words` Woertern, also muss der Riegel den
+  // laengsten Lauf aus `words - 1` Prompt-Woertern abdecken. Die Tabelle zaehlt
+  // ein Leerzeichen pro Luecke, das Modell schreibt ", " oder " - " — daher ein
+  // Zeichen Zuschlag pro Luecke.
+  const { words, tailChars, shingles } = PROMPT_LEAK_GUARD;
+  assert(shingles.size > 100, `Tabelle zu duenn: ${shingles.size}`);
+  let laengster = 0;
+  for (const shingle of shingles) {
+    laengster = Math.max(laengster, shingle.split(" ").slice(0, words - 1).join(" ").length);
+  }
+  assert(
+    laengster + (words - 2) <= tailChars,
+    `der Riegel (${tailChars}) deckt den laengsten Vorlauf (${laengster} + Satzzeichen) nicht`,
+  );
+});
+
+Deno.test("F1: das Netz trennt Prompt-Wortlaut von echten Coach-Antworten", () => {
+  // Die Matrix, die die Ausnahmen festhaelt: was der Prompt dem Modell
+  // woertlich BEFIEHLT, ist kein Leck.
+  const faelle: { text: string; leck: boolean; was: string }[] = [
+    { text: PROMPT_ZEILE_1, leck: true, was: "die Persona-Zeile" },
+    { text: PROMPT_ZEILE_2, leck: true, was: "die Sprachregel" },
+    {
+      text: "Ich sage dir gleich: mein system prompt bleibt bei mir.",
+      leck: true,
+      was: "die benannte Phrase (Verteidigung in der Tiefe)",
+    },
+    {
+      text:
+        "Nach dem Training sind 25 bis 30 g Protein ein guter Richtwert. Ein Magerquark mit " +
+        "Beeren liegt bei ungefaehr 250 bis 300 kcal und passt in dein Abendessen, ohne deine " +
+        "Tagesbilanz zu sprengen. Wenn du magst, rechnen wir das gleich auf deine Slots um.",
+      leck: false,
+      was: "eine normale deutsche Coach-Antwort",
+    },
+    {
+      text:
+        "I can help with calories, macros, portion sizes, meal timing, hydration, whole foods, " +
+        "food swaps, eating out and cravings, and with strength, hypertrophy, endurance, " +
+        "mobility, recovery, sleep and stress in the context of sport.",
+      leck: false,
+      was: "die englische Themenliste (YOUR SCOPE ist ausgenommen)",
+    },
+    {
+      text:
+        "I can look at your photo when it is about fitness, body progress, exercise form, " +
+        "nutrition, meals, recovery, or coaching.",
+      leck: false,
+      was: "die Bild-Themenliste (VISUAL INPUT RULES ist ausgenommen)",
+    },
+    {
+      text:
+        "Bitte sprich mit jemandem darueber - die Telefonseelsorge ist unter 0800 111 0 111 " +
+        "rund um die Uhr erreichbar. Du bist nicht allein.",
+      leck: false,
+      was: "der Krisen-Wortlaut, den der Prompt woertlich verlangt",
+    },
+    {
+      text: "That is outside what I can help with - I am just your coach for training and nutrition.",
+      leck: false,
+      was: "das Refusal-Beispiel aus dem Prompt",
+    },
+  ];
+  for (const fall of faelle) {
+    assertEquals(PROMPT_LEAK_GUARD.leaks(fall.text), fall.leck, fall.was);
+  }
+});
+
+Deno.test("F1: eine lange, saubere Coach-Antwort streamt vollstaendig", async () => {
+  const teile = [
+    "Nach dem Training sind 25 bis 30 g Protein ein guter Richtwert, damit die Muskulatur gut ",
+    "versorgt ist. Ein Magerquark mit Beeren liegt bei ungefaehr 250 bis 300 kcal und passt ",
+    "damit gut in dein Abendessen, ohne deine Tagesbilanz zu sprengen. Wenn dir das zu wenig ",
+    "ist, nimm noch eine Scheibe Vollkornbrot dazu - das sind rund 100 kcal mehr und ein paar ",
+    "langsame Kohlenhydrate, die dich bis zum Schlafen satt halten.",
+  ];
+  const stub = installFetch({ answerDeltas: teile });
+  try {
+    const res = await handleRequest(makeRequest({ message: FRAGE }, true));
+    const events = parseSse(await res.text());
+    const deltas = deltaTexte(events);
+    assert(deltas.length > 1, `nicht wirklich gestreamt: ${deltas.length} delta(s)`);
+    assertEquals(deltas.join(""), teile.join(""), "die Deltas ergeben den ganzen Text");
+    const done = events[events.length - 1].data;
+    assertEquals(done.reply, teile.join(""), "done traegt denselben Text");
+    assertEquals(done.refusal, false, "keine Refusal");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("F1: die Krisen-Antwort im woertlichen Wortlaut ist kein Leck", async () => {
+  // Der teuerste Fehlalarm, den dieses Netz produzieren koennte: der Prompt
+  // verlangt diesen Satz woertlich, er darf nie zum Katalogtext werden.
+  const KRISE = "Bitte sprich mit jemandem darueber - die Telefonseelsorge ist unter " +
+    "0800 111 0 111 rund um die Uhr erreichbar. Du bist nicht allein.";
+  const stub = installFetch({ answerDeltas: [`__REFUSE__ ${KRISE}`] });
+  try {
+    const res = await handleRequest(makeRequest({ message: FRAGE }, true));
+    const events = parseSse(await res.text());
+    const done = events[events.length - 1].data;
+    assertEquals(done.reply, KRISE, "der Krisentext bleibt stehen");
+    assertEquals(done.refusal, true, "als Refusal markiert");
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 9) F2 — der Fehler-Frame bringt seinen eigenen Code mit
+//
+// Ein Fehler-Frame mitten im Stream war pauschal eine 502; damit war
+// isClientFaultFailure() fuer gestreamte Ausfaelle unerreichbar, und eine vom
+// Client verursachte 4xx bekam den Slot zurueck, den der gepufferte Pfad
+// verbraucht laesst. Vertraut wird nur die Allowlist {400,403,413,415,422}.
+// ---------------------------------------------------------------------------
+
+Deno.test("F2: der Code des Fehler-Frames entscheidet ueber die Erstattung", async () => {
+  const faelle: { code: unknown; refund: boolean; was: string }[] = [
+    { code: 400, refund: false, was: "400 ist Client-Schuld" },
+    { code: "413", refund: false, was: "413 auch als String" },
+    { code: 429, refund: true, was: "429 ist unsere Drossel" },
+    { code: 500, refund: true, was: "500 ist ein Ausfall" },
+    { code: "rate_limit", refund: true, was: "ein Nicht-HTTP-Code beweist nichts" },
+    { code: undefined, refund: true, was: "ohne Code bleibt es die 502" },
+  ];
+  for (const fall of faelle) {
+    // Erst ein Delta ueber die Kopfpruefung (10 Zeichen), aber unter dem
+    // Riegel: der Kopf ist durch, die SSE-Header sind raus, und trotzdem ging
+    // noch kein delta raus — genau die Stelle, an der die Erstattungsregel
+    // haengt.
+    const stub = installFetch({
+      answerChunks: [deltaFrame("Klar, gerne."), errorFrame(fall.code)],
+    });
+    try {
+      const res = await handleRequest(makeRequest({ message: FRAGE }, true));
+      assertEquals(res.status, 200, `Status (${fall.was})`);
+      const events = parseSse(await res.text());
+      assertEquals(deltaTexte(events).length, 0, `kein delta (${fall.was})`);
+      assertEquals(
+        events[events.length - 1].data.error,
+        "provider_error",
+        `Fehlercode (${fall.was})`,
+      );
+      assertEquals(
+        stub.callsTo("refund_chat_quota").length,
+        fall.refund ? 1 : 0,
+        `Erstattung (${fall.was})`,
+      );
+      assertEquals(stub.quotaUsed(), fall.refund ? 0 : 1, `Ledger (${fall.was})`);
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+Deno.test("F2: ein Fehler-Frame VOR dem Kopf bleibt eine ehrliche 502 ohne Erstattung", async () => {
+  // Noch kein SSE-Header raus, also darf der Status ehrlich sein — und ein
+  // Client-Fehler kostet den Slot, exakt wie im gepufferten Pfad.
+  const stub = installFetch({ answerChunks: [errorFrame(400)] });
+  try {
+    const res = await handleRequest(makeRequest({ message: FRAGE }, true));
+    assertEquals(res.status, 502, "Status");
+    assertEquals(res.headers.get("content-type"), "application/json; charset=utf-8", "Content-Type");
+    assertEquals((await res.json() as JsonRecord).error, "provider_error", "Fehlercode");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
+    assertEquals(stub.quotaUsed(), 1, "der Slot bleibt verbraucht");
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 10) Was der Vertrag verspricht, aber bisher niemand festgehalten hat
+//
+// Aus dem Test-Review: die folgenden Zusicherungen liessen sich mutieren, ohne
+// dass ein einziger Test rot wurde. Alle sechs Muster haben eines gemeinsam —
+// sie haengen an der SSE-Antwort, waehrend die gleichwertige Zusicherung im
+// gepufferten Pfad laengst gepinnt war.
+// ---------------------------------------------------------------------------
+
+Deno.test("A3/§5: der ERFOLGREICHE Stream erstattet nie und gibt den Anbieter frei", async () => {
+  // Ein `refund()` vor dem done-Event machte jede gestreamte Antwort gratis,
+  // ohne dass ein Test es merkte: alle Erstattungs-Zusicherungen sassen auf
+  // scheiternden Streams. Und der Reader-Release am Ende der Pumpe war
+  // ebenfalls unbeobachtet — eine offene Anbieter-Verbindung sieht man nicht.
+  // Das Tor bleibt OFFEN stehen: nur ein Anbieter-Stream, der noch nicht von
+  // selbst geschlossen hat, kann ueberhaupt freigegeben werden — bei einem
+  // geschlossenen ist cancel() laut Spec ein No-op und beweist nichts.
+  const stub = installFetch({
+    answerChunks: [deltaFrame(LANGER_TEXT_A), deltaFrame(LANGER_TEXT_B, "stop"), DONE_FRAME],
+    answerEnde: "tor",
+    answerTor: new Promise<void>(() => {}),
+  });
+  try {
+    const res = await handleRequest(makeRequest({ message: FRAGE }, true));
+    const events = parseSse(await res.text());
+    assertEquals(events[events.length - 1].event, "done", "letztes Event");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "keine Erstattung");
+    assertEquals(stub.quotaUsed(), 1, "der Slot bleibt verbraucht");
+    assert(stub.providerCancelled(), "der Anbieter-Reader wurde nicht freigegeben");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("A3/§5: ein Abbruch VOR dem ersten delta ist auch keine Gratisfrage", async () => {
+  // Die Erstattungsgrenze ist das erste delta UND der Abbruch: ohne die
+  // clientGone-Haelfte bekaeme genau dieser Ablauf den Slot zurueck, und ein
+  // Abbruch nach dem meta-Event waere die billigste Frage der App.
+  const stub = installFetch({
+    answerChunks: [deltaFrame("Klar, gerne.")],
+    answerEnde: "stall",
+  });
+  try {
+    const res = await handleRequest(makeRequest({ message: FRAGE }, true));
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let gelesen = "";
+    while (!gelesen.includes("event: meta")) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      gelesen += decoder.decode(value, { stream: true });
+    }
+    assertEquals(deltaTexte(parseSse(gelesen)).length, 0, "noch kein delta raus");
+    const touchesVorher = stub.callsTo("touch_chat_session").length;
+    await reader.cancel();
+    await warteBis(() => stub.callsTo("touch_chat_session").length > touchesVorher);
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund nach einem Abbruch");
+    assertEquals(stub.quotaUsed(), 1, "der Slot bleibt verbraucht");
+    assertEquals(stub.assistantRows().length, 0, "nichts Geliefertes, nichts zu speichern");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("A3/§6: bricht der Client ab, wird NUR das Gelieferte persistiert", async () => {
+  // Der Zweig, den bisher kein Test erreicht hat: die Schleife endet REGULAER
+  // (der Anbieter schliesst), waehrend der Client schon weg ist. Das Tor haelt
+  // den Anbieter genau so lange an, bis der Abbruch durch ist — sonst ist der
+  // Stream fertig, bevor der Test lesen kann, und man landet im catch.
+  let torOeffnen: () => void = () => {};
+  const tor = new Promise<void>((resolve) => {
+    torOeffnen = resolve;
+  });
+  const stub = installFetch({
+    answerDeltas: [LANGER_TEXT_A + LANGER_TEXT_B],
+    answerEnde: "tor",
+    answerTor: tor,
+  });
+  try {
+    const res = await handleRequest(makeRequest({ message: FRAGE }, true));
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let gelesen = "";
+    while (!gelesen.includes("event: delta")) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      gelesen += decoder.decode(value, { stream: true });
+    }
+    await reader.cancel();
+    torOeffnen();
+    await warteBis(() => stub.assistantRows().length > 0);
+    const geliefert = deltaTexte(parseSse(gelesen)).join("");
+    const ganzerText = LANGER_TEXT_A + LANGER_TEXT_B;
+    assert(geliefert.length > 0, "es ging Inhalt raus");
+    assert(
+      geliefert.length < ganzerText.length,
+      "der Riegel muss noch Text zurueckhalten, sonst prueft der Test nichts",
+    );
+    const rows = stub.assistantRows();
+    assertEquals(rows.length, 1, "eine Assistant-Zeile");
+    assertEquals(rows[0].content, geliefert, "nur das GELIEFERTE, nicht der ganze Puffer");
+    assertEquals(rows[0].refusal, false, "nichts Neues markiert");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("A3: [DONE] beendet den Stream, statt am Anbieter haengen zu bleiben", async () => {
+  // Ohne die Sentinel-Behandlung liefe die Pumpe weiter, bis der Anbieter von
+  // sich aus schliesst — live haelt das die Verbindung offen. Hier stockt der
+  // Anbieter nach [DONE] absichtlich: wer den Sentinel ignoriert, laeuft in
+  // die Frist und schickt ein error-Event statt done.
+  await mitKurzerFrist(300, async () => {
+    const stub = installFetch({
+      answerChunks: [deltaFrame(LANGER_TEXT_A + LANGER_TEXT_B, "stop"), DONE_FRAME],
+      answerEnde: "stall",
+    });
+    try {
+      const res = await handleRequest(makeRequest({ message: FRAGE }, true));
+      const events = parseSse(await res.text());
+      assertEquals(events[events.length - 1].event, "done", "letztes Event");
+      assertEquals(
+        events[events.length - 1].data.reply,
+        LANGER_TEXT_A + LANGER_TEXT_B,
+        "der ganze Text",
+      );
+    } finally {
+      stub.restore();
+    }
+  });
+});
+
+Deno.test("A3: beide SSE-Antworten tragen den Riegel gegen puffernde Zwischenstellen", async () => {
+  // X-Accel-Buffering: no ist der einzige Header, der eine Zwischenstelle
+  // davon abhaelt, den ganzen Body zu sammeln — und damit das Streamen still
+  // rueckgaengig zu machen.
+  const gestreamt = installFetch({ answerDeltas: [LANGER_TEXT_A, LANGER_TEXT_B] });
+  try {
+    const res = await handleRequest(makeRequest({ message: FRAGE }, true));
+    assertEquals(res.headers.get("X-Accel-Buffering"), "no", "gestreamte Antwort");
+    await res.text();
+  } finally {
+    gestreamt.restore();
+  }
+  const nurDone = installFetch({ answerDeltas: ["__REFUSE__ Nicht mein Thema."] });
+  try {
+    const res = await handleRequest(makeRequest({ message: FRAGE }, true));
+    assertEquals(res.headers.get("X-Accel-Buffering"), "no", "done-only-Antwort");
+    await res.text();
+  } finally {
+    nurDone.restore();
+  }
+});
+
+Deno.test("A3: auch die Refusal ohne deltas gibt den Anbieter-Reader frei", async () => {
+  const stub = installFetch({
+    answerChunks: [deltaFrame("__REFUSE__ Nicht mein Thema.", "stop"), DONE_FRAME],
+    answerEnde: "tor",
+    answerTor: new Promise<void>(() => {}),
+  });
+  try {
+    const res = await handleRequest(makeRequest({ message: FRAGE }, true));
+    await res.text();
+    assert(stub.providerCancelled(), "der Anbieter-Reader wurde nicht freigegeben");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("L4: scheitert der Kopf, wird der Anbieter-Reader trotzdem freigegeben", async () => {
+  // Der Pfad, der ohnehin schon schiefgegangen ist, hielt die Verbindung als
+  // einziger offen: nur die done-only-Abzweigung und die Pumpe raeumten auf.
+  const stub = installFetch({
+    answerChunks: [errorFrame(500)],
+    answerEnde: "tor",
+    answerTor: new Promise<void>(() => {}),
+  });
+  try {
+    const res = await handleRequest(makeRequest({ message: FRAGE }, true));
+    assertEquals(res.status, 502, "Status");
+    assert(stub.providerCancelled(), "der Anbieter-Reader wurde nicht freigegeben");
+    // Und das Urteil bleibt, was es war: Ausfall -> Slot zurueck.
+    assertEquals(stub.callsTo("refund_chat_quota").length, 1, "Erstattung");
+    assertEquals(stub.quotaUsed(), 0, "Ledger");
   } finally {
     stub.restore();
   }

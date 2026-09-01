@@ -775,7 +775,11 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     // The preview belongs to the request, not to the screen: the finished
     // bubble (or the error banner) has taken over by now, and a leftover would
     // reappear under the NEXT question before its first token.
-    if (rest == 0) _streamVorschau.value = '';
+    // `mounted` FIRST: dispose() disposes this notifier, and a write after that
+    // trips ValueNotifier's debugAssertNotDisposed — it throws into the zone (and
+    // so into Sentry) in debug and in every widget test. Reachable by signing out
+    // or tearing the shell down while a stream has produced at least one delta.
+    if (mounted && rest == 0) _streamVorschau.value = '';
     if (!mounted) {
       _laufendeSendungen = rest;
       _sendendeSessionId = sendende;

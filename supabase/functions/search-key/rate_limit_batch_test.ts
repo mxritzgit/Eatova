@@ -294,3 +294,79 @@ Deno.test("P6-02: ein Element ohne lesbares allowed bleibt ein Ausfall, kein erf
     stub.restore();
   }
 });
+
+// ---------------------------------------------------------------------------
+// A6 (review 2026-09-01): the shape guards above were pinned only where a
+// broken reply CHANGES the answer by itself. Three shapes did not: an empty
+// array, a reply mapped to the wrong gate, and defaults read from the wrong
+// gate. All three are silent — they answer 429 or 500 either way, just with
+// the wrong numbers or the wrong reason — which is exactly why they need their
+// own tests.
+// ---------------------------------------------------------------------------
+
+Deno.test("A6: ein leeres Ergebnis-Array ist ein Ausfall, kein internal_error", async () => {
+  // The RPC answered 200 with `[]`: not one gate consumed, and nothing to read.
+  // Without the explicit length check this runs into the short-reply check
+  // BELOW the loop, which reads results[-1] and throws a TypeError — the
+  // outer catch then answers the generic 500 internal_error. Same status,
+  // wrong reason: the client and the operator would look for a bug in the key
+  // path instead of at the limiter.
+  const handler = await loadHandler();
+  const stub = installFetch({ batchReply: () => [] });
+  try {
+    const res = await handler(request());
+    assertEquals(res.status, 500, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.error, "rate_limit_unavailable", "Fehlercode");
+    assertEquals("searchKey" in body, false, "kein Key im Ausfall");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("A6: Element n gehoert zu Tor n — die Absage kommt mit den Zahlen ihres eigenen Tors", async () => {
+  // Elements WITHOUT numbers: limit, window and resetAt then come from the gate
+  // the element belongs to, and that is the only channel in which the mapping
+  // is visible at all. With full numbers per element (the tests above) a
+  // reversed mapping answers exactly the same 429 — it would hand the IP
+  // gate's Retry-After to a user-gate denial and nobody would notice.
+  const handler = await loadHandler();
+  const stub = installFetch({ batchReply: () => [{ allowed: true }, { allowed: false }] });
+  try {
+    const res = await handler(request());
+    assertEquals(res.status, 429, "Status");
+    const limit = (await res.json() as JsonRecord).rateLimit as JsonRecord;
+    assertEquals(limit.limit, USER_LIMIT, "gemeldetes Limit");
+    assertEquals(limit.windowSeconds, USER_WINDOW, "gemeldetes Fenster");
+    const retryAfter = Number(res.headers.get("retry-after"));
+    assert(
+      retryAfter > USER_WINDOW - 10 && retryAfter <= USER_WINDOW,
+      `Retry-After muss aus dem Nutzer-Fenster stammen, war ${retryAfter}`,
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("A6: die Vorgabewerte einer Absage kommen aus IHREM Tor, nicht aus einem anderen", async () => {
+  // Counter-check with the SHORT reply: one bare element for two gates. The
+  // RPC stopped at the IP gate, so limit, window and Retry-After have to be
+  // the IP gate's — a Retry-After of an hour for a ten-minute IP window would
+  // lock a client out six times longer than the limiter ever measured.
+  const handler = await loadHandler();
+  const stub = installFetch({ batchReply: () => [{ allowed: false }] });
+  try {
+    const res = await handler(request());
+    assertEquals(res.status, 429, "Status");
+    const limit = (await res.json() as JsonRecord).rateLimit as JsonRecord;
+    assertEquals(limit.limit, IP_LIMIT, "gemeldetes Limit");
+    assertEquals(limit.windowSeconds, IP_WINDOW, "gemeldetes Fenster");
+    const retryAfter = Number(res.headers.get("retry-after"));
+    assert(
+      retryAfter > IP_WINDOW - 10 && retryAfter <= IP_WINDOW,
+      `Retry-After muss aus dem IP-Fenster stammen, war ${retryAfter}`,
+    );
+  } finally {
+    stub.restore();
+  }
+});

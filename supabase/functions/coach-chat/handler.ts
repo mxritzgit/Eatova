@@ -403,6 +403,98 @@ const REFUSAL_MARKER = "__REFUSE__";
 /// flag on purpose — a stateful lastIndex would make `.test` skip matches.
 const PROMPT_LEAK_RE = /system\s*prompt|deine\s*anweisungen\s*lauten/i;
 
+// ---------------------------------------------------------------------------
+// F1 - the half of that net that also works in a STREAM.
+//
+// PROMPT_LEAK_RE only fires once the model NAMES the prompt, which is the END
+// of a leak. Buffered that is enough (the whole reply is swapped). Streamed it
+// is not: a model that recites the prompt first and writes "das war mein
+// system prompt" last has already put the content on the wire, since only
+// LEAK_GUARD_TAIL characters are ever held back. No tail size closes that —
+// the trigger phrase can arrive arbitrarily late.
+//
+// So the net also tests the prompt's OWN WORDING: every run of SHINGLE_WORDS
+// consecutive words of ANSWER_SYSTEM_PROMPT is a tripwire, and a leak trips it
+// after its first seven words instead of after its last sentence.
+// ---------------------------------------------------------------------------
+
+/// Seven, because the two errors have very different prices. A missed run is
+/// caught a few words later (a leak reproduces whole lines, not seven words),
+/// while a FALSE hit replaces a correct answer with a refusal and costs the
+/// user one of DAILY_LIMIT slots — that looks like a bug, not like safety.
+/// Seven is also short enough that the longest SIX-word run of the prompt (57
+/// characters with its punctuation) still fits behind LEAK_GUARD_TAIL: the
+/// tail covers exactly the window the table cannot see yet, so no prompt
+/// character reaches the client before the net fires. handler_stream_test.ts
+/// pins that relation — a prompt edit with longer words must go red there.
+const SHINGLE_WORDS = 7;
+
+/// Prompt sections that stay OUT of the table. Both list what the coach may
+/// talk about, and an honest answer to "what can you help me with" restates
+/// exactly those words ("calories, macros, portion sizes, meal timing,
+/// hydration"). They are also the least worth protecting: they say nothing the
+/// app does not advertise, and a full dump still trips on every other section.
+const SHINGLE_EXEMPT_SECTIONS = ["YOUR SCOPE", "VISUAL INPUT RULES"];
+
+/// A section header of the answer prompt: ALL-CAPS first word plus a trailing
+/// colon. Content lines start with "-", a digit or a normal word, so none of
+/// them can be mistaken for one.
+function promptSectionHeader(line: string): boolean {
+  return line.endsWith(":") && /^[A-Z]{3,}$/.test(line.slice(0, -1).split(" ")[0]);
+}
+
+/// Normalisation for BOTH sides of the comparison: case-folded words without
+/// punctuation. A leak that reflows the prompt — other dashes, lost line
+/// breaks, doubled spaces — still lands on the same words.
+function leakWords(text: string): string[] {
+  const flat = text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  return flat.length === 0 ? [] : flat.split(" ");
+}
+
+/// The tripwire table, built once at module load.
+function buildPromptShingles(): Set<string> {
+  const shingles = new Set<string>();
+  let exempt = false;
+  for (const raw of ANSWER_SYSTEM_PROMPT.split("\n")) {
+    const line = raw.trim();
+    if (line.length === 0) continue;
+    if (promptSectionHeader(line)) {
+      exempt = SHINGLE_EXEMPT_SECTIONS.some((section) => line.startsWith(section));
+      continue;
+    }
+    // Reference wording the prompt ORDERS the model to reproduce verbatim: the
+    // crisis helpline sentence and the two refusal examples. Repeating those is
+    // correct behaviour — turning a crisis reply into a leak refusal would be
+    // the worst false positive this net could produce.
+    if (exempt || line.startsWith(REFUSAL_MARKER)) continue;
+    const words = leakWords(line);
+    for (let i = 0; i + SHINGLE_WORDS <= words.length; i++) {
+      shingles.add(words.slice(i, i + SHINGLE_WORDS).join(" "));
+    }
+  }
+  return shingles;
+}
+
+const PROMPT_SHINGLES = buildPromptShingles();
+
+/// Does any window of `words` from `from` on reproduce a run of the prompt?
+/// The offset is what keeps the streamed path linear: its text only grows, so
+/// windows already tested cannot start matching later.
+function hasPromptShingle(words: string[], from: number): boolean {
+  for (let i = from; i + SHINGLE_WORDS <= words.length; i++) {
+    if (PROMPT_SHINGLES.has(words.slice(i, i + SHINGLE_WORDS).join(" "))) return true;
+  }
+  return false;
+}
+
+/// THE prompt-leak test, both halves in one place so the buffered and the
+/// streamed path cannot drift apart: the regex catches a leak the model NAMES
+/// (a paraphrase that copies no run included), the table catches one it merely
+/// RECITES.
+function leaksPrompt(text: string): boolean {
+  return PROMPT_LEAK_RE.test(text) || hasPromptShingle(leakWords(text), 0);
+}
+
 /// Request body of the answer call. Shared by the buffered and the streamed
 /// path so the model never sees two different prompts for the same question;
 /// `stream` is the ONLY difference between them.
@@ -476,8 +568,10 @@ function finalizeAnswer(
   // Safety net: cut the reply if Grok tries to leak the prompt. P5-05: this
   // check fires on the MODEL's reply, not on the input, so the reply language
   // follows the request locale like every other refusal — it used to be the
-  // only one hardcoded in German.
-  if (PROMPT_LEAK_RE.test(reply)) {
+  // only one hardcoded in German. F1: leaksPrompt() also fires on recited
+  // prompt WORDING, which is what the streamed path needs — and the streamed
+  // `done` event comes from here, so both wires carry the same verdict.
+  if (leaksPrompt(reply)) {
     refusal = true;
     reply = refusalForReason("prompt_leak", locale);
   }
@@ -563,10 +657,25 @@ async function answer(
 
 /// Characters held back behind the released text while the stream is open.
 /// The prompt-leak net replaces the WHOLE reply, and a stream cannot take
-/// bytes back; running PROMPT_LEAK_RE on the assembled text before every
-/// release plus this tail means the matched phrase itself is never delivered.
-/// Comfortably longer than the literal part of both alternatives.
+/// bytes back; running leaksPrompt() on the assembled text before every
+/// release plus this tail means the leak itself is never delivered.
+///
+/// F1 turned the size from a guess into a bound: the shingle table needs
+/// SHINGLE_WORDS words before it can fire, so the tail has to cover the
+/// longest run of SHINGLE_WORDS-1 prompt words (57 characters today). 64 does,
+/// and it stays comfortably longer than the literal part of both regex
+/// alternatives, which is the split-literal case it was built for.
 const LEAK_GUARD_TAIL = 64;
+
+/// Test surface for the leak net (F1). The guarantee "no prompt character
+/// reaches the client" is a RELATION between the table, the run length and the
+/// tail, so it gets pinned in handler_stream_test.ts instead of described.
+export const PROMPT_LEAK_GUARD = {
+  words: SHINGLE_WORDS,
+  tailChars: LEAK_GUARD_TAIL,
+  shingles: PROMPT_SHINGLES as ReadonlySet<string>,
+  leaks: leaksPrompt,
+};
 
 interface AnswerStreamState {
   reader: ReadableStreamDefaultReader<Uint8Array>;
@@ -580,8 +689,47 @@ interface AnswerStreamState {
   text: string;
   /// How far `text` has left as deltas — the refund line (contract §5).
   released: number;
+  /// F1, prompt-leak net: `leaked` latches the hit, `leakFrom` is the first
+  /// word window of `text` not tested yet. `text` only grows, so a miss stays
+  /// a miss and a hit stays a hit — rescanning the whole answer on every chunk
+  /// would be quadratic for nothing (measured 122 ms vs 25 ms on a full
+  /// 800-token answer with token-sized frames).
+  leaked: boolean;
+  leakFrom: number;
   finishReason: string;
   ended: boolean;
+}
+
+/// The leak test for the streamed path: the SAME rule as leaksPrompt(), only
+/// it skips the windows an earlier chunk already ruled out.
+function streamLeaksPrompt(state: AnswerStreamState): boolean {
+  if (state.leaked) return true;
+  if (PROMPT_LEAK_RE.test(state.text)) {
+    state.leaked = true;
+    return true;
+  }
+  const words = leakWords(state.text);
+  state.leaked = hasPromptShingle(words, state.leakFrom);
+  // Windows touching the LAST word stay open: a chunk can cut a word in half,
+  // and "hydra" only becomes "hydration" with the next one.
+  state.leakFrom = Math.max(0, words.length - SHINGLE_WORDS);
+  return state.leaked;
+}
+
+/// Status of a mid-stream error frame. F2: this used to be a flat 502, which
+/// made isClientFaultFailure() unreachable for a streamed failure and refunded
+/// the slot for input the provider already billed — the buffered path keeps it
+/// spent. Only the allowlist is trusted; anything else, including a non-HTTP
+/// code, stays an outage. The frame itself is never read beyond this number
+/// (CWE-532).
+function frameErrorStatus(error: unknown): number {
+  const code = (error as { code?: unknown } | null)?.code;
+  const status = typeof code === "number"
+    ? code
+    : typeof code === "string"
+    ? Number(code)
+    : Number.NaN;
+  return CLIENT_FAULT_STATUSES.has(status) ? status : 502;
 }
 
 /// Splits whatever whole lines are in `state.raw` into OpenRouter SSE frames.
@@ -612,7 +760,10 @@ function consumeProviderFrames(state: AnswerStreamState): void {
     if (frame?.error) {
       // Mid-stream provider failure. No body in the message — OpenRouter
       // mirrors user input into its error objects (CWE-532).
-      throw new ProviderError(502, "Grok-Stream: Fehler-Frame vom Provider");
+      throw new ProviderError(
+        frameErrorStatus(frame.error),
+        "Grok-Stream: Fehler-Frame vom Provider",
+      );
     }
     const choice = frame?.choices?.[0];
     const piece = choice?.delta?.content;
@@ -663,6 +814,8 @@ async function openAnswerStream(
     raw: "",
     text: "",
     released: 0,
+    leaked: false,
+    leakFrom: 0,
     finishReason: "unknown",
     ended: false,
   };
@@ -702,7 +855,7 @@ async function resolveAnswerHead(
   }
   const head = state.text.trimStart();
   if (
-    head.startsWith(REFUSAL_MARKER) || PROMPT_LEAK_RE.test(state.text) ||
+    head.startsWith(REFUSAL_MARKER) || streamLeaksPrompt(state) ||
     head.length === 0
   ) {
     // Drain the rest into the buffer: a refusal is delivered as ONE done
@@ -713,9 +866,14 @@ async function resolveAnswerHead(
   return { streams: true };
 }
 
-/// How far the assembled text may be released as deltas right now.
+/// How far the assembled text may be released as deltas right now. Updates
+/// `state` in passing: the leak scan latches and remembers its cursor.
 function releasableUpTo(state: AnswerStreamState): number {
-  if (PROMPT_LEAK_RE.test(state.text)) return state.released;
+  // F1: this fires on the prompt's own wording too, i.e. at the START of a
+  // leak, not at the sentence that names it — by then the content would be on
+  // the wire. Once it fires nothing more is ever released, and finalizeAnswer
+  // swaps the whole reply for the catalogue text.
+  if (streamLeaksPrompt(state)) return state.released;
   if (state.ended) return state.text.length;
   return Math.max(state.released, state.text.length - LEAK_GUARD_TAIL);
 }
@@ -786,6 +944,11 @@ function sseAnswerResponse(options: SseAnswerOptions): Response {
         }
       };
       const flush = (): void => {
+        // A socket nobody reads any more cannot RELEASE anything: `released`
+        // is the delivered-bytes line the refund rule and §6 persistence hang
+        // on, and send() is a no-op once the client is gone. Advancing it here
+        // would persist bytes that never left the isolate.
+        if (clientGone) return;
         const upTo = releasableUpTo(state);
         if (upTo <= state.released) return;
         const piece = state.text.slice(state.released, upTo);
@@ -1923,6 +2086,11 @@ export async function handleRequest(req: Request): Promise<Response> {
   // Behind an ALLOWED ip gate the user verdict must exist (the helper rejects a
   // short array without a denial). If it is missing anyway, that is a limiter
   // fault and fails closed like every other unreadable answer — never a 429.
+  //
+  // A belt, and knowingly untestable: while the helper's own guard stands, no
+  // response shape reaches this line, so deleting it stays green (verified,
+  // review 2026-09-01) and no black-box test can pin it. The half that IS
+  // pinned is the helper's, by its "nur n/m Tore" log line (handler_test.ts).
   if (!userGate) return json({ error: "rate_limit_unavailable" }, 500);
   if (!userGate.allowed) {
     return json(
@@ -2222,7 +2390,6 @@ export async function handleRequest(req: Request): Promise<Response> {
   // response_format plus an image and always stays buffered.
   if (wantsStream(req)) {
     let state: AnswerStreamState;
-    let head: AnswerHead;
     try {
       state = await openAnswerStream(
         openRouterKey,
@@ -2231,8 +2398,21 @@ export async function handleRequest(req: Request): Promise<Response> {
         hasImage ? { base64: imageBase64, mimeType: imageMimeType } : undefined,
         userContext,
       );
+    } catch (e) {
+      // Nothing to release: openAnswerStream throws before it hands out a
+      // reader (a non-ok response has its body drained by redactedBodyMeta).
+      return await answerFailed(e);
+    }
+    let head: AnswerHead;
+    try {
       head = await resolveAnswerHead(state, locale);
     } catch (e) {
+      // L4: exactly one owner cancels the reader on each of the three exits —
+      // the pump's finally while streaming, the done-only branch below, and
+      // this one. Without it a failed head left the provider connection open
+      // on the paths that had already gone wrong. Cancelling changes nothing
+      // about the verdict: answerFailed still refunds and answers 502/504.
+      await state.reader.cancel().catch(() => {});
       return await answerFailed(e);
     }
     const doneBase = { ...quotaFields, session_id: sessionId };

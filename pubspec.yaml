@@ -90,9 +90,15 @@ dependencies:
   # mutation re-encrypts the whole blob). `cryptography_flutter` routes the
   # same primitive through javax.crypto / CryptoKit, which use the ARMv8 AES
   # instructions. `cryptography` is its base package and supplies the API
-  # (AesGcm/SecretBox) plus its own pure-Dart implementation; only the two
-  # classes are used, no global Cryptography.instance takeover — see
-  # secure_cache_store.dart's cipher selection.
+  # (AesGcm/SecretBox) plus its own pure-Dart implementation; our own code uses
+  # the two classes directly and never reads Cryptography.instance — see
+  # secure_cache_store.dart's cipher selection. The plugin DOES take that global
+  # over: cryptography_flutter declares `dartPluginClass: FlutterCryptography`,
+  # so Flutter's generated registrant calls registerWith() at startup on
+  # Android/iOS/macOS and that sets `Cryptography.instance = defaultInstance`.
+  # Inert today — gotrue is the only other package that depends on
+  # `cryptography` and it never imports it — but it is a global, so a future
+  # dependency that reads the instance gets the platform implementation.
   cryptography: ^2.9.0
   cryptography_flutter: ^2.3.4
   # Also already transitive, but `recipe_image_store.dart` uses it directly for

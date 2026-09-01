@@ -478,7 +478,15 @@ List<SyncOp> enqueueCoalesced(
   int maxOps = kOutboxMaxOps,
 }) {
   if (queue.length <= maxOps) {
-    return (queue: queue, dropped: const <SyncOp>[]);
+    // A COPY, not the input. The outbox replay cursor
+    // (home_store_sync.dart `_replayOutbox`) detects a foreign queue change by
+    // comparing list IDENTITY, which rests on every write to `_outbox`
+    // allocating a fresh list. Handing the input straight back made that true
+    // only by luck of the current call sites; one future
+    // `_outbox = capOutbox(_outbox).queue` after an in-place edit would skip
+    // ops with no test going red. Cheap: this path allocates one list per
+    // enqueue.
+    return (queue: List<SyncOp>.of(queue), dropped: const <SyncOp>[]);
   }
   var overflow = queue.length - maxOps;
   var kept = <SyncOp>[];

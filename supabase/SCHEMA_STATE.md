@@ -32,7 +32,7 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 `.github/workflows/security.yml`; die Bedienung steht in
 `supabase/SCHEMA_STATE_2026-06-07.md`.
 
-## Migrationen (39)
+## Migrationen (38)
 
 1. `20260516150000_create_profiles.sql`
 2. `20260516160000_app_data_schema.sql`
@@ -72,7 +72,6 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 36. `20260829120000_row_caps_and_hardening.sql`
 37. `20260901100000_batch_edge_rate_limits.sql`
 38. `20260901100200_chat_quota_usage_retention.sql`
-39. `20260901100300_list_chat_sessions_count.sql`
 
 ## Tabellen in `public` (11)
 
@@ -177,7 +176,7 @@ also gruen.
 | `handle_new_user_profile` | **Eigentuemers** | `public` | `service_role` | `20260516150000_create_profiles.sql` |
 | `handle_new_user_stats` | **Eigentuemers** | `public` | `service_role` | `20260516160000_app_data_schema.sql` |
 | `increment_lifetime_stats` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260814120000_audit_rls_guard.sql` |
-| `list_chat_sessions` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260901100300_list_chat_sessions_count.sql` |
+| `list_chat_sessions` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260517170000_chat_sessions.sql` |
 | `prune_chat_quota_usage` | **Eigentuemers** | `public` | `service_role` | `20260901100200_chat_quota_usage_retention.sql` |
 | `prune_edge_rate_limits` | **Eigentuemers** | `public` | `service_role` | `20260901100200_chat_quota_usage_retention.sql` |
 | `record_tracking_day` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260811120000_lifetime_stats_integrity.sql` |

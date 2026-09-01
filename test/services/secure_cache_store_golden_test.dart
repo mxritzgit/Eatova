@@ -87,7 +87,15 @@ PlatformAesGcmCacheCipher _platformCodec({Uint8List? dek, AesGcm? algorithm}) =>
     PlatformAesGcmCacheCipher(dek ?? _dek,
         algorithm: algorithm ?? DartAesGcm.with256bits());
 
-AesGcmCacheCipher _pointyCastle({Uint8List? dek}) =>
+/// The NON-PLATFORM cipher.
+///
+/// Named `_pointyCastle` before the tiering of 2026-09-01; since then
+/// [AesGcmCacheCipher] leads with `DartAesGcm` and falls back to pointycastle,
+/// so this returns "whichever software tier is in charge" — which is exactly
+/// what these tests want to pin against the platform path. Real tier 3 is
+/// exercised explicitly in `secure_cache_store_tiers_test.dart` via
+/// `debugSetDartAlgorithm(null)`.
+AesGcmCacheCipher _softwareCipher({Uint8List? dek}) =>
     AesGcmCacheCipher(dek ?? _dek);
 
 // ---------------------------------------------------------------------------
@@ -154,7 +162,7 @@ void main() {
   // 1. The golden vector
   // -------------------------------------------------------------------------
   group('Golden-Blob (fester DEK, feste Nonce, fester Klartext)', () {
-    test('pointycastle erzeugt exakt den festgeschriebenen Blob', () {
+    test('der Software-Pfad erzeugt exakt den festgeschriebenen Blob', () {
       expect(
         AesGcmCacheCipher.encryptSync(_dek, _goldenKey, _goldenPlaintext,
             nonce: _nonce),
@@ -184,7 +192,7 @@ void main() {
     });
 
     test('beide Implementierungen lesen den festgeschriebenen Blob', () async {
-      expect(await _pointyCastle().decrypt(_goldenKey, _goldenBlob),
+      expect(await _softwareCipher().decrypt(_goldenKey, _goldenBlob),
           _goldenPlaintext);
       expect(await _platformCodec().decrypt(_goldenKey, _goldenBlob),
           _goldenPlaintext);
@@ -209,18 +217,18 @@ void main() {
   // 2. Cross-compatibility in BOTH directions
   // -------------------------------------------------------------------------
   group('Kreuz-Kompatibilitaet der beiden Implementierungen', () {
-    test('pointycastle liest, was der Plattform-Pfad geschrieben hat',
+    test('der Software-Pfad liest, was der Plattform-Pfad geschrieben hat',
         () async {
       final geschrieben =
           await _platformCodec().encrypt(_goldenKey, _goldenPlaintext);
-      expect(await _pointyCastle().decrypt(_goldenKey, geschrieben),
+      expect(await _softwareCipher().decrypt(_goldenKey, geschrieben),
           _goldenPlaintext);
     });
 
-    test('der Plattform-Pfad liest, was pointycastle geschrieben hat',
+    test('der Plattform-Pfad liest, was der Software-Pfad geschrieben hat',
         () async {
       final geschrieben =
-          await _pointyCastle().encrypt(_goldenKey, _goldenPlaintext);
+          await _softwareCipher().encrypt(_goldenKey, _goldenPlaintext);
       expect(await _platformCodec().decrypt(_goldenKey, geschrieben),
           _goldenPlaintext);
     });
@@ -229,7 +237,7 @@ void main() {
         'mit ECHTEN Zufalls-Nonces, mehrfach — die Nonce liegt im Blob und '
         'muss aus dem fremden Rahmen gelesen werden', () async {
       final plattform = _platformCodec();
-      final pointy = _pointyCastle();
+      final pointy = _softwareCipher();
       final blobs = <String>{};
       for (var i = 0; i < 5; i++) {
         final a = await plattform.encrypt(_goldenKey, 'runde-$i');
@@ -247,15 +255,15 @@ void main() {
       final frame = CacheCipherFrame.parse(leer);
       expect(frame.cipherText, isEmpty);
       expect(frame.sealed, hasLength(CacheCipherFrame.tagLengthBytes));
-      expect(await _pointyCastle().decrypt(_goldenKey, leer), '');
+      expect(await _softwareCipher().decrypt(_goldenKey, leer), '');
       expect(await _platformCodec().decrypt(_goldenKey, leer), '');
     });
 
     test('grosser Blob (~200 kB) kreuzt in beide Richtungen', () async {
       final gross = jsonEncode({'items': List<String>.filled(4000, 'Döner')});
       final vonPlattform = await _platformCodec().encrypt(_goldenKey, gross);
-      final vonPointy = await _pointyCastle().encrypt(_goldenKey, gross);
-      expect(await _pointyCastle().decrypt(_goldenKey, vonPlattform), gross);
+      final vonPointy = await _softwareCipher().encrypt(_goldenKey, gross);
+      expect(await _softwareCipher().decrypt(_goldenKey, vonPlattform), gross);
       expect(await _platformCodec().decrypt(_goldenKey, vonPointy), gross);
     });
   });
@@ -266,7 +274,7 @@ void main() {
   group('Bestandsdaten', () {
     test('ein Blob aus der Fassung VOR B1 bleibt in beiden Pfaden lesbar',
         () async {
-      expect(await _pointyCastle().decrypt(_altKey, _altBlob), _altPlaintext);
+      expect(await _softwareCipher().decrypt(_altKey, _altBlob), _altPlaintext);
       expect(await _platformCodec().decrypt(_altKey, _altBlob), _altPlaintext);
     });
 
@@ -321,7 +329,7 @@ void main() {
       const keinBase64 = '$cacheCipherMagic!!!nicht base64!!!';
 
       for (final CacheCipher cipher in <CacheCipher>[
-        _pointyCastle(),
+        _softwareCipher(),
         _platformCodec(),
       ]) {
         for (final kaputt in <String>[ohneMagic, zuKurz, keinBase64]) {
@@ -368,7 +376,7 @@ void main() {
       final blob = await cipher.encrypt(_goldenKey, _goldenPlaintext);
 
       expect(blob, startsWith(cacheCipherMagic));
-      expect(await _pointyCastle().decrypt(_goldenKey, blob), _goldenPlaintext);
+      expect(await _softwareCipher().decrypt(_goldenKey, blob), _goldenPlaintext);
     });
 
     test('decrypt: ein toter Kanal liest den Bestand trotzdem', () async {
@@ -378,8 +386,8 @@ void main() {
     });
 
     test(
-        'die Degradation ist dauerhaft: nach dem ersten Fehlschlag wird die '
-        'Plattform nicht mehr gefragt', () async {
+        'nach einem Fehlschlag wird die Plattform eine Abkuehlzeit lang nicht '
+        'mehr gefragt', () async {
       final cipher = _platformCodec(algorithm: _KaputteAesGcm());
 
       await cipher.encrypt(_goldenKey, 'a');
@@ -467,7 +475,7 @@ void main() {
       expect(gespeichert, isNot(contains('Döner')));
 
       // A later app start on a device without the plugin.
-      final leser = EncryptedKeyValueStore(raw, _pointyCastle());
+      final leser = EncryptedKeyValueStore(raw, _softwareCipher());
       expect(await leser.getString(_goldenKey), _goldenPlaintext);
     });
 
@@ -475,7 +483,7 @@ void main() {
         'und umgekehrt: von pointycastle geschrieben, vom Plattform-Codec '
         'gelesen', () async {
       final raw = InMemoryKeyValueStore();
-      await EncryptedKeyValueStore(raw, _pointyCastle())
+      await EncryptedKeyValueStore(raw, _softwareCipher())
           .setString(_goldenKey, _goldenPlaintext);
 
       expect(

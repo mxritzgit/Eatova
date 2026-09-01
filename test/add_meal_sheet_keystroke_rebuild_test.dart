@@ -9,6 +9,24 @@
 // instance behind its key means the whole sheet was rebuilt. The flip itself is
 // pinned in both directions — the short-input path resets seven fields and must
 // not swallow the switch back to favorites when there was nothing to reset.
+//
+// A4 (review 2026-09-01): the short circuit is
+// `!_renderedSearchActive && !_searchStateDirty`, and its two halves are not
+// equal partners. Six of the seven fields `_searchStateDirty` ORs can only be
+// written while the results zone is on screen (`_searchProducts` past its
+// min-chars branch, `_armSlowHint`, `_cancelProductSearch` — all of them need
+// >= _searchMinChars), and every way back below the threshold runs through
+// this same reset with `_renderedSearchActive == true`. So for those six the
+// FIRST half already decides and dropping them changes nothing observable —
+// verified by mutation: with `_searchStateDirty` reduced to the one term
+// below, all 127 cases across the 21 suites that mount this sheet stay green.
+//
+// The one exception is `_productSearchMessage`: the magnifier on a too-short
+// field files the min-chars hint WHILE the favorites zone stands, so it is the
+// only term that can be true with `_renderedSearchActive == false`. That case
+// gets its own test below, as does the revocation of the magnifier unlock —
+// the consequence the term would have had if the reset ever stopped clearing
+// `_explicitSearchRequested`.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -252,5 +270,110 @@ void main() {
     );
 
     await tester.pumpAndSettle();
+  });
+
+  // A4 (Review 2026-09-01): `_searchStateDirty` ODERt sieben Felder, aber nur
+  // EINES davon kann wahr sein, WÄHREND die Favoritenzone steht — und nur dann
+  // entscheidet der Term überhaupt etwas. Die Lupe auf einem zu kurzen Feld
+  // legt `_productSearchMessage` ab, ohne die Zone zu öffnen: der Hinweis ist
+  // in diesem Moment unsichtbar und würde beim nächsten Zonenwechsel über
+  // einem ganz anderen Begriff auftauchen.
+  testWidgets('ein unsichtbar abgelegter Suchhinweis wird trotzdem geräumt', (
+    tester,
+  ) async {
+    final l10n = (await _pumpe(tester, _StubProduktdienst(_einTreffer))).l10n;
+
+    // Lupe auf dem leeren Feld: unter _searchMinChars antwortet die Suche mit
+    // dem Mindestzeichen-Hinweis — die Zone bleibt aber die Favoritenzone.
+    await tester.tap(find.byKey(const ValueKey('kcal-product-search-button')));
+    await tester.pump();
+    expect(
+      _manuellZeile(),
+      findsOneWidget,
+      reason: 'Zone bleibt bei den Favoriten',
+    );
+    expect(
+      find.text(l10n.foodSearchMinCharsHint),
+      findsNothing,
+      reason: 'der Hinweis liegt an, gemalt wird er nicht',
+    );
+
+    final zaehler = _Neubauten(tester);
+    // Zwei Zeichen: die Zone ändert sich nicht, der Kurzschluss darf hier
+    // trotzdem nicht greifen — es liegt Suchzustand an, der weg muss.
+    await _tippe(tester, 'Ei', zaehler);
+    expect(
+      zaehler.anzahl,
+      1,
+      reason: 'der stehende Hinweis ist der Grund für diesen einen Neubau',
+    );
+
+    // Der Beweis am Bildschirm: das dritte Zeichen öffnet die Ergebniszone.
+    // Wäre der Hinweis liegengeblieben, stünde jetzt "Mindestens 2 Zeichen"
+    // über einer Suche mit dreien.
+    await _tippe(tester, 'Eiw', zaehler);
+    expect(
+      find.text(l10n.foodSearchMinCharsHint),
+      findsNothing,
+      reason: 'kein Hinweis aus einem anderen Begriff in der frischen Zone',
+    );
+
+    await tester.pump(const Duration(milliseconds: 1100));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('kcal-product-suggestion-0')),
+      findsOneWidget,
+      reason: 'die Suche selbst läuft unverändert weiter',
+    );
+  });
+
+  // Die Gegenrichtung desselben Kurzschlusses: die Lupe schaltet die
+  // Ergebniszone für ein Fragment unter _autoSearchMinChars frei, und genau
+  // diese Freischaltung gehört zum ALTEN Begriff. Bleibt sie stehen, zeigt das
+  // Sheet bei zwei Zeichen eine leere Ergebniszone statt der Favoriten.
+  testWidgets('die Lupen-Freischaltung endet mit dem nächsten Zeichen', (
+    tester,
+  ) async {
+    await _pumpe(tester, _StubProduktdienst(_einTreffer));
+    final zaehler = _Neubauten(tester);
+
+    await _tippe(tester, 'Ei', zaehler);
+    expect(
+      _manuellZeile(),
+      findsOneWidget,
+      reason: 'zwei Zeichen suchen nicht von allein',
+    );
+
+    await tester.tap(find.byKey(const ValueKey('kcal-product-search-button')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('kcal-product-suggestion-0')),
+      findsOneWidget,
+      reason: 'die Lupe schaltet die Zone auch für zwei Zeichen frei',
+    );
+
+    // Zurück unter _searchMinChars.
+    await _tippe(tester, 'E', zaehler);
+    expect(_manuellZeile(), findsOneWidget);
+
+    // Wieder zwei Zeichen, diesmal ohne Lupe: der Widerruf muss halten.
+    await _tippe(tester, 'Ei', zaehler);
+    expect(
+      _manuellZeile(),
+      findsOneWidget,
+      reason: 'kein stehengebliebenes Ergebnisfenster',
+    );
+
+    // Und er muss einen FREMDEN Neubau überleben: ohne den bliebe eine
+    // stehengebliebene Freischaltung nur ungemalt liegen (Zone stumm), bis
+    // irgendein anderes setState sie aufdeckt — hier der Slotwechsel.
+    await tester.tap(find.byKey(const ValueKey('slot-select-lunch')));
+    await tester.pumpAndSettle();
+    expect(
+      _manuellZeile(),
+      findsOneWidget,
+      reason: 'auch nach einem fremden Neubau steht die Favoritenzone',
+    );
+    expect(_inlineFavorit(), findsOneWidget);
   });
 }
