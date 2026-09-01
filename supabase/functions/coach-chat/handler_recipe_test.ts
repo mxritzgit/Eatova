@@ -145,8 +145,21 @@ function installFetch(options: StubOptions = {}): FetchStub {
   // Ledger instead of a canned response: claim/refund move the same number.
   let quotaUsed = 0;
 
-  function route(url: string, method: string, _body: string): Response {
+  function route(url: string, method: string, body: string): Response {
     if (url.includes("/auth/v1/user")) return jsonRes({ id: USER_ID });
+    // Batched limiter (P6-02). MUST be tested before the single-gate URL: that
+    // fragment is a prefix of this one.
+    if (url.includes("/rest/v1/rpc/consume_edge_rate_limits")) {
+      const gates = (JSON.parse(body) as JsonRecord).p_gates as JsonRecord[];
+      return jsonRes(gates.map((gate) => ({
+        allowed: true,
+        limit: Number(gate.limit),
+        remaining: Number(gate.limit) - 1,
+        resetAt: new Date(Date.now() + Number(gate.window_seconds) * 1000).toISOString(),
+        windowSeconds: Number(gate.window_seconds),
+      })));
+    }
+    // Single-gate RPC: only ../_shared/auth_fail_gate.ts still uses it.
     if (url.includes("/rest/v1/rpc/consume_edge_rate_limit")) {
       return jsonRes({
         allowed: true,
@@ -194,7 +207,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
       });
     }
     if (url.includes("openrouter.ai/api/v1/chat/completions")) {
-      const budget = maxTokensOf(_body);
+      const budget = maxTokensOf(body);
       // Classifier BEFORE the draftStatus branch: a simulated draft failure
       // must not take the layer-2 call down with it.
       if (budget === 50) {

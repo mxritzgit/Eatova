@@ -266,6 +266,14 @@ Exceptions:
 - a technical **request-deduplication marker** (a request ID, no content) is
   written when certain counters are updated, so a retried request cannot be
   counted twice; each marker is deleted after 30 days regardless.
+- the **daily coach counters** — one number per day recording how many coach
+  messages you used, so the daily limit can be enforced. They hold no message
+  content. Counters older than 90 days are deleted; the current day's counter is
+  never deleted, because it is the one the limit is being counted against. As
+  with the rate-limit records above, the deletion is performed by the server
+  endpoints themselves as part of a later request rather than by a scheduler, so
+  a counter can outlive the 90 days by the length of a quiet period. Until they
+  are deleted, these counters are part of the data export you can request.
 
 No other data has an automatic expiry: everything else is kept until you delete
 it or delete your account.

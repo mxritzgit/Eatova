@@ -72,9 +72,10 @@ const MIN_PROVIDER_MS = 15_000;
 // as the divisor of the Supabase ceiling below and as the line whose crossing
 // gets logged in bodyReadBudget().
 const MIN_UPLOAD_WINDOW_MS = 25_000;
-// Ceiling for ONE Supabase roundtrip (auth lookup, one rate-limit RPC, the
-// fail bucket). 5 s x 5 calls = 25 s worst case, which still leaves the
-// provider 30 s of the budget.
+// Ceiling for ONE Supabase roundtrip (auth lookup, one of the two batched
+// rate-limit RPCs, the fail bucket). Since A4 an awaited chain is at most
+// three of them — auth, attempt batch, day batch — i.e. 5 s x 3 = 15 s worst
+// case, which leaves the provider 40 s of the budget.
 // The env ceiling is DERIVED, not a round number: bodyReadBudget() reserves
 // TWO of these roundtrips plus MIN_PROVIDER_MS, so every second added here
 // costs the upload two. At the old flat ceiling of 120 s any value from ~19 s
@@ -212,6 +213,23 @@ type RateLimitResult = {
  *  introspections from one IP, asks for a 429 instead of the 401. */
 type AuthOutcome = { user: AuthUser } | { rateLimited: RateLimitResult };
 
+/** One gate of a batched limiter call; the field names are the element shape
+ *  of public.consume_edge_rate_limits(jsonb), not ours to rename. */
+type GateSpec = { scope: string; subject: string; limit: number; windowSeconds: number };
+
+/**
+ * Outcome of ONE batched limiter call: either every gate of the batch was
+ * allowed — results positionally matching the input — or the first one that
+ * denied, after which the RPC touched nothing at all.
+ *
+ * A union rather than an array on purpose (A4): the RPC answers with a SHORT
+ * array when a gate denies, and a caller reading the missing trailing element
+ * would read "never consumed" as "allowed". Unrepresentable beats a rule.
+ */
+type BatchOutcome =
+  | { allowed: RateLimitResult[] }
+  | { denied: RateLimitResult; deniedScope: string };
+
 type Language = 'de' | 'en';
 
 type ParsedBody = {
@@ -264,7 +282,11 @@ type BodyReadBudget = { idleMs: number; totalMs: number };
  */
 function bodyReadBudget(deadline: Deadline, requestId: string): BodyReadBudget {
   const remaining = deadline.remainingMs();
-  // Behind the read: analyze-meal:user-day, analyze-meal:global, provider.
+  // Behind the read: the two day gates and the provider. Since A4 those gates
+  // are ONE roundtrip, not two — the reserve still counts two on purpose. It
+  // is the margin SUPABASE_TIMEOUT_CEILING_MS is derived from, and spending
+  // it on a wider upload window would change an operator-facing bound, which
+  // is a different decision than batching the calls.
   const reserve = 2 * SUPABASE_TIMEOUT_MS + MIN_PROVIDER_MS;
   const spare = remaining - reserve;
   const totalMs = Math.max(1, Math.min(Math.max(MIN_BODY_READ_MS, spare), remaining));
@@ -343,32 +365,24 @@ export async function handleRequest(request: Request): Promise<Response> {
     // used for an analysis).
     //
     // Known remainder, accepted deliberately: a provider failure (502/504)
-    // still spends the global slot. consume_edge_rate_limit increments on
+    // still spends the global slot. consume_edge_rate_limits increments on
     // call and there is no counterpart RPC, so a refund would need a schema
     // change.
-    const ipLimit = await consumeRateLimit(
-      secrets,
-      'analyze-meal:ip',
-      ipSubject,
-      IP_LIMIT,
-      IP_WINDOW_SECONDS,
-      deadline,
-    );
-    if (!ipLimit.allowed) {
-      return rateLimitedResponse(request, ipLimit, requestId);
+    //
+    // A4 (performance audit 2026-09-01): the four gates cost four PostgREST
+    // roundtrips; they are now TWO batched ones. Two, not one — the split
+    // sits where parseBody sits (P6-01b), because a single batch would spend
+    // the day slots on a body that never arrives.
+    const attemptGates = await consumeRateLimits(secrets, [
+      { scope: 'analyze-meal:ip', subject: ipSubject, limit: IP_LIMIT, windowSeconds: IP_WINDOW_SECONDS },
+      { scope: 'analyze-meal:user', subject: user.id, limit: USER_LIMIT, windowSeconds: USER_WINDOW_SECONDS },
+    ], deadline);
+    if ('denied' in attemptGates) {
+      // Same answer as before the batch: whichever gate denied is the one the
+      // caller is told about, and the one after it was never consumed.
+      return rateLimitedResponse(request, attemptGates.denied, requestId);
     }
-
-    const userLimit = await consumeRateLimit(
-      secrets,
-      'analyze-meal:user',
-      user.id,
-      USER_LIMIT,
-      USER_WINDOW_SECONDS,
-      deadline,
-    );
-    if (!userLimit.allowed) {
-      return rateLimitedResponse(request, userLimit, requestId);
-    }
+    const [ipLimit, userLimit] = attemptGates.allowed;
 
     // The dividing line: from here on a request is one that would be paid for.
     // The read has a time budget of its own (P6-01b), so a body that trickles
@@ -377,31 +391,26 @@ export async function handleRequest(request: Request): Promise<Response> {
     const body = await parseBody(request, deadline, requestId);
     const prompt = buildPrompt(body.portionHint, body.freeTextHint, body.language);
 
-    const userDayLimit = await consumeRateLimit(
-      secrets,
-      'analyze-meal:user-day',
-      user.id,
-      USER_DAY_LIMIT,
-      DAY_WINDOW_SECONDS,
-      deadline,
-    );
-    if (!userDayLimit.allowed) {
-      return rateLimitedResponse(request, userDayLimit, requestId);
+    const globalGate: GateSpec = {
+      scope: 'analyze-meal:global',
+      subject: GLOBAL_SUBJECT,
+      limit: GLOBAL_DAY_LIMIT,
+      windowSeconds: DAY_WINDOW_SECONDS,
+    };
+    const dayGates = await consumeRateLimits(secrets, [
+      { scope: 'analyze-meal:user-day', subject: user.id, limit: USER_DAY_LIMIT, windowSeconds: DAY_WINDOW_SECONDS },
+      globalGate,
+    ], deadline);
+    if ('denied' in dayGates) {
+      if (dayGates.deniedScope === globalGate.scope) {
+        // Operator signal: this is the bill cap, not one abusive user.
+        console.warn('analyze-meal global day cap reached', { requestId, resetAt: dayGates.denied.resetAt });
+      }
+      return rateLimitedResponse(request, dayGates.denied, requestId);
     }
-
-    const globalLimit = await consumeRateLimit(
-      secrets,
-      'analyze-meal:global',
-      GLOBAL_SUBJECT,
-      GLOBAL_DAY_LIMIT,
-      DAY_WINDOW_SECONDS,
-      deadline,
-    );
-    if (!globalLimit.allowed) {
-      // Operator signal: this is the bill cap, not one abusive user.
-      console.warn('analyze-meal global day cap reached', { requestId, resetAt: globalLimit.resetAt });
-      return rateLimitedResponse(request, globalLimit, requestId);
-    }
+    // The global bucket's fill level stays server-side (see the 200 below), so
+    // only the user's own day gate is named here.
+    const [userDayLimit] = dayGates.allowed;
 
     // No await: cleanup must not delay the request. Error handling lives
     // inside the function, since an unhandled rejection here would kill the
@@ -707,17 +716,36 @@ async function authenticateUser(request: Request, secrets: Secrets, deadline: De
   return { user: { id: user.id, email: typeof user.email === 'string' ? user.email : undefined } };
 }
 
-async function consumeRateLimit(
+/**
+ * Consumes a batch of gates in ONE roundtrip (A4, performance audit 2026-09-01).
+ *
+ * public.consume_edge_rate_limits(jsonb) does per element exactly what the
+ * single-gate RPC did — window floor, sha256 subject, upsert +1, allowed =
+ * count <= limit — and STOPS AT THE FIRST DENIAL, which is what the early
+ * `return`s between the old sequential calls provided (P6-02: a request that
+ * already lost at an earlier gate must not spend a later one). The answer is
+ * therefore SHORT exactly when a gate denied, and a missing trailing element
+ * means "never consumed", never "allowed".
+ *
+ * The single-gate consume_edge_rate_limit stays in the database:
+ * ../_shared/auth_fail_gate.ts still calls it, and it is the rollback path.
+ * Deploy order matters — the migration has to be live BEFORE this function,
+ * or PostgREST answers 404 and every scan gets `rate_limit_unavailable`.
+ *
+ * Error handling is unchanged from the single-gate version: every failure
+ * mode of the limiter — hang, non-2xx, stalled body, unreadable shape — is an
+ * OUTAGE and fails closed, because a limiter that cannot answer must not let
+ * a request through to the paid call.
+ */
+async function consumeRateLimits(
   secrets: Secrets,
-  scope: string,
-  subject: string,
-  limit: number,
-  windowSeconds: number,
+  gates: GateSpec[],
   deadline: Deadline,
-): Promise<RateLimitResult> {
+): Promise<BatchOutcome> {
+  const scopes = gates.map((gate) => gate.scope).join(',');
   let response: Response;
   try {
-    response = await fetch(`${secrets.supabaseUrl}/rest/v1/rpc/consume_edge_rate_limit`, {
+    response = await fetch(`${secrets.supabaseUrl}/rest/v1/rpc/consume_edge_rate_limits`, {
       method: 'POST',
       headers: {
         apikey: secrets.serviceKey,
@@ -725,10 +753,12 @@ async function consumeRateLimit(
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        p_scope: scope,
-        p_subject: subject,
-        p_limit: limit,
-        p_window_seconds: windowSeconds,
+        p_gates: gates.map((gate) => ({
+          scope: gate.scope,
+          subject: gate.subject,
+          limit: gate.limit,
+          window_seconds: gate.windowSeconds,
+        })),
       }),
       signal: stepSignal(deadline, SUPABASE_TIMEOUT_MS),
     });
@@ -737,7 +767,7 @@ async function consumeRateLimit(
     // outage, not a measured limit. The request must not slip through to the
     // paid call, so it fails closed.
     if (isTimeout(error)) {
-      console.error(`consume_edge_rate_limit (${scope}) timeout`);
+      console.error(`consume_edge_rate_limits (${scopes}) timeout`);
       throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
     }
     throw error;
@@ -747,9 +777,9 @@ async function consumeRateLimit(
     throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
   }
 
-  let data: Partial<RateLimitResult>;
+  let data: unknown;
   try {
-    data = await response.json() as Partial<RateLimitResult>;
+    data = await response.json();
   } catch (error) {
     // Same case as the hanging fetch above: PostgREST sends 200 and its
     // headers, then stalls on the row. Outside this try the step signal's
@@ -757,24 +787,54 @@ async function consumeRateLimit(
     // status by accident, the wrong code, and no operator line naming the
     // limiter. It still fails CLOSED: no slipping through to the paid call.
     if (isTimeout(error)) {
-      console.error(`consume_edge_rate_limit (${scope}) body timeout`);
+      console.error(`consume_edge_rate_limits (${scopes}) body timeout`);
       throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
     }
     throw error;
   }
+
   // Sentinel E6, same guard as search-key and coach-chat: a broken response
-  // shape is a limiter outage, not a measured limit.
-  if (typeof data.allowed !== 'boolean') {
-    console.error(`consume_edge_rate_limit: 200 ohne lesbares allowed (${JSON.stringify(data).slice(0, 120)})`);
+  // shape is a limiter outage, not a measured limit. For the batch that also
+  // covers the LENGTH — more elements than gates is a different RPC than the
+  // one we called.
+  if (!Array.isArray(data) || data.length === 0 || data.length > gates.length) {
+    console.error(`consume_edge_rate_limits: 200 ohne lesbares Ergebnis (${JSON.stringify(data).slice(0, 120)})`);
     throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
   }
-  return {
-    allowed: data.allowed,
-    limit: Number(data.limit ?? limit),
-    remaining: Number(data.remaining ?? 0),
-    resetAt: String(data.resetAt ?? new Date(Date.now() + windowSeconds * 1000).toISOString()),
-    windowSeconds: Number(data.windowSeconds ?? windowSeconds),
-  };
+
+  const results: RateLimitResult[] = [];
+  for (const [index, entry] of (data as unknown[]).entries()) {
+    const gate = gates[index];
+    if (!isRecord(entry) || typeof entry.allowed !== 'boolean') {
+      console.error(
+        `consume_edge_rate_limits: 200 ohne lesbares allowed (${gate.scope}: ${JSON.stringify(entry).slice(0, 120)})`,
+      );
+      throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
+    }
+    const result: RateLimitResult = {
+      allowed: entry.allowed,
+      limit: Number(entry.limit ?? gate.limit),
+      remaining: Number(entry.remaining ?? 0),
+      resetAt: String(entry.resetAt ?? new Date(Date.now() + gate.windowSeconds * 1000).toISOString()),
+      windowSeconds: Number(entry.windowSeconds ?? gate.windowSeconds),
+    };
+    if (!result.allowed) {
+      // Nothing behind this gate ran, so nothing behind it is reported.
+      // Trailing elements cannot exist by contract; ignoring them is the safe
+      // reading either way.
+      return { denied: result, deniedScope: gate.scope };
+    }
+    results.push(result);
+  }
+
+  // Every element said allowed, so the array has to be COMPLETE: a short
+  // all-allowed answer would mean gates silently went unconsumed, and the
+  // caller would spend a paid call on an unmetered request.
+  if (results.length !== gates.length) {
+    console.error(`consume_edge_rate_limits: unvollstaendiges Ergebnis (${scopes}: ${results.length}/${gates.length})`);
+    throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
+  }
+  return { allowed: results };
 }
 
 async function parseBody(request: Request, deadline: Deadline, requestId: string): Promise<ParsedBody> {

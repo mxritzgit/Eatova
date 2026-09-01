@@ -84,6 +84,7 @@ class _FlowCoach extends CoachChatService {
     String? imageBase64,
     String? imageMimeType,
     String? userContext,
+    void Function(String text)? onPartialReply,
   }) async {
     sendCalls++;
     remaining--;

@@ -116,6 +116,16 @@ interface StubOptions {
   authFailBudget?: number;
   /** finish_reason of the answer call (default: "stop"). */
   answerFinishReason?: string;
+  /**
+   * Scope the BATCHED limiter (consume_edge_rate_limits) denies. Like the real
+   * RPC the stub stops there: gates behind the denial are neither answered nor
+   * consumed, so the result array comes back short.
+   */
+  gateDenied?: string;
+  /** HTTP status of the batched limiter RPC (limiter outage simulation). */
+  gateStatus?: number;
+  /** Raw body of the batched limiter RPC; overrides the generated array. */
+  gateBody?: unknown;
 }
 
 interface FetchStub {
@@ -124,6 +134,8 @@ interface FetchStub {
   callsTo(fragment: string): RecordedCall[];
   classifierBodies(): JsonRecord[];
   answerBodies(): JsonRecord[];
+  /** The p_gates arrays of every BATCHED limiter call, in call order. */
+  gateBatches(): JsonRecord[][];
   restore(): void;
 }
 
@@ -182,6 +194,32 @@ function installFetch(options: StubOptions = {}): FetchStub {
       }
       return jsonRes({ id: USER_ID });
     }
+    // Batched limiter (P6-02). MUST be tested before the single-gate URL: that
+    // fragment is a prefix of this one. Mirrors the RPC contract — gates in
+    // array order, STOP at the first denial, one result element per gate
+    // ACTUALLY processed.
+    if (url.includes("/rest/v1/rpc/consume_edge_rate_limits")) {
+      if (options.gateStatus !== undefined) {
+        return jsonRes({ message: "limiter kaputt" }, options.gateStatus);
+      }
+      if (options.gateBody !== undefined) return jsonRes(options.gateBody);
+      const gates = (JSON.parse(body) as JsonRecord).p_gates as JsonRecord[];
+      const results: JsonRecord[] = [];
+      for (const gate of gates) {
+        const denied = gate.scope === options.gateDenied;
+        const windowSeconds = Number(gate.window_seconds);
+        results.push({
+          allowed: !denied,
+          limit: Number(gate.limit),
+          remaining: denied ? 0 : Number(gate.limit) - 1,
+          resetAt: new Date(Date.now() + windowSeconds * 1000).toISOString(),
+          windowSeconds,
+        });
+        if (denied) break;
+      }
+      return jsonRes(results);
+    }
+    // Single-gate RPC: only ../_shared/auth_fail_gate.ts still uses it.
     if (url.includes("/rest/v1/rpc/consume_edge_rate_limit")) {
       const params = JSON.parse(body) as JsonRecord;
       if (params.p_scope === "coach-chat:auth-fail" && options.authFailBudget !== undefined) {
@@ -307,6 +345,10 @@ function installFetch(options: StubOptions = {}): FetchStub {
     callsTo: (fragment: string) => calls.filter((call) => call.url.includes(fragment)),
     classifierBodies: () => openRouterBodies.filter((b) => b.max_tokens === 50),
     answerBodies: () => openRouterBodies.filter((b) => b.max_tokens === 800),
+    gateBatches: () =>
+      calls
+        .filter((call) => call.url.includes("/rpc/consume_edge_rate_limits"))
+        .map((call) => (JSON.parse(call.body) as JsonRecord).p_gates as JsonRecord[]),
     restore: () => {
       globalThis.fetch = original;
     },
@@ -716,22 +758,318 @@ Deno.test("IP-Gate nutzt das normalisierte Subject aus _shared/client_ip.ts", as
     });
     await handleRequest(req);
 
-    const gateCalls = stub.callsTo("consume_edge_rate_limit");
-    assert(gateCalls.length >= 1, "IP-Gate wurde nicht aufgerufen");
-    const ipGate = JSON.parse(gateCalls[0].body) as JsonRecord;
-    assertEquals(ipGate.p_scope, "coach-chat:ip", "Scope");
-    assertEquals(ipGate.p_subject, "ip:203.0.113.7", "Subject muss der rechte Eintrag sein");
-    assert(ipGate.p_subject !== "ip:9.9.9.9", "client-kontrollierter Wert im Subject");
+    const batches = stub.gateBatches();
+    assertEquals(batches.length, 1, "gebuendelter Limiter-Call");
+    const ipGate = batches[0][0];
+    assertEquals(ipGate.scope, "coach-chat:ip", "Scope");
+    assertEquals(ipGate.subject, "ip:203.0.113.7", "Subject muss der rechte Eintrag sein");
+    assert(ipGate.subject !== "ip:9.9.9.9", "client-kontrollierter Wert im Subject");
   } finally {
     stub.restore();
   }
 });
 
 Deno.test("Rate-Limit-Tabelle wird jetzt auch von coach-chat gepruned", async () => {
+  // A6 (Perf-Audit 2026-09-01) wuerfelt das Pruning aus: nur eine von
+  // PRUNE_SAMPLE_RATE Anfragen schickt das DELETE. Dieser Fall pinnt den
+  // Wuerfel ueber den dokumentierten Override auf 1, sonst waere die
+  // Zusicherung ein 1-aus-20-Muenzwurf. Gesetzt und zurueckgestellt NUR um
+  // diesen Fall herum: die ganze Deno-Suite laeuft in EINEM Isolate, ein
+  // liegengebliebener Wert wuerde jede spaetere Datei umkonfigurieren.
+  const vorher = Deno.env.get("PRUNE_SAMPLE_RATE");
+  Deno.env.set("PRUNE_SAMPLE_RATE", "1");
   const stub = installFetch({ classifierCategory: "self_harm" });
   try {
     await handleRequest(makeRequest({ message: SELF_HARM_TEXT }));
     assertEquals(stub.callsTo("prune_edge_rate_limits").length, 1, "prune-Calls");
+  } finally {
+    stub.restore();
+    if (vorher === undefined) Deno.env.delete("PRUNE_SAMPLE_RATE");
+    else Deno.env.set("PRUNE_SAMPLE_RATE", vorher);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// P6-02: ip and user gate travel in ONE batched RPC instead of two sequential
+// roundtrips. The RESPONSES must not change — an ip denial keeps the short
+// text with its own Retry-After, a user denial the long one, and a limiter
+// fault keeps failing closed with a 500. The trap the batch adds: the result
+// array is SHORT when an earlier gate denied, and a missing element means
+// "never consumed", never "allowed".
+// ---------------------------------------------------------------------------
+
+/** Retry-After als Zahl; -1, wenn der Header fehlt. */
+function retryAfterOf(res: Response): number {
+  const raw = res.headers.get("Retry-After");
+  return raw === null ? -1 : Number(raw);
+}
+
+Deno.test("P6-02: EIN gebuendelter Limiter-Call statt zwei, mit beiden Toren in Reihenfolge", async () => {
+  const stub = installFetch({ classifierCategory: "fitness", answerContent: "Passt." });
+  try {
+    const res = await handleRequest(makeRequest({ message: "Wie viel Protein am Tag?" }));
+    assertEquals(res.status, 200, "Status");
+
+    // Genau ein Roundtrip zum Limiter — das ist der ganze Punkt des Befunds.
+    assertEquals(stub.callsTo("/rpc/consume_edge_rate_limits").length, 1, "gebuendelte Calls");
+    assertEquals(
+      stub.calls.filter((c) => c.url.endsWith("/rpc/consume_edge_rate_limit")).length,
+      0,
+      "keine Einzel-RPC mehr auf dem Happy Path",
+    );
+
+    // Und die Parameter beider Tore sind unveraendert durchgereicht.
+    const gates = stub.gateBatches()[0];
+    assertEquals(gates.length, 2, "zwei Tore im Buendel");
+    assertEquals(gates[0].scope, "coach-chat:ip", "1. Scope");
+    assertEquals(gates[0].limit, 120, "IP-Limit");
+    assertEquals(gates[0].window_seconds, 600, "IP-Fenster");
+    assertEquals(gates[1].scope, "coach-chat:user", "2. Scope");
+    assertEquals(gates[1].subject, USER_ID, "User-Subject");
+    assertEquals(gates[1].limit, 60, "User-Limit");
+    assertEquals(gates[1].window_seconds, 3600, "User-Fenster");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P6-02: der Body traegt den BENANNTEN Parameter p_gates, kein blankes Array", async () => {
+  // PostgREST reicht das Argument BENANNT durch: {"p_gates": [...]}. Ein
+  // blankes Array waere live ein Argument-Fehler ("function not found"), den
+  // eine gutmuetige Attrappe trotzdem mit 200 beantwortet — genau der Bug, der
+  // gruen durchrutscht. Deshalb wird die Huelle hier hart gepinnt.
+  const stub = installFetch({ classifierCategory: "fitness", answerContent: "Passt." });
+  try {
+    // Bewusst geschluckt: der AUSGANG der Anfrage ist hier egal, gepruerft wird
+    // allein die aufgezeichnete Huelle. Sonst haenge die Zusicherung daran, wie
+    // streng die Attrappe auf eine falsche Form reagiert — und genau diese
+    // Strenge hat eine echte Attrappe nicht.
+    await handleRequest(makeRequest({ message: "Wie viel Protein am Tag?" })).catch(() => undefined);
+    const call = stub.callsTo("/rpc/consume_edge_rate_limits")[0];
+    assert(call !== undefined, "kein gebuendelter Limiter-Call aufgezeichnet");
+    const parsed = JSON.parse(call.body) as unknown;
+    assert(!Array.isArray(parsed), "Body ist ein blankes Array statt {p_gates: [...]}");
+    assertEquals(
+      Object.keys(parsed as JsonRecord).join(","),
+      "p_gates",
+      "genau EIN benannter Parameter",
+    );
+    const gates = (parsed as JsonRecord).p_gates;
+    assert(Array.isArray(gates), "p_gates ist kein Array");
+    // Und die Feldnamen je Tor sind die der RPC — window_seconds in snake_case.
+    assertEquals(
+      Object.keys((gates as JsonRecord[])[0]).sort().join(","),
+      "limit,scope,subject,window_seconds",
+      "Feldnamen pro Tor",
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P6-02: abgelehntes IP-Tor -> kurzer Text, IP-Retry-After, User-Tor unangetastet", async () => {
+  // Die Attrappe bricht wie die RPC beim ersten Nein ab: das Ergebnis-Array
+  // hat NUR das IP-Element. Genau hier duerfte das fehlende zweite Element
+  // nicht als "erlaubt" gelesen werden.
+  const stub = installFetch({ gateDenied: "coach-chat:ip" });
+  try {
+    const res = await handleRequest(makeRequest({ message: "Wie viel Protein am Tag?" }));
+    assertEquals(res.status, 429, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.error, "rate_limited", "error");
+    assertEquals(
+      body.reply,
+      "Zu viele Coach-Anfragen. Bitte gleich nochmal versuchen.",
+      "kurzer Text (IP-Tor)",
+    );
+    // Aus dem 600-s-Fenster des IP-Tors, nicht aus dem 3600-s-Fenster.
+    const retry = retryAfterOf(res);
+    assert(retry > 590 && retry <= 600, `Retry-After aus dem IP-Fenster erwartet, war ${retry}`);
+
+    // Das User-Bucket wird nicht verbraucht: es gibt keinen zweiten Aufruf,
+    // und die RPC hat hinter der Ablehnung nichts mehr angefasst. callsTo()
+    // ist eine Teilstring-Suche und der Einzel-RPC-Pfad ein PRAEFIX des
+    // gebuendelten — die beiden trennt nur ein endsWith (wie oben).
+    assertEquals(
+      stub.callsTo("/rpc/consume_edge_rate_limits").length,
+      1,
+      "genau ein gebuendelter Limiter-Call",
+    );
+    assertEquals(
+      stub.calls.filter((c) => c.url.endsWith("/rpc/consume_edge_rate_limit")).length,
+      0,
+      "keine Einzel-RPC",
+    );
+    assertEquals(stub.callsTo("claim_chat_quota").length, 0, "keine Quota hinter dem Tor");
+    assertEquals(stub.openRouterBodies.length, 0, "kein bezahlter Aufruf");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P6-02: abgelehntes User-Tor -> langer Text mit dem Stunden-Retry-After", async () => {
+  const stub = installFetch({ gateDenied: "coach-chat:user" });
+  try {
+    const res = await handleRequest(makeRequest({ message: "Wie viel Protein am Tag?" }));
+    assertEquals(res.status, 429, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.error, "rate_limited", "error");
+    assertEquals(
+      body.reply,
+      "Zu viele Coach-Anfragen. Bitte später erneut versuchen.",
+      "langer Text (User-Tor)",
+    );
+    const retry = retryAfterOf(res);
+    assert(retry > 3590 && retry <= 3600, `Retry-After aus dem Stunden-Fenster erwartet, war ${retry}`);
+    assertEquals(stub.callsTo("claim_chat_quota").length, 0, "keine Quota hinter dem Tor");
+    assertEquals(stub.openRouterBodies.length, 0, "kein bezahlter Aufruf");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P6-02: Fehler der gebuendelten RPC bleibt ein 500, kein erfundenes 429", async () => {
+  const stub = installFetch({ gateStatus: 500 });
+  try {
+    const res = await handleRequest(makeRequest({ message: "Wie viel Protein am Tag?" }));
+    assertEquals(res.status, 500, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals(body.error, "rate_limit_unavailable", "Fehlercode");
+    assertEquals(res.headers.get("Retry-After"), null, "kein Retry-After auf dem Ausfall");
+    assertEquals(stub.callsTo("claim_chat_quota").length, 0, "keine Quota hinter dem Ausfall");
+    assertEquals(stub.openRouterBodies.length, 0, "kein bezahlter Aufruf");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P6-02: verkuerztes Ergebnis OHNE Ablehnung faellt geschlossen", async () => {
+  // Der teure Fehlgriff waere, das fehlende User-Element als "erlaubt" zu
+  // lesen: dann liefe die Anfrage mit einem NIE gemessenen User-Tor durch.
+  const stub = installFetch({
+    gateBody: [{
+      allowed: true,
+      limit: 120,
+      remaining: 119,
+      resetAt: new Date(Date.now() + 600_000).toISOString(),
+      windowSeconds: 600,
+    }],
+  });
+  try {
+    const res = await handleRequest(makeRequest({ message: "Wie viel Protein am Tag?" }));
+    assertEquals(res.status, 500, "Status");
+    assertEquals((await res.json() as JsonRecord).error, "rate_limit_unavailable", "Fehlercode");
+    assertEquals(stub.callsTo("claim_chat_quota").length, 0, "keine Quota");
+    assertEquals(stub.openRouterBodies.length, 0, "kein bezahlter Aufruf");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P6-02: leeres Ergebnis-Array ist ein Ausfall, kein freier Durchlauf", async () => {
+  const stub = installFetch({ gateBody: [] });
+  try {
+    const res = await handleRequest(makeRequest({ message: "Wie viel Protein am Tag?" }));
+    assertEquals(res.status, 500, "Status");
+    assertEquals((await res.json() as JsonRecord).error, "rate_limit_unavailable", "Fehlercode");
+    assertEquals(stub.openRouterBodies.length, 0, "kein bezahlter Aufruf");
+  } finally {
+    stub.restore();
+  }
+});
+
+/** Faengt console.error waehrend `run` ab. */
+async function mitErrorLog(run: () => Promise<Response>): Promise<{
+  res: Response;
+  zeilen: string[];
+}> {
+  const zeilen: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => {
+    zeilen.push(args.map((a) => String(a)).join(" "));
+  };
+  try {
+    return { res: await run(), zeilen };
+  } finally {
+    console.error = original;
+  }
+}
+
+Deno.test("P6-02: das kurze Ergebnis weist schon der HELFER ab, nicht erst der Aufrufer", async () => {
+  // Beide Riegel enden in derselben 500 — der im Helfer (kurzes Array ohne
+  // Ablehnung) und der im Aufrufer (fehlendes User-Element). Deshalb blieb
+  // gruen, wer einen von beiden loeschte. Die Log-Zeile ist die einzige Spur,
+  // die sagt, WER gezogen hat, und pinnt damit den Riegel im Helfer allein.
+  const stub = installFetch({
+    gateBody: [{
+      allowed: true,
+      limit: 120,
+      remaining: 119,
+      resetAt: new Date(Date.now() + 600_000).toISOString(),
+      windowSeconds: 600,
+    }],
+  });
+  try {
+    const { res, zeilen } = await mitErrorLog(() =>
+      handleRequest(makeRequest({ message: "Wie viel Protein am Tag?" }))
+    );
+    assertEquals(res.status, 500, "Status");
+    assertEquals((await res.json() as JsonRecord).error, "rate_limit_unavailable", "Fehlercode");
+    assert(
+      zeilen.some((zeile) => zeile.includes("nur 1/2 Tore")),
+      `der Helfer hat den Kurzschluss nicht gemeldet: ${zeilen.join(" | ")}`,
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P6-02: MEHR Elemente als Tore ist ebenfalls ein Ausfall", async () => {
+  // Ein Array, das laenger ist als die Eingabe, laesst sich den Toren gar
+  // nicht mehr zuordnen — dieselbe Klasse wie die umgeformte Antwort (E6).
+  // Die Elemente sind absichtlich VOLLSTAENDIG: sonst faellt die Mutation
+  // ueber ein fehlendes gates[2] und der Test waere aus dem falschen Grund
+  // gruen.
+  const voll = (limit: number, windowSeconds: number): JsonRecord => ({
+    allowed: true,
+    limit,
+    remaining: limit - 1,
+    resetAt: new Date(Date.now() + windowSeconds * 1000).toISOString(),
+    windowSeconds,
+  });
+  const stub = installFetch({ gateBody: [voll(120, 600), voll(60, 3600), voll(60, 3600)] });
+  try {
+    const res = await handleRequest(makeRequest({ message: "Wie viel Protein am Tag?" }));
+    assertEquals(res.status, 500, "Status");
+    assertEquals((await res.json() as JsonRecord).error, "rate_limit_unavailable", "Fehlercode");
+    assertEquals(stub.callsTo("claim_chat_quota").length, 0, "keine Quota");
+    assertEquals(stub.openRouterBodies.length, 0, "kein bezahlter Aufruf");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P6-02: fehlende Ersatzwerte kommen aus DEM Tor, nicht aus dem ersten", async () => {
+  // Laesst die RPC resetAt/windowSeconds weg, setzt der Helfer sie aus dem
+  // Tor an DERSELBEN Position. Nimmt er stattdessen das erste Tor, bekommt
+  // eine Stunden-Sperre das 10-Minuten-Fenster als Retry-After — der Client
+  // fragt dann 50 Minuten zu frueh wieder an.
+  const stub = installFetch({ gateBody: [{ allowed: true }, { allowed: false }] });
+  try {
+    const res = await handleRequest(makeRequest({ message: "Wie viel Protein am Tag?" }));
+    assertEquals(res.status, 429, "Status");
+    const body = await res.json() as JsonRecord;
+    assertEquals(
+      body.reply,
+      "Zu viele Coach-Anfragen. Bitte später erneut versuchen.",
+      "langer Text (User-Tor)",
+    );
+    const retry = retryAfterOf(res);
+    assert(
+      retry > 3590 && retry <= 3600,
+      `Retry-After aus dem Stunden-Fenster des User-Tors erwartet, war ${retry}`,
+    );
+    assertEquals(stub.openRouterBodies.length, 0, "kein bezahlter Aufruf");
   } finally {
     stub.restore();
   }
@@ -921,6 +1259,7 @@ Deno.test("CWE-400-Fix: wiederholte Auth-Fehlschlaege verbrauchen das Fail-Bucke
       .map((c) => JSON.parse(c.body) as JsonRecord)
       .filter((p) => p.p_scope !== "coach-chat:auth-fail");
     assertEquals(otherGates.length, 0, "keine ip/user-Gates auf dem Fehlschlag-Pfad");
+    assertEquals(stub.gateBatches().length, 0, "kein gebuendelter Limiter-Call auf dem Fehlschlag-Pfad");
     assertEquals(stub.callsTo("claim_chat_quota").length, 0, "keine Quota");
     assertEquals(stub.openRouterBodies.length, 0, "kein Provider-Call");
   } finally {
@@ -938,10 +1277,16 @@ Deno.test("CWE-400-Fix: erfolgreiche Auth beruehrt das Fail-Bucket nicht", async
       message: "Wie oft soll ich pro Woche trainieren?",
     }));
     assertEquals(res.status, 200, "Status");
-    const scopes = stub.callsTo("consume_edge_rate_limit")
+    // The fail bucket runs through the SINGLE-gate RPC (auth_fail_gate.ts).
+    const singleScopes = stub.calls
+      .filter((c) => c.url.endsWith("/rpc/consume_edge_rate_limit"))
       .map((c) => (JSON.parse(c.body) as JsonRecord).p_scope);
-    assert(!scopes.includes("coach-chat:auth-fail"), "Fail-Bucket auf dem Happy Path beruehrt");
-    // The regular gates run unchanged, in order: ip, then user.
+    assert(!singleScopes.includes("coach-chat:auth-fail"), "Fail-Bucket auf dem Happy Path beruehrt");
+    // The regular gates run unchanged, in order: ip, then user — but in ONE
+    // batched roundtrip (P6-02).
+    const batches = stub.gateBatches();
+    assertEquals(batches.length, 1, "genau ein Limiter-Roundtrip");
+    const scopes = batches[0].map((gate) => gate.scope);
     assertEquals(scopes[0], "coach-chat:ip", "IP-Gate");
     assertEquals(scopes[1], "coach-chat:user", "User-Gate");
     assertEquals(scopes.length, 2, "genau zwei Gates auf dem Happy Path");

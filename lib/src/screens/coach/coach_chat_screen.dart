@@ -123,6 +123,14 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   /// finding 3, 2026-08-31). The send paths read `_input.text` directly.
   final ValueNotifier<String> _draft = ValueNotifier<String>('');
 
+  /// The coach answer as it streams in, empty while nothing has arrived.
+  ///
+  /// A notifier for the same reason as [_draft]: the deltas arrive dozens of
+  /// times a second and only the one preview bubble may rebuild for them. It
+  /// is a PREVIEW — `send` returns the authoritative text and the finished
+  /// bubble replaces this one, so nothing here is ever the record.
+  final ValueNotifier<String> _streamVorschau = ValueNotifier<String>('');
+
   /// The active session's history failed to load — the hero empty state must
   /// then not present it as "empty".
   bool _historyUnavailable = false;
@@ -268,6 +276,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     WidgetsBinding.instance.removeObserver(this);
     _input.dispose();
     _draft.dispose();
+    _streamVorschau.dispose();
     _scroll.dispose();
     _inputFocus.dispose();
     super.dispose();
@@ -608,6 +617,20 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         imageBase64: hasImage ? base64Encode(imageBytes) : null,
         imageMimeType: hasImage ? (imageMimeType ?? 'image/jpeg') : null,
         userContext: widget.userContext,
+        // Live preview only. Bound to the session the question came from —
+        // switching stays possible while sending, and the answer to another
+        // conversation must not type itself into this one.
+        onPartialReply: (text) {
+          if (!mounted || _activeSessionId != sessionId) return;
+          // Once, when the dots turn into text: the bubble takes the row's
+          // place and has to be in view. Not per delta — that would animate
+          // against a user scrolling up to read what already arrived.
+          final erstesZeichen = _streamVorschau.value.isEmpty;
+          _streamVorschau.value = text;
+          if (erstesZeichen) {
+            WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
+          }
+        },
       );
       // The daily slot is spent even if the answer is discarded — hence
       // before the session comparison.
@@ -749,6 +772,14 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     final rest = math.max(0, _laufendeSendungen - 1);
     // Nothing in flight: no session is "the sending one" any more.
     final sendende = rest == 0 ? null : _sendendeSessionId;
+    // The preview belongs to the request, not to the screen: the finished
+    // bubble (or the error banner) has taken over by now, and a leftover would
+    // reappear under the NEXT question before its first token.
+    // `mounted` FIRST: dispose() disposes this notifier, and a write after that
+    // trips ValueNotifier's debugAssertNotDisposed — it throws into the zone (and
+    // so into Sentry) in debug and in every widget test. Reachable by signing out
+    // or tearing the shell down while a stream has produced at least one delta.
+    if (mounted && rest == 0) _streamVorschau.value = '';
     if (!mounted) {
       _laufendeSendungen = rest;
       _sendendeSessionId = sendende;
@@ -1346,6 +1377,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                     focus: _inputFocus,
                     messages: _messages,
                     sending: _sendingInActiveSession,
+                    preview: _streamVorschau,
                     recipeAddedFor: _isRecipeAdded,
                     // Card buttons stay disabled without a hook
                     // (preview/test) and while an add is running.

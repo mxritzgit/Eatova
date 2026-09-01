@@ -85,13 +85,37 @@ interface StubOptions {
   hangOn?: ('auth' | 'gate' | 'auth-fail' | 'prune' | 'openrouter')[];
   /** Routes that answer 200 WITH HEADERS and then stall on the body (P6-07b). */
   stallBodyOn?: ('auth' | 'gate')[];
+  /**
+   * A4: the batch answers SHORT although no gate denied — the one shape a
+   * caller must never read as "the missing gate was allowed".
+   */
+  shortBatch?: boolean;
+  /**
+   * A6: one element MORE than gates were sent, and that element DENIES. An
+   * element without a gate cannot be mapped at all; read positionally it
+   * denies on behalf of a gate nobody asked for.
+   */
+  longBatch?: boolean;
+  /** A6: 200 with an EMPTY array — not one gate consumed, nothing to read. */
+  emptyBatch?: boolean;
+}
+
+/** One element of the p_gates array (contract of
+ *  public.consume_edge_rate_limits). */
+interface GateParams {
+  scope: string;
+  subject: string;
+  limit: number;
+  window_seconds: number;
 }
 
 interface FetchStub {
   calls: RecordedCall[];
   callsTo(fragment: string): RecordedCall[];
   rateLimitScopes(): string[];
-  /** Parameters of the consume_edge_rate_limit call for `scope`. */
+  /** Limiter ROUNDTRIPS, batched and single-gate alike (A4: two, not four). */
+  rateLimitCalls(): number;
+  /** Parameters of the consume for `scope`, normalised to the p_-names. */
   rateLimitParams(scope: string): JsonRecord | undefined;
   restore(): void;
 }
@@ -139,6 +163,11 @@ function stallingBody(signal: AbortSignal | null | undefined, head: string): Res
 
 function installFetch(options: StubOptions = {}): FetchStub {
   const calls: RecordedCall[] = [];
+  // What the limiter actually COUNTED, in order, normalised to the p_-names.
+  // Recorded here rather than derived from the request bodies because a batch
+  // stops at the first denial: the gates behind it were sent but never
+  // consumed, and that difference is what most tests below assert.
+  const consumed: JsonRecord[] = [];
   const original = globalThis.fetch;
   const hangOn = new Set(options.hangOn ?? []);
   const stallBodyOn = new Set(options.stallBodyOn ?? []);
@@ -154,23 +183,55 @@ function installFetch(options: StubOptions = {}): FetchStub {
       if (stallBodyOn.has('auth')) return Promise.resolve(stallingBody(signal, '{"id":"'));
       return Promise.resolve(jsonRes({ id: USER_ID }));
     }
+    // A4: the application gates arrive BATCHED — one RPC with an array of
+    // gates. Matched before the single-gate route, whose URL is a prefix of
+    // this one; only the auth-fail bucket still uses that one.
+    if (url.includes('/rest/v1/rpc/consume_edge_rate_limits')) {
+      if (hangOn.has('gate')) return hang(signal);
+      if (stallBodyOn.has('gate')) return Promise.resolve(stallingBody(signal, '[{"allowed"'));
+      // Nothing consumed, nothing recorded: an empty answer is the RPC saying
+      // it did not run, not a row per gate (A6).
+      if (options.emptyBatch) return Promise.resolve(jsonRes([]));
+      const gates = (JSON.parse(body) as { p_gates: GateParams[] }).p_gates;
+      const results: JsonRecord[] = [];
+      for (const gate of gates) {
+        if (!(gate.scope in ALLOWED_BY_SCOPE_KEYS)) {
+          throw new Error(`Unbekannter Rate-Limit-Scope im Test: ${gate.scope}`);
+        }
+        const allowed = allowedFor(gate.scope);
+        consumed.push({
+          p_scope: gate.scope,
+          p_subject: gate.subject,
+          p_limit: gate.limit,
+          p_window_seconds: gate.window_seconds,
+        });
+        results.push(limitBody(gate.limit, gate.window_seconds, allowed));
+        // THE rule of the contract: after a denial the RPC touches nothing
+        // else, so the array comes back short.
+        if (!allowed) break;
+      }
+      if (options.shortBatch && results.length === gates.length) {
+        // All allowed and yet incomplete: the gate popped here was never
+        // consumed, and the handler must not treat it as passed.
+        results.pop();
+        consumed.pop();
+      }
+      if (options.longBatch && results.length === gates.length) {
+        // A row for a gate that was never sent — and it denies. NOT recorded
+        // in `consumed`: this endpoint never asked for it (A6).
+        results.push(limitBody(1, 60, false));
+      }
+      return Promise.resolve(jsonRes(results));
+    }
     if (url.includes('/rest/v1/rpc/consume_edge_rate_limit')) {
       const params = JSON.parse(body) as JsonRecord;
       const scope = String(params.p_scope);
-      if (scope === 'analyze-meal:auth-fail') {
-        if (hangOn.has('auth-fail')) return hang(signal);
-        return Promise.resolve(jsonRes(limitBody(params, true)));
+      if (scope !== 'analyze-meal:auth-fail') {
+        throw new Error(`Einzel-RPC nur noch fuer das Fail-Bucket, war: ${scope}`);
       }
-      if (hangOn.has('gate')) return hang(signal);
-      if (stallBodyOn.has('gate')) return Promise.resolve(stallingBody(signal, '{"allowed"'));
-      const allowedByScope: Record<string, boolean | undefined> = {
-        'analyze-meal:ip': options.ipAllowed,
-        'analyze-meal:user': options.userAllowed,
-        'analyze-meal:user-day': options.userDayAllowed,
-        'analyze-meal:global': options.globalAllowed,
-      };
-      if (!(scope in allowedByScope)) throw new Error(`Unbekannter Rate-Limit-Scope im Test: ${scope}`);
-      return Promise.resolve(jsonRes(limitBody(params, allowedByScope[scope] ?? true)));
+      if (hangOn.has('auth-fail')) return hang(signal);
+      consumed.push(params);
+      return Promise.resolve(jsonRes(limitBody(Number(params.p_limit), Number(params.p_window_seconds), true)));
     }
     if (url.includes('/rest/v1/rpc/prune_edge_rate_limits')) {
       if (hangOn.has('prune')) return hang(signal);
@@ -183,9 +244,25 @@ function installFetch(options: StubOptions = {}): FetchStub {
     throw new Error(`Unerwarteter fetch im Test: ${url}`);
   }
 
-  function limitBody(params: JsonRecord, allowed: boolean): JsonRecord {
-    const limit = Number(params.p_limit);
-    const windowSeconds = Number(params.p_window_seconds);
+  /** Scopes the stub knows; an unexpected one is a test bug, not a pass. */
+  const ALLOWED_BY_SCOPE_KEYS: Record<string, true> = {
+    'analyze-meal:ip': true,
+    'analyze-meal:user': true,
+    'analyze-meal:user-day': true,
+    'analyze-meal:global': true,
+  };
+
+  function allowedFor(scope: string): boolean {
+    const answers: Record<string, boolean | undefined> = {
+      'analyze-meal:ip': options.ipAllowed,
+      'analyze-meal:user': options.userAllowed,
+      'analyze-meal:user-day': options.userDayAllowed,
+      'analyze-meal:global': options.globalAllowed,
+    };
+    return answers[scope] ?? true;
+  }
+
+  function limitBody(limit: number, windowSeconds: number, allowed: boolean): JsonRecord {
     return {
       allowed,
       limit,
@@ -209,15 +286,11 @@ function installFetch(options: StubOptions = {}): FetchStub {
   return {
     calls,
     callsTo: (fragment: string) => calls.filter((call) => call.url.includes(fragment)),
-    rateLimitScopes: () =>
-      calls
-        .filter((call) => call.url.includes('/rpc/consume_edge_rate_limit'))
-        .map((call) => String((JSON.parse(call.body) as JsonRecord).p_scope)),
-    rateLimitParams: (scope: string) =>
-      calls
-        .filter((call) => call.url.includes('/rpc/consume_edge_rate_limit'))
-        .map((call) => JSON.parse(call.body) as JsonRecord)
-        .find((params) => params.p_scope === scope),
+    // Batched calls expanded into the gates they COUNTED, so every order
+    // assertion below reads exactly as it did when the gates were four calls.
+    rateLimitScopes: () => consumed.map((params) => String(params.p_scope)),
+    rateLimitCalls: () => calls.filter((call) => call.url.includes('/rpc/consume_edge_rate_limit')).length,
+    rateLimitParams: (scope: string) => consumed.find((params) => params.p_scope === scope),
     restore: () => {
       globalThis.fetch = original;
     },
@@ -583,11 +656,36 @@ Deno.test('P6-07: das Restbudget deckelt den Provider-Call', async () => {
   }
 });
 
+/**
+ * A6 (performance audit 2026-09-01): the cleanup is SAMPLED — one call in
+ * PRUNE_SAMPLE_RATE issues the DELETE. Every assertion about the outgoing
+ * prune call would otherwise be a 1-in-20 coin flip, so the two below use the
+ * documented deterministic seam: a rate of 1 always draws. Set per test and
+ * restored, so no other test file inherits it.
+ */
+async function withCertainPrune<T>(work: () => Promise<T>): Promise<T> {
+  const previous = Deno.env.get('PRUNE_SAMPLE_RATE');
+  Deno.env.set('PRUNE_SAMPLE_RATE', '1');
+  try {
+    return await work();
+  } finally {
+    if (previous === undefined) Deno.env.delete('PRUNE_SAMPLE_RATE');
+    else Deno.env.set('PRUNE_SAMPLE_RATE', previous);
+  }
+}
+
 Deno.test('P6-07: pruneRateLimits haengt nicht unbegrenzt', async () => {
   const stub = installFetch({ hangOn: ['prune'] });
   try {
     // Fire-and-forget, so it may never reject — but it must RESOLVE.
-    await pruneRateLimits({ supabaseUrl: BASE_URL, serviceKey: 'test-service-key', timeoutMs: 40 });
+    // `sampler: () => 0` always draws the pruning slot (A6): what is under
+    // test is the deadline, not the dice.
+    await pruneRateLimits({
+      supabaseUrl: BASE_URL,
+      serviceKey: 'test-service-key',
+      timeoutMs: 40,
+      sampler: () => 0,
+    });
     const signal = stub.callsTo('prune_edge_rate_limits')[0]?.signal;
     assert(signal instanceof AbortSignal, 'Prune-Call ohne AbortSignal');
   } finally {
@@ -598,7 +696,7 @@ Deno.test('P6-07: pruneRateLimits haengt nicht unbegrenzt', async () => {
 Deno.test('P6-07: der Prune-Call im Erfolgsfall bekommt ein Zeitlimit', async () => {
   const stub = installFetch();
   try {
-    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    const res = await withCertainPrune(() => handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 })));
     assertEquals(res.status, 200, 'Status');
     const prune = stub.callsTo('prune_edge_rate_limits');
     assertEquals(prune.length, 1, 'Prune-Calls');
@@ -864,6 +962,234 @@ Deno.test('D3: ein geschrumpftes Upload-Fenster wird fuer den Betreiber protokol
     );
   } finally {
     warnings.restore();
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// A4 (performance audit 2026-09-01): the four gates cost four PostgREST
+// roundtrips; they are now TWO batched calls
+// (public.consume_edge_rate_limits). Everything above still applies unchanged
+// — WHEN a bucket is spent must not move — so these pin the batching itself:
+// how many roundtrips there are, that the split is exactly where parseBody
+// sits, and that a SHORT answer is read as "never consumed", never as
+// "allowed".
+// ---------------------------------------------------------------------------
+
+/**
+ * The p_gates array of the n-th batched limiter call — the wire contract with
+ * the RPC, which lives outside this function.
+ *
+ * PostgREST passes RPC arguments BY NAME, so the body has to be
+ * `{"p_gates":[...]}` and not a bare array. A stub is happy either way, which
+ * is exactly why the envelope is asserted here rather than assumed: posting
+ * the array directly fails only against the real database.
+ */
+function batchGates(stub: FetchStub, index: number): GateParams[] {
+  const call = stub.callsTo('/rpc/consume_edge_rate_limits')[index];
+  assert(call !== undefined, `es gab keinen ${index + 1}. Batch-Call`);
+  const payload = JSON.parse(call.body) as JsonRecord;
+  assertEquals(Object.keys(payload).join(','), 'p_gates', `Batch ${index + 1}: benannter RPC-Parameter`);
+  assert(Array.isArray(payload.p_gates), `Batch ${index + 1}: p_gates ist kein Array`);
+  return payload.p_gates as GateParams[];
+}
+
+Deno.test('A4: die vier Gates kosten zwei RPC-Calls, nicht vier', async () => {
+  const stub = installFetch();
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 200, 'Status');
+    assertEquals(stub.rateLimitCalls(), 2, 'Limiter-Roundtrips');
+    // The saving may not cost the order: same four gates, same sequence.
+    assertEquals(stub.rateLimitScopes().join(','), GATE_ORDER, 'Gate-Reihenfolge');
+
+    // Wire shape, because the RPC is a contract with the migration, not an
+    // internal call: names, order, subjects and numbers per element.
+    const first = batchGates(stub, 0);
+    assertEquals(first.map((gate) => gate.scope).join(','), ATTEMPT_GATES, 'Batch 1: Gates');
+    assertEquals(first[0].subject, `uid:${USER_ID}`, 'Batch 1: IP-Subject (ohne IP-Header)');
+    assertEquals(first[0].limit, 60, 'Batch 1: IP-Limit');
+    assertEquals(first[0].window_seconds, 600, 'Batch 1: IP-Fenster');
+    assertEquals(first[1].subject, USER_ID, 'Batch 1: Nutzer-Subject');
+    assertEquals(first[1].limit, 20, 'Batch 1: Nutzer-Limit');
+    assertEquals(first[1].window_seconds, 3600, 'Batch 1: Nutzer-Fenster');
+
+    const second = batchGates(stub, 1);
+    assertEquals(
+      second.map((gate) => gate.scope).join(','),
+      'analyze-meal:user-day,analyze-meal:global',
+      'Batch 2: Gates',
+    );
+    assertEquals(second[0].subject, USER_ID, 'Batch 2: Tages-Subject');
+    assertEquals(second[0].limit, 100, 'Batch 2: Tages-Limit');
+    assertEquals(second[1].subject, 'all', 'Batch 2: ein Bucket fuer alle');
+    assertEquals(second[1].limit, 5000, 'Batch 2: globales Limit');
+    assertEquals(second[1].window_seconds, 86400, 'Batch 2: Tagesfenster');
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test('A4: der Body wird ZWISCHEN den Batches gelesen — ein tropfender Upload zahlt nur Batch 1', async () => {
+  // The reason there are two batches and not one: collapsing them would spend
+  // the two day slots — burnt until 00:00 UTC — on a request whose body never
+  // arrived. The 408 is P6-01b's; what is new here is the roundtrip count.
+  const handler = await loadHandler('slow-body', SLOW_BODY);
+  const stub = installFetch();
+  try {
+    const res = await handleWithGuard(handler, makeStreamingRequest([BODY_HEAD], 0, true));
+    assertEquals(res.status, 408, 'Status');
+    assertEquals((await res.json() as JsonRecord).error, 'request_timeout', 'Fehlercode');
+    assertEquals(stub.rateLimitCalls(), 1, 'nur der erste Batch darf gelaufen sein');
+    assertEquals(stub.rateLimitScopes().join(','), ATTEMPT_GATES, 'Gate-Reihenfolge');
+    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test('A4: ein zu grosses Bild zahlt ebenfalls nur Batch 1', async () => {
+  // Same split, the other rejection class: the body arrived, the validation
+  // behind it says 413 — still before the day buckets.
+  const stub = installFetch();
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: OVERSIZED_IMAGE_BASE64 }));
+    assertEquals(res.status, 413, 'Status');
+    assertEquals((await res.json() as JsonRecord).error, 'image_too_large', 'Fehlercode');
+    assertEquals(stub.rateLimitCalls(), 1, 'nur der erste Batch darf gelaufen sein');
+    assertEquals(stub.rateLimitScopes().join(','), ATTEMPT_GATES, 'Gate-Reihenfolge');
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test('A4: eine IP-Absage verbraucht das Nutzer-Gate im selben Batch nicht', async () => {
+  // Stop-at-first-denial inside ONE call: the old early `return` between two
+  // fetches is now a property of the RPC, and losing it would let a blocked IP
+  // burn the user's hourly budget from inside the same roundtrip.
+  const stub = installFetch({ ipAllowed: false });
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 429, 'Status');
+    assertEquals(stub.rateLimitCalls(), 1, 'Limiter-Roundtrips');
+    assertEquals(stub.rateLimitScopes().join(','), 'analyze-meal:ip', 'verbrauchte Gates');
+    // The batch carried both gates; only the first was counted.
+    assertEquals(batchGates(stub, 0).length, 2, 'gesendete Gates im Batch');
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test('A4: eine Tages-Absage verbraucht das globale Gate im selben Batch nicht', async () => {
+  const stub = installFetch({ userDayAllowed: false });
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 429, 'Status');
+    assertEquals(stub.rateLimitCalls(), 2, 'Limiter-Roundtrips');
+    assertEquals(
+      stub.rateLimitScopes().join(','),
+      'analyze-meal:ip,analyze-meal:user,analyze-meal:user-day',
+      'verbrauchte Gates',
+    );
+    assertEquals(batchGates(stub, 1).length, 2, 'gesendete Gates im zweiten Batch');
+    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test('A4: die globale Absage bleibt die Betreiber-Warnung', async () => {
+  // The bill cap is the one denial an operator has to see: it is not one
+  // abusive user, and it stays denied until 00:00 UTC. Reading the batch
+  // result must not lose which gate said no.
+  const stub = installFetch({ globalAllowed: false });
+  const warnings = captureWarnings();
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 429, 'Status');
+    assertEquals((await res.json() as JsonRecord).error, 'rate_limited', 'Fehlercode');
+    assert(
+      warnings.messages.some((line) => line.includes('analyze-meal global day cap reached')),
+      `keine Betreiber-Zeile zur globalen Tagesgrenze: ${warnings.messages.join(' | ')}`,
+    );
+    assertEquals(stub.rateLimitScopes().join(','), GATE_ORDER, 'Gate-Reihenfolge');
+  } finally {
+    warnings.restore();
+    stub.restore();
+  }
+});
+
+Deno.test('A4: die Warnung gilt NUR der globalen Grenze', async () => {
+  // Counter-check to the line above: a user over their own day budget is not
+  // the bill cap, and an operator line for it would be noise.
+  const stub = installFetch({ userDayAllowed: false });
+  const warnings = captureWarnings();
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 429, 'Status');
+    assert(
+      !warnings.messages.some((line) => line.includes('global day cap reached')),
+      `Warnung fuer die falsche Grenze: ${warnings.messages.join(' | ')}`,
+    );
+  } finally {
+    warnings.restore();
+    stub.restore();
+  }
+});
+
+Deno.test('A4: ein kurzes Ergebnis ohne Absage ist ein Ausfall, kein Freibrief', async () => {
+  // The trap of the batch: the answer is SHORT exactly when a gate denied, so
+  // a missing element means "never consumed". Read as "allowed" it would let
+  // an unmetered request reach the paid call — hence fail closed, like every
+  // other limiter outage (E6).
+  const stub = installFetch({ shortBatch: true });
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 500, 'Status');
+    assertEquals((await res.json() as JsonRecord).error, 'rate_limit_unavailable', 'Fehlercode');
+    assertEquals(stub.rateLimitScopes().join(','), 'analyze-meal:ip', 'verbrauchte Gates');
+    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+  } finally {
+    stub.restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// A6 (review 2026-09-01): the short answer above was pinned, the two other
+// unreadable LENGTHS were not. Both are limiter outages and must fail closed
+// with the same code as every other one — never a 429 for a gate nobody sent,
+// never a generic internal_error, and above all never a provider call.
+// ---------------------------------------------------------------------------
+
+Deno.test('A6: mehr Elemente als Gates ist ein Ausfall, kein Urteil fuer ein nie gesendetes Tor', async () => {
+  // A row without a gate cannot be mapped: read positionally its numbers get
+  // attributed to a gate that is not in the array, which is how the reply of a
+  // CHANGED RPC signature would look. The answer must name the limiter, not
+  // pass an invented denial (429) or a bare crash (500 internal_error) on.
+  const stub = installFetch({ longBatch: true });
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 500, 'Status');
+    assertEquals((await res.json() as JsonRecord).error, 'rate_limit_unavailable', 'Fehlercode');
+    assertEquals(stub.rateLimitCalls(), 1, 'nach dem ersten Batch ist Schluss');
+    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test('A6: ein leeres Ergebnis-Array ist ein Ausfall, kein Freibrief', async () => {
+  // 200 with `[]`: the RPC reports that it consumed nothing. Reading that as
+  // "nothing denied" would send an entirely unmetered request to the paid
+  // provider call — the same hole as the short answer, one step further.
+  const stub = installFetch({ emptyBatch: true });
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 500, 'Status');
+    assertEquals((await res.json() as JsonRecord).error, 'rate_limit_unavailable', 'Fehlercode');
+    assertEquals(stub.rateLimitScopes().length, 0, 'kein Tor verbraucht');
+    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
+  } finally {
     stub.restore();
   }
 });

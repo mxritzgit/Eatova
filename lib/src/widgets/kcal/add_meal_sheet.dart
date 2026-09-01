@@ -448,6 +448,38 @@ class _AddMealSheetState extends State<AddMealSheet> {
     return _explicitSearchRequested && length >= _searchMinChars;
   }
 
+  /// The [_searchActive] value the last [build] actually painted — the gate for
+  /// the keystroke path (perf audit B3, 2026-09-01).
+  ///
+  /// [_scheduleProductSearch] used to `setState(() {})` on EVERY keystroke to
+  /// flip this zone, but the flip happens on one character in a word: the other
+  /// nine rebuilt the whole sheet subtree for an identical frame.
+  ///
+  /// Written here rather than tracked per mutation on purpose. `onChanged`
+  /// fires AFTER the controller already holds the new text, so there is no
+  /// "before" left to capture inside the handler; and [_explicitSearchRequested]
+  /// — the getter's second input — is written on three other paths, each of
+  /// which would have to remember to update a mirrored copy. Reading it off the
+  /// build itself cannot drift from what is on screen.
+  bool _renderedSearchActive = false;
+
+  /// Does the "input too short" reset in [_scheduleProductSearch] still have
+  /// anything to do?
+  ///
+  /// Exactly the seven fields it writes. Every one of them reaches [build] —
+  /// five directly, [_searchCameUpEmpty]/[_searchGaveUp] through
+  /// [_offerManualEntry], [_explicitSearchRequested] through [_searchActive] —
+  /// so "all seven already hold their reset value" means the rebuild would
+  /// paint the identical frame (B3).
+  bool get _searchStateDirty =>
+      _explicitSearchRequested ||
+      _isSearchingProducts ||
+      _searchIsSlow ||
+      _productSuggestions.isNotEmpty ||
+      _productSearchMessage != null ||
+      _searchCameUpEmpty ||
+      _searchGaveUp;
+
   /// Drops the row here and reports it upwards. The store answers with an undo
   /// snack that lands in THIS sheet's SnackHost; tapping it restores the row in
   /// the store, and the restored list reaches [didUpdateWidget] from there
@@ -538,6 +570,11 @@ class _AddMealSheetState extends State<AddMealSheet> {
     if (query.length < _autoSearchMinChars) {
       _productSearchRequestId++;
       _searchSlowTimer?.cancel();
+      // After the reset [_searchActive] is always false (fragment below
+      // [_autoSearchMinChars] with the unlock revoked), so the zone changes
+      // exactly when the results zone is still on screen. Nothing to clear and
+      // nothing to switch -> the frame would be identical (B3).
+      if (!_renderedSearchActive && !_searchStateDirty) return;
       setState(() {
         // New input revokes the magnifier/enter unlock: the previous hits
         // belong to a different term.
@@ -552,8 +589,12 @@ class _AddMealSheetState extends State<AddMealSheet> {
       return;
     }
 
-    // Rebuild so _searchActive flips (favorites -> results zone).
-    setState(() {});
+    // Rebuild so _searchActive flips (favorites -> results zone) — but ONLY on
+    // a real flip (B3). Nothing else this branch touches reaches build: the
+    // input paints itself off the controller, the result zone's own state
+    // changes in the debounce callback, and the CTA reads the query at tap
+    // time, not at build time. So the zone switch is the complete condition.
+    if (_searchActive != _renderedSearchActive) setState(() {});
     _productSearchDebounce = Timer(
       _productSearchDebounceDelay,
       () => _searchProducts(
@@ -962,6 +1003,10 @@ class _AddMealSheetState extends State<AddMealSheet> {
     // the Dynamic Island. Now the scroll area shrinks instead.
     final maxHeight = sheetMaxHeightOf(context);
     final keyboardInset = mediaQuery.viewInsets.bottom;
+    // Record what this frame shows, so the keystroke path can tell a real zone
+    // flip from a no-op (B3, see [_renderedSearchActive]).
+    final searchActive = _searchActive;
+    _renderedSearchActive = searchActive;
 
     // No SheetScaffold: three fixed zones (header, search bar, slot picker)
     // over a capped scroll area, and no footer action — every row logs itself.
@@ -1007,7 +1052,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
                 // Standing entry point for manual entry while no search is
                 // active; after that the contextual CTA under "nothing
                 // found" takes over (_buildSearchResults).
-                if (!_searchActive) ...[
+                if (!searchActive) ...[
                   _ManualEntryRow(onTap: () => _openManualEntry()),
                   const SizedBox(height: 16),
                 ],
@@ -1024,7 +1069,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
                   ),
                   const SizedBox(height: 16),
                 ],
-                if (_searchActive)
+                if (searchActive)
                   _buildSearchResults()
                 else
                   // Removing a favorite collapses the list smoothly

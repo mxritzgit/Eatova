@@ -10,6 +10,7 @@ class _Conversation extends StatelessWidget {
     required this.focus,
     required this.messages,
     required this.sending,
+    required this.preview,
     required this.recipeAddedFor,
     required this.recipeAddEnabled,
     required this.onAddRecipe,
@@ -19,6 +20,12 @@ class _Conversation extends StatelessWidget {
   final FocusNode focus;
   final List<ChatMessage> messages;
   final bool sending;
+
+  /// The answer as it streams in. A [ValueListenable] rather than screen state
+  /// so a token only rebuilds this one row — a `setState` per delta would
+  /// rebuild the whole list, the composer and the header dozens of times a
+  /// second and eat the latency the stream just bought.
+  final ValueListenable<String> preview;
 
   /// Whether a /recipe card is already added; derived from the live recipe
   /// slugs, since the slug is built deterministically from the message id.
@@ -39,7 +46,25 @@ class _Conversation extends StatelessWidget {
         itemCount: messages.length + (sending ? 1 : 0),
         itemBuilder: (context, i) {
           if (sending && i == messages.length) {
-            return const _ThinkingRow();
+            // Dots until the first token, then the answer as it is written.
+            // Deliberately the same [_MessageView] the finished answer gets:
+            // the preview must not move or restyle when the authoritative
+            // `done` text replaces it a moment later.
+            return ValueListenableBuilder<String>(
+              valueListenable: preview,
+              builder: (context, text, _) {
+                if (text.isEmpty) return const _ThinkingRow();
+                return _MessageView(
+                  key: const ValueKey('coach-stream-preview'),
+                  message: ChatMessage(
+                    id: 'stream-preview',
+                    role: ChatRole.assistant,
+                    content: text,
+                    createdAt: DateTime.now(),
+                  ),
+                );
+              },
+            );
           }
           final message = messages[i];
           return _MessageView(
@@ -56,6 +81,7 @@ class _Conversation extends StatelessWidget {
 
 class _MessageView extends StatelessWidget {
   const _MessageView({
+    super.key,
     required this.message,
     this.recipeAdded = false,
     this.recipeAddEnabled = false,

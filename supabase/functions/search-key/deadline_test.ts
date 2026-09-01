@@ -82,7 +82,8 @@ async function ohneHaenger(work: Promise<Response> | Response): Promise<Response
 interface StubOptions {
   /** URL-Fragment, dessen Aufruf haengt. */
   stall?: string;
-  /** Scope, dessen consume_edge_rate_limit haengt. */
+  /** Scope, dessen Gate-Aufruf haengt — der Batch haengt, sobald er ihn
+   *  enthaelt (P6-02), das geteilte Fail-Bucket bei seinem eigenen Scope. */
   stallGateScope?: string;
   /** HTTP-Status des /auth/v1/user-Lookups. */
   authStatus?: number;
@@ -120,6 +121,28 @@ function installFetch(options: StubOptions = {}): FetchStub {
       }
       return Promise.resolve(jsonRes({ id: USER_ID }));
     }
+    // P6-02: die beiden Anwendungs-Tore reisen als EIN Aufruf mit `p_gates`.
+    // Die Frist gilt unveraendert fuer den gesamten Batch — die Pruefung
+    // zuerst, weil die Einzel-URL ein Praefix der Batch-URL ist.
+    if (url.includes("/rest/v1/rpc/consume_edge_rate_limits")) {
+      const body = JSON.parse(typeof init?.body === "string" ? init.body : "{}") as JsonRecord;
+      const gates = (body.p_gates ?? []) as JsonRecord[];
+      for (const gate of gates) scopes.push(String(gate.scope));
+      if (options.stallGateScope !== undefined && gates.some((g) => g.scope === options.stallGateScope)) {
+        return haengtBisAbbruch(init?.signal);
+      }
+      return Promise.resolve(jsonRes(gates.map((gate) => {
+        const windowSeconds = Number(gate.window_seconds);
+        return {
+          allowed: true,
+          limit: Number(gate.limit),
+          remaining: Number(gate.limit) - 1,
+          resetAt: new Date(Date.now() + windowSeconds * 1000).toISOString(),
+          windowSeconds,
+        };
+      })));
+    }
+    // Einzel-Gate: nur noch das geteilte Fail-Bucket aus _shared.
     if (url.includes("/rest/v1/rpc/consume_edge_rate_limit")) {
       const params = JSON.parse(typeof init?.body === "string" ? init.body : "{}") as JsonRecord;
       scopes.push(String(params.p_scope));
@@ -279,17 +302,32 @@ Deno.test("E1: das Anfrage-Budget deckelt auch einen grosszuegigen Einzelcall", 
 });
 
 Deno.test("E1: JEDER ausgehende Aufruf einer erfolgreichen Anfrage traegt eine Frist", async () => {
-  // Wache gegen den naechsten fetch ohne Frist: Auth, IP-Tor, Nutzer-Tor und
-  // das Aufraeumen in einem Durchlauf.
+  // Wache gegen den naechsten fetch ohne Frist: Auth, der Tor-Batch und das
+  // Aufraeumen in einem Durchlauf. Seit P6-02 sind das drei statt vier
+  // Aufrufe — IP- und Nutzer-Tor teilen sich einen Roundtrip.
   const serve = await loadHandler("call-cap");
   const stub = installFetch();
+  // A6: pruneRateLimits wuerfelt seit dem Perf-Audit (1 von 20). Ohne diese
+  // Klammer waere der Aufraeum-Aufruf — und damit die Frist an ihm — in 19 von
+  // 20 Laeufen gar nicht da. 1 = jeder Aufruf prunt, das Vor-A6-Verhalten.
+  const vorher = Deno.env.get("PRUNE_SAMPLE_RATE");
+  Deno.env.set("PRUNE_SAMPLE_RATE", "1");
   try {
     const res = await ohneHaenger(serve(request()));
     assertEquals(res.status, 200, "Status");
     const ohneFrist = stub.calls.filter((call) => !call.hasSignal).map((call) => call.url);
     assertEquals(ohneFrist.join("\n"), "", "Aufrufe ohne AbortSignal");
-    assert(stub.calls.length >= 4, `zu wenige Aufrufe im Durchlauf: ${stub.calls.length}`);
+    // Genau drei: Auth, EIN Tor-Batch, Aufraeumen. Die Zahl ist absichtlich
+    // exakt — ein weggefallener Aufruf soll auffallen, nicht die Wache
+    // erfuellen.
+    assertEquals(stub.calls.length, 3, `Aufrufe im Durchlauf: ${stub.calls.map((c) => c.url).join(", ")}`);
+    // Und beide Tore stecken wirklich in dem einen Batch.
+    assertEquals(stub.gateScopes().join(","), "search-key:ip,search-key:user", "Tore im Batch");
   } finally {
+    // Der ganze Deno-Lauf teilt sich einen Isolate (P5-08b): eine
+    // stehengebliebene Variable vergiftet die spaeteren Dateien.
+    if (vorher === undefined) Deno.env.delete("PRUNE_SAMPLE_RATE");
+    else Deno.env.set("PRUNE_SAMPLE_RATE", vorher);
     stub.restore();
   }
 });

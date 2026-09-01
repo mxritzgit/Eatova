@@ -524,17 +524,28 @@ void main() {
   });
 
   group('capOutbox', () {
-    test('unter dem Cap bleibt die Queue exakt dieselbe', () {
+    test('unter dem Cap bleibt der INHALT gleich, die Liste ist aber eine neue',
+        () {
+      // Frueher stand hier `same(queue)`. Das ist seit dem Review 2026-09-01
+      // (L1) genau falsch herum: der Replay-Kursor in home_store_sync.dart
+      // erkennt eine fremde Aenderung an der Listen-IDENTITAET, und das traegt
+      // nur, solange JEDER Schreibvorgang auf `_outbox` eine frische Liste
+      // anlegt. Gab capOutbox seine Eingabe zurueck, stimmte das bloss zufaellig
+      // fuer die heutigen Aufrufer — ein kuenftiges
+      // `_outbox = capOutbox(_outbox).queue` nach einer In-Place-Aenderung
+      // haette Ops uebersprungen, ohne dass ein Test rot wird.
       final queue = <SyncOp>[
         SyncOp.mealDelete('a'),
         SyncOp.mealDelete('b'),
       ];
       final capped = capOutbox(queue, maxOps: 5);
 
-      expect(capped.queue, same(queue));
+      expect(capped.queue, isNot(same(queue)), reason: 'copy-on-write (L1)');
+      expect(capped.queue.map((o) => o.entityId).toList(),
+          queue.map((o) => o.entityId).toList());
       expect(capped.dropped, isEmpty);
 
-      // Exactly at the cap nothing is touched either.
+      // Exactly at the cap nothing is dropped either.
       expect(capOutbox(queue, maxOps: 2).dropped, isEmpty);
     });
 

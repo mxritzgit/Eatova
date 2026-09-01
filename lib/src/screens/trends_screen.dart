@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart' show listEquals;
+import 'package:flutter/foundation.dart' show listEquals, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart' hide TextDirection;
@@ -295,7 +295,7 @@ class _RangeSelector extends StatelessWidget {
   }
 }
 
-class _ChartCard extends StatelessWidget {
+class _ChartCard extends StatefulWidget {
   const _ChartCard({
     required this.window,
     required this.rangeDays,
@@ -320,17 +320,37 @@ class _ChartCard extends StatelessWidget {
   final DateTime firstDay;
 
   @override
+  State<_ChartCard> createState() => _ChartCardState();
+}
+
+/// Stateful only to own the [TrendChartLabels]: they must survive both the
+/// animation frames and an unrelated rebuild of the screen.
+class _ChartCardState extends State<_ChartCard> {
+  TrendChartLabels? _labels;
+
+  @override
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    _ensureDateSymbols();
+    final labels = _labels = TrendChartLabels.resolve(
+      _labels,
+      window: widget.window,
+      goalPerDay: widget.goalPerDay,
+      firstDay: widget.firstDay,
+      axisTextColor: t.ink2,
+      l10n: l10n,
+    );
     // A11y: the chart is only painted, so values go out as speech. [avgKcal]
     // can be null while a bar already shows, so the average clause is dropped
     // rather than announcing a false 0.
-    final avg = avgKcal;
+    final avg = widget.avgKcal;
+    final rangeDays = widget.rangeDays;
+    final trackedDays = widget.trackedDays;
     // The announced goal is the one the label shows: today's slot including
     // its step bonus (G M-1), not the base goal.
-    final spokenGoal = goalPerDay.isEmpty ? kcalGoal : goalPerDay.last;
+    final spokenGoal = widget.goalPerDay.isEmpty
+        ? widget.kcalGoal
+        : widget.goalPerDay.last;
     final semanticsValue = trackedDays == 0
         ? l10n.trendsChartSemanticsEmpty
         : avg == null
@@ -391,16 +411,14 @@ class _ChartCard extends StatelessWidget {
                   builder: (context, value, _) => CustomPaint(
                     key: const ValueKey('trends-chart'),
                     painter: _KcalTrendPainter(
-                      window: window,
-                      goalPerDay: goalPerDay,
-                      firstDay: firstDay,
+                      window: widget.window,
+                      goalPerDay: widget.goalPerDay,
+                      labels: labels,
                       progress: value,
                       gridColor: t.line,
                       barColor: t.accent,
                       goalLineColor: t.ink.withValues(alpha: 0.6),
                       bandColor: t.ink.withValues(alpha: 0.05),
-                      axisTextColor: t.ink2,
-                      l10n: l10n,
                     ),
                     size: Size.infinite,
                   ),
@@ -416,7 +434,11 @@ class _ChartCard extends StatelessWidget {
               child: Row(
                 children: [
                   // Locale-aware day.month (F7-09): `de` "1.8.", `en` "8/1".
-                  _Caption(DateFormat.Md(l10n.localeName).format(firstDay)),
+                  _Caption(
+                    trendDayMonthFormat(
+                      l10n.localeName,
+                    ).format(widget.firstDay),
+                  ),
                   const Spacer(),
                   _Caption(l10n.todayDateToday),
                 ],
@@ -667,42 +689,42 @@ class _ErrorCard extends StatelessWidget {
 
 /// Daily calorie bars (one series, so no legend), growing from the 0
 /// baseline; gap days stay gaps, since "not tracked" is not a 0 kcal day.
-/// All five colours arrive as fields and are checked in [shouldRepaint].
+/// All four colours arrive as fields and are checked in [shouldRepaint].
 ///
 /// Target line and corridor are STEPPED per slot ([goalPerDay], F7-05): on a
 /// day with a step bonus the goal sits higher, exactly as the Today tab
 /// steered it. Without a bonus every slot carries the base goal and the line
 /// is straight, as before.
+///
+/// The text is NOT built here: [labels] arrives pre-laid-out from the card, so
+/// a frame of the build-up costs no `TextPainter.layout`, no `NumberFormat`
+/// and no `DateFormat` at all.
 class _KcalTrendPainter extends CustomPainter {
   _KcalTrendPainter({
     required this.window,
     required this.goalPerDay,
-    required this.firstDay,
+    required this.labels,
     required this.progress,
     required this.gridColor,
     required this.barColor,
     required this.goalLineColor,
     required this.bandColor,
-    required this.axisTextColor,
-    required this.l10n,
   }) : assert(goalPerDay.length == window.length);
 
   final List<TrendDayTotals?> window;
 
   /// Effective goal per slot, same length as [window].
   final List<int> goalPerDay;
-  final DateTime firstDay;
-  final double progress;
-  final Color gridColor, barColor, goalLineColor, bandColor, axisTextColor;
 
-  /// A `CustomPainter` has no BuildContext, so localization is a parameter
-  /// rather than a global lookup (docs/I18N_PAKETE.md §3).
-  final AppLocalizations l10n;
+  /// Tick labels, goal label and weekday row, plus the axis maximum they were
+  /// laid out for. Shared by every frame of one build-up.
+  final TrendChartLabels labels;
+  final double progress;
+  final Color gridColor, barColor, goalLineColor, bandColor;
 
   @override
   void paint(Canvas canvas, Size size) {
-    _ensureDateSymbols();
-    final showWeekdays = window.length == 7;
+    final showWeekdays = labels.weekdayLabels.isNotEmpty;
     final padding = EdgeInsets.fromLTRB(40, 14, 8, showWeekdays ? 20 : 6);
     final inner = Rect.fromLTWH(
       padding.left,
@@ -712,20 +734,11 @@ class _KcalTrendPainter extends CustomPainter {
     );
     if (inner.width <= 0 || inner.height <= 0) return;
 
-    var maxKcal = 0;
     var tracked = 0;
     for (final day in window) {
-      if (day == null) continue;
-      tracked++;
-      maxKcal = math.max(maxKcal, day.kcal);
+      if (day != null) tracked++;
     }
-    var maxGoal = 0;
-    for (final g in goalPerDay) {
-      maxGoal = math.max(maxGoal, g);
-    }
-
-    final base = math.max(maxKcal, maxGoal);
-    final niceMax = _niceMax(base);
+    final niceMax = labels.niceMax;
 
     // Quiet grid: 4 solid hairlines (0 to niceMax in thirds).
     final gridPaint = Paint()
@@ -734,9 +747,9 @@ class _KcalTrendPainter extends CustomPainter {
     for (var i = 0; i <= 3; i++) {
       final y = inner.bottom - inner.height * (i / 3);
       canvas.drawLine(Offset(inner.left, y), Offset(inner.right, y), gridPaint);
-      _drawText(
+      _paintLabel(
         canvas,
-        formatThousands((niceMax * i / 3).round(), l10n.localeName),
+        labels.gridLabels[i],
         Offset(inner.left - 6, y),
         alignRight: true,
         centerVertically: true,
@@ -816,10 +829,11 @@ class _KcalTrendPainter extends CustomPainter {
         path.lineTo(x1, y);
       }
       canvas.drawPath(path, goalPaint..style = PaintingStyle.stroke);
-      if (lastGoal > 0) {
-        _drawText(
+      final goalLabel = labels.goalLabel;
+      if (lastGoal > 0 && goalLabel != null) {
+        _paintLabel(
           canvas,
-          l10n.trendsChartGoalLabel(formatThousands(lastGoal, l10n.localeName)),
+          goalLabel,
           Offset(inner.right, yOf(lastGoal) - 4),
           alignRight: true,
           above: true,
@@ -828,18 +842,246 @@ class _KcalTrendPainter extends CustomPainter {
     }
 
     // 7-day view: weekday abbreviations under each slot as the x labels.
-    if (showWeekdays) {
-      for (var i = 0; i < n; i++) {
-        // B5: calendar-day shift; a Duration would slip a day across DST.
-        final day = addDays(firstDay, i);
-        _drawText(
-          canvas,
-          DateFormat.E(l10n.localeName).format(day),
-          Offset(inner.left + slotW * i + slotW / 2, inner.bottom + 4),
-          centerHorizontally: true,
-        );
-      }
+    for (var i = 0; i < labels.weekdayLabels.length; i++) {
+      _paintLabel(
+        canvas,
+        labels.weekdayLabels[i],
+        Offset(inner.left + slotW * i + slotW / 2, inner.bottom + 4),
+        centerHorizontally: true,
+      );
     }
+  }
+
+  /// Positions an already laid-out label around [anchor]. No layout work here
+  /// — that is what makes a frame cheap.
+  void _paintLabel(
+    Canvas canvas,
+    TextPainter tp,
+    Offset anchor, {
+    bool alignRight = false,
+    bool centerHorizontally = false,
+    bool centerVertically = false,
+    bool above = false,
+  }) {
+    var dx = anchor.dx;
+    if (alignRight) dx -= tp.width;
+    if (centerHorizontally) dx -= tp.width / 2;
+    var dy = anchor.dy;
+    if (centerVertically) dy -= tp.height / 2;
+    if (above) dy -= tp.height;
+    tp.paint(canvas, Offset(dx, dy));
+  }
+
+  void _drawEmptyHint(Canvas canvas, Size size) {
+    final tp = labels.emptyHintFor(size.width - 24);
+    tp.paint(
+      canvas,
+      Offset((size.width - tp.width) / 2, (size.height - tp.height) / 2),
+    );
+  }
+
+  /// Every field that reaches the canvas is compared. The two lists go through
+  /// [listEquals] rather than `!=`: the screen rebuilds them from the same
+  /// day objects on every `setState`, so identity would report a change that
+  /// is not one. [labels] is compared by identity on purpose — it is only ever
+  /// replaced when its own signature changed (see [TrendChartLabels.resolve]).
+  @override
+  bool shouldRepaint(covariant _KcalTrendPainter old) =>
+      old.progress != progress ||
+      !identical(old.labels, labels) ||
+      !listEquals(old.window, window) ||
+      !listEquals(old.goalPerDay, goalPerDay) ||
+      old.gridColor != gridColor ||
+      old.barColor != barColor ||
+      old.goalLineColor != goalLineColor ||
+      old.bandColor != bandColor;
+}
+
+/// One-time init of the `intl` date symbols for the weekday labels; the load
+/// is synchronous from a bundled table.
+bool _dateSymbolsReady = false;
+void _ensureDateSymbols() {
+  if (_dateSymbolsReady) return;
+  initializeDateFormatting();
+  _dateSymbolsReady = true;
+}
+
+// ---------------------------------------------------------------------------
+// Locale-keyed DateFormat cache
+//
+// `DateFormat.E`/`DateFormat.Md` parse a skeleton and pull the locale's date
+// symbols on construction. The painter built one PER WEEKDAY LABEL PER FRAME
+// (seven per frame in the 7-day view), so they are hoisted. Keyed by locale
+// rather than a bare global, so switching the app language still yields the
+// right pattern; bounded by the supported locales (de/en).
+// ---------------------------------------------------------------------------
+final Map<String, DateFormat> _weekdayFormats = <String, DateFormat>{};
+final Map<String, DateFormat> _dayMonthFormats = <String, DateFormat>{};
+
+/// Weekday abbreviation format ("Mo" / "Mon") for [localeName].
+DateFormat trendWeekdayFormat(String localeName) {
+  _ensureDateSymbols();
+  return _weekdayFormats[localeName] ??= DateFormat.E(localeName);
+}
+
+/// Day-and-month format for [localeName] (F7-09: `de` "1.8.", `en` "8/1").
+DateFormat trendDayMonthFormat(String localeName) {
+  _ensureDateSymbols();
+  return _dayMonthFormats[localeName] ??= DateFormat.Md(localeName);
+}
+
+/// Empties both format caches so a test can observe a cold build.
+@visibleForTesting
+void debugClearTrendDateFormats() {
+  _weekdayFormats.clear();
+  _dayMonthFormats.clear();
+}
+
+/// Everything text-shaped in the trend chart, laid out ONCE.
+///
+/// Tick labels, the target-line label and the weekday row depend on the data,
+/// the locale and the label colour — never on the animation progress. The
+/// painter used to build them inside `paint()`: up to twelve
+/// `TextPainter.layout()` calls plus as many `NumberFormat`s and seven
+/// `DateFormat`s on every frame of the 550 ms build-up. [resolve] hands the
+/// same instance back while its inputs are unchanged, so a frame only
+/// positions and paints.
+///
+/// The labels are deliberately NOT text-scaled, exactly as before: the axis
+/// gutter (40 px) and the chart box (200 px) are fixed, so a scaled 9 pt tick
+/// would run into the bars. The ambient text scale therefore does not enter
+/// the signature — it cannot change what is laid out here.
+class TrendChartLabels {
+  TrendChartLabels._(
+    this._signature, {
+    required this.niceMax,
+    required this.gridLabels,
+    required this.goalLabel,
+    required this.weekdayLabels,
+    required this.emptyHintText,
+    required this.emptyHintStyle,
+  });
+
+  /// Counts the [TextPainter.layout] calls this class made. Tests assert that
+  /// the build-up animation adds none.
+  @visibleForTesting
+  static int debugLayoutCount = 0;
+
+  /// Axis top, rounded to a value divisible into thirds.
+  final int niceMax;
+
+  /// The four tick labels, bottom (0) to top ([niceMax]).
+  final List<TextPainter> gridLabels;
+
+  /// Label of the target line; null when no slot carries a goal.
+  final TextPainter? goalLabel;
+
+  /// Weekday abbreviation per slot — only in the 7-day view, else empty.
+  final List<TextPainter> weekdayLabels;
+
+  final String emptyHintText;
+  final TextStyle emptyHintStyle;
+
+  /// Structural key over everything the labels are made of. A record, so `==`
+  /// compares by value.
+  final Object _signature;
+
+  TextPainter? _emptyHint;
+  double? _emptyHintWidth;
+
+  /// Returns [previous] unchanged when nothing text-relevant differs,
+  /// otherwise lays the labels out anew.
+  static TrendChartLabels resolve(
+    TrendChartLabels? previous, {
+    required List<TrendDayTotals?> window,
+    required List<int> goalPerDay,
+    required DateTime firstDay,
+    required Color axisTextColor,
+    required AppLocalizations l10n,
+  }) {
+    var maxKcal = 0;
+    for (final day in window) {
+      if (day != null) maxKcal = math.max(maxKcal, day.kcal);
+    }
+    var maxGoal = 0;
+    for (final goal in goalPerDay) {
+      maxGoal = math.max(maxGoal, goal);
+    }
+    final niceMax = _niceMax(math.max(maxKcal, maxGoal));
+    final showWeekdays = window.length == 7;
+    final lastGoal = goalPerDay.isEmpty ? 0 : goalPerDay.last;
+    final labelledGoal = goalPerDay.any((g) => g > 0) ? lastGoal : 0;
+    final signature = (
+      locale: l10n.localeName,
+      color: axisTextColor,
+      niceMax: niceMax,
+      goal: labelledGoal,
+      // Only the weekday row depends on the date, and only in the 7-day view.
+      firstDay: showWeekdays ? firstDay : null,
+    );
+    if (previous != null && previous._signature == signature) return previous;
+
+    final locale = l10n.localeName;
+    final style = AppType.display(
+      9,
+      weight: FontWeight.w500,
+      color: axisTextColor,
+    );
+    return TrendChartLabels._(
+      signature,
+      niceMax: niceMax,
+      gridLabels: <TextPainter>[
+        for (var i = 0; i <= 3; i++)
+          _laidOut(formatThousands((niceMax * i / 3).round(), locale), style),
+      ],
+      goalLabel: labelledGoal > 0
+          ? _laidOut(
+              l10n.trendsChartGoalLabel(formatThousands(labelledGoal, locale)),
+              style,
+            )
+          : null,
+      weekdayLabels: <TextPainter>[
+        if (showWeekdays)
+          for (var i = 0; i < window.length; i++)
+            // B5: calendar-day shift; a Duration would slip a day across DST.
+            _laidOut(
+              trendWeekdayFormat(locale).format(addDays(firstDay, i)),
+              style,
+            ),
+      ],
+      emptyHintText: l10n.trendsChartEmptyHintPainter,
+      emptyHintStyle: AppType.ui(
+        12,
+        weight: FontWeight.w500,
+        color: axisTextColor,
+        height: 1.4,
+      ),
+    );
+  }
+
+  /// The "nothing tracked" hint, laid out for [maxWidth]. Its wrap width is
+  /// the one thing in the chart that depends on the canvas size, so it is
+  /// re-laid out only when that width actually changed.
+  TextPainter emptyHintFor(double maxWidth) {
+    final hint = _emptyHint ??= TextPainter(
+      text: TextSpan(text: emptyHintText, style: emptyHintStyle),
+      textAlign: TextAlign.center,
+      textDirection: TextDirection.ltr,
+    );
+    if (_emptyHintWidth != maxWidth) {
+      hint.layout(maxWidth: maxWidth);
+      _emptyHintWidth = maxWidth;
+      debugLayoutCount++;
+    }
+    return hint;
+  }
+
+  static TextPainter _laidOut(String text, TextStyle style) {
+    debugLayoutCount++;
+    return TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+    )..layout();
   }
 
   /// Rounds the axis top to a clean value divisible into thirds
@@ -854,71 +1096,4 @@ class _KcalTrendPainter extends CustomPainter {
     final step = (rawStep / 5000).ceil() * 5000;
     return step * 3;
   }
-
-  void _drawText(
-    Canvas canvas,
-    String text,
-    Offset anchor, {
-    bool alignRight = false,
-    bool centerHorizontally = false,
-    bool centerVertically = false,
-    bool above = false,
-  }) {
-    final tp = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: AppType.display(9, weight: FontWeight.w500, color: axisTextColor),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    var dx = anchor.dx;
-    if (alignRight) dx -= tp.width;
-    if (centerHorizontally) dx -= tp.width / 2;
-    var dy = anchor.dy;
-    if (centerVertically) dy -= tp.height / 2;
-    if (above) dy -= tp.height;
-    tp.paint(canvas, Offset(dx, dy));
-  }
-
-  void _drawEmptyHint(Canvas canvas, Size size) {
-    final tp = TextPainter(
-      text: TextSpan(
-        text: l10n.trendsChartEmptyHintPainter,
-        style: AppType.ui(
-          12,
-          weight: FontWeight.w500,
-          color: axisTextColor,
-          height: 1.4,
-        ),
-      ),
-      textAlign: TextAlign.center,
-      textDirection: TextDirection.ltr,
-    )..layout(maxWidth: size.width - 24);
-    tp.paint(
-      canvas,
-      Offset((size.width - tp.width) / 2, (size.height - tp.height) / 2),
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _KcalTrendPainter old) =>
-      old.window != window ||
-      !listEquals(old.goalPerDay, goalPerDay) ||
-      old.firstDay != firstDay ||
-      old.progress != progress ||
-      old.gridColor != gridColor ||
-      old.barColor != barColor ||
-      old.goalLineColor != goalLineColor ||
-      old.bandColor != bandColor ||
-      old.axisTextColor != axisTextColor ||
-      old.l10n != l10n;
-}
-
-/// One-time init of the `intl` date symbols for the weekday labels; the load
-/// is synchronous from a bundled table.
-bool _dateSymbolsReady = false;
-void _ensureDateSymbols() {
-  if (_dateSymbolsReady) return;
-  initializeDateFormatting();
-  _dateSymbolsReady = true;
 }

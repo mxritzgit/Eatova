@@ -27,7 +27,10 @@ interface RecordedCall {
 interface StubOptions {
   /** Response body of the claim_chat_quota RPC (default [{used:1,remaining:4}]). */
   quotaBody?: unknown;
-  /** Response body of the consume_edge_rate_limit RPC. */
+  /**
+   * Raw response body of the batched consume_edge_rate_limits RPC. Passed
+   * through unchanged, so a broken shape stays testable.
+   */
   rateLimitBody?: unknown;
   /** The expensive answer call (max_tokens 800) fails with 500. */
   answerFails?: boolean;
@@ -64,16 +67,28 @@ function installFetch(options: StubOptions = {}) {
 
   function route(url: string, method: string, body: string): Response {
     if (url.includes("/auth/v1/user")) return jsonRes({ id: USER_ID });
+    // Batched limiter (P6-02). MUST be tested before the single-gate URL: that
+    // fragment is a prefix of this one.
+    if (url.includes("/rest/v1/rpc/consume_edge_rate_limits")) {
+      if (options.rateLimitBody !== undefined) return jsonRes(options.rateLimitBody);
+      const gates = (JSON.parse(body) as JsonRecord).p_gates as JsonRecord[];
+      return jsonRes(gates.map((gate) => ({
+        allowed: true,
+        limit: Number(gate.limit),
+        remaining: Number(gate.limit) - 1,
+        resetAt: new Date(Date.now() + Number(gate.window_seconds) * 1000).toISOString(),
+        windowSeconds: Number(gate.window_seconds),
+      })));
+    }
+    // Single-gate RPC: only ../_shared/auth_fail_gate.ts still uses it.
     if (url.includes("/rest/v1/rpc/consume_edge_rate_limit")) {
-      return jsonRes(
-        options.rateLimitBody ?? {
-          allowed: true,
-          limit: 120,
-          remaining: 119,
-          resetAt: new Date(Date.now() + 600_000).toISOString(),
-          windowSeconds: 600,
-        },
-      );
+      return jsonRes({
+        allowed: true,
+        limit: 120,
+        remaining: 119,
+        resetAt: new Date(Date.now() + 600_000).toISOString(),
+        windowSeconds: 600,
+      });
     }
     if (url.includes("/rest/v1/rpc/prune_edge_rate_limits")) {
       return new Response(null, { status: 204 });

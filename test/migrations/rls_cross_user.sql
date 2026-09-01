@@ -396,4 +396,194 @@ rollback;
 
 drop trigger logged_meals_row_cap_probe on public.logged_meals;
 
+
+-- ---------------------------------------------------------------------------
+-- A7 - Aufbewahrung von public.chat_quota_usage (Migration 20260901100200).
+--
+-- Die Zusage, die hier haengt: die HEUTIGE Zeile ist unantastbar. Sie ist die,
+-- gegen die claim_chat_quota() zaehlt, und ein Loeschen mitten am Tag waere ein
+-- kostenloser Reset der fuenf Tagesslots. Das Fenster wird deshalb dreifach
+-- gesichert (Rechnung, Argumentpruefung, redundantes day < heute im DELETE) und
+-- unten aus allen drei Richtungen angegriffen.
+--
+-- Nicht hier: die Isolationsprobe (ein werfendes Quota-Prune darf das
+-- Rate-Limit-Prune nicht zuruecknehmen). Sie ersetzt die Funktion durch einen
+-- Stub und laesst sich im selben psql-Lauf nicht sauber zuruecksetzen; die
+-- Zusage haengt am exception-Block der Migration. Manuell verifiziert (A7).
+-- ---------------------------------------------------------------------------
+insert into auth.users (id, email) values
+  ('11111111-1111-1111-1111-111111111111', 'a@example.com'),
+  ('22222222-2222-2222-2222-222222222222', 'b@example.com')
+on conflict (id) do nothing;
+
+delete from public.chat_quota_usage;
+do $t$
+declare
+  a uuid := '11111111-1111-1111-1111-111111111111';
+  heute date := (now() at time zone 'utc')::date;
+  weg integer;
+  rest date[];
+begin
+  insert into public.chat_quota_usage (user_id, day, used_count) values
+    (a, heute, 5), (a, heute - 1, 3), (a, heute - 89, 1), (a, heute - 90, 1),
+    (a, heute - 91, 1), (a, heute - 200, 1), (a, heute - 365, 1);
+  select public.prune_chat_quota_usage() into weg;
+  if weg <> 3 then
+    raise exception 'A7-1: erwartet 3 geloeschte Zeilen, bekam %', weg;
+  end if;
+  select array_agg(day order by day desc) into rest
+    from public.chat_quota_usage where user_id = a;
+  if rest <> array[heute, heute - 1, heute - 89, heute - 90] then
+    raise exception 'A7-1: falscher Rest %', rest;
+  end if;
+  if not exists (select 1 from public.chat_quota_usage
+                  where user_id = a and day = heute and used_count = 5) then
+    raise exception 'A7-1: die HEUTIGE Zeile wurde angetastet';
+  end if;
+  raise notice 'A7-1 ok: Fenster 90 Tage, heute unberuehrt';
+end;
+$t$;
+
+do $t$
+declare
+  a uuid := '11111111-1111-1111-1111-111111111111';
+  heute date := (now() at time zone 'utc')::date;
+  weg integer;
+  rest date[];
+begin
+  select public.prune_chat_quota_usage(1, 1000) into weg;
+  if weg <> 2 then
+    raise exception 'A7-2: erwartet 2 geloeschte Zeilen, bekam %', weg;
+  end if;
+  select array_agg(day order by day desc) into rest
+    from public.chat_quota_usage where user_id = a;
+  if rest <> array[heute, heute - 1] then
+    raise exception 'A7-2: falscher Rest %', rest;
+  end if;
+  raise notice 'A7-2 ok: engstes erlaubtes Fenster laesst heute stehen';
+end;
+$t$;
+
+do $t$
+declare
+  fall record;
+  gefangen text;
+begin
+  for fall in
+    select * from (values
+      ('keep 0', 0, 1000), ('keep -500', -500, 1000), ('keep null', null, 1000),
+      ('max 0', 90, 0), ('max null', 90, null), ('max zu gross', 90, 100001)
+    ) as v(name, tage, zeilen)
+  loop
+    gefangen := null;
+    begin
+      perform public.prune_chat_quota_usage(fall.tage, fall.zeilen);
+    exception when sqlstate '22023' then
+      gefangen := sqlerrm;
+    end;
+    if gefangen is null then
+      raise exception 'A7-3: % ging durch statt 22023', fall.name;
+    end if;
+  end loop;
+  if not exists (select 1 from public.chat_quota_usage
+                  where day = (now() at time zone 'utc')::date) then
+    raise exception 'A7-3: heutige Zeile ist weg';
+  end if;
+  raise notice 'A7-3 ok: alle sechs Fehlargumente werfen 22023';
+end;
+$t$;
+
+delete from public.chat_quota_usage;
+do $t$
+declare
+  b uuid := '22222222-2222-2222-2222-222222222222';
+  heute date := (now() at time zone 'utc')::date;
+  weg integer;
+  aeltester date;
+begin
+  insert into public.chat_quota_usage (user_id, day, used_count)
+  select b, heute - g, 1 from generate_series(100, 109) as g;
+  insert into public.chat_quota_usage (user_id, day, used_count)
+  values (b, heute, 2);
+  select public.prune_chat_quota_usage(90, 3) into weg;
+  if weg <> 3 then
+    raise exception 'A7-4: erwartet 3, bekam %', weg;
+  end if;
+  select min(day) into aeltester from public.chat_quota_usage where user_id = b;
+  if aeltester <> heute - 106 then
+    raise exception 'A7-4: aeltester Rest %, erwartet %', aeltester, heute - 106;
+  end if;
+  if (select count(*) from public.chat_quota_usage where user_id = b) <> 8 then
+    raise exception 'A7-4: falsche Zeilenzahl';
+  end if;
+  raise notice 'A7-4 ok: LIMIT greift, aelteste zuerst';
+end;
+$t$;
+
+delete from public.chat_quota_usage;
+delete from public.edge_rate_limits;
+do $t$
+declare
+  b uuid := '22222222-2222-2222-2222-222222222222';
+  heute date := (now() at time zone 'utc')::date;
+  weg integer;
+begin
+  insert into public.edge_rate_limits
+    (scope, subject_hash, window_start, window_seconds, request_count)
+  values ('ip', 'aa', now() - interval '3 days', 60, 1),
+         ('user', 'bb', now() - interval '5 days', 60, 1),
+         ('ip', 'cc', now(), 60, 1);
+  insert into public.chat_quota_usage (user_id, day, used_count) values
+    (b, heute, 4), (b, heute - 120, 1), (b, heute - 400, 1);
+  select public.prune_edge_rate_limits() into weg;
+  if weg <> 2 then
+    raise exception 'A7-5: Rueckgabe % statt 2', weg;
+  end if;
+  if (select count(*) from public.edge_rate_limits) <> 1 then
+    raise exception 'A7-5: edge_rate_limits nicht gekuerzt';
+  end if;
+  if (select count(*) from public.chat_quota_usage where user_id = b) <> 1 then
+    raise exception 'A7-5: abgelaufene Quota-Zeilen blieben stehen';
+  end if;
+  if not exists (select 1 from public.chat_quota_usage
+                  where user_id = b and day = heute and used_count = 4) then
+    raise exception 'A7-5: heutige Quota-Zeile mitgeloescht';
+  end if;
+  raise notice 'A7-5 ok: beide Jobs laufen, Rueckgabe bleibt ehrlich';
+end;
+$t$;
+
+do $t$
+declare
+  f text := 'public.prune_chat_quota_usage(integer,integer)';
+begin
+  if has_function_privilege('authenticated', f, 'execute') then
+    raise exception 'A7-6: authenticated darf ausfuehren';
+  end if;
+  if has_function_privilege('anon', f, 'execute') then
+    raise exception 'A7-6: anon darf ausfuehren';
+  end if;
+  if has_function_privilege('public', f, 'execute') then
+    raise exception 'A7-6: PUBLIC darf ausfuehren';
+  end if;
+  if not has_function_privilege('service_role', f, 'execute') then
+    raise exception 'A7-6: service_role darf NICHT ausfuehren';
+  end if;
+  if not exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.proname = 'prune_chat_quota_usage'
+       and p.prosecdef and p.proconfig @> array['search_path=public']
+  ) then
+    raise exception 'A7-6: definer/search_path nicht wie erwartet';
+  end if;
+  if not exists (select 1 from pg_indexes
+                  where schemaname = 'public'
+                    and indexname = 'chat_quota_usage_day_idx') then
+    raise exception 'A7-6: Index fehlt';
+  end if;
+  raise notice 'A7-6 ok: Rechte, definer/search_path und Index stehen';
+end;
+$t$;
+
+
 select 'RLS-Kreuzzugriffe: alle Erwartungen erfuellt' as ergebnis;

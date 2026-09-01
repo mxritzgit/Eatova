@@ -50,16 +50,27 @@ function installFetch(): () => void {
     if (url.includes("/auth/v1/user")) {
       return Promise.resolve(new Response(JSON.stringify({ id: USER_ID }), { status: 200 }));
     }
-    if (url.includes("/rest/v1/rpc/consume_edge_rate_limit")) {
+    // P6-02: one batched call for both application gates, one reply element
+    // per gate.
+    if (url.includes("/rest/v1/rpc/consume_edge_rate_limits")) {
       return Promise.resolve(
         new Response(
-          JSON.stringify({
-            allowed: true,
-            limit: 120,
-            remaining: 119,
-            resetAt: new Date(Date.now() + 600_000).toISOString(),
-            windowSeconds: 600,
-          }),
+          JSON.stringify([
+            {
+              allowed: true,
+              limit: 120,
+              remaining: 119,
+              resetAt: new Date(Date.now() + 600_000).toISOString(),
+              windowSeconds: 600,
+            },
+            {
+              allowed: true,
+              limit: 20,
+              remaining: 19,
+              resetAt: new Date(Date.now() + 3_600_000).toISOString(),
+              windowSeconds: 3600,
+            },
+          ]),
           { status: 200 },
         ),
       );

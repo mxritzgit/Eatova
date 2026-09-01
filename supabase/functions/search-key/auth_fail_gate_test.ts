@@ -51,8 +51,14 @@ interface StubOptions {
 
 interface FetchStub {
   authLookups: number;
-  /** consume_edge_rate_limit parameters, in call order. */
+  /** Every consumed gate in order, always in the single-gate `p_*` shape.
+   *  Since P6-02 the two application gates arrive as ONE batched
+   *  consume_edge_rate_limits call and are unpacked here, while the fail
+   *  bucket keeps the single-gate RPC on purpose (../_shared/auth_fail_gate.ts
+   *  consumes only AFTER a failed lookup). */
   gates: JsonRecord[];
+  /** Outbound gate CALLS, not gates: this is what P6-02 halves. */
+  gateCalls: number;
   restore: () => void;
 }
 
@@ -61,6 +67,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
   const stub: FetchStub = {
     authLookups: 0,
     gates: [],
+    gateCalls: 0,
     restore: () => {
       globalThis.fetch = original;
     },
@@ -75,7 +82,33 @@ function installFetch(options: StubOptions = {}): FetchStub {
       }
       return Promise.resolve(jsonRes({ id: USER_ID }));
     }
+    // P6-02: the batched application gates. Recorded in the same `p_*` shape
+    // as the single-gate RPC so the assertions below stay about the gates
+    // themselves, not about how many roundtrips carry them. Checked first —
+    // the single-gate URL is a prefix of this one.
+    if (url.includes("/rest/v1/rpc/consume_edge_rate_limits")) {
+      stub.gateCalls++;
+      const gates = (JSON.parse(String(init?.body)).p_gates ?? []) as JsonRecord[];
+      return Promise.resolve(jsonRes(gates.map((gate) => {
+        stub.gates.push({
+          p_scope: gate.scope,
+          p_subject: gate.subject,
+          p_limit: gate.limit,
+          p_window_seconds: gate.window_seconds,
+        });
+        const limit = Number(gate.limit);
+        const windowSeconds = Number(gate.window_seconds);
+        return {
+          allowed: true,
+          limit,
+          remaining: limit - 1,
+          resetAt: new Date(Date.now() + windowSeconds * 1000).toISOString(),
+          windowSeconds,
+        };
+      })));
+    }
     if (url.includes("/rest/v1/rpc/consume_edge_rate_limit")) {
+      stub.gateCalls++;
       const params = JSON.parse(String(init?.body)) as JsonRecord;
       stub.gates.push(params);
       const limit = Number(params.p_limit);
@@ -192,6 +225,8 @@ Deno.test("F-28-1: erfolgreiche Auth beruehrt das Fail-Bucket nicht", async () =
       "search-key:ip,search-key:user",
       "nur die beiden Anwendungs-Gates",
     );
+    // P6-02: dieselben zwei Tore, aber in EINEM Roundtrip.
+    assertEquals(stub.gateCalls, 1, "ein Gate-Aufruf fuer beide Tore");
   } finally {
     stub.restore();
   }

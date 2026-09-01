@@ -4,6 +4,9 @@ import 'dart:developer' as dev;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
+// Only for the `ClientException` arm below: a connection that dies MID-STREAM
+// is past everything functions_client wraps, so the type arrives raw.
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../l10n/l10n.dart';
@@ -506,21 +509,35 @@ class CoachChatService {
   /// including a burst-limit 429, becomes a displayable [CoachChatException].
   /// A compressed image may be attached as base64; vision and safety logic
   /// stay server-side.
+  ///
+  /// [onPartialReply] receives the answer WHILE it is being written, each call
+  /// carrying everything assembled so far. It is a live preview and nothing
+  /// else: the returned [CoachChatReply.reply] is the server's `done` payload
+  /// and supersedes it — the ellipsis for a cut-off answer, the prompt-leak
+  /// replacement and every refusal exist only there. A stream with ZERO
+  /// previews is normal, not broken: that is what every refusal looks like.
   Future<CoachChatReply> send(
     String message, {
     required String sessionId,
     String? imageBase64,
     String? imageMimeType,
     String? userContext,
+    void Function(String text)? onPartialReply,
   }) async {
     // Reference point for [_nachzuegler]: everything it may accept as this
     // request's answer has to be younger than the request itself.
     final begonnen = DateTime.now();
     try {
-      final res = await _mitFrist(
-        _chatFrist,
-        (abbruch) => _client.functions.invoke(
+      return await _mitFrist(_chatFrist, (abbruch) async {
+        final res = await _client.functions.invoke(
           'coach-chat',
+          // B7 — the streaming opt-in. Deliberately still `invoke()`:
+          // functions_client 2.7.1 hands the LIVE body through for a 2xx
+          // `text/event-stream` (functions_client.dart: `data =
+          // response.stream`), so the JWT plus apikey headers, the abort
+          // signal and the whole `on Functions*` mapping keep working exactly
+          // as before and only the body reading changes.
+          headers: const {'Accept': 'text/event-stream'},
           body: {
             'message': message,
             'session_id': sessionId,
@@ -533,35 +550,29 @@ class CoachChatService {
               'user_context': userContext.trim(),
           },
           abortSignal: abbruch,
-        ),
-      );
-      // Reaching this point means 2xx: functions_client throws on any other
-      // status, so error handling lives only in the `on Functions*` arms.
-      final data = res.data;
-      final map = data is Map ? data : const <dynamic, dynamic>{};
-      final reply = map['reply'] is String
-          ? (map['reply'] as String).trim()
-          : '';
-      if (reply.isEmpty) {
-        // 2xx without text: a broken contract, and the only failure here that
-        // no status reveals.
-        final leer = CoachChatException(_l10n.coachErrorEmptyReply);
-        _melde('coach.send.leereAntwort', leer, StackTrace.current);
-        throw leer;
-      }
-      final dailyLimit =
-          map['daily_limit'] is num ? (map['daily_limit'] as num).toInt() : null;
-      _tageslimitMerken(dailyLimit);
-      return CoachChatReply(
-        reply: reply,
-        refusal: map['refusal'] == true,
-        refusalReason: map['refusal_reason']?.toString(),
-        remaining: map['remaining'] is num
-            ? (map['remaining'] as num).toInt()
-            : null,
-        dailyLimit: dailyLimit,
-        sessionId: map['session_id']?.toString() ?? sessionId,
-      );
+        );
+        // Reaching this point means 2xx: functions_client throws on any other
+        // status, so error handling lives only in the `on Functions*` arms.
+        final data = res.data;
+        // The fallback, and it is not optional: everything the server decides
+        // BEFORE the answer call keeps its buffered JSON even though we asked
+        // for a stream — refusals, recipe mode, and every function deployment
+        // that predates streaming. This is also the rollback path, so it stays
+        // the one that parses the payload for both.
+        if (data is! Stream<List<int>>) {
+          return _antwortAusNutzlast(
+            data is Map ? data : const <dynamic, dynamic>{},
+            sessionId,
+          );
+        }
+        // The read happens INSIDE `_mitFrist`: with a stream the future is
+        // done once the headers land, so a deadline around `invoke()` alone
+        // would cover nothing at all.
+        return _stromAuswerten(
+          await _sseLesen(data, onPartialReply),
+          sessionId,
+        );
+      });
     } on CoachQuotaExceeded {
       rethrow;
     } on CoachChatException {
@@ -592,11 +603,110 @@ class CoachChatService {
       // offline case, whose type [isNetworkSyncError] does not recognise.
       _logSendFailure(e, stack);
       throw CoachChatException(_l10n.coachErrorNoConnection);
+    } on http.ClientException catch (e, stack) {
+      // Only reachable on the streamed body: functions_client wraps a transport
+      // error into [FunctionsFetchException] while it opens the request, but
+      // the socket now stays open long past that, and a connection dropped
+      // mid-answer arrives raw. Mapped to the same offline text, and equally
+      // unreported — it is the same event, just later. Must stay BELOW the
+      // [RequestAbortedException] arm: that one is a ClientException subclass
+      // and the deadline must keep its straggler recovery.
+      _logSendFailure(e, stack);
+      throw CoachChatException(_l10n.coachErrorNoConnection);
     } catch (e, stack) {
       _logSendFailure(e, stack);
       _melde('coach.send.unbekannt', e, stack);
       throw CoachChatException(_unreachableMessage);
     }
+  }
+
+  /// Turns one buffered `coach-chat` body into the reply.
+  ///
+  /// Shared by the buffered path and the stream's `done` event on purpose: the
+  /// server sends the IDENTICAL object in both (handler_stream_test.ts pins
+  /// that byte for byte), so a single parser is what keeps the two wire shapes
+  /// from drifting apart.
+  CoachChatReply _antwortAusNutzlast(
+    Map<dynamic, dynamic> map,
+    String sessionId,
+  ) {
+    final reply = map['reply'] is String ? (map['reply'] as String).trim() : '';
+    if (reply.isEmpty) {
+      // 2xx without text: a broken contract, and the only failure here that
+      // no status reveals.
+      final leer = CoachChatException(_l10n.coachErrorEmptyReply);
+      _melde('coach.send.leereAntwort', leer, StackTrace.current);
+      throw leer;
+    }
+    final dailyLimit =
+        map['daily_limit'] is num ? (map['daily_limit'] as num).toInt() : null;
+    _tageslimitMerken(dailyLimit);
+    return CoachChatReply(
+      reply: reply,
+      refusal: map['refusal'] == true,
+      refusalReason: map['refusal_reason']?.toString(),
+      // An omitted `remaining` stays null, and the screen reads null as "keep
+      // the counter you have". Never 0 — that would lock the composer.
+      remaining:
+          map['remaining'] is num ? (map['remaining'] as num).toInt() : null,
+      dailyLimit: dailyLimit,
+      sessionId: map['session_id']?.toString() ?? sessionId,
+    );
+  }
+
+  /// The verdict on a finished SSE response.
+  CoachChatReply _stromAuswerten(_SseAntwort strom, String sessionId) {
+    // `done` is AUTHORITATIVE and supersedes the concatenated deltas: the
+    // ellipsis for a length-capped answer, the prompt-leak replacement and
+    // every refusal exist only in it. Its payload is the buffered body, so the
+    // same parser finishes the job.
+    final done = strom.done;
+    if (done != null) return _antwortAusNutzlast(done, sessionId);
+
+    final geliefert = strom.text.trim();
+    final fehler = strom.fehler;
+    if (geliefert.isEmpty) {
+      if (fehler == null) {
+        // A 2xx that carried no usable frame at all. Same broken contract as a
+        // buffered 200 without text, and the only failure here no status
+        // reveals — so it keeps that name and that report.
+        final leer = CoachChatException(_l10n.coachErrorEmptyReply);
+        _melde('coach.send.leereAntwort', leer, StackTrace.current);
+        throw leer;
+      }
+      // The server named the failure and delivered nothing, so it gave the
+      // daily slot back on exactly this path — the caller's retry button is
+      // right. Same text a buffered 502/504 produces.
+      _melde(
+        'coach.send.stream',
+        StateError('coach stream ended empty: $fehler'),
+        StackTrace.current,
+      );
+      throw CoachChatException(_unreachableMessage);
+    }
+    // Content went out and the stream then broke. The slot stays spent and the
+    // server persisted exactly this partial text, so throwing here would show
+    // an error next to an answer the transcript already holds — and the retry
+    // would buy a second of the five daily slots for a question already asked.
+    _melde(
+      'coach.send.stream',
+      StateError('coach stream cut after content: $fehler'),
+      StackTrace.current,
+    );
+    final meta = strom.meta;
+    final dailyLimit =
+        meta['daily_limit'] is num ? (meta['daily_limit'] as num).toInt() : null;
+    _tageslimitMerken(dailyLimit);
+    return CoachChatReply(
+      reply: geliefert,
+      refusal: false,
+      // Same rule as the buffered body: `meta` OMITS an unknown remaining
+      // rather than sending null, and null means "keep the counter you have".
+      remaining:
+          meta['remaining'] is num ? (meta['remaining'] as num).toInt() : null,
+      dailyLimit: dailyLimit,
+      sessionId: meta['session_id']?.toString() ?? sessionId,
+    );
   }
 
   /// /rezept: has the function generate a recipe plus image (`mode: "recipe"`).
@@ -789,6 +899,137 @@ class CoachChatService {
     if (RegExp(r'[<>{}]').hasMatch(text)) return null;
     return text;
   }
+}
+
+// ---------------------------------------------------------------------------
+// B7 — reading the coach-chat SSE stream
+//
+// Wire shape (supabase/functions/coach-chat/handler.ts, `sseFrame`):
+//   event: meta   data: {"session_id":…,"remaining":<omitted if unknown>,…}
+//   event: delta  data: {"t":"<chunk>"}
+//   event: done   data: <the exact object the buffered path returns>
+//   event: error  data: {"error":"provider_error"|"provider_timeout"}
+// `done` and `error` are mutually exclusive and always last.
+// ---------------------------------------------------------------------------
+
+/// What one finished `coach-chat` SSE response amounted to.
+class _SseAntwort {
+  const _SseAntwort({
+    required this.text,
+    required this.meta,
+    this.done,
+    this.fehler,
+  });
+
+  /// The `delta` texts concatenated — a live PREVIEW, never the final answer.
+  /// Legitimately empty: a refusal and a prompt-leak hit send `meta` then
+  /// `done` and not a single delta.
+  final String text;
+
+  /// The `meta` payload, empty until the event arrived.
+  final Map<dynamic, dynamic> meta;
+
+  /// The `done` payload — identical to the buffered body, and authoritative.
+  final Map<dynamic, dynamic>? done;
+
+  /// The `error` code, if the stream ended on one instead of on `done`.
+  final String? fehler;
+}
+
+/// Parses the SSE frames of [bytes], handing every intermediate state to
+/// [onPartialReply].
+///
+/// Deliberately forgiving in both directions. A frame whose payload is not
+/// JSON, an unknown event name, a keep-alive comment and a body cut mid-frame
+/// are all skipped rather than thrown: this runs after a 200 with an answer
+/// already on the way, and killing it would cost the whole reply plus the
+/// daily slot that paid for it. What it does NOT do is invent — a stream that
+/// carried no usable frame comes back empty and the caller decides.
+Future<_SseAntwort> _sseLesen(
+  Stream<List<int>> bytes,
+  void Function(String text)? onPartialReply,
+) async {
+  final text = StringBuffer();
+  final daten = StringBuffer();
+  var ereignis = '';
+  var rest = '';
+  Map<dynamic, dynamic> meta = const <dynamic, dynamic>{};
+  Map<dynamic, dynamic>? done;
+  String? fehler;
+
+  void rahmenAbschliessen() {
+    final roh = daten.toString();
+    final name = ereignis;
+    daten.clear();
+    ereignis = '';
+    if (roh.isEmpty) return;
+    final Object? nutzlast;
+    try {
+      nutzlast = jsonDecode(roh);
+    } on FormatException {
+      // A frame that is not JSON is a hiccup on the way, not a reason to drop
+      // an answer that is still arriving: it costs at most one preview chunk.
+      return;
+    }
+    if (nutzlast is! Map) return;
+    switch (name) {
+      case 'meta':
+        meta = nutzlast;
+      case 'delta':
+        final stueck = nutzlast['t'];
+        if (stueck is! String || stueck.isEmpty) return;
+        text.write(stueck);
+        onPartialReply?.call(text.toString());
+      case 'done':
+        done = nutzlast;
+      case 'error':
+        final code = nutzlast['error'];
+        fehler = code is String ? code : 'provider_error';
+    }
+  }
+
+  void zeile(String roh) {
+    final line = roh.endsWith('\r') ? roh.substring(0, roh.length - 1) : roh;
+    // Blank = end of frame, ":" = keep-alive comment, no colon at all = a
+    // field without a value, which carries nothing either way.
+    if (line.isEmpty) return rahmenAbschliessen();
+    if (line.startsWith(':')) return;
+    final trenner = line.indexOf(':');
+    if (trenner < 0) return;
+    final feld = line.substring(0, trenner);
+    var wert = line.substring(trenner + 1);
+    if (wert.startsWith(' ')) wert = wert.substring(1);
+    if (feld == 'event') ereignis = wert;
+    if (feld == 'data') {
+      if (daten.isNotEmpty) daten.write('\n');
+      daten.write(wert);
+    }
+  }
+
+  // `allowMalformed`: a connection cut inside a multi-byte character must not
+  // become a FormatException that loses the answer around it.
+  await for (final stueck
+      in bytes.transform(const Utf8Decoder(allowMalformed: true))) {
+    rest += stueck;
+    for (;;) {
+      final schnitt = rest.indexOf('\n');
+      if (schnitt < 0) break;
+      zeile(rest.substring(0, schnitt));
+      rest = rest.substring(schnitt + 1);
+    }
+  }
+  // A body that ended without its closing blank line still gets its last frame
+  // decided: half a payload cannot parse and falls away, a whole one is the
+  // `done` the whole answer hangs on.
+  if (rest.isNotEmpty) zeile(rest);
+  rahmenAbschliessen();
+
+  return _SseAntwort(
+    text: text.toString(),
+    meta: meta,
+    done: done,
+    fehler: fehler,
+  );
 }
 
 class CoachChatReply {

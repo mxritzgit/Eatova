@@ -102,7 +102,8 @@ interface StubOptions {
   /** Nur POSTs auf `stall` haengen lassen (chat_messages: POST = storeMessage,
    *  GET = loadHistory). */
   stallMethod?: string;
-  /** Scope, dessen consume_edge_rate_limit haengt. */
+  /** Scope, dessen Limiter-Aufruf haengt (Einzel-RPC oder das Buendel, das
+   *  ihn enthaelt). */
   stallGateScope?: string;
   /** HTTP-Status des /auth/v1/user-Lookups. */
   authStatus?: number;
@@ -135,6 +136,25 @@ function installFetch(options: StubOptions = {}): FetchStub {
       if (options.authStatus !== undefined) return jsonRes({ message: "invalid token" }, options.authStatus);
       return jsonRes({ id: USER_ID });
     }
+    // Gebuendelter Limiter (P6-02). MUSS vor der Einzel-URL geprueft werden:
+    // deren Fragment ist ein Praefix von dieser.
+    if (url.includes("/rest/v1/rpc/consume_edge_rate_limits")) {
+      const gates = (JSON.parse(body) as JsonRecord).p_gates as JsonRecord[];
+      if (
+        options.stallGateScope !== undefined &&
+        gates.some((gate) => gate.scope === options.stallGateScope)
+      ) {
+        return haengtBisAbbruch(signal);
+      }
+      return jsonRes(gates.map((gate) => ({
+        allowed: true,
+        limit: Number(gate.limit),
+        remaining: Number(gate.limit) - 1,
+        resetAt: new Date(Date.now() + Number(gate.window_seconds) * 1000).toISOString(),
+        windowSeconds: Number(gate.window_seconds),
+      })));
+    }
+    // Einzel-RPC: nur noch ../_shared/auth_fail_gate.ts nutzt sie.
     if (url.includes("/rest/v1/rpc/consume_edge_rate_limit")) {
       const params = JSON.parse(body) as JsonRecord;
       if (options.stallGateScope !== undefined && params.p_scope === options.stallGateScope) {
@@ -194,7 +214,13 @@ function installFetch(options: StubOptions = {}): FetchStub {
     gateScopes: () =>
       calls
         .filter((call) => call.url.includes("consume_edge_rate_limit"))
-        .map((call) => String((JSON.parse(call.body) as JsonRecord).p_scope)),
+        .flatMap((call) => {
+          const params = JSON.parse(call.body) as JsonRecord;
+          // Buendel: alle Scopes in Array-Reihenfolge. Einzel-RPC: genau einer.
+          return Array.isArray(params.p_gates)
+            ? (params.p_gates as JsonRecord[]).map((gate) => String(gate.scope))
+            : [String(params.p_scope)];
+        }),
     restore: () => {
       globalThis.fetch = original;
     },

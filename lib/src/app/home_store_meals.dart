@@ -111,6 +111,7 @@ mixin _HomeStoreMealsPart
       }
       _rememberRecent(result);
       loggedMeals = [entry, ...loggedMeals];
+      _invalidateTrendWindow();
       if (targetIsToday) {
         dailyConsumedKcal = consumedKcalForFoodDate(clock.now());
         macroProgress = macroProgressForFoodDate(clock.now());
@@ -159,6 +160,7 @@ mixin _HomeStoreMealsPart
       final nextMeals = [...loggedMeals];
       nextMeals[index] = updated;
       loggedMeals = nextMeals;
+      _invalidateTrendWindow();
       if (selectedFoodDateIsToday) {
         dailyConsumedKcal = consumedKcalForFoodDate(clock.now());
         macroProgress = macroProgressForFoodDate(clock.now());
@@ -256,6 +258,7 @@ mixin _HomeStoreMealsPart
       next[index] = updated;
       next.sort((a, b) => b.loggedAt.compareTo(a.loggedAt));
       loggedMeals = next;
+      _invalidateTrendWindow();
       dailyConsumedKcal = consumedKcalForFoodDate(clock.now());
       macroProgress = macroProgressForFoodDate(clock.now());
       if (recordToday) {
@@ -327,6 +330,7 @@ mixin _HomeStoreMealsPart
     HapticFeedback.lightImpact();
     _mutate(() {
       loggedMeals = loggedMeals.where((m) => m.id != id).toList();
+      _invalidateTrendWindow();
       if (selectedFoodDateIsToday) {
         dailyConsumedKcal = consumedKcalForFoodDate(clock.now());
         macroProgress = macroProgressForFoodDate(clock.now());
@@ -347,6 +351,7 @@ mixin _HomeStoreMealsPart
     if (loggedMeals.any((m) => m.id == meal.id)) return;
     _mutate(() {
       loggedMeals = [meal, ...loggedMeals];
+      _invalidateTrendWindow();
       if (selectedFoodDateIsToday) {
         dailyConsumedKcal = consumedKcalForFoodDate(clock.now());
         macroProgress = macroProgressForFoodDate(clock.now());
