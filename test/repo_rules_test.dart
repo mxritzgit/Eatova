@@ -234,6 +234,66 @@ String _lies(String pfad) {
 }
 
 // ---------------------------------------------------------------------------
+// "Echte Fotos" — the claim detector behind the recipesSubtitle rule below
+// ---------------------------------------------------------------------------
+
+/// Stems naming a picture, matched as a PREFIX so German compounds and plurals
+/// ("Bildern", "Aufnahmen", "images") are covered without a word list.
+const List<String> _bildStaemme = <String>[
+  'bild',
+  'foto',
+  'photo',
+  'aufnahme',
+  'image',
+  'picture',
+];
+
+/// Stems claiming photographic reality. Prefix matching also catches
+/// "realistisch"/"realistic", which is the same claim in a softer coat.
+const List<String> _echtStaemme = <String>[
+  'echt',
+  'real',
+  'authentisch',
+  'authentic',
+  'original',
+  'genuine',
+  'naturgetreu',
+];
+
+bool _hatStamm(String wort, List<String> staemme) =>
+    staemme.any(wort.startsWith);
+
+/// Returns WHY [satz] claims real photography, or null if it does not.
+///
+/// The window is deliberately asymmetric — two words BEFORE the picture word,
+/// one after. Both German and English put the adjective in front of its noun,
+/// so that is where the claim lives ("echte Bilder", "real photos"). Reaching
+/// two words to the RIGHT as well would flag the honest sentence this rule was
+/// written for: in "KI-Bildern und echten Tracker-Werten" the "echt" belongs to
+/// the VALUES, which really are real — a false alarm there would get the guard
+/// deleted instead of the copy fixed.
+String? _echtheitsBehauptung(String satz) {
+  final woerter = satz
+      .toLowerCase()
+      // Range starts at ß, not à: otherwise "groß" would split mid-word.
+      .split(RegExp(r'[^a-zß-öø-ÿ]+'))
+      .where((w) => w.isNotEmpty)
+      .toList();
+  for (var i = 0; i < woerter.length; i++) {
+    if (!_hatStamm(woerter[i], _bildStaemme)) continue;
+    final von = i - 2 < 0 ? 0 : i - 2;
+    final bis = i + 1 >= woerter.length ? woerter.length - 1 : i + 1;
+    for (var j = von; j <= bis; j++) {
+      if (j == i) continue;
+      if (_hatStamm(woerter[j], _echtStaemme)) {
+        return '"${woerter[j]}" steht neben "${woerter[i]}"';
+      }
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Allowlists — moved verbatim from the files that used to own them
 // ---------------------------------------------------------------------------
 
@@ -1043,6 +1103,84 @@ const x = 'today';
           reason: 'app_en.arb hat Keys, die die Vorlage nicht kennt');
       expect(de.difference(en), isEmpty,
           reason: 'Diese Keys sind noch nicht uebersetzt');
+    });
+
+    // -----------------------------------------------------------------------
+    // recipesSubtitle darf keine echten Fotos behaupten
+    //
+    // Every one of the 30 catalog images in `assets/recipes/` is AI-generated
+    // and carries a burnt-in "AI Generated" badge in its bottom right corner —
+    // verified image by image. The imprint on eatova.de declares them as such.
+    // The subtitle used to read "Clean Meals mit echten Bildern …" /
+    // "… with real photos …", so the user read "real photos" one line above a
+    // grid of pictures each stamped "AI Generated", and the app contradicted
+    // its own imprint.
+    //
+    // The rule is about the CLAIM, not about one wording: an image word with a
+    // reality word next to it. That way "echte Fotos", "reale Aufnahmen" and
+    // "realistic images" fall over too, while "KI-Bildern und fertigen
+    // Tracker-Werten" passes — the values really are real, only the pictures
+    // are not.
+    // -----------------------------------------------------------------------
+    test('recipesSubtitle behauptet in keiner Sprache echte Fotos', () {
+      final treffer = <String>[];
+      for (final pfad in const <String>[
+        'lib/l10n/app_de.arb',
+        'lib/l10n/app_en.arb',
+      ]) {
+        final wert =
+            (jsonDecode(_lies(pfad)) as Map<String, dynamic>)['recipesSubtitle']
+                as String?;
+        expect(wert, isNotNull, reason: '$pfad kennt recipesSubtitle nicht');
+        final grund = _echtheitsBehauptung(wert!);
+        if (grund != null) treffer.add('$pfad: "$wert" — $grund');
+      }
+      expect(
+        treffer,
+        isEmpty,
+        reason: 'Die Katalogbilder sind KI-generiert und tragen ein '
+            'eingebranntes "AI Generated"-Abzeichen; das Impressum sagt das '
+            'auch. Die Unterzeile darf ihnen nicht widersprechen:\n'
+            '${treffer.join('\n')}',
+      );
+    });
+
+    test('die Regel haette genau den alten Zustand gefangen', () {
+      // The two texts that stood here until 2026-09-01, verbatim.
+      expect(
+        _echtheitsBehauptung('Clean Meals mit echten Bildern und '
+            'Tracker-Werten.'),
+        isNotNull,
+      );
+      expect(
+        _echtheitsBehauptung('Clean meals with real photos and tracked '
+            'macros.'),
+        isNotNull,
+      );
+      // And the wordings a careless rewrite would reach for next.
+      for (final rueckfall in const <String>[
+        'Clean Meals mit echten Fotos.',
+        'Clean Meals mit realen Aufnahmen und Werten.',
+        'Clean meals, real images included.',
+        'Clean meals with realistic photos.',
+      ]) {
+        expect(_echtheitsBehauptung(rueckfall), isNotNull,
+            reason: 'unerkannt: $rueckfall');
+      }
+    });
+
+    test('die Regel laesst die ehrliche Fassung und echte WERTE in Ruhe', () {
+      // The live texts, plus the trap the rule must NOT fall into: "echt" is
+      // allowed as long as it is not sitting next to a picture — the tracker
+      // values are real.
+      for (final ok in const <String>[
+        'Clean Meals mit KI-Bildern und fertigen Tracker-Werten.',
+        'Clean meals with AI images and macros ready to track.',
+        'Clean Meals mit KI-Bildern und echten Tracker-Werten.',
+        'Clean meals with AI images and real macros from the database.',
+      ]) {
+        expect(_echtheitsBehauptung(ok), isNull, reason: 'Fehlalarm: $ok');
+      }
     });
   });
 
