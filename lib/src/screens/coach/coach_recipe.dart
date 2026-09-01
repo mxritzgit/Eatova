@@ -45,20 +45,29 @@ class _RecipeProposalCard extends StatelessWidget {
                     radius: 0,
                     label: l10n.recipesImagePlaceholderLabel,
                   )
-                : LayoutBuilder(
-                    builder: (context, constraints) {
-                      // Limit decode to card width (same pattern as the user
-                      // photo bubble in _MessageView).
-                      final dpr = MediaQuery.devicePixelRatioOf(context);
-                      final w = constraints.maxWidth.isFinite
-                          ? constraints.maxWidth
-                          : 320.0;
-                      return Image.memory(
-                        bytes,
-                        fit: BoxFit.cover,
-                        cacheWidth: (w * dpr).round().clamp(1, 1600),
-                      );
-                    },
+                : Stack(
+                    // expand, not the default loose fit: the image below has
+                    // no intrinsic box of its own here, it fills the 150 px
+                    // slot. Loosening would collapse it to the decoded size.
+                    fit: StackFit.expand,
+                    children: <Widget>[
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          // Limit decode to card width (same pattern as the
+                          // user photo bubble in _MessageView).
+                          final dpr = MediaQuery.devicePixelRatioOf(context);
+                          final w = constraints.maxWidth.isFinite
+                              ? constraints.maxWidth
+                              : 320.0;
+                          return Image.memory(
+                            bytes,
+                            fit: BoxFit.cover,
+                            cacheWidth: (w * dpr).round().clamp(1, 1600),
+                          );
+                        },
+                      ),
+                      const _AiImageBadgeOverlay(),
+                    ],
                   ),
           ),
         ),
@@ -97,6 +106,73 @@ class _RecipeProposalCard extends StatelessWidget {
             onTap: enabled ? onAdd : null,
           ),
       ],
+    );
+  }
+}
+
+/// AI marker for a coach-generated recipe photo, laid OVER the image.
+///
+/// The catalog photos in `assets/recipes/` carry a burnt-in "AI Generated"
+/// badge; the coach generates its images at runtime and the image prompt asks
+/// for no watermark, so nothing in the pixels says where they come from. The
+/// app has to say it instead — the imprint on eatova.de declares every recipe
+/// image as AI-generated, and an unmarked one would contradict it.
+///
+/// Positioned rather than stacked into the column on purpose: an overlay
+/// cannot resize the image box, so nothing shifts or gets cropped.
+class _AiImageBadgeOverlay extends StatelessWidget {
+  const _AiImageBadgeOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Positioned(
+      // Bottom right mirrors where the catalog's burnt-in badge sits, so both
+      // kinds of recipe image carry their mark in the same corner. Pinned on
+      // BOTH sides so the pill wraps inside the photo at textScaler 2.0
+      // instead of running off it.
+      left: 10,
+      right: 10,
+      bottom: 10,
+      child: Align(
+        alignment: Alignment.bottomRight,
+        child: Container(
+          key: const ValueKey('coach-recipe-ai-badge'),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            // Same filled pill as the catalog card badge (`_RecipeBadge`).
+            // Opaque forest/onForest: the contrast is a theme pair, not a bet
+            // on how bright the photo underneath happens to be — which is why
+            // it survives both display modes over an arbitrary image.
+            color: t.forest,
+            borderRadius: BorderRadius.circular(rChip),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(
+                Icons.auto_awesome_rounded,
+                size: 12,
+                color: t.onForest,
+              ),
+              const SizedBox(width: 4),
+              Flexible(
+                child: Text(
+                  context.l10n.coachRecipeAiImageBadge,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppType.ui(
+                    9.5,
+                    weight: FontWeight.w700,
+                    color: t.onForest,
+                    letterSpacing: 1,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -143,25 +219,34 @@ class _RecipeAddSheet extends StatelessWidget {
                       if (bytes != null) ...<Widget>[
                         ClipRRect(
                           borderRadius: BorderRadius.circular(rCard),
-                          child: LayoutBuilder(
-                            builder: (context, constraints) {
-                              // Same decode budget as the card above: the
-                              // sheet shows the SAME bytes, and without
-                              // cacheWidth they were decoded a second time at
-                              // full size into a second cache entry.
-                              final dpr =
-                                  MediaQuery.devicePixelRatioOf(context);
-                              final w = constraints.maxWidth.isFinite
-                                  ? constraints.maxWidth
-                                  : 320.0;
-                              return Image.memory(
-                                bytes,
-                                height: 170,
-                                width: double.infinity,
-                                fit: BoxFit.cover,
-                                cacheWidth: (w * dpr).round().clamp(1, 1600),
-                              );
-                            },
+                          // Loose fit here (unlike the card): the image brings
+                          // its own 170 px box, so the stack takes its size
+                          // from it and the badge only overlays.
+                          child: Stack(
+                            children: <Widget>[
+                              LayoutBuilder(
+                                builder: (context, constraints) {
+                                  // Same decode budget as the card above: the
+                                  // sheet shows the SAME bytes, and without
+                                  // cacheWidth they were decoded a second time
+                                  // at full size into a second cache entry.
+                                  final dpr =
+                                      MediaQuery.devicePixelRatioOf(context);
+                                  final w = constraints.maxWidth.isFinite
+                                      ? constraints.maxWidth
+                                      : 320.0;
+                                  return Image.memory(
+                                    bytes,
+                                    height: 170,
+                                    width: double.infinity,
+                                    fit: BoxFit.cover,
+                                    cacheWidth:
+                                        (w * dpr).round().clamp(1, 1600),
+                                  );
+                                },
+                              ),
+                              const _AiImageBadgeOverlay(),
+                            ],
                           ),
                         ),
                         const SizedBox(height: 12),
