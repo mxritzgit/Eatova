@@ -204,6 +204,40 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   // --- Read-only views for the UI shell ------------------------------------
   List<FitnessRecipe> get userRecipes => _userRecipes;
 
+  /// Own recipes the recipes tab is holding inside an undo window: delete
+  /// tapped, toast still up, nothing persisted yet (`_PendingDelete` there).
+  /// The row stays in [userRecipes] until that window commits, so every
+  /// reader OUTSIDE the tab takes [visibleUserRecipes] — the coach card
+  /// derived "Hinzugefügt" from [userRecipes] and kept its button locked
+  /// until the toast had gone (2026-09-02). A fresh Set per change: the tab
+  /// selectors compare their slices with `!=`, and a mutated Set is
+  /// identical to itself.
+  Set<String> _pendingRecipeDeletes = const <String>{};
+  Set<String> get pendingRecipeDeletes => _pendingRecipeDeletes;
+
+  /// [userRecipes] minus the pending deletes — "the user's recipes right now"
+  /// for everything that is not the recipes tab itself.
+  List<FitnessRecipe> get visibleUserRecipes => _pendingRecipeDeletes.isEmpty
+      ? _userRecipes
+      : _userRecipes
+          .where((r) => !_pendingRecipeDeletes.contains(r.slug))
+          .toList(growable: false);
+
+  /// The recipes tab reports a slug entering ([pending] true) or leaving
+  /// (undo, commit) its undo window. Idempotent; notifies only on a change.
+  void setRecipeDeletePending(String slug, {required bool pending}) {
+    if (pending == _pendingRecipeDeletes.contains(slug)) return;
+    _mutate(() {
+      final next = <String>{..._pendingRecipeDeletes};
+      if (pending) {
+        next.add(slug);
+      } else {
+        next.remove(slug);
+      }
+      _pendingRecipeDeletes = next;
+    });
+  }
+
   String get profileInitial {
     final parts = userName.trim().split(RegExp(r'\s+'));
     if (parts.isEmpty || parts.first.isEmpty) return 'S';

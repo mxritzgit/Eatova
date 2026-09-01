@@ -177,6 +177,20 @@ class _CoachRecipeShellState extends State<_CoachRecipeShell> {
   /// is the "something changed" fingerprint RecipesScreen relies on.
   List<FitnessRecipe> _userRecipes = const <FitnessRecipe>[];
 
+  /// Mirror of `HomeStore.pendingRecipeDeletes` (2026-09-02): slugs inside
+  /// the recipes tab's undo window. The coach gets `visibleUserRecipes`.
+  final Set<String> _pendingDeletes = <String>{};
+
+  void _setPending(String slug, {required bool pending}) {
+    setState(() {
+      if (pending) {
+        _pendingDeletes.add(slug);
+      } else {
+        _pendingDeletes.remove(slug);
+      }
+    });
+  }
+
   Future<SyncDelivery> _create(FitnessRecipe recipe) async {
     widget.log.created.add(recipe);
     setState(() {
@@ -234,8 +248,11 @@ class _CoachRecipeShellState extends State<_CoachRecipeShell> {
                   userName: 'Moritz',
                   streak: 3,
                   onCreateRecipe: _create,
+                  // Like eatova_home_page.dart: the visible list, not the
+                  // full one (2026-09-02).
                   userRecipeSlugs: <String>{
-                    for (final recipe in _userRecipes) recipe.slug,
+                    for (final recipe in _userRecipes)
+                      if (!_pendingDeletes.contains(recipe.slug)) recipe.slug,
                   },
                 ),
               ),
@@ -247,6 +264,7 @@ class _CoachRecipeShellState extends State<_CoachRecipeShell> {
                   initialUserRecipes: _userRecipes,
                   onCreateRecipe: _create,
                   onDeleteRecipe: _delete,
+                  onDeletePendingChanged: _setPending,
                 ),
               ),
             ],
@@ -421,5 +439,36 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('recipe-detail-back')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('screen-recipes')), findsOneWidget);
+
+    // --- 8. delete inside the undo window -> the card offers "add" again ---
+    // Bug 2026-09-02: the card kept "Added" until the undo toast had gone,
+    // because it read the full list instead of the visible one.
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('recipe-detail-delete')));
+    await tester.pumpAndSettle();
+    expect(find.text(enL10n.commonUndo), findsOneWidget,
+        reason: 'der Undo-Snack steht');
+    expect(log.deleted, isEmpty, reason: 'in der Frist ist nichts persistiert');
+
+    // Few rounds: the undo toast lives 2.2 s and step 9 still has to tap it.
+    await tester.tap(find.byKey(const ValueKey('flow-nav-coach')));
+    await _settle(tester, rounds: 6);
+    expect(find.byKey(const ValueKey('coach-recipe-add')), findsOneWidget,
+        reason: 'aus Nutzersicht ist das Rezept weg — der Knopf muss SOFORT '
+            'zurück sein, nicht erst nach dem Snack');
+    expect(find.text(enL10n.coachRecipeAddedLabel), findsNothing);
+
+    // --- 9. undo -> the card locks again ------------------------------------
+    await tester.tap(find.byKey(const ValueKey('flow-nav-recipes')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(enL10n.commonUndo));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('flow-nav-coach')));
+    await _settle(tester);
+    expect(find.byKey(const ValueKey('coach-recipe-add')), findsNothing,
+        reason: 'Undo: das Rezept existiert wieder, die Karte ist gesperrt');
+    expect(find.text(enL10n.coachRecipeAddedLabel), findsOneWidget);
+    expect(log.deleted, isEmpty, reason: 'Undo: der Hook lief nie');
   });
 }

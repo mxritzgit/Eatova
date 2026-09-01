@@ -664,6 +664,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
                 widget.sync == null ? null : _store.createUserRecipe,
             onDeleteRecipe:
                 widget.sync == null ? null : _store.deleteUserRecipe,
+            // Always wired: the undo window must hide the recipe from the
+            // coach card even when nothing is persisted (2026-09-02).
+            onDeletePendingChanged: _store.setRecipeDeletePending,
             // Remaining macros for the day (goal - consumed).
             remainingMacros: MacroProgress(
               proteinG:
@@ -695,8 +698,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           _store.dailyConsumedKcal,
           _store.macroProgress,
           _store.loggedMeals,
-          // Deleting in the recipes tab must re-enable the card button.
+          // Deleting in the recipes tab must re-enable the card button —
+          // already while the delete sits in its undo window (2026-09-02).
           _store.userRecipes,
+          _store.pendingRecipeDeletes,
         ),
         builder: (context) {
           assert(_countTabBuild(_tabCoach));
@@ -710,8 +715,11 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             // Confirmed /recipe suggestions take the manual form's path.
             onCreateRecipe:
                 widget.sync == null ? null : _store.createUserRecipe,
+            // `visibleUserRecipes`, not `userRecipes`: a recipe inside the
+            // recipes tab's undo window is gone from the user's point of view,
+            // so the card offers "add" again right away (2026-09-02).
             userRecipeSlugs: {
-              for (final recipe in _store.userRecipes) recipe.slug,
+              for (final recipe in _store.visibleUserRecipes) recipe.slug,
             },
           );
         },

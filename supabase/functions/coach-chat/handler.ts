@@ -65,7 +65,13 @@ export const PROVIDER_TIMEOUTS_MS = {
   answer: 45_000,
   // Image generation gets its own budget. A timeout here is NOT a request
   // error — the recipe comes back without an image (generateRecipeImage).
-  image: 30_000,
+  // 60 s, not 30: OpenRouter takes 10-40 s for a 1K image from the Gemini
+  // image model and answers with a 2-3 MB PNG whatever `output_format` says,
+  // and the download is part of this budget. With 30 s every /rezept card in
+  // production came back without a picture ("recipe image failed: Signal
+  // timed out", 2026-09-01). Move `CoachChatService.recipeDeadline` (client
+  // ledger) together with this number.
+  image: 60_000,
 };
 
 // Hard deadline for ONE Supabase roundtrip (E1, review 2026-08-31), the same
@@ -1087,6 +1093,9 @@ async function generateRecipeImage(
   apiKey: string,
   prompt: string,
 ): Promise<{ base64: string; mimeType: string } | null> {
+  // Numbers only in every log line below (duration, size, container): the
+  // budget was the blind spot that hid the 2026-09-01 outage.
+  const started = Date.now();
   try {
     const resp = await fetch("https://openrouter.ai/api/v1/images", {
       method: "POST",
@@ -1112,7 +1121,9 @@ async function generateRecipeImage(
       // Metadata only: the image prompt derives from the user's wish and may
       // be mirrored in the error response (CWE-532).
       const text = await resp.text();
-      console.error(`recipe image failed: ${resp.status} (${await redactedBodyMeta(text)})`);
+      console.error(
+        `recipe image failed: ${resp.status} after ${Date.now() - started} ms (${await redactedBodyMeta(text)})`,
+      );
       return null;
     }
     const data = await resp.json();
@@ -1136,9 +1147,12 @@ async function generateRecipeImage(
       console.error(`recipe image: unbekanntes Containerformat (chars=${clean.length})`);
       return null;
     }
+    console.log(`recipe image ok: ${Date.now() - started} ms, ${clean.length} chars, ${mimeType}`);
     return { base64: clean, mimeType };
   } catch (e) {
-    console.error(`recipe image failed: ${e instanceof Error ? e.message : String(e)}`);
+    console.error(
+      `recipe image failed after ${Date.now() - started} ms: ${e instanceof Error ? e.message : String(e)}`,
+    );
     return null;
   }
 }
