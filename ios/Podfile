@@ -8,7 +8,7 @@
 # flutter_local_notifications / google_sign_in_ios / shared_preferences_
 # foundation mit 13.0. Beim Aendern IPHONEOS_DEPLOYMENT_TARGET in
 # Runner.xcodeproj/project.pbxproj mitziehen (3 Vorkommen).
-platform :ios, '14.0'
+platform :ios, '15.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'

@@ -11,6 +11,10 @@ analyzer:
   exclude:
     - "**/*.g.dart"
     - "build/**"
+    - android/**
+    - ios/**
+    - macos/**
+    - linux/**
     # The imported design template lives as a non-Dart file under
     # docs/design/reference/ (DESIGN_REFACTOR.md §1), so no exclude is needed.
   errors:
