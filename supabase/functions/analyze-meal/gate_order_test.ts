@@ -98,6 +98,14 @@ interface StubOptions {
   longBatch?: boolean;
   /** A6: 200 with an EMPTY array — not one gate consumed, nothing to read. */
   emptyBatch?: boolean;
+  /**
+   * A6: value the FIRST element carries as `allowed` instead of a boolean.
+   * The expensive half of the E6 guard: `"false"`, `1` and `{}` are truthy in
+   * JavaScript, so a guard that only rejects a MISSING field reads them as
+   * "allowed" and the request runs on to the paid provider call with a gate
+   * that was never measured.
+   */
+  brokenAllowed?: unknown;
 }
 
 /** One element of the p_gates array (contract of
@@ -215,6 +223,9 @@ function installFetch(options: StubOptions = {}): FetchStub {
         // consumed, and the handler must not treat it as passed.
         results.pop();
         consumed.pop();
+      }
+      if ('brokenAllowed' in options && results.length > 0) {
+        results[0] = { ...results[0], allowed: options.brokenAllowed as never };
       }
       if (options.longBatch && results.length === gates.length) {
         // A row for a gate that was never sent — and it denies. NOT recorded
@@ -1175,6 +1186,40 @@ Deno.test('A6: mehr Elemente als Gates ist ein Ausfall, kein Urteil fuer ein nie
     assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
   } finally {
     stub.restore();
+  }
+});
+
+Deno.test('A6: ein Element ohne lesbares allowed ist ein Ausfall, kein Freibrief', async () => {
+  // Der Riegel `typeof entry.allowed !== "boolean"` war nirgends gepinnt. Die
+  // gefaehrliche Haelfte ist nicht das fehlende Feld, sondern der
+  // wahrheitswertige Fremdtyp: `"false"`, `1` und `{}` sind truthy, also
+  // liest ein Riegel, der nur auf `undefined` prueft, sie als ERLAUBT durch —
+  // und die Anfrage erreicht den bezahlten Anbieter-Call mit einem nie
+  // gemessenen Tor.
+  const kaputt: { was: string; wert: unknown }[] = [
+    { was: 'Feld fehlt', wert: undefined },
+    { was: "String 'true'", wert: 'true' },
+    { was: "String 'false'", wert: 'false' },
+    { was: 'Zahl 1', wert: 1 },
+    { was: 'Zahl 0', wert: 0 },
+    { was: 'null', wert: null },
+    { was: 'Objekt', wert: {} },
+  ];
+  for (const fall of kaputt) {
+    const stub = installFetch({ brokenAllowed: fall.wert });
+    try {
+      const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+      assertEquals(res.status, 500, `${fall.was}: Status`);
+      assertEquals(
+        (await res.json() as JsonRecord).error,
+        'rate_limit_unavailable',
+        `${fall.was}: Fehlercode`,
+      );
+      assertEquals(stub.callsTo('openrouter.ai').length, 0, `${fall.was}: Provider-Calls`);
+      assertEquals(stub.rateLimitCalls(), 1, `${fall.was}: nach dem ersten Batch ist Schluss`);
+    } finally {
+      stub.restore();
+    }
   }
 });
 

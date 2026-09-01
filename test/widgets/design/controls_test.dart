@@ -46,6 +46,11 @@ void main() {
         tester.getSemantics(find.byType(SquareIconButton)),
         isSemantics(label: 'Zurueck', isButton: true),
       );
+      // The visible chip is 34 px, the hit area 44. Shrinking the SizedBox to
+      // the drawn size passed every test in this file — back, close and menu
+      // buttons sit on almost every screen, so the floor belongs here and not
+      // only on the nav bar.
+      await expectLater(tester, meetsGuideline(iOSTapTargetGuideline));
       handle.dispose();
     });
   });

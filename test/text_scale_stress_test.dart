@@ -1,4 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/main.dart';
@@ -9,9 +10,15 @@ import 'package:eatova/src/services/trend_service.dart';
 import 'support/harness.dart';
 
 // Stress test for the textScaler cap (EatovaApp caps at 2.0, WCAG 1.4.4): the
-// core screens must render at 200 % system font without RenderFlex overflows.
-// Unlike testWidgetsRobust, overflows are collected and reported as test
-// failures here — they are the subject.
+// core screens must render at 200 % system font without RenderFlex overflows
+// AND without a text box that is too SHORT for the text inside it.
+//
+// The second half is not decoration. A RenderFlex overflow is loud (yellow
+// bars, a FlutterError); a fixed height around a Text is silent — the glyphs
+// are simply clipped away and every "does it render" assertion stays green.
+// That is the regression this suite let through until 2026-09-01: giving the
+// macro label a `SizedBox(height: 16)` truncated "Kohlenhydrate" to "K…" at
+// 200 % and the whole file still passed.
 //
 // This suite is parameterised over SCREENS, not over locale/brightness/scale,
 // so it stays one test per screen instead of a `renderMatrix`: each case boots
@@ -31,17 +38,96 @@ void _pinViewport(WidgetTester tester) {
   addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
 }
 
-/// Collects all overflow errors during [body] and reports them together.
+// --- silent truncation ------------------------------------------------------
+
+/// The ONE box in the app that is knowingly too tight, kept out of the sweep.
+///
+/// `_ProfileBadge` (screens/meal_analysis_screen.dart) is a hard 34x34 capsule
+/// with the first letter of the name in it; at 200 % the letter needs 38 px and
+/// loses ~4 px of ascender and descender. Not fixed here — this suite pins
+/// existing behaviour, it does not change layout. The exception cannot go stale:
+/// the last case in this file asserts the clip is still there and tells you to
+/// delete both halves once it is gone.
+const String _bekannteEngeKey = 'topbar-profile';
+
+/// Paragraphs under [_bekannteEngeKey] in the CURRENT tree.
+///
+/// `skipOffstage: false` throughout: with the settings route pushed the food
+/// tab below it is still laid out (and still in `allRenderObjects`), but the
+/// default finder no longer sees it — the exception would silently stop
+/// applying on exactly that screen.
+Finder _engeFinder() => find.descendant(
+      of: find.byKey(
+        const ValueKey<String>(_bekannteEngeKey),
+        skipOffstage: false,
+      ),
+      matching: find.byType(Text, skipOffstage: false),
+      skipOffstage: false,
+    );
+
+Set<RenderObject> _ausgenommen() => _engeFinder()
+    .evaluate()
+    .map((Element e) => e.renderObject)
+    .whereType<RenderObject>()
+    .toSet();
+
+/// Everything the sweep found while one screen was walked.
+final Set<String> _abschnitte = <String>{};
+
+/// Text boxes that are SHORTER than the text they hold.
+///
+/// `RenderParagraph.size` is `constraints.constrain(textSize)`, so a fixed
+/// height simply clamps the box and the surplus lines are clipped at paint
+/// time — no exception, no yellow bar, nothing a "renders without overflow"
+/// test can see. `getMaxIntrinsicHeight(width)` is what the text needs at the
+/// width it actually got; anything under that is cut off.
+///
+/// Deliberately NOT about ellipsis: `overflow: ellipsis` on a name or an
+/// e-mail is a design decision and appears all over these screens. A height
+/// clamp never is.
+void _sammleAbschnitte(WidgetTester tester, String wo) {
+  final ausgenommen = _ausgenommen();
+  for (final absatz in tester.allRenderObjects.whereType<RenderParagraph>()) {
+    if (absatz.debugNeedsLayout || ausgenommen.contains(absatz)) continue;
+    final breite = absatz.size.width;
+    if (breite <= 0) continue;
+    final gebraucht = absatz.getMaxIntrinsicHeight(breite);
+    // Half a logical pixel of slack for the rounding in the shaper.
+    if (absatz.size.height + 0.5 < gebraucht) {
+      final text = absatz.text.toPlainText().replaceAll('\n', ' ');
+      _abschnitte.add(
+        '$wo: "${text.length > 40 ? '${text.substring(0, 40)}…' : text}" '
+        'hat ${absatz.size.height.toStringAsFixed(1)} px, '
+        'braucht ${gebraucht.toStringAsFixed(1)} px',
+      );
+    }
+  }
+}
+
+/// Collects all overflow errors and every clipped text box during [body] and
+/// reports them together.
 Future<void> _expectNoOverflow(
+  WidgetTester tester,
   String screen,
   Future<void> Function() body,
 ) async {
+  _abschnitte.clear();
   final overflows = await collectOverflows(body);
+  // Last state of the walk as well, so a screen without a scroll step is
+  // covered too.
+  _sammleAbschnitte(tester, screen);
   expect(
     overflows,
     isEmpty,
     reason: '$screen overflowt bei textScale $_stressScale: '
         '${describeOverflows(overflows)}',
+  );
+  expect(
+    _abschnitte,
+    isEmpty,
+    reason: '$screen schneidet bei textScale $_stressScale Text ab '
+        '(feste Hoehe ueber einem Text — lautlos, kein Overflow):\n'
+        '${_abschnitte.join('\n')}',
   );
 }
 
@@ -86,6 +172,9 @@ Future<void> _scrollDurch(
   int schritte = 6,
   bool settle = true,
 }) async {
+  // Before the first drag as well: the top of the page is laid out too and is
+  // where the densest headers sit.
+  _sammleAbschnitte(tester, 'Scrollstand 0');
   for (var i = 0; i < schritte; i++) {
     await tester.drag(scrollable, const Offset(0, -400));
     if (settle) {
@@ -93,6 +182,9 @@ Future<void> _scrollDurch(
     } else {
       await _pumpFrames(tester, frames: 6);
     }
+    // Cards below the fold only exist between two drags; without a sweep per
+    // step the check would only ever see the bottom of the page.
+    _sammleAbschnitte(tester, 'Scrollstand ${i + 1}');
   }
 }
 
@@ -101,7 +193,7 @@ void main() {
     tester,
   ) async {
     _pinViewport(tester);
-    await _expectNoOverflow('Auth-Screen', () async {
+    await _expectNoOverflow(tester, 'Auth-Screen', () async {
       final authRepository = InMemoryAuthRepository();
       addTearDown(authRepository.dispose);
       await tester.pumpWidget(EatovaApp(authRepository: authRepository));
@@ -126,7 +218,7 @@ void main() {
     // by side, three macro bars (label/bar/value in ONE row) and four slot
     // rows — all classic breaking points at 200 % system font.
     _pinViewport(tester);
-    await _expectNoOverflow('Heute-Tab', () async {
+    await _expectNoOverflow(tester, 'Heute-Tab', () async {
       await _bootApp(tester);
       expect(find.byKey(const ValueKey('today-kcal-hero')), findsOneWidget);
 
@@ -150,7 +242,7 @@ void main() {
   testWidgets('Food-Tab (EatovaHomePage) rendert bei textScale 2.0 '
       'ohne Overflow', (tester) async {
     _pinViewport(tester);
-    await _expectNoOverflow('Food-Tab', () async {
+    await _expectNoOverflow(tester, 'Food-Tab', () async {
       // The app starts on tab 0; the food tab is built lazily on first visit,
       // so `screen-kcal-tracker` does not exist before that.
       await _bootApp(tester);
@@ -176,7 +268,7 @@ void main() {
   testWidgets('Rezepte-Tab rendert bei textScale 2.0 ohne Overflow',
       (tester) async {
     _pinViewport(tester);
-    await _expectNoOverflow('Rezepte-Tab', () async {
+    await _expectNoOverflow(tester, 'Rezepte-Tab', () async {
       await _bootApp(tester);
       await _goToTab(tester, 'Rezepte');
       expect(find.byKey(const ValueKey('screen-recipes')), findsOneWidget);
@@ -204,7 +296,7 @@ void main() {
   testWidgets('Coach-Tab rendert bei textScale 2.0 ohne Overflow',
       (tester) async {
     _pinViewport(tester);
-    await _expectNoOverflow('Coach-Tab', () async {
+    await _expectNoOverflow(tester, 'Coach-Tab', () async {
       await _bootApp(tester);
       // No pumpAndSettle: the CoachOrb spins forever.
       await tester.tap(find.byKey(const ValueKey('nav-Coach')));
@@ -223,7 +315,7 @@ void main() {
   testWidgets('Profil-Seite rendert bei textScale 2.0 ohne Overflow',
       (tester) async {
     _pinViewport(tester);
-    await _expectNoOverflow('Profil', () async {
+    await _expectNoOverflow(tester, 'Profil', () async {
       await _bootApp(tester);
       await tester.tap(find.byKey(const ValueKey('today-profile')));
       await tester.pumpAndSettle();
@@ -245,7 +337,7 @@ void main() {
   testWidgets('Einstellungen (aus der Schale) rendern bei textScale 2.0 '
       'ohne Overflow', (tester) async {
     _pinViewport(tester);
-    await _expectNoOverflow('Einstellungen', () async {
+    await _expectNoOverflow(tester, 'Einstellungen', () async {
       await _bootApp(tester);
       await _goToTab(tester, 'Food');
       await tester.tap(find.byKey(const ValueKey('topbar-settings')));
@@ -284,7 +376,7 @@ void main() {
     tester,
   ) async {
     _pinViewport(tester);
-    await _expectNoOverflow('Trend-Ansicht', () async {
+    await _expectNoOverflow(tester, 'Trend-Ansicht', () async {
       await pumpLocalized(
         tester,
         TrendsScreen(
@@ -311,5 +403,65 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
     });
+  });
+
+  // Everything above renders at EXACTLY 2.0, so the clamp in `EatovaApp` is a
+  // no-op there: lowering the cap to 1.3 (or deleting it) left all eight
+  // screens green while every user at 200 % silently got 130 %. The cap is a
+  // claim of its own and needs its own case.
+  group('Der Deckel selbst', () {
+    /// Effective scale inside the app for a system scale of [system].
+    Future<double> effektiv(WidgetTester tester, double system) async {
+      pinPhoneViewport(tester);
+      tester.platformDispatcher.textScaleFactorTestValue = system;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      await _bootApp(tester);
+      return MediaQuery.textScalerOf(
+        tester.element(find.byKey(const ValueKey('screen-today'))),
+      ).scale(10);
+    }
+
+    testWidgets('bei 300 % Systemschrift kommen in der App 200 % an',
+        (tester) async {
+      expect(
+        await effektiv(tester, 3.0),
+        20.0,
+        reason: 'ohne Deckel zerreisst die feste Geometrie (Kalorienring, '
+            'Navigationsleiste) — WCAG 1.4.4 verlangt nur 200 %',
+      );
+    });
+
+    testWidgets('unterhalb des Deckels bleibt die Systemschrift unangetastet',
+        (tester) async {
+      // Gegenprobe: ein zu NIEDRIGER Deckel faellt sonst nicht auf. Genau so
+      // war es bis 2026-09-01 — eine Senkung auf 1.3 liess diese Datei gruen.
+      expect(
+        await effektiv(tester, 1.5),
+        15.0,
+        reason: 'der Deckel darf nur kappen, nicht skalieren',
+      );
+    });
+  });
+
+  testWidgets('BEKANNTE LUECKE: die Profil-Initiale im Food-Kopf wird bei 2.0 '
+      'beschnitten', (tester) async {
+    // The single exception [_bekannteEngeKey] takes out of the sweep, pinned
+    // so it cannot go stale. `_ProfileBadge` is a hard 34x34 capsule; at 200 %
+    // the letter needs 38 px, so ~2 px of ascender and descender are clipped.
+    // Cosmetic, but real — reported 2026-09-01, not fixed here.
+    //
+    // WHEN THIS TURNS RED the badge grew with the font: delete this case AND
+    // the `_bekannteEngeKey` exception above, and the sweep covers the badge
+    // like everything else.
+    _pinViewport(tester);
+    await _bootApp(tester);
+    await _goToTab(tester, 'Food');
+
+    final absatz = tester.renderObject<RenderParagraph>(_engeFinder());
+    expect(
+      absatz.size.height,
+      lessThan(absatz.getMaxIntrinsicHeight(absatz.size.width)),
+      reason: 'die Initiale passt wieder in ihre Kapsel — Ausnahme entfernen',
+    );
   });
 }

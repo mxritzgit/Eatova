@@ -153,6 +153,31 @@ void main() {
       expect((await cache.readLoggedMeals())!.single.id, 'm-2');
     });
 
+    test(
+        'das Fenster laeuft ab dem ERSTEN Aufruf — eine laufende Serie kann '
+        'den Write nicht vor sich herschieben', () async {
+      // The case above fires both writes back to back, so cancel+restart on
+      // every call would still land inside its 600 ms window and it stays
+      // green. The invariant the debounce actually promises (see
+      // `writeDebounce`) is the one below: a series with gaps SHORTER than
+      // the window must not postpone the write indefinitely, or a tapping
+      // user's diary never reaches disk and an app kill in that stretch takes
+      // the whole series with it.
+      final store = CountingKeyValueStore();
+      final cache = LocalCache(store, 'user-1');
+
+      for (var i = 1; i <= 4; i++) {
+        cache.writeLoggedMealsDebounced([testMeal('s-$i')]);
+        await Future<void>.delayed(LocalCache.writeDebounce ~/ 2);
+      }
+
+      expect(store.writesFuer(_mealsKey), greaterThanOrEqualTo(1),
+          reason: 'Nach vier Aufrufen ueber rund die doppelte Fensterlaenge '
+              'muss mindestens ein Write auf Platte sein.');
+      await cache.flush();
+      expect((await cache.readLoggedMeals())!.single.id, 's-4');
+    });
+
     test('Outbox und Stats-Deltas bleiben SOFORT (Kill-Sicherheit, DATA-7)',
         () async {
       final store = CountingKeyValueStore();

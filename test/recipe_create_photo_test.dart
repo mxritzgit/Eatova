@@ -87,6 +87,10 @@ class _TestImageStore extends RecipeImageStore {
   /// randomness is covered by test/services/recipe_image_store_test.dart.
   int _laufnummer = 0;
 
+  /// True = `save` fails like the real store does without a storage location,
+  /// with undecodable bytes, or after a purge landed mid-scrub.
+  bool speicherFehler = false;
+
   @override
   bool get baseResolved => true;
 
@@ -97,6 +101,7 @@ class _TestImageStore extends RecipeImageStore {
 
   @override
   Future<String?> save({required Uint8List bytes}) async {
+    if (speicherFehler) return null;
     final reference =
         '${RecipeImageStore.referencePrefix}test_${_laufnummer++}.jpg';
     if (!ordner.existsSync()) ordner.createSync(recursive: true);
@@ -349,6 +354,55 @@ void main() {
       expect(RecipeImageStore.isLocalReference(rezept.imageAsset), isTrue);
       expect(_store.abgelegt.keys, <String>[rezept.imageAsset]);
       expect(_store.resolveSync(rezept.imageAsset), isNotNull);
+    });
+
+    testWidgets(
+        'scheitert die Ablage, wird OHNE Bild gespeichert — nie mit einer '
+        'ins Leere zeigenden Referenz', (tester) async {
+      // Der Store gibt null zurueck (kein Ablageort, undekodierbare Bytes,
+      // Purge waehrend des Scrubs). Eine trotzdem gesetzte `local:`-Referenz
+      // waere schlimmer als gar kein Bild: die Kachel zeigte dauerhaft den
+      // Platzhalter, der Foto-Abgleich hielte den Namen fuer ein lebendes
+      // Foto, und die Zeile ginge so auch noch an den Server.
+      pinPhoneViewport(tester);
+      _store.speicherFehler = true;
+      final capture = _CreateCapture();
+      await tester.pumpWidget(
+        _app(
+          Brightness.dark,
+          photoInput: _FakeFotoquelle(bytes: _jpeg()),
+          capture: capture,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _openSheet(tester);
+
+      await _tippe(tester, 'recipe-create-name', 'Protein-Bowl');
+      await _tippe(tester, 'recipe-create-kcal', '520');
+      await tester.tap(find.byKey(const ValueKey('recipe-create-photo-camera')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('recipe-create-photo-preview')),
+          findsOneWidget,
+          reason: 'Vorbedingung: das Foto liegt im Sheet, nur die Ablage '
+              'scheitert.');
+
+      await tester.tap(find.byKey(const ValueKey('recipe-create-save')));
+      await tester.pumpAndSettle();
+
+      expect(capture.created, hasLength(1),
+          reason: 'Das Rezept selbst geht nicht verloren.');
+      expect(capture.created.single.imageAsset, isEmpty);
+      expect(
+        RecipeImageStore.isLocalReference(capture.created.single.imageAsset),
+        isFalse,
+      );
+      expect(_store.abgelegt, isEmpty);
+      // BEWUSST NICHT geprueft: dass der Nutzer „Das Foto konnte nicht
+      // abgelegt werden." zu sehen bekommt. Das Sheet meldet es, poppt sofort
+      // danach, und `_openCreateSheet` legt seine Erfolgsmeldung darueber —
+      // die Fehlermeldung ist praktisch unsichtbar. Das ist ein Befund am
+      // Produktionscode, kein Test-Problem; hier wird nur festgenagelt, was
+      // wirklich gilt.
     });
 
     testWidgets('ohne Foto bleibt imageAsset leer (Abwaertskompatibilitaet)',

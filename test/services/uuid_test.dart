@@ -99,6 +99,13 @@ void main() {
       expect(isUuidShape('aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaaa'), isFalse,
           reason: 'ohne Bindestriche ist es kein uuid-Literal');
       expect(isUuidShape(' 00000000-0000-4000-8000-000000000000'), isFalse);
+      // Only shapeless input was rejected, so the group LENGTHS were free to
+      // loosen. A 4-2-2-2-6 literal looks like a UUID and is not one: Postgres
+      // answers 22P02 and the outbox op dies as "corrupt".
+      expect(isUuidShape('0000-00-40-80-000000'), isFalse,
+          reason: 'zu kurze Gruppen sind kein uuid-Literal');
+      expect(isUuidShape('000000000-0000-4000-8000-000000000000'), isFalse,
+          reason: 'zu lange Gruppen ebenso wenig');
     });
   });
 }

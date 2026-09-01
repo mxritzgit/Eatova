@@ -205,6 +205,13 @@ class _HydrationHarnessState extends State<_HydrationHarness> {
       widget.sofort ? widget.rezepte : const <FitnessRecipe>[];
   late bool _bootFertig = widget.bootFertig;
 
+  /// Der beantwortete Boot-Load ohne Tap — waehrend eines Undo-Fensters deckt
+  /// der Snack den Knopf zu, und ein Tap darauf ginge ins Leere.
+  void meldeBoot() => setState(() {
+        _rezepte = List<FitnessRecipe>.of(widget.rezepte);
+        _bootFertig = true;
+      });
+
   @override
   Widget build(BuildContext context) => localizedApp(
         Scaffold(
@@ -233,10 +240,7 @@ class _HydrationHarnessState extends State<_HydrationHarness> {
               ),
               TextButton(
                 key: const ValueKey('harness-boot'),
-                onPressed: () => setState(() {
-                  _rezepte = List<FitnessRecipe>.of(widget.rezepte);
-                  _bootFertig = true;
-                }),
+                onPressed: meldeBoot,
                 child: const Text('Boot'),
               ),
             ],
@@ -519,6 +523,54 @@ void main() {
               'isNotEmpty-Waechter waere die falsche Reparatur.');
       expect(_store.abgleiche.single, isEmpty,
           reason: 'Kein Rezept mehr = kein Foto behalten.');
+    });
+
+    testWidgets(
+        'ein Rezept IM Undo-Fenster zaehlt beim Abgleich als vorhanden',
+        (tester) async {
+      // Der Sweep uebergibt `_userRecipes`, nicht `_visibleUserRecipes`. Der
+      // Unterschied sind genau die Rezepte in ihrem Undo-Fenster: lokal schon
+      // unsichtbar, aber noch nicht persistiert. Faendet der Abgleich sie
+      // nicht in der Behalte-Liste, fielen ihre Bytes SOFORT — und ein Tap auf
+      // „Rueckgaengig" brachte ein Rezept mit toter local:-Referenz zurueck.
+      final referenz = _legeAb(_store, 'user_a', _jpeg());
+      _pinViewport(tester);
+
+      await tester.pumpWidget(_HydrationHarness(
+        sofort: true,
+        rezepte: <FitnessRecipe>[
+          _eigenes(slug: 'user_a', imageAsset: referenz),
+        ],
+      ));
+      await tester.pumpAndSettle();
+      expect(_store.abgleiche, isEmpty,
+          reason: 'Vorbedingung: der Boot-Load hat noch nicht geantwortet.');
+
+      // Loeschen, aber die Frist NICHT ablaufen lassen.
+      await tester.tap(await _holeKachelInsBild(tester, 'user_a'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('recipe-detail-delete')));
+      await tester.pumpAndSettle();
+      expect(find.text('Rückgängig'), findsOneWidget,
+          reason: 'Vorbedingung: das Undo-Fenster laeuft noch.');
+      expect(find.byKey(const ValueKey('recipe-tile-user_a')), findsNothing,
+          reason: 'Vorbedingung: lokal ist das Rezept schon ausgeblendet.');
+
+      // Der Boot-Load antwortet jetzt — direkt am State, weil der Snack den
+      // Knopf verdeckt.
+      tester
+          .state<_HydrationHarnessState>(find.byType(_HydrationHarness))
+          .meldeBoot();
+      await tester.pumpAndSettle();
+
+      expect(_store.abgleiche, hasLength(1));
+      expect(_store.abgleiche.single, contains(referenz),
+          reason: 'Solange „Rueckgaengig" moeglich ist, braucht das Rezept '
+              'seine Bytes — sie liegen ausschliesslich auf diesem Geraet.');
+
+      // Frist auslaufen lassen, sonst haengt am Testende ein Timer.
+      await tester.pump(kRecipeUndoWindow + const Duration(seconds: 1));
+      await tester.pumpAndSettle();
     });
   });
 }

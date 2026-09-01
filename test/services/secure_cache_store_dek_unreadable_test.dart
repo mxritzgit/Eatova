@@ -85,13 +85,16 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   final kontexte = <String?>[];
+  final berichte = <Object>[];
 
   setUp(() {
     kontexte.clear();
+    berichte.clear();
     CacheKeyProvider.debugReset();
     SharedPreferences.setMockInitialValues(<String, Object>{});
     CrashReporter.debugSentrySink = (error, stack, context) {
       kontexte.add(context);
+      berichte.add(error);
     };
   });
   tearDown(() {
@@ -119,6 +122,13 @@ void main() {
           reason: 'Ohne Zaehler hat der Zustand kein Ende.');
       expect(kontexte, <String?>['cache_dek_unreadable'],
           reason: 'Ohne Meldung merkt niemand, dass der Cache tot ist.');
+      // Und WELCHES Objekt gemeldet wird. `sanitizeForReport` reduziert jeden
+      // nicht gelisteten Typ auf seinen Namen, also ist der Name die ganze
+      // Meldung: wird stattdessen der rohe Keystore-Fehler durchgereicht,
+      // steht in Sentry `StateError` und der Vorfall ist von jedem anderen
+      // Wurf der App nicht mehr zu unterscheiden.
+      expect((berichte.single as SanitizedError).type, 'UnreadableCacheKey',
+          reason: 'Der eigene Typ IST die Diagnose.');
       expect(prefs.getString(_blobKey), _deadBlob);
     });
 

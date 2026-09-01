@@ -48,6 +48,31 @@ void main() {
       expect(nextDay, isEmpty);
     });
 
+    test('weicht der gespeicherte Tag vom Zeitstempel ab, gewinnt der '
+        'gespeicherte', () {
+      // The case DATA-6 exists for: logged at 23:45 in Berlin, then the phone
+      // moves a zone (or DST shifts) and the SAME instant now reads as 00:30
+      // of the next day. local_day was written from the wall clock at logging
+      // time and must not move with it — otherwise the entry silently jumps
+      // to another day.
+      //
+      // As long as `localDay` and `loggedAt` agree, the persisted key and the
+      // isSameDay fallback are indistinguishable; only a disagreement shows
+      // which of the two the code really reads.
+      final meal = LoggedMeal(
+        id: 'verschoben',
+        result: _result(),
+        loggedAt: DateTime(2026, 6, 5, 0, 30),
+        localDay: '2026-06-04',
+      );
+
+      expect(meal.effectiveLocalDay, '2026-06-04');
+      expect(mealsForFoodDate([meal], DateTime(2026, 6, 4, 18)).single.id,
+          'verschoben');
+      expect(mealsForFoodDate([meal], DateTime(2026, 6, 5, 18)), isEmpty,
+          reason: 'der Zeitstempel darf den gespeicherten Tag nicht ueberstimmen');
+    });
+
     test('Mahlzeit ohne localDay faellt auf isSameDay(.toLocal()) zurueck', () {
       // Legacy rows without the field keep the old logic byte-identical.
       final meal = LoggedMeal(

@@ -191,6 +191,80 @@ void main() {
       expect(_messageOf(failure), isNot(contains('42')));
     });
 
+    test('reply-Feld mit Markup wird NICHT angezeigt, obwohl der Status es '
+        'erlauben wuerde', () async {
+      // 413 und das rate-limited-429 sind die beiden Faelle, in denen ein
+      // server-formulierter Satz wirklich auf den Bildschirm darf. Genau
+      // deshalb muss die Pruefung dort greifen: kommt statt des Satzes ein
+      // JSON-Fragment oder eine Fehlerseite, ist der Rueckfalltext richtig.
+      final svc = _service((req) async {
+        return _json({
+          'error': 'rate_limited',
+          'reply': '<h1>429</h1> {"detail":"upstream"}',
+        }, 429);
+      });
+      // Vergleichsmass statt fester Wortlaut: dieselbe Lage OHNE reply-Feld.
+      final ohneText = _service((req) async {
+        return _json({'error': 'rate_limited'}, 429);
+      });
+
+      final msg = _messageOf(await _failureOf(svc));
+      expect(msg, isNot(contains('<')));
+      expect(msg, isNot(contains('{')));
+      expect(msg, _messageOf(await _failureOf(ohneText)),
+          reason: 'der eigene Rueckfalltext, nicht das Fragment');
+    });
+
+    test('ein ueberlanger reply ist ein Dump, kein Satz', () async {
+      final svc = _service((req) async {
+        return _json({
+          'error': 'image_too_large',
+          // Ueber der 240-Zeichen-Grenze: so sieht ein Stacktrace aus, kein
+          // Hinweis fuer den Nutzer.
+          'reply': 'Fehler beim Verarbeiten des Bildes. ' * 20,
+        }, 413);
+      });
+
+      final failure = await _failureOf(svc);
+      final msg = _messageOf(failure);
+      expect(msg.length, lessThanOrEqualTo(240));
+      expect(msg, contains('Bild'),
+          reason: 'der eigene 413-Text tritt an die Stelle des Dumps');
+    });
+
+    test('ein sauberer, kurzer reply kommt bei 413 sehr wohl durch '
+        '(Gegenprobe)', () async {
+      // Ohne diese Zeile wuerde auch ein Mapping bestehen, das JEDEN
+      // Server-Satz verwirft — und damit die genauere Meldung verschenkt.
+      final svc = _service((req) async {
+        return _json({
+          'error': 'image_too_large',
+          'reply': 'Das Bild ist zu gross. Schick bitte ein kleineres.',
+        }, 413);
+      });
+
+      final failure = await _failureOf(svc);
+      expect(_messageOf(failure),
+          'Das Bild ist zu gross. Schick bitte ein kleineres.');
+    });
+
+    test('5xx zeigt auch einen tadellosen Server-Satz nicht an', () async {
+      // 5xx-Koerper sind Interna. Ein Satz, der wie eine Nutzermeldung
+      // aussieht, ist dort trotzdem keine — und die 240-Zeichen-Pruefung
+      // laesst ihn durch, also muss der Status ihn stoppen.
+      final svc = _service((req) async {
+        return _json({
+          'error': 'rpc_unavailable',
+          'reply': 'Die Datenbank antwortet nicht.',
+        }, 503);
+      });
+
+      final failure = await _failureOf(svc);
+      final msg = _messageOf(failure);
+      expect(msg, isNot(contains('Datenbank')));
+      expect(msg, contains('Coach'));
+    });
+
     test('FunctionsRelayException (x-relay-error) -> eigener, sauberer Zweig',
         () async {
       // The relay error is a different type from FunctionsHttpException and

@@ -141,6 +141,32 @@ void main() {
     expect(find.text(_keineTreffer), findsOneWidget);
     // Definitively empty still offers the manual form.
     expect(find.byKey(const ValueKey('manual-entry-cta')), findsOneWidget);
+
+    // Und derselbe Begriff ein zweites Mal wird aus dem Sitzungs-Gedaechtnis
+    // beantwortet: „leer" ist eine Antwort, die man nicht neu holen muss.
+    // (Mutationslauf T4, 2026-09-01: der Kurzschluss ueber `_emptyQueryCache`
+    // liess sich ersatzlos streichen, ohne dass ein Fall rot wurde.)
+    await tester.enterText(
+      find.byKey(const ValueKey('kcal-product-search-input')),
+      'Bauernmozzarella X',
+    );
+    await tester.pump(const Duration(milliseconds: 1100));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('kcal-product-search-input')),
+      'Bauernmozzarella',
+    );
+    await tester.pump(const Duration(milliseconds: 1100));
+    await tester.pumpAndSettle();
+
+    expect(
+      dienst.aufrufe,
+      2,
+      reason: 'nur der neue Begriff darf kosten — der bekannte leere Begriff '
+          'wird sofort beantwortet',
+    );
+    expect(find.text(_keineTreffer), findsOneWidget);
+    expect(find.byKey(const ValueKey('manual-entry-cta')), findsOneWidget);
   });
 
   testWidgets('429 wird benannt statt als leeres Ergebnis gezeigt', (

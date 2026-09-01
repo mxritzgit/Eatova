@@ -185,6 +185,27 @@ Deno.test("items[]: unparsebare Werte werden null, nicht 0", () => {
   assertEquals(items[2].name, "Parmesan", "Namen bleiben Strings");
 });
 
+Deno.test("items[]: die Deckelung bei 20 haelt, Nicht-Objekte fallen raus", () => {
+  // Die Laenge des Arrays kommt aus der Modellantwort und geht ungefiltert an
+  // den Client. Der Deckel (`.slice(0, 20)`) war nirgends gepinnt: er liess
+  // sich hochsetzen oder streichen, ohne dass ein Test rot wurde, obwohl er
+  // das Einzige ist, was eine 500-Zeilen-Antwort vom Sheet fernhaelt.
+  const viele = normalizeMealResult({
+    items: Array.from({ length: 50 }, (_, i) => ({ name: `Zutat ${i}`, grams: 10 })),
+  });
+  assertEquals(viele.items.length, 20, "hoechstens 20 Items");
+  assertEquals(viele.items[0].name, "Zutat 0", "und zwar die ERSTEN 20");
+  assertEquals(viele.items[19].name, "Zutat 19", "letztes behaltenes Item");
+
+  // Nicht-Objekte werden verworfen, BEVOR gedeckelt wird — sonst frisst
+  // Fuellmaterial die 20 Plaetze auf.
+  const gemischt = normalizeMealResult({
+    items: ["Pasta", null, 42, { name: "Sauce", grams: 100 }],
+  });
+  assertEquals(gemischt.items.length, 1, "nur das eine echte Item");
+  assertEquals(gemischt.items[0].name, "Sauce", "und es ist das richtige");
+});
+
 Deno.test("optionalInt/optionalNumber: Einzelverhalten", () => {
   assertEquals(optionalInt("keine Angabe", 0, 100), null, "Text -> null");
   assertEquals(optionalInt("", 0, 100), null, "leerer String -> null (Number('') === 0!)");

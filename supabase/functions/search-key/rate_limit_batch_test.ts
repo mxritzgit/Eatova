@@ -284,14 +284,33 @@ Deno.test("P6-02: mehr Elemente als Tore ist ebenfalls ein Ausfall", async () =>
 });
 
 Deno.test("P6-02: ein Element ohne lesbares allowed bleibt ein Ausfall, kein erfundenes 429", async () => {
-  const handler = await loadHandler();
-  const stub = installFetch({ batchReply: (gates) => [erlaubt(gates[0]), { limit: USER_LIMIT }] });
-  try {
-    const res = await handler(request());
-    assertEquals(res.status, 500, "Status");
-    assertEquals((await res.json() as JsonRecord).error, "rate_limit_unavailable", "Fehlercode");
-  } finally {
-    stub.restore();
+  // Das FEHLENDE Feld war der einzige gepruefte Fall — und der ist der
+  // harmlose: er faellt schon ueber jede `!== undefined`-Pruefung. Der teure
+  // ist der WAHRHEITSWERTIGE Fremdtyp: `"false"`, `1` oder `{}` sind in
+  // JavaScript truthy, also liest sie ein `typeof`-loser Riegel als
+  // ERLAUBT durch — der Key ginge raus, ohne dass je ein Limit gemessen
+  // wurde. Deshalb steht hier eine Matrix, kein Einzelfall.
+  const kaputt: { was: string; entry: JsonRecord }[] = [
+    { was: "Feld fehlt", entry: { limit: USER_LIMIT } },
+    { was: "String 'true'", entry: { allowed: "true", limit: USER_LIMIT } },
+    { was: "String 'false'", entry: { allowed: "false", limit: USER_LIMIT } },
+    { was: "Zahl 1", entry: { allowed: 1, limit: USER_LIMIT } },
+    { was: "Zahl 0", entry: { allowed: 0, limit: USER_LIMIT } },
+    { was: "null", entry: { allowed: null, limit: USER_LIMIT } },
+    { was: "Objekt", entry: { allowed: {}, limit: USER_LIMIT } },
+  ];
+  for (const fall of kaputt) {
+    const handler = await loadHandler();
+    const stub = installFetch({ batchReply: (gates) => [erlaubt(gates[0]), fall.entry] });
+    try {
+      const res = await handler(request());
+      assertEquals(res.status, 500, `${fall.was}: Status`);
+      const body = await res.json() as JsonRecord;
+      assertEquals(body.error, "rate_limit_unavailable", `${fall.was}: Fehlercode`);
+      assertEquals("searchKey" in body, false, `${fall.was}: kein Key im Ausfall`);
+    } finally {
+      stub.restore();
+    }
   }
 });
 

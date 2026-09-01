@@ -151,9 +151,10 @@ void main() {
           ),
         );
 
-        // `_wireOAuthSheetDismiss` listens without `onError`, so a
-        // `notifyException` lands unhandled in the zone that called `listen()`
-        // — this one, where it is collected instead of failing the test.
+        // Belt and braces: `_wireOAuthSheetDismiss` has carried an `onError`
+        // since the FLUTTER-8 fix, but `initialize` starts more than that one
+        // listener, and anything it lets escape would fail the test instead of
+        // being collected here.
         await runZonedGuarded<Future<void>>(
           EatovaSupabaseConfig.initialize,
           (Object fehler, StackTrace stack) =>

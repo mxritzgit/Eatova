@@ -8,6 +8,7 @@ import 'package:supabase/supabase.dart';
 
 import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
+import 'package:eatova/src/models/coach_recipe_proposal.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 
@@ -164,7 +165,39 @@ class _RaceCoach extends CoachChatService {
     offen.add(auftrag);
     return auftrag.future;
   }
+
+  /// Pending /recipe jobs, same principle as [offen]: the test decides when
+  /// the proposal lands, so the session switch fits in between.
+  final List<Completer<CoachRecipeReply>> offeneRezepte =
+      <Completer<CoachRecipeReply>>[];
+
+  @override
+  Future<CoachRecipeReply> requestRecipe(
+    String wish, {
+    required String sessionId,
+    required String locale,
+  }) {
+    gesendeteSessions.add(sessionId);
+    final auftrag = Completer<CoachRecipeReply>();
+    offeneRezepte.add(auftrag);
+    return auftrag.future;
+  }
 }
+
+/// Proposal WITHOUT image bytes and without a server id: the save path would
+/// otherwise write through RecipeImageStore and hit a platform channel.
+const CoachRecipeProposal _vorschlag = CoachRecipeProposal(
+  title: 'Huehnchenauflauf',
+  description: 'Cremig und proteinreich.',
+  portion: '1 grosse Portion',
+  ingredients: '- 250 g Haehnchenbrust',
+  preparation: '1. Ofen vorheizen.',
+  caloriesKcal: 520,
+  proteinG: 48,
+  carbsG: 32,
+  fatG: 18,
+  estimatedGrams: 450,
+);
 
 const Size _usableSize = Size(402, 781);
 
@@ -326,6 +359,55 @@ void main() {
   );
 
   testWidgets(
+    '/recipe mit Sitzungswechsel: die Karte bleibt weg, der Tagesslot ist '
+    'trotzdem verbucht',
+    (tester) async {
+      // Gleiche Regel wie im Chat-Pfad, zweiter Weg: /recipe kostet denselben
+      // Tagesslot. Wird die Karte wegen des Wechsels verworfen, ist der Slot
+      // trotzdem weg — steht der Zaehler danach weiter auf 5, verspricht das
+      // (i)-Sheet eine Frage, die der Server mit 429 beantwortet.
+      final svc = _RaceCoach.create();
+      await _pumpCoach(tester, svc);
+
+      await _tippenUndSenden(tester, '/recipe Huehnchenauflauf');
+      expect(svc.offeneRezepte, hasLength(1), reason: 'der Wunsch ist raus');
+      expect(svc.gesendeteSessions, <String>['s1']);
+
+      await _wechsleAufSitzung(tester, 'Chat B');
+      expect(find.text(_RaceCoach.verlaufB), findsOneWidget);
+
+      svc.offeneRezepte.first.complete(
+        const CoachRecipeReply(
+          reply: 'Rezeptvorschlag: Huehnchenauflauf.',
+          refusal: false,
+          proposal: _vorschlag,
+          sessionId: 's1',
+          remaining: 4,
+          dailyLimit: 5,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('coach-recipe-card')),
+        findsNothing,
+        reason: 'die Karte gehoert Sitzung A — in B stuende sie ohne den '
+            'Wunsch da, aus dem sie entstand',
+      );
+      expect(find.text(_RaceCoach.verlaufB), findsOneWidget);
+
+      await _oeffneInfoSheet(tester);
+      expect(
+        find.textContaining('4 von 5 Fragen heute frei'),
+        findsOneWidget,
+        reason: 'der Slot ist verbraucht, egal wo der Nutzer gerade steht — '
+            'wird der Zaehler erst NACH dem Sitzungsvergleich uebernommen, '
+            'faellt genau diese Buchung unter den Tisch',
+      );
+    },
+  );
+
+  testWidgets(
     'Sitzungswechsel setzt den Sende-Zustand nicht zurueck: kein zweiter '
     'Request neben dem laufenden',
     (tester) async {
@@ -365,6 +447,60 @@ void main() {
         reason: 'der Composer darf nach dem Ausgang nicht gesperrt bleiben — '
             'der Zaehler wird auch fuer verworfene Antworten freigegeben',
       );
+    },
+  );
+
+  testWidgets(
+    'der Server hat in einer ANDEREN Sitzung gespeichert: die App folgt ihm, '
+    'statt die Antwort lokal anzuhaengen',
+    (tester) async {
+      // P5-01: die angefragte Sitzung gehoert dem Nutzer nicht mehr (ein
+      // zweites Geraet hat sie geloescht), also faellt die Funktion auf die
+      // Standard-Sitzung zurueck und meldet das in `session_id`. Bis hierher
+      // hatte dieser Pfad keinen einzigen Test.
+      final svc = _RaceCoach.create();
+      await _pumpCoach(tester, svc);
+
+      await _tippenUndSenden(tester, 'Frage aus Sitzung A');
+      svc.offen.first.complete(
+        const CoachChatReply(
+          reply: 'Antwort, die in B gelandet ist',
+          refusal: false,
+          sessionId: 's2',
+          remaining: 4,
+          dailyLimit: 5,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.textContaining('Diese Unterhaltung gibt es nicht mehr'),
+        findsOneWidget,
+        reason: 'ohne Ansage waendert der Austausch beim naechsten Neuladen '
+            'kommentarlos die Unterhaltung',
+      );
+      expect(
+        find.text(_RaceCoach.verlaufB),
+        findsOneWidget,
+        reason: 'die App zeigt die Sitzung, die der Server wirklich benutzt hat',
+      );
+      expect(
+        find.text('Antwort, die in B gelandet ist'),
+        findsNothing,
+        reason: 'nicht lokal angehaengt: der geladene Verlauf ist die Wahrheit, '
+            'sonst stuende die Antwort doppelt oder in einem Thread, den der '
+            'Server nicht mehr hat',
+      );
+      expect(
+        find.byKey(const ValueKey('coach-unsent')),
+        findsNothing,
+        reason: 'die Frage WURDE zugestellt — ein „Nicht gesendet"-Marker '
+            'lockte in den zweiten der fuenf Tagesslots',
+      );
+
+      // Und der Slot ist verbucht, obwohl die Blase nie lokal ankam.
+      await _oeffneInfoSheet(tester);
+      expect(find.textContaining('4 von 5 Fragen heute frei'), findsOneWidget);
     },
   );
 

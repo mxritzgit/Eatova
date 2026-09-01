@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/home_store.dart';
+import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/notification_service.dart';
@@ -67,6 +69,28 @@ class _FakeNotificationService
   @override
   Future<void> cancelAll() async => cancelAllCalls++;
 }
+
+/// Plugin layer that is unusable right now (F7-12): `init()` throws the way
+/// flutter_local_notifications does when the Android channel is missing.
+class _ExplodingNotificationService extends _FakeNotificationService {
+  @override
+  Future<void> init() async {
+    initCalls++;
+    throw PlatformException(code: 'channel_error', message: 'kein Kanal');
+  }
+}
+
+const MealAnalysisResult _mahlzeit = MealAnalysisResult(
+  mealName: 'Linsensuppe',
+  caloriesKcal: 420,
+  estimatedGrams: 350,
+  kcalPer100G: 120,
+  protein: '20 g',
+  carbs: '50 g',
+  fat: '10 g',
+  confidence: 'Hoch',
+  portionNotes: '',
+);
 
 HomeStore _storeWith(LocalCache cache, NotificationService notifications) =>
     HomeStore(
@@ -193,6 +217,62 @@ void main() {
       expect(store.reminderState, ReminderState.off);
       expect(svc.hasPermissionCalls, 0);
       expect(svc.scheduled, isEmpty);
+    });
+
+    test('wirft die Plugin-Schicht, landet der Nutzer in blocked — nicht in '
+        'off und nicht in einem Zonenfehler', () async {
+      // F7-12/F1-09: a PlatformException from `init()` used to escape as an
+      // unhandled zone error on EVERY cold start. The fence is a bare `catch`
+      // whose only visible effect is the resulting state, so nothing held it
+      // to `blocked`: `off` would silently disown an opt-in the user made.
+      final cache = newCache();
+      await cache.writeNotificationsEnabled(true);
+      final svc = _ExplodingNotificationService();
+      final store = _storeWith(cache, svc);
+
+      await store.initNotificationsFromCache();
+
+      expect(store.reminderState, ReminderState.blocked);
+      expect(store.notificationsEnabled, isFalse);
+      expect(svc.scheduled, isEmpty);
+      expect(await cache.readNotificationsEnabled(), isTrue,
+          reason: 'nichts bewiesen -> das Opt-in bleibt unangetastet');
+    });
+  });
+
+  group('D11 — Planen ist an die Berechtigung gebunden', () {
+    test('eine Mahlzeit im Zustand off plant keinen Reminder', () async {
+      // The reminder replan hangs off meal logging, and that path knows
+      // nothing about the permission — only the guard inside the planner call
+      // does. Every other test here enters through the notification API, where
+      // the state is already `active`, so the guard could be deleted without
+      // a red test while the app scheduled notifications nobody allowed.
+      final cache = newCache();
+      final svc = _FakeNotificationService(osAllows: true);
+      final store = _storeWith(cache, svc);
+
+      await store.initNotificationsFromCache(); // no opt-in -> off
+      expect(store.reminderState, ReminderState.off);
+
+      store.addResultToDailyTotal(_mahlzeit);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(svc.scheduled, isEmpty);
+    });
+
+    test('dieselbe Mahlzeit im Zustand active plant sehr wohl', () async {
+      final cache = newCache();
+      await cache.writeNotificationsEnabled(true);
+      final svc = _FakeNotificationService(osAllows: true);
+      final store = _storeWith(cache, svc);
+      await store.initNotificationsFromCache();
+      expect(store.reminderState, ReminderState.active);
+      final vorher = svc.scheduled.length;
+
+      store.addResultToDailyTotal(_mahlzeit);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(svc.scheduled.length, vorher + 1);
     });
   });
 

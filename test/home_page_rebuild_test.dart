@@ -194,6 +194,19 @@ void main() {
     await _pumpFrames(tester);
     expect(debugTabBuilds[3], 1);
 
+    // Gegenprobe zur selben Aenderung: den HEUTE-Tab geht sie sehr wohl an, er
+    // rendert genau diesen Tag (Datum, kcal, Makros, Mahlzeiten). Zwei
+    // ARCHIV-Tage, damit sich wirklich nur `selectedFoodDate` bewegt — der
+    // Sprung heute -> Archiv kippt zusaetzlich `selectedFoodDateIsToday` und
+    // wuerde die Slice auch ohne das Datum aendern.
+    final heuteVorher = debugTabBuilds[0]!;
+    store.setFoodDate(DateTime(2026, 8, 6));
+    await _pumpFrames(tester);
+    expect(debugTabBuilds[3], 1);
+    expect(debugTabBuilds[0], heuteVorher + 1,
+        reason: 'ohne selectedFoodDate in der Slice zeigt die Tagesuebersicht '
+            'nach einem Wechsel zwischen zwei Archivtagen weiter den alten Tag');
+
     // A logged meal does change coachContext -> rebuild.
     store.addResultToDailyTotal(_meal('Testmahlzeit'));
     await _pumpFrames(tester);

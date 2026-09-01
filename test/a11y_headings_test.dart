@@ -220,6 +220,16 @@ void main() {
       expect(titel.headingLevel, 1);
     });
 
+    // HONEST NOTE (mutation run 2026-09-01): the `enabled:` guard in
+    // `_maybeHeading` is NOT what keeps this green. Removing it — annotating
+    // the empty `Text('')` unconditionally — leaves this case passing, because
+    // Flutter drops a header node that has neither a label nor a rect. The
+    // case pins the OUTCOME, not the guard; do not read it as proof that
+    // `_maybeHeading` still works.
+    //
+    // The counter-check below is what stops it from being green for the wrong
+    // reason (semantics never enabled, `_sprungmarken` matching nothing at
+    // all): with a title the very same header must yield exactly one mark.
     testWidgets('PageHeader ohne Titel erzeugt keine leere Sprungmarke',
         (tester) async {
       final handle = tester.ensureSemantics();
@@ -230,6 +240,18 @@ void main() {
 
       expect(marken, isEmpty,
           reason: 'eine Sprungmarke ohne Text waere eine Sackgasse');
+
+      final handle2 = tester.ensureSemantics();
+      await _pump(tester, const PageHeader(title: 'Mein Profil'));
+      final mitTitel = _sprungmarken();
+      handle2.dispose();
+
+      expect(
+        mitTitel,
+        <Sprungmarke>[(label: 'Mein Profil', level: 1)],
+        reason: 'derselbe Kopf MIT Titel muss genau eine Marke liefern — '
+            'sonst waere das isEmpty oben nur ein stiller Messfehler',
+      );
     });
 
     testWidgets('SectionHeading ist eine Ueberschrift der Ebene 2',

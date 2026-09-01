@@ -10,7 +10,12 @@ import 'dart:async';
 
 import 'package:eatova/src/services/crash_reporter.dart';
 import 'package:eatova/src/services/secure_cache_store.dart'
-    show UndecryptableCacheSlot, redactUserSegment;
+    show
+        AbandonedCacheKey,
+        UndecryptableCacheSlot,
+        UnreadableCacheKey,
+        VanishedCacheKey,
+        redactUserSegment;
 import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' show ClientException;
@@ -440,6 +445,36 @@ void main() {
       expect(s.detail, contains('<uid>'));
       expect(s.detail, contains('InvalidCipherTextException'));
       expect(s.detail, isNot(contains('0f1e2d3c')));
+    });
+
+    test('die drei DEK-Diagnoseobjekte kommen mindestens als Typname an und '
+        'tragen nie Nutzerdaten', () {
+      // GEMELDETER BEFUND (2026-09-01): nur `UndecryptableCacheSlot` steht in
+      // der Allowlist `_sanitisiertPerKonstruktion`. Die drei hier bauen
+      // sorgfaeltig eine Meldung mit Strike-Zaehler und Budget und landen
+      // trotzdem im Default-Zweig — in Sentry steht heute der nackte Typname,
+      // die Diagnose ist weg. NICHT hier gepinnt: der Test misst nur, was in
+      // BEIDEN Faellen gelten muss, damit die Behebung (ein Eintrag mehr in
+      // der Allowlist) ihn nicht rot macht.
+      const objekte = <Object>[
+        VanishedCacheKey(strike: 2, budget: 3),
+        UnreadableCacheKey(
+          strike: 1,
+          budget: 3,
+          errorType: 'PlatformException',
+        ),
+        AbandonedCacheKey(purgedSlots: 7, budget: 3),
+      ];
+
+      for (final fehler in objekte) {
+        final s = sanitizeForReport(fehler);
+        expect(s.type, fehler.runtimeType.toString(),
+            reason: 'ohne den Typnamen ist der Report wertlos');
+        for (final geheim in _verboten) {
+          expect(s.toString(), isNot(contains(geheim)),
+              reason: '$fehler darf $geheim nie mitfuehren');
+        }
+      }
     });
   });
 }

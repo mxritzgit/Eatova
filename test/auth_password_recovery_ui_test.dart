@@ -1,10 +1,15 @@
+import 'dart:io';
+
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/auth/auth_repository.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/auth_code_screen.dart';
 import 'package:eatova/src/screens/auth_screen.dart';
+import 'package:eatova/src/screens/settings/account_change_messages.dart'
+    show kAccountCodeLength;
 
 import 'support/harness.dart';
 
@@ -52,7 +57,39 @@ Future<void> _pumpCode(
   );
 }
 
+/// Value of one `| \`schluessel\` | \`zahl\` |` row in the config table of
+/// supabase/AUTH_EMAIL_OTP.md.
+int _serverEinstellung(String schluessel) {
+  final doku = File('supabase/AUTH_EMAIL_OTP.md').readAsStringSync();
+  final treffer =
+      RegExp('`$schluessel`\\s*\\|\\s*`(\\d+)`').firstMatch(doku);
+  expect(treffer, isNotNull,
+      reason: 'ohne die Zeile `$schluessel` in supabase/AUTH_EMAIL_OTP.md '
+          'prueft dieser Abgleich nichts mehr');
+  return int.parse(treffer!.group(1)!);
+}
+
 void main() {
+  // The 2026-08-18 incident: the code length was raised, and app and server
+  // config were changed in the wrong order — an older build cut the input off
+  // at six digits and stopped accepting ANY code. Nothing tied the two halves
+  // together; every flow below just types eight digits by hand, so both sides
+  // could drift again without a single test going red.
+  //
+  // The doc IS the server contract here (there is no API to read the live
+  // config from a unit test), so the length the field, the validation and both
+  // mails hang on is compared against exactly that row.
+  test('Code-Laenge und Gueltigkeit stehen so in der Server-Konfiguration',
+      () {
+    expect(kAccountCodeLength, _serverEinstellung('mailer_otp_length'),
+        reason: 'laufen App und Server auseinander, nimmt der ausgelieferte '
+            'Build keinen Code mehr an — und die Reihenfolge (erst App '
+            'verteilen, dann Config patchen) steht in derselben Datei');
+    expect(_serverEinstellung('mailer_otp_exp'), 600,
+        reason: 'die App verspricht in beiden Sprachen 10 Minuten — auf der '
+            'Code-Seite, in der Passwort- und in der Loesch-Bestaetigung');
+  });
+
   testWidgets('Passwort vergessen oeffnet die Code-Seite mit vorbefuellter '
       'E-Mail', (tester) async {
     final repo = InMemoryAuthRepository();
@@ -162,6 +199,28 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repo.verifiedCodes, ['user@example.com:13579246']);
+  });
+
+  testWidgets('ein zu kurzer Code erreicht den Server gar nicht',
+      (tester) async {
+    // The mirror of the delete sheet's guard (delete_account_reauth_test.dart):
+    // a hopeless call is REJECTED by the server and burns one of the five
+    // attempts against a lockout that only a NEW code can lift — the same cost
+    // P4-02c removed for misclassified errors. Only the shape of the input is
+    // checked here, so it belongs before the request, not after it.
+    final repo = InMemoryAuthRepository();
+    await _pumpCode(tester, repo, flow: AuthCodeFlow.signup);
+
+    await tester.enterText(find.byKey(const ValueKey('code-field')), '1234');
+    await tester.tap(find.byKey(const ValueKey('code-primary')));
+    await tester.pumpAndSettle();
+
+    expect(repo.verifiedCodes, isEmpty,
+        reason: 'ein unvollstaendiger Code darf keinen Versuch kosten');
+    expect(find.text(deL10n.authCodeErrorLength(kAccountCodeLength)),
+        findsOneWidget,
+        reason: 'und der Nutzer erfaehrt, dass Ziffern fehlen — nicht, dass '
+            'der Code falsch war');
   });
 
   testWidgets('Signup-Flow: Neuanfordern nutzt resendSignupCode',

@@ -453,9 +453,14 @@ void main() {
   // 5. L5 — die Plattform-Degradation ist wieder umkehrbar
   // -------------------------------------------------------------------------
   group('L5 Plattform-Degradation ist umkehrbar', () {
-    test(
-        'nach einem Fehlschlag ruht die Plattform genau '
-        'platformRetryAfterCalls Aufrufe', () async {
+    // The LENGTH is spelled out, not read from the constant. Every other case
+    // in this group loops over `platformRetryAfterCalls` and therefore
+    // compares the constant with itself: shortening it to 4 or stretching it
+    // to 4096 left all of them green. The number is a decision with a price in
+    // both directions (see the constant's doc comment), so it is MEASURED off
+    // a running instance here and matched against the literal.
+    test('nach einem Fehlschlag ruht die Plattform genau 64 Aufrufe lang',
+        () async {
       final flaky =
           _FlakigeAesGcm(DartAesGcm.with256bits(), fehlschlaege: 1);
       final cipher = PlatformAesGcmCacheCipher(_dek, algorithm: flaky);
@@ -463,17 +468,25 @@ void main() {
       expect(await cipher.encrypt(_key, 'a'), startsWith(cacheCipherMagic));
       expect(flaky.aufrufe, 1, reason: 'Der Fehlschlag selbst.');
 
-      for (var i = 0; i < PlatformAesGcmCacheCipher.platformRetryAfterCalls;
-          i++) {
-        await cipher.encrypt(_key, 'ruhe-$i');
+      // Zaehlt, wie viele Aufrufe der Fallback beantwortet, bis die Plattform
+      // wieder an der Reihe ist.
+      var ausDemFallback = 0;
+      while (flaky.aufrufe == 1) {
+        if (ausDemFallback > 4096) {
+          fail('Die Plattform wurde nie wieder gefragt — die Degradation ist '
+              'wieder eine Einbahnstrasse (L5).');
+        }
+        await cipher.encrypt(_key, 'ruhe-$ausDemFallback');
+        ausDemFallback++;
       }
-      expect(flaky.aufrufe, 1,
-          reason: 'Waehrend der Abkuehlung wird die Plattform nicht gefragt.');
 
-      await cipher.encrypt(_key, 'wieder');
-      expect(flaky.aufrufe, 2,
-          reason: 'Danach schon — sonst kostet EIN Ausrutscher den Rest der '
-              'Sitzung den schnellen Pfad.');
+      expect(ausDemFallback - 1, 64,
+          reason: 'Kuerzer heisst, ein wirklich toter Kanal wird staendig '
+              'erneut gefragt; laenger heisst, EIN Schluckauf kostet einen '
+              'grossen Teil der Sitzung den schnellen Pfad.');
+      expect(PlatformAesGcmCacheCipher.platformRetryAfterCalls, 64,
+          reason: 'Die dokumentierte Konstante und das gemessene Verhalten '
+              'duerfen nicht auseinanderlaufen.');
     });
 
     test('der Wiederversuch traegt: die Plattform bleibt danach in Betrieb',

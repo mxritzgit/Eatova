@@ -177,13 +177,29 @@ Map<Color, String> _makroToene(AppTokens t) => <Color, String>{
       t.snack: 'snack',
     };
 
-/// Fails when any [Text] in the current tree is PAINTED in a macro tone.
+/// The tones that may not carry TEXT: the four graphic tones plus the two
+/// signal tones.
+///
+/// `warning` and `danger` belong here for the same reason and were the hole
+/// this helper had until 2026-09-01: they are toned as GLYPH colours (WCAG
+/// 1.4.11, 3:1) and measure 4.20:1 / 4.48:1 as 12 px text on the light `bg` —
+/// under AA. The one place they legitimately ARE the text colour is an
+/// UNBOXED [SettingsNote], where no fill eats their headroom; that widget has
+/// its own group at the end of this file and appears on none of the screens
+/// this helper is pointed at.
+Map<Color, String> _verbotenAlsText(AppTokens t) => <Color, String>{
+      ..._makroToene(t),
+      t.warning: 'warning',
+      t.danger: 'danger',
+    };
+
+/// Fails when any [Text] in the current tree is PAINTED in one of those tones.
 ///
 /// Deliberately widget-level: the tones themselves are correct (3:1 for
 /// graphics), only their use as text is wrong, and no colour-pair check can
 /// see that.
 void _erwarteKeineMakroTexte(WidgetTester tester, AppTokens t) {
-  final toene = _makroToene(t);
+  final toene = _verbotenAlsText(t);
   final treffer = <String>[];
   for (final element in find.byType(Text).evaluate()) {
     final widget = element.widget as Text;
@@ -197,9 +213,10 @@ void _erwarteKeineMakroTexte(WidgetTester tester, AppTokens t) {
   expect(
     treffer,
     isEmpty,
-    reason: 'Makrofarben sind Grafik-Toene (3:1) und tragen keinen Text — '
-        'im Hellmodus erreichen carbs 3,39:1 und fat 3,73:1 auf surf, '
-        'noetig waeren 4,5:1. Farbiger Punkt + Text in ink:\n'
+    reason: 'Diese Toene sind Grafik-/Glyphen-Toene (3:1) und tragen keinen '
+        'Text — im Hellmodus erreichen carbs 3,39:1, fat 3,73:1, warning '
+        '4,20:1 und danger 4,48:1, noetig waeren 4,5:1. Farbiger Punkt bzw. '
+        'Glyphe + Text in ink:\n'
         '${treffer.join('\n')}',
   );
 }

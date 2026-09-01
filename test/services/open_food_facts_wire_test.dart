@@ -141,6 +141,17 @@ void main() {
       expect(ergebnis.estimatedGrams, 15);
       expect(ergebnis.caloriesKcal, 81);
       expect(ergebnis.sourceLabel, 'OpenFoodFacts');
+      // The macros are the other three numbers the diary shows, and nothing
+      // else asserted them for the OFF path: swapping protein and fat in
+      // `fromOpenFoodFacts` AND dropping the portion scaling left the whole
+      // suite green. Exact strings, because the format IS the assurance —
+      // portion value (not per 100 g), one decimal, German comma, unit "g".
+      //   proteins_100g      6,3 * 15/100 = 0,945 -> "0,9 g"
+      //   carbohydrates_100g 57,5 * 15/100 = 8,625 -> "8,6 g"
+      //   fat_100g           30,9 * 15/100 = 4,635 -> "4,6 g"
+      expect(ergebnis.protein, '0,9 g');
+      expect(ergebnis.carbs, '8,6 g');
+      expect(ergebnis.fat, '4,6 g');
     });
 
     test('unbekannter Barcode (404 mit JSON) wirft ProductNotFoundException',

@@ -110,6 +110,70 @@ void main() {
       );
     });
 
+    // The letter sits on the avatar's OWN 16 % tint, so the tone that paints
+    // the tile may not paint the glyph: the raw carb amber reaches 2.15:1
+    // there in light mode. `hell_modus_audit_test` computes what
+    // `readableOnTint` WOULD give — it never looks at what the widget picks,
+    // and neither did this file, so the whole suite stayed green with the
+    // correction dropped. Measured on the rendered tree, in both palettes and
+    // for all four slot tones.
+    testWidgets('der Buchstabe bleibt auf seiner eigenen Tint lesbar',
+        (tester) async {
+      final zuSchwach = <String>[];
+      for (final palette in <(String, AppTokens, Brightness)>[
+        ('hell', AppTokens.light, Brightness.light),
+        ('dunkel', AppTokens.dark, Brightness.dark),
+      ]) {
+        final t = palette.$2;
+        for (final ton in <(String, Color)>[
+          ('protein', t.protein),
+          ('carbs', t.carbs),
+          ('fat', t.fat),
+          ('snack', t.snack),
+        ]) {
+          await tester.pumpWidget(
+            designHarness(
+              MealAvatar(letter: 'F', color: ton.$2),
+              brightness: palette.$3,
+            ),
+          );
+          // MaterialApp LERPS the theme over kThemeAnimationDuration, so a
+          // single frame still hands out the previous palette — the case would
+          // measure a dark tone against a light ground.
+          await tester.pumpAndSettle();
+          final tint = Color.alphaBlend(
+            decorationOf(tester, find.byType(MealAvatar)).color!,
+            groundBehind(tester.element(find.byType(MealAvatar))),
+          );
+          final glyphe = tester.widget<Text>(find.text('F')).style!.color!;
+          final ratio = contrastRatio(Color.alphaBlend(glyphe, tint), tint);
+          if (ratio < 4.5) {
+            zuSchwach.add(
+              '${palette.$1}/${ton.$1}: ${ratio.toStringAsFixed(2)}:1 '
+              '(Glyphe $glyphe auf Tint $tint)',
+            );
+          }
+        }
+      }
+      expect(zuSchwach, isEmpty,
+          reason: 'Buchstabe auf seinem eigenen 16-%-Tint unter AA:\n'
+              '${zuSchwach.join('\n')}');
+    });
+
+    testWidgets('der rohe Slot-Ton waere dort NICHT lesbar', (tester) async {
+      // Counter-check, so the case above cannot pass by accident: what the
+      // widget must not use.
+      const t = AppTokens.light;
+      await tester.pumpWidget(
+        designHarness(MealAvatar(letter: 'F', color: t.carbs)),
+      );
+      final tint = Color.alphaBlend(
+        decorationOf(tester, find.byType(MealAvatar)).color!,
+        groundBehind(tester.element(find.byType(MealAvatar))),
+      );
+      expect(contrastRatio(t.carbs, tint), lessThan(3.0));
+    });
+
     testWidgets('size skaliert die Kachel', (tester) async {
       await tester.pumpWidget(
         designHarness(

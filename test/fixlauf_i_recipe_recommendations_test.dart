@@ -65,52 +65,77 @@ Finder _karte(String slug) => find.descendant(
       matching: find.byKey(ValueKey('recipe-recommended-$slug')),
     );
 
+/// Pinned day for the cases that do not test the rotation itself (K-02): the
+/// carousel picks its cards off `clock.now()` at BUILD time while the
+/// expectation reads the clock again at assertion time, so on the real clock a
+/// midnight rollover between the two would compare two different days.
+final DateTime _tag = DateTime(2026, 8, 15, 12);
+
 void main() {
   testWidgets('eigene Rezepte stehen nie im Karussell — auch nicht an '
       'erster Stelle', (tester) async {
     _pinViewport(tester);
-    await _pumpApp(tester, userRecipes: [_eigenes]);
-    await tester.pumpAndSettle();
+    await withClock(Clock.fixed(_tag), () async {
+      await _pumpApp(tester, userRecipes: [_eigenes]);
+      await tester.pumpAndSettle();
 
-    expect(_karussell(), findsOneWidget);
-    // Wäre es drin, stünde es (wie in der Liste) vorne und wäre gerendert.
-    expect(_karte(_eigenes.slug), findsNothing);
-    // Der Katalog ist es, der empfohlen wird.
-    final erste = rotatedRecommendations(recipeCatalogDe, clock.now()).first;
-    expect(_karte(erste.slug), findsOneWidget);
-    // In der Hauptliste bleibt das eigene Rezept vorne.
-    expect(find.byKey(ValueKey('recipe-tile-${_eigenes.slug}')), findsOneWidget);
+      expect(_karussell(), findsOneWidget);
+      // Wäre es drin, stünde es (wie in der Liste) vorne und wäre gerendert.
+      expect(_karte(_eigenes.slug), findsNothing);
+      // Der Katalog ist es, der empfohlen wird.
+      final erste = rotatedRecommendations(recipeCatalogDe, _tag).first;
+      expect(_karte(erste.slug), findsOneWidget);
+      // In der Hauptliste bleibt das eigene Rezept vorne.
+      expect(
+          find.byKey(ValueKey('recipe-tile-${_eigenes.slug}')), findsOneWidget);
+    });
   });
 
   testWidgets('der Badge „EMPFOHLEN" hängt nur an Katalog-Karten',
       (tester) async {
     _pinViewport(tester);
-    await _pumpApp(tester, userRecipes: [_eigenes]);
-    await tester.pumpAndSettle();
+    await withClock(Clock.fixed(_tag), () async {
+      await _pumpApp(tester, userRecipes: [_eigenes]);
+      await tester.pumpAndSettle();
 
-    // Jede gerenderte Karte im Karussell trägt den Badge — und jede davon ist
-    // eine Katalog-Karte.
-    final karten = find.descendant(
-      of: _karussell(),
-      matching: find.byWidgetPredicate(
-        (w) =>
-            w.key is ValueKey<String> &&
-            (w.key! as ValueKey<String>).value.startsWith('recipe-recommended-'),
-      ),
-    );
-    final badges = find.descendant(
-      of: _karussell(),
-      matching: find.text('EMPFOHLEN'),
-    );
-    expect(karten, findsWidgets);
-    expect(badges.evaluate().length, karten.evaluate().length);
-    for (final karte in karten.evaluate()) {
-      final slug = (karte.widget.key! as ValueKey<String>)
-          .value
-          .substring('recipe-recommended-'.length);
-      expect(slug, isNot(_eigenes.slug));
-      expect(recipeCatalogDe.any((r) => r.slug == slug), isTrue, reason: slug);
-    }
+      // Jede gerenderte Karte im Karussell trägt den Badge — und jede davon
+      // ist eine Katalog-Karte. Der eigene Eintrag muss dabei WIRKLICH im
+      // Fenster liegen, sonst prüft die Schleife nur, dass ein Katalog-Rezept
+      // ein Katalog-Rezept ist: mit dem eigenen Rezept im Topf stünde es an
+      // Position `_tag % (n + 1)`, und ein Deckel auf die Kartenzahl könnte es
+      // sonst zufällig hinausschieben.
+      final mitEigenem = rotatedRecommendations(
+        <FitnessRecipe>[_eigenes, ...recipeCatalogDe],
+        _tag,
+      );
+      expect(mitEigenem.first.slug, _eigenes.slug,
+          reason: 'Vorbedingung: an diesem Tag WÜRDE das eigene Rezept ins '
+              'Fenster fallen, wenn der Topf es enthielte');
+
+      final karten = find.descendant(
+        of: _karussell(),
+        matching: find.byWidgetPredicate(
+          (w) =>
+              w.key is ValueKey<String> &&
+              (w.key! as ValueKey<String>)
+                  .value
+                  .startsWith('recipe-recommended-'),
+        ),
+      );
+      final badges = find.descendant(
+        of: _karussell(),
+        matching: find.text('EMPFOHLEN'),
+      );
+      expect(karten, findsWidgets);
+      expect(badges.evaluate().length, karten.evaluate().length);
+      for (final karte in karten.evaluate()) {
+        final slug = (karte.widget.key! as ValueKey<String>)
+            .value
+            .substring('recipe-recommended-'.length);
+        expect(slug, isNot(_eigenes.slug));
+        expect(recipeCatalogDe.any((r) => r.slug == slug), isTrue, reason: slug);
+      }
+    });
   });
 
   testWidgets('die Auswahl rotiert mit dem Kalendertag', (tester) async {

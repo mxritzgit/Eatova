@@ -179,6 +179,20 @@ void main() {
       s.store.start();
       await s.store.profileReady;
 
+      // An UNDELIVERED op, so the outbox slot the reason below names really
+      // lies on disk. The logout preserves that slot on purpose (A2); the
+      // account deletion must not — there is no target left to replay to.
+      // Without this the assertion never touched the slot at all.
+      s.server.rejectMealWrites = true;
+      s.store.addResultToDailyTotal(mealResult('Nie zugestellt'));
+      await settle();
+      // This store delays every setString by 20 ms of REAL time, which
+      // pumpEventQueue does not advance.
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(s.store.pendingOutbox, isNotEmpty, reason: 'Vorbedingung');
+      expect(kv.snapshot.keys, contains('eatova.v1.outbox.$kFixlaufUser'),
+          reason: 'Vorbedingung: der Slot liegt auf Platte');
+
       expect(await s.store.deleteAccount(), isTrue);
       await Future<void>.delayed(const Duration(milliseconds: 400));
       await settle();

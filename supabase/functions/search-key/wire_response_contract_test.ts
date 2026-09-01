@@ -288,6 +288,15 @@ Deno.test("search-key: ttlSeconds und cache-control laufen nicht auseinander", a
       !cacheControl.includes("public"),
       "Der Body traegt einen Credential — er darf nie in einen geteilten Cache",
     );
+    // `private, max-age` erlaubt einen Treffer aus dem Cache. Ohne
+    // Authorization im Cache-Schluessel kann der Treffer einem ANDEREN Nutzer
+    // gehoeren — dieselbe URL, dieselbe Methode, anderes Token. Das war der
+    // Grund fuer den Header und die einzige Zusicherung, die ihn haelt.
+    const vary = antwort.headers.get("vary") ?? "";
+    assert(
+      vary.toLowerCase().split(",").map((teil) => teil.trim()).includes("authorization"),
+      `Authorization gehoert in den Cache-Schluessel, vary war "${vary}"`,
+    );
   } finally {
     wiederherstellen();
   }

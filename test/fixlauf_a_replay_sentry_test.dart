@@ -54,6 +54,25 @@ void main() {
     expect(s.store.pendingOutbox, hasLength(2), reason: 'Ops bleiben liegen');
   });
 
+  // The sixth site of the same rule, and the loudest one: `_safeLoad` wraps
+  // all SIX boot loads. Unfiltered that is six Sentry events per offline cold
+  // start — more than every other path here together, and nothing in the suite
+  // measured it.
+  test('Kaltstart offline meldet nichts an Sentry', () async {
+    final s = fixlaufSetup();
+    s.server.profileRow = serverProfileRow(completedProfile);
+    s.server.offline = true;
+
+    await bootStore(s.store);
+
+    expect(gemeldet, isEmpty,
+        reason: 'Cache-dann-Netz ist der vorgesehene Fluss, kein Vorfall: '
+            '${kontexte.join(', ')}');
+    expect(s.store.bootUnanswered, isTrue,
+        reason: 'gefiltert heisst nicht verschwiegen — der Nutzer sieht den '
+            'Verbindungszustand');
+  });
+
   test('Offline-Stats-Flush meldet nichts an Sentry', () async {
     final s = await bootOnline();
     s.store.addResultToDailyTotal(mealResult('Geliefert'));

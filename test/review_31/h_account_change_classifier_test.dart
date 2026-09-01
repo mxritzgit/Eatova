@@ -289,13 +289,22 @@ void main() {
     });
 
     test('weak_password kommt ohne Textraten an', () {
+      // The prose deliberately says something ELSE — and something the text
+      // rules would classify differently (emailTaken). `AuthApiException`
+      // prints its `code` inside `toString()`, so a message like "Passwort
+      // abgelehnt" proves nothing: the text branch would answer
+      // passwordWeak off the leaked `weak_password` alone, and dropping the
+      // typed branch stayed green. Only a CONTRADICTING message shows which
+      // branch actually decided.
       expect(
         accountChangeErrorMessage(const AuthApiException(
-          'Passwort abgelehnt',
+          'User already registered',
           statusCode: '422',
           code: 'weak_password',
         )),
         deL10n.settingsAccountPasswordWeak,
+        reason: 'sobald der Server einen Code nennt, IST der Code die '
+            'Antwort — seine Prosa wird nicht obendrauf gelesen',
       );
     });
 

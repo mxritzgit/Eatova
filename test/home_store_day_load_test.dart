@@ -280,6 +280,19 @@ void main() {
     await _settle();
     expect(s.server.dayReads, hasLength(1));
     expect(s.store.mealsForFoodDate(oldDay), hasLength(1));
+
+    // ... aber ein Fenster-Refresh IN DERSELBEN Sitzung (retryBoot) ersetzt
+    // loggedMeals, also muss der Sitzungs-Cache den Tag wieder vergessen.
+    // Ohne den Reset gilt er weiter als „geladen" und steht ab jetzt dauerhaft
+    // leer da — der zweite Store der letzten Faelle kann das nicht zeigen, er
+    // startet ohnehin mit leerem Set.
+    await s.store.retryBoot();
+    await _settle();
+    expect(s.server.dayReads, hasLength(2),
+        reason: 'der Fenster-Refresh hat den Alt-Tag aus loggedMeals geworfen, '
+            'die weiterhin ausgewaehlte Auswahl muss ihn neu holen');
+    expect(s.store.mealsForFoodDate(oldDay).map((m) => m.id), ['old-1'],
+        reason: 'sonst zeigt der offene Alt-Tag nach jedem Boot-Retry leer');
   });
 
   test('isLoadingFoodDay ist waehrend des Nachladens true (Spinner-Zustand)',
@@ -437,12 +450,25 @@ void main() {
   group('B5 — Fenstergrenze ueber die Fruehjahrsumstellung', () {
     final umstellung = Clock.fixed(DateTime(2026, 4, 20, 10));
 
+    /// Dieselbe Umstellung, aber frueh am Tag — und darauf kommt es an.
+    ///
+    /// `.difference(...).inDays` verliert die DST-Stunde nur, wenn die Uhrzeit
+    /// KLEINER ist als sie. Um 10:00 meldete die alte Wanduhr-Rechnung
+    /// 35 Tage 9 Stunden, also weiterhin „ausserhalb" — der Randtag wurde
+    /// nachgeladen und der Fall war gruen, ohne den Fehler zu beruehren
+    /// (Mutationslauf T4, 2026-09-01). Um 00:30 sind es 34 Tage 23:30, und
+    /// genau da faellt der Randtag faelschlich ins Fenster.
+    ///
+    /// Wie in `test/services/day_math_test.dart`: die Aussage greift nur in
+    /// einer Zone mit Sommerzeit; unter UTC hat der Tag 24 Stunden.
+    final umstellungFrueh = Clock.fixed(DateTime(2026, 4, 20, 0, 30));
+
     test(
         'der Randtag (35 Kalendertage zurueck) wird nachgeladen, auch wenn '
         'die Umstellung dazwischen liegt', () async {
       final s = _setup();
 
-      await withClock(umstellung, () async {
+      await withClock(umstellungFrueh, () async {
         await _boot(s.store);
         expect(s.server.dayReads, isEmpty);
 
@@ -487,13 +513,25 @@ void main() {
     // partially covered, which is exactly why the predicate counts it as
     // outside and reloads it in full. The gap between 00:30 and 10:00 is far
     // wider than any zone/DST offset, so the setup holds in every zone.
+    //
+    // 'randtag-drin' liegt am SELBEN Randtag, aber um 12:00 — also NACH dem
+    // Cutoff und damit schon im Boot-Fenster. Genau diese Zeile bekommt das
+    // Nachladen ein zweites Mal, und nur an ihr zeigt sich, ob
+    // `_mergeArchiveMeals` wirklich per id dedupliziert: ohne den Filter stuende
+    // sie doppelt im Tagebuch und der Tag zaehlte ihre Kalorien zweimal
+    // (Mutationslauf T4, 2026-09-01 — vorher deckte kein Fall diese
+    // Ueberlappung ab).
     test(
         'was der Store als „im Fenster" fuehrt, hat der Boot-Load auch '
-        'wirklich geholt', () async {
+        'wirklich geholt — und der Randtag kommt trotz Ueberlappung einfach',
+        () async {
       final s = _setup();
       s.server.mealRows['im-fenster'] = _serverMealRow(
           'im-fenster', DateTime(2026, 3, 17, 12),
           kcal: 410, name: 'Randnah');
+      s.server.mealRows['randtag-drin'] = _serverMealRow(
+          'randtag-drin', DateTime(2026, 3, 16, 12),
+          kcal: 120, name: 'Randtag mittags');
       s.server.mealRows['ausserhalb'] = _serverMealRow(
           'ausserhalb', DateTime(2026, 3, 16, 0, 30),
           kcal: 380, name: 'Randtag');
@@ -501,8 +539,9 @@ void main() {
       await withClock(umstellung, () async {
         await _boot(s.store);
 
-        // The boot load brought back exactly the row inside the window.
-        expect(s.store.loggedMeals.map((m) => m.id), <String>['im-fenster'],
+        // The boot load brought back exactly the rows inside the window.
+        expect(s.store.loggedMeals.map((m) => m.id),
+            <String>['im-fenster', 'randtag-drin'],
             reason: 'die Boot-Query muss dieselbe Uhr benutzen wie das '
                 'Fenster-Praedikat — sonst behauptet der Store „geladen" '
                 'ueber einen Tag, den der Server nie geschickt hat');
@@ -543,8 +582,16 @@ void main() {
         s.store.setFoodDate(DateTime(2026, 3, 16));
         await _settle();
         expect(s.server.dayReads, hasLength(1));
+        // Der Randtag wird VOLLSTAENDIG neu geholt, also auch die Zeile, die
+        // das Boot-Fenster schon hatte. Sie darf danach genau einmal dastehen.
         expect(s.store.mealsForFoodDate(DateTime(2026, 3, 16)).map((m) => m.id),
-            <String>['ausserhalb']);
+            <String>['randtag-drin', 'ausserhalb']);
+        expect(s.store.loggedMeals.where((m) => m.id == 'randtag-drin'),
+            hasLength(1),
+            reason: 'die ueberlappende Zeile kam zweimal an — der Merge muss '
+                'sie per id verwerfen');
+        expect(s.store.consumedKcalForFoodDate(DateTime(2026, 3, 16)), 500,
+            reason: '120 + 380; eine Dublette machte daraus 620');
       });
     });
   });

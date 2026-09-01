@@ -44,11 +44,18 @@ jobs:
             --dart-define=SUPABASE_URL=https://ci.invalid \
             --dart-define=SUPABASE_ANON_KEY=ci-dummy-key
 
-      # Coverage floor as a ratchet, not a blocker: UI dominates the LOC count
-      # and is only spot-tested, so the floor sits below the realistic ~30-40 %.
+      # Coverage floor as a ratchet. The old value of 30 came from a time when
+      # the UI was only spot-tested; measured on 2026-09-01 the suite sits at
+      # 94.8 % (18627/19650 lines, generated l10n excluded). At 30 the gate
+      # could not ratchet at all - coverage would have had to collapse by
+      # roughly 12800 lines before it complained, so it silently guarded
+      # nothing. 88 keeps about seven points of headroom: a large, genuinely
+      # untested feature (~1300 uncovered lines) still lands, a quiet erosion
+      # does not. Raise it when the real number moves, never lower it to make
+      # a red run green.
       - name: Coverage floor check
         env:
-          COVERAGE_FLOOR: '30'
+          COVERAGE_FLOOR: '88'
         run: |
           set -euo pipefail
           LCOV=coverage/lcov.info

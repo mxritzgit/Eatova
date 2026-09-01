@@ -405,15 +405,40 @@ Deno.test("Bild-Fehler != Rezept-Fehler: 200 ohne image_base64, kein Refund", as
   }
 });
 
-Deno.test("Draft-Infra-Fehler: 502 + genau ein Refund, kein Bild-Call", async () => {
-  const stub = installFetch({ draftStatus: 500 });
-  try {
-    const res = await handleRequest(makeRecipeRequest());
-    assertEquals(res.status, 502, "Status");
-    assertEquals(stub.callsTo("refund_chat_quota").length, 1, "genau ein Refund");
-    assertEquals(stub.callsTo("api/v1/images").length, 0, "kein Bild-Call");
-  } finally {
-    stub.restore();
+// Status matrix instead of a single 500: `isClientFaultFailure` splits the
+// draft failures into two prices, and only an OUTAGE gives the slot back. Ein
+// Refund auf einem client-verschuldeten 4xx waere eine Gratis-Anfrage auf
+// Bestellung — ein praeparierter Wunsch, der den Anbieter 400 antworten
+// laesst, kostet dann nie einen Slot. Der Ledger, nicht die Anzahl der Calls,
+// ist die Zusicherung: `quotaUsed` zeigt, ob der Slot wirklich zurueck ist.
+Deno.test("Draft-Fehler: nur der OUTAGE erstattet, der Client-4xx behaelt den Slot", async () => {
+  const faelle: { draftStatus: number; refund: boolean; was: string }[] = [
+    { draftStatus: 500, refund: true, was: "Anbieter-Ausfall" },
+    { draftStatus: 502, refund: true, was: "Gateway-Ausfall" },
+    // Unsere Ausfaelle, obwohl 4xx: Key, Kredit, Modellname, Drossel.
+    { draftStatus: 401, refund: true, was: "Key abgelaufen" },
+    { draftStatus: 402, refund: true, was: "Kredit leer" },
+    { draftStatus: 429, refund: true, was: "Anbieter-Drossel" },
+    // Vom Wunsch des Nutzers verursacht: bezahlter Call, Slot bleibt weg.
+    { draftStatus: 400, refund: false, was: "Eingabe abgelehnt" },
+    { draftStatus: 413, refund: false, was: "zu grosse Eingabe" },
+    { draftStatus: 422, refund: false, was: "unverarbeitbare Eingabe" },
+  ];
+  for (const fall of faelle) {
+    const stub = installFetch({ draftStatus: fall.draftStatus });
+    try {
+      const res = await handleRequest(makeRecipeRequest());
+      assertEquals(res.status, 502, `${fall.was}: Status`);
+      assertEquals(
+        stub.callsTo("refund_chat_quota").length,
+        fall.refund ? 1 : 0,
+        `${fall.was}: Refund-Calls`,
+      );
+      assertEquals(stub.quotaUsed(), fall.refund ? 0 : 1, `${fall.was}: Ledger`);
+      assertEquals(stub.callsTo("api/v1/images").length, 0, `${fall.was}: kein Bild-Call`);
+    } finally {
+      stub.restore();
+    }
   }
 });
 

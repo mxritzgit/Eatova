@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/main.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 
 import 'flow_test_helpers.dart';
 
@@ -79,9 +80,8 @@ void main() {
   testWidgetsRobust('Kcal live product search waits through transient failures', (
     WidgetTester tester,
   ) async {
-    await tester.pumpWidget(
-      EatovaApp(productService: FlakyProductLookupService()),
-    );
+    final dienst = FlakyProductLookupService();
+    await tester.pumpWidget(EatovaApp(productService: dienst));
 
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
@@ -96,14 +96,23 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1100));
     await tester.pump(const Duration(milliseconds: 20));
 
-    expect(find.text('OpenFoodFacts-Suche gerade nicht erreichbar.'), findsNothing);
+    // Through the ARB bundle, and in the language the flow actually runs in.
+    // This used to name a hard-coded GERMAN sentence that no longer exists in
+    // either bundle — in an English app it could never be found, so both
+    // `findsNothing` lines passed by construction.
+    expect(find.text(enL10n.foodSearchUnreachableHint), findsNothing,
+        reason: 'waehrend die Wiederholungen laufen, darf kein Fehler stehen');
 
     await tester.pump(const Duration(milliseconds: 3600));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('kcal-product-suggestion-0')), findsOneWidget);
     expect(find.textContaining('Dr. Oetker'), findsWidgets);
-    expect(find.text('OpenFoodFacts-Suche gerade nicht erreichbar.'), findsNothing);
+    expect(find.text(enL10n.foodSearchUnreachableHint), findsNothing);
+    // Two failures had to be survived, not skipped: without this the same
+    // green would follow from a service that never failed.
+    expect(dienst.searchAttempts, 3,
+        reason: 'die dritte Anfrage ist die erste erfolgreiche');
   });
 
   // Empty is an ANSWER, not an error. One attempt fans out across mirror +

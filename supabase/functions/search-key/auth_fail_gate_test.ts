@@ -47,6 +47,9 @@ interface StubOptions {
   authFailBudget?: number;
   /** HTTP status of the consume for the auth-fail scope (limiter outage). */
   authFailGateStatus?: number;
+  /** `id` the auth lookup reports on a 200. The id becomes the subject of the
+   *  user gate, so an unusable one must not get that far. */
+  authUserId?: unknown;
 }
 
 interface FetchStub {
@@ -80,7 +83,9 @@ function installFetch(options: StubOptions = {}): FetchStub {
       if (options.authStatus !== undefined) {
         return Promise.resolve(jsonRes({ message: "invalid token" }, options.authStatus));
       }
-      return Promise.resolve(jsonRes({ id: USER_ID }));
+      return Promise.resolve(
+        jsonRes("authUserId" in options ? { id: options.authUserId } : { id: USER_ID }),
+      );
     }
     // P6-02: the batched application gates. Recorded in the same `p_*` shape
     // as the single-gate RPC so the assertions below stay about the gates
@@ -243,6 +248,33 @@ Deno.test("F-28-1: der Anon-Key kostet weder Lookup noch Consume", async () => {
     assertEquals(stub.gates.length, 0, "kein Consume");
   } finally {
     stub.restore();
+  }
+});
+
+Deno.test("F-28-1: eine 200 OHNE brauchbare Id ist kein Login — und kein Fail-Bucket-Treffer", async () => {
+  // Die dritte Antwortform von GoTrue: HTTP 200, aber nichts Verwertbares im
+  // Body. Zwei Zusicherungen an einer Stelle, beide waren ungepinnt:
+  //   * es ist KEIN Login — die Id wird zum Subject des Nutzer-Tors, eine
+  //     leere oder abgeschnittene faende jeder Aufrufer im selben Bucket
+  //     wieder;
+  //   * es ist auch KEIN Fehlschlag im Sinne des Fail-Buckets: hier wurde
+  //     nichts verstaerkt, und ein kaputter Auth-Server duerfte sonst ganze
+  //     IPs mit 429 belegen (Regel in ../_shared/auth_fail_gate.ts).
+  for (const id of [undefined, "", "kurz", 12345, null]) {
+    const handler = await loadHandler();
+    const stub = installFetch({ authUserId: id, authFailBudget: 0 });
+    try {
+      const res = await handler(request());
+      assertEquals(res.status, 401, `id=${JSON.stringify(id)}: Status`);
+      assertEquals(
+        (await res.json() as JsonRecord).error,
+        "invalid_user_token",
+        `id=${JSON.stringify(id)}: Fehlercode`,
+      );
+      assertEquals(stub.gates.length, 0, `id=${JSON.stringify(id)}: kein Consume`);
+    } finally {
+      stub.restore();
+    }
   }
 });
 

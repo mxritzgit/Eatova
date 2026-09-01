@@ -415,11 +415,20 @@ Deno.test("A6: ein unbrauchbarer PRUNE_SAMPLE_RATE schaltet das Aufraeumen nicht
       const warn = installWarnLog();
       try {
         // 0.01 * 20 = 0.2 -> gezogen, wenn wirklich der Default 20 gilt.
+        // DREI Aufrufe, weil dieser Parse als einziger positiveIntFromEnv-
+        // Aufrufer PRO ANFRAGE laeuft statt einmal beim Modulstart: ohne die
+        // Memoisierung schreibt derselbe unbrauchbare Wert seine Warnung in
+        // jede einzelne Anfrage aller drei Functions statt einmal pro
+        // Cold Start. Die Zahl der Zeilen ist die Zusicherung, nicht ihr
+        // Vorhandensein.
         await pruneRateLimits({ ...OPTIONS, sampler: () => 0.01 });
-        assertEquals(fetchStub.aufrufe.length, 1, `Default greift bei ${PRUNE_SAMPLE_RATE_ENV}=${wert}`);
-        assert(
-          warn.zeilen.some((zeile) => zeile.includes(PRUNE_SAMPLE_RATE_ENV)),
-          `ein ignorierter Wert muss den Operator warnen, Zeilen: ${JSON.stringify(warn.zeilen)}`,
+        await pruneRateLimits({ ...OPTIONS, sampler: () => 0.01 });
+        await pruneRateLimits({ ...OPTIONS, sampler: () => 0.01 });
+        assertEquals(fetchStub.aufrufe.length, 3, `Default greift bei ${PRUNE_SAMPLE_RATE_ENV}=${wert}`);
+        assertEquals(
+          warn.zeilen.filter((zeile) => zeile.includes(PRUNE_SAMPLE_RATE_ENV)).length,
+          1,
+          `genau EINE Warnung fuer drei Aufrufe, Zeilen: ${JSON.stringify(warn.zeilen)}`,
         );
         assert(
           !warn.zeilen.some((zeile) => zeile.includes(wert)),

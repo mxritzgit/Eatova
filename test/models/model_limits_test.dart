@@ -244,6 +244,18 @@ void main() {
       expect(clampProfileWeightKg(double.nan, fallback: 78), 78);
       // An out-of-range fallback is itself clamped.
       expect(clampProfileWeightKg(double.nan, fallback: 900), ProfileLimits.weightKgMax);
+      // Same rule on the double side — that is where B1 came from: a NaN macro
+      // silently becoming 0 g instead of the caller's "unknown" substitute.
+      // Only the int clamp was pinned, so the double one could drop the
+      // fallback unnoticed.
+      expect(clampMealMacroG(double.nan), LoggedMealLimits.macroGMin);
+      expect(clampMealMacroG(double.nan, fallback: 42), 42);
+      expect(clampKcalPer100G(double.nan, fallback: 250), 250);
+      expect(
+        clampKcalPer100G(double.nan, fallback: 5000),
+        PlausibilityLimits.kcalPer100GMax,
+        reason: 'auch der Fallback bleibt in den Grenzen',
+      );
     });
 
     test('Unendlich clampt auf die jeweilige Grenze statt zu werfen', () {
@@ -337,6 +349,9 @@ void main() {
       expect(clampMealName('', fallback: 'Snack'), 'Snack');
       expect(clampMealName('  Linsensuppe  '), 'Linsensuppe');
       expect(charLength(clampMealName('x' * 500)), LoggedMealLimits.mealNameMaxChars);
+      // The cut itself can land on a space; only the length was measured, so
+      // the trailing trim was free to disappear.
+      expect(clampMealName('${'x' * 159} Suppe'), 'x' * 159);
     });
 
     test('meal_name: isValidMealName trennt leer/zu lang von gueltig', () {
@@ -367,6 +382,10 @@ void main() {
       expect(charLength(clampAvatarUrl('u' * 5000)!), ProfileLimits.avatarUrlMaxChars);
       expect(clampBarcode(null), isNull);
       expect(clampAvatarUrl(null), isNull);
+      // Only the length was measured, so the trim could go without a red test
+      // and a display name would keep the whitespace the user pasted in.
+      expect(clampDisplayName('  Moritz  '), 'Moritz');
+      expect(clampDisplayName('   '), isEmpty);
     });
 
     test('favorite_key: 1..180, gekuerzt an der Runengrenze', () {

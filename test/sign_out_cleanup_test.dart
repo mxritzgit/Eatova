@@ -13,6 +13,7 @@ import 'package:eatova/src/models/weight_log.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/notification_service.dart';
+import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
@@ -93,6 +94,22 @@ class _SpyHealthService implements HealthService {
 
   @override
   Future<int?> readStepsOnDay(DateTime day) async => null;
+}
+
+/// Counts [clear] — the own-recipe photos are FILES in the app directory, not
+/// slots in the LocalCache, so the cleanup has to discard them separately.
+///
+/// The double is not optional: without it the REAL store runs, and in a test
+/// there is no path_provider, so its clear() finds no root and does nothing —
+/// dropping the call entirely stayed invisible across the whole suite.
+class _SpyFotoStore extends RecipeImageStore {
+  int clearCalls = 0;
+
+  @override
+  Future<void> setActiveUser(String? userId) => Future<void>.value();
+
+  @override
+  Future<void> clear() async => clearCalls++;
 }
 
 HomeStore _storeWith(
@@ -211,6 +228,34 @@ void main() {
     expect(await _storeWith(cache, notifications: spy).deleteAccount(), isTrue);
 
     expect(spy.cancelAllCalls, 1);
+  });
+
+  test(
+      'signOutCleanup verwirft die eigenen Rezeptfotos — sie liegen als '
+      'Dateien neben dem verschlüsselten Cache', () async {
+    final fotos = _SpyFotoStore();
+    RecipeImageStore.instance = fotos;
+    addTearDown(RecipeImageStore.resetInstance);
+    final cache = LocalCache(InMemoryKeyValueStore(), 'user-signout');
+
+    await _storeWith(cache).signOutCleanup();
+
+    expect(fotos.clearCalls, 1,
+        reason: 'die Fotos sind PII wie jeder Cache-Slot, stehen aber nicht '
+            'darin — ohne diesen Aufruf bleiben sie auf dem Gerät liegen');
+  });
+
+  test(
+      'deleteAccount verwirft die Rezeptfotos ebenfalls — der Dialog '
+      'verspricht „unwiderruflich gelöscht"', () async {
+    final fotos = _SpyFotoStore();
+    RecipeImageStore.instance = fotos;
+    addTearDown(RecipeImageStore.resetInstance);
+    final cache = LocalCache(InMemoryKeyValueStore(), 'user-signout');
+
+    expect(await _storeWith(cache).deleteAccount(), isTrue);
+
+    expect(fotos.clearCalls, 1);
   });
 
   test(

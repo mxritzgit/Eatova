@@ -725,8 +725,12 @@ void main() {
   group('B7 · im Screen: der Text laeuft ein, statt am Ende zu erscheinen', () {
     // Hier steht der Dienst absichtlich als Attrappe: die Drahtform ist oben
     // festgenagelt, hier geht es um das, was der Screen daraus macht.
-    Future<_VorschauCoach> pumpe(WidgetTester tester) async {
+    Future<_VorschauCoach> pumpe(
+      WidgetTester tester, {
+      ChatQuotaSnapshot? kontingent,
+    }) async {
       final svc = _VorschauCoach.create();
+      if (kontingent != null) svc.kontingent = kontingent;
       await pumpLocalized(
         tester,
         CoachChatScreen(service: svc, userName: 'M'),
@@ -741,6 +745,16 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('coach-send')));
       await tester.pump();
       return svc;
+    }
+
+    /// Stellt die naechste Frage und laesst sie offen — der Moment, in dem eine
+    /// nicht abgeraeumte Vorschau sichtbar wuerde.
+    Future<void> naechsteFrage(WidgetTester tester) async {
+      await tester.enterText(
+          find.byKey(const ValueKey('coach-input')), 'Und wie viel Fett?');
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('coach-send')));
+      await tester.pump();
     }
 
     testWidgets('Punkte, bis das erste Token da ist', (tester) async {
@@ -799,13 +813,94 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
 
-      expect(find.text(_teilA), findsNothing,
-          reason: 'die Vorschau gehoert der Anfrage; sie stuende sonst unter '
-              'der NAECHSTEN Frage, bevor deren erstes Token da ist');
+      expect(find.text(_teilA), findsNothing);
       expect(find.text(_unerreichbar), findsOneWidget);
+
+      // Der eigentliche Schaden zeigt sich erst eine Frage spaeter: die
+      // Vorschau-Blase erscheint NUR waehrend eines laufenden Sendevorgangs,
+      // also faellt ein nicht geleerter Puffer erst hier auf — und dann als
+      // halbe Antwort auf eine Frage, die sie nie beantwortet hat.
+      await naechsteFrage(tester);
+
+      expect(find.byKey(const ValueKey('coach-stream-preview')), findsNothing,
+          reason: 'vor dem ersten Token der NEUEN Frage darf nur die '
+              'Denk-Zeile stehen, nie der Rest der alten Antwort');
+      expect(find.text(_teilA), findsNothing,
+          reason: 'die Vorschau gehoert der Anfrage, die sie erzeugt hat');
+      expect(find.byKey(const ValueKey('coach-thinking')), findsOneWidget);
+    });
+
+    testWidgets('done OHNE remaining behaelt den Zaehler — es setzt ihn nicht '
+        'auf 0', (tester) async {
+      // Vertrag Nr. 4 auf Screen-Ebene: der Server LAESST das Feld aus, wenn er
+      // den Rest nicht kennt. Wer daraus eine 0 macht, sperrt den Composer bis
+      // Mitternacht, obwohl der Server noch Fragen annimmt.
+      final svc = await pumpe(
+        tester,
+        kontingent:
+            const ChatQuotaSnapshot(used: 3, remaining: 2, dailyLimit: 5),
+      );
+      expect(_quotaZeile(tester, 'Noch 2 Fragen heute'), findsOneWidget,
+          reason: 'Ausgangslage: der Server hat 2 genannt');
+
+      svc.auftrag!.complete(const CoachChatReply(
+        reply: 'Etwa 1,6 g pro Kilo.',
+        refusal: false,
+        sessionId: 's1',
+        // remaining und dailyLimit FEHLEN — genau die Form, die
+        // _antwortAusNutzlast fuer ein ausgelassenes Feld liefert.
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(find.text('Limit für heute erreicht'), findsNothing,
+          reason: 'aus „unbekannt" darf niemals „aufgebraucht" werden');
+      expect(_composerTippbar(tester), isTrue,
+          reason: 'ein gesperrter Composer nimmt die naechste Frage nicht mehr '
+              'an, obwohl der Server sie beantworten wuerde');
+      expect(_quotaZeile(tester, 'Noch 2 Fragen heute'), findsOneWidget,
+          reason: '„behalte deinen Zaehler" heisst: dieselbe Zahl wie vorher');
+    });
+
+    testWidgets('done MIT remaining zieht den Zaehler nach (Gegenprobe)',
+        (tester) async {
+      final svc = await pumpe(
+        tester,
+        kontingent:
+            const ChatQuotaSnapshot(used: 3, remaining: 2, dailyLimit: 5),
+      );
+
+      svc.auftrag!.complete(const CoachChatReply(
+        reply: 'Etwa 1,6 g pro Kilo.',
+        refusal: false,
+        sessionId: 's1',
+        remaining: 1,
+        dailyLimit: 5,
+      ));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(_quotaZeile(tester, 'Noch 1 Frage heute'), findsOneWidget,
+          reason: 'ohne diese Gegenprobe wuerde ein Screen, der JEDE Zahl '
+              'ignoriert, den Test darueber ebenfalls bestehen');
     });
   });
 }
+
+/// Die Kontingent-Zeile ueber dem Composer, an ihrem Schluessel festgemacht:
+/// `find.text` allein traefe auch eine gleichlautende Blase.
+Finder _quotaZeile(WidgetTester tester, String text) => find.descendant(
+      of: find.byKey(const ValueKey('coach-quota-hint')),
+      matching: find.text(text),
+    );
+
+/// Ob das Eingabefeld Eingaben annimmt — die Sperre, die ein erschoepftes
+/// Kontingent setzt.
+bool _composerTippbar(WidgetTester tester) =>
+    tester
+        .widget<TextField>(find.byKey(const ValueKey('coach-input')))
+        .enabled ??
+    true;
 
 /// Coach-Dienst, der die Vorschau von aussen steuerbar macht.
 class _VorschauCoach extends CoachChatService {
@@ -829,6 +924,10 @@ class _VorschauCoach extends CoachChatService {
   /// Das offene Future des laufenden Sendevorgangs.
   Completer<CoachChatReply>? auftrag;
 
+  /// Der Stand, den der Server beim Start meldet.
+  ChatQuotaSnapshot kontingent =
+      const ChatQuotaSnapshot(used: 0, remaining: 5, dailyLimit: 5);
+
   @override
   Future<List<ChatSession>> loadSessions() async => <ChatSession>[
         ChatSession(
@@ -848,8 +947,7 @@ class _VorschauCoach extends CoachChatService {
       const <ChatMessage>[];
 
   @override
-  Future<ChatQuotaSnapshot> loadQuotaToday() async =>
-      const ChatQuotaSnapshot(used: 0, remaining: 5, dailyLimit: 5);
+  Future<ChatQuotaSnapshot> loadQuotaToday() async => kontingent;
 
   @override
   Future<CoachChatReply> send(

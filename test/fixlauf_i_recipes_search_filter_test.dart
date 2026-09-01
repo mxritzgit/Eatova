@@ -36,6 +36,28 @@ const _eigenes = FitnessRecipe(
   userCreated: true,
 );
 
+/// Fixture für die Feldgrenzen-Probe: Titel, Beschreibung und Zutaten tragen
+/// Kunstwörter, die sonst nirgends im Katalog vorkommen. Eine Query, die zwei
+/// dieser Felder überspannt, kann also NUR treffen, wenn die Felder zu einem
+/// gemeinsamen Heuhaufen verschmolzen wurden.
+const _grenzfall = FitnessRecipe(
+  slug: 'user_grenzfall',
+  title: 'Alphabowl Zeta',
+  description: 'Betasauce mit Kraeutern',
+  portion: '',
+  ingredients: 'Gammakorn\nDeltaquark',
+  preparation: '',
+  professionalHint: '',
+  imageAsset: '',
+  caloriesKcal: 500,
+  proteinG: 30,
+  carbsG: 40,
+  fatG: 12,
+  estimatedGrams: 320,
+  categories: <String>['Eigene'],
+  userCreated: true,
+);
+
 Widget _app({
   Locale locale = const Locale('de'),
   List<FitnessRecipe> userRecipes = const <FitnessRecipe>[],
@@ -167,6 +189,55 @@ void main() {
         find.byKey(const ValueKey('recipe-tile-overnight_oats_mit_skyr_and_banane')),
         findsOneWidget,
       );
+    });
+  });
+
+  group('Die Suchfelder bleiben getrennt', () {
+    // Der Index faltet Titel, Beschreibung, Zutaten und Kategorien in EINZELNE
+    // Zeichenketten. Würde man sie zu einem Heuhaufen zusammenfügen (billiger,
+    // ein `contains` statt mehrerer), änderte das nicht nur die Kosten,
+    // sondern die TREFFER: eine Query dürfte plötzlich über eine Feldgrenze
+    // laufen. Bis hierher fiel diese Verschmelzung durch alle Tests.
+    Future<void> pumpMitGrenzfall(WidgetTester tester) async {
+      _pinViewport(tester);
+      await tester.pumpWidget(_app(userRecipes: [_grenzfall]));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('jedes Feld für sich ist findbar (Vorbedingung)',
+        (tester) async {
+      await pumpMitGrenzfall(tester);
+
+      for (final query in const <String>[
+        'alphabowl',
+        'betasauce',
+        'gammakorn',
+      ]) {
+        await _suche(tester, query);
+        expect(find.text('1 Treffer'), findsOneWidget, reason: query);
+        expect(find.byKey(const ValueKey('recipe-tile-user_grenzfall')),
+            findsOneWidget,
+            reason: query);
+      }
+    });
+
+    testWidgets('eine Query über eine Feldgrenze trifft NICHT', (tester) async {
+      await pumpMitGrenzfall(tester);
+
+      for (final query in const <String>[
+        // Titelende + Beschreibungsanfang.
+        'zeta betasauce',
+        // Beschreibungsende + Zutatenanfang.
+        'kraeutern gammakorn',
+      ]) {
+        await _suche(tester, query);
+        expect(find.text('0 Treffer'), findsOneWidget,
+            reason: 'Query "$query" läuft über eine Feldgrenze und darf nichts '
+                'finden.');
+        expect(find.byKey(const ValueKey('recipe-tile-user_grenzfall')),
+            findsNothing,
+            reason: query);
+      }
     });
   });
 

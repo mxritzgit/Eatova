@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/screens/settings/account_change_messages.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
+import 'package:eatova/src/widgets/design/controls.dart' show PrimaryActionButton;
 
 import 'support/harness.dart';
 
@@ -134,6 +135,11 @@ void main() {
     expect(find.text('Konto endgültig löschen'), findsOneWidget);
   });
 
+  /// The sheet's single primary action. `onTap == null` is how
+  /// [PrimaryActionButton] carries "disabled".
+  PrimaryActionButton aktionsKnopf(WidgetTester tester) =>
+      tester.widget<PrimaryActionButton>(find.byType(PrimaryActionButton));
+
   testWidgets('ohne das richtige Wort geht nicht einmal die Anforderung raus',
       (tester) async {
     // The word hurdle still catches the slip before any mail goes out.
@@ -142,6 +148,12 @@ void main() {
     await pump(tester, repo: repo, onDeleteAccount: () async => geloescht++);
 
     await tippe(tester, find.byKey(const ValueKey('settings-delete-account')));
+    // The button is DISABLED, not merely ineffective: the two guards (armed
+    // button and handler check) hold the same outcome, so checking only "no
+    // mail" left either of them removable on its own.
+    expect(aktionsKnopf(tester).onTap, isNull,
+        reason: 'ohne getipptes Wort darf der Knopf gar nicht erst scharf '
+            'aussehen');
     await tester.tap(find.text('Code anfordern'));
     await tester.pumpAndSettle();
 
@@ -165,10 +177,42 @@ void main() {
 
     // Lower case is enough: the hurdle guards a slip, not the shift key.
     await schreibe(tester, 'settings-delete-confirm-field', 'löschen');
+    expect(aktionsKnopf(tester).onTap, isNotNull,
+        reason: 'mit dem Wort muss der Knopf auch wirklich scharf sein — '
+            'sonst prüfte die Zusicherung oben nichts');
     await tippe(tester, find.text('Code anfordern'));
 
     expect(repo.passwordResets, <String>['jonas@eatova.de']);
     expect(geloescht, 0);
+  });
+
+  testWidgets('ein zurückgenommenes Wort hält den Versand auch ohne '
+      'neuen Frame auf', (tester) async {
+    // The gap the armed button leaves open, exactly as the double-tap latch
+    // covers `_busy`: the word arms the button, is withdrawn, and the tap
+    // lands BEFORE the rebuild — so the disabled state has not applied yet and
+    // only the check inside the handler can stop the mail.
+    final repo = baueRepo();
+    await pump(tester, repo: repo, onDeleteAccount: () async {});
+
+    await tippe(tester, find.byKey(const ValueKey('settings-delete-account')));
+    await schreibe(tester, 'settings-delete-confirm-field', 'LÖSCHEN');
+    expect(aktionsKnopf(tester).onTap, isNotNull);
+
+    // No frame between withdrawing the word and the tap.
+    await tester.enterText(
+        find.byKey(const ValueKey('settings-delete-confirm-field')), 'LÖSCH');
+    await tester.tap(find.text('Code anfordern'));
+    await tester.pumpAndSettle();
+
+    expect(repo.passwordResets, isEmpty,
+        reason: 'der scharfe Knopf aus dem alten Frame darf keine Mail an eine '
+            'fremde Adresse auslösen');
+    expect(
+      find.byKey(const ValueKey('settings-delete-code-field')),
+      findsNothing,
+      reason: 'und der Code-Schritt darf sich nicht öffnen',
+    );
   });
 
   // --- (b) Only the confirmed code deletes ----------------------------------

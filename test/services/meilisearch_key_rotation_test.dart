@@ -276,4 +276,37 @@ void main() {
     expect(stub.requestCount, 0);
     expect(source.resolveCalls, 0);
   });
+
+  test('Barcodes gehen NIE an den Spiegel — kein Request, kein Ergebnis',
+      () async {
+    // The index is a DE/AT/CH dump; a brand-new product is missing from it
+    // while the OFF live API knows it. If the mirror ever answered barcodes
+    // itself — for instance by running the code through its own text search —
+    // the scanner would report "unknown" for exactly those products, and a
+    // stale mirror row would silently beat the live record.
+    //
+    // Asserted on the wire, not on the exception type: a mutation that swaps
+    // the throw for a text search on the barcode still throws (nothing found),
+    // but it leaves a request behind.
+    final stub = await _MirrorStub.start(<int>[200]);
+    addTearDown(stub.close);
+    final source = _FakeSource(_at(stub.baseUrl, _oldKey));
+
+    // `() =>`, not the bare call: the service throws SYNCHRONOUSLY instead of
+    // returning a failed Future. FallbackProductService awaits inside a `try`,
+    // so both forms are caught there — but the matcher has to match the form.
+    expect(
+      () => MeilisearchProductService(credentials: source).lookupBarcode(
+        '4104420030008',
+      ),
+      throwsUnsupportedError,
+      reason: 'FallbackProductService stuft genau UnsupportedError als '
+          'erwartet ein und faellt still auf die OFF-Live-API zurueck',
+    );
+    // Nothing may have been kicked off asynchronously either.
+    await Future<void>.delayed(Duration.zero);
+    expect(stub.requestCount, 0, reason: 'der Spiegel darf nicht befragt '
+        'werden');
+    expect(source.resolveCalls, 0);
+  });
 }

@@ -253,6 +253,60 @@ void main() {
   );
 
   testWidgets(
+    'dieselbe Frage NEU GETIPPT ersetzt die fehlgeschlagene Blase — eine '
+    'andere laesst sie samt Kennzeichnung stehen',
+    (tester) async {
+      // Der zweite Weg des Befunds, und der wortwoertliche: „retyping produced
+      // a SECOND bubble with the same text". Der Test darueber nimmt den
+      // Wiederhol-Knopf, und der raeumt die Blase selbst weg — diese Zeile
+      // haengt allein an `_ohneAltenFehlschlag`.
+      final svc = _FixCoach.create();
+      await _pumpCoachRuhig(tester, svc);
+
+      const frage = 'Wie viel Protein fehlt mir heute noch?';
+      await _tippenUndSenden(tester, frage);
+      svc.offen.first.completeError(
+        const CoachChatException('Verbindung fehlgeschlagen.'),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('coach-unsent')), findsOneWidget);
+
+      await _tippenUndSenden(tester, frage);
+
+      expect(svc.gesendeteTexte, <String>[frage, frage]);
+      expect(
+        _blasenMit(tester, frage),
+        1,
+        reason: 'derselbe Text darf keine zweite Blase erzeugen, nur weil der '
+            'Nutzer ihn getippt statt den Knopf gedrueckt hat',
+      );
+      expect(
+        find.byKey(const ValueKey('coach-unsent')),
+        findsNothing,
+        reason: 'die Kennzeichnung gehoerte der Blase, die gerade ersetzt wurde',
+      );
+
+      // Gegenprobe: eine ANDERE Frage darf die alte Blase nicht mitreissen —
+      // sie wurde nie zugestellt und muss weiter danach aussehen.
+      svc.offen.last.completeError(
+        const CoachChatException('Verbindung fehlgeschlagen.'),
+      );
+      await tester.pumpAndSettle();
+      const andere = 'Und wie viel Fett?';
+      await _tippenUndSenden(tester, andere);
+
+      expect(_blasenMit(tester, frage), 1);
+      expect(_blasenMit(tester, andere), 1);
+      expect(
+        find.byKey(const ValueKey('coach-unsent')),
+        findsOneWidget,
+        reason: 'die alte, nie zugestellte Frage behaelt ihre Kennzeichnung — '
+            'ohne sie saehe sie aus wie abgeschickt',
+      );
+    },
+  );
+
+  testWidgets(
     'erschoepftes Kontingent: gekennzeichnet, aber ohne Wiederhol-Knopf',
     (tester) async {
       final svc = _FixCoach.create();
