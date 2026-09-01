@@ -321,6 +321,16 @@ const Map<String, String> _eigeneUeberschriftErlaubt = <String, String>{
       'defines HeadingSemantics — the one place both properties are set, and the only one that can guarantee they stay paired',
 };
 
+/// Every way of asking the device for its display mode. The argument is
+/// `[^)]*` on purpose: `context`, `ctx`, `c` and `this.context` are the same
+/// branch, and pinning one spelling is what let the rule be walked around.
+final RegExp _helligkeitsAbzweig = RegExp(
+  r'Theme\.(?:of|maybeOf)\([^)]*\)[?!]?\.brightness'
+  r'|platformBrightnessOf\('
+  r'|MediaQuery\.(?:of|maybeOf)\([^)]*\)[?!]?\.platformBrightness'
+  r'|\.platformDispatcher\.platformBrightness',
+);
+
 /// The two Semantics properties that make a jump mark. `header` alone is what
 /// TalkBack and VoiceOver navigate by, `headingLevel` alone is the rank —
 /// either without the other is the exact defect P9-06/P9-06b found, so both
@@ -751,13 +761,16 @@ void main() {
       // Allowed: the branch inside lib/src/theme/ (which picks the palette)
       // and the camera overlays, which name `AppTokens.dark` directly instead
       // of querying device brightness.
+      //
+      // T12: two of the three needles used to be LITERAL, and both named the
+      // variable `context`. `Theme.of(ctx).brightness` — the spelling of every
+      // `builder: (ctx, _) =>` callback — walked straight through. The needle
+      // is the CALL now, not one way of spelling its argument.
       final treffer = <String>[];
       for (final quelle in _libQuellen) {
         if (quelle.pfad.startsWith('lib/src/theme/')) continue;
         for (final zeile in quelle.ohneKommentare.split('\n')) {
-          if (zeile.contains('Theme.of(context).brightness') ||
-              zeile.contains('platformBrightnessOf') ||
-              zeile.contains('MediaQuery.of(context).platformBrightness')) {
+          if (_helligkeitsAbzweig.hasMatch(zeile)) {
             treffer.add('${quelle.pfad}: ${zeile.trim()}');
           }
         }
@@ -768,6 +781,31 @@ void main() {
         reason: 'Farbwahl ueber die Helligkeit gehoert als Token nach '
             'AppTokens:\n${treffer.join('\n')}',
       );
+    });
+
+    test('die Brightness-Regel haengt nicht am Bezeichner `context`', () {
+      // Without this the rule above proves only that nobody writes the ONE
+      // spelling it used to know. Every line here is the same branch.
+      for (final abzweig in const <String>[
+        'final dark = Theme.of(context).brightness == Brightness.dark;',
+        'final dark = Theme.of(ctx).brightness == Brightness.dark;',
+        'if (Theme.of(c).brightness == Brightness.dark) return AppTokens.dark;',
+        'final b = MediaQuery.of(ctx).platformBrightness;',
+        'final b = MediaQuery.platformBrightnessOf(ctx);',
+        'final b = View.of(context).platformDispatcher.platformBrightness;',
+      ]) {
+        expect(_helligkeitsAbzweig.hasMatch(abzweig), isTrue, reason: abzweig);
+      }
+      // And what must stay quiet — including the token lookup the whole rule
+      // exists to steer people towards.
+      for (final ok in const <String>[
+        'final t = context.t;',
+        'return AppTokens.dark;',
+        'Brightness get brightness => Brightness.light;',
+        'const Color scrim = Color(0x66000000);',
+      ]) {
+        expect(_helligkeitsAbzweig.hasMatch(ok), isFalse, reason: ok);
+      }
     });
 
     test('kein app_colors und keine harte Farbe mehr im Coach', () {

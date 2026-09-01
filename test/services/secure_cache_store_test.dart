@@ -204,6 +204,35 @@ void main() {
       expect(nachZweitem, nachErstem);
       expect(raw.snapshot[key], nachErstem);
     });
+
+    test(
+        'GEGENPROBE: ein waehrend der Migration geschriebener neuerer Stand '
+        'wird NICHT vom Klartext ueberschrieben', () async {
+      // The migration runs on the write chain and its payload is the value
+      // the READ saw. Between that read and the write sits the encryption
+      // (an isolate hop in production), and a regular setString can land in
+      // exactly that window. Without the freshness check in
+      // `_migrateLegacyPlaintext` the stale plaintext wins and the slot rolls
+      // back to the state from before the update — silently, because both
+      // writes "succeed".
+      const key = 'eatova.v1.logged_meals.user-1';
+      const alt = '{"items":["VOR DEM UPDATE"]}';
+      const neu = '{"items":["FRISCH GELOGGT"]}';
+      final raw = InMemoryKeyValueStore({key: alt});
+      final store = EncryptedKeyValueStore(raw, _FakeCipher('dek-a'));
+
+      // The read hands the plaintext over and schedules its migration...
+      final lesen = store.getString(key);
+      // ...and the fresher write lands first.
+      await store.setString(key, neu);
+
+      expect(await lesen, alt, reason: 'Der Leser bekommt, was zum '
+          'Lesezeitpunkt dastand — das ist nicht der Fund hier.');
+      expect(await store.getString(key), neu,
+          reason: 'Der Klartext von vor dem Update darf den frisch '
+              'geloggten Stand nicht zurueckrollen.');
+      expect(raw.snapshot[key], startsWith(cacheCipherMagic));
+    });
   });
 
   group('EncryptedKeyValueStore unentschluesselbarer Slot', () {
@@ -282,9 +311,13 @@ void main() {
       final body = armored.substring(cacheCipherMagic.length);
       final flipped = (body[0] == 'A' ? 'B' : 'A') + body.substring(1);
 
+      // The TYPE, not just "it threw": `EncryptedKeyValueStore` purges the
+      // slot on this type and `crash_reporter.dart` allowlists the report by
+      // it, so a tag failure arriving as anything else is a different bug
+      // wearing the same green tick.
       await expectLater(
           () async => cipher.decrypt(key, '$cacheCipherMagic$flipped'),
-          throwsA(anything));
+          throwsA(isA<InvalidCipherTextException>()));
     });
 
     test('SMOKE: voller writeLoggedMeals/readLoggedMeals-Roundtrip durch '
@@ -489,10 +522,11 @@ void main() {
 
       expect(await cipher.decrypt('eatova.v1.profile.user-1', golden),
           _profileJson);
-      // AAD stays the slot key: the same blob in a foreign slot must throw.
+      // AAD stays the slot key: the same blob in a foreign slot must fail the
+      // TAG check, not merely throw something.
       await expectLater(
           () async => cipher.decrypt('eatova.v1.profile.user-2', golden),
-          throwsA(anything));
+          throwsA(isA<InvalidCipherTextException>()));
     });
   });
 

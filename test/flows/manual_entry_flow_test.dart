@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/main.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 
 import 'flow_test_helpers.dart';
 
@@ -152,10 +153,20 @@ void main() {
       find.byKey(const ValueKey('kcal-product-search-input')),
       'Bauernmozzarella',
     );
-    await tester.pump(const Duration(milliseconds: 1100));
+    // Through the MAGNIFIER, not the debounce: the typed path passes
+    // `showTransientError: false`, so a plain failure leaves the hint zone
+    // empty and the CTA branch (`_productSearchMessage != null`) is never
+    // built at all. A `findsNothing` there held no matter what
+    // `_offerManualEntry` said. The explicit search is the path that renders
+    // the hint and therefore the one where the missing CTA is a statement.
+    await tester.tap(find.byKey(const ValueKey('kcal-product-search-button')));
     await tester.pump(const Duration(milliseconds: 1300));
     await tester.pumpAndSettle();
 
+    // The hint IS there — otherwise the assertion below is about an empty
+    // screen instead of about the error state.
+    expect(find.text(enL10n.foodSearchUnreachableHint), findsOneWidget,
+        reason: 'ohne den Fehlerhinweis prueft die naechste Zeile nichts');
     // An error means "search is broken", not "does not exist" — no CTA.
     expect(find.byKey(const ValueKey('manual-entry-cta')), findsNothing);
   });

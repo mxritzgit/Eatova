@@ -23,12 +23,13 @@
 // Postgres and tries genuine cross-user access. This file is the fast half:
 // it runs inside `flutter test`, i.e. inside the required check, on every PR.
 //
-// WHY THE LITERAL BELOW IS HAND-WRITTEN. [_erwartet] is a second, independent
-// source of truth, not derived from the migrations. Derived, the guard would
-// be tautological: a new table without RLS would define its own expectation
-// and pass. The same pattern already carries
-// test/profile_export_sheet_test.dart:40. Adding a table therefore means
-// adding it here, on purpose.
+// WHY THE LITERALS BELOW ARE HAND-WRITTEN. [_erwartet] (tables) and
+// [_erwarteteFunktionen] (functions) are a second, independent source of
+// truth, not derived from the migrations. Derived, the guard would be
+// tautological: a new table without RLS, or a function freshly granted to
+// `anon`, would define its own expectation and pass. The same pattern already
+// carries test/profile_export_sheet_test.dart:40. Adding a table or a
+// function therefore means adding it here, on purpose.
 //
 // WHY EVERY RULE IS A FUNCTION. Each invariant returns its violations as
 // strings, so the "Wirksamkeit" group at the bottom can run the SAME rule
@@ -174,6 +175,109 @@ const Map<String, Erwartung> _erwartet = {
     grund: 'Idempotenz-Journal von increment_lifetime_stats; RLS an und '
         'BEWUSST ohne Policy — nur der Funktionseigentuemer schreibt.',
   ),
+};
+
+/// What one function in schema `public` is allowed to be.
+///
+/// P12-01/P12-02: until this list existed, the guard knew nothing about
+/// function privileges. `grant execute on function public.refund_chat_quota
+/// (uuid) to anon;` — the RPC that hands a paid coach slot BACK — replayed
+/// green here AND passed the real-Postgres job, because
+/// [regelFremdeRollen] only walks tables and [regelDefinerAuthUid] only ever
+/// looks at `authenticated`. The same held for dropping `security definer`
+/// from a function: nothing in this file read the flag except as a
+/// precondition for the two rules below.
+class FunktionsErwartung {
+  /// Callable by the app: `authenticated` plus the Edge Functions.
+  const FunktionsErwartung.client({required this.definer, required this.grund})
+      : executeRollen = const {'authenticated', 'service_role'};
+
+  /// Server only — Edge Functions, triggers and cron. `authenticated` must
+  /// NOT be able to call it, `anon` never.
+  const FunktionsErwartung.nurServer({
+    required this.definer,
+    required this.grund,
+  }) : executeRollen = const {'service_role'};
+
+  /// `security definer` runs the body with the OWNER's rights, i.e. past RLS.
+  /// Pinned in both directions: losing it breaks the function (it then hits
+  /// the caller's grants), gaining it hands a caller the owner's reach.
+  final bool definer;
+
+  /// Roles holding EXECUTE at the end of the history — exactly, no more.
+  final Set<String> executeRollen;
+
+  final String grund;
+}
+
+/// The functions `supabase/migrations/` must leave behind — no more, no
+/// fewer. Hand-written for the same reason as [_erwartet]: derived from the
+/// migrations, a newly granted role would define its own expectation.
+const Map<String, FunktionsErwartung> _erwarteteFunktionen = {
+  // -- callable by the app -------------------------------------------------
+  'create_chat_session': FunktionsErwartung.client(
+      definer: true, grund: 'Coach: neue Unterhaltung anlegen.'),
+  'delete_account': FunktionsErwartung.client(
+      definer: true,
+      grund: 'Kontoloeschung; loescht aus auth.users, wozu der Aufrufer '
+          'selbst kein Recht hat — genau dafuer ist sie definer.'),
+  'delete_chat_session': FunktionsErwartung.client(
+      definer: true, grund: 'Coach: Unterhaltung loeschen.'),
+  'ensure_default_chat_session': FunktionsErwartung.client(
+      definer: true, grund: 'Coach: Standard-Unterhaltung sicherstellen.'),
+  'get_chat_quota_today': FunktionsErwartung.client(
+      definer: true,
+      grund: 'liest das eigene Tageskontingent — nur lesend, das Buchen '
+          'macht claim_chat_quota auf dem Server.'),
+  'increment_lifetime_stats': FunktionsErwartung.client(
+      definer: true,
+      grund: 'der einzige Schreibweg auf lifetime_stats; die Tabelle selbst '
+          'ist fuer den Client nur lesbar.'),
+  'list_chat_sessions': FunktionsErwartung.client(
+      definer: true, grund: 'Coach: eigene Unterhaltungen auflisten.'),
+  'record_tracking_day': FunktionsErwartung.client(
+      definer: true, grund: 'Streak-Fortschreibung des eigenen Tages.'),
+  'rename_chat_session': FunktionsErwartung.client(
+      definer: true, grund: 'Coach: Unterhaltung umbenennen.'),
+
+  // -- server only ---------------------------------------------------------
+  'claim_chat_quota': FunktionsErwartung.nurServer(
+      definer: true,
+      grund: 'bucht einen der fuenf Gratis-Slots. Client-aufrufbar hiesse: '
+          'fremde Kontingente verbrennen oder das eigene umgehen.'),
+  'refund_chat_quota': FunktionsErwartung.nurServer(
+      definer: true,
+      grund: 'gibt einen gebuchten Slot zurueck — client-aufrufbar waeren die '
+          'fuenf Anfragen pro Tag unbegrenzt.'),
+  'consume_edge_rate_limit': FunktionsErwartung.nurServer(
+      definer: true, grund: 'das Rate-Limit selbst.'),
+  'consume_edge_rate_limits': FunktionsErwartung.nurServer(
+      definer: true, grund: 'Stapelform desselben Rate-Limits.'),
+  'prune_chat_quota_usage': FunktionsErwartung.nurServer(
+      definer: true,
+      grund: 'Aufbewahrung; client-aufrufbar waere sie ein Reset-Knopf fuer '
+          'das Tageskontingent.'),
+  'prune_edge_rate_limits': FunktionsErwartung.nurServer(
+      definer: true, grund: 'Aufbewahrung des Rate-Limit-Journals.'),
+  'enforce_user_row_cap': FunktionsErwartung.nurServer(
+      definer: true,
+      grund: 'Trigger-Rumpf der Zeilen-Obergrenzen (P7-03). EXECUTE wird nur '
+          'beim CREATE TRIGGER geprueft, der Trigger feuert also ohne '
+          'Client-Recht.'),
+  'handle_new_user_profile': FunktionsErwartung.nurServer(
+      definer: true, grund: 'Bootstrap-Trigger auf auth.users.'),
+  'handle_new_user_stats': FunktionsErwartung.nurServer(
+      definer: true, grund: 'Bootstrap-Trigger auf auth.users.'),
+  'touch_chat_session': FunktionsErwartung.nurServer(
+      definer: true, grund: 'Trigger auf chat_messages.'),
+  'set_updated_at': FunktionsErwartung.nurServer(
+      definer: false,
+      grund: 'reiner updated_at-Trigger; definer waere hier unnoetige '
+          'Reichweite.'),
+  'rls_auto_enable': FunktionsErwartung.nurServer(
+      definer: false,
+      grund: 'Event-Trigger-Rumpf aus 20260814120000; laeuft als der '
+          'Superuser, der den Event-Trigger anlegt.'),
 };
 
 /// Roles that may hold a privilege on a table at all. Anything else — `anon`,
@@ -497,6 +601,66 @@ List<String> regelDefinerAuthUid(SchemaState s) => [
               'vorbei, ohne den Aufrufer an seine Zeilen zu binden',
     ];
 
+/// P12-01: the function counterpart of [regelTabellenMenge]. A function
+/// nobody entered here is a function whose EXECUTE grants nobody checks.
+List<String> regelFunktionsMenge(
+  SchemaState s,
+  Map<String, FunktionsErwartung> soll,
+) {
+  final ist = s.funktionen.keys.toSet();
+  return [
+    for (final f in (ist.difference(soll.keys.toSet()).toList()..sort()))
+      'Funktion `public.$f` steht in den Migrationen, aber in keiner '
+          'Erwartung — ohne Eintrag prueft niemand, WER sie aufrufen darf',
+    for (final f in (soll.keys.toSet().difference(ist).toList()..sort()))
+      'Funktion `public.$f` wird erwartet, existiert nach den Migrationen '
+          'aber nicht (mehr)',
+  ];
+}
+
+/// P12-01/P12-02: who may EXECUTE, and whether the function is `security
+/// definer`. Both are set comparisons, so a grant to `anon` and a lost
+/// `definer` are findings in the same place.
+List<String> regelFunktionsRechte(
+  SchemaState s,
+  Map<String, FunktionsErwartung> soll,
+) {
+  final funde = <String>[];
+  for (final name in (s.funktionen.keys.toList()..sort())) {
+    final erwartung = soll[name];
+    if (erwartung == null) continue; // regelFunktionsMenge reports this
+    final f = s.funktionen[name]!;
+    final ist = f.executeRollen;
+    final zuviel = (ist.difference(erwartung.executeRollen).toList()..sort());
+    final fehlt = (erwartung.executeRollen.difference(ist).toList()..sort());
+    if (zuviel.isNotEmpty) {
+      funde.add(
+        'Funktion `public.$name` (${f.quelle}): ${zuviel.join('/')} darf sie '
+        'ausfuehren, erlaubt ist nur '
+        '${(erwartung.executeRollen.toList()..sort()).join('/')} '
+        '(${erwartung.grund})',
+      );
+    }
+    if (fehlt.isNotEmpty) {
+      funde.add(
+        'Funktion `public.$name` (${f.quelle}): ${fehlt.join('/')} fehlt das '
+        'EXECUTE — der Aufruf scheitert mit 42501',
+      );
+    }
+    if (f.securityDefiner != erwartung.definer) {
+      funde.add(
+        'Funktion `public.$name` (${f.quelle}) ist '
+        '${f.securityDefiner ? '' : 'NICHT '}`security definer`, erwartet ist '
+        '${erwartung.definer ? '' : 'KEIN '}definer — ohne das Schluesselwort '
+        'laeuft der Rumpf mit den Rechten des AUFRUFERS und faellt an den '
+        'Tabellen-Grants um; mit ihm reicht ein Aufrufer an RLS vorbei '
+        '(${erwartung.grund})',
+      );
+    }
+  }
+  return funde;
+}
+
 List<PolicyState> _sortiert(SchemaState s) =>
     s.policies.values.toList()..sort((a, b) => a.schluessel.compareTo(b.schluessel));
 
@@ -513,6 +677,12 @@ void main() {
 
   group('Der Waechter sieht die ganze Historie', () {
     test('alle Migrationen werden eingelesen', () {
+      // What this floor really guards is the RESOLUTION: a wrong working
+      // directory or a broken filter leaves the replay with (almost) nothing
+      // and every rule below trivially green. It is NOT the guard against a
+      // deleted migration — the floor sits below the current count on
+      // purpose, and schema_state_doc_test.dart owns that mutation: the
+      // generated document lists every file by name (T12, measured).
       expect(
         schema.dateien.length,
         greaterThanOrEqualTo(36),
@@ -631,6 +801,26 @@ void main() {
   });
 
   group('security definer', () {
+    test('die Funktionsmenge deckt sich mit der Erwartung', () {
+      expect(
+        regelFunktionsMenge(schema, _erwarteteFunktionen),
+        isEmpty,
+        reason: 'Eine neue Funktion MUSS hier eingetragen werden — sonst '
+            'prueft niemand, wer sie ausfuehren darf.',
+      );
+    });
+
+    test('jede Funktion hat genau die EXECUTE-Rechte der Erwartung', () {
+      expect(
+        regelFunktionsRechte(schema, _erwarteteFunktionen),
+        isEmpty,
+        reason: 'PostgreSQL vergibt EXECUTE, nicht RLS. Ein `grant execute … '
+            'to anon` auf einer definer-Funktion ist ein Weg an jeder Policy '
+            'vorbei, und ein verlorenes `security definer` laesst den Rumpf '
+            'an den Grants des Aufrufers scheitern.',
+      );
+    });
+
     test('jede definer-Funktion pinnt den search_path', () {
       expect(regelDefinerSearchPath(schema), isEmpty);
     });
@@ -810,6 +1000,155 @@ create policy "notizen_select_own"
     test('TRUNCATE fuer `authenticated` faellt auf', () {
       final s = bau('${gesund}grant truncate on public.notizen to authenticated;');
       expect(regelClientRechte(s, soll), contains(contains('TRUNCATE')));
+    });
+
+    // -----------------------------------------------------------------------
+    // P12-01/P12-02: EXECUTE-Rechte und das definer-Schluesselwort.
+    //
+    // Beide Mutationen liefen vor dieser Gruppe GRUEN durch — und zwar
+    // durch BEIDE Waechter, denn rls_cross_user.sql probiert `anon` nur an
+    // Tabellen und kennt refund_chat_quota gar nicht.
+    // -----------------------------------------------------------------------
+    group('EXECUTE-Rechte und `security definer`', () {
+      /// One server-only definer RPC, as the migrations shape them.
+      const nurServer = '''
+create or replace function public.geheim(p_user uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as \$\$
+begin
+  perform 1;
+end;
+\$\$;
+revoke all on function public.geheim(uuid) from public, anon, authenticated;
+grant execute on function public.geheim(uuid) to service_role;
+''';
+
+      const soll = {
+        'geheim': FunktionsErwartung.nurServer(
+          definer: true,
+          grund: 'Testfunktion, nur der Server ruft sie',
+        ),
+      };
+
+      test('der gesunde Ausgangsfall ist sauber', () {
+        final s = bau(nurServer);
+        expect(regelFunktionsMenge(s, soll), isEmpty);
+        expect(regelFunktionsRechte(s, soll), isEmpty);
+      });
+
+      test('ein EXECUTE fuer `anon` faellt auf', () {
+        final s = schemaAusQuellen({
+          '00_test.sql': nurServer,
+          '01_sabotage.sql':
+              'grant execute on function public.geheim(uuid) to anon;',
+        });
+        expect(
+          regelFunktionsRechte(s, soll),
+          contains(contains('anon')),
+          reason: 'regelFremdeRollen laeuft nur ueber TABELLEN — an einer '
+              'Funktion hat sie nie hingesehen',
+        );
+        expect(regelFremdeRollen(s), isEmpty,
+            reason: 'belegt genau das: die alte Regel bleibt hier gruen');
+      });
+
+      test('ein EXECUTE fuer `authenticated` faellt auf', () {
+        final s = schemaAusQuellen({
+          '00_test.sql': nurServer,
+          '01_sabotage.sql': 'grant execute on function public.geheim(uuid) '
+              'to authenticated;',
+        });
+        expect(
+          regelFunktionsRechte(s, soll),
+          contains(contains('authenticated')),
+        );
+      });
+
+      test('ein verlorenes `security definer` faellt auf', () {
+        final s = bau(nurServer.replaceFirst('security definer\n', ''));
+        expect(
+          regelFunktionsRechte(s, soll),
+          contains(contains('NICHT `security definer`')),
+        );
+      });
+
+      test('ein NEU vergebenes `security definer` faellt ebenso auf', () {
+        const trigger = '''
+create or replace function public.harmlos()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as \$\$
+begin
+  return new;
+end;
+\$\$;
+grant execute on function public.harmlos() to service_role;
+''';
+        final s = bau(trigger);
+        expect(
+          regelFunktionsRechte(s, {
+            'harmlos': const FunktionsErwartung.nurServer(
+              definer: false,
+              grund: 'reiner Trigger, braucht keine Eigentuemerrechte',
+            ),
+          }),
+          contains(contains('erwartet ist KEIN definer')),
+        );
+      });
+
+      test('eine neue Funktion ohne Eintrag in der Erwartung faellt auf', () {
+        final s = bau(nurServer);
+        expect(
+          regelFunktionsMenge(s, const <String, FunktionsErwartung>{}),
+          contains(contains('in keiner Erwartung')),
+        );
+      });
+
+      test('ein `auth.uid()` NUR im Kommentar zaehlt nicht', () {
+        // The trap that made regelDefinerAuthUid green on a server RPC handed
+        // to `authenticated`: the body only MENTIONED auth.uid() in prose.
+        final s = bau('''
+create or replace function public.getarnt(p_user uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as \$\$
+begin
+  -- historisch: hier stand einmal auth.uid()
+  perform 1;
+end;
+\$\$;
+grant execute on function public.getarnt(uuid) to authenticated;
+''');
+        expect(
+          regelDefinerAuthUid(s),
+          contains(contains('getarnt')),
+          reason: 'der Rumpf nennt auth.uid() nur in einem Kommentar',
+        );
+      });
+
+      test('ein echtes `auth.uid()` im Rumpf loest NICHT aus', () {
+        final s = bau('''
+create or replace function public.eigen()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as \$\$
+begin
+  perform 1 from public.n where user_id = auth.uid();
+end;
+\$\$;
+grant execute on function public.eigen() to authenticated;
+''');
+        expect(regelDefinerAuthUid(s), isEmpty);
+      });
     });
 
     test('eine definer-Funktion ohne search_path faellt auf', () {

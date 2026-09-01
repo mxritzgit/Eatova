@@ -32,6 +32,16 @@ void main() {
               'Keystore-Eintrag praegt wieder still einen frischen DEK');
     });
 
+    test('Klartext-Marker (W7a)', () {
+      expect(CacheKeyProvider.plaintextMigrationClosedKey,
+          'eatova.v1.cache_plaintext_migrated',
+          reason: 'umbenannt = der Marker gilt auf JEDEM installierten Geraet '
+              'wieder als ungesetzt, der Klartext-Pfad oeffnet sich noch '
+              'einmal, und ein untergeschobener magic-loser Slot wird in '
+              'diesem Start uebernommen statt als ExpiredPlaintextCacheSlot '
+              'verworfen und gemeldet');
+    });
+
     test('Strike-Zaehler und Reset-Hinweis (Welle 6)', () {
       expect(
           CacheKeyProvider.dekVanishStrikesKey, 'eatova.v1.dek_vanish_strikes',

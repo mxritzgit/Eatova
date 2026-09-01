@@ -425,6 +425,32 @@ class EingefrorenerOutboxCache extends LocalCache {
   Future<bool> writeOutbox(List<SyncOp> ops) async => false;
 }
 
+/// Records EVERY outbox blob write, in call order, as its entity keys.
+///
+/// Two DATA-7 guarantees live in the SEQUENCE of writes and are invisible in
+/// the end state, so only a recording can hold them:
+///  * the replay persists per OP, not per pass — batching a pass into one
+///    final blob leaves exactly the same queue behind, and a kill mid-pass
+///    then replays everything already delivered ([laengen]).
+///  * removing a delivered op and appending its counter follow-up are ONE
+///    blob write, so no persisted state exists in which the meal is gone and
+///    its counter does not exist yet ([eintraege]).
+///
+/// Both are read synchronously on entry, before the async write.
+class OutboxSchreibMitschrift extends LocalCache {
+  OutboxSchreibMitschrift(super.store, super.userId);
+
+  final List<List<String>> eintraege = <List<String>>[];
+
+  List<int> get laengen => eintraege.map((e) => e.length).toList();
+
+  @override
+  Future<bool> writeOutbox(List<SyncOp> ops) {
+    eintraege.add(ops.map((o) => o.entityKey).toList(growable: false));
+    return super.writeOutbox(ops);
+  }
+}
+
 /// Same for the DELTAS slot (W7b): a failed boot read used to let the next
 /// flush rewrite the slot from 0, losing the previous session's meals.
 /// [kaputteVersuche] picks a temporary failure (1) or a permanent one (2).

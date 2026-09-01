@@ -1036,6 +1036,35 @@ Deno.test("F1: Prompt-Inhalt zuerst, Trigger-Phrase zuletzt — nichts davon geh
   }
 });
 
+Deno.test("F1: ein Leck WORT FUER WORT trippt die Tabelle trotzdem", async () => {
+  // Die Luecke, die der obige Test nicht sieht: dort kommt die Prompt-Zeile in
+  // EINEM Block, also liegt jedes 7-Wort-Fenster komplett im neuen Text. Der
+  // Cursor `leakFrom` haelt deshalb genau die Fenster offen, die ueber die
+  // Blockgrenze reichen — `words.length - SHINGLE_WORDS`, nicht `words.length`.
+  // Ein Modell, das Token fuer Token zitiert (der Normalfall bei OpenRouter),
+  // erzeugt AUSSCHLIESSLICH grenzueberschreitende Fenster: mit dem falschen
+  // Cursor feuert die Tabelle nie, und der Prompt geht bis auf die letzten
+  // LEAK_GUARD_TAIL Zeichen raus.
+  const stub = installFetch({
+    answerDeltas: PROMPT_ZEILE_1.split(" ").map((wort) => `${wort} `),
+  });
+  try {
+    const res = await handleRequest(makeRequest({ message: FRAGE }, true));
+    const events = parseSse(await res.text());
+    const geliefert = deltaTexte(events).join("");
+    for (const teil of ["Eatova Coach", "friendly fitness", "nutrition coach", "mobile app"]) {
+      assert(!geliefert.includes(teil), `Prompt-Inhalt auf der Leitung: ${geliefert}`);
+    }
+    assertEquals(deltaTexte(events).length, 0, "gar kein delta");
+    const done = events[events.length - 1].data;
+    assertEquals(done.reply, PROMPT_LEAK_REPLY, "done traegt den Katalogtext");
+    assertEquals(done.refusal, true, "refusal");
+    assertEquals(stub.quotaUsed(), 1, "der Slot bleibt verbraucht");
+  } finally {
+    stub.restore();
+  }
+});
+
 Deno.test("F1: der Riegel deckt genau das Fenster, das die Tabelle nicht sieht", () => {
   // Die Garantie "kein Prompt-Zeichen erreicht den Client" ist eine Relation:
   // die Tabelle feuert erst nach `words` Woertern, also muss der Riegel den

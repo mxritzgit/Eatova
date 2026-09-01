@@ -28,27 +28,55 @@ img.IfdValueRational _rationals(List<List<int>> parts) {
 
 /// A realistic phone JPEG: pixels plus the EXIF container an OEM camera writes
 /// with location tagging on — GPS sub-IFD, device model, serial, capture time.
+///
+/// [noise] swaps the two flat colour fields for deterministic pixel noise. Flat
+/// fields compress to almost nothing at ANY quality, so a q85 re-encode of such
+/// a fixture comes out SMALLER than the source and the byte-saving shortcut in
+/// `compressMealPhoto` is never taken — which would make the loophole test
+/// below vacuous. Noise costs far more at q85 than at q25, so only with it does
+/// the shortcut actually run.
+///
+/// [withMetadata] `false` yields the same PIXELS without the EXIF container, so
+/// a test can measure what the shortcut would do to this very image.
 Uint8List _geotaggedJpeg({
   int width = 480,
   int height = 360,
   int? orientation,
   int quality = 92,
+  bool noise = false,
+  bool withMetadata = true,
 }) {
   final image = img.Image(width: width, height: height);
-  // Two color fields instead of one fill, so the orientation check below can
-  // tell which side is up.
-  img.fillRect(image,
-      x1: 0,
-      y1: 0,
-      x2: width ~/ 2 - 1,
-      y2: height - 1,
-      color: img.ColorRgb8(220, 30, 30));
-  img.fillRect(image,
-      x1: width ~/ 2,
-      y1: 0,
-      x2: width - 1,
-      y2: height - 1,
-      color: img.ColorRgb8(30, 30, 220));
+  if (noise) {
+    // Fixed seed LCG: same bytes on every run, no `dart:math` randomness.
+    var seed = 0x2545F491;
+    for (var y = 0; y < height; y++) {
+      for (var x = 0; x < width; x++) {
+        seed = (seed * 1103515245 + 12345) & 0x7FFFFFFF;
+        image.setPixelRgb(
+            x, y, seed & 0xFF, (seed >> 8) & 0xFF, (seed >> 16) & 0xFF);
+      }
+    }
+  } else {
+    // Two color fields instead of one fill, so the orientation check below can
+    // tell which side is up.
+    img.fillRect(image,
+        x1: 0,
+        y1: 0,
+        x2: width ~/ 2 - 1,
+        y2: height - 1,
+        color: img.ColorRgb8(220, 30, 30));
+    img.fillRect(image,
+        x1: width ~/ 2,
+        y1: 0,
+        x2: width - 1,
+        y2: height - 1,
+        color: img.ColorRgb8(30, 30, 220));
+  }
+
+  if (!withMetadata) {
+    return Uint8List.fromList(img.encodeJpg(image, quality: quality));
+  }
 
   final exif = image.exif;
   exif.imageIfd['Make'] = 'ACME';
@@ -169,11 +197,42 @@ void main() {
       // The byte-saving branch must not be a loophole: a small, heavily
       // compressed photo with GPS would otherwise go out unchanged, because
       // re-encoding comes out larger.
-      final original = _geotaggedJpeg(width: 320, height: 240, quality: 40);
+      //
+      // PRECONDITION, and the whole point of the noise fixture: the identical
+      // pixels WITHOUT metadata must come back as the very same object. That
+      // proves the q85 re-encode really is the larger one here, so the shortcut
+      // branch is live. With a flat-colour fixture it is not — the re-encode
+      // came out 18 bytes smaller and the assertions below held even after the
+      // metadata guard was deleted from the condition.
+      const gr = <String, int>{'width': 400, 'height': 300, 'quality': 25};
+      final ohneMetadaten = _geotaggedJpeg(
+        width: gr['width']!,
+        height: gr['height']!,
+        quality: gr['quality']!,
+        noise: true,
+        withMetadata: false,
+      );
+      expect(
+        identical(compressMealPhoto(ohneMetadaten), ohneMetadaten),
+        isTrue,
+        reason: 'Ohne diese Vorbedingung greift die Byte-Spar-Abkuerzung gar '
+            'nicht und der Test unten prueft das Schlupfloch nicht',
+      );
+
+      final original = _geotaggedJpeg(
+        width: gr['width']!,
+        height: gr['height']!,
+        quality: gr['quality']!,
+        noise: true,
+      );
+      expect(_hasExifSegment(original), isTrue);
 
       final scrubbed = compressMealPhoto(original);
 
       expect(scrubbed, isNot(same(original)));
+      expect(scrubbed.lengthInBytes, greaterThan(original.lengthInBytes),
+          reason: 'die gescrubbte Fassung ist hier die GROESSERE — genau '
+              'deshalb waere sie ohne den Metadaten-Zweig verworfen worden');
       expect(_gpsTagsIn(scrubbed), isEmpty);
       expect(_hasExifSegment(scrubbed), isFalse);
     });

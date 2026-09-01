@@ -169,6 +169,7 @@ do $$
 declare
   b text := '22222222-2222-2222-2222-222222222222';
   t text;
+  muster text;
 begin
   -- Client-writable tables: UPDATE/DELETE on a foreign row hit zero rows,
   -- because USING already hides them.
@@ -184,26 +185,47 @@ begin
       format('DELETE auf fremde Zeile in %s', t));
   end loop;
 
-  -- And WITH CHECK stops writing a NEW row onto B.
-  perform rlstest.erwarte_ablehnung(
-    format($sql$insert into public.logged_meals
-      (user_id, meal_name, calories_kcal, estimated_g, payload)
-      values (%L, 'Untergeschoben', 100, 100, '{}'::jsonb)$sql$, b),
-    'INSERT in logged_meals auf fremde user_id');
-  perform rlstest.erwarte_ablehnung(
-    format($sql$insert into public.weight_log (user_id, weight_kg)
-      values (%L, 80)$sql$, b),
-    'INSERT in weight_log auf fremde user_id');
-  perform rlstest.erwarte_ablehnung(
-    format($sql$insert into public.user_recipes
-      (user_id, slug, title, calories_kcal, estimated_g)
-      values (%L, 'untergeschoben', 'X', 100, 100)$sql$, b),
-    'INSERT in user_recipes auf fremde user_id');
+  -- And WITH CHECK stops writing a NEW row onto B — for EVERY table the
+  -- client may insert into.
+  --
+  -- T12: this used to name three tables by hand, so weakening
+  -- `favorite_meals_insert_own` or `chat_sessions_insert_own` to
+  -- `with check (auth.uid() is not null)` left this job GREEN. The list now
+  -- matches the five client-writable tables of the loop above.
+  for t, muster in
+    select * from (values
+      ('logged_meals', $sql$insert into public.logged_meals
+         (user_id, meal_name, calories_kcal, estimated_g, payload)
+         values (%L, 'Untergeschoben', 100, 100, '{}'::jsonb)$sql$),
+      ('favorite_meals', $sql$insert into public.favorite_meals
+         (user_id, favorite_key, meal_name, calories_kcal, estimated_g,
+          payload)
+         values (%L, 'name:untergeschoben', 'X', 100, 100, '{}'::jsonb)$sql$),
+      ('weight_log', $sql$insert into public.weight_log (user_id, weight_kg)
+         values (%L, 80)$sql$),
+      ('user_recipes', $sql$insert into public.user_recipes
+         (user_id, slug, title, calories_kcal, estimated_g)
+         values (%L, 'untergeschoben', 'X', 100, 100)$sql$),
+      ('chat_sessions', $sql$insert into public.chat_sessions (user_id, title)
+         values (%L, 'Untergeschoben')$sql$)
+    ) as v(tabelle, anweisung)
+  loop
+    perform rlstest.erwarte_ablehnung(
+      format(muster, b),
+      format('INSERT in %s auf fremde user_id', t));
+  end loop;
 
-  -- Moving an OWN row over to B must fail on WITH CHECK, not silently succeed.
-  perform rlstest.erwarte_ablehnung(
-    format('update public.logged_meals set user_id = %L', b),
-    'UPDATE, das die eigene Zeile B unterschiebt');
+  -- Moving an OWN row over to B must fail on WITH CHECK, not silently
+  -- succeed. `favorite_meals` stays out of the loop: A and B hold the same
+  -- favorite_key, so the move would trip the unique index (23505) before RLS
+  -- ever gets asked, and a green run would then prove nothing.
+  foreach t in array array[
+    'logged_meals', 'weight_log', 'user_recipes', 'chat_sessions'
+  ] loop
+    perform rlstest.erwarte_ablehnung(
+      format('update public.%I set user_id = %L', t, b),
+      format('UPDATE, das die eigene Zeile in %s B unterschiebt', t));
+  end loop;
   perform rlstest.erwarte_ablehnung(
     format('update public.profiles set id = %L', b),
     'UPDATE, das das eigene Profil B unterschiebt');
@@ -341,6 +363,69 @@ begin
     'consume_edge_rate_limit als Client');
 end $$;
 commit;
+
+-- ---------------------------------------------------------------------------
+-- 6a) P7-03, T12: the caps are actually WIRED to the real tables.
+--
+-- Section 6 below proves the trigger FUNCTION by hanging a probe trigger of
+-- its own on public.logged_meals. Nothing proved that the five REAL triggers
+-- exist — so deleting all five `create trigger` statements from
+-- 20260829120000 left this job, rls_invariants_test.dart and the generated
+-- SCHEMA_STATE.md green, while one account could fill every table without
+-- limit. The replay in migration_schema.dart cannot close this: it waves
+-- `create trigger` through as harmless, and a trigger only exists in the live
+-- catalogue anyway.
+-- ---------------------------------------------------------------------------
+do $t$
+declare
+  fall record;
+  tg  record;
+begin
+  for fall in
+    select * from (values
+      ('logged_meals',   'logged_meals_row_cap'),
+      ('weight_log',     'weight_log_row_cap'),
+      ('favorite_meals', 'favorite_meals_row_cap'),
+      ('user_recipes',   'user_recipes_row_cap'),
+      ('chat_sessions',  'chat_sessions_row_cap')
+    ) as v(tabelle, name)
+  loop
+    select t.tgtype, pg_get_triggerdef(t.oid) as def into tg
+      from pg_trigger t
+      join pg_class c on c.oid = t.tgrelid
+      join pg_namespace n on n.oid = c.relnamespace
+      join pg_proc p on p.oid = t.tgfoid
+     where n.nspname = 'public'
+       and c.relname = fall.tabelle
+       and t.tgname = fall.name
+       and p.proname = 'enforce_user_row_cap'
+       and not t.tgisinternal;
+    -- `found` rather than `tg is null`: SELECT INTO nulls the record when it
+    -- misses, but `found` says so without depending on how a record compares
+    -- to NULL.
+    if not found then
+      raise exception 'ZEILEN-DECKEL FEHLT: public.% traegt keinen Trigger % '
+        'auf enforce_user_row_cap — die Obergrenze ist Dekoration',
+        fall.tabelle, fall.name;
+    end if;
+    -- TRIGGER_TYPE_ROW = 1, _BEFORE = 2, _INSERT = 4. A statement-level or
+    -- AFTER trigger would be wired and useless at the same time.
+    if (tg.tgtype & 7) <> 7 then
+      raise exception 'ZEILEN-DECKEL FALSCH VERDRAHTET: % feuert nicht als '
+        'BEFORE INSERT FOR EACH ROW (tgtype=%)', fall.name, tg.tgtype;
+    end if;
+    -- The cap itself: the second quoted argument. A zero or missing limit
+    -- would leave the trigger attached and toothless.
+    if coalesce(
+         (substring(tg.def from
+            'enforce_user_row_cap\(''[a-z_]+'', ''([0-9]+)'''))::integer, 0)
+       < 1000 then
+      raise exception 'ZEILEN-DECKEL UNPLAUSIBEL: % -> %', fall.name, tg.def;
+    end if;
+  end loop;
+  raise notice 'T12 ok: alle fuenf Zeilen-Obergrenzen sind verdrahtet';
+end;
+$t$;
 
 -- ---------------------------------------------------------------------------
 -- 6) P7-03: the per-user row cap really bites — and only where it should

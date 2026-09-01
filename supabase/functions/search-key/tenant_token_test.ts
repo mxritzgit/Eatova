@@ -97,6 +97,9 @@ const LOADERS: Record<string, () => Promise<unknown>> = {
   "tenant-bad-index": () => import("./index.ts?mode=tenant-bad-index"),
   "static-cache": () => import("./index.ts?mode=static-cache"),
   "tenant-log": () => import("./index.ts?mode=tenant-log"),
+  "tenant-ttl-hoch": () => import("./index.ts?mode=tenant-ttl-hoch"),
+  "tenant-ttl-tief": () => import("./index.ts?mode=tenant-ttl-tief"),
+  "tenant-ttl-muell": () => import("./index.ts?mode=tenant-ttl-muell"),
 };
 
 /** Loads a fresh index.ts instance with `env` applied for the duration of the
@@ -207,6 +210,49 @@ Deno.test("F9-02: mit EATOVA_MIRROR_KEY_UID kommt ein signierter Tenant-Token st
     assert(!(await verifyHs256(token, "wrong-key")), "ein fremder Key darf nicht verifizieren");
   } finally {
     restore();
+  }
+});
+
+// EATOVA_SEARCH_KEY_TTL_SECONDS ist ein Betreiber-Secret und bestimmt im
+// Tenant-Modus die LEBENSDAUER eines Bearer-Tokens. Ohne die Klammer
+// [MIN_TTL, MAX_TTL] macht ein vertippter Wert (Millisekunden statt Sekunden,
+// eine Null zu viel) aus dem ablaufenden Token einen praktisch unbefristeten —
+// und genau das war nirgends gepinnt: die Klammer liess sich ersatzlos
+// streichen, ohne dass ein Test rot wurde. `exp` wird mitgeprueft, weil die
+// gemeldete `ttlSeconds` und die im Token verbaute Frist aus derselben Zahl
+// kommen muessen.
+Deno.test("F9-02: die TTL-Klammer begrenzt die Lebensdauer des Tenant-Tokens", async () => {
+  const MIN_TTL = 3_600;
+  const MAX_TTL = 604_800;
+  const faelle: {
+    tag: "tenant-ttl-hoch" | "tenant-ttl-tief" | "tenant-ttl-muell";
+    gesetzt: string;
+    erwartet: number;
+    was: string;
+  }[] = [
+    { tag: "tenant-ttl-hoch", gesetzt: "31536000", erwartet: MAX_TTL, was: "ein Jahr -> Obergrenze" },
+    { tag: "tenant-ttl-tief", gesetzt: "60", erwartet: MIN_TTL, was: "eine Minute -> Untergrenze" },
+    { tag: "tenant-ttl-muell", gesetzt: "sofort", erwartet: TTL, was: "unlesbar -> Code-Default" },
+  ];
+  for (const fall of faelle) {
+    const restore = installFetch();
+    try {
+      const serve = await loadHandler(fall.tag, {
+        EATOVA_MIRROR_KEY_UID: TENANT_UID,
+        EATOVA_SEARCH_KEY_TTL_SECONDS: fall.gesetzt,
+      });
+      const before = Math.floor(Date.now() / 1000);
+      const res = await serve(request());
+      const body = await res.json() as JsonRecord;
+      assertEquals(body.ttlSeconds, fall.erwartet, `${fall.was}: gemeldete ttlSeconds`);
+      const exp = Number(decodeJson(String(body.searchKey).split(".")[1]).exp);
+      assert(
+        exp >= before + fall.erwartet + GRACE && exp <= before + fall.erwartet + GRACE + 5,
+        `${fall.was}: exp muss der geklammerten TTL folgen (war ${exp - before} s ab Testbeginn)`,
+      );
+    } finally {
+      restore();
+    }
   }
 });
 

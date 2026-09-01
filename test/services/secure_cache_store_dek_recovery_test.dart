@@ -163,6 +163,15 @@ void main() {
       });
       final keyStore = _AbsentDekKeyStore();
 
+      // Die ZAHL, ausgeschrieben: jeder andere Fall hier laeuft ueber die
+      // Konstante und vergleicht sie damit mit sich selbst — eine Anhebung
+      // von 3 auf 8 blieb unbemerkt und kostet den Nutzer fuenf weitere
+      // Kaltstarts ohne Cache und ohne persistierte Outbox.
+      expect(CacheKeyProvider.vanishStrikeBudget, 3,
+          reason: 'Kleiner heisst, ein einzelner Keystore-Aussetzer gibt die '
+              'Blobs sofort auf; groesser heisst, die Erholung nach einem '
+              'iOS-Restore dauert entsprechend viele Kaltstarts.');
+
       for (var start = 1;
           start < CacheKeyProvider.vanishStrikeBudget;
           start++) {
@@ -305,6 +314,26 @@ void main() {
       expect(contexts.where((c) => c == 'cache_dek_vanished'),
           hasLength(CacheKeyProvider.vanishStrikeBudget - 1));
       expect(contexts.where((c) => c == 'cache_dek_given_up'), hasLength(1));
+      // WHICH object is reported, not just under which context tag. The
+      // report is the only signal that a device lost its cache, and
+      // `sanitizeForReport` reduces every type that is not allowlisted to its
+      // NAME — so passing the raw error through, or building the wrong
+      // report object, arrives as a plausible-looking entry and nothing else
+      // here notices. (The `isNot(contains(...))` line below cannot go red on
+      // its own for exactly that reason: a bare type name never carries a
+      // value. It stays as the guard for the day one of these types IS
+      // allowlisted.)
+      expect(
+        errors.map((e) => (e as SanitizedError).type).toList(),
+        <String>[
+          for (var i = 1; i < CacheKeyProvider.vanishStrikeBudget; i++)
+            'VanishedCacheKey',
+          'AbandonedCacheKey',
+        ],
+        reason: 'Abbruch im Budget und endgueltiges Aufgeben sind zwei '
+            'verschiedene Vorfaelle — sie muessen in Sentry auch zwei '
+            'verschiedene Objekte sein.',
+      );
       // No ciphertext, no slot value in the report.
       for (final e in errors) {
         expect(e.toString(), isNot(contains(_deadBlob)));

@@ -21,7 +21,39 @@ Uint8List _jpegFixture(int width, int height, {int? exifOrientation}) {
   return Uint8List.fromList(img.encodeJpg(image, quality: 95));
 }
 
+/// Cheap content fingerprint (length + rolling checksum). Comparing two
+/// 200-kB buffers with `equals` would dump both into the failure message.
+String _fingerprint(Uint8List bytes) {
+  var sum = 0;
+  for (final b in bytes) {
+    sum = (sum * 31 + b) & 0x3FFFFFFF;
+  }
+  return '${bytes.lengthInBytes}:$sum';
+}
+
 void main() {
+  test('die Voreinstellungen stehen fest: 1600 px Langseite und q85', () {
+    // The two numbers in the signature are the whole contract with
+    // analyze-meal: 1600 px keeps the base64 payload under the 5 MB cap, q85 is
+    // what the scan model gets to look at. Nothing else in the suite noticed a
+    // silent q85 -> q55 — the edge tests only ever assert pixel dimensions, and
+    // a lower quality merely makes the file smaller, which every size assertion
+    // here happily accepts.
+    final original = _jpegFixture(2000, 1200);
+
+    final standard = _fingerprint(compressMealPhoto(original));
+
+    expect(standard,
+        _fingerprint(compressMealPhoto(original, maxDimension: 1600)));
+    expect(standard,
+        isNot(_fingerprint(compressMealPhoto(original, maxDimension: 1400))),
+        reason: 'die Langseiten-Voreinstellung ist nicht mehr 1600 px');
+    expect(standard, _fingerprint(compressMealPhoto(original, quality: 85)));
+    expect(standard,
+        isNot(_fingerprint(compressMealPhoto(original, quality: 55))),
+        reason: 'die JPEG-Qualitaets-Voreinstellung ist nicht mehr 85');
+  });
+
   test('verkleinert grosse Fotos auf 1600 px laengste Kante, Aspect bleibt',
       () {
     final original = _jpegFixture(2000, 1200);

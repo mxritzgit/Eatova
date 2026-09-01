@@ -131,6 +131,36 @@ void main() {
     expect(b.store.loggedMeals.map((m) => m.id), contains(id));
   });
 
+  test(
+      'DATA-7: der Replay persistiert nach JEDER Op, nicht einmal am Ende — '
+      'ein Kill mitten im Durchlauf darf keine zugestellte Op zurueckbringen',
+      () async {
+    final kv = InMemoryKeyValueStore();
+    // Three deliverable ops of drei verschiedenen Entitaeten: keine blockiert
+    // die andere, keine hat eine Payload, keine erzeugt einen Zaehler-
+    // Folgeeintrag. Uebrig bleibt reine Kadenz.
+    await seedRawOutbox(kv, <Map<String, dynamic>>[
+      SyncOp.mealDelete('m-1').toJson(),
+      SyncOp.mealDelete('m-2').toJson(),
+      SyncOp.mealDelete('m-3').toJson(),
+    ]);
+
+    final mitschrift = OutboxSchreibMitschrift(kv, 'user-outbox');
+    final s = setup(kv: kv, injizierterCache: mitschrift);
+    await boot(s.store);
+    await pumpUntil(() => s.store.pendingOutbox.isEmpty);
+
+    expect(s.store.pendingOutbox, isEmpty,
+        reason: 'Vorbedingung: der Boot-Replay hat alle drei zugestellt');
+    // Der Kern: nach jeder einzelnen Zustellung liegt der VERKUERZTE Stand auf
+    // der Platte. Wer die vier Schreibvorgaenge des Passes zu einem am Ende
+    // zusammenfasst, kommt hier nur mit [3, 0] oder [0] an — und ein Kill nach
+    // der zweiten Zustellung spielte beim naechsten Start alle drei erneut.
+    expect(mitschrift.laengen, containsAllInOrder(<int>[2, 1, 0]),
+        reason: 'die Zwischenstaende fehlen: die Kadenz ist auf einen Schreib'
+            'vorgang pro Durchlauf gebuendelt worden');
+  });
+
   // --- Attempt counter and queue cap across a restart -----------------------
 
   test('attempts ueberleben den App-Neustart (sonst waere Gift unsterblich)',

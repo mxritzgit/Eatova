@@ -118,7 +118,12 @@ class FunctionState {
   /// none — the classic search_path hijack for a `security definer` body.
   final String? searchPath;
 
-  /// The whole statement, whitespace-collapsed; carries the body.
+  /// The whole statement, COMMENTS STRIPPED and whitespace-collapsed; carries
+  /// the body. Comments go first on purpose: the only reader of this field
+  /// asks whether the body really names `auth.uid()`, and a body that only
+  /// MENTIONS it in a `-- historisch: hier stand einmal auth.uid()` answered
+  /// yes. That is the same trap [_doBlock] already guards against, so both
+  /// read the same comment-free text.
   final String rumpf;
 
   final String quelle;
@@ -446,7 +451,7 @@ class _Replay {
 
     if (l.startsWith('create or replace function') ||
         l.startsWith('create function')) {
-      _funktion(s, l, datei);
+      _funktion(roh, s, l, datei);
       return;
     }
     if (l.startsWith('drop function')) {
@@ -642,7 +647,7 @@ class _Replay {
 
   // -- functions ------------------------------------------------------------
 
-  void _funktion(String s, String l, String datei) {
+  void _funktion(String roh, String s, String l, String datei) {
     final m = _reFunktionsKopf.firstMatch(l);
     if (m == null) {
       zustand.unverstanden.add('$datei: Funktionskopf nicht lesbar: $s');
@@ -661,7 +666,7 @@ class _Replay {
       name: name,
       securityDefiner: kopf.contains('security definer'),
       searchPath: sp?.group(1),
-      rumpf: l,
+      rumpf: _flach(_ohneSqlKommentare(roh)).toLowerCase(),
       quelle: datei,
     );
     neu.executeRollen.addAll(alt?.executeRollen ?? _standardExecute);

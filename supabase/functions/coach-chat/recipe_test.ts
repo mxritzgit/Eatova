@@ -131,4 +131,21 @@ Deno.test("recipeImagePrompt nutzt den Titel und verbietet Text/Personen", () =>
   assert(prompt.includes("Huehnchenauflauf"), "Titel fehlt im Bild-Prompt");
   assert(/no text/i.test(prompt), "no-text-Regel fehlt");
   assert(/no people/i.test(prompt), "no-people-Regel fehlt");
+
+  // Die Beschreibung ist Modelltext (bis descriptionMaxChars) und wird auf
+  // 200 Zeichen gekuerzt, bevor sie in den bezahlten Bild-Call geht. Die
+  // Kuerzung war ungepinnt: sie liess sich streichen, ohne dass ein Test rot
+  // wurde.
+  const lang = parseRecipeDraft(JSON.stringify({
+    title: "Auflauf",
+    description: "x".repeat(600),
+    calories_kcal: 520,
+  }))!;
+  assertEquals(lang.description.length, 600, "der Draft selbst behaelt bis 600 Zeichen");
+  const langerPrompt = recipeImagePrompt(lang);
+  assert(
+    !langerPrompt.includes("x".repeat(201)),
+    `mehr als 200 Zeichen Beschreibung im Bild-Prompt (Laenge ${langerPrompt.length})`,
+  );
+  assert(langerPrompt.includes("x".repeat(200)), "die ersten 200 Zeichen gehoeren rein");
 });

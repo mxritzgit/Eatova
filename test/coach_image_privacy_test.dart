@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -106,6 +107,11 @@ class _RecordingPicker extends ImagePicker {
   int? imageQuality;
   double? maxWidth;
 
+  /// Set = the picker HANGS until the test resolves it. Models the seconds the
+  /// gallery/camera app spends in the foreground — the window in which the
+  /// composer is still free.
+  Completer<void>? tor;
+
   @override
   Future<XFile?> pickImage({
     required ImageSource source,
@@ -118,6 +124,7 @@ class _RecordingPicker extends ImagePicker {
     this.source = source;
     this.imageQuality = imageQuality;
     this.maxWidth = maxWidth;
+    await tor?.future;
     return XFile.fromData(
       bytes,
       mimeType: 'image/jpeg',
@@ -136,6 +143,13 @@ class _CapturingService extends CoachChatService {
   String? sentImageBase64;
   String? sentMimeType;
   int sendCalls = 0;
+
+  /// Set = `send()` HANGS, so a request stays in flight while the test does
+  /// something else.
+  Completer<CoachChatReply>? tor;
+
+  /// Set = `send()` throws this instead of answering.
+  Object? fehler;
 
   static _CapturingService create() {
     final client = SupabaseClient(
@@ -173,6 +187,10 @@ class _CapturingService extends CoachChatService {
     sendCalls++;
     sentImageBase64 = imageBase64;
     sentMimeType = imageMimeType;
+    final abbruch = fehler;
+    if (abbruch != null) throw abbruch;
+    final gate = tor;
+    if (gate != null) return gate.future;
     return CoachChatReply(
       reply: 'Sieht nach einer soliden Mahlzeit aus.',
       refusal: false,
@@ -276,5 +294,101 @@ void main() {
     expect(picker.source, ImageSource.gallery);
     expect(picker.imageQuality, isNotNull);
     expect(picker.maxWidth, isNotNull);
+  });
+
+  testWidgets(
+      'das zurueckkehrende Foto draengelt sich nicht neben eine laufende '
+      'Anfrage — sonst kostet eine Geste zwei Tagesslots', (tester) async {
+    // Der einzige Weg, auf dem ein zweiter Request ueberhaupt losgehen kann:
+    // `_pickAndSendImage` prueft `_canInteract` VOR dem Picker, und der steht
+    // sekundenlang im Vordergrund. Der Composer bleibt derweil frei (nichts
+    // laeuft), also kann die getippte Frage vorher rausgehen — der Schutz
+    // dagegen sitzt allein in `_send` selbst. Der Sendeknopf ist danach
+    // gesperrt und deckt genau diesen Weg NICHT ab.
+    final service = _CapturingService.create()
+      ..tor = Completer<CoachChatReply>();
+    final picker = _RecordingPicker(_geotaggedJpeg())..tor = Completer<void>();
+    await _pumpCoach(tester, service: service, picker: picker);
+
+    // 1. Der Bildweg startet und wartet auf die Galerie.
+    await tester.tap(find.byKey(const ValueKey('coach-attach')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('coach-gallery')));
+    await tester.pumpAndSettle();
+    expect(service.sendCalls, 0);
+
+    // 2. Waehrenddessen geht eine getippte Frage raus — erlaubt, es laeuft ja
+    //    noch nichts.
+    await tester.enterText(
+        find.byKey(const ValueKey('coach-input')), 'Kurz vorher gefragt');
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('coach-send')));
+    await tester.pumpAndSettle();
+    expect(service.sendCalls, 1, reason: 'die getippte Frage ist unterwegs');
+    expect(service.sentImageBase64, isNull);
+
+    // 3. Erst jetzt kommt das Foto zurueck. Der Scrubber laeuft ueber
+    //    `compute()` in einem echten Isolate, das die Fake-Uhr nie erreicht.
+    picker.tor!.complete();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(seconds: 2)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(service.sendCalls, 1,
+        reason: 'zwei parallele Anfragen sind zwei der fuenf Tagesslots fuer '
+            'eine einzige Nutzergeste');
+    expect(service.sentImageBase64, isNull,
+        reason: 'nicht nur die Zahl: der Bild-Request darf gar nicht erst '
+            'aufgesetzt worden sein');
+
+    // Aufraeumen: das offene Future darf nicht ins Test-Ende haengen.
+    service.tor!.complete(
+      const CoachChatReply(reply: 'Alles klar.', refusal: false, sessionId: 's1'),
+    );
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets(
+      'ist das Kontingent waehrend des Pickers verbraucht, geht das Foto nicht '
+      'mehr raus', (tester) async {
+    // Zweite Sperre auf demselben Weg: `_pickAndSendImage` hat seinen
+    // Kontingent-Check schon hinter sich, und der gesperrte Composer haelt nur
+    // NEUE Gesten auf. Ein Request in ein leeres Kontingent kostet die
+    // Burst-Bremse und raeumt nebenbei das Feld ab.
+    final service = _CapturingService.create()
+      ..fehler = const CoachQuotaExceeded(
+        message: 'Tageslimit erreicht. Morgen geht es weiter.',
+        dailyLimit: 5,
+      );
+    final picker = _RecordingPicker(_geotaggedJpeg())..tor = Completer<void>();
+    await _pumpCoach(tester, service: service, picker: picker);
+
+    await tester.tap(find.byKey(const ValueKey('coach-attach')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('coach-gallery')));
+    await tester.pumpAndSettle();
+
+    // Die getippte Frage verbraucht den letzten Slot: der Server antwortet 429
+    // und nennt sein Limit, der Composer ist ab hier gesperrt.
+    await tester.enterText(
+        find.byKey(const ValueKey('coach-input')), 'Die letzte Frage');
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('coach-send')));
+    await tester.pumpAndSettle();
+    expect(service.sendCalls, 1);
+    expect(find.text('Limit für heute erreicht'), findsOneWidget,
+        reason: 'Vorbedingung: das Kontingent ist jetzt nachweislich leer');
+
+    picker.tor!.complete();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(seconds: 2)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(service.sendCalls, 1,
+        reason: 'der Server wuerde das Bild mit 429 abweisen — der Upload und '
+            'die Burst-Bremse waeren trotzdem verbraucht');
+    expect(service.sentImageBase64, isNull);
   });
 }

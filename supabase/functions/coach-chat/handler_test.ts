@@ -103,6 +103,12 @@ interface StubOptions {
   /** HTTP status of the /auth/v1/user lookup (auth failure simulation). */
   authStatus?: number;
   /**
+   * `id` the auth lookup reports. The handler interpolates it RAW into
+   * PostgREST URLs, so anything that is not a UUID has to end the request
+   * before the first query — the stub can therefore hand out a crafted one.
+   */
+  authUserId?: string;
+  /**
    * The classifier call hangs: the promise only rejects once the deadline
    * aborts it, simulating a silent upstream (Finding 6).
    */
@@ -192,7 +198,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
       if (options.authStatus !== undefined) {
         return jsonRes({ message: "invalid token" }, options.authStatus);
       }
-      return jsonRes({ id: USER_ID });
+      return jsonRes({ id: options.authUserId ?? USER_ID });
     }
     // Batched limiter (P6-02). MUST be tested before the single-gate URL: that
     // fragment is a prefix of this one. Mirrors the RPC contract — gates in
@@ -1021,6 +1027,92 @@ Deno.test("P6-02: das kurze Ergebnis weist schon der HELFER ab, nicht erst der A
     );
   } finally {
     stub.restore();
+  }
+});
+
+// Beide Ids landen ROH in PostgREST-URLs (`user_id=eq.<id>`,
+// `session_id=eq.<id>`). Der einzige Schutz davor ist SESSION_ID_RE — und der
+// war fuer BEIDE Seiten ungepinnt: die Pruefung liess sich zu "nicht leer"
+// abschwaechen, ohne dass ein Test rot wurde.
+Deno.test("Injektion: eine nicht-UUID User-Id endet vor der ersten Query", async () => {
+  // Der Wert kaeme aus der Auth-Antwort; er ist die eine Stelle, an der ein
+  // kompromittierter oder verbogener Auth-Server Filter in unsere Queries
+  // schreiben koennte.
+  const boese = "11111111-1111-4111-8111-111111111111&role=eq.admin";
+  const stub = installFetch({ authUserId: boese });
+  try {
+    const res = await handleRequest(makeRequest({ message: "Wie viel Protein am Tag?" }));
+    assertEquals(res.status, 401, "Status");
+    assertEquals((await res.json() as JsonRecord).error, "Unauthorized", "Fehlercode");
+    // Nichts hinter der Auth-Pruefung darf gelaufen sein.
+    assertEquals(stub.callsTo("consume_edge_rate_limits").length, 0, "kein Limiter-Aufruf");
+    assertEquals(stub.callsTo("claim_chat_quota").length, 0, "keine Quota");
+    assert(
+      !stub.calls.some((call) => call.url.includes("role=eq.admin")),
+      `die praeparierte Id stand in einer Query: ${stub.calls.map((c) => c.url).join(" | ")}`,
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("Injektion: eine praeparierte session_id landet in KEINER Query", async () => {
+  // Anders als die User-Id ist die session_id direkt vom Client gesetzt. Sie
+  // wird nicht abgelehnt, sondern verworfen: der Server legt seine
+  // Default-Session an und antwortet mit DEREN Id.
+  const boese = "22222222-2222-4222-8222-222222222222&user_id=neq.x";
+  const stub = installFetch();
+  try {
+    const res = await handleRequest(
+      makeRequest({ message: "Wie viel Protein am Tag?", session_id: boese }),
+    );
+    assertEquals(res.status, 200, "Status");
+    assertEquals((await res.json() as JsonRecord).session_id, SESSION_ID, "Server-Session, nicht die des Clients");
+    assert(
+      !stub.calls.some((call) => call.url.includes("neq.x") || call.url.includes(encodeURIComponent("neq.x"))),
+      `die praeparierte session_id stand in einer Query: ${stub.calls.map((c) => c.url).join(" | ")}`,
+    );
+    assert(
+      stub.callsTo("ensure_default_chat_session").length > 0,
+      "der Server muss stattdessen seine Default-Session anlegen",
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P6-02: ein Element ohne lesbares allowed ist ein Ausfall, kein freier Durchlauf", async () => {
+  // Der Riegel `typeof entry?.allowed !== "boolean"` war ueberhaupt nicht
+  // gepinnt. Der teure Fall ist nicht das FEHLENDE Feld, sondern der
+  // wahrheitswertige Fremdtyp: `"false"`, `1`, `{}` sind in JavaScript alle
+  // truthy, also liest ein Riegel, der nur auf `undefined` prueft, sie als
+  // ERLAUBT — die Anfrage laeuft mit einem nie gemessenen Tor bis in den
+  // bezahlten Anbieter-Call. Die Matrix deckt beide Haelften ab.
+  const kaputt: { was: string; entry: JsonRecord }[] = [
+    { was: "Feld fehlt", entry: { limit: 120, remaining: 119 } },
+    { was: "String 'true'", entry: { allowed: "true", limit: 120, remaining: 119 } },
+    { was: "String 'false'", entry: { allowed: "false", limit: 120, remaining: 119 } },
+    { was: "Zahl 1", entry: { allowed: 1, limit: 120, remaining: 119 } },
+    { was: "Zahl 0", entry: { allowed: 0, limit: 120, remaining: 119 } },
+    { was: "null", entry: { allowed: null, limit: 120, remaining: 119 } },
+    { was: "Objekt", entry: { allowed: {}, limit: 120, remaining: 119 } },
+  ];
+  for (const fall of kaputt) {
+    const stub = installFetch({ gateBody: [fall.entry] });
+    try {
+      const res = await handleRequest(makeRequest({ message: "Wie viel Protein am Tag?" }));
+      assertEquals(res.status, 500, `${fall.was}: Status`);
+      assertEquals(
+        (await res.json() as JsonRecord).error,
+        "rate_limit_unavailable",
+        `${fall.was}: Fehlercode`,
+      );
+      assertEquals(res.headers.get("Retry-After"), null, `${fall.was}: kein erfundenes Retry-After`);
+      assertEquals(stub.callsTo("claim_chat_quota").length, 0, `${fall.was}: keine Quota`);
+      assertEquals(stub.openRouterBodies.length, 0, `${fall.was}: kein bezahlter Aufruf`);
+    } finally {
+      stub.restore();
+    }
   }
 });
 

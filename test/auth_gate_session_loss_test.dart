@@ -11,8 +11,9 @@
 // Pinned here:
 //   1. session loss clears the navigator stack down to the root route;
 //   2. an open dialog goes with it and its future completes with null;
-//   3. a token refresh (same user again) clears NOTHING;
-//   4. the user learns why they suddenly face the login.
+//   3. a direct A -> B switch clears it too, WITHOUT the expiry notice;
+//   4. a token refresh (same user again) clears NOTHING;
+//   5. the user learns why they suddenly face the login.
 
 import 'dart:async';
 
@@ -250,6 +251,34 @@ void main() {
         reason: 'Der Dialog-Future muss abgeschlossen sein, nicht haengen');
     expect(dialogResult, isNull,
         reason: 'Regulaerer Pop -> Ergebnis null, kein halber Zustand');
+  });
+
+  testWidgets(
+      'Ein direkter Kontowechsel A -> B raeumt die gepushte Route ebenfalls ab',
+      (tester) async {
+    // The counterpart to the null case above. Both are identity changes, but
+    // only this one ends with someone ELSE logged in, so the teardown may not
+    // hang off "nobody is signed in any more": B would keep looking at As
+    // open view. On a shared device that is the whole point of the switch.
+    final repository = _ScriptedAuthRepository(_user);
+    addTearDown(repository.dispose);
+    await _pumpGate(tester, repository);
+
+    await tester.tap(find.byKey(const ValueKey('push-profile')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('screen-fake-profile')), findsOneWidget);
+
+    // No sign-out in between: Bs session simply replaces As.
+    repository.emit(_andererUser);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('screen-fake-profile')), findsNothing,
+        reason: 'die offene Route zeigt As Daten — B darf sie nicht sehen');
+    expect(find.text('Gewichtsverlauf'), findsNothing);
+    expect(find.byKey(const ValueKey('screen-fake-home')), findsOneWidget,
+        reason: 'B ist angemeldet, also die Startseite und nicht der Login');
+    expect(find.textContaining('Sitzung ist abgelaufen'), findsNothing,
+        reason: 'nichts ist abgelaufen — B sitzt in einer frischen Sitzung');
   });
 
   testWidgets('Ein Token-Refresh raeumt die gepushte Route NICHT ab',

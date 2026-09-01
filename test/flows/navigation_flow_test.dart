@@ -111,6 +111,19 @@ void main() {
         hasLength(recipeRecommendationCount),
         reason: 'ohne Empfehlungen prueft die Schleife unten nichts',
       );
+      // Gegenprobe zur geteilten Quelle: Erwartung UND Bildschirm rufen
+      // dieselbe Funktion, also wandert die Erwartung mit, wenn die Rotation
+      // selbst verschwindet — der Karussell-Block wuerde gruen bleiben,
+      // waehrend jeder Tag dieselben vier Karten zeigt. Diese Zeile haelt
+      // fest, dass der Tag ueberhaupt noch etwas bewegt.
+      expect(
+        rotatedRecommendations(
+          recipeCatalogDe,
+          _jetzt.add(const Duration(days: 1)),
+        ),
+        isNot(empfohlen),
+        reason: 'die Empfehlungen rotieren nicht mehr mit dem Kalendertag',
+      );
       // Two of the four cards fit the 393 px viewport (280 px each).
       for (final rezept in empfohlen.take(2)) {
         expect(

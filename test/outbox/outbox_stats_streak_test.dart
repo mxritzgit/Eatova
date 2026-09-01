@@ -321,6 +321,100 @@ void main() {
   });
 
   test(
+      'Fix 3: Op-Entfernung und Zaehler-Eintrag sind EIN Blob-Schreibvorgang '
+      '— es gibt keinen persistierten Zustand ohne beide', () async {
+    // Genau das ist der Fix: „Created ATOMICALLY with the op's removal (same
+    // blob write)". Zwei Schreibvorgaenge liessen den Zwischenstand
+    // „Mahlzeit zugestellt und aus der Queue, Zaehler noch nicht eingereiht"
+    // auf der Platte stehen — ein Kill dort zaehlt die Mahlzeit NIE, und der
+    // naechste Boot findet nichts mehr, was es nachholen koennte. Der
+    // Endzustand ist in beiden Faellen identisch, also kann ihn nur die
+    // FOLGE der Schreibvorgaenge unterscheiden.
+    const mealId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    final abgeleitet = deriveStatsRequestId(mealId)!;
+    final kv = InMemoryKeyValueStore();
+    await seedRawOutbox(kv, <Map<String, dynamic>>[
+      SyncOp.mealInsert(
+        LoggedMeal(
+            id: mealId,
+            result: mealResult('Atom-Bowl'),
+            loggedAt: DateTime.now()),
+        trackDay: false,
+      ).toJson(),
+    ]);
+
+    final mitschrift = OutboxSchreibMitschrift(kv, 'user-outbox');
+    final s = setup(kv: kv, injizierterCache: mitschrift);
+    // Nur increment_lifetime_stats faellt aus: der Folgeeintrag bleibt liegen
+    // und ist damit in den persistierten Blobs sichtbar.
+    s.server.statsOffline = true;
+    await boot(s.store);
+    await pumpUntil(() => s.store.pendingOutbox
+        .any((o) => o.kind == SyncOpKind.statsIncrement));
+
+    expect(s.server.mealRows.keys, contains(mealId),
+        reason: 'Vorbedingung: die Mahlzeit ist zugestellt');
+    final ohneMahlzeit = mitschrift.eintraege
+        .indexWhere((keys) => !keys.contains('meal:$mealId'));
+    expect(ohneMahlzeit, isNonNegative,
+        reason: 'Vorbedingung: die Quell-Op hat den Blob verlassen');
+    expect(mitschrift.eintraege[ohneMahlzeit], contains('stats:$abgeleitet'),
+        reason: 'DER Kern: in dem Moment, in dem die Quell-Op aus dem Blob '
+            'verschwindet, MUSS ihr Zaehler schon darin stehen — sonst gibt '
+            'es ein Kill-Fenster, in dem die Mahlzeit zugestellt, aber fuer '
+            'immer ungezaehlt ist');
+  });
+
+  test(
+      'Fix 3: eine Korrektur WAEHREND des laufenden Insert-Writes wird '
+      'angehaengt, nicht koalesziert — sonst zaehlt dieselbe Mahlzeit zweimal',
+      () async {
+    // Die Ausschliesslichkeit der beiden Zaehlwege ist die ganze Garantie:
+    // live bucht `onDelivered` unter der Buendel-Id, der Replay unter der aus
+    // der Meal-UUID abgeleiteten. Zwei verschiedene Vorgaenge serverseitig —
+    // sie deduplizieren einander NICHT. Koalesziert die Korrektur die
+    // fliegende Op weg, verschwindet die Instanz, deren Live-Erfolg zaehlt
+    // (`_dequeueDeliveredOp` sucht ueber Identitaet), die verschmolzene Op ist
+    // weiterhin ein mealInsert — und der Replay bucht ein zweites +1.
+    final s = setup();
+    await boot(s.store);
+
+    // Der Live-Insert haengt: seine Op liegt schon in der Queue (Luecke B),
+    // die Entitaet steht in _inFlightOps.
+    s.server.holdMealWrites();
+    final id = s.store.addResultToDailyTotal(mealResult('Bowl'));
+    await settle();
+    expect(s.store.pendingOutbox.map((o) => o.kind).toList(),
+        <SyncOpKind>[SyncOpKind.mealInsert],
+        reason: 'Vorbedingung: der Write fliegt, seine Op wartet');
+
+    s.store.updateLoggedMealResult(id, mealResult('Bowl', kcal: 500));
+    await settle();
+
+    expect(s.store.pendingOutbox.map((o) => o.kind).toList(),
+        <SyncOpKind>[SyncOpKind.mealInsert, SyncOpKind.mealUpsert],
+        reason: 'die Korrektur muss ANGEHAENGT werden — eine Ersetzung nimmt '
+            'die Op mit, deren Live-Zustellung gerade zaehlt');
+
+    s.server.releaseMealWrites();
+    await pumpUntil(() => s.store.pendingOutbox.isEmpty);
+    s.store.flushPendingWrites(); // Buendel-Debounce abkuerzen
+    await settle();
+
+    expect(s.store.pendingOutbox, isEmpty);
+    expect(s.server.mealRows[id]!['calories_kcal'], 500,
+        reason: 'der juengere Stand gewinnt trotzdem');
+    expect(s.server.mealsCounted, 1,
+        reason: 'DER Kern: einmal live gebucht. Ein Replay-Zaehler zusaetzlich '
+            'traegt eine andere Id und kann serverseitig nicht dedupliziert '
+            'werden');
+    expect(s.server.statsRequestIds.whereType<String>(),
+        isNot(contains(deriveStatsRequestId(id))),
+        reason: 'der abgeleitete Zaehler gehoert dem Replay-Pfad — hier hat '
+            'der Live-Pfad gebucht, beide zusammen waeren die Doppelzaehlung');
+  });
+
+  test(
       'Fix 3: der Verwurf eines Zaehler-Eintrags ist STILL — er ist kein '
       'Nutzer-Inhalt, „etwas fehlt" waere die falsche Meldung', () async {
     const rid = '6561746f-7661-6d73-f461-74732d726964';

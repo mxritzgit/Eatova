@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter/services.dart' show FontLoader;
 import 'package:flutter_test/flutter_test.dart';
 
@@ -21,14 +22,39 @@ Future<void> _harness(
   WidgetTester tester,
   Widget child, {
   Brightness brightness = Brightness.light,
+  double textScale = 1.0,
 }) =>
     pumpLocalized(
       tester,
       child,
       reducedMotion: false,
       brightness: brightness,
+      textScale: textScale,
       padding: const EdgeInsets.all(20),
     );
+
+/// Fails when the text at [finder] is cut off — by an ellipsis, by a line cap,
+/// or by a box that is shorter than the text needs at the width it got.
+///
+/// `find.text` + `findsOneWidget` proves a label EXISTS, never that it is
+/// READABLE: a truncated label is still found under its full string, because
+/// the finder matches `Text.data`, not the glyphs on screen. Nothing throws
+/// either — unlike a RenderFlex overflow, truncation is silent.
+void _erwarteVollstaendig(WidgetTester tester, Finder finder, String was) {
+  final absatz = tester.renderObject<RenderParagraph>(finder);
+  expect(
+    absatz.didExceedMaxLines,
+    isFalse,
+    reason: '$was wird abgeschnitten (maxLines/ellipsis greift)',
+  );
+  expect(
+    absatz.size.height + 0.5,
+    greaterThanOrEqualTo(absatz.getMaxIntrinsicHeight(absatz.size.width)),
+    reason: '$was steht in einer zu niedrigen Box: '
+        '${absatz.size.height} px fuer '
+        '${absatz.getMaxIntrinsicHeight(absatz.size.width)} px Text',
+  );
+}
 
 void main() {
   group('PrimaryActionButton', () {
@@ -147,8 +173,16 @@ void main() {
       await loader.load();
     });
 
-    testWidgets('die drei Makro-Zeilen stehen bei Normalschrift auf gleicher '
-        'Hoehe', (tester) async {
+    const List<String> beschriftungen = <String>[
+      'Protein',
+      'Kohlenhydrate',
+      'Fett',
+    ];
+
+    Future<void> pumpDreiBalken(
+      WidgetTester tester, {
+      required double textScale,
+    }) async {
       tester.view.physicalSize = const Size(1179, 2556);
       tester.view.devicePixelRatio = 3.0;
       addTearDown(tester.view.resetPhysicalSize);
@@ -183,11 +217,17 @@ void main() {
             ],
           ),
         ),
+        textScale: textScale,
       );
       await tester.pumpAndSettle();
+    }
+
+    testWidgets('die drei Makro-Zeilen stehen bei Normalschrift auf gleicher '
+        'Hoehe', (tester) async {
+      await pumpDreiBalken(tester, textScale: 1.0);
 
       final hoehen = <String, double>{
-        for (final l in const <String>['Protein', 'Kohlenhydrate', 'Fett'])
+        for (final l in beschriftungen)
           l: tester.getSize(find.text(l)).height,
       };
       expect(
@@ -195,6 +235,37 @@ void main() {
         hasLength(1),
         reason: 'Eine Beschriftung bricht um und versetzt ihren Balken '
             'gegen die anderen: $hoehen',
+      );
+      // Equal height alone is also true when all three are cut to one line.
+      for (final l in beschriftungen) {
+        _erwarteVollstaendig(tester, find.text(l), 'Makro-Beschriftung „$l"');
+      }
+    });
+
+    // The label column grows with the system font but caps at 124 px, so 200 %
+    // is where the long German name has to WRAP. A `maxLines: 1` or a fixed
+    // height there would clip it to "Kohlenh…" — silently: no exception, no
+    // overflow, and `find.text('Kohlenhydrate')` still matches, because the
+    // finder reads `Text.data` and not the glyphs.
+    testWidgets('bei 200 % Systemschrift wird keine Beschriftung abgeschnitten',
+        (tester) async {
+      await pumpDreiBalken(tester, textScale: 2.0);
+
+      for (final l in beschriftungen) {
+        _erwarteVollstaendig(
+          tester,
+          find.text(l),
+          'Makro-Beschriftung „$l" bei textScale 2.0',
+        );
+      }
+      // Counter-check that the case is not vacuous: the longest label really
+      // does need more than one line at this scale, so a one-line cap would
+      // have to lose text.
+      expect(
+        tester.getSize(find.text('Kohlenhydrate')).height,
+        greaterThan(tester.getSize(find.text('Fett')).height),
+        reason: 'bei 2.0 muss „Kohlenhydrate" umbrechen — sonst prueft der '
+            'Fall darueber nichts',
       );
     });
   });

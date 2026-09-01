@@ -183,6 +183,61 @@ void main() {
     expect(r.map((t) => t.title), ['Milch']);
   });
 
+  // The two tests above build their hits by hand, so they never exercise the
+  // step that decides whether a 0 means "measured" or "unknown". These two do:
+  // they run a raw mirror document through the real
+  // `ProductSearchResult.fromOpenFoodFacts`. Deriving `explicitZeroKcal` from
+  // `kcalPer100G == 0` alone — without `offMeldetExplizitNullKcal` — left the
+  // whole T5 suite green, and a bar with no nutriments at all would have gone
+  // into the diary as a 0-kcal meal.
+
+  test(
+      'search: Spiegel-Dokument OHNE Naehrwerte gilt nicht als gemessene 0 — '
+      'OFF uebernimmt', () async {
+    final ohneEnergie = ProductSearchResult.fromOpenFoodFacts(
+      <String, dynamic>{
+        'code': '111',
+        'product_name': 'Riegel ohne Angaben',
+        'nutriments': <String, dynamic>{},
+      },
+    );
+    expect(ohneEnergie.kcalPer100G, 0);
+    expect(ohneEnergie.result.explicitZeroKcal, isFalse,
+        reason: 'fehlende Felder sind "unbekannt", nicht "0 gemessen"');
+
+    final primary = _FakeService(searchResults: [ohneEnergie]);
+    final fallback = _FakeService(searchResults: [_hit('OFF')]);
+
+    final r = await FallbackProductService(primary, fallback)
+        .searchProducts('riegel');
+
+    expect(r.single.title, 'OFF');
+    expect(fallback.searchCalls, 1);
+  });
+
+  test(
+      'search: Spiegel-Dokument mit EXPLIZITEN 0 kcal (Wasser) bleibt — und '
+      'OFF wird gar nicht erst gefragt', () async {
+    // The counter-check: without it the test above could be satisfied by
+    // dropping every 0-kcal hit, which would make water unloggable.
+    final wasser = ProductSearchResult.fromOpenFoodFacts(<String, dynamic>{
+      'code': '222',
+      'product_name': 'Mineralwasser',
+      'nutriments': <String, dynamic>{'energy-kcal_100g': 0},
+    });
+    expect(wasser.kcalPer100G, 0);
+    expect(wasser.result.explicitZeroKcal, isTrue);
+
+    final primary = _FakeService(searchResults: [wasser]);
+    final fallback = _FakeService(searchResults: [_hit('OFF')]);
+
+    final r = await FallbackProductService(primary, fallback)
+        .searchProducts('wasser');
+
+    expect(r.single.title, contains('Mineralwasser'));
+    expect(fallback.searchCalls, 0);
+  });
+
   test('barcode: Primaer-Treffer ohne Energie -> OFF wird gefragt', () async {
     final primary = _FakeService(
       barcodeResult: _meal('Mirror product', kcalPer100G: 0),
