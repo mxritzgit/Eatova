@@ -73,7 +73,7 @@ dependencies:
   # Already transitive via sentry_flutter — direct because the about dialog
   # reads version + build number from PackageInfo at runtime instead of
   # hardcoding them (hardcoded values drift on every version bump).
-  package_info_plus: ^9.0.1
+  package_info_plus: ^10.2.1
   # SEC-1 cache encryption (see secure_cache_store.dart): keeps ONLY the 32-byte
   # DEK in the OS keystore; the JSON blobs stay in SharedPreferences,
   # AES-256-GCM encrypted with that DEK (envelope encryption).
