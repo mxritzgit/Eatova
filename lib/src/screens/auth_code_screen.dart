@@ -26,8 +26,8 @@ import 'settings/account_change_messages.dart'
 /// Which code flow is running: password reset or signup confirmation.
 enum AuthCodeFlow { recovery, signup }
 
-/// Above this many seconds the wait is spoken in minutes — a half-hour quota
-/// block would otherwise read "in 1800 s".
+/// Above this many seconds the wait is spoken in minutes — a quota block of a
+/// few minutes would otherwise read "in 180 s".
 const int _minutenSchwelleSekunden = 120;
 
 /// Guard state for ONE address.
@@ -37,10 +37,20 @@ class _ThrottleState {
     this.failedAttempts = 0,
     this.cooldown = _OtpSendThrottle.cooldown,
     this.bypassUsed = false,
+    this.estimated = false,
   });
 
   final DateTime? lastSent;
   final int failedAttempts;
+
+  /// The running lock is this app's own ESTIMATE of the project-wide mail
+  /// quota ([_OtpSendThrottle.quotaCooldown]) rather than a wait the server
+  /// named. Only such a lock gets the "try anyway" escape. Explicit instead of
+  /// inferred from the duration: a server-named wait can be any length, and
+  /// the estimate must stay an estimate even when the server's number happens
+  /// to equal it (review 2026-09-01). Entries an older build persisted carry
+  /// no flag and get no escape — their wait is clamped on read anyway.
+  final bool estimated;
 
   /// How long [lastSent] blocks the next send. Variable since P4-03: the
   /// server's own wait wins when it is longer, and the mail quota blocks for
@@ -90,17 +100,19 @@ class _OtpSendThrottle {
   /// value named by the server does not lower it: the brake is ours.
   static const Duration cooldown = Duration(seconds: 60);
 
-  /// Lock after GoTrue's mail quota (`rate_limit_email_sent` = 2/h) is spent.
+  /// Lock after GoTrue's mail quota (`rate_limit_email_sent`) is spent.
   ///
-  /// Not an hour: that quota is a TOKEN BUCKET (burst 2, refill 2 per hour), so
-  /// the FIRST token is back after ~1800 s, not after 3600 (P4-03b). A full
-  /// hour was the honest upper bound for the bucket to be full again — but the
-  /// user only needs one token, and locking them out for twice the real wait
-  /// with no way out was the one path where the P4-03 fix made things worse.
-  /// The escape link ([_AuthCodeScreenState._resend] with `trotzdem: true`)
-  /// covers the rest of the guess. Verifying a code that already arrived stays
-  /// possible the whole time.
-  static const Duration quotaCooldown = Duration(minutes: 30);
+  /// That quota is PROJECT-wide (one bucket for every user, not per account)
+  /// and a TOKEN BUCKET: 60 per hour since 2026-09-01
+  /// (supabase/AUTH_EMAIL_OTP.md), so the FIRST token is back after ~60 s —
+  /// but every other user competes for it and the server never says when.
+  /// Three minutes is the conservative guess; the escape link
+  /// ([_AuthCodeScreenState._resend] with `trotzdem: true`) covers the rest.
+  /// The former 30 minutes were the maths for the 2/h misconfiguration (burst
+  /// 2, refill 2/h → first token after ~1800 s, P4-03b); entries an older
+  /// build persisted with that value are clamped on read. Verifying a code
+  /// that already arrived stays possible the whole time.
+  static const Duration quotaCooldown = Duration(minutes: 3);
 
   static const int maxAttempts = 5;
   static const String storagePrefix = 'eatova.v1.otp_guard.';
@@ -158,6 +170,7 @@ class _OtpSendThrottle {
             ? Duration(seconds: warte.clamp(1, quotaCooldown.inSeconds))
             : cooldown,
         bypassUsed: map['bypass'] == true,
+        estimated: map['guess'] == true,
       );
       // Clean up on read (W3c): `otp_guard.<hash>` keys would otherwise pile
       // up forever; no background job needed.
@@ -196,6 +209,7 @@ class _OtpSendThrottle {
           'failed': state.failedAttempts,
           'wait': state.cooldown.inSeconds,
           'bypass': state.bypassUsed,
+          'guess': state.estimated,
         }),
       );
       return true;
@@ -289,8 +303,9 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
   /// True while the running lock is our own ESTIMATE of the mail quota rather
   /// than a wait the server named. Only then is "try anyway" honest — a
   /// server-named number is authoritative and needs no escape (P4-03b).
-  bool get _sperreIstSchaetzung =>
-      _cooldownDauer >= _OtpSendThrottle.quotaCooldown;
+  /// Carried explicitly ([_ThrottleState.estimated]), not derived from the
+  /// duration — see there.
+  bool _sperreIstSchaetzung = false;
 
   /// The escape shows while a GUESSED lock runs — in both steps that can walk
   /// into one, under the same rule (P4-03b).
@@ -361,6 +376,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
       _failedAttempts = stand.failedAttempts;
       _cooldownDauer = stand.cooldown;
       _bypassUsed = stand.bypassUsed;
+      _sperreIstSchaetzung = stand.estimated;
       _cooldownSeconds = _remainingSeconds();
     });
     _syncTicker();
@@ -378,6 +394,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
       _failedAttempts = 0;
       _cooldownDauer = _OtpSendThrottle.cooldown;
       _bypassUsed = false;
+      _sperreIstSchaetzung = false;
       _cooldownSeconds = 0;
     });
     _syncTicker();
@@ -448,11 +465,13 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
   /// and only makes it durable. [resetAttempts] is for real sends — a new code
   /// voids the old failed attempts. [cooldown] is how long the stamp blocks;
   /// it goes to storage too, so the block survives navigation and restarts.
+  /// [estimated] marks a quota GUESS (the only lock with an escape).
   void _stamp(
     String email, {
     required bool resetAttempts,
     required Duration cooldown,
     bool bypassUsed = false,
+    bool estimated = false,
   }) {
     final jetzt = clock.now();
     final versuche = resetAttempts ? 0 : _failedAttempts;
@@ -464,6 +483,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
         failedAttempts: versuche,
         cooldown: cooldown,
         bypassUsed: bypassUsed,
+        estimated: estimated,
       ),
     ));
     if (!mounted) return;
@@ -473,6 +493,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
       _failedAttempts = versuche;
       _cooldownDauer = cooldown;
       _bypassUsed = bypassUsed;
+      _sperreIstSchaetzung = estimated;
       _cooldownSeconds = _remainingSeconds();
     });
     _syncTicker();
@@ -482,7 +503,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
   /// lock: stamp, duration and failure counter stay exactly as they are, only
   /// [_ThrottleState.bypassUsed] flips (P4-03b, hole 1).
   ///
-  /// Restamping instead would push the lock's end 30 minutes into the future
+  /// Restamping instead would push the lock's end minutes into the future
   /// every time the escape hits a server error — punishing the user for the
   /// server's fault. The escape is a TRY, not a promise: it is spent because it
   /// went out, and the wait it was trying to skip is unchanged by that.
@@ -496,6 +517,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
         failedAttempts: _failedAttempts,
         cooldown: _cooldownDauer,
         bypassUsed: true,
+        estimated: _sperreIstSchaetzung,
       ),
     ));
     if (!mounted) return;
@@ -514,6 +536,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
         failedAttempts: naechster,
         cooldown: _cooldownDauer,
         bypassUsed: _bypassUsed,
+        estimated: _sperreIstSchaetzung,
       ),
     ));
     if (!mounted) return;
@@ -624,15 +647,18 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
     try {
       await versand();
     } catch (error) {
-      final sperre = _sperrDauer(classifyAuthError(error));
+      final befund = classifyAuthError(error);
+      final sperre = _sperrDauer(befund);
       if (sperre > Duration.zero) {
         // [trotzdem] carries into the new stamp: the escape is one per lock,
-        // and a failed escape must not hand out the next one.
+        // and a failed escape must not hand out the next one. Only the quota
+        // GUESS is marked as such — a server-named wait gets no escape.
         _stamp(
           email,
           resetAttempts: false,
           cooldown: sperre,
           bypassUsed: trotzdem,
+          estimated: befund.kind == AuthErrorKind.quotaExhausted,
         );
       } else if (trotzdem) {
         // ...and the same holds when the answer implies NO wait at all: a 500,

@@ -47,7 +47,7 @@ AuthApiException _otpAbgeschaltet() => const AuthApiException(
       code: 'otp_disabled',
     );
 
-/// Das stuendliche Mail-Kontingent (`rate_limit_email_sent` = 2/h) ist leer.
+/// Das PROJEKTWEITE Mail-Kontingent (`rate_limit_email_sent`) ist leer.
 AuthApiException _kontingentErschoepft() => const AuthApiException(
       'Email rate limit exceeded',
       statusCode: '429',
@@ -224,11 +224,17 @@ void main() {
           AuthErrorKind.quotaExhausted);
     });
 
-    test('der Text nennt die halbe Stunde in beiden Sprachen', () {
-      // Dekliniert: "in einer guten halben Stunde". Die Grundform kommt im
-      // Satz nicht vor - der Punkt ist die Groessenordnung, nicht der Kasus.
-      expect(deL10n.settingsAccountQuotaExhausted, contains('halben Stunde'));
-      expect(enL10n.settingsAccountQuotaExhausted, contains('half an hour'));
+    test('der Text nennt Minuten, keine halbe Stunde, in beiden Sprachen', () {
+      // Seit rate_limit_email_sent = 60/h (projektweit, ein Token pro Minute)
+      // ist die Groessenordnung "ein paar Minuten". Die halbe Stunde war die
+      // Rechnung fuer die 2/h-Fehlkonfiguration (Review 2026-09-01) und darf
+      // nicht zurueckkommen — ebenso wenig ein "pro Konto"-Versprechen.
+      expect(deL10n.settingsAccountQuotaExhausted, contains('paar Minuten'));
+      expect(deL10n.settingsAccountQuotaExhausted,
+          isNot(contains('halben Stunde')));
+      expect(enL10n.settingsAccountQuotaExhausted, contains('few minutes'));
+      expect(enL10n.settingsAccountQuotaExhausted,
+          isNot(contains('half an hour')));
     });
 
     test('auch die Textform ohne GoTrue-Code landet im Kontingent', () {

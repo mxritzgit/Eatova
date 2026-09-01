@@ -16,6 +16,9 @@ Default-Python-UAs blockt Cloudflare, `curl/8.0` mitschicken).
 | `mailer_subjects_confirmation` | `Dein Eatova-Code: E-Mail bestätigen` | |
 | `mailer_subjects_recovery` | `Dein Eatova-Code: Passwort zurücksetzen` | |
 | `mailer_templates_confirmation_content` / `..._recovery_content` | HTML mit `{{ .Token }}` | Eatova-Design: heller Rahmen, eat◎va-Wortmarke, dunkle Code-Box mit Lime-Ziffern. **Kein** `{{ .ConfirmationURL }}` mehr — ein Link-Template wuerde den Code-Flow der App aushebeln. |
+| `rate_limit_email_sent` | `60` | Auth-Mails pro Stunde **PROJEKTWEIT** (ein Token-Bucket fuer alle Nutzer zusammen, NICHT pro Konto). Bis 2026-09-01 stand hier `2` — siehe Abschnitt „Mail-Kontingent ist PROJEKTWEIT". Die App schaetzt nach `over_email_send_rate_limit` drei Minuten (`_OtpSendThrottle.quotaCooldown`). |
+| `site_url` | `https://eatova.de` | Default-Ziel jeder Weiterleitung ohne `redirect_to`. Seit 2026-09-01 die eigene https-Domain statt `eatova://login-callback/` — siehe Abschnitt „Magic-Link-Pfad geschlossen". |
+| `mailer_subjects_magic_link` / `mailer_templates_magic_link_content` | `Eatova: Hinweis zu deiner Anmeldung` / HTML **ohne** Link und ohne Token | Ein Hinweis, kein Login-Weg. Ein Link darf hier nie wieder rein — siehe Abschnitt „Magic-Link-Pfad geschlossen". |
 
 ## Brute-Force-Rechnung (Befund-Verifikation 2026-08-18)
 
@@ -26,13 +29,50 @@ Pro 10-Minuten-Fenster sind das ~90 Versuche pro IP; mit einem
 Residential-Proxy-Pool skalierte das bei 6 Stellen auf ~9 % (1.000 IPs) bis
 ~90 % (10.000 IPs) Trefferquote pro Fenster. Mit 8 Stellen (10^8 Keyspace)
 faellt das um Faktor 100 auf 0,09-0,9 % — deshalb `mailer_otp_length = 8`
-(GoTrue erlaubt 6-10). `rate_limit_email_sent = 2`/h drosselt zusaetzlich die
-Code-NEUGENERIERUNG pro Konto.
+(GoTrue erlaubt 6-10). Die Code-NEUGENERIERUNG bremst GoTrue pro Adresse mit
+60 s Abstand; das Mail-Kontingent `rate_limit_email_sent` ist dagegen
+projektweit und KEIN Schutz pro Konto (Abschnitt unten).
 
 **Bewusst nicht gesenkt:** `rate_limit_verify` (steht auf 30/5 min). Gegen
 einen verteilten Angreifer hilft ein niedrigerer Wert nur marginal (das Limit
 ist pro IP), aber hinter CGNAT/Buero-NAT teilen sich viele legitime Nutzer
 eine IP — Fehlsperren waeren real. Der Keyspace ist der wirksame Hebel.
+
+## Mail-Kontingent ist PROJEKTWEIT (korrigiert 2026-09-01)
+
+`rate_limit_email_sent` ist KEIN Limit pro Konto. GoTrue (`internal/api/mail.go`)
+ruft `a.limiterOpts.Email.Allow()` ohne Schluessel auf — ein Token-Bucket fuer
+die ganze Instanz; die Supabase-Doku nennt es „Sum of combined requests
+project-wide". Bis 2026-09-01 stand der Wert auf `2`: projektweit zwei
+Auth-Mails pro Stunde fuer ALLE Nutzer zusammen (Signup, Recovery, Reauth,
+Loesch-Code, E-Mail-Wechsel = zwei Mails). Die 30-Minuten-Sperre der App war
+ein Workaround fuer diese Fehlkonfiguration, und zwei fremde `/recover`-Aufrufe
+pro Stunde haetten jede Registrierung blockiert.
+
+Seit 2026-09-01: `rate_limit_email_sent = 60` (Burst 60, Nachfuellen 60/h, also
+ein Token pro Minute; der eigene Postfix auf mail.eatova.de kennt keine
+Provider-Grenze). Die App schaetzt nach `over_email_send_rate_limit` deshalb
+drei Minuten (`_OtpSendThrottle.quotaCooldown`) statt dreissig und spricht in
+den Texten von „ein paar Minuten"; der „Trotzdem versuchen"-Ausweg bleibt, weil
+der Server nie sagt, wann der naechste Token frei ist. Pro Adresse gilt
+weiterhin die 60-s-Sperre von GoTrue. Ohne Captcha bleibt der Endpunkt anonym
+ausloesbar — bei sichtbarem Missbrauch ist Turnstile der naechste Hebel, nicht
+ein kleinerer Bucket.
+
+## Magic-Link-Pfad geschlossen (2026-09-01)
+
+`POST /auth/v1/otp {email}` braucht nur den Anon-Key und schickt bestehenden
+Nutzern die Magic-Link-Vorlage. Die war bis 2026-09-01 der GoTrue-Default mit
+`{{ .ConfirmationURL }}`: ein Klick liess GoTrue OHNE PKCE mit
+`#access_token=…&refresh_token=…` auf `redirect_to`/`site_url` umleiten — und
+beides war `eatova://login-callback/`. Die App verwirft Fragment-Tokens
+(`EatovaSupabaseConfig.isOAuthCallbackDeeplink`), eine fremde App mit demselben
+Scheme haette dagegen eine volle Sitzung bekommen. Deshalb tragen
+`mailer_templates_magic_link_content` (Hinweis ohne Link und ohne Token),
+`mailer_subjects_magic_link` und `site_url` (https://eatova.de) seit
+2026-09-01 die Werte aus der Tabelle oben. Der OAuth-Callback laeuft weiter
+ueber die `uri_allow_list` (`eatova://login-callback/`). Die Invite-Vorlage
+traegt noch einen Link, ist aber nur mit dem Service-Key ausloesbar.
 
 ## Konto-Aenderungen aus der App (seit 2026-08-10)
 

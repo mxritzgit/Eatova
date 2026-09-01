@@ -1167,7 +1167,7 @@
   "settingsAccountCodeRejected": "Der Code stimmt nicht oder ist abgelaufen. Fordere einen neuen an.",
   "settingsAccountOfflineError": "Offline — die Änderung ließ sich nicht abschicken. Bitte versuch es mit Internetverbindung erneut.",
   "settingsAccountRateLimited": "Zu viele Versuche in kurzer Zeit. Bitte warte einen Moment und versuch es dann erneut.",
-  "settingsAccountQuotaExhausted": "Zu viele Code-Mails in kurzer Zeit. Das Kontingent füllt sich erst in einer guten halben Stunde wieder auf — ein Code, der schon in deinem Postfach liegt, funktioniert weiter.",
+  "settingsAccountQuotaExhausted": "Der Mail-Versand ist gerade ausgelastet. Bitte versuch es in ein paar Minuten noch einmal — ein Code, der schon in deinem Postfach liegt, funktioniert weiter.",
   "settingsAccountEmailLooksInvalid": "Diese E-Mail-Adresse sieht nicht gültig aus.",
   "settingsAccountPasswordSameAsOld": "Das neue Passwort muss sich vom bisherigen unterscheiden.",
   "settingsAccountPasswordWeak": "Dieses Passwort ist zu schwach. Nimm ein längeres oder ungewöhnlicheres.",
@@ -1206,7 +1206,7 @@
   "settingsEmailChangeNewCodeLabel": "Code an die neue Adresse",
   "settingsEmailChangeBothCodesHint": "Beide Codes sind nötig. Mit nur einem bleibt deine bisherige Adresse bestehen — genau das schützt dich, wenn jemand Zugriff auf nur eines der beiden Postfächer hätte.",
   "settingsAccountDiscardTitle": "Vorgang abbrechen?",
-  "settingsAccountDiscardBody": "Der Code aus deiner E-Mail verfällt damit. Für einen neuen Anlauf brauchst du einen neuen Code — und davon gehen nur wenige pro Stunde raus.",
+  "settingsAccountDiscardBody": "Der Code aus deiner E-Mail verfällt damit. Für einen neuen Anlauf brauchst du einen neuen Code.",
   "settingsAccountDiscardBodyConfirmed": "Der erste Code ist schon bestätigt und damit verbraucht. Brichst du jetzt ab, fängt die Adressänderung komplett von vorn an — mit zwei neuen Codes.",
   "settingsAccountDiscardKeep": "Weiter",
   "settingsAccountDiscardConfirm": "Abbrechen",
@@ -1443,7 +1443,7 @@
       "minuten": { "type": "int" }
     }
   },
-  "authCodeQuotaExhausted": "Für diese Adresse wurden zu viele Codes angefordert. Das Kontingent füllt sich schrittweise wieder auf — der nächste Versand ist voraussichtlich in einer guten halben Stunde möglich. Einen Code, der schon in deinem Postfach liegt, kannst du weiter eingeben.",
+  "authCodeQuotaExhausted": "Der Mail-Versand ist gerade ausgelastet. Der nächste Versand ist voraussichtlich in ein paar Minuten möglich. Einen Code, der schon in deinem Postfach liegt, kannst du weiter eingeben.",
   "authCodeSendAnyway": "Nichts angekommen? Trotzdem versuchen",
   "authCodeSendAnywayUsed": "Der Versuch lief schon — der Server lässt gerade wirklich keine Mail durch. Ein Code aus einer früheren Mail ist weiter gültig, sonst hilft nur warten.",
   "authCodeOfflineError": "Offline — der Server war nicht erreichbar. Bitte prüf deine Internetverbindung und versuch es erneut.",

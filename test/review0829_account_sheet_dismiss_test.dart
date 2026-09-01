@@ -20,7 +20,7 @@ import 'support/harness.dart';
 // confirmed code, so without remembering this a typo in the SECOND code would
 // make the whole flow unrecoverable." A swipe, or a tap beside the sheet while
 // dismissing the keyboard, threw away a code that was ALREADY SPENT
-// server-side — and only two mails go out per hour.
+// server-side — and the mail quota is shared by the whole project.
 //
 // The framework routes the three close paths differently, which is why each
 // gets its own case:
