@@ -79,11 +79,14 @@ class CoachChatService {
   static const Duration chatDeadline = Duration(seconds: 95);
 
   /// Deadline for /recipe: the same ledger as [chatDeadline] with three provider
-  /// round trips (15 s classification + 45 s draft + 30 s image = 90 s) and a
+  /// round trips (15 s classification + 45 s draft + 60 s image = 120 s) and a
   /// base64 image travelling back, which gets 15 s instead of 5 s —
-  /// 15 + 15 + 90 + 15 = 135 s. The old 120 s left 30 s for everything that is
-  /// not a provider call, which the upload and the DB hops eat by themselves.
-  static const Duration recipeDeadline = Duration(seconds: 135);
+  /// 15 + 15 + 120 + 15 = 165 s. The image budget went 30 -> 60 s on
+  /// 2026-09-02 (`PROVIDER_TIMEOUTS_MS.image`: OpenRouter needs 10-40 s and
+  /// ships a 2-3 MB PNG); the old 135 s would have cut a card the server was
+  /// still finishing. The earlier 120 s left 30 s for everything that is not
+  /// a provider call, which the upload and the DB hops eat by themselves.
+  static const Duration recipeDeadline = Duration(seconds: 165);
 
   /// Grace the outer `timeout` gets on top of the abort signal. The signal is
   /// the clean exit (it tears the socket down); the timeout is the guarantee,

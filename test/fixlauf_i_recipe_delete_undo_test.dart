@@ -65,11 +65,15 @@ class _Host extends StatelessWidget {
   const _Host({
     required this.recipes,
     required this.onDelete,
+    this.onPendingChanged,
     this.visible = true,
   });
 
   final List<FitnessRecipe> recipes;
   final Future<SyncDelivery> Function(String slug) onDelete;
+
+  /// Shell hook for the undo window (2026-09-02); null = not wired.
+  final void Function(String slug, {required bool pending})? onPendingChanged;
 
   /// `false` = versteckter Tab: die Home-Shell (IndexedStack, D6) lässt den
   /// Screen gemountet und dämpft ihn per [TickerMode] — genau das wird hier
@@ -83,6 +87,7 @@ class _Host extends StatelessWidget {
           onAddMeal: (MealAnalysisResult _, MealSlot __) {},
           initialUserRecipes: recipes,
           onDeleteRecipe: onDelete,
+          onDeletePendingChanged: onPendingChanged,
         ),
       );
 }
@@ -400,5 +405,58 @@ void main() {
     await tester.pumpAndSettle();
     expect(calls, ['user_weg'],
         reason: 'dispose() findet keine offene Löschung mehr vor.');
+  });
+
+  // 2026-09-02: the coach card kept "Hinzugefügt" while the undo toast was up,
+  // because the shell learned about the delete only at the commit. The screen
+  // now reports the window itself.
+  group('Undo-Fenster erreicht die Shell (2026-09-02)', () {
+    testWidgets('Löschen meldet „schwebt", „Rückgängig" meldet „frei" — der '
+        'Store-Hook läuft nie', (tester) async {
+      _pinViewport(tester);
+      final calls = <String>[];
+      final meldungen = <String>[];
+      await _pumpHost(tester, _Host(
+        recipes: [_rezept('user_weg')],
+        onDelete: (slug) async {
+          calls.add(slug);
+          return SyncDelivery.delivered;
+        },
+        onPendingChanged: (slug, {required bool pending}) =>
+            meldungen.add('$slug:$pending'),
+      ));
+
+      await _loesche(tester, 'user_weg');
+      expect(meldungen, ['user_weg:true'],
+          reason: 'die Shell muss das Rezept ab jetzt als weg behandeln');
+
+      await tester.tap(find.text('Rückgängig'));
+      await tester.pumpAndSettle();
+      expect(meldungen, ['user_weg:true', 'user_weg:false']);
+      expect(calls, isEmpty);
+      expect(find.byKey(const ValueKey('recipe-tile-user_weg')), findsOneWidget);
+    });
+
+    testWidgets('nach der Frist: erst der Store-Hook, dann die Freigabe — '
+        'kein Frame, in dem das Rezept zurückkommt', (tester) async {
+      _pinViewport(tester);
+      final reihenfolge = <String>[];
+      await _pumpHost(tester, _Host(
+        recipes: [_rezept('user_weg')],
+        onDelete: (slug) async {
+          reihenfolge.add('hook');
+          return SyncDelivery.delivered;
+        },
+        onPendingChanged: (slug, {required bool pending}) =>
+            reihenfolge.add('pending:$pending'),
+      ));
+
+      await _loesche(tester, 'user_weg');
+      await _fristAblaufen(tester);
+
+      expect(reihenfolge, ['pending:true', 'hook', 'pending:false'],
+          reason: 'die Freigabe darf erst kommen, wenn der Store die Zeile '
+              'selbst schon los ist');
+    });
   });
 }
