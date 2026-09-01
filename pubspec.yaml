@@ -82,8 +82,19 @@ dependencies:
   flutter_secure_storage: ^10.3.1
   # Already transitive via the Supabase/Sentry chain — direct because
   # secure_cache_store.dart uses GCMBlockCipher(AESEngine()) itself. Pulls in no
-  # extra package.
+  # extra package. Still the MANDATORY fallback: desktop, the VM test env and
+  # any device without the plugin channel encrypt the cache with it.
   pointycastle: ^4.0.0
+  # PERF-B1: AES-256-GCM in pure Dart is the dominant recurring CPU cost
+  # (91.5 ms for 210 meals on desktop JIT, mobile AOT 2-4x slower, every meal
+  # mutation re-encrypts the whole blob). `cryptography_flutter` routes the
+  # same primitive through javax.crypto / CryptoKit, which use the ARMv8 AES
+  # instructions. `cryptography` is its base package and supplies the API
+  # (AesGcm/SecretBox) plus its own pure-Dart implementation; only the two
+  # classes are used, no global Cryptography.instance takeover — see
+  # secure_cache_store.dart's cipher selection.
+  cryptography: ^2.9.0
+  cryptography_flutter: ^2.3.4
   # Also already transitive, but `recipe_image_store.dart` uses it directly for
   # the app documents directory holding own-recipe photos. Without this line the
   # build breaks the moment it drops out of the transitive chain;

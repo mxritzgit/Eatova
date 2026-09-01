@@ -34,6 +34,7 @@ import '../services/stale_auth_retry.dart';
 import '../services/streak_reminder_planner.dart';
 import '../services/sync_error_messages.dart';
 import '../services/sync_outbox.dart';
+import '../services/trend_service.dart' show TrendTotalsCache;
 import '../services/user_recipes_sync.dart' show UserRecipesSync;
 import '../services/uuid.dart';
 import '../widgets/common/app_snack.dart';
@@ -315,6 +316,19 @@ abstract class _HomeStoreBase extends ChangeNotifier {
     fn();
     if (!_disposed) notifyListeners();
   }
+
+  /// Drops the cached 90-day trend window after a change the SERVER will see.
+  ///
+  /// TrendService reads logged_meals straight from the server, so a cached
+  /// window survives a write the user just made and the chart shows a short
+  /// bar for today. The TTL bounds that to two minutes; this closes it at the
+  /// source. Deliberately NOT hung on [_mutate]: seven of its ~40 call sites
+  /// sit in the sync path and fire during boot, which would drop the entry
+  /// before it was ever read.
+  ///
+  /// Only logged_meals matters — the projection is kcal + macros
+  /// (trend_service.dart `_projection`); weight and steps never reach it.
+  void _invalidateTrendWindow() => TrendTotalsCache.instance.invalidate();
 
   bool _isSameFoodDate(DateTime a, DateTime b) => DateUtils.isSameDay(a, b);
 

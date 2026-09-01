@@ -1,5 +1,8 @@
+import 'dart:async';
 import 'dart:developer' as dev;
 
+import 'package:clock/clock.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'day_math.dart';
@@ -11,10 +14,15 @@ import 'local_day.dart';
 /// Projects only the denormalised numeric columns; the JSONB payload's macro
 /// fields are display strings like "25 g".
 class TrendService {
-  TrendService(this._client, this._userId);
+  TrendService(this._client, this._userId, {TrendTotalsCache? cache})
+    : _cache = cache ?? TrendTotalsCache.instance;
 
   final SupabaseClient _client;
   final String _userId;
+
+  /// Session cache in front of the window query; defaults to the process-wide
+  /// instance because the loader builds a fresh service on every open.
+  final TrendTotalsCache _cache;
 
   /// Trend window in days. Filtered on logged_at, not local_day: very old
   /// rows may carry local_day=null and would silently disappear.
@@ -29,12 +37,29 @@ class TrendService {
 
   /// Aggregates the window to daily totals client-side (ascending). Errors
   /// are logged and rethrown; the UI shows a retry state.
-  Future<List<TrendDayTotals>> loadDailyTotals() async {
+  ///
+  /// Served from [TrendTotalsCache] when a fresh entry for this user and this
+  /// calendar day exists — opening the view twice in a session is then free.
+  Future<List<TrendDayTotals>> loadDailyTotals() {
+    // Attached here, not in the constructor: a service is built per open, and
+    // attaching is idempotent, so the singleton keeps exactly one listener.
+    _cache.attachAuthEvents(
+      _client.auth.onAuthStateChange.map((state) => state.event),
+    );
+    return _cache.read(userId: _userId, load: _fetchDailyTotals);
+  }
+
+  Future<List<TrendDayTotals>> _fetchDailyTotals() async {
     try {
       // B5: absolute time on purpose. The cutoff is a generous bound on the
       // `logged_at` instant, so a DST-shifted edge changes nothing; day
       // boundaries appear client-side in aggregateDailyTotals.
-      final cutoffIso = DateTime.now()
+      //
+      // P1-06: `clock.now()`, like MealsSync — the cache measures the day
+      // rollover against the same injectable clock, and a `withClock` test
+      // that moves the day must move the cutoff with it.
+      final cutoffIso = clock
+          .now()
           .toUtc()
           .subtract(const Duration(days: trendWindowDays))
           .toIso8601String();
@@ -61,6 +86,168 @@ class TrendService {
 
 /// Trend loader injected into TrendsScreen; tests pass fakes.
 typedef TrendTotalsLoader = Future<List<TrendDayTotals>> Function();
+
+/// Session cache in front of [TrendService.loadDailyTotals].
+///
+/// The 90-day window is one PostgREST round trip over up to
+/// [TrendService.trendMaxRows] rows, and it used to run on EVERY open of the
+/// trends view. One entry is kept per session, keyed by user AND local
+/// calendar day.
+///
+/// A stale trend chart is a correctness bug the user believes, so the entry is
+/// dropped on everything that can make it wrong:
+///  * the local calendar day rolls over — the 90-day window slides (the key
+///    holds [localDayKey], measured against the injectable `clock`),
+///  * a different user asks (account switch — the key holds the user id),
+///  * any auth event except a token refresh: sign-out, sign-in, user deleted
+///    ([attachAuthEvents]),
+///  * [invalidate], the hook for a write (meal/weight logged, edited,
+///    deleted),
+///  * [ttl] expiry.
+///
+/// [invalidate] is called by `HomeStore` on every logged-meal write the server
+/// will see (add, edit, result rescale, delete and both undos —
+/// `_invalidateTrendWindow`). [ttl] is the backstop for anything that reaches
+/// the rows another way, which is why it is [defaultTtl] and not an hour.
+/// Only logged_meals matters here: [_projection] reads kcal and macros, so
+/// weight and step writes never move this window.
+class TrendTotalsCache {
+  TrendTotalsCache({this.ttl = defaultTtl});
+
+  /// Process-wide instance the Supabase loader uses. Construction is pure
+  /// allocation: no `Supabase.instance`, no I/O (same contract as
+  /// `SearchCredentialsStore.instance`).
+  static TrendTotalsCache get instance => _instance ??= TrendTotalsCache();
+  static TrendTotalsCache? _instance;
+
+  /// Deliberately short. It covers the realistic loop — open trends, switch
+  /// range, go back, open again — while keeping the window in which a meal
+  /// logged in between could still show a stale chart down to minutes.
+  static const Duration defaultTtl = Duration(minutes: 2);
+
+  /// Maximum age of an entry before it is refetched.
+  final Duration ttl;
+
+  List<TrendDayTotals>? _totals;
+  String? _userId;
+  String? _dayKey;
+  DateTime? _storedAt;
+
+  /// Single flight: two opens in the same frame share one request.
+  Future<List<TrendDayTotals>>? _inFlight;
+  String? _inFlightKey;
+
+  /// Counts invalidations, so a request started BEFORE a sign-out or a write
+  /// cannot store its stale result afterwards (pattern from
+  /// `SearchCredentialsStore`).
+  int _generation = 0;
+
+  /// The singleton lives as long as the process, so this is cancelled only in
+  /// [dispose] (tests) — not in the function that opened it.
+  // ignore: cancel_subscriptions
+  StreamSubscription<AuthChangeEvent>? _authSub;
+
+  /// True while a usable entry is held. Tests and diagnostics only.
+  @visibleForTesting
+  bool get debugHasEntry => _totals != null;
+
+  /// Returns the cached window or runs [load] and stores its result. Errors
+  /// are never cached — the screen keeps its retry state and the next open
+  /// really refetches.
+  ///
+  /// A hit hands out the SAME list every caller before it got, so callers must
+  /// treat it as read-only (TrendsScreen only reads it).
+  Future<List<TrendDayTotals>> read({
+    required String userId,
+    required Future<List<TrendDayTotals>> Function() load,
+  }) {
+    final now = clock.now();
+    final dayKey = localDayKey(now);
+    final key = '$userId|$dayKey';
+    final cached = _totals;
+    final storedAt = _storedAt;
+    if (cached != null && storedAt != null && '$_userId|$_dayKey' == key) {
+      final age = now.difference(storedAt);
+      // A clock jumped BACKWARDS yields a negative age; treat that as a miss
+      // rather than as "fresh forever".
+      if (!age.isNegative && age < ttl) return Future.value(cached);
+    }
+    final running = _inFlight;
+    if (running != null && _inFlightKey == key) return running;
+
+    final generation = _generation;
+    late final Future<List<TrendDayTotals>> request;
+    request = load()
+        .then((totals) {
+          // Dropped meanwhile (sign-out, write, day rollover): deliver the
+          // result to this caller, but do not resurrect the entry.
+          if (_generation == generation) {
+            _totals = totals;
+            _userId = userId;
+            // The day the QUERY window was cut for, and the moment it was
+            // cut: a rollover mid-request must expire the entry, not extend
+            // it.
+            _dayKey = dayKey;
+            _storedAt = now;
+          }
+          return totals;
+        })
+        .whenComplete(() {
+          if (identical(_inFlight, request)) {
+            _inFlight = null;
+            _inFlightKey = null;
+          }
+        });
+    _inFlight = request;
+    _inFlightKey = key;
+    return request;
+  }
+
+  /// Drops the entry and disowns a request in flight. Idempotent.
+  void invalidate() {
+    _generation++;
+    _totals = null;
+    _userId = null;
+    _dayKey = null;
+    _storedAt = null;
+    _inFlight = null;
+    _inFlightKey = null;
+  }
+
+  /// Subscribes ONCE to the auth events; later calls are no-ops.
+  void attachAuthEvents(Stream<AuthChangeEvent> events) {
+    if (_authSub != null) return;
+    _authSub = events.listen(
+      (event) {
+        // A token refresh runs roughly hourly and changes no row; everything
+        // else (sign-out, sign-in, account switch, user deleted) can.
+        if (event == AuthChangeEvent.tokenRefreshed) return;
+        invalidate();
+      },
+      // Sentry FLUTTER-8: an auth-stream listener without onError takes the
+      // zone down. An erroring stream is also a reason to distrust the entry.
+      onError: (Object e, StackTrace stack) {
+        invalidate();
+        dev.log(
+          'TrendTotalsCache: auth stream error',
+          error: e,
+          stackTrace: stack,
+          name: 'trend_service',
+        );
+      },
+    );
+  }
+
+  /// Releases the auth subscription and the entry. Tests only — the singleton
+  /// lives as long as the process.
+  @visibleForTesting
+  Future<void> dispose() async {
+    final sub = _authSub;
+    _authSub = null;
+    invalidate();
+    await sub?.cancel();
+  }
+}
 
 /// One daily total (local calendar day) for the trends view.
 class TrendDayTotals {

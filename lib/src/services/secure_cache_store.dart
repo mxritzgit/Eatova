@@ -4,6 +4,10 @@ import 'dart:developer' as dev;
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:cryptography/cryptography.dart'
+    show AesGcm, Mac, SecretBox, SecretBoxAuthenticationError, SecretKeyData;
+import 'package:cryptography_flutter/cryptography_flutter.dart'
+    show FlutterAesGcm;
 import 'package:flutter/foundation.dart' show compute, visibleForTesting;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:pointycastle/api.dart'
@@ -36,30 +40,19 @@ abstract class CacheCipher {
   Future<String> decrypt(String key, String armored);
 }
 
-/// Transport object for the isolate hop: plain data only.
-class _CipherJob {
-  const _CipherJob(this.dek, this.key, this.payload);
-
-  final Uint8List dek;
-  final String key;
-  final String payload;
-}
-
-// `compute()` needs a top-level or static function, not a closure.
-String _encryptInIsolate(_CipherJob job) =>
-    AesGcmCacheCipher.encryptSync(job.dek, job.key, job.payload);
-
-String _decryptInIsolate(_CipherJob job) =>
-    AesGcmCacheCipher.decryptSync(job.dek, job.key, job.payload);
-
-/// AES-256-GCM via pointycastle, using the DEK from [CacheKeyProvider].
-class AesGcmCacheCipher implements CacheCipher {
-  AesGcmCacheCipher(this._dek) {
-    if (_dek.length != dekLengthBytes) {
-      throw ArgumentError.value(
-          _dek.length, 'dek', 'DEK muss genau $dekLengthBytes Bytes haben');
-    }
-  }
+/// PERF-B1: everything the wire format fixes, in ONE place, because there are
+/// now TWO AES-256-GCM implementations under [CacheCipher] and the blobs they
+/// write have to stay mutually readable: which one a start picks depends on
+/// the platform, so the same install can encrypt with one and decrypt with the
+/// other. Duplicating the framing per implementation is exactly how that
+/// drifts.
+///
+/// Layout: `nonce ‖ ct ‖ tag`, base64, behind [cacheCipherMagic]. pointycastle
+/// works on [sealed] (ct and tag in one buffer, the shape `process()` returns),
+/// package:cryptography on [cipherText] and [tag] separately — the same bytes,
+/// two views.
+class CacheCipherFrame {
+  const CacheCipherFrame(this.nonce, this.sealed);
 
   /// AES-256.
   static const int dekLengthBytes = 32;
@@ -70,10 +63,119 @@ class AesGcmCacheCipher implements CacheCipher {
   /// 128-bit auth tag (full, not truncated).
   static const int tagLengthBits = 128;
 
-  final Uint8List _dek;
+  static const int tagLengthBytes = tagLengthBits ~/ 8;
 
   /// CSPRNG, backed by the OS on Android/iOS.
   static final Random _rng = Random.secure();
+
+  final Uint8List nonce;
+
+  /// Ciphertext followed by the auth tag, in that order.
+  final Uint8List sealed;
+
+  Uint8List get cipherText =>
+      Uint8List.sublistView(sealed, 0, sealed.length - tagLengthBytes);
+
+  Uint8List get tag =>
+      Uint8List.sublistView(sealed, sealed.length - tagLengthBytes);
+
+  /// The stored form. Concatenation order is part of the format.
+  String get armored {
+    final framed = Uint8List(nonce.length + sealed.length)
+      ..setRange(0, nonce.length, nonce)
+      ..setRange(nonce.length, nonce.length + sealed.length, sealed);
+    return '$cacheCipherMagic${base64.encode(framed)}';
+  }
+
+  /// Splits a stored slot. Throws exactly the [FormatException]s the
+  /// pointycastle-only version threw, since
+  /// [EncryptedKeyValueStore._provesBrokenCiphertext] purges the slot on them.
+  static CacheCipherFrame parse(String armored) {
+    if (!armored.startsWith(cacheCipherMagic)) {
+      throw const FormatException('Cache-Slot ohne EATOVA1-Magic');
+    }
+    // No ciphertext in the error text: base64's FormatException embeds its
+    // source, which would reach the crash report.
+    final Uint8List framed;
+    try {
+      framed = base64.decode(armored.substring(cacheCipherMagic.length));
+    } on FormatException {
+      throw const FormatException('Cache-Slot ist kein gueltiges base64');
+    }
+    if (framed.length < nonceLengthBytes + tagLengthBytes) {
+      throw const FormatException('Cache-Slot zu kurz fuer nonce+tag');
+    }
+    return CacheCipherFrame(
+      Uint8List.sublistView(framed, 0, nonceLengthBytes),
+      Uint8List.fromList(framed.sublist(nonceLengthBytes)),
+    );
+  }
+
+  /// 12 FRESH random bytes per encryption, never derived, never a counter:
+  /// reuse under one GCM key leaks the authentication subkey.
+  static Uint8List freshNonce() {
+    final nonce = Uint8List(nonceLengthBytes);
+    for (var i = 0; i < nonceLengthBytes; i++) {
+      nonce[i] = _rng.nextInt(256);
+    }
+    return nonce;
+  }
+
+  /// AAD = the storage key, so moving a value to another slot or user
+  /// namespace fails the tag check.
+  static Uint8List associatedData(String key) => bytes(key);
+
+  static Uint8List bytes(String s) => Uint8List.fromList(utf8.encode(s));
+}
+
+/// Transport object for the isolate hop: plain data only.
+class _CipherJob {
+  const _CipherJob(this.dek, this.key, this.payload);
+
+  final Uint8List dek;
+  final String key;
+  final String payload;
+}
+
+/// PERF-B1: the cipher production uses — the OS one where it exists,
+/// pointycastle everywhere else. The choice is invisible to callers: both
+/// write [cacheCipherMagic] frames that the other reads (golden test
+/// `secure_cache_store_golden_test.dart`), so an install may switch between
+/// them from one start to the next without touching its blobs.
+CacheCipher createCacheCipher(Uint8List dek) =>
+    PlatformAesGcmCacheCipher.isAvailable
+        ? PlatformAesGcmCacheCipher(dek)
+        : AesGcmCacheCipher(dek);
+
+// `compute()` needs a top-level or static function, not a closure.
+String _encryptInIsolate(_CipherJob job) =>
+    AesGcmCacheCipher.encryptSync(job.dek, job.key, job.payload);
+
+String _decryptInIsolate(_CipherJob job) =>
+    AesGcmCacheCipher.decryptSync(job.dek, job.key, job.payload);
+
+/// AES-256-GCM via pointycastle, using the DEK from [CacheKeyProvider].
+///
+/// PERF-B1: no longer the only implementation, but still the MANDATORY one —
+/// desktop, the VM test environment and every device whose plugin channel is
+/// missing run on it, and [PlatformAesGcmCacheCipher] degrades into it.
+class AesGcmCacheCipher implements CacheCipher {
+  AesGcmCacheCipher(this._dek) {
+    if (_dek.length != dekLengthBytes) {
+      throw ArgumentError.value(
+          _dek.length, 'dek', 'DEK muss genau $dekLengthBytes Bytes haben');
+    }
+  }
+
+  /// AES-256. Format constants live on [CacheCipherFrame], which both cipher
+  /// implementations share; these names stay as the established spelling.
+  static const int dekLengthBytes = CacheCipherFrame.dekLengthBytes;
+
+  static const int nonceLengthBytes = CacheCipherFrame.nonceLengthBytes;
+
+  static const int tagLengthBits = CacheCipherFrame.tagLengthBits;
+
+  final Uint8List _dek;
 
   // PERF-G9: no "small blobs synchronous" threshold — the isolate overhead
   // is a constant ~0.13 ms against 0.29 ms of crypto for the smallest real
@@ -93,64 +195,208 @@ class AesGcmCacheCipher implements CacheCipher {
       );
 
   /// Pure, so it can run in the isolate; the golden blob pins the format.
-  static String encryptSync(Uint8List dek, String key, String plaintext) {
-    // 12 FRESH random bytes per encryption, never derived, never a counter:
-    // reuse under one GCM key leaks the authentication subkey.
-    final nonce = Uint8List(nonceLengthBytes);
-    for (var i = 0; i < nonceLengthBytes; i++) {
-      nonce[i] = _rng.nextInt(256);
-    }
-
+  ///
+  /// [nonce] exists for the golden test ONLY. Passing a repeated nonce under
+  /// one DEK leaks GCM's authentication subkey, so production never supplies
+  /// it and takes [CacheCipherFrame.freshNonce] instead.
+  static String encryptSync(
+    Uint8List dek,
+    String key,
+    String plaintext, {
+    Uint8List? nonce,
+  }) {
+    final iv = nonce ?? CacheCipherFrame.freshNonce();
     final cipher = GCMBlockCipher(AESEngine())
       ..init(
         true,
-        AEADParameters(
-            KeyParameter(dek), tagLengthBits, nonce, _associatedData(key)),
+        AEADParameters(KeyParameter(dek), CacheCipherFrame.tagLengthBits, iv,
+            CacheCipherFrame.associatedData(key)),
       );
     // For GCM, process() returns ciphertext ‖ tag.
-    final sealed = cipher.process(_bytes(plaintext));
-
-    final framed = Uint8List(nonce.length + sealed.length)
-      ..setRange(0, nonce.length, nonce)
-      ..setRange(nonce.length, nonce.length + sealed.length, sealed);
-    return '$cacheCipherMagic${base64.encode(framed)}';
+    return CacheCipherFrame(iv, cipher.process(CacheCipherFrame.bytes(plaintext)))
+        .armored;
   }
 
   /// Counterpart to [encryptSync], likewise pure and isolate-safe.
   static String decryptSync(Uint8List dek, String key, String armored) {
-    if (!armored.startsWith(cacheCipherMagic)) {
-      throw const FormatException('Cache-Slot ohne EATOVA1-Magic');
-    }
-    // No ciphertext in the error text: base64's FormatException embeds its
-    // source, which would reach the crash report.
-    final Uint8List framed;
-    try {
-      framed = base64.decode(armored.substring(cacheCipherMagic.length));
-    } on FormatException {
-      throw const FormatException('Cache-Slot ist kein gueltiges base64');
-    }
-    if (framed.length < nonceLengthBytes + tagLengthBits ~/ 8) {
-      throw const FormatException('Cache-Slot zu kurz fuer nonce+tag');
-    }
-
-    final nonce = Uint8List.sublistView(framed, 0, nonceLengthBytes);
-    final sealed = Uint8List.fromList(framed.sublist(nonceLengthBytes));
+    final frame = CacheCipherFrame.parse(armored);
 
     final cipher = GCMBlockCipher(AESEngine())
       ..init(
         false,
-        AEADParameters(
-            KeyParameter(dek), tagLengthBits, nonce, _associatedData(key)),
+        AEADParameters(KeyParameter(dek), CacheCipherFrame.tagLengthBits,
+            frame.nonce, CacheCipherFrame.associatedData(key)),
       );
     // Tag mismatch = wrong DEK, wrong slot (AAD) or tampered blob.
-    return utf8.decode(cipher.process(sealed));
+    return utf8.decode(cipher.process(frame.sealed));
+  }
+}
+
+/// PERF-B1: the same AES-256-GCM, but through the operating system's crypto
+/// provider (javax.crypto on Android, CryptoKit on Apple) instead of
+/// pointycastle's pure-Dart round loop, which is the dominant recurring CPU
+/// cost of the cache — 91.5 ms for 210 meals on desktop JIT, mobile AOT 2-4x
+/// slower, and every meal mutation re-encrypts the whole blob.
+///
+/// A DROP-IN for [AesGcmCacheCipher], not a replacement: identical nonce
+/// length, tag length, AAD, byte order and magic, all pinned by
+/// `secure_cache_store_golden_test.dart`. Whichever wrote a slot, the other
+/// reads it.
+///
+/// EVERY failure that is not a statement about the ciphertext degrades to
+/// pointycastle — permanently for this instance, since a channel that is gone
+/// stays gone and one retry per call would only double the latency.
+class PlatformAesGcmCacheCipher implements CacheCipher {
+  /// [algorithm] and [fallback] are seams for the golden test, which injects a
+  /// second pure-Dart implementation to prove the two agree byte for byte
+  /// without a platform channel.
+  PlatformAesGcmCacheCipher(
+    Uint8List dek, {
+    AesGcm? algorithm,
+    CacheCipher? fallback,
+  })  : _secretKey = SecretKeyData(dek),
+        _algorithm = algorithm ?? _platformAlgorithm,
+        _fallback = fallback ?? AesGcmCacheCipher(dek);
+
+  final SecretKeyData _secretKey;
+
+  /// null when the platform cipher could not even be BUILT. [createCacheCipher]
+  /// never gets there, but a direct caller must not crash the cache over it —
+  /// the instance then simply starts out degraded.
+  final AesGcm? _algorithm;
+  final CacheCipher _fallback;
+
+  /// Set once the platform path has proven unusable at RUNTIME; from then on
+  /// every call goes straight to pointycastle.
+  bool _degraded = false;
+
+  bool get _onFallback => _degraded || _algorithm == null;
+
+  static FlutterAesGcm? _platform;
+  static bool _platformProbed = false;
+
+  /// Built lazily and at most once: construction reaches into
+  /// `defaultTargetPlatform` and the plugin registry.
+  static FlutterAesGcm? get _platformAlgorithm {
+    if (_platformProbed) return _platform;
+    _platformProbed = true;
+    try {
+      _platform = FlutterAesGcm.with256bits();
+    } catch (e, s) {
+      dev.log('PlatformAesGcmCacheCipher: Plattform-Cipher nicht baubar',
+          error: e, stackTrace: s, name: 'secure_cache_store');
+    }
+    return _platform;
   }
 
-  /// AAD = the storage key, so moving a value to another slot or user
-  /// namespace fails the tag check.
-  static Uint8List _associatedData(String key) => _bytes(key);
+  /// Whether the OS path is really reachable here — the plugin must be
+  /// REGISTERED, not merely depended on, which is false in every VM test and
+  /// on desktop. A throwing probe counts as unavailable: the cache has to boot
+  /// either way.
+  static bool get isAvailable {
+    try {
+      return _platformAlgorithm?.isSupportedPlatform ?? false;
+    } catch (e, s) {
+      dev.log('PlatformAesGcmCacheCipher: Plattform-Probe warf — pointycastle',
+          error: e, stackTrace: s, name: 'secure_cache_store');
+      return false;
+    }
+  }
 
-  static Uint8List _bytes(String s) => Uint8List.fromList(utf8.encode(s));
+  /// Clears the memoized platform probe (tests only).
+  @visibleForTesting
+  static void debugResetPlatformProbe() {
+    _platform = null;
+    _platformProbed = false;
+  }
+
+  @override
+  Future<String> encrypt(String key, String plaintext) =>
+      encryptWithNonce(key, plaintext, CacheCipherFrame.freshNonce());
+
+  /// [nonce] exists for the golden test ONLY — see
+  /// [AesGcmCacheCipher.encryptSync] for why production never pins one.
+  @visibleForTesting
+  Future<String> encryptWithNonce(
+      String key, String plaintext, Uint8List nonce) async {
+    final algorithm = _algorithm;
+    if (_onFallback || algorithm == null) {
+      return _fallback.encrypt(key, plaintext);
+    }
+    final SecretBox box;
+    try {
+      box = await algorithm.encrypt(
+        CacheCipherFrame.bytes(plaintext),
+        secretKey: _secretKey,
+        nonce: nonce,
+        aad: CacheCipherFrame.associatedData(key),
+      );
+    } catch (e, s) {
+      // The fallback mints its OWN nonce, which is the safe direction: two
+      // implementations must never reuse one under the same DEK.
+      _degrade('encrypt', e, s);
+      return _fallback.encrypt(key, plaintext);
+    }
+    return CacheCipherFrame(nonce, _sealed(box)).armored;
+  }
+
+  @override
+  Future<String> decrypt(String key, String armored) async {
+    // Parse OUTSIDE the try: a FormatException here is a verdict about the
+    // SLOT, which [EncryptedKeyValueStore._provesBrokenCiphertext] purges on —
+    // never a reason to degrade or to ask pointycastle the same question.
+    final frame = CacheCipherFrame.parse(armored);
+    final algorithm = _algorithm;
+    if (_onFallback || algorithm == null) {
+      return _fallback.decrypt(key, armored);
+    }
+
+    final List<int> clear;
+    try {
+      clear = await algorithm.decrypt(
+        SecretBox(frame.cipherText, nonce: frame.nonce, mac: Mac(frame.tag)),
+        secretKey: _secretKey,
+        aad: CacheCipherFrame.associatedData(key),
+      );
+    } on SecretBoxAuthenticationError {
+      // Wrong DEK, wrong slot (AAD) or tampering — the same verdict
+      // pointycastle reports, and it MUST arrive as the same type: both
+      // `_provesBrokenCiphertext` (purge or keep the slot) and the Sentry
+      // allowlist key off `InvalidCipherTextException`. Message copied from
+      // pointycastle so the crash report reads identically.
+      throw InvalidCipherTextException('Authentication tag check failed');
+    } catch (e, s) {
+      // Says nothing about the ciphertext (channel gone, plugin error, OOM):
+      // answer from pointycastle, exactly as if the platform path had never
+      // been selected.
+      _degrade('decrypt', e, s);
+      return _fallback.decrypt(key, armored);
+    }
+    // Outside the try: invalid UTF-8 is a broken plaintext, not a broken
+    // platform, and must keep throwing FormatException as before.
+    return utf8.decode(clear);
+  }
+
+  /// GCM's `ct ‖ tag`, which is what the frame stores and what pointycastle
+  /// both produces and consumes.
+  static Uint8List _sealed(SecretBox box) {
+    final ct = box.cipherText;
+    final tag = box.mac.bytes;
+    return Uint8List(ct.length + tag.length)
+      ..setRange(0, ct.length, ct)
+      ..setRange(ct.length, ct.length + tag.length, tag);
+  }
+
+  void _degrade(String operation, Object error, StackTrace s) {
+    if (_degraded) return;
+    _degraded = true;
+    dev.log(
+        'PlatformAesGcmCacheCipher: $operation ueber die Plattform '
+        'fehlgeschlagen — ab jetzt pointycastle',
+        error: error,
+        stackTrace: s,
+        name: 'secure_cache_store');
+  }
 }
 
 /// Seam over the OS keystore, testable without a plugin channel.
@@ -894,7 +1140,10 @@ class EncryptedKeyValueStore implements KeyValueStore, RawSlotProbe {
     if (dek == null) return null;
     final store = EncryptedKeyValueStore(
       inner,
-      AesGcmCacheCipher(dek),
+      // PERF-B1: OS cipher where the plugin is registered, pointycastle
+      // otherwise. Both write the same frame, so the pick is per start and
+      // needs no migration.
+      createCacheCipher(dek),
       acceptLegacyPlaintext: CacheKeyProvider.legacyPlaintextAccepted,
     );
     // W7a: the sweep runs BEFORE returning, so no caller gets a store stuck

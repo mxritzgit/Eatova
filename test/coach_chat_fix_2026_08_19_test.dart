@@ -125,6 +125,7 @@ class _FixCoach extends CoachChatService {
     String? imageBase64,
     String? imageMimeType,
     String? userContext,
+    void Function(String text)? onPartialReply,
   }) {
     gesendeteTexte.add(message);
     final auftrag = Completer<CoachChatReply>();

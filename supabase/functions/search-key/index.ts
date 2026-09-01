@@ -98,8 +98,9 @@ const USER_WINDOW_SECONDS = positiveIntFromEnv(
 );
 
 // E1 (review 2026-08-31). Every outbound call here used to be unbounded: one
-// GoTrue introspection plus up to two consume_edge_rate_limit roundtrips (or
-// the shared auth-fail gate). A stalling PostgREST held the isolate until the
+// GoTrue introspection plus the gate roundtrip — since P6-02 a single batched
+// consume_edge_rate_limits for both application gates, or the shared auth-fail
+// gate on the 401 path. A stalling PostgREST held the isolate until the
 // platform killed it, while the CLIENT gives up after 10 s
 // (HttpTimeoutPolicy.mirror in lib/src/services/eatova_http.dart).
 //
@@ -166,20 +167,23 @@ Deno.serve(async (request) => {
     // leftmost entry is client-controlled. See ../_shared/client_ip.ts.
     const ipSubject = clientIpSubject(request, user.id);
 
-    const ipLimit = await consumeRateLimit('search-key:ip', ipSubject, IP_LIMIT, IP_WINDOW_SECONDS, deadline);
-    if (!ipLimit.allowed) {
-      return rateLimitedResponse(request, ipLimit, requestId);
-    }
-
-    const userLimit = await consumeRateLimit(
-      'search-key:user',
-      user.id,
-      USER_LIMIT,
-      USER_WINDOW_SECONDS,
+    // P6-02: both application gates in ONE roundtrip instead of two sequential
+    // ones. The RPC keeps the old order and stops AT the first denial, so
+    // gates[i] belongs to specs[i] and each gate still answers with its own
+    // rateLimitedResponse (its own numbers, its own Retry-After).
+    const gates = await consumeRateLimits(
+      [
+        { scope: 'search-key:ip', subject: ipSubject, limit: IP_LIMIT, windowSeconds: IP_WINDOW_SECONDS },
+        { scope: 'search-key:user', subject: user.id, limit: USER_LIMIT, windowSeconds: USER_WINDOW_SECONDS },
+      ],
       deadline,
     );
-    if (!userLimit.allowed) {
-      return rateLimitedResponse(request, userLimit, requestId);
+    // First (and only) denial in array order == the gate that used to return
+    // early. A MISSING trailing element is "never consumed", never "allowed" —
+    // consumeRateLimits rejects a short reply whose last element is allowed.
+    const denied = gates.find((gate) => !gate.allowed);
+    if (denied) {
+      return rateLimitedResponse(request, denied, requestId);
     }
 
     // No await on purpose: cleanup must not hold up the request. Error handling
@@ -366,16 +370,36 @@ async function authenticateUser(request: Request, deadline: Deadline): Promise<A
   return { user: { id: user.id, email: typeof user.email === 'string' ? user.email : undefined } };
 }
 
-async function consumeRateLimit(
-  scope: string,
-  subject: string,
-  limit: number,
-  windowSeconds: number,
-  deadline: Deadline,
-): Promise<RateLimitResult> {
+/** One gate of a batch, in the shape consume_edge_rate_limits validates. */
+type RateLimitGate = { scope: string; subject: string; limit: number; windowSeconds: number };
+
+/** Fails closed with the one error every limiter problem produces: an outage is
+ *  never a measured limit, and without its gates this endpoint must not hand
+ *  out search material. */
+function rateLimitUnavailable(): HttpError {
+  return new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
+}
+
+/**
+ * P6-02 (perf audit 2026-09-01): consumes ALL gates in one RPC roundtrip.
+ *
+ * Two sequential consume_edge_rate_limit calls cost two PostgREST roundtrips on
+ * the hot path of every key fetch. consume_edge_rate_limits takes the gates as
+ * an ordered array and does exactly what the single-gate RPC did per element —
+ * including STOPPING at the first denial, which is what the old early `return`
+ * between the two calls did.
+ *
+ * Therefore the reply carries one element per gate ACTUALLY consumed and may be
+ * SHORTER than the input. result[i] belongs to gates[i]; a missing trailing
+ * element means "never consumed", and reading it as "allowed" would silently
+ * open the gate the RPC deliberately skipped. Deadline and failure handling are
+ * the single-gate ones, unchanged (E1/E6).
+ */
+async function consumeRateLimits(gates: RateLimitGate[], deadline: Deadline): Promise<RateLimitResult[]> {
+  const scopes = gates.map((gate) => gate.scope).join(',');
   let response: Response;
   try {
-    response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/consume_edge_rate_limit`, {
+    response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/consume_edge_rate_limits`, {
       method: 'POST',
       headers: {
         apikey: SUPABASE_SERVICE_ROLE_KEY,
@@ -383,10 +407,12 @@ async function consumeRateLimit(
         'content-type': 'application/json',
       },
       body: JSON.stringify({
-        p_scope: scope,
-        p_subject: subject,
-        p_limit: limit,
-        p_window_seconds: windowSeconds,
+        p_gates: gates.map((gate) => ({
+          scope: gate.scope,
+          subject: gate.subject,
+          limit: gate.limit,
+          window_seconds: gate.windowSeconds,
+        })),
       }),
       signal: stepSignal(deadline, SUPABASE_TIMEOUT_MS),
     });
@@ -395,32 +421,54 @@ async function consumeRateLimit(
     // outage, not a measured limit. Fails CLOSED, like the !ok branch below:
     // these gates keep the endpoint from being used as a key oracle.
     if (isTimeout(error)) {
-      console.error(`consume_edge_rate_limit (${scope}) timeout`);
-      throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
+      console.error(`consume_edge_rate_limits (${scopes}) timeout`);
+      throw rateLimitUnavailable();
     }
     throw error;
   }
 
   if (!response.ok) {
-    throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
+    throw rateLimitUnavailable();
   }
 
-  const data = await response.json() as Partial<RateLimitResult>;
-  // E6: `data.allowed === true` turned a broken response shape (RPC signature
-  // change, proxy body) into `allowed: false` — a 429 with invented numbers
-  // although no limit was ever measured. A broken shape is a limiter outage,
-  // not a limit.
-  if (typeof data.allowed !== 'boolean') {
-    console.error(`consume_edge_rate_limit: 200 ohne lesbares allowed (${JSON.stringify(data).slice(0, 120)})`);
-    throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
+  const data = await response.json() as unknown;
+  // E6: a broken response shape (RPC signature change, proxy body) must be an
+  // outage, not an invented 429. An array LONGER than the input is just as
+  // unreadable as a non-array — the RPC only ever shortens.
+  if (!Array.isArray(data) || data.length === 0 || data.length > gates.length) {
+    console.error(`consume_edge_rate_limits: 200 mit unlesbarer Antwort (${JSON.stringify(data).slice(0, 120)})`);
+    throw rateLimitUnavailable();
   }
-  return {
-    allowed: data.allowed,
-    limit: Number(data.limit ?? limit),
-    remaining: Number(data.remaining ?? 0),
-    resetAt: String(data.resetAt ?? new Date(Date.now() + windowSeconds * 1000).toISOString()),
-    windowSeconds: Number(data.windowSeconds ?? windowSeconds),
-  };
+
+  const results: RateLimitResult[] = [];
+  for (let i = 0; i < data.length; i++) {
+    const gate = gates[i];
+    const entry = (data[i] ?? {}) as Partial<RateLimitResult>;
+    if (typeof entry.allowed !== 'boolean') {
+      console.error(
+        `consume_edge_rate_limits: ${gate.scope} ohne lesbares allowed (${JSON.stringify(entry).slice(0, 120)})`,
+      );
+      throw rateLimitUnavailable();
+    }
+    // Defaults come from the gate the element belongs to, exactly as the
+    // single-gate helper used its own parameters.
+    results.push({
+      allowed: entry.allowed,
+      limit: Number(entry.limit ?? gate.limit),
+      remaining: Number(entry.remaining ?? 0),
+      resetAt: String(entry.resetAt ?? new Date(Date.now() + gate.windowSeconds * 1000).toISOString()),
+      windowSeconds: Number(entry.windowSeconds ?? gate.windowSeconds),
+    });
+  }
+
+  // A short reply is legal ONLY at a denial. Anything else means a gate went
+  // unconsumed while the RPC still claimed success — treating that as "allowed"
+  // is precisely the hole this endpoint must not have.
+  if (results.length < gates.length && results[results.length - 1].allowed) {
+    console.error(`consume_edge_rate_limits: kurze Antwort ohne Ablehnung (${results.length}/${gates.length})`);
+    throw rateLimitUnavailable();
+  }
+  return results;
 }
 
 function rateLimitedResponse(request: Request, limit: RateLimitResult, requestId: string): Response {

@@ -97,17 +97,28 @@ function installFetch(options: { rateLimitBody?: unknown } = {}): () => void {
         }),
       );
     }
-    if (url.includes("/rest/v1/rpc/consume_edge_rate_limit")) {
+    // P6-02: the two application gates travel as ONE batched call, so the
+    // reply is an ARRAY with one element per gate.
+    if (url.includes("/rest/v1/rpc/consume_edge_rate_limits")) {
       return Promise.resolve(
         new Response(
           JSON.stringify(
-            options.rateLimitBody ?? {
-              allowed: true,
-              limit: 120,
-              remaining: 119,
-              resetAt: new Date(Date.now() + 600_000).toISOString(),
-              windowSeconds: 600,
-            },
+            options.rateLimitBody ?? [
+              {
+                allowed: true,
+                limit: 120,
+                remaining: 119,
+                resetAt: new Date(Date.now() + 600_000).toISOString(),
+                windowSeconds: 600,
+              },
+              {
+                allowed: true,
+                limit: 20,
+                remaining: 19,
+                resetAt: new Date(Date.now() + 3_600_000).toISOString(),
+                windowSeconds: 3600,
+              },
+            ],
           ),
           { status: 200, headers: { "content-type": "application/json" } },
         ),
@@ -308,7 +319,8 @@ Deno.test(
   async () => {
     // `data.allowed === true` turned an empty or reshaped RPC body into
     // `allowed: false`, so the client got a 429 with invented rateLimit
-    // numbers. A broken shape is a limiter outage, not a limit.
+    // numbers. A broken shape is a limiter outage, not a limit. Since P6-02
+    // the batched reply must be an ARRAY — an object is exactly that case.
     const handlerFn = await ladeHandler();
     const restore = installFetch({ rateLimitBody: {} });
     try {

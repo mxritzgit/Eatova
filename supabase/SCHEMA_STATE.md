@@ -32,7 +32,7 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 `.github/workflows/security.yml`; die Bedienung steht in
 `supabase/SCHEMA_STATE_2026-06-07.md`.
 
-## Migrationen (36)
+## Migrationen (39)
 
 1. `20260516150000_create_profiles.sql`
 2. `20260516160000_app_data_schema.sql`
@@ -70,6 +70,9 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 34. `20260819140000_user_recipes_limits.sql`
 35. `20260828100000_profiles_manual_energy.sql`
 36. `20260829120000_row_caps_and_hardening.sql`
+37. `20260901100000_batch_edge_rate_limits.sql`
+38. `20260901100200_chat_quota_usage_retention.sql`
+39. `20260901100300_list_chat_sessions_count.sql`
 
 ## Tabellen in `public` (11)
 
@@ -158,12 +161,13 @@ Die Entscheidung ist nicht endgueltig: `normalisiereAusdruck` in
 als dieselbe Bedingung, der Waechter bliebe nach einer Umstellung
 also gruen.
 
-## Funktionen in `public` (19)
+## Funktionen in `public` (21)
 
 | Funktion | Rechte des | `search_path` | EXECUTE fuer | aus |
 |---|---|---|---|---|
 | `claim_chat_quota` | **Eigentuemers** | `public` | `service_role` | `20260517100000_coach_chat.sql` |
 | `consume_edge_rate_limit` | **Eigentuemers** | `public, extensions` | `service_role` | `20260518000100_fix_edge_rate_limit_pgcrypto_search_path.sql` |
+| `consume_edge_rate_limits` | **Eigentuemers** | `public, extensions` | `service_role` | `20260901100000_batch_edge_rate_limits.sql` |
 | `create_chat_session` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260517170000_chat_sessions.sql` |
 | `delete_account` | **Eigentuemers** | `''` | `authenticated`, `service_role` | `20260815120000_delete_account_reauth.sql` |
 | `delete_chat_session` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260517170000_chat_sessions.sql` |
@@ -173,8 +177,9 @@ also gruen.
 | `handle_new_user_profile` | **Eigentuemers** | `public` | `service_role` | `20260516150000_create_profiles.sql` |
 | `handle_new_user_stats` | **Eigentuemers** | `public` | `service_role` | `20260516160000_app_data_schema.sql` |
 | `increment_lifetime_stats` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260814120000_audit_rls_guard.sql` |
-| `list_chat_sessions` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260517170000_chat_sessions.sql` |
-| `prune_edge_rate_limits` | **Eigentuemers** | `public` | `service_role` | `20260517220000_security_hardening.sql` |
+| `list_chat_sessions` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260901100300_list_chat_sessions_count.sql` |
+| `prune_chat_quota_usage` | **Eigentuemers** | `public` | `service_role` | `20260901100200_chat_quota_usage_retention.sql` |
+| `prune_edge_rate_limits` | **Eigentuemers** | `public` | `service_role` | `20260901100200_chat_quota_usage_retention.sql` |
 | `record_tracking_day` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260811120000_lifetime_stats_integrity.sql` |
 | `refund_chat_quota` | **Eigentuemers** | `public` | `service_role` | `20260808210000_chat_quota_honesty.sql` |
 | `rename_chat_session` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260517170000_chat_sessions.sql` |

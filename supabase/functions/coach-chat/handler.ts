@@ -393,14 +393,26 @@ function imageMimeFromMagic(base64: string): string | null {
   return null;
 }
 
-async function answer(
-  apiKey: string,
+/// The literal a Layer-3 refusal starts with (see ANSWER_SYSTEM_PROMPT). Its
+/// LENGTH is the contract for the streamed path: nothing may leave the socket
+/// before this many non-whitespace characters have ruled the marker out (A3).
+const REFUSAL_MARKER = "__REFUSE__";
+
+/// Layer-3 prompt-leak net (P5-05). A module constant, not an inline literal,
+/// because the streamed path has to run the same test on every release. No `g`
+/// flag on purpose — a stateful lastIndex would make `.test` skip matches.
+const PROMPT_LEAK_RE = /system\s*prompt|deine\s*anweisungen\s*lauten/i;
+
+/// Request body of the answer call. Shared by the buffered and the streamed
+/// path so the model never sees two different prompts for the same question;
+/// `stream` is the ONLY difference between them.
+function answerPayload(
   history: HistoryMessage[],
   userMessage: string,
   image?: { base64: string; mimeType: string },
   userContext?: string,
-  locale: CoachLocale = "de",
-): Promise<{ reply: string; refusal: boolean }> {
+  stream = false,
+): Record<string, unknown> {
   const userContent: string | UserContentPart[] = image
     ? [
         { type: "text", text: userMessage },
@@ -425,54 +437,38 @@ async function answer(
     });
   }
 
-  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": "https://eatova.de",
-      "X-Title": "Eatova Coach",
-    },
-    // Deadline for fetch AND the resp.json()/text() below (finding 6); the
-    // timeout throws into the existing answer refund paths (refund + 504).
-    signal: AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer),
-    body: JSON.stringify({
-      model: MODEL_ANSWER,
-      // Context sits right before the current question, AFTER the history:
-      // up to 10 turns earlier it lost its weight (F5-07).
-      messages: [
-        { role: "system", content: ANSWER_SYSTEM_PROMPT },
-        ...history,
-        ...contextMessages,
-        { role: "user", content: userContent },
-      ],
-      temperature: 0.5,
-      // 800 (was 600): with the plain-text style a ~250-word reply plus a
-      // per-slot breakdown ran into finish_reason=length mid-sentence. The
-      // budget also identifies this call for the test stubs.
-      max_tokens: ANSWER_MAX_TOKENS,
-    }),
-  });
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new ProviderError(
-      resp.status,
-      `Grok-Call fehlgeschlagen: ${resp.status} (${await redactedBodyMeta(text)})`,
-    );
-  }
-  const data = await resp.json();
-  const choice = data?.choices?.[0];
-  // P6-04c: this used to cap the value at 32 characters before putting it into
-  // a ProviderError message, i.e. into console.error and function_logs. A cap
-  // is no redaction — `finish_reason` is a free string, and the first 32
-  // characters of whatever the model wrote there are still provider-chosen
-  // (CWE-532). Same allowlist as analyze-meal now: contract value or category.
-  const finishReason = loggableFinishReason(choice?.finish_reason) ?? "unknown";
-  let reply: string = choice?.message?.content ?? "";
-  reply = reply.trim();
+  return {
+    model: MODEL_ANSWER,
+    // Context sits right before the current question, AFTER the history:
+    // up to 10 turns earlier it lost its weight (F5-07).
+    messages: [
+      { role: "system", content: ANSWER_SYSTEM_PROMPT },
+      ...history,
+      ...contextMessages,
+      { role: "user", content: userContent },
+    ],
+    temperature: 0.5,
+    // 800 (was 600): with the plain-text style a ~250-word reply plus a
+    // per-slot breakdown ran into finish_reason=length mid-sentence. The
+    // budget also identifies this call for the test stubs.
+    max_tokens: ANSWER_MAX_TOKENS,
+    ...(stream ? { stream: true } : {}),
+  };
+}
 
+/// Raw model text plus finish_reason -> the {reply, refusal} pair the client
+/// gets. THE one place that decides it: the streamed path puts the identical
+/// object into its `done` event, so the two wires cannot drift apart (A3).
+/// Throws ProviderError(502) for an empty non-refusal, which is what makes the
+/// caller refund the slot.
+function finalizeAnswer(
+  raw: string,
+  finishReason: string,
+  locale: CoachLocale,
+): { reply: string; refusal: boolean } {
+  let reply = raw.trim();
   let refusal = false;
-  const hadRefusalMarker = reply.startsWith("__REFUSE__");
+  const hadRefusalMarker = reply.startsWith(REFUSAL_MARKER);
   if (hadRefusalMarker) {
     refusal = true;
     reply = reply.replace(/^__REFUSE__\s*/, "").trim();
@@ -481,7 +477,7 @@ async function answer(
   // check fires on the MODEL's reply, not on the input, so the reply language
   // follows the request locale like every other refusal — it used to be the
   // only one hardcoded in German.
-  if (/system\s*prompt|deine\s*anweisungen\s*lauten/i.test(reply)) {
+  if (PROMPT_LEAK_RE.test(reply)) {
     refusal = true;
     reply = refusalForReason("prompt_leak", locale);
   }
@@ -505,6 +501,373 @@ async function answer(
     reply = `${reply} …`;
   }
   return { reply, refusal };
+}
+
+async function answer(
+  apiKey: string,
+  history: HistoryMessage[],
+  userMessage: string,
+  image?: { base64: string; mimeType: string },
+  userContext?: string,
+  locale: CoachLocale = "de",
+): Promise<{ reply: string; refusal: boolean }> {
+  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://eatova.de",
+      "X-Title": "Eatova Coach",
+    },
+    // Deadline for fetch AND the resp.json()/text() below (finding 6); the
+    // timeout throws into the existing answer refund paths (refund + 504).
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer),
+    body: JSON.stringify(answerPayload(history, userMessage, image, userContext)),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new ProviderError(
+      resp.status,
+      `Grok-Call fehlgeschlagen: ${resp.status} (${await redactedBodyMeta(text)})`,
+    );
+  }
+  const data = await resp.json();
+  const choice = data?.choices?.[0];
+  // P6-04c: this used to cap the value at 32 characters before putting it into
+  // a ProviderError message, i.e. into console.error and function_logs. A cap
+  // is no redaction — `finish_reason` is a free string, and the first 32
+  // characters of whatever the model wrote there are still provider-chosen
+  // (CWE-532). Same allowlist as analyze-meal now: contract value or category.
+  const finishReason = loggableFinishReason(choice?.finish_reason) ?? "unknown";
+  return finalizeAnswer(choice?.message?.content ?? "", finishReason, locale);
+}
+
+// ---------------------------------------------------------------------------
+// A3 - the STREAMED answer (SSE). Perf audit 2026-08-31: the buffered call
+// holds the reply until the last of up to ANSWER_MAX_TOKENS tokens exists, so
+// the user watches an empty bubble for 5-15 s.
+//
+// Strictly OPT-IN via `Accept: text/event-stream`. Without that header not one
+// line below runs and the buffered path above answers byte-identically — old
+// device builds in the field must keep working (cf. the 8-digit-OTP incident:
+// app first, server second).
+//
+// Two invariants everything here is built around:
+//   * the STATUS is locked at 200 the moment SSE headers go out, so every
+//     decision with its own status (401/400/413, both 429s, layer 1+2, the
+//     classifier's 502/504, recipe mode) stays ahead of this block;
+//   * the REFUND line is the first `delta` on the socket, not the response
+//     status — nothing delivered means the slot goes back, one delta out means
+//     it stays spent, or an aborted stream would be a free question.
+// ---------------------------------------------------------------------------
+
+/// Characters held back behind the released text while the stream is open.
+/// The prompt-leak net replaces the WHOLE reply, and a stream cannot take
+/// bytes back; running PROMPT_LEAK_RE on the assembled text before every
+/// release plus this tail means the matched phrase itself is never delivered.
+/// Comfortably longer than the literal part of both alternatives.
+const LEAK_GUARD_TAIL = 64;
+
+interface AnswerStreamState {
+  reader: ReadableStreamDefaultReader<Uint8Array>;
+  decoder: TextDecoder;
+  /// Second abort leg: a client that hangs up cancels the provider call
+  /// instead of paying for tokens nobody reads.
+  abort: AbortController;
+  /// Provider bytes not yet split into whole SSE lines.
+  raw: string;
+  /// Model text assembled so far, released part included.
+  text: string;
+  /// How far `text` has left as deltas — the refund line (contract §5).
+  released: number;
+  finishReason: string;
+  ended: boolean;
+}
+
+/// Splits whatever whole lines are in `state.raw` into OpenRouter SSE frames.
+/// Handles the three shapes a real stream has: several frames in one read, one
+/// frame split across reads, and `:`-comment keep-alives.
+function consumeProviderFrames(state: AnswerStreamState): void {
+  for (;;) {
+    const cut = state.raw.indexOf("\n");
+    if (cut < 0) return;
+    const line = state.raw.slice(0, cut).replace(/\r$/, "");
+    state.raw = state.raw.slice(cut + 1);
+    // Blank = frame separator, ":" = keep-alive comment, anything else without
+    // a data: prefix (event:, id:, retry:) carries no tokens.
+    if (line.length === 0 || line.startsWith(":") || !line.startsWith("data:")) continue;
+    const payload = line.slice("data:".length).trim();
+    if (payload === "[DONE]") {
+      state.ended = true;
+      return;
+    }
+    let frame: any;
+    try {
+      frame = JSON.parse(payload);
+    } catch {
+      // A frame that is not JSON is a provider hiccup, not a reason to kill
+      // the isolate mid-answer: skipping it costs at most one token.
+      continue;
+    }
+    if (frame?.error) {
+      // Mid-stream provider failure. No body in the message — OpenRouter
+      // mirrors user input into its error objects (CWE-532).
+      throw new ProviderError(502, "Grok-Stream: Fehler-Frame vom Provider");
+    }
+    const choice = frame?.choices?.[0];
+    const piece = choice?.delta?.content;
+    if (typeof piece === "string") state.text += piece;
+    const reason = loggableFinishReason(choice?.finish_reason);
+    if (reason !== undefined) state.finishReason = reason;
+  }
+}
+
+/// Opens the streamed answer call. Fails exactly like answer(): a non-ok
+/// provider response throws a ProviderError, and no SSE header has gone out
+/// yet, so the caller still refunds and answers a real 502/504.
+async function openAnswerStream(
+  apiKey: string,
+  history: HistoryMessage[],
+  userMessage: string,
+  image?: { base64: string; mimeType: string },
+  userContext?: string,
+): Promise<AnswerStreamState> {
+  const abort = new AbortController();
+  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://eatova.de",
+      "X-Title": "Eatova Coach",
+    },
+    // The answer deadline has to survive the streamed body: an aborted signal
+    // rejects the reader too, so a stream that STALLS mid-answer still ends at
+    // PROVIDER_TIMEOUTS_MS.answer instead of hanging until the platform limit
+    // (finding 6, now for the streamed shape).
+    signal: AbortSignal.any([abort.signal, AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer)]),
+    body: JSON.stringify(answerPayload(history, userMessage, image, userContext, true)),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new ProviderError(
+      resp.status,
+      `Grok-Stream fehlgeschlagen: ${resp.status} (${await redactedBodyMeta(text)})`,
+    );
+  }
+  if (!resp.body) throw new ProviderError(502, "Grok-Stream ohne Body");
+  return {
+    reader: resp.body.getReader(),
+    decoder: new TextDecoder(),
+    abort,
+    raw: "",
+    text: "",
+    released: 0,
+    finishReason: "unknown",
+    ended: false,
+  };
+}
+
+/// Reads ONE provider chunk. Returns false once the provider stream is over.
+async function pullAnswerChunk(state: AnswerStreamState): Promise<boolean> {
+  if (state.ended) return false;
+  const { value, done } = await state.reader.read();
+  if (done) {
+    state.ended = true;
+    return false;
+  }
+  state.raw += state.decoder.decode(value, { stream: true });
+  consumeProviderFrames(state);
+  return !state.ended;
+}
+
+type AnswerHead =
+  /// The whole answer is decided and NOTHING may be streamed: a refusal, a
+  /// prompt-leak hit, or an empty reply. Zero delta events, one done event.
+  | { streams: false; reply: string; refusal: boolean }
+  /// Marker ruled out — from here deltas may go out.
+  | { streams: true };
+
+/// Contract §4: no token may leave before `__REFUSE__` is ruled out. The model
+/// may split the marker across chunks and may lead with whitespace, so the
+/// test runs on the trim-started text and only once it is long enough to be
+/// conclusive. Everything this function throws is still pre-header, i.e. a
+/// refundable JSON 502/504.
+async function resolveAnswerHead(
+  state: AnswerStreamState,
+  locale: CoachLocale,
+): Promise<AnswerHead> {
+  while (!state.ended && state.text.trimStart().length < REFUSAL_MARKER.length) {
+    await pullAnswerChunk(state);
+  }
+  const head = state.text.trimStart();
+  if (
+    head.startsWith(REFUSAL_MARKER) || PROMPT_LEAK_RE.test(state.text) ||
+    head.length === 0
+  ) {
+    // Drain the rest into the buffer: a refusal is delivered as ONE done
+    // event, visually identical to today, and never as deltas.
+    while (await pullAnswerChunk(state)) { /* buffer only */ }
+    return { streams: false, ...finalizeAnswer(state.text, state.finishReason, locale) };
+  }
+  return { streams: true };
+}
+
+/// How far the assembled text may be released as deltas right now.
+function releasableUpTo(state: AnswerStreamState): number {
+  if (PROMPT_LEAK_RE.test(state.text)) return state.released;
+  if (state.ended) return state.text.length;
+  return Math.max(state.released, state.text.length - LEAK_GUARD_TAIL);
+}
+
+interface SseAnswerOptions {
+  state: AnswerStreamState;
+  locale: CoachLocale;
+  /// `meta` payload: session plus the quota numbers, same omit-when-unknown
+  /// rule as the buffered body.
+  meta: Record<string, unknown>;
+  /// Everything the buffered response carries except reply/refusal, so the
+  /// `done` event is the identical object.
+  doneBase: Record<string, unknown>;
+  /// The two persistence writes, exactly as the buffered path runs them.
+  persist: (content: string, refusal: boolean) => Promise<unknown>;
+  /// Slot back — only ever called when NOTHING was delivered (contract §5).
+  refund: () => Promise<unknown>;
+}
+
+/// One encoded SSE frame. The single place the wire shape is written, so the
+/// streamed and the done-only response cannot drift apart.
+function sseFrame(event: string, data: unknown): string {
+  return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+function sseHeaders(): Headers {
+  const headers = responseHeaders();
+  headers.set("Content-Type", "text/event-stream; charset=utf-8");
+  // Contract §3 asks for no-cache; no-store stays because the frames carry the
+  // user's health data.
+  headers.set("Cache-Control", "no-cache, no-store");
+  headers.set("Connection", "keep-alive");
+  // Or an intermediary buffers the whole body and undoes the point.
+  headers.set("X-Accel-Buffering", "no");
+  return headers;
+}
+
+/// A refusal (or an answer that ended inside the head buffer) still speaks SSE
+/// when the client asked for it — but with ZERO deltas: meta, then the whole
+/// answer in one done event, visually identical to the buffered refusal.
+function sseDoneOnlyResponse(
+  done: Record<string, unknown>,
+  meta: Record<string, unknown>,
+): Response {
+  return new Response(sseFrame("meta", meta) + sseFrame("done", done), {
+    status: 200,
+    headers: sseHeaders(),
+  });
+}
+
+function sseAnswerResponse(options: SseAnswerOptions): Response {
+  const { state, locale, meta, doneBase, persist, refund } = options;
+  const encoder = new TextEncoder();
+  // Set by cancel(): the client hung up. Never a refund — an aborted stream
+  // must not become a cheaper way to spend nothing (contract §5).
+  let clientGone = false;
+
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const send = (event: string, data: unknown): void => {
+        if (clientGone) return;
+        try {
+          controller.enqueue(encoder.encode(sseFrame(event, data)));
+        } catch {
+          // Broken pipe. A socket the client already dropped must not turn
+          // into an unhandled rejection that leaves the pump half-run.
+          clientGone = true;
+        }
+      };
+      const flush = (): void => {
+        const upTo = releasableUpTo(state);
+        if (upTo <= state.released) return;
+        const piece = state.text.slice(state.released, upTo);
+        state.released = upTo;
+        send("delta", { t: piece });
+      };
+      // The two Supabase writes are best-effort here in every branch: this
+      // runs AFTER the response headers, so nothing it could report would
+      // reach the client anyway, and a throwing write would strand the stream.
+      const persistBestEffort = async (content: string, refusal: boolean): Promise<void> => {
+        try {
+          await persist(content, refusal);
+        } catch (e) {
+          console.error(`stream persist failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      };
+      void (async () => {
+        try {
+          send("meta", meta);
+          for (;;) {
+            flush();
+            if (state.ended || clientGone) break;
+            await pullAnswerChunk(state);
+          }
+          if (clientGone) {
+            // §6: persist what was actually DELIVERED, and mark nothing new.
+            await persistBestEffort(state.text.slice(0, state.released), false);
+            return;
+          }
+          const final = finalizeAnswer(state.text, state.finishReason, locale);
+          // Before the done event on purpose: today the client sees the reply
+          // only once the row exists, and streaming changes delivery, not the
+          // record. Best-effort like the buffered path: the answer exists and
+          // the slot is spent, so a persistence hiccup must not turn a finished
+          // answer into an error event.
+          await persistBestEffort(final.reply, final.refusal);
+          send("done", {
+            reply: final.reply,
+            refusal: final.refusal,
+            refusal_reason: final.refusal ? "model_refusal" : null,
+            ...doneBase,
+          });
+        } catch (e) {
+          // A client that hangs up is expected traffic, not an incident.
+          if (!clientGone) {
+            console.error(`answer stream failed: ${e instanceof Error ? e.message : String(e)}`);
+          }
+          // The refund line is the first delta, NOT the status: nothing
+          // delivered refunds exactly like the buffered path, one delta out
+          // keeps the slot spent. A client abort never refunds.
+          if (state.released === 0 && !clientGone && !isClientFaultFailure(e)) {
+            await refund().catch(() => {});
+          }
+          await persistBestEffort(state.text.slice(0, state.released), false);
+          send("error", {
+            error: isProviderTimeout(e) ? "provider_timeout" : "provider_error",
+          });
+        } finally {
+          // Frees the provider connection whether we stopped at [DONE], at a
+          // failure or because the client left.
+          await state.reader.cancel().catch(() => {});
+          try {
+            controller.close();
+          } catch {
+            // Already closed by cancel() — nothing to do.
+          }
+        }
+      })();
+    },
+    cancel() {
+      clientGone = true;
+      state.abort.abort();
+    },
+  });
+
+  return new Response(body, { status: 200, headers: sseHeaders() });
+}
+
+/// Opt-in, and nothing else. A missing or different Accept header is an old
+/// build and gets the buffered JSON it knows.
+function wantsStream(req: Request): boolean {
+  return (req.headers.get("accept") ?? "").toLowerCase().includes("text/event-stream");
 }
 
 // ---------------------------------------------------------------------------
@@ -1009,28 +1372,54 @@ async function rpcRefundQuota(
   }
 }
 
-async function rpcConsumeEdgeRateLimit(
+/** One gate of the batched limiter call. */
+interface RateLimitGate {
+  scope: string;
+  subject: string;
+  limit: number;
+  windowSeconds: number;
+}
+
+/** Per-gate verdict, byte-for-byte the shape the single-gate RPC returned. */
+interface RateLimitVerdict {
+  allowed: boolean;
+  remaining: number;
+  resetAt: string;
+  windowSeconds: number;
+}
+
+// P6-02: ALL gates in ONE roundtrip instead of one call per gate. The RPC walks
+// the array IN ORDER and STOPS at the first denial, which is exactly what the
+// sequential calls did (an early `return` skipped the later consume). So:
+//   - result[i] belongs to gates[i];
+//   - a MISSING trailing element means "never consumed", never "allowed".
+// Error handling is the single-gate one: a limiter that hangs, fails or answers
+// in an unreadable shape is an OUTAGE, never a measured limit (E1/E6), and the
+// caller fails CLOSED on it.
+async function rpcConsumeEdgeRateLimits(
   serviceKey: string,
   supabaseUrl: string,
-  scope: string,
-  subject: string,
-  limit: number,
-  windowSeconds: number,
-): Promise<{ allowed: boolean; remaining: number; resetAt: string; windowSeconds: number } | { error: string }> {
+  gates: RateLimitGate[],
+): Promise<RateLimitVerdict[] | { error: string }> {
+  const scopes = gates.map((gate) => gate.scope).join(",");
   let resp: Response;
   try {
-    resp = await supabaseFetch(`${supabaseUrl}/rest/v1/rpc/consume_edge_rate_limit`, {
+    resp = await supabaseFetch(`${supabaseUrl}/rest/v1/rpc/consume_edge_rate_limits`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${serviceKey}`,
         "apikey": serviceKey,
         "Content-Type": "application/json",
       },
+      // Wire keys are the RPC's, mapped here so the rest of the file stays
+      // camelCase.
       body: JSON.stringify({
-        p_scope: scope,
-        p_subject: subject,
-        p_limit: limit,
-        p_window_seconds: windowSeconds,
+        p_gates: gates.map((gate) => ({
+          scope: gate.scope,
+          subject: gate.subject,
+          limit: gate.limit,
+          window_seconds: gate.windowSeconds,
+        })),
       }),
     });
   } catch (e) {
@@ -1038,30 +1427,52 @@ async function rpcConsumeEdgeRateLimit(
     // E1: a hanging limiter is the same case as a failing one (E6) — an
     // outage, not a measured limit. Fails CLOSED: these gates sit in front of
     // the paid calls, so the request must not slip past them.
-    console.error(`consume_edge_rate_limit (${scope}) timeout`);
+    console.error(`consume_edge_rate_limits (${scopes}) timeout`);
     return { error: "rate_limit_unavailable" };
   }
   if (!resp.ok) {
     const text = await resp.text();
-    console.error(`consume_edge_rate_limit failed: ${resp.status} ${text.slice(0, 200)}`);
+    console.error(`consume_edge_rate_limits failed: ${resp.status} ${text.slice(0, 200)}`);
     return { error: "rate_limit_unavailable" };
   }
   const data = await resp.json();
-  // E6: `data?.allowed === true` turned a broken response shape into
-  // `allowed: false`, so the client got a 429 with invented numbers although
-  // no limit was ever measured. A broken shape is a limiter outage, not a limit.
-  if (typeof data?.allowed !== "boolean") {
+  // E6, now per element: only a well-formed array can be mapped back onto the
+  // gates. `data?.allowed === true` on a broken shape once produced a 429 with
+  // invented numbers although no limit was ever measured — a broken shape is a
+  // limiter outage, not a limit.
+  if (!Array.isArray(data) || data.length < 1 || data.length > gates.length) {
     console.error(
-      `consume_edge_rate_limit: 200 ohne lesbares allowed (${JSON.stringify(data).slice(0, 120)})`,
+      `consume_edge_rate_limits: 200 ohne lesbares Ergebnis (${JSON.stringify(data).slice(0, 120)})`,
     );
     return { error: "rate_limit_unavailable" };
   }
-  return {
-    allowed: data.allowed,
-    remaining: Number(data?.remaining ?? 0),
-    resetAt: String(data?.resetAt ?? new Date(Date.now() + windowSeconds * 1000).toISOString()),
-    windowSeconds: Number(data?.windowSeconds ?? windowSeconds),
-  };
+  const verdicts: RateLimitVerdict[] = [];
+  for (let i = 0; i < data.length; i++) {
+    const entry = data[i];
+    if (typeof entry?.allowed !== "boolean") {
+      console.error(
+        `consume_edge_rate_limits: 200 ohne lesbares allowed (${JSON.stringify(data).slice(0, 120)})`,
+      );
+      return { error: "rate_limit_unavailable" };
+    }
+    verdicts.push({
+      allowed: entry.allowed,
+      remaining: Number(entry?.remaining ?? 0),
+      resetAt: String(
+        entry?.resetAt ?? new Date(Date.now() + gates[i].windowSeconds * 1000).toISOString(),
+      ),
+      windowSeconds: Number(entry?.windowSeconds ?? gates[i].windowSeconds),
+    });
+  }
+  // A short array is only legal BECAUSE the last processed gate denied. One
+  // that ends in allowed=true silently dropped a gate, so it is an outage too.
+  if (verdicts.length < gates.length && verdicts[verdicts.length - 1].allowed) {
+    console.error(
+      `consume_edge_rate_limits: nur ${verdicts.length}/${gates.length} Tore, ohne Ablehnung`,
+    );
+    return { error: "rate_limit_unavailable" };
+  }
+  return verdicts;
 }
 
 // Table hygiene for public.edge_rate_limits lives in
@@ -1478,17 +1889,30 @@ export async function handleRequest(req: Request): Promise<Response> {
   // URLs below, so validate it against the UUID pattern like session_id.
   if (!SESSION_ID_RE.test(userId)) return json({ error: "Unauthorized" }, 401);
 
-  const ipGate = await rpcConsumeEdgeRateLimit(
-    serviceKey,
-    supabaseUrl,
-    "coach-chat:ip",
-    // Not `.split(",")[0]` of x-forwarded-for: Cloudflare APPENDS, so the
-    // leftmost entry is client-set. Details in ../_shared/client_ip.ts.
-    clientIpSubject(req, userId),
-    REQUEST_IP_LIMIT,
-    600,
-  );
-  if ("error" in ipGate) return json({ error: ipGate.error }, 500);
+  // P6-02: both gates in ONE roundtrip. Array ORDER is the contract — the RPC
+  // stops at the first denial, so the ip gate still shields the user bucket
+  // exactly as the two sequential calls did.
+  const gateResults = await rpcConsumeEdgeRateLimits(serviceKey, supabaseUrl, [
+    {
+      scope: "coach-chat:ip",
+      // Not `.split(",")[0]` of x-forwarded-for: Cloudflare APPENDS, so the
+      // leftmost entry is client-set. Details in ../_shared/client_ip.ts.
+      subject: clientIpSubject(req, userId),
+      limit: REQUEST_IP_LIMIT,
+      windowSeconds: 600,
+    },
+    {
+      scope: "coach-chat:user",
+      subject: userId,
+      limit: REQUEST_USER_LIMIT,
+      windowSeconds: 3600,
+    },
+  ]);
+  if (!Array.isArray(gateResults)) return json({ error: gateResults.error }, 500);
+  const ipGate = gateResults[0];
+  // Deliberately optional: a denied ip gate leaves the array one element short,
+  // and a missing element means "never consumed", NOT "allowed".
+  const userGate: RateLimitVerdict | undefined = gateResults[1];
   if (!ipGate.allowed) {
     return json(
       { error: "rate_limited", reply: LIMIT_TEXTS.rate_limited_short[headerLocale] },
@@ -1496,16 +1920,10 @@ export async function handleRequest(req: Request): Promise<Response> {
       { "Retry-After": String(retryAfterSeconds(ipGate.resetAt, ipGate.windowSeconds)) },
     );
   }
-
-  const userGate = await rpcConsumeEdgeRateLimit(
-    serviceKey,
-    supabaseUrl,
-    "coach-chat:user",
-    userId,
-    REQUEST_USER_LIMIT,
-    3600,
-  );
-  if ("error" in userGate) return json({ error: userGate.error }, 500);
+  // Behind an ALLOWED ip gate the user verdict must exist (the helper rejects a
+  // short array without a denial). If it is missing anyway, that is a limiter
+  // fault and fails closed like every other unreadable answer — never a 429.
+  if (!userGate) return json({ error: "rate_limit_unavailable" }, 500);
   if (!userGate.allowed) {
     return json(
       { error: "rate_limited", reply: LIMIT_TEXTS.rate_limited_long[headerLocale] },
@@ -1755,6 +2173,91 @@ export async function handleRequest(req: Request): Promise<Response> {
   // list is not all default titles.
   await maybeAutoTitle(serviceKey, supabaseUrl, userId, sessionId, message);
 
+  // Deliberately unchecked: the answer exists and the slot is spent, so
+  // withholding it over a persistence hiccup would be the bigger harm. The two
+  // writes are independent (different tables, both best-effort), so they run
+  // concurrently — the caller waits only for the slower one, not the sum. An
+  // empty content is skipped: only a stream that died before its first delta
+  // gets here with nothing, and an empty row is no record.
+  const persistAnswer = (content: string, isRefusal: boolean): Promise<unknown> =>
+    Promise.all([
+      ...(content.length > 0
+        ? [storeMessage(serviceKey, supabaseUrl, {
+            user_id: userId, session_id: sessionId, role: "assistant", content,
+            refusal: isRefusal, refusal_reason: isRefusal ? "model_refusal" : null,
+          })]
+        : []),
+      touchSession(serviceKey, supabaseUrl, sessionId),
+    ]);
+
+  // E2: this used to persist an INVENTED coach reply as a "model_refusal" with
+  // HTTP 200, which the client could not tell from a real refusal and which
+  // then poisoned every follow-up's history. Honest instead: 5xx, no invented
+  // row, and the claimed slot goes back so a provider outage cannot burn every
+  // daily slot. A3: a stream that fails BEFORE its first delta ends up here
+  // too — SSE would lock the status at 200, so it must stay pre-header.
+  const answerFailed = async (e: unknown): Promise<Response> => {
+    console.error(`answer failed: ${e instanceof Error ? e.message : String(e)}`);
+    // Only for an OUTAGE: a client-caused 4xx is paid work, and refunding it
+    // would leave only the IP gate capping paid vision calls.
+    if (!isClientFaultFailure(e)) {
+      await rpcRefundQuota(serviceKey, supabaseUrl, userId);
+    }
+    await touchSession(serviceKey, supabaseUrl, sessionId);
+    if (isProviderTimeout(e)) {
+      return json({ error: "provider_timeout", session_id: sessionId }, 504);
+    }
+    return json({ error: "provider_error", session_id: sessionId }, 502);
+  };
+
+  // E1: an unknown remaining is omitted, never invented. E10: the limit
+  // belongs with the number, or the client counts against its assumed default.
+  const quotaFields = {
+    ...(claim.remaining === null ? {} : { remaining: claim.remaining }),
+    daily_limit: DAILY_LIMIT,
+  };
+
+  // A3 — streamed delivery, opt-in only. Recipe mode can never reach this
+  // line (it returned above), which is the contract: it needs whole-JSON
+  // response_format plus an image and always stays buffered.
+  if (wantsStream(req)) {
+    let state: AnswerStreamState;
+    let head: AnswerHead;
+    try {
+      state = await openAnswerStream(
+        openRouterKey,
+        history,
+        message,
+        hasImage ? { base64: imageBase64, mimeType: imageMimeType } : undefined,
+        userContext,
+      );
+      head = await resolveAnswerHead(state, locale);
+    } catch (e) {
+      return await answerFailed(e);
+    }
+    const doneBase = { ...quotaFields, session_id: sessionId };
+    if (!head.streams) {
+      // Refusal, prompt-leak hit or a reply shorter than the marker: no delta
+      // may ever go out, so the whole answer arrives in one done event.
+      await state.reader.cancel().catch(() => {});
+      await persistAnswer(head.reply, head.refusal);
+      return sseDoneOnlyResponse({
+        reply: head.reply,
+        refusal: head.refusal,
+        refusal_reason: head.refusal ? "model_refusal" : null,
+        ...doneBase,
+      }, { session_id: sessionId, ...quotaFields });
+    }
+    return sseAnswerResponse({
+      state,
+      locale,
+      meta: { session_id: sessionId, ...quotaFields },
+      doneBase,
+      persist: persistAnswer,
+      refund: () => rpcRefundQuota(serviceKey, supabaseUrl, userId),
+    });
+  }
+
   let reply: string;
   let refusal: boolean;
   try {
@@ -1769,45 +2272,16 @@ export async function handleRequest(req: Request): Promise<Response> {
     reply = out.reply;
     refusal = out.refusal;
   } catch (e) {
-    // E2: this used to persist an INVENTED coach reply as a "model_refusal"
-    // with HTTP 200, which the client could not tell from a real refusal and
-    // which then poisoned every follow-up's history. Honest instead: 5xx, no
-    // invented row, and the claimed slot goes back so a provider outage cannot
-    // burn every daily slot.
-    console.error(`answer failed: ${e instanceof Error ? e.message : String(e)}`);
-    // Only for an OUTAGE: a client-caused 4xx is paid work, and refunding it
-    // would leave only the IP gate capping paid vision calls.
-    if (!isClientFaultFailure(e)) {
-      await rpcRefundQuota(serviceKey, supabaseUrl, userId);
-    }
-    await touchSession(serviceKey, supabaseUrl, sessionId);
-    if (isProviderTimeout(e)) {
-      return json({ error: "provider_timeout", session_id: sessionId }, 504);
-    }
-    return json({ error: "provider_error", session_id: sessionId }, 502);
+    return await answerFailed(e);
   }
 
-  // Deliberately unchecked: the answer exists and the slot is spent, so
-  // withholding it over a persistence hiccup would be the bigger harm. The two
-  // writes are independent (different tables, both best-effort), so they run
-  // concurrently — the response waits only for the slower one, not the sum.
-  await Promise.all([
-    storeMessage(serviceKey, supabaseUrl, {
-      user_id: userId, session_id: sessionId, role: "assistant", content: reply,
-      refusal, refusal_reason: refusal ? "model_refusal" : null,
-    }),
-    touchSession(serviceKey, supabaseUrl, sessionId),
-  ]);
+  await persistAnswer(reply, refusal);
 
   return json({
     reply,
     refusal,
     refusal_reason: refusal ? "model_refusal" : null,
-    // E1: an unknown remaining is omitted, never invented.
-    ...(claim.remaining === null ? {} : { remaining: claim.remaining }),
-    // E10: the limit belongs with the number, or the client counts against
-    // its assumed default.
-    daily_limit: DAILY_LIMIT,
+    ...quotaFields,
     session_id: sessionId,
   }, 200);
 }

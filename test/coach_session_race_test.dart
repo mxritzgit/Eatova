@@ -157,6 +157,7 @@ class _RaceCoach extends CoachChatService {
     String? imageBase64,
     String? imageMimeType,
     String? userContext,
+    void Function(String text)? onPartialReply,
   }) {
     gesendeteSessions.add(sessionId);
     final auftrag = Completer<CoachChatReply>();

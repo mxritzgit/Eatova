@@ -6,6 +6,7 @@
 library;
 
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
 
 import 'package:clock/clock.dart';
@@ -109,6 +110,228 @@ class _PendingDelete {
   final Timer timer;
 }
 
+/// How often [_RecipeIndex] actually recomputed something.
+///
+/// Pure test seam (perf audit 2026-09-01, B4): a memo is invisible from the
+/// outside — the same list comes back either way — so counting the recomputes
+/// is the only way a test can tell a cache hit from a cache miss. Nothing in
+/// production reads these.
+@visibleForTesting
+abstract final class RecipeMemoStats {
+  /// Recipes whose search text was folded (title, description, ingredients and
+  /// every category label).
+  static int folds = 0;
+
+  /// Passes of the search/filter over the whole recipe set.
+  static int filterRuns = 0;
+
+  /// Runs of the diet pre-filter and of the macro ranking on top of it.
+  static int dietRuns = 0;
+  static int goalRuns = 0;
+
+  /// Indexes built, i.e. how often the recipe set or the language changed.
+  static int indexBuilds = 0;
+
+  static void reset() {
+    folds = 0;
+    filterRuns = 0;
+    dietRuns = 0;
+    goalRuns = 0;
+    indexBuilds = 0;
+  }
+}
+
+/// One recipe set in one language, plus every list the screen derives from it.
+///
+/// Perf audit 2026-09-01 (B4): the search used to fold title, description,
+/// ingredients and every category — including its LOCALISED label — for every
+/// recipe on every build, so every keystroke re-folded the whole catalogue.
+/// Measured against the 30 built-in recipes that is 81 us per build, 61 us of
+/// it folding, while validating this index costs 0.8 us. The cost grows
+/// linearly with the catalogue, so the fold is the part that must not run
+/// twice.
+///
+/// This object IS the cache key for everything below it. It is thrown away
+/// exactly when one of its two inputs changes:
+///
+///   * [localeName] picks the catalogue AND the category labels that go into
+///     the folded text. Under `en` the query "fish" matches the label of the
+///     `Fisch` tag; under `de` it must not. A cache blind to the language
+///     would keep serving the English hits after a language switch.
+///   * [userRecipes] are the visible user recipes, compared element by element
+///     with `identical` by [_sameRecipes]. [FitnessRecipe] has only final
+///     fields and no `==`, so the object is its content.
+///
+/// Deliberately not a revision counter: a counter has to be bumped at every
+/// mutation site (create, delete, undo, commit, didUpdateWidget), and the next
+/// site someone adds would silently serve a stale list. Comparing the real
+/// list cannot rot.
+class _RecipeIndex {
+  _RecipeIndex(this.localeName, this.l10n, this.userRecipes)
+      : catalog = recipeCatalogForLocale(localeName),
+        recipes = <FitnessRecipe>[
+          ...userRecipes,
+          ...recipeCatalogForLocale(localeName),
+        ] {
+    RecipeMemoStats.indexBuilds++;
+  }
+
+  /// `de`/`en` — the key, because it decides catalogue and labels alike.
+  final String localeName;
+
+  /// String source for [localeName]. Not part of the key: the delegate may
+  /// hand out a fresh instance for the same language, and that instance says
+  /// the same things.
+  final AppLocalizations l10n;
+
+  /// The visible user recipes this index was built from, kept for the identity
+  /// comparison that decides whether it is still current.
+  final List<FitnessRecipe> userRecipes;
+
+  /// Built-in catalogue for [localeName].
+  final List<FitnessRecipe> catalog;
+
+  /// User recipes first, then the catalogue — the list the screen shows.
+  final List<FitnessRecipe> recipes;
+
+  /// Folded search fields per recipe, filled on first use.
+  ///
+  /// Lazy on purpose: with an empty query the old code folded nothing at all,
+  /// so an eagerly built index would have made the common case slower.
+  ///
+  /// The fields stay SEPARATE strings instead of one joined haystack, because
+  /// a join would let a query match across a field boundary — that changes
+  /// results, not just cost.
+  final Map<FitnessRecipe, List<String>> _folded =
+      HashMap<FitnessRecipe, List<String>>.identity();
+
+  List<String> _fieldsOf(FitnessRecipe recipe) {
+    final cached = _folded[recipe];
+    if (cached != null) return cached;
+    RecipeMemoStats.folds++;
+    return _folded[recipe] = <String>[
+      foldRecipeSearchText(recipe.title),
+      foldRecipeSearchText(recipe.description),
+      foldRecipeSearchText(recipe.ingredients),
+      // Categories match on the neutral identity AND on the localised label:
+      // under `en` the hint promises "category", so "breakfast" must find the
+      // recipes tagged "Frühstück".
+      for (final category in recipe.categories) ...[
+        foldRecipeSearchText(category),
+        foldRecipeSearchText(recipeCategoryLabel(category, l10n)),
+      ],
+    ];
+  }
+
+  String? _filterQuery;
+  String? _filterName;
+  List<FitnessRecipe>? _filtered;
+
+  /// The main list: [recipes] narrowed by the selected chip and by [query],
+  /// which arrives already trimmed and folded.
+  ///
+  /// The chip check now short-circuits the query check. Both are pure, so the
+  /// result is the same as the old `matchesFilter && matchesQuery` — it just
+  /// stops folding recipes a category filter has already dropped.
+  List<FitnessRecipe> filtered({required String query, required String filter}) {
+    final cached = _filtered;
+    if (cached != null && _filterQuery == query && _filterName == filter) {
+      return cached;
+    }
+    RecipeMemoStats.filterRuns++;
+    _filterQuery = query;
+    _filterName = filter;
+    return _filtered = recipes.where((recipe) {
+      final matchesFilter = switch (filter) {
+        "Alle" => true,
+        "Eigene" => recipe.userCreated,
+        _ => recipe.categories.contains(filter),
+      };
+      if (!matchesFilter) return false;
+      return query.isEmpty ||
+          _fieldsOf(recipe).any((field) => field.contains(query));
+    }).toList(growable: false);
+  }
+
+  DietPreference? _dietKey;
+  List<FitnessRecipe>? _dietRecipes;
+
+  /// Actively promoted recipes: [recipes] pre-filtered by diet preference
+  /// (PROD-6). Feeds the goal matches; the main list stays unfiltered.
+  List<FitnessRecipe> forDiet(DietPreference diet) {
+    final cached = _dietRecipes;
+    if (cached != null && _dietKey == diet) return cached;
+    RecipeMemoStats.dietRuns++;
+    _dietKey = diet;
+    return _dietRecipes =
+        recipes.where((r) => r.matchesDiet(diet)).toList(growable: false);
+  }
+
+  DietPreference? _poolKey;
+  List<FitnessRecipe>? _pool;
+
+  /// Carousel pool: catalogue only (an own recipe with a placeholder stripe is
+  /// no "recommendation"), diet pre-filtered with a fallback to the whole
+  /// catalogue so the section never looks empty. The day-based ROTATION stays
+  /// outside — that one has to keep turning while this list does not.
+  List<FitnessRecipe> catalogPool(DietPreference diet) {
+    final cached = _pool;
+    if (cached != null && _poolKey == diet) return cached;
+    _poolKey = diet;
+    final matching =
+        catalog.where((r) => r.matchesDiet(diet)).toList(growable: false);
+    return _pool = matching.isEmpty ? catalog : matching;
+  }
+
+  // The macro remainder is keyed by its four VALUES, not by identity:
+  // [MacroProgress] declares no `==` and the home shell builds a fresh one out
+  // of `goal - progress` on every build, so an identity key would miss every
+  // single time and the memo would never pay for itself.
+  DietPreference? _goalDiet;
+  double? _goalProtein;
+  double? _goalCarbs;
+  double? _goalFat;
+  int? _goalKcal;
+  List<FitnessRecipe>? _goalMatches;
+
+  /// Up to three recipes with the highest macro match; only scores above 0
+  /// count. The diet pre-filter runs before the ranking.
+  List<FitnessRecipe> goalMatches(MacroProgress remaining, DietPreference diet) {
+    final cached = _goalMatches;
+    if (cached != null &&
+        _goalDiet == diet &&
+        _goalProtein == remaining.proteinG &&
+        _goalCarbs == remaining.carbsG &&
+        _goalFat == remaining.fatG &&
+        _goalKcal == remaining.kcal) {
+      return cached;
+    }
+    RecipeMemoStats.goalRuns++;
+    _goalDiet = diet;
+    _goalProtein = remaining.proteinG;
+    _goalCarbs = remaining.carbsG;
+    _goalFat = remaining.fatG;
+    _goalKcal = remaining.kcal;
+    final scored = forDiet(diet)
+        .map((r) => (r, r.matchScore(remaining)))
+        .where((pair) => pair.$2 > 0)
+        .toList(growable: false)
+      ..sort((a, b) => b.$2.compareTo(a.$2));
+    return _goalMatches =
+        scored.take(3).map((pair) => pair.$1).toList(growable: false);
+  }
+}
+
+/// Element-wise identity of two recipe lists — the "did the set change" check
+/// that no future mutation site can forget to trigger.
+bool _sameRecipes(List<FitnessRecipe> a, List<FitnessRecipe> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (!identical(a[i], b[i])) return false;
+  }
+  return true;
+}
+
 class _RecipesScreenState extends State<RecipesScreen> {
   String selectedFilter = "Alle";
 
@@ -118,7 +341,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
   /// would drop the typed text while the filter kept running.
   final TextEditingController _searchController = TextEditingController();
 
-  /// Mirror of [_searchController].text so [filteredRecipes] can read it
+  /// Mirror of [_searchController].text so [_filteredRecipes] can read it
   /// synchronously.
   String query = '';
 
@@ -241,19 +464,30 @@ class _RecipesScreenState extends State<RecipesScreen> {
     ));
   }
 
-  /// Built-in catalog for the ACTIVE app language. `context.l10n.localeName`
-  /// is already resolved to `de`/`en`, and a language switch rebuilds
-  /// automatically (`Localizations` is an InheritedWidget).
-  List<FitnessRecipe> get _catalog =>
-      recipeCatalogForLocale(context.l10n.localeName);
+  /// Memo holder for the current language and recipe set; see [_RecipeIndex]
+  /// for what it caches and why that key is complete.
+  _RecipeIndex? _index;
+
+  /// The index matching the current build, rebuilt only when the language or
+  /// the visible user recipes changed. `context.l10n.localeName` is already
+  /// resolved to `de`/`en`, and a language switch rebuilds automatically
+  /// (`Localizations` is an InheritedWidget), so reading it here is what makes
+  /// the locale part of the key.
+  _RecipeIndex _indexFor(AppLocalizations l10n) {
+    final visible = _visibleUserRecipes;
+    final current = _index;
+    if (current != null &&
+        current.localeName == l10n.localeName &&
+        _sameRecipes(current.userRecipes, visible)) {
+      return current;
+    }
+    return _index = _RecipeIndex(l10n.localeName, l10n, visible);
+  }
 
   /// User recipes minus those inside an undo window.
   List<FitnessRecipe> get _visibleUserRecipes => _userRecipes
       .where((r) => !_pendingDeletes.containsKey(r.slug))
       .toList(growable: false);
-
-  List<FitnessRecipe> get _allRecipes =>
-      <FitnessRecipe>[..._visibleUserRecipes, ..._catalog];
 
   /// Filter strip: "Eigene" sits right after "Alle" and only exists while
   /// there is something to show under it. The literals are logic identity
@@ -272,49 +506,13 @@ class _RecipesScreenState extends State<RecipesScreen> {
     }
   }
 
-  List<FitnessRecipe> get filteredRecipes {
-    final l10n = context.l10n;
-    final normalizedQuery = foldRecipeSearchText(query.trim());
-    bool hit(String text) =>
-        foldRecipeSearchText(text).contains(normalizedQuery);
-    return _allRecipes.where((recipe) {
-      final matchesFilter = switch (selectedFilter) {
-        "Alle" => true,
-        "Eigene" => recipe.userCreated,
-        _ => recipe.categories.contains(selectedFilter),
-      };
-      // Categories match on the neutral identity AND on the localised label:
-      // under `en` the hint promises "category", so "breakfast" must find the
-      // recipes tagged "Frühstück".
-      final matchesQuery = normalizedQuery.isEmpty ||
-          hit(recipe.title) ||
-          hit(recipe.description) ||
-          hit(recipe.ingredients) ||
-          recipe.categories.any(
-            (category) =>
-                hit(category) || hit(recipeCategoryLabel(category, l10n)),
-          );
-      return matchesFilter && matchesQuery;
-    }).toList(growable: false);
-  }
-
-  /// Actively promoted recipes: the full list pre-filtered by diet preference
-  /// (PROD-6). Feeds carousel and goal matches; the main list stays
-  /// unfiltered.
-  List<FitnessRecipe> get _dietRecipes => _allRecipes
-      .where((r) => r.matchesDiet(widget.diet))
-      .toList(growable: false);
-
-  /// Up to three recipes with the highest macro match; only scores above 0
-  /// count. The diet pre-filter runs before the ranking.
-  List<FitnessRecipe> _goalMatches(MacroProgress remaining) {
-    final scored = _dietRecipes
-        .map((r) => (r, r.matchScore(remaining)))
-        .where((pair) => pair.$2 > 0)
-        .toList(growable: false)
-      ..sort((a, b) => b.$2.compareTo(a.$2));
-    return scored.take(3).map((pair) => pair.$1).toList(growable: false);
-  }
+  /// Search plus category filter for the current build. Folding the query is
+  /// the only work left here; the per-recipe fold and the result itself are
+  /// memoised on [_RecipeIndex].
+  List<FitnessRecipe> _filteredRecipes(_RecipeIndex index) => index.filtered(
+        query: foldRecipeSearchText(query.trim()),
+        filter: selectedFilter,
+      );
 
   void _openRecipe(FitnessRecipe recipe) {
     Navigator.of(context).push(
@@ -441,22 +639,17 @@ class _RecipesScreenState extends State<RecipesScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final visibleRecipes = filteredRecipes;
-    // Recommendation carousel: catalog only (an own recipe with a placeholder
-    // stripe is no "recommendation"), diet pre-filtered (PROD-6) with a
-    // fallback to the whole catalog so the section never looks empty, and
-    // rotated by calendar day so it is not the same four cards forever.
-    final catalogPool = _catalog
-        .where((r) => r.matchesDiet(widget.diet))
-        .toList(growable: false);
-    final recommended = rotatedRecommendations(
-      catalogPool.isEmpty ? _catalog : catalogPool,
-      clock.now(),
-    );
+    final index = _indexFor(l10n);
+    final visibleRecipes = _filteredRecipes(index);
+    // Recommendation carousel: the diet-filtered catalog pool (PROD-6),
+    // rotated by calendar day so it is not the same four cards forever. Only
+    // the pool is memoised — the rotation has to keep turning.
+    final recommended =
+        rotatedRecommendations(index.catalogPool(widget.diet), clock.now());
     final remaining = widget.remainingMacros;
     final goalMatches = remaining == null
         ? const <FitnessRecipe>[]
-        : _goalMatches(remaining);
+        : index.goalMatches(remaining, widget.diet);
 
     // A fixed carousel height plus growing text overflows at textScaler 2.0;
     // same technique as `MacroBar` in the design library.
@@ -489,7 +682,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
           const SizedBox(height: 18),
           SectionHeading(
             title: l10n.recipesRecommendedTitle,
-            trailing: l10n.recipesFitnessDishesCount(_allRecipes.length),
+            trailing: l10n.recipesFitnessDishesCount(index.recipes.length),
           ),
           const SizedBox(height: 12),
           SizedBox(

@@ -750,11 +750,43 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       // marked op is never picked again, so it cannot run longer than there are
       // distinct ops.
       final erledigt = Set<SyncOp>.identity();
+      // B2 (perf audit 2026-09-01): the search for the next candidate used to
+      // restart at the FRONT every round and skip everything already marked —
+      // O(n^2), roughly 125k wasted set lookups at the 500-op cap, and worst
+      // exactly when the queue is full: offline every op STAYS, so the marked
+      // prefix only grows. [kursor] remembers where the last candidate sat,
+      // [gescannt] is the list instance that position was measured on.
+      //
+      // The cursor is a shortcut, never an authority: every write to `_outbox`
+      // in this file allocates a NEW list (copy-on-write, no exception), so any
+      // change this pass did not make itself shows up as a different
+      // instance and puts the scan back at the front. The selection rule
+      // therefore stays literally the old one — "the first op not in
+      // `erledigt`" — the walk merely stops re-proving the marked prefix.
+      var kursor = 0;
+      List<SyncOp>? gescannt;
+      // Carries the cursor across this pass's OWN queue writes. [vorher] is the
+      // list that write started from: only if that is still the very instance
+      // the cursor was measured on did nothing foreign slip in during the await,
+      // and only then may the new list inherit the position. Otherwise the
+      // cursor is dropped and the next round scans from the front again — a
+      // foreign write may have shifted ops left PAST the cursor
+      // (`_dequeueDeliveredOp`, `_clearQueuedTrackingDay`) or replaced one in
+      // place with a fresh, unmarked instance (a coalescing `_enqueueOp`,
+      // allowed for a day op by `_koaleszenzTrotzReplaySicher`).
+      void kursorMitnehmen(List<SyncOp> vorher) {
+        gescannt = identical(vorher, gescannt) ? _outbox : null;
+      }
       while (true) {
+        // The cursor counts only for the list it was measured on.
+        if (!identical(_outbox, gescannt)) kursor = 0;
         SyncOp? naechste;
-        for (final kandidat in _outbox) {
+        var gefundenBei = -1;
+        for (var i = kursor; i < _outbox.length; i++) {
+          final kandidat = _outbox[i];
           if (erledigt.contains(kandidat)) continue;
           naechste = kandidat;
+          gefundenBei = i;
           break;
         }
         if (naechste == null) break;
@@ -762,6 +794,11 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         // Marked BEFORE the body: every path below (skip, drop, failure,
         // success) has to leave this op behind, or the pass never terminates.
         erledigt.add(op);
+        // Everything up to AND INCLUDING this slot is marked now, so the next
+        // round may start right here: stays the op in the queue, one lookup
+        // steps over it; leaves it, its successor moved into exactly this slot.
+        kursor = gefundenBei;
+        gescannt = _outbox;
         // If a live write is running for the entity, the op belongs to it
         // (gap B) — replaying it too would write the same row twice and a
         // mealInsert would count the meal twice. No `blocked` entry: nothing
@@ -830,14 +867,18 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
             // they arrive as a full upsert.
             _markDroppedAsOrphaned(<SyncOp>[op]);
             if (at >= 0) {
-              _outbox = [..._outbox]..removeAt(at);
+              final vorher = _outbox;
+              _outbox = [...vorher]..removeAt(at);
+              kursorMitnehmen(vorher);
               _persistOutbox();
             }
             continue;
           }
           if (verdict == OutboxVerdict.retryCounted && at >= 0) {
             final nachgezaehlt = op.incrementAttempt();
-            _outbox = [..._outbox]..[at] = nachgezaehlt;
+            final vorher = _outbox;
+            _outbox = [...vorher]..[at] = nachgezaehlt;
+            kursorMitnehmen(vorher);
             _persistOutbox();
             // The counted copy REPLACES the op: a fresh instance the identity
             // set does not know yet. `blocked` below already keeps this pass off
@@ -879,9 +920,11 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
                 o.kind == SyncOpKind.statsIncrement &&
                 o.entityId == followUpId);
         if (at >= 0) {
-          final next = [..._outbox]..removeAt(at);
+          final vorher = _outbox;
+          final next = [...vorher]..removeAt(at);
           if (followUp != null && !traegtFollowUp(next)) next.add(followUp);
           _outbox = next;
+          kursorMitnehmen(vorher);
           _persistOutbox();
         } else {
           // Already removed elsewhere (K1: possibly during this op's own
@@ -889,7 +932,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           // later produces the same id, caught locally by the check and
           // server-side by the dedup.
           if (followUp != null && !traegtFollowUp(_outbox)) {
-            _outbox = [..._outbox, followUp];
+            final vorher = _outbox;
+            _outbox = [...vorher, followUp];
+            kursorMitnehmen(vorher);
             _persistOutbox();
           }
         }

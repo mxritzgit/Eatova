@@ -39,7 +39,7 @@ function assertEquals(actual: unknown, expected: unknown, message: string): void
 }
 
 interface FetchStub {
-  /** Parameters of the consume_edge_rate_limit call for `scope`. */
+  /** The batch element the function sent for `scope`. */
   params(scope: string): JsonRecord | undefined;
   restore(): void;
 }
@@ -52,19 +52,24 @@ function installFetch(): FetchStub {
     if (url.includes("/auth/v1/user")) {
       return Promise.resolve(new Response(JSON.stringify({ id: USER_ID }), { status: 200 }));
     }
-    if (url.includes("/rest/v1/rpc/consume_edge_rate_limit")) {
-      const params = JSON.parse(typeof init?.body === "string" ? init.body : "{}") as JsonRecord;
-      consumes.push(params);
-      const windowSeconds = Number(params.p_window_seconds);
+    // P6-02: both gates arrive as ONE call with an ordered `p_gates` array;
+    // the reply carries one element per gate.
+    if (url.includes("/rest/v1/rpc/consume_edge_rate_limits")) {
+      const body = JSON.parse(typeof init?.body === "string" ? init.body : "{}") as JsonRecord;
+      const gates = (body.p_gates ?? []) as JsonRecord[];
+      for (const gate of gates) consumes.push(gate);
       return Promise.resolve(
         new Response(
-          JSON.stringify({
-            allowed: true,
-            limit: Number(params.p_limit),
-            remaining: Number(params.p_limit) - 1,
-            resetAt: new Date(Date.now() + windowSeconds * 1000).toISOString(),
-            windowSeconds,
-          }),
+          JSON.stringify(gates.map((gate) => {
+            const windowSeconds = Number(gate.window_seconds);
+            return {
+              allowed: true,
+              limit: Number(gate.limit),
+              remaining: Number(gate.limit) - 1,
+              resetAt: new Date(Date.now() + windowSeconds * 1000).toISOString(),
+              windowSeconds,
+            };
+          })),
           { status: 200 },
         ),
       );
@@ -76,7 +81,7 @@ function installFetch(): FetchStub {
   }) as typeof globalThis.fetch;
 
   return {
-    params: (scope: string) => consumes.find((entry) => entry.p_scope === scope),
+    params: (scope: string) => consumes.find((entry) => entry.scope === scope),
     restore: () => {
       globalThis.fetch = original;
     },
@@ -138,8 +143,8 @@ Deno.test("P6-03: gesetzte Tagesfenster kommen bei der RPC an statt still auf de
     assertEquals((await serve(request())).status, 200, "Status");
     // Without the explicit max these were 3600 / 600 — the operator's tighter
     // setting was dead and nothing said so.
-    assertEquals(stub.params("search-key:user")?.p_window_seconds, 86400, "Nutzer-Fenster");
-    assertEquals(stub.params("search-key:ip")?.p_window_seconds, 86400, "IP-Fenster");
+    assertEquals(stub.params("search-key:user")?.window_seconds, 86400, "Nutzer-Fenster");
+    assertEquals(stub.params("search-key:ip")?.window_seconds, 86400, "IP-Fenster");
   } finally {
     stub.restore();
   }
@@ -157,7 +162,7 @@ Deno.test("P6-03: ueber der RPC-Obergrenze bleibt es beim Default (und warnt)", 
     // fallback is right — being told about it is the new part.
     const serve = await loadHandler("over-bound", { SEARCH_KEY_USER_WINDOW_SECONDS: "172800" });
     assertEquals((await serve(request())).status, 200, "Status");
-    assertEquals(stub.params("search-key:user")?.p_window_seconds, 3600, "Default-Fenster");
+    assertEquals(stub.params("search-key:user")?.window_seconds, 3600, "Default-Fenster");
     const joined = warnings.join("\n");
     assert(joined.includes("SEARCH_KEY_USER_WINDOW_SECONDS"), `keine Warnung: ${joined}`);
     // E2 (Review 2026-08-31): der Rohwert steht seit der CWE-532-Schwaerzung

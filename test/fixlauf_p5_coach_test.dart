@@ -129,6 +129,7 @@ class _NotizCoach extends CoachChatService {
     String? imageBase64,
     String? imageMimeType,
     String? userContext,
+    void Function(String text)? onPartialReply,
   }) async {
     chatKontext = userContext;
     return CoachChatReply(
