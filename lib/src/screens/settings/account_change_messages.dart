@@ -93,9 +93,10 @@ enum AuthErrorKind {
   /// [AuthErrorBefund.retryAfter].
   sendThrottled,
 
-  /// GoTrue's HOURLY mail quota (`rate_limit_email_sent` = 2, see
-  /// supabase/AUTH_EMAIL_OTP.md) is spent. That is half an hour, not the
-  /// "about a minute" a plain throttle text claims.
+  /// GoTrue's PROJECT-wide mail quota (`rate_limit_email_sent`, 60/h since
+  /// 2026-09-01, see supabase/AUTH_EMAIL_OTP.md) is spent. It refills
+  /// gradually and every user competes for it, so the honest wait is "a few
+  /// minutes", not the "moment" a plain throttle text claims.
   quotaExhausted,
 
   /// A throttle without a usable number in it.
@@ -301,8 +302,8 @@ String accountChangeErrorMessage(Object error, [AppLocalizations? l10n]) {
     case AuthErrorKind.sendThrottled:
     case AuthErrorKind.rateLimited:
       return t.settingsAccountRateLimited;
-    // The hourly quota is NOT a moment: `rate_limit_email_sent` = 2/h refills
-    // its first token after ~30 minutes (supabase/AUTH_EMAIL_OTP.md).
+    // The project-wide quota is NOT a moment: the bucket refills gradually and
+    // every user competes for the next token (supabase/AUTH_EMAIL_OTP.md).
     case AuthErrorKind.quotaExhausted:
       return t.settingsAccountQuotaExhausted;
     case AuthErrorKind.emailTaken:

@@ -1139,7 +1139,7 @@
   "settingsAccountCodeRejected": "The code is wrong or has expired. Request a new one.",
   "settingsAccountOfflineError": "Offline — the change couldn't be submitted. Please try again with an internet connection.",
   "settingsAccountRateLimited": "Too many attempts in a short time. Please wait a moment and try again.",
-  "settingsAccountQuotaExhausted": "Too many code emails in a short time. The quota only refills in a little over half an hour — a code that's already in your inbox still works.",
+  "settingsAccountQuotaExhausted": "Mail sending is busy right now. Please try again in a few minutes — a code that's already in your inbox still works.",
   "settingsAccountEmailLooksInvalid": "This email address doesn't look valid.",
   "settingsAccountPasswordSameAsOld": "The new password must be different from the old one.",
   "settingsAccountPasswordWeak": "This password is too weak. Use a longer or more unusual one.",
@@ -1178,7 +1178,7 @@
   "settingsEmailChangeNewCodeLabel": "Code to the new address",
   "settingsEmailChangeBothCodesHint": "Both codes are required. With only one, your current address stays in place — that's exactly what protects you if someone gained access to only one of the two inboxes.",
   "settingsAccountDiscardTitle": "Cancel this change?",
-  "settingsAccountDiscardBody": "The code from your e-mail expires with it. A fresh attempt needs a fresh code — and only a few of those go out per hour.",
+  "settingsAccountDiscardBody": "The code from your e-mail expires with it. A fresh attempt needs a fresh code.",
   "settingsAccountDiscardBodyConfirmed": "The first code is already confirmed and used up. Cancelling now restarts the address change from scratch, with two new codes.",
   "settingsAccountDiscardKeep": "Keep going",
   "settingsAccountDiscardConfirm": "Cancel",
@@ -1415,7 +1415,7 @@
       "minuten": { "type": "int" }
     }
   },
-  "authCodeQuotaExhausted": "Too many codes have been requested for this address. The quota refills gradually — the next mail should be possible in a little over half an hour. A code already sitting in your inbox still works.",
+  "authCodeQuotaExhausted": "Mail sending is busy right now. The next mail should be possible in a few minutes. A code already sitting in your inbox still works.",
   "authCodeSendAnyway": "Nothing arrived? Try anyway",
   "authCodeSendAnywayUsed": "That attempt already ran — the server really is letting no mail through right now. A code from an earlier mail still works; otherwise only waiting helps.",
   "authCodeOfflineError": "Offline — the server could not be reached. Please check your internet connection and try again.",

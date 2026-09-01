@@ -26,8 +26,8 @@ import 'support/harness.dart';
 // abgelaufen oder falsch".
 //
 // P4-03: GoTrue throttles the mail TWICE — per request ("you can only request
-// this after 51 seconds") and per hour (rate_limit_email_sent = 2,
-// supabase/AUTH_EMAIL_OTP.md). Both landed in the same bucket, the server's
+// this after 51 seconds") and per hour (rate_limit_email_sent, a PROJECT-wide
+// bucket, supabase/AUTH_EMAIL_OTP.md). Both landed in the same bucket, the server's
 // second count was thrown away, and the text always claimed "etwa eine
 // Minute". With the hourly quota spent that is off by a factor of 60 and
 // produced a knock loop: wait a minute, tap, same sentence, one real mail
@@ -77,7 +77,8 @@ class _WerfendesAuthRepository extends InMemoryAuthRepository {
   }
 }
 
-/// GoTrue's answer once the mail quota (`rate_limit_email_sent` = 2/h) is out.
+/// GoTrue's answer once the project-wide mail quota (`rate_limit_email_sent`)
+/// is out.
 AuthApiException _kontingentErschoepft() => const AuthApiException(
       'Email rate limit exceeded',
       statusCode: '429',
@@ -274,13 +275,13 @@ void main() {
         await _tippeNeuAnfordern(tester);
 
         expect(find.text(deL10n.authCodeQuotaExhausted), findsOneWidget,
-            reason: 'das Kontingent fuellt sich in Halbstunden, nicht in '
-                'Minuten');
+            reason: 'das Kontingent ist projektweit und fuellt sich '
+                'minutenweise — kein "Moment"');
         expect(find.text(deL10n.authCodeRateLimited), findsNothing,
-            reason: '"etwa eine Minute" war um Faktor 30 falsch');
-        expect(find.text(deL10n.authCodeResendCountdownMinutes(30)),
+            reason: '"etwa eine Minute" verschwieg die geteilte Warteschlange');
+        expect(find.text(deL10n.authCodeResendCountdownMinutes(3)),
             findsOneWidget,
-            reason: 'der Countdown nennt Minuten statt 1800 s');
+            reason: 'der Countdown nennt Minuten statt 180 s');
         await _entsorgeScreen(tester);
       });
     });
@@ -300,7 +301,7 @@ void main() {
         await _tippeNeuAnfordern(tester);
         expect(repo.sendeVersuche, 1,
             reason: 'die Sperre haelt den Tap lokal auf');
-        expect(find.text(deL10n.authCodeThrottleWaitMinutes(30)), findsOneWidget,
+        expect(find.text(deL10n.authCodeThrottleWaitMinutes(3)), findsOneWidget,
             reason: 'und sagt dem Nutzer die echte Groessenordnung');
         await _entsorgeScreen(tester);
       });
@@ -389,7 +390,7 @@ void main() {
         await _entsorgeScreen(tester);
 
         await _pumpCode(tester, repo, speicher);
-        expect(find.text(deL10n.authCodeResendCountdownMinutes(30)),
+        expect(find.text(deL10n.authCodeResendCountdownMinutes(3)),
             findsOneWidget,
             reason: 'die Dauer haengt an der Adresse, nicht an der Instanz');
         await _tippeNeuAnfordern(tester);
@@ -401,23 +402,25 @@ void main() {
 
   group('P4-03b — die Kontingent-Sperre hat einen Ausweg', () {
     testWidgets(
-        'der Riegel dauert eine halbe Stunde, nicht eine ganze (Token-Bucket)',
+        'der Riegel dauert ein paar Minuten, keine halbe Stunde (Token-Bucket)',
         (tester) async {
-      // rate_limit_email_sent = 2/h ist ein Bucket mit Burst 2 und Nachfuellen
-      // 2/h: der ERSTE Token ist nach ~1800 s zurueck. Eine volle Stunde
-      // sperrte doppelt so lange wie noetig.
+      // rate_limit_email_sent = 60/h ist ein PROJEKTWEITER Bucket mit Burst 60
+      // und Nachfuellen 60/h: der ERSTE Token ist nach ~60 s zurueck, andere
+      // Nutzer konkurrieren darum. Drei Minuten sind die konservative
+      // Schaetzung. Die halbe Stunde war die Rechnung fuer die
+      // 2/h-Fehlkonfiguration (Review 2026-09-01) und darf nicht zurueckkommen.
       final repo = _WerfendesAuthRepository(_kontingentErschoepft());
 
       await withClock(Clock.fixed(_jetzt), () async {
         await _pumpCode(tester, repo, InMemoryKeyValueStore());
         await _tippeNeuAnfordern(tester);
 
-        expect(find.text(deL10n.authCodeResendCountdownMinutes(30)),
+        expect(find.text(deL10n.authCodeResendCountdownMinutes(3)),
             findsOneWidget);
-        expect(find.text(deL10n.authCodeResendCountdownMinutes(60)),
+        expect(find.text(deL10n.authCodeResendCountdownMinutes(30)),
             findsNothing,
-            reason: 'eine volle Stunde war der Bucket-VOLL-Zeitpunkt, nicht '
-                'der naechste Token');
+            reason: 'die halbe Stunde galt fuer 2 Mails/h projektweit, nicht '
+                'fuer den heutigen Bucket');
         await _entsorgeScreen(tester);
       });
     });
@@ -434,7 +437,7 @@ void main() {
         await _tippeNeuAnfordern(tester);
         expect(repo.sendeVersuche, 1);
         expect(_ausweichLink, findsOneWidget,
-            reason: 'die halbe Stunde ist unsere SCHAETZUNG — der Server ist '
+            reason: 'die paar Minuten sind unsere SCHAETZUNG — der Server ist '
                 'die einzige Instanz, die es wirklich weiss');
 
         await _tippeTrotzdem(tester);
@@ -686,7 +689,7 @@ void main() {
     }
 
     testWidgets(
-        'PROBE-500 nachgestellt: in einer halben Stunde bleibt es bei ZWEI '
+        'PROBE-500 nachgestellt: waehrend der ganzen Sperre bleibt es bei ZWEI '
         'echten Sendeversuchen', (tester) async {
       // Die Messung des Pruefers: sendeVersuche=6, linkNochDa=true.
       final repo = _WerfendesAuthRepository(_kontingentErschoepft());
@@ -724,23 +727,22 @@ void main() {
       await withClock(Clock(() => jetzt), () async {
         await _pumpCode(tester, repo, InMemoryKeyValueStore());
         await _tippeNeuAnfordern(tester);
-        expect(find.text(deL10n.authCodeResendCountdownMinutes(30)),
+        expect(find.text(deL10n.authCodeResendCountdownMinutes(3)),
             findsOneWidget);
 
-        // 25 Minuten spaeter: der Countdown steht bei 5 Minuten.
-        jetzt = _jetzt.add(const Duration(minutes: 25));
+        // 61 Sekunden spaeter: der Countdown steht bei 119 s (unter der
+        // Minuten-Schwelle, deshalb wieder in Sekunden).
+        jetzt = _jetzt.add(const Duration(seconds: 61));
         await tester.pump(const Duration(seconds: 1));
         await tester.pump();
-        expect(find.text(deL10n.authCodeResendCountdownMinutes(5)),
-            findsOneWidget);
+        expect(find.text(deL10n.authCodeResendCountdown(119)), findsOneWidget);
 
         repo.fehler = _serverfehler500();
         await _tippeTrotzdem(tester);
 
-        expect(find.text(deL10n.authCodeResendCountdownMinutes(5)),
-            findsOneWidget,
+        expect(find.text(deL10n.authCodeResendCountdown(119)), findsOneWidget,
             reason: 'der Riegel endet weiter zum urspruenglichen Zeitpunkt');
-        expect(find.text(deL10n.authCodeResendCountdownMinutes(30)), findsNothing,
+        expect(find.text(deL10n.authCodeResendCountdownMinutes(3)), findsNothing,
             reason: 'neu zu stempeln haette den Nutzer fuer den Serverfehler '
                 'bestraft');
         await _entsorgeScreen(tester);
@@ -763,8 +765,8 @@ void main() {
         expect(repo.sendeVersuche, 2);
         expect(_ausweichLink, findsNothing);
 
-        // Die halbe Stunde ist um: der Riegel faellt.
-        jetzt = _jetzt.add(const Duration(minutes: 31));
+        // Die paar Minuten sind um: der Riegel faellt.
+        jetzt = _jetzt.add(const Duration(minutes: 4));
         await tester.pump(const Duration(seconds: 1));
         await tester.pump();
         expect(find.text(deL10n.authCodeResendCta), findsOneWidget);
@@ -802,7 +804,7 @@ void main() {
                 'wird nie erreicht');
         expect(find.text(deL10n.authCodeQuotaExhausted), findsOneWidget);
         expect(_ausweichLink, findsOneWidget,
-            reason: 'sonst sitzt der Nutzer eine halbe Stunde fest — genau der '
+            reason: 'sonst sitzt der Nutzer minutenlang fest — genau der '
                 'Zustand, den P4-03b beseitigen sollte, nur einen Schritt '
                 'frueher');
         await _entsorgeScreen(tester);
@@ -857,7 +859,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(repo.sendeVersuche, 2,
             reason: 'die Sperre haelt den blinden Tap weiterhin lokal auf');
-        expect(find.text(deL10n.authCodeThrottleWaitMinutes(30)), findsOneWidget);
+        expect(find.text(deL10n.authCodeThrottleWaitMinutes(3)), findsOneWidget);
         await _entsorgeScreen(tester);
       });
     });
