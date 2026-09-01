@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 
+import 'package:eatova/src/l10n/generated/app_localizations.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_request.dart';
@@ -397,12 +398,54 @@ void main() {
         isFalse,
       );
       expect(_store.abgelegt, isEmpty);
-      // BEWUSST NICHT geprueft: dass der Nutzer „Das Foto konnte nicht
-      // abgelegt werden." zu sehen bekommt. Das Sheet meldet es, poppt sofort
-      // danach, und `_openCreateSheet` legt seine Erfolgsmeldung darueber —
-      // die Fehlermeldung ist praktisch unsichtbar. Das ist ein Befund am
-      // Produktionscode, kein Test-Problem; hier wird nur festgenagelt, was
-      // wirklich gilt.
+
+      // Und der Nutzer ERFAEHRT es. Frueher meldete das Sheet den Fehlschlag
+      // selbst, poppte sofort danach, und `_openCreateSheet` legte seine
+      // Erfolgsmeldung darueber — der Nutzer las „gespeichert", waehrend sein
+      // Foto fehlte (Befund T6, behoben 2026-09-01). Das Scheitern reist jetzt
+      // im Ergebnis mit, und der Aufrufer sagt es in EINER Meldung.
+      final l10n = await AppLocalizations.delegate.load(const Locale('de'));
+      expect(
+        find.textContaining(l10n.recipesSavedWithoutPhoto('Protein-Bowl')),
+        findsOneWidget,
+        reason: 'die Meldung nennt beides: gespeichert, aber ohne Foto',
+      );
+      expect(
+        find.text(l10n.recipesSavedSuccess('Protein-Bowl')),
+        findsNothing,
+        reason: 'die beruhigende Fassung darf hier nicht erscheinen',
+      );
+    });
+
+    testWidgets('gelingt die Ablage, bleibt die Meldung die normale',
+        (tester) async {
+      // Gegenprobe zum Fall darueber: ohne sie wuerde auch eine Fassung
+      // durchgehen, die IMMER „ohne Foto" sagt.
+      pinPhoneViewport(tester);
+      _store.speicherFehler = false;
+      final capture = _CreateCapture();
+      await tester.pumpWidget(
+        _app(
+          Brightness.dark,
+          photoInput: _FakeFotoquelle(bytes: _jpeg()),
+          capture: capture,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _openSheet(tester);
+
+      await _tippe(tester, 'recipe-create-name', 'Protein-Bowl');
+      await _tippe(tester, 'recipe-create-kcal', '520');
+      await tester.tap(find.byKey(const ValueKey('recipe-create-photo-camera')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('recipe-create-save')));
+      await tester.pumpAndSettle();
+
+      final l10n = await AppLocalizations.delegate.load(const Locale('de'));
+      expect(find.textContaining(l10n.recipesSavedSuccess('Protein-Bowl')),
+          findsOneWidget);
+      expect(find.textContaining(l10n.recipesSavedWithoutPhoto('Protein-Bowl')),
+          findsNothing);
     });
 
     testWidgets('ohne Foto bleibt imageAsset leer (Abwaertskompatibilitaet)',

@@ -447,15 +447,15 @@ void main() {
       expect(s.detail, isNot(contains('0f1e2d3c')));
     });
 
-    test('die drei DEK-Diagnoseobjekte kommen mindestens als Typname an und '
-        'tragen nie Nutzerdaten', () {
-      // GEMELDETER BEFUND (2026-09-01): nur `UndecryptableCacheSlot` steht in
-      // der Allowlist `_sanitisiertPerKonstruktion`. Die drei hier bauen
-      // sorgfaeltig eine Meldung mit Strike-Zaehler und Budget und landen
-      // trotzdem im Default-Zweig — in Sentry steht heute der nackte Typname,
-      // die Diagnose ist weg. NICHT hier gepinnt: der Test misst nur, was in
-      // BEIDEN Faellen gelten muss, damit die Behebung (ein Eintrag mehr in
-      // der Allowlist) ihn nicht rot macht.
+    test('die drei DEK-Diagnoseobjekte tragen ihre Diagnose bis in den Report '
+        'und nie Nutzerdaten', () {
+      // BEFUND VON 2026-09-01, seither BEHOBEN: nur `UndecryptableCacheSlot`
+      // stand in der Allowlist `_sanitisiertPerKonstruktion`. Die drei hier
+      // bauen sorgfaeltig eine Meldung mit Strike-Zaehler und Budget und
+      // landeten trotzdem im Default-Zweig — in Sentry stand der nackte
+      // Typname, "Start 1 von 3" war von "Start 2 von 3" nicht zu
+      // unterscheiden. Jetzt stehen alle vier in der Allowlist, und dieser
+      // Fall haelt das fest: er prueft BEIDES, den Typnamen und die Nutzlast.
       const objekte = <Object>[
         VanishedCacheKey(strike: 2, budget: 3),
         UnreadableCacheKey(
@@ -474,7 +474,20 @@ void main() {
           expect(s.toString(), isNot(contains(geheim)),
               reason: '$fehler darf $geheim nie mitfuehren');
         }
+        // Die Nutzlast MUSS ankommen — sonst ist der Bericht wieder ein
+        // nackter Typname. Faellt einer der drei aus der Allowlist, wird
+        // genau das hier rot.
+        expect(s.toString(), contains(fehler.toString()),
+            reason: '$fehler verliert seine Diagnose auf dem Weg nach Sentry');
       }
+
+      // Und die Zahlen sind wirklich lesbar, nicht nur "irgendein Text":
+      // ohne sie kann niemand einen ersten von einem zweiten Start
+      // unterscheiden, was der ganze Zweck dieser Objekte ist.
+      expect(sanitizeForReport(const VanishedCacheKey(strike: 2, budget: 3))
+          .toString(), contains('2/3'));
+      expect(sanitizeForReport(const AbandonedCacheKey(purgedSlots: 7, budget: 3))
+          .toString(), contains('7'));
     });
   });
 }

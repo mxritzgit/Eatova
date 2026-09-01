@@ -447,6 +447,7 @@
     }
   },
   "recipesSavedSuccess": "\"{title}\" saved",
+  "recipesSavedWithoutPhoto": "\"{title}\" saved — without the photo, storing it failed",
   "@recipesSavedSuccess": {
     "placeholders": {
       "title": { "type": "String" }

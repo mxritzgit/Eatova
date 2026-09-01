@@ -374,15 +374,26 @@ class SanitizedError implements Exception {
 /// Type names of app-owned errors that are sanitized by construction, so
 /// their full `toString()` passes.
 ///
-/// Only `UndecryptableCacheSlot`: its fields are an error type name and a
-/// slot key already stripped of the user UUID. The default branch would drop
-/// exactly the information it exists for — WHICH slot failed to decrypt.
+/// `UndecryptableCacheSlot`: its fields are an error type name and a slot key
+/// already stripped of the user UUID. The default branch would drop exactly
+/// the information it exists for — WHICH slot failed to decrypt.
+///
+/// The three DEK bootstrap objects joined it on 2026-09-01 (mutation run T3,
+/// confirmed by T11). They build a strike counter, the budget and the number
+/// of purged slots into their message and were arriving in Sentry as a bare
+/// type name, so "start 1 of 3" could not be told from "start 2 of 3" and
+/// nobody learned how many dead slots a give-up had cleared. Their payload is
+/// integers plus `error.runtimeType.toString()` — a type name, never the
+/// error text, which is what the OS reason would sit in.
 ///
 /// Matched by name, not `is`: the typed route would create an import cycle.
 /// Under `--obfuscate` the name comparison fails and falls into the closing
 /// default branch, i.e. the safe direction.
 const Set<String> _sanitisiertPerKonstruktion = <String>{
   'UndecryptableCacheSlot',
+  'VanishedCacheKey',
+  'UnreadableCacheKey',
+  'AbandonedCacheKey',
 };
 
 /// `beforeSend` hook for [configureSentry] — the second half of C1.

@@ -40,36 +40,12 @@ void _pinViewport(WidgetTester tester) {
 
 // --- silent truncation ------------------------------------------------------
 
-/// The ONE box in the app that is knowingly too tight, kept out of the sweep.
-///
-/// `_ProfileBadge` (screens/meal_analysis_screen.dart) is a hard 34x34 capsule
-/// with the first letter of the name in it; at 200 % the letter needs 38 px and
-/// loses ~4 px of ascender and descender. Not fixed here — this suite pins
-/// existing behaviour, it does not change layout. The exception cannot go stale:
-/// the last case in this file asserts the clip is still there and tells you to
-/// delete both halves once it is gone.
-const String _bekannteEngeKey = 'topbar-profile';
-
-/// Paragraphs under [_bekannteEngeKey] in the CURRENT tree.
-///
-/// `skipOffstage: false` throughout: with the settings route pushed the food
-/// tab below it is still laid out (and still in `allRenderObjects`), but the
-/// default finder no longer sees it — the exception would silently stop
-/// applying on exactly that screen.
-Finder _engeFinder() => find.descendant(
-      of: find.byKey(
-        const ValueKey<String>(_bekannteEngeKey),
-        skipOffstage: false,
-      ),
-      matching: find.byType(Text, skipOffstage: false),
-      skipOffstage: false,
-    );
-
-Set<RenderObject> _ausgenommen() => _engeFinder()
-    .evaluate()
-    .map((Element e) => e.renderObject)
-    .whereType<RenderObject>()
-    .toSet();
+// Der Sweep kennt seit 2026-09-01 KEINE Ausnahme mehr. `_ProfileBadge` war die
+// einzige — eine harte 34x34-Kapsel, in der die Initiale bei 200 % rund vier
+// Pixel Ober- und Unterlaenge verlor. Die Kapsel skaliert jetzt mit der Schrift
+// (meal_analysis_screen.dart, `_seiteBasis`/`_seiteMax`), also faellt sie unter
+// dieselbe Regel wie alles andere. Wer hier wieder eine Ausnahme braucht, sollte
+// zuerst das Layout reparieren.
 
 /// Everything the sweep found while one screen was walked.
 final Set<String> _abschnitte = <String>{};
@@ -86,9 +62,8 @@ final Set<String> _abschnitte = <String>{};
 /// e-mail is a design decision and appears all over these screens. A height
 /// clamp never is.
 void _sammleAbschnitte(WidgetTester tester, String wo) {
-  final ausgenommen = _ausgenommen();
   for (final absatz in tester.allRenderObjects.whereType<RenderParagraph>()) {
-    if (absatz.debugNeedsLayout || ausgenommen.contains(absatz)) continue;
+    if (absatz.debugNeedsLayout) continue;
     final breite = absatz.size.width;
     if (breite <= 0) continue;
     final gebraucht = absatz.getMaxIntrinsicHeight(breite);
@@ -443,25 +418,34 @@ void main() {
     });
   });
 
-  testWidgets('BEKANNTE LUECKE: die Profil-Initiale im Food-Kopf wird bei 2.0 '
-      'beschnitten', (tester) async {
-    // The single exception [_bekannteEngeKey] takes out of the sweep, pinned
-    // so it cannot go stale. `_ProfileBadge` is a hard 34x34 capsule; at 200 %
-    // the letter needs 38 px, so ~2 px of ascender and descender are clipped.
-    // Cosmetic, but real — reported 2026-09-01, not fixed here.
-    //
-    // WHEN THIS TURNS RED the badge grew with the font: delete this case AND
-    // the `_bekannteEngeKey` exception above, and the sweep covers the badge
-    // like everything else.
+  testWidgets('die Profil-Kapsel im Food-Kopf waechst mit der Schrift',
+      (tester) async {
+    // Gegenrichtung des frueheren "BEKANNTE LUECKE"-Falls: die Kapsel war eine
+    // harte 34x34-Box und schnitt die Initiale bei 200 % ab. Jetzt skaliert
+    // sie mit, und dieser Fall haelt sie dort — er wird rot, sobald jemand
+    // wieder eine feste Groesse einsetzt.
     _pinViewport(tester);
     await _bootApp(tester);
     await _goToTab(tester, 'Food');
 
-    final absatz = tester.renderObject<RenderParagraph>(_engeFinder());
+    final kapsel = tester.getSize(find.byKey(
+      const ValueKey<String>('topbar-profile'),
+      skipOffstage: false,
+    ));
+    expect(kapsel.width, greaterThan(34.0),
+        reason: 'bei 200 % muss die Kapsel ueber ihre Grundgroesse hinauswachsen');
+    expect(kapsel.width, kapsel.height, reason: 'sie bleibt quadratisch');
+
+    final absatz = tester.renderObject<RenderParagraph>(find.descendant(
+      of: find.byKey(const ValueKey<String>('topbar-profile'),
+          skipOffstage: false),
+      matching: find.byType(Text, skipOffstage: false),
+      skipOffstage: false,
+    ));
     expect(
       absatz.size.height,
-      lessThan(absatz.getMaxIntrinsicHeight(absatz.size.width)),
-      reason: 'die Initiale passt wieder in ihre Kapsel — Ausnahme entfernen',
+      greaterThanOrEqualTo(absatz.getMaxIntrinsicHeight(absatz.size.width)),
+      reason: 'die Initiale wird nicht mehr beschnitten',
     );
   });
 }
