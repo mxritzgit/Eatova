@@ -251,13 +251,13 @@ void main() {
 
     test('die Fristen stehen ueber dem, was der Server ohne Gesamtbudget '
         'ausgeben kann', () {
-      // coach-chat hat KEIN Request-Budget (analyze-meal hat eins: 55 s).
-      // Gedeckelt sind allein die Provider-Runden aus PROVIDER_TIMEOUTS_MS.
+      // Provider caps from coach-chat/handler.ts. Since PR #66 the image
+      // round trip gets 60 s, including its download, instead of 30 s.
       const chatDeckel = Duration(seconds: 15 + 45);
-      const rezeptDeckel = Duration(seconds: 15 + 45 + 30);
+      const rezeptDeckel = Duration(seconds: 15 + 45 + 60);
 
       expect(CoachChatService.chatDeadline, const Duration(seconds: 95));
-      expect(CoachChatService.recipeDeadline, const Duration(seconds: 135));
+      expect(CoachChatService.recipeDeadline, const Duration(seconds: 165));
 
       expect(
         CoachChatService.chatDeadline - chatDeckel,
@@ -268,9 +268,9 @@ void main() {
       );
       expect(
         CoachChatService.recipeDeadline - rezeptDeckel,
-        greaterThanOrEqualTo(const Duration(seconds: 35)),
-        reason: 'bei /rezept kommt das base64-Bild zurueck; die alten 120 s '
-            'liessen fuer alles Nicht-Provider nur 30 s',
+        greaterThanOrEqualTo(const Duration(seconds: 45)),
+        reason: 'Upload (15 s), Datenbank-Aufrufe (15 s) und die Antwort '
+            'mit base64-Bild (15 s) brauchen neben den Providern Platz',
       );
     });
   });
@@ -417,6 +417,50 @@ void main() {
   });
 
   group('F · /rezept: derselbe Slot, derselbe Abgleich', () {
+    test('Rezept mit Bild nach 145 s kommt vor der neuen Frist an, '
+        'ohne Verlauf-Abgleich oder zweiten Aufruf', () async {
+      const imageBytes = <int>[137, 80, 78, 71, 13, 10, 26, 10];
+      final backend = _Backend(antwortNach: Duration.zero)
+        ..funktionsAntwort = <String, Object?>{
+          'reply': 'Bowl — 480 kcal',
+          'refusal': false,
+          'remaining': 4,
+          'daily_limit': 5,
+          'session_id': 's1',
+          'assistant_message_id': 'm-rezept',
+          'recipe': _rezeptZeile,
+          'image_base64': base64Encode(imageBytes),
+        };
+      final svc = _service(
+        backend,
+        rezeptFrist: _skala(CoachChatService.recipeDeadline),
+      );
+
+      // Warm the JSON isolate before measuring, as in the chat test above.
+      await svc.requestRecipe('Aufwaermen', sessionId: 's1', locale: 'de');
+      backend
+        ..antwortNach = _skala(const Duration(seconds: 145))
+        ..funktionsAufrufe = 0
+        ..verlaufAufrufe = 0;
+
+      // The response is deliberately later than the old 135-s deadline.
+      // Empty history cannot rescue an early abort; reverting the deadline
+      // must fail this behavior check even if the budget assertion changes.
+      final res = await svc.requestRecipe(
+        'Bowl mit Kichererbsen',
+        sessionId: 's1',
+        locale: 'de',
+      );
+
+      expect(res.proposal?.title, 'Bowl');
+      expect(res.proposal?.imageBytes, orderedEquals(imageBytes));
+      expect(res.assistantMessageId, 'm-rezept');
+      expect(res.remaining, 4);
+      expect(backend.funktionsAufrufe, 1);
+      expect(backend.verlaufAufrufe, 0,
+          reason: 'die Karte samt Bild kommt direkt aus der laufenden Anfrage');
+    });
+
     test('stummer Server, Rezept aber gespeichert: die Karte kommt aus dem '
         'Verlauf — ohne Bild, mit Server-Id', () async {
       final backend = _Backend(

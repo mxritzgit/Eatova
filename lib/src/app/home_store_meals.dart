@@ -547,6 +547,12 @@ mixin _HomeStoreMealsPart
   Future<SyncDelivery> deleteUserRecipe(String slug) {
     _mutate(() {
       _userRecipes = _userRecipes.where((r) => r.slug != slug).toList();
+      // The undo window is over once the delete is real: drop the flag with
+      // the row, so the set cannot fill up with stale slugs.
+      if (_pendingRecipeDeletes.contains(slug)) {
+        _pendingRecipeDeletes = <String>{..._pendingRecipeDeletes}
+          ..remove(slug);
+      }
     });
     _cacheUserRecipes();
     return _syncOrQueue(

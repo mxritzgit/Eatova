@@ -43,6 +43,7 @@ class RecipesScreen extends StatefulWidget {
     this.diet = DietPreference.none,
     this.onCreateRecipe,
     this.onDeleteRecipe,
+    this.onDeletePendingChanged,
     this.initialUserRecipes = const <FitnessRecipe>[],
     this.userRecipesAuthoritative = false,
     this.photoInput,
@@ -69,6 +70,15 @@ class RecipesScreen extends StatefulWidget {
   /// Optional hook for deleting a user recipe by slug, forwarded to
   /// user_recipes.delete. Null means no persistence.
   final Future<SyncDelivery> Function(String slug)? onDeleteRecipe;
+
+  /// Optional hook telling the shell that [slug] entered ([pending] true) or
+  /// left (undo, commit) its undo window. The shell keeps the row until the
+  /// commit but must hide it from every OTHER reader meanwhile
+  /// (`HomeStore.visibleUserRecipes`): the coach card derives "Hinzugefügt"
+  /// from the live slugs and stayed locked until the toast had gone
+  /// (2026-09-02).
+  final void Function(String slug, {required bool pending})?
+      onDeletePendingChanged;
 
   /// User recipes loaded from Supabase at boot; taken as the initial state so
   /// self-created recipes survive a restart.
@@ -540,6 +550,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
       );
       _dropOwnFilterIfEmpty();
     });
+    widget.onDeletePendingChanged?.call(recipe.slug, pending: true);
     final l10n = context.l10n;
     showAppSnack(
       context,
@@ -561,6 +572,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
     final pending = _pendingDeletes.remove(slug);
     if (pending == null) return;
     pending.timer.cancel();
+    widget.onDeletePendingChanged?.call(slug, pending: false);
     if (mounted) setState(() {});
   }
 
@@ -570,7 +582,13 @@ class _RecipesScreenState extends State<RecipesScreen> {
     _userRecipes =
         _userRecipes.where((r) => r.slug != recipe.slug).toList(growable: true);
     if (mounted && !_disposing) setState(() {});
-    final ausgang = await _melde(widget.onDeleteRecipe?.call(recipe.slug));
+    // Store first, window flag second: the store drops the row itself, so no
+    // reader sees the recipe come back for a frame between the two calls.
+    final lieferung = widget.onDeleteRecipe?.call(recipe.slug);
+    if (!_disposing) {
+      widget.onDeletePendingChanged?.call(recipe.slug, pending: false);
+    }
+    final ausgang = await _melde(lieferung);
     // The photo goes too, but only once the delete is actually delivered: a
     // dropped delete makes `_restoreDroppedDeletes` bring the recipe back, and
     // the device-only bytes would already be gone. No-op for catalog recipes
