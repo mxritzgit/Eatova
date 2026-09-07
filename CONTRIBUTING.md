@@ -10,8 +10,8 @@ set up the project, the conventions we follow, and how to get a change merged.
 ## Getting set up
 
 1. Install the [Flutter SDK](https://docs.flutter.dev/get-started/install).
-   CI pins **Flutter 3.44.0 stable** (`.github/workflows/security.yml`), which
-   ships Dart 3.12 — use the same version locally so `pubspec.lock` and the
+   CI pins **Flutter 3.47.2 stable** (`.github/workflows/security.yml`), which
+   ships Dart 3.13.2 — use the same version locally so `pubspec.lock` and the
    analyzer agree with CI. (The `^3.11.5` SDK constraint in `pubspec.yaml`
    is the deliberate lower bound, not the recommended version.)
 2. Fork and clone the repository.
@@ -36,7 +36,7 @@ flutter analyze --fatal-infos --fatal-warnings
 
 # 2. Tests: CI passes dummy defines so the suite compiles without a real
 #    Supabase project and never opens a socket.
-flutter test \
+flutter test --coverage \
   --dart-define=SUPABASE_URL=https://ci.invalid \
   --dart-define=SUPABASE_ANON_KEY=ci-dummy-key
 
@@ -51,8 +51,14 @@ deno lint supabase/functions \
 Step 3 is required whenever you touch `supabase/functions/`; it is cheap
 enough to run every time. CI additionally builds a debug APK and a release
 AAB (R8 + AOT, throwaway keystore), scans secrets across the full history
-(gitleaks) and dependencies (OSV), and checks that every migration in
-`supabase/migrations/` is registered on the live database.
+(gitleaks) and dependencies (OSV), and replays all migrations against PostgreSQL
+to test real cross-user access and account-deletion reauthentication.
+
+Live migration drift runs on `main`, including the weekly scheduled run, in the
+`supabase-drift` GitHub environment. Its deployment branch policy must allow only
+the `main` branch. Keep `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF` there,
+never as repository secrets: PR authors can edit workflow `if` conditions. The
+stable required PR check documents this split; it does not query production.
 
 If you touch `lib/l10n/*.arb`, run `flutter gen-l10n` afterwards; the
 generated code under `lib/src/l10n/generated/` is git-ignored and rebuilt in

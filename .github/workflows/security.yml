@@ -451,108 +451,19 @@ jobs:
   supabase-migration-drift:
     name: Supabase migration drift (Management API)
     runs-on: ubuntu-latest
-    outputs:
-      available: ${{ steps.secrets.outputs.available }}
-    # Fails only when a repo migration is missing from the live history, via
-    # the Management API. G7: secrets present -> run; structurally unavailable
-    # (fork PR, Dependabot, foreign fork) -> skip with the reason in the
-    # summary; missing upstream -> FAIL with the setup commands.
-    #
-    # Audit 2026-08-14 (still OPEN): the account-wide PAT runs arbitrary SQL on
-    # production and `pull_request` runs the workflow file from the PR head, so
-    # the token is only interpolated on push/schedule/workflow_dispatch — which
-    # makes tampering a visible diff, not a barrier. The barrier is a repo
-    # step: create environment `supabase-drift` (branch policy `main`), move
-    # both secrets there, rotate the token, then uncomment `environment:` in
-    # `supabase-migration-drift-live`. It belongs on that downstream job
-    # because a violated policy FAILS, and this required check must stay green.
+    # Stable required PR check; production credentials belong only to the
+    # downstream environment job, never to this PR-editable workflow context.
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Explain production drift gate
+        run: echo 'Live migration drift runs on main in the protected supabase-drift environment.' >> "$GITHUB_STEP_SUMMARY"
 
-      # Record secret availability once as an output: secrets cannot be used
-      # directly in job-level `if:` conditions.
-      - name: Check Supabase secrets
-        id: secrets
-        env:
-          # Deliberately empty on pull_request: the token must never reach a run
-          # whose workflow file comes from the PR head (Audit 2026-08-14).
-          SUPABASE_ACCESS_TOKEN: ${{ github.event_name != 'pull_request' && secrets.SUPABASE_ACCESS_TOKEN || '' }}
-          SUPABASE_PROJECT_REF: ${{ github.event_name != 'pull_request' && secrets.SUPABASE_PROJECT_REF || '' }}
-          IS_PR: ${{ github.event_name == 'pull_request' }}
-          IS_DEPENDABOT: ${{ github.actor == 'dependabot[bot]' }}
-          IS_UPSTREAM: ${{ github.repository == 'mxritzgit/Eatova' }}
-        run: |
-          set -euo pipefail
-          # PRs first, regardless of whether secrets arrive: the skip is a
-          # decision, not a defect. Fork PRs land here too.
-          if [ "$IS_PR" = "true" ]; then
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            REASON="pull_request-Lauf — das Supabase-Management-Token wird hier bewusst nicht ausgegeben."
-            echo "::notice::Migration-Drift-Check uebersprungen: $REASON"
-            {
-              echo "### Supabase Migration-Drift: in PRs bewusst ausgesetzt"
-              echo ""
-              echo "$REASON"
-              echo ""
-              echo "Der Abgleich laeuft beim **Push auf \`main\`** — also unmittelbar nach dem Merge dieses PRs —"
-              echo "und zusaetzlich woechentlich per \`schedule\`. Faellt er dort, weicht die Live-DB vom Repo ab."
-              echo ""
-              echo "Grund: \`SUPABASE_ACCESS_TOKEN\` ist ein kontoweiter PAT auf einem Endpunkt, der beliebiges SQL"
-              echo "auf der Produktivdatenbank ausfuehrt, und bei \`pull_request\` stammt die Workflow-Datei aus dem"
-              echo "PR-Head."
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          if [ -n "${SUPABASE_ACCESS_TOKEN:-}" ] && [ -n "${SUPABASE_PROJECT_REF:-}" ]; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "available=false" >> "$GITHUB_OUTPUT"
-
-          if [ "$IS_DEPENDABOT" = "true" ] || [ "$IS_UPSTREAM" != "true" ]; then
-            REASON="Dependabot/fremdes Repo — Secrets sind hier strukturell nicht verfuegbar."
-            echo "::notice::Migration-Drift-Check uebersprungen: $REASON"
-            {
-              echo "### Supabase Migration-Drift: uebersprungen"
-              echo ""
-              echo "$REASON Das ist **kein** Konfigurationsfehler und faerbt den Lauf bewusst nicht rot."
-              echo ""
-              echo "Im Upstream-Repo (\`mxritzgit/Eatova\`) faellt dieser Job, solange die Secrets fehlen."
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          {
-            echo "### Supabase Migration-Drift: NICHT konfiguriert"
-            echo ""
-            echo "\`SUPABASE_ACCESS_TOKEN\` und/oder \`SUPABASE_PROJECT_REF\` fehlen im Upstream-Repo."
-            echo "Der einzige automatische Abgleich zwischen \`supabase/migrations/\` und der Live-Datenbank"
-            echo "laeuft damit nicht. Frueher hat dieser Job das still uebersprungen und war trotzdem gruen."
-            echo ""
-            echo "Setzen (einmalig, mit der GitHub CLI):"
-            echo ""
-            echo '```sh'
-            echo 'gh secret set SUPABASE_ACCESS_TOKEN --repo mxritzgit/Eatova   # Token aus https://supabase.com/dashboard/account/tokens'
-            echo 'gh secret set SUPABASE_PROJECT_REF  --repo mxritzgit/Eatova   # Project-Ref aus der Supabase-Projekt-URL'
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "::error::SUPABASE_ACCESS_TOKEN/SUPABASE_PROJECT_REF sind im Upstream-Repo nicht gesetzt — der Migration-Drift-Check kann nicht laufen. Details und Setz-Befehle stehen in der Job-Summary."
-          exit 1
-
-  # The only job that touches the management token, split off so the
-  # environment barrier hangs on a job that never starts on pull_request.
-  # NOT a required check: as one it would block every merge.
   supabase-migration-drift-live:
     name: Supabase migration drift (Live-Abgleich)
     runs-on: ubuntu-latest
     needs: supabase-migration-drift
-    # Second guard beside the empty interpolation upstream: this job stays down
-    # in PR runs even if someone reworks the output path above.
-    if: needs.supabase-migration-drift.outputs.available == 'true' && github.event_name != 'pull_request'
-    # environment: supabase-drift
-    # ^ Uncomment only once that environment exists with branch policy `main`
-    #   and the secrets moved there; earlier GitHub creates it unprotected.
+    if: github.repository == 'mxritzgit/Eatova' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    environment: supabase-drift
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
@@ -564,6 +475,10 @@ jobs:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
         run: |
           set -euo pipefail
+          if [ -z "${SUPABASE_ACCESS_TOKEN:-}" ] || [ -z "${SUPABASE_PROJECT_REF:-}" ]; then
+            echo "::error::Supabase secrets are missing from the protected supabase-drift environment."
+            exit 1
+          fi
           QUERY="select coalesce(string_agg(version, ',' order by version), '') as v from supabase_migrations.schema_migrations"
           BODY="$(jq -n --arg q "$QUERY" '{query:$q}')"
           # Browser UA: a Cloudflare rule in front of the Management API blocks

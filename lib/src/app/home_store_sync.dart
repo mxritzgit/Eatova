@@ -731,7 +731,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// boot pass failing offline leaves the ladder alone (F1-03).
   Future<void> _replayOutbox({bool vomTimer = false}) async {
     final s = sync;
-    if (s == null || _outboxReplayInFlight || _outbox.isEmpty) return;
+    if (_disposed || s == null || _outboxReplayInFlight || _outbox.isEmpty) {
+      return;
+    }
     _outboxReplayInFlight = true;
     final blocked = <String>{};
     var anySuccess = false;
@@ -781,7 +783,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       void kursorMitnehmen(List<SyncOp> vorher) {
         gescannt = identical(vorher, gescannt) ? _outbox : null;
       }
-      while (true) {
+
+      while (!_disposed) {
         // The cursor counts only for the list it was measured on.
         if (!identical(_outbox, gescannt)) kursor = 0;
         SyncOp? naechste;
@@ -843,7 +846,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         }
         try {
           await _performOp(s, op);
+          if (_disposed) return;
         } catch (e, st) {
+          if (_disposed) return;
           // The list may have changed during the await, so find the op by
           // identity instead of trusting the index.
           final at = _outbox.indexWhere((o) => identical(o, op));
@@ -1076,6 +1081,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       op.kind == SyncOpKind.mealDelete;
 
   Future<void> _performOp(EatovaSync s, SyncOp op) async {
+    if (_disposed) return;
     if (_opTouchesTrendWindow(op)) {
       // Registered before the await so the drop also happens when the write
       // succeeds but this isolate dies before the continuation runs.

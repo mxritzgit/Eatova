@@ -3,6 +3,7 @@ import 'dart:developer' as dev;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/lifetime_stats.dart';
+import 'user_rpc.dart';
 
 /// Reads and writes LifetimeStats against public.lifetime_stats — exactly one
 /// row per user (primary key user_id), created by a bootstrap trigger.
@@ -117,7 +118,9 @@ class LifetimeStatsSync {
     int weightLogs,
     String? requestId,
   ) async {
-    final row = await _client.rpc(
+    final row = await userRpc(
+      _client,
+      _userId,
       'increment_lifetime_stats',
       params: <String, dynamic>{
         'p_water': water,
@@ -126,7 +129,8 @@ class LifetimeStatsSync {
         'p_weight_logs': weightLogs,
         if (requestId != null) 'p_request_id': requestId,
       },
-    ).select().single();
+      single: true,
+    );
     return LifetimeStats.fromRow(row);
   }
 
@@ -145,10 +149,13 @@ class LifetimeStatsSync {
   /// Returns the fresh row — the streak fields are server truth.
   Future<LifetimeStats> recordTrackingDay(DateTime day) async {
     try {
-      final row = await _client.rpc(
+      final row = await userRpc(
+        _client,
+        _userId,
         'record_tracking_day',
         params: <String, dynamic>{'p_day': _dateOnly(day)},
-      ).select().single();
+        single: true,
+      );
       return LifetimeStats.fromRow(row);
     } catch (e, stack) {
       dev.log('LifetimeStatsSync.recordTrackingDay failed',

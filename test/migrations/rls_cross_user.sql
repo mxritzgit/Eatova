@@ -343,12 +343,22 @@ begin
   end;
 
   -- increment_lifetime_stats books onto the CALLER, never onto anyone else.
+  perform set_config('request.jwt.claims', jsonb_build_object('sub', b)::text, true);
   select meals_logged into vorher from public.lifetime_stats where user_id = b;
+  if not found or vorher is null then
+    raise exception 'RLS-Test: B-Ausgangswert nicht sichtbar';
+  end if;
+  perform set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111"}', true);
   perform public.increment_lifetime_stats(0, 0, 7, 0, 0);
+  perform set_config('request.jwt.claims', jsonb_build_object('sub', b)::text, true);
   select meals_logged into nachher from public.lifetime_stats where user_id = b;
+  if not found or nachher is null then
+    raise exception 'RLS-Test: B-Endwert nicht sichtbar';
+  end if;
   if vorher is distinct from nachher then
     raise exception 'RLS-VERLETZUNG: increment_lifetime_stats hat B veraendert';
   end if;
+  perform set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111"}', true);
   if (select meals_logged from public.lifetime_stats
        where user_id = '11111111-1111-1111-1111-111111111111') <> 7 then
     raise exception 'increment_lifetime_stats hat den Aufrufer nicht gebucht';
@@ -670,5 +680,81 @@ begin
 end;
 $t$;
 
+
+-- Account deletion exercises the actual RPC, including its AMR contract.
+-- All attempts are rolled back so the fixtures remain available to later tests.
+begin;
+set local role authenticated;
+do $$
+declare
+  claims jsonb;
+  invalid_amr jsonb;
+begin
+  claims := jsonb_build_object('sub', '11111111-1111-1111-1111-111111111111');
+  perform set_config('request.jwt.claims', claims::text, true);
+  perform rlstest.erwarte_sqlstate('select public.delete_account()', '28000', 'delete without amr');
+  for invalid_amr in select value from jsonb_array_elements(jsonb_build_array(
+    'null'::jsonb, '{}'::jsonb, '[]'::jsonb, '[1, "bad"]'::jsonb,
+    jsonb_build_array(jsonb_build_object('method', 'otp', 'timestamp', 'invalid')),
+    jsonb_build_array(jsonb_build_object('method', 'password', 'timestamp', extract(epoch from now())::bigint)),
+    jsonb_build_array(jsonb_build_object('method', 'otp', 'timestamp', extract(epoch from now() - interval '6 minutes')::bigint))
+  )) loop
+    perform set_config('request.jwt.claims', (claims || jsonb_build_object('amr', invalid_amr))::text, true);
+    perform rlstest.erwarte_sqlstate('select public.delete_account()', '28000', 'delete with invalid/stale amr');
+  end loop;
+  perform rlstest.erwarte_zeilen('select * from public.profiles', 1, 'A survives rejected deletion');
+end $$;
+reset role;
+do $$ begin
+  if (select count(*) from auth.users where id in (
+      '11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222')) <> 2 then
+    raise exception 'Rejected account deletion removed a fixture';
+  end if;
+end $$;
+rollback;
+
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', jsonb_build_object(
+  'sub', '11111111-1111-1111-1111-111111111111',
+  'amr', jsonb_build_array(jsonb_build_object('method', 'otp',
+    'timestamp', extract(epoch from now() - interval '1 minute')::bigint))
+)::text, true);
+select public.delete_account();
+reset role;
+do $$ begin
+  if exists (select 1 from auth.users where id = '11111111-1111-1111-1111-111111111111') then
+    raise exception 'Fresh otp did not delete A';
+  end if;
+  if exists (select 1 from public.profiles where id = '11111111-1111-1111-1111-111111111111') then
+    raise exception 'Account cascade left A profile';
+  end if;
+  if not exists (select 1 from auth.users where id = '22222222-2222-2222-2222-222222222222') then
+    raise exception 'Deleting A removed B';
+  end if;
+end $$;
+rollback;
+
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', jsonb_build_object(
+  'sub', '11111111-1111-1111-1111-111111111111',
+  'amr', jsonb_build_array(jsonb_build_object('method', 'recovery',
+    'timestamp', extract(epoch from now() - interval '1 minute')::bigint))
+)::text, true);
+select public.delete_account();
+reset role;
+do $$ begin
+  if exists (select 1 from auth.users where id = '11111111-1111-1111-1111-111111111111') then
+    raise exception 'Fresh recovery did not delete A';
+  end if;
+  if exists (select 1 from public.profiles where id = '11111111-1111-1111-1111-111111111111') then
+    raise exception 'Account cascade left A profile';
+  end if;
+  if not exists (select 1 from auth.users where id = '22222222-2222-2222-2222-222222222222') then
+    raise exception 'Deleting A removed B';
+  end if;
+end $$;
+rollback;
 
 select 'RLS-Kreuzzugriffe: alle Erwartungen erfuellt' as ergebnis;

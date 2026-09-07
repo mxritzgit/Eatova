@@ -1954,6 +1954,10 @@ async function userIdFromJwt(
     console.error("auth lookup timeout");
     return { ok: false, reason: "auth_unavailable" };
   }
+  if (resp.status === 429 || resp.status >= 500) {
+    await resp.body?.cancel();
+    return { ok: false, reason: "auth_unavailable" };
+  }
   if (!resp.ok) return { ok: false, reason: "lookup_failed" };
   const data = await resp.json();
   if (typeof data?.id !== "string" || data.id.length === 0) {

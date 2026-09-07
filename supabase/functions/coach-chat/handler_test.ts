@@ -2538,3 +2538,18 @@ Deno.test("P5-08: zu grosses image_base64 -> 413 image_too_large in beiden Sprac
     }
   }
 });
+
+// An upstream outage does not disprove the caller's credentials.
+for (const authStatus of [429, 500, 503]) {
+  Deno.test(`Auth HTTP ${authStatus} returns 503 without consuming failure quota`, async () => {
+    const stub = installFetch({ authStatus });
+    try {
+      const res = await handleRequest(makeRequest({}));
+      assertEquals(res.status, 503, "temporary auth outage");
+      assertEquals((await res.json()).error, "auth_unavailable", "error code");
+      assertEquals(stub.callsTo("/auth/v1/user").length, 1, "auth lookup");
+      assertEquals(stub.callsTo("/rest/v1/").length, 0, "no database writes");
+      assertEquals(stub.callsTo("openrouter.ai").length, 0, "no provider call");
+    } finally { stub.restore(); }
+  });
+}

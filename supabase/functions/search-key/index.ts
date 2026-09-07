@@ -336,6 +336,10 @@ async function authenticateUser(request: Request, deadline: Deadline): Promise<A
     throw error;
   }
 
+  if (response.status === 429 || response.status >= 500) {
+    await response.body?.cancel();
+    throw new HttpError(503, 'auth_unavailable', 'Anmeldung gerade nicht prüfbar.');
+  }
   if (!response.ok) {
     // F-28-1: the lookup cost a GoTrue roundtrip, so failures are capped per
     // IP before the 401 — only here, never for the local rejections above or

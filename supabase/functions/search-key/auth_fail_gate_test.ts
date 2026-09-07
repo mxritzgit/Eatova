@@ -291,3 +291,17 @@ Deno.test("F-28-1: Limiter-Ausfall am Fail-Bucket blockiert die 401 nicht", asyn
     stub.restore();
   }
 });
+
+for (const authStatus of [429, 500, 503]) {
+  Deno.test(`Auth HTTP ${authStatus} returns 503 without consuming failure quota`, async () => {
+    const handler = await loadHandler();
+    const stub = installFetch({ authStatus });
+    try {
+      const res = await handler(request());
+      assertEquals(res.status, 503, "temporary auth outage");
+      assertEquals((await res.json()).error, "auth_unavailable", "error code");
+      assertEquals(stub.authLookups, 1, "auth lookup");
+      assertEquals(stub.gateCalls, 0, "no database calls");
+    } finally { stub.restore(); }
+  });
+}
