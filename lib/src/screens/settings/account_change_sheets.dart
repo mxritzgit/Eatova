@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -238,9 +239,33 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
   String? _codeFehler;
   String? _neuFehler;
   String? _wiederholungFehler;
+  Timer? _resendTimer;
+  int _resendSeconds = 0;
+  bool _needsNewCode = false;
+
+  void _startResendCooldown(Duration duration) {
+    _resendTimer?.cancel();
+    final until = clock.now().add(duration);
+    _resendSeconds = duration.inSeconds;
+    _resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(
+        () => _resendSeconds =
+            (until.difference(clock.now()).inMilliseconds / 1000).ceil().clamp(
+              0,
+              duration.inSeconds,
+            ),
+      );
+      if (_resendSeconds <= 0) timer.cancel();
+    });
+  }
 
   @override
   void dispose() {
+    _resendTimer?.cancel();
     _code.dispose();
     _neu.dispose();
     _wiederholung.dispose();
@@ -250,7 +275,7 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
   Future<void> _codeAnfordern() async {
     // Double-tap latch here AND on `actionEnabled`: the button lock only
     // takes effect with the next frame.
-    if (_busy) return;
+    if (_busy || _resendSeconds > 0) return;
     setState(() {
       _busy = true;
       _fehler = null;
@@ -262,6 +287,16 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
       setState(() {
         _busy = false;
         _fehler = accountChangeErrorMessage(error, context.l10n);
+        final failure = classifyAuthError(error);
+        if (failure.kind == AuthErrorKind.sendThrottled ||
+            failure.kind == AuthErrorKind.rateLimited ||
+            failure.kind == AuthErrorKind.quotaExhausted) {
+          final minimum = failure.kind == AuthErrorKind.quotaExhausted
+              ? const Duration(minutes: 3)
+              : const Duration(seconds: 60);
+          final requested = failure.retryAfter ?? minimum;
+          _startResendCooldown(requested > minimum ? requested : minimum);
+        }
       });
       return;
     }
@@ -269,11 +304,15 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
     setState(() {
       _busy = false;
       _schritt = _PasswortSchritt.codeUndPasswort;
+      _needsNewCode = false;
+      _code.clear();
+      _codeFehler = null;
+      _startResendCooldown(const Duration(seconds: 60));
     });
   }
 
   Future<void> _passwortSetzen() async {
-    if (_busy) return;
+    if (_busy || _needsNewCode) return;
     final l10n = context.l10n;
     final code = _code.text.trim();
     final neu = _neu.text;
@@ -316,6 +355,11 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
       setState(() {
         _busy = false;
         _fehler = accountChangeErrorMessage(error, context.l10n);
+        final kind = classifyAuthError(error).kind;
+        if (kind == AuthErrorKind.passwordSameAsOld) {
+          _needsNewCode = true;
+          _code.clear();
+        }
       });
       return;
     }
@@ -342,7 +386,8 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
                 : l10n.settingsPasswordChangeCodeSentTo(adresse))
             : l10n.settingsPasswordChangeStep2Subtitle,
         actionLabel: _aktionsBeschriftung(l10n, ersterSchritt),
-        actionEnabled: !_busy,
+        actionEnabled:
+            !_busy && (ersterSchritt ? _resendSeconds == 0 : !_needsNewCode),
         onAction: ersterSchritt ? _codeAnfordern : _passwortSetzen,
         children: <Widget>[
           if (!ersterSchritt) ...<Widget>[
@@ -372,6 +417,15 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
               enabled: !_busy,
               errorText: _wiederholungFehler,
             ),
+            TextButton(
+              key: const ValueKey<String>('password-change-resend'),
+              onPressed: _busy || _resendSeconds > 0 ? null : _codeAnfordern,
+              child: Text(
+                _resendSeconds > 0
+                    ? l10n.authCodeResendCountdown(_resendSeconds)
+                    : l10n.authCodeResendCta,
+              ),
+            ),
           ],
           if (_fehler != null)
             _FehlerNotiz(
@@ -384,6 +438,9 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
   }
 
   String _aktionsBeschriftung(AppLocalizations l10n, bool ersterSchritt) {
+    if (ersterSchritt && !_busy && _resendSeconds > 0) {
+      return l10n.authCodeResendCountdown(_resendSeconds);
+    }
     if (_busy) {
       return ersterSchritt
           ? l10n.settingsPasswordChangeRequestingCta

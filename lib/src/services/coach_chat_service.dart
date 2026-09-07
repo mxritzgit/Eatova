@@ -15,6 +15,7 @@ import '../models/chat_session.dart';
 import '../models/coach_recipe_proposal.dart';
 import 'crash_reporter.dart';
 import 'sync_error_messages.dart';
+import 'user_rpc.dart';
 
 /// Coach-chat backend bridge.
 ///
@@ -294,7 +295,7 @@ class CoachChatService {
   Future<List<ChatSession>> loadSessions() async {
     final dynamic res;
     try {
-      res = await _client.rpc('list_chat_sessions');
+      res = await userRpc(_client, _userId, 'list_chat_sessions');
     } catch (e, stack) {
       dev.log(
         'CoachChatService.loadSessions failed',
@@ -325,7 +326,11 @@ class CoachChatService {
   /// Returns the default session id, creating one if needed.
   Future<String?> ensureDefaultSession() async {
     try {
-      final res = await _client.rpc('ensure_default_chat_session');
+      final res = await userRpc(
+        _client,
+        _userId,
+        'ensure_default_chat_session',
+      );
       if (res is String) return res;
       if (res is List && res.isNotEmpty) return res.first.toString();
       return null;
@@ -347,7 +352,9 @@ class CoachChatService {
   /// server replaces it with an auto title after the first question.
   Future<String?> createSession({required String title}) async {
     try {
-      final res = await _client.rpc(
+      final res = await userRpc(
+        _client,
+        _userId,
         'create_chat_session',
         params: {'p_title': title},
       );
@@ -371,10 +378,12 @@ class CoachChatService {
   /// so a swallowed error would let the screen continue as if it succeeded.
   Future<void> renameSession(String sessionId, String title) async {
     try {
-      await _client.rpc('rename_chat_session', params: {
-        'p_session_id': sessionId,
-        'p_title': title,
-      });
+      await userRpc(
+        _client,
+        _userId,
+        'rename_chat_session',
+        params: {'p_session_id': sessionId, 'p_title': title},
+      );
     } catch (e, stack) {
       dev.log(
         'CoachChatService.renameSession failed',
@@ -389,9 +398,12 @@ class CoachChatService {
 
   Future<void> deleteSession(String sessionId) async {
     try {
-      await _client.rpc('delete_chat_session', params: {
-        'p_session_id': sessionId,
-      });
+      await userRpc(
+        _client,
+        _userId,
+        'delete_chat_session',
+        params: {'p_session_id': sessionId},
+      );
     } catch (e, stack) {
       dev.log(
         'CoachChatService.deleteSession failed',
@@ -456,7 +468,9 @@ class CoachChatService {
     final bekannt = _serverTageslimit;
     final dynamic res;
     try {
-      res = await _client.rpc(
+      res = await userRpc(
+        _client,
+        _userId,
         'get_chat_quota_today',
         params: {
           'p_daily_limit': bekannt ?? ChatQuotaSnapshot.standardTageslimit,

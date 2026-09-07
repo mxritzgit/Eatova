@@ -6,6 +6,7 @@ import 'meals_sync.dart';
 import 'profile_sync.dart';
 import 'tracking_sync.dart';
 import 'user_recipes_sync.dart';
+import 'user_rpc.dart';
 
 /// Bundles all Supabase sync services for one authenticated user; built per
 /// user in EatovaApp and released when the home page disposes. dailyLog,
@@ -59,7 +60,7 @@ class EatovaSync {
   /// JWT whose `amr` claim holds an 'otp'/'recovery' entry younger than five
   /// minutes, which `verifyRecoveryCode` creates right before this call.
   Future<void> deleteAccount() async {
-    await client.rpc('delete_account');
+    await userRpc(client, userId, 'delete_account');
   }
 
   void dispose() {}
