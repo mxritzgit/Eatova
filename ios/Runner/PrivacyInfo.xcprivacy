@@ -55,7 +55,7 @@
 		  Gesundheitsdaten: Gewicht, Groesse, Alter, Geschlecht, Zielgewicht und
 		  saemtliche Ernaehrungsdaten (geloggte Mahlzeiten mit kcal/Makros),
 		  dazu Schrittzahl und Gewichtsverlauf aus HealthKit (Schlaf ist seit
-		  PR #46 raus: `readLastSleep` liefert immer null, kein SLEEP-Scope).
+		  PR #46 raus: kein SLEEP-Scope und keine Schlafabfrage).
 		  Beleg: `ProfileSync.load`/`save` in profile_sync.dart (weight_kg,
 		  height_cm, age_years, sex, target_weight_kg, Makro-Ziele) =>
 		  Supabase-Tabelle `profiles`; `TrackingSync.insertWeight` =>

@@ -151,7 +151,7 @@ class _AiImageBadgeOverlay extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               Icon(
-                Icons.auto_awesome_rounded,
+                Icons.image_outlined,
                 size: 12,
                 color: t.onForest,
               ),
@@ -159,10 +159,8 @@ class _AiImageBadgeOverlay extends StatelessWidget {
               Flexible(
                 child: Text(
                   context.l10n.coachRecipeAiImageBadge,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                   style: AppType.ui(
-                    9.5,
+                    11,
                     weight: FontWeight.w700,
                     color: t.onForest,
                     letterSpacing: 1,

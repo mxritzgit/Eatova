@@ -69,6 +69,10 @@ class RecipeImageStore {
   /// User ID the store is bound to; null means nobody is signed in and
   /// resolve/save/deleteFor refuse (fail-closed).
   String? _activeUserId;
+  Object _scopeToken = Object();
+
+  /// Capture before external work; identity changes and purges invalidate it.
+  Object get scopeToken => _scopeToken;
 
   /// Namespace directory, resolved and legacy-migrated, valid for
   /// [_namespaceUserId]. Afterwards [resolveSync] needs no await, so image
@@ -143,6 +147,7 @@ class RecipeImageStore {
   Future<void> setActiveUser(String? userId) {
     final previous = _activeUserId;
     if (previous == userId) return Future<void>.value();
+    _scopeToken = Object();
     _activeUserId = userId;
     if (_namespaceUserId != userId) {
       _namespace = null;
@@ -518,6 +523,7 @@ class RecipeImageStore {
   /// like every other slot in `LocalCache.clear()`. Deliberately broader than
   /// the transition purge in [setActiveUser].
   Future<void> clear() {
+    _scopeToken = Object();
     // Via the maintenance chain, so no concurrent migration moves a file into
     // a namespace while the folder is being deleted.
     return _afterMaintenance(() async {

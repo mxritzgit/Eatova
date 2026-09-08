@@ -117,7 +117,7 @@ class DiaryMealCard extends StatelessWidget {
                               ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: AppType.display(11.5, color: t.ink2),
+                        style: AppType.ui(11.5, weight: FontWeight.w500, color: t.ink2),
                       ),
                       // Slot macros as their own line below the summary; the
                       // summary line itself stays unchanged (tests read it as
@@ -128,7 +128,7 @@ class DiaryMealCard extends StatelessWidget {
                           _macroLine(l10n, total),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: AppType.display(11, color: t.ink2),
+                          style: AppType.ui(11.5, weight: FontWeight.w500, color: t.ink2),
                         ),
                       ],
                     ],
@@ -523,7 +523,7 @@ class _HistoryEntryState extends State<_HistoryEntry>
                               _macroLine(l10n, rowMacros),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: AppType.display(11, color: t.ink2),
+                              style: AppType.ui(11.5, weight: FontWeight.w500, color: t.ink2),
                             ),
                           ],
                         ],
@@ -545,7 +545,7 @@ class _HistoryEntryState extends State<_HistoryEntry>
                         const SizedBox(height: 2),
                         Text(
                           formatMealTime(meal.loggedAt),
-                          style: AppType.display(11, color: t.ink2),
+                          style: AppType.ui(11.5, weight: FontWeight.w500, color: t.ink2),
                         ),
                       ],
                     ),

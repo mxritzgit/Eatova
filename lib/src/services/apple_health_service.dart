@@ -397,11 +397,4 @@ class AppleHealthService implements HealthService {
     samples.sort((a, b) => a.measuredAt.compareTo(b.measuredAt));
     return samples;
   }
-
-  /// Always `null`: the SLEEP scope is no longer requested (see [_types]), so
-  /// a query would return nothing anyway. Kept on the interface for now
-  /// because several HealthService fakes override it; removing it along with
-  /// [SleepSample] and `HealthSnapshot.lastSleepMinutes` is its own step.
-  @override
-  Future<SleepSample?> readLastSleep({DateTime? before}) async => null;
 }

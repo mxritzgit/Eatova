@@ -757,4 +757,113 @@ do $$ begin
 end $$;
 rollback;
 
+-- The claim day is part of the refund contract. All dates below share one
+-- transaction timestamp, so this regression also stays stable at midnight.
+begin;
+delete from public.chat_quota_usage;
+insert into public.chat_quota_usage (user_id, day, used_count) values
+  ('11111111-1111-1111-1111-111111111111', (now() at time zone 'utc')::date - 1, 5),
+  ('11111111-1111-1111-1111-111111111111', (now() at time zone 'utc')::date, 2),
+  ('22222222-2222-2222-2222-222222222222', (now() at time zone 'utc')::date - 1, 4),
+  ('22222222-2222-2222-2222-222222222222', (now() at time zone 'utc')::date, 3);
+set local role service_role;
+
+do $$
+declare
+  a uuid := '11111111-1111-1111-1111-111111111111';
+  b uuid := '22222222-2222-2222-2222-222222222222';
+  today date := (now() at time zone 'utc')::date;
+  claim record;
+  actual_days date[];
+  actual_counts integer[];
+begin
+  -- Yesterday's request failed after a new request had already been booked
+  -- today. Refunding today would grant an unearned extra slot to that day.
+  perform public.refund_chat_quota_for_day(a, today - 1);
+  select array_agg(day order by day), array_agg(used_count order by day)
+    into actual_days, actual_counts from public.chat_quota_usage where user_id = a;
+  if actual_days is distinct from array[today - 1, today]
+     or actual_counts is distinct from array[4, 2] then
+    raise exception 'MIDNIGHT REFUND: wrong A days/counts: % / %', actual_days, actual_counts;
+  end if;
+  select array_agg(day order by day), array_agg(used_count order by day)
+    into actual_days, actual_counts from public.chat_quota_usage where user_id = b;
+  if actual_days is distinct from array[today - 1, today]
+     or actual_counts is distinct from array[4, 3] then
+    raise exception 'MIDNIGHT REFUND: A refund changed B: % / %', actual_days, actual_counts;
+  end if;
+
+  -- Same input signature/default as older handlers, with a new canonical day.
+  select * into claim from public.claim_chat_quota(a);
+  if claim.used is distinct from 3 or claim.remaining is distinct from 2
+     or claim.quota_day is distinct from today then
+    raise exception 'CLAIM DAY: unexpected used/remaining/day: %', claim;
+  end if;
+  perform public.refund_chat_quota_for_day(a, claim.quota_day);
+  if (select used_count from public.chat_quota_usage where user_id = a and day = today)
+       is distinct from 2 then
+    raise exception 'CLAIM DAY: same-day claim/refund did not restore count';
+  end if;
+
+  -- Missing/invalid dates never silently fall back to the current day.
+  perform rlstest.erwarte_sqlstate(
+    format('select public.refund_chat_quota_for_day(%L, null)', a),
+    '22023', 'refund without claim day');
+  perform rlstest.erwarte_sqlstate(
+    format('select public.refund_chat_quota_for_day(null, %L)', today),
+    '22023', 'refund without user');
+  perform rlstest.erwarte_sqlstate(
+    format('select public.refund_chat_quota_for_day(%L, %L)', a, today + 1),
+    '22023', 'refund future claim day');
+  perform rlstest.erwarte_sqlstate(
+    format('select public.refund_chat_quota_for_day(%L, ''infinity'')', a),
+    '22023', 'refund infinite claim day');
+  if (select used_count from public.chat_quota_usage where user_id = a and day = today)
+       is distinct from 2 then
+    raise exception 'CLAIM DAY: invalid refund changed current quota';
+  end if;
+
+  perform public.refund_chat_quota_for_day(a, today - 2);
+  if (select count(*) from public.chat_quota_usage where user_id = a) <> 2 then
+    raise exception 'CLAIM DAY: refund created a missing quota row';
+  end if;
+  update public.chat_quota_usage set used_count = 0 where user_id = a and day = today - 1;
+  perform public.refund_chat_quota_for_day(a, today - 1);
+  if (select used_count from public.chat_quota_usage where user_id = a and day = today - 1)
+       is distinct from 0 then
+    raise exception 'CLAIM DAY: refund made usage negative';
+  end if;
+
+  update public.chat_quota_usage set used_count = 5 where user_id = a and day = today;
+  perform rlstest.erwarte_sqlstate(format('select public.claim_chat_quota(%L)', a),
+    'P0001', 'claim after five slots');
+  if (select used_count from public.chat_quota_usage where user_id = a and day = today)
+       is distinct from 5 then
+    raise exception 'CLAIM DAY: rejected claim changed quota';
+  end if;
+
+  -- Existing deployments keep their callable legacy RPC during staged rollout.
+  perform public.refund_chat_quota(a);
+  if (select used_count from public.chat_quota_usage where user_id = a and day = today)
+       is distinct from 4 then
+    raise exception 'CLAIM DAY: legacy handler compatibility was broken';
+  end if;
+end $$;
+
+set local role authenticated;
+select rlstest.erwarte_ablehnung(
+  'select public.claim_chat_quota(''11111111-1111-1111-1111-111111111111'')',
+  'recreated claim as client');
+select rlstest.erwarte_ablehnung(
+  'select public.refund_chat_quota_for_day(''11111111-1111-1111-1111-111111111111'', current_date)',
+  'dated refund as client');
+set local role anon;
+select rlstest.erwarte_ablehnung(
+  'select public.claim_chat_quota(''11111111-1111-1111-1111-111111111111'')',
+  'recreated claim as anon');
+select rlstest.erwarte_ablehnung(
+  'select public.refund_chat_quota_for_day(''11111111-1111-1111-1111-111111111111'', current_date)',
+  'dated refund as anon');
+rollback;
+
 select 'RLS-Kreuzzugriffe: alle Erwartungen erfuellt' as ergebnis;

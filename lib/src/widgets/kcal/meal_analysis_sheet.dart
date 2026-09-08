@@ -46,6 +46,14 @@ String mealAnalysisErrorMessage(
   if (error is ProductWithoutNutritionException) {
     return error.userMessage(l10n);
   }
+  if (error is ProductLookupHttpException) {
+    return error.statusCode == HttpStatus.tooManyRequests
+        ? l10n.searchRateLimited
+        : l10n.foodSearchUnreachableHint;
+  }
+  if (error is ProductLookupFormatException) {
+    return l10n.foodSearchUnreachableHint;
+  }
   return fallback;
 }
 

@@ -63,9 +63,6 @@ class _FakeHealth implements HealthService {
     required DateTime to,
   }) async =>
       const <WeightSample>[];
-
-  @override
-  Future<SleepSample?> readLastSleep({DateTime? before}) async => null;
 }
 
 void _ignoreSnack(

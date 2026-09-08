@@ -10,6 +10,7 @@
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/logged_meal.dart';
@@ -82,6 +83,32 @@ double _balkenWert(WidgetTester tester) =>
 
 void main() {
   group('TodayStepsCard', () {
+    testWidgets('Schrittziel bleibt bei 320 px und doppelter Schrift lesbar', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(320, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await pumpLocalized(
+        tester,
+        const SingleChildScrollView(
+          child: TodayStepsCard(steps: 7000, goal: 8000, burnedKcal: 261),
+        ),
+        textScale: 2,
+        padding: const EdgeInsets.all(20),
+        settle: true,
+      );
+      final subtitle = tester.renderObject<RenderParagraph>(
+        find.byKey(_untertitel),
+      );
+      expect(
+        subtitle.didExceedMaxLines,
+        isFalse,
+        reason: 'Burned calories and the step goal must both remain visible.',
+      );
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('ohne Schrittquelle gibt es keine Karte', (tester) async {
       await _pump(tester, steps: null, burnedKcal: 261);
 

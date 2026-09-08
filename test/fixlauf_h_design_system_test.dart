@@ -666,20 +666,6 @@ void main() {
       expect(normal, 84);
       expect(gross, 124);
     });
-
-    testWidgets('ScaledWidth ist die Widget-Form davon', (tester) async {
-      await pumpLocalized(
-        tester,
-        const Row(
-          children: <Widget>[
-            ScaledWidth(base: 60, child: Text('Fett')),
-          ],
-        ),
-        padding: _rand,
-        textScale: 1.5,
-      );
-      expect(tester.getSize(find.byType(ScaledWidth)).width, 90);
-    });
   });
 
   // =========================================================================

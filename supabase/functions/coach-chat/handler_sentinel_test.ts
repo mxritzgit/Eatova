@@ -100,7 +100,7 @@ function installFetch(options: StubOptions = {}) {
       return new Response(null, { status: 204 });
     }
     if (url.includes("/rest/v1/rpc/claim_chat_quota")) {
-      return jsonRes(options.quotaBody ?? [{ used: 1, remaining: 4 }]);
+      return jsonRes(options.quotaBody ?? [{ used: 1, remaining: 4, quota_day: "2026-09-08" }]);
     }
     if (url.includes("/rest/v1/rpc/refund_chat_quota")) {
       return new Response(null, { status: 204 });

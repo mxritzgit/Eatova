@@ -240,7 +240,7 @@ void main() {
     Future<SupabaseAuthRepository> angemeldetesRepo(MockClient transport) async {
       final client = _clientAm(transport);
       addTearDown(client.dispose);
-      final repo = SupabaseAuthRepository(client);
+      final repo = SupabaseAuthRepository(client, mutationHttpClient: transport);
       await repo.signIn(email: 'alt@eatova.de', password: 'eatova123');
       return repo;
     }

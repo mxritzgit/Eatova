@@ -92,8 +92,11 @@ class TodayMealRow extends StatelessWidget {
                   children: <Widget>[
                     Text(
                       slot.label(l10n),
-                      style:
-                          AppType.ui(14, weight: FontWeight.w600, color: t.ink),
+                      style: AppType.ui(
+                        14,
+                        weight: FontWeight.w600,
+                        color: t.ink,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -128,6 +131,10 @@ class TodayMealRow extends StatelessWidget {
                   ),
                 ],
               ),
+              if (onTap != null) ...<Widget>[
+                const SizedBox(width: 8),
+                Icon(Icons.chevron_right_rounded, size: 16, color: t.ink2),
+              ],
             ],
           ),
         ),
@@ -187,75 +194,60 @@ class TodayStepsCard extends StatelessWidget {
       key: const ValueKey('today-steps-card'),
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Row(
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: <Widget>[
-              // Tile instead of a letter avatar: steps are not a slot. Radius
-              // 14 like the header profile badge, lime to match the burned
-              // tile in the hero.
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: t.lime.withValues(alpha: 0.28),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(
-                  Icons.directions_walk_rounded,
-                  size: 22,
-                  color: t.accent,
-                ),
-              ),
-              const SizedBox(width: 13),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      l10n.todayStepsTitle,
-                      style:
-                          AppType.ui(14, weight: FontWeight.w600, color: t.ink),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: t.lime.withValues(alpha: 0.28),
+                      borderRadius: BorderRadius.circular(14),
                     ),
-                    if (untertitel.isNotEmpty) ...<Widget>[
-                      const SizedBox(height: 2),
-                      Text(
-                        untertitel,
-                        key: const ValueKey('today-steps-subtitle'),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppType.ui(11.5, color: t.ink2),
-                      ),
-                    ],
-                  ],
-                ),
+                    child: Center(child: StepsIcon(size: 22, color: t.accent)),
+                  ),
+                  const SizedBox(width: 13),
+                  Flexible(
+                    child: Text(
+                      l10n.todayStepsTitle,
+                      style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 10),
               Column(
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: <Widget>[
                   Text(
                     formatThousands(schritte, locale),
                     key: const ValueKey('today-steps-value'),
-                    style: AppType.display(
-                      16,
-                      weight: FontWeight.w700,
-                      color: t.ink,
-                    ),
+                    style: AppType.display(16, weight: FontWeight.w700, color: t.ink),
                   ),
                   Text(
                     l10n.todayStepsUnit,
-                    style: AppType.ui(
-                      9.5,
-                      weight: FontWeight.w500,
-                      color: t.ink2,
-                      letterSpacing: 0.5,
-                    ),
+                    style: AppType.ui(9.5, weight: FontWeight.w500, color: t.ink2, letterSpacing: 0.5),
                   ),
                 ],
               ),
             ],
           ),
+          if (untertitel.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 10),
+            Text(
+              untertitel,
+              key: const ValueKey('today-steps-subtitle'),
+              style: AppType.ui(12, color: t.ink2, height: 1.4),
+            ),
+          ],
           const SizedBox(height: 12),
           // Same bar as [MacroBar] (height, radius, animation) without the
           // label/value columns — those are already above.
@@ -306,9 +298,7 @@ class TodayCoachBanner extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: t.surf2,
-        // 24 like [AppCard]: the banner shares a column with the macro and
-        // meal cards and must match their corners; rCard (22) would stand out.
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(rCard),
         border: Border.all(color: t.line),
       ),
       child: Stack(
@@ -354,7 +344,8 @@ class TodayCoachBanner extends StatelessWidget {
                       key: const ValueKey('today-coach-cta'),
                       onTap: onTap,
                       borderRadius: BorderRadius.circular(rChip),
-                      child: Padding(
+                      child: Container(
+                        constraints: const BoxConstraints(minHeight: 44),
                         padding: const EdgeInsets.symmetric(
                           horizontal: 15,
                           vertical: 9,

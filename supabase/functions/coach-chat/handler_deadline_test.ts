@@ -171,7 +171,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
     if (url.includes("/rest/v1/rpc/prune_edge_rate_limits")) return new Response(null, { status: 204 });
     if (url.includes("/rest/v1/rpc/ensure_default_chat_session")) return jsonRes(SESSION_ID);
     if (url.includes("/rest/v1/rpc/touch_chat_session")) return new Response(null, { status: 204 });
-    if (url.includes("/rest/v1/rpc/claim_chat_quota")) return jsonRes([{ used: 1, remaining: 4 }]);
+    if (url.includes("/rest/v1/rpc/claim_chat_quota")) return jsonRes([{ used: 1, remaining: 4, quota_day: "2026-09-08" }]);
     if (url.includes("/rest/v1/rpc/refund_chat_quota")) return new Response(null, { status: 204 });
     if (url.includes("openrouter.ai")) {
       const parsed = JSON.parse(body) as JsonRecord;

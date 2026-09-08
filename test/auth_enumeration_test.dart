@@ -199,7 +199,7 @@ void main() {
   group('Nonce: heutiges Wire-Verhalten', () {
     test('Recovery setzt ohne Nonce, die Einstellungen mit', () async {
       final koerper = <Map<String, dynamic>>[];
-      final client = _clientAm(MockClient((req) async {
+      final transport = MockClient((req) async {
         if (req.url.path.endsWith('/token')) {
           return http.Response(jsonEncode(_sessionJson()), 200,
               headers: _jsonHeader);
@@ -211,10 +211,11 @@ void main() {
               headers: _jsonHeader);
         }
         return http.Response('{}', 200, headers: _jsonHeader);
-      }));
+      });
+      final client = _clientAm(transport);
       addTearDown(client.dispose);
 
-      final repo = SupabaseAuthRepository(client);
+      final repo = SupabaseAuthRepository(client, mutationHttpClient: transport);
       // Session as after `verifyRecoveryCode`: fresh and carrying no nonce.
       await repo.signIn(email: 'user@eatova.de', password: 'eatova123');
 

@@ -21,6 +21,13 @@ enum ReminderState {
 mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
   ReminderState _reminderState = ReminderState.off;
   bool _onboardingDone = false;
+  int _notificationRevision = 0;
+  int? _notificationOptInRevision;
+
+  bool _notificationRequestIsCurrent(int revision) =>
+      !_disposed &&
+      !_notificationSessionEnded &&
+      revision == _notificationRevision;
 
   /// Whether anything actually fires in the evening. True only for
   /// [ReminderState.active] — "blocked" is not "on" (D11).
@@ -48,14 +55,23 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
   /// with [NotificationPermissionProbe.hasPermission] (silent) — never
   /// `requestPermission()`, which would ambush the user with a dialog.
   Future<void> _initNotificationsFromCache() async {
+    // Hydration may finish after a user has already changed the preference.
+    if (_disposed || _notificationSessionEnded || _notificationRevision != 0) {
+      return;
+    }
+    final revision = _notificationRevision;
     final cache = _notificationCache;
     if (cache == null) return;
     final enabled = await cache.readNotificationsEnabled() ?? false;
-    if (_disposed) return;
+    if (!_notificationRequestIsCurrent(revision)) return;
     // No opt-in -> the OS is never asked.
     if (!enabled) return;
 
-    await _syncWithOsGuarded(cache, context: 'notifications-cold-start');
+    await _syncWithOsGuarded(
+      cache,
+      context: 'notifications-cold-start',
+      revision: revision,
+    );
   }
 
   /// init + OS re-check, fenced (F7-12 / F1-09): a PlatformException from the
@@ -66,14 +82,16 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
   Future<void> _syncWithOsGuarded(
     LocalCache cache, {
     required String context,
+    required int revision,
   }) async {
     try {
       _syncNotificationLocale();
       await notificationService.init();
-      await _applyOsPermission(cache);
+      if (!_notificationRequestIsCurrent(revision)) return;
+      await _applyOsPermission(cache, revision);
     } catch (e, st) {
       unawaited(CrashReporter.capture(e, st, context: context));
-      if (_disposed) return;
+      if (!_notificationRequestIsCurrent(revision)) return;
       _setReminderState(ReminderState.blocked);
     }
   }
@@ -90,9 +108,9 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
 
   /// Re-reads the OS layer and brings state + cache in line. Never shows a
   /// dialog — the only place allowed to ask is [_setNotificationsEnabled].
-  Future<void> _applyOsPermission(LocalCache cache) async {
+  Future<void> _applyOsPermission(LocalCache cache, int revision) async {
     final granted = await _osDeliversNotifications();
-    if (_disposed) return;
+    if (!_notificationRequestIsCurrent(revision)) return;
 
     if (granted == null) {
       // Unknown (service without probe): claim nothing, invalidate nothing.
@@ -104,6 +122,7 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     if (granted) {
       _setReminderState(ReminderState.active);
       await cache.writeNotificationsEnabled(true);
+      if (!_notificationRequestIsCurrent(revision)) return;
       await _rescheduleStreakReminder();
       return;
     }
@@ -113,6 +132,7 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     // next cold start plans into the void again.
     _setReminderState(ReminderState.blocked);
     await cache.writeNotificationsEnabled(false);
+    if (!_notificationRequestIsCurrent(revision)) return;
     await notificationService.cancelAll();
   }
 
@@ -139,11 +159,16 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
   }
 
   Future<void> _setNotificationsEnabled(bool enabled) async {
+    if (_disposed || _notificationSessionEnded) return;
+    // A later user choice wins over every earlier permission request/probe.
+    final revision = ++_notificationRevision;
+    _notificationOptInRevision = enabled ? revision : null;
     final cache = _notificationCache;
 
     if (!enabled) {
       _setReminderState(ReminderState.off);
       await cache?.writeNotificationsEnabled(false);
+      if (!_notificationRequestIsCurrent(revision)) return;
       await notificationService.cancelAll();
       return;
     }
@@ -152,6 +177,7 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     try {
       _syncNotificationLocale();
       await notificationService.init();
+      if (!_notificationRequestIsCurrent(revision)) return;
       // D11: ask first, THEN persist. Previously `true` sat in the cache
       // before the system dialog was even answered, and stayed on "Don't
       // allow".
@@ -159,12 +185,16 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     } catch (e, st) {
       // Same fence as the cold start: blocked instead of a zone error.
       unawaited(CrashReporter.capture(e, st, context: 'notifications-opt-in'));
-      if (_disposed) return;
+      if (!_notificationRequestIsCurrent(revision)) return;
       _setReminderState(ReminderState.blocked);
       await cache?.writeNotificationsEnabled(false);
       return;
+    } finally {
+      if (_notificationOptInRevision == revision) {
+        _notificationOptInRevision = null;
+      }
     }
-    if (_disposed) return;
+    if (!_notificationRequestIsCurrent(revision)) return;
 
     if (!granted) {
       _setReminderState(ReminderState.blocked);
@@ -174,6 +204,7 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
 
     _setReminderState(ReminderState.active);
     await cache?.writeNotificationsEnabled(true);
+    if (!_notificationRequestIsCurrent(revision)) return;
     await _rescheduleStreakReminder();
   }
 
@@ -182,9 +213,13 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
   /// pass the full planner list — no duplicates on repeated calls. Guard:
   /// never plans without granted permission.
   Future<void> _rescheduleStreakReminder() async {
-    if (_reminderState != ReminderState.active) return;
+    if (_disposed ||
+        _notificationSessionEnded ||
+        _reminderState != ReminderState.active) {
+      return;
+    }
     await notificationService.scheduleAll(
-      planStreakReminders(DateTime.now(), lifetimeStats, _l10n),
+      planStreakReminders(clock.now(), lifetimeStats, _l10n),
     );
   }
 
@@ -198,10 +233,21 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
   /// resume, after the user has been in the system settings. Nothing happens
   /// for [ReminderState.off].
   Future<void> refreshNotificationPermission() async {
-    if (_reminderState == ReminderState.off) return;
+    if (_disposed ||
+        _notificationSessionEnded ||
+        // A permission sheet can resume the app before its result arrives.
+        // Its explicit answer takes precedence over a passive, older OS read.
+        _notificationOptInRevision != null ||
+        _reminderState == ReminderState.off) {
+      return;
+    }
     final cache = _notificationCache;
     if (cache == null) return;
-    await _syncWithOsGuarded(cache, context: 'notifications-refresh');
+    await _syncWithOsGuarded(
+      cache,
+      context: 'notifications-refresh',
+      revision: ++_notificationRevision,
+    );
   }
 
   /// Cold-start path as a public facade — boot calls it from

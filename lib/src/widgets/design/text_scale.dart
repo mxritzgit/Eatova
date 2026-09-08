@@ -15,22 +15,3 @@ double scaledWidth(BuildContext context, double base, {double? max}) {
   final scaler = MediaQuery.textScalerOf(context);
   return scaler.scale(base).clamp(base, max ?? base * 1.5);
 }
-
-/// A [SizedBox] whose width is [scaledWidth] of [base].
-class ScaledWidth extends StatelessWidget {
-  const ScaledWidth({
-    super.key,
-    required this.base,
-    this.max,
-    required this.child,
-  });
-
-  final double base;
-  final double? max;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(width: scaledWidth(context, base, max: max), child: child);
-  }
-}

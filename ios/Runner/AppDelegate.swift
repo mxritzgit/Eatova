@@ -128,7 +128,7 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
   private var recognitionTask: SFSpeechRecognitionTask?
   private var pendingResult: FlutterResult?
   private var lastTranscription = ""
-  private var isFinishing = false
+  private var activeSessionID: UUID?
   private var tapInstalled = false
 
   /// Diagnostic log for the recognition mode: only a bool + locale id,
@@ -176,8 +176,9 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
       }
       self.pendingResult = result
       self.lastTranscription = ""
-      self.isFinishing = false
-      self.requestSpeechAuthorization(localeId: localeId)
+      let sessionID = UUID()
+      self.activeSessionID = sessionID
+      self.requestSpeechAuthorization(localeId: localeId, sessionID: sessionID)
     }
   }
 
@@ -188,19 +189,30 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
     }
   }
 
-  private func requestSpeechAuthorization(localeId: String) {
+  private func isCurrentSession(_ sessionID: UUID) -> Bool {
+    activeSessionID == sessionID && pendingResult != nil
+  }
+
+  private func requestSpeechAuthorization(localeId: String, sessionID: UUID) {
     SFSpeechRecognizer.requestAuthorization { status in
       DispatchQueue.main.async {
+        guard self.isCurrentSession(sessionID) else { return }
         switch status {
         case .authorized:
-          AVAudioSession.sharedInstance().requestRecordPermission { granted in
+          let completion: @Sendable (Bool) -> Void = { granted in
             DispatchQueue.main.async {
+              guard self.isCurrentSession(sessionID) else { return }
               guard granted else {
                 self.finish(errorCode: "permission_denied", message: "Mikrofon wurde nicht erlaubt.")
                 return
               }
-              self.startRecognition(localeId: localeId)
+              self.startRecognition(localeId: localeId, sessionID: sessionID)
             }
+          }
+          if #available(iOS 17.0, *) {
+            AVAudioApplication.requestRecordPermission(completionHandler: completion)
+          } else {
+            AVAudioSession.sharedInstance().requestRecordPermission(completion)
           }
         case .denied, .restricted:
           self.finish(errorCode: "permission_denied", message: "Spracherkennung wurde nicht erlaubt.")
@@ -213,7 +225,8 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
     }
   }
 
-  private func startRecognition(localeId: String) {
+  private func startRecognition(localeId: String, sessionID: UUID) {
+    guard isCurrentSession(sessionID) else { return }
     guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: localeId)) else {
       finish(errorCode: "unavailable", message: "Spracherkennung ist fuer diese Sprache nicht installiert.")
       return
@@ -277,6 +290,7 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
       recognitionTask = recognizer.recognitionTask(with: request) { [weak self] speechResult, error in
         guard let self = self else { return }
         DispatchQueue.main.async {
+          guard self.isCurrentSession(sessionID) else { return }
           if let speechResult = speechResult {
             self.lastTranscription = speechResult.bestTranscription.formattedString
             if speechResult.isFinal {
@@ -302,23 +316,22 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
   }
 
   private func finish(success text: String) {
-    guard !isFinishing else { return }
-    isFinishing = true
-    cleanupAudio()
-    let result = pendingResult
-    pendingResult = nil
-    result?(text)
-    isFinishing = false
+    finish(result: text)
   }
 
   private func finish(errorCode: String, message: String) {
-    guard !isFinishing else { return }
-    isFinishing = true
-    cleanupAudio()
-    let result = pendingResult
+    finish(result: FlutterError(code: errorCode, message: message, details: nil))
+  }
+
+  private func finish(result value: Any) {
+    guard let result = pendingResult else { return }
+    // Invalidate before endAudio/cancel can deliver callbacks from this task.
+    // A later permission or recognition callback must not restart recording
+    // or complete a subsequent listen call.
+    activeSessionID = nil
     pendingResult = nil
-    result?(FlutterError(code: errorCode, message: message, details: nil))
-    isFinishing = false
+    cleanupAudio()
+    result(value)
   }
 
   private func cleanupAudio() {

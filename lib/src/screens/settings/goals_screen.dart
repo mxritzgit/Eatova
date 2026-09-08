@@ -77,7 +77,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
   late ReminderState _reminder;
 
   // --- Baseline for the discard prompt (D5) --------------------------------
-  late final ReminderState _reminderStart;
+  late ReminderState _reminderStart;
   late final bool _manualStart;
   late final Map<TextEditingController, String> _textStart;
 
@@ -119,6 +119,26 @@ class _GoalsScreenState extends State<GoalsScreen> {
     _textStart = <TextEditingController, String>{
       for (final c in _alleFelder) c: c.text,
     };
+  }
+
+  @override
+  void didUpdateWidget(GoalsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final incoming =
+        widget.reminderState ??
+        (widget.notificationsEnabled
+            ? ReminderState.active
+            : ReminderState.off);
+    final previous =
+        oldWidget.reminderState ??
+        (oldWidget.notificationsEnabled
+            ? ReminderState.active
+            : ReminderState.off);
+    if (incoming == previous) return;
+    // Follow OS permission changes without discarding a user's unsaved choice.
+    // Refresh the baseline too: a system update is not an edited form field.
+    if (_reminder == _reminderStart) _reminder = incoming;
+    _reminderStart = incoming;
   }
 
   List<TextEditingController> get _alleFelder => <TextEditingController>[

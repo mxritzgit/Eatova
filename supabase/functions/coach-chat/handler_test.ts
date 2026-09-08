@@ -272,7 +272,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
         // the sentinel via text.includes.
         return jsonRes({ message: "EX_QUOTA_EXCEEDED" }, 400);
       }
-      return jsonRes([{ used: 1, remaining: 4 }]);
+      return jsonRes([{ used: 1, remaining: 4, quota_day: "2026-09-08" }]);
     }
     if (url.includes("/rest/v1/rpc/refund_chat_quota")) {
       return new Response(null, { status: 204 });

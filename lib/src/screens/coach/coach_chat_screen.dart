@@ -115,6 +115,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   String? _activeSessionId;
   bool _loading = true;
   bool _listening = false;
+  int _speechGeneration = 0;
   String? _error;
 
   /// Draft text as a [ValueNotifier], deliberately NOT screen state: its only
@@ -229,6 +230,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     }
     final sichtbar = TickerMode.valuesOf(context).enabled;
     final wurdeSichtbar = sichtbar && !_sichtbar;
+    if (!sichtbar && _sichtbar) _cancelSpeechInput();
     _sichtbar = sichtbar;
     final svc = widget.service;
     // Only on becoming visible and only once bootstrap is done, or two calls
@@ -265,6 +267,12 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      if (_listening) setState(_cancelSpeechInput);
+      return;
+    }
     if (state != AppLifecycleState.resumed) return;
     final svc = widget.service;
     if (!_sichtbar || svc == null || _loading) return;
@@ -274,6 +282,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _cancelSpeechInput();
     _input.dispose();
     _draft.dispose();
     _streamVorschau.dispose();
@@ -298,6 +307,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
 
   Future<void> _bootstrapIntern() async {
     final svc = widget.service;
+    final sessionBeforeLoad = _activeSessionId;
     // Safety net only: both callers already guarantee a non-null service, so
     // this branch needs no `context.l10n` before the first `await`.
     if (svc == null) return;
@@ -318,11 +328,12 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       // default session anyway.
       sessions = const <ChatSession>[];
     }
+    if (!mounted || _activeSessionId != sessionBeforeLoad) return;
     final activeId = sessions.isNotEmpty
         ? sessions.first.id
         : await svc.ensureDefaultSession();
     if (activeId == null) {
-      if (!mounted) return;
+      if (!mounted || _activeSessionId != sessionBeforeLoad) return;
       // After at least one `await`: Localizations is guaranteed to be there.
       setState(() {
         _loading = false;
@@ -336,7 +347,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     } on CoachDataUnavailable {
       // "Not loadable" is not "empty": an empty _messages would show the hero
       // state and present the history as deleted.
-      if (!mounted) return;
+      if (!mounted || _activeSessionId != sessionBeforeLoad) return;
       setState(() {
         _loading = false;
         _historyUnavailable = true;
@@ -344,6 +355,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       });
       return;
     }
+    if (!mounted || _activeSessionId != sessionBeforeLoad) return;
     _historyUnavailable = false;
     history = await _hydrateProposalImages(history);
     // Unknown stays unknown: the last known state survives instead of being
@@ -362,7 +374,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         refreshedSessions = _sessions;
       }
     }
-    if (!mounted) return;
+    // A newly created or selected conversation takes precedence over bootstrap.
+    if (!mounted || _activeSessionId != sessionBeforeLoad) return;
     setState(() {
       _sessions = refreshedSessions;
       _activeSessionId = activeId;
@@ -463,6 +476,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     setState(() {
       _activeSessionId = id;
       _messages = const <ChatMessage>[];
+      _loading = false;
+      _historyUnavailable = false;
       _error = null;
       _fehlgeschlagen = null;
     });
@@ -909,6 +924,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     required String displayText,
     required AppLocalizations l10n,
   }) async {
+    final imageStore = RecipeImageStore.instance;
+    final imageScope = imageStore.scopeToken;
     HapticFeedback.selectionClick();
     final userMsg = ChatMessage(
       id: 'local-${DateTime.now().microsecondsSinceEpoch}',
@@ -943,9 +960,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       );
       // As in [_send]: the slot is spent even if the card is discarded.
       _quotaUebernehmen(remaining: res.remaining, dailyLimit: res.dailyLimit);
-      // Session comparison as in [_send]: the card belongs to the session the
-      // wish came from.
-      if (!mounted || _activeSessionId != sessionId) return;
+      if (!mounted) return;
       // Store the image under the SERVER message id, so history reconstruction
       // and the live card use the same key.
       final serverId = res.assistantMessageId;
@@ -953,12 +968,17 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       // Fire and forget, except on the drift path below, which has to wait for
       // the file. `catchError` keeps that await from throwing into a branch
       // that only knows coach errors.
-      final bildGespeichert = serverId != null && imageBytes != null
-          ? RecipeImageStore.instance
+      final bildGespeichert = serverId != null &&
+              imageBytes != null &&
+              imageStore.scopeToken == imageScope
+          ? imageStore
               .saveProposalImage(messageId: serverId, bytes: imageBytes)
               .catchError((Object _) => false)
           : null;
       if (bildGespeichert != null) unawaited(bildGespeichert);
+      // Images exist only in this response: keep them in the original user's
+      // local store even when another conversation is now visible.
+      if (_activeSessionId != sessionId) return;
       if (res.sessionId != sessionId) {
         // Mirror of [_send]. The reload rebuilds the card from
         // `chat_messages.recipe` and rehydrates its image from disk, so the
@@ -1195,17 +1215,29 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     return l10n.coachErrorImageOpenFailed;
   }
 
+  /// A hidden or disposed screen must neither record nor accept late dictation.
+  void _cancelSpeechInput() {
+    _speechGeneration++;
+    if (!_listening) return;
+    _listening = false;
+    unawaited(widget.speechInput.stop());
+  }
+
   Future<void> _toggleSpeechInput() async {
     if (!_canInteract) return;
     HapticFeedback.selectionClick();
     if (_listening) {
+      final generation = _speechGeneration;
       await widget.speechInput.stop();
-      if (mounted) setState(() => _listening = false);
+      if (mounted && generation == _speechGeneration) {
+        setState(() => _listening = false);
+      }
       return;
     }
 
     // Grabbed before the first `await`: safe context access.
     final l10n = context.l10n;
+    final generation = ++_speechGeneration;
     setState(() {
       _listening = true;
       _error = null;
@@ -1218,7 +1250,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         localeId: speechLocaleId,
         l10n: l10n,
       );
-      if (!mounted) return;
+      if (!mounted || generation != _speechGeneration) return;
       setState(() => _listening = false);
       final text = spokenText?.trim() ?? '';
       if (text.isEmpty) {
@@ -1232,13 +1264,13 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _input.selection = TextSelection.collapsed(offset: text.length);
       _inputFocus.requestFocus();
     } on CoachSpeechException catch (e) {
-      if (!mounted) return;
+      if (!mounted || generation != _speechGeneration) return;
       setState(() {
         _listening = false;
         _error = e.message;
       });
     } catch (_) {
-      if (!mounted) return;
+      if (!mounted || generation != _speechGeneration) return;
       setState(() {
         _listening = false;
         _error = l10n.coachSpeechUnavailable;
@@ -1311,7 +1343,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
           onDelete: (id) async {
             await _deleteSession(id);
             // _deleteSession already refreshed _sessions — redraw the sheet.
-            if (mounted) setSheetState(() {});
+            if (sheetContext.mounted) setSheetState(() {});
           },
         ),
       ),

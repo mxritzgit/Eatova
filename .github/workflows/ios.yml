@@ -1,11 +1,8 @@
 name: ios
 
-# --- G8 (Review 2026-08-08): first iOS coverage in CI ------------------------
-# Without a macos job, Podfile/plugin conflicts, Info.plist regressions and
-# Swift compile errors reached main unseen. The first run is expected to be
-# RED: ios/Podfile.lock is not from a real `pod install` (all ten checksums
-# differ, four pods missing), the deployment target was raised to 14.0 because
-# `health` demands it, and PrivacyInfo.xcprivacy is new.
+# Native compile/configuration gate. Flutter 3.47.2 uses the committed
+# Swift Package Manager integration; Flutter + health remain in Podfile.lock.
+# The app and Podfile both target iOS 15.
 #
 # --- Triggers and cost -------------------------------------------------------
 # macOS runners cost 10x a Linux runner, so this runs only on ios/**,
@@ -62,7 +59,7 @@ jobs:
           cache: true
 
       # Diagnose first: the Xcode version on macos-latest drifts, and a newer
-      # Xcode may already warn about a 14.0 deployment target.
+      # Xcode may introduce new native build requirements.
       - name: Toolchain-Diagnose
         run: |
           sw_vers
@@ -87,9 +84,9 @@ jobs:
         working-directory: ios
         run: pod install --repo-update
 
-      # Lock drift is a WARNING, not a failure: the checked-in lock is not from
-      # a real `pod install` and nobody here has a Mac, so failing hard would
-      # keep every pubspec bump red. The output below is the ready-made patch.
+      # Report CocoaPods lock drift separately from the native compile gate.
+      # The checked-in lock comes from the working SPM/CocoaPods setup; plugin
+      # or CocoaPods changes may still require an updated lock.
       - name: Podfile.lock-Drift melden
         if: always()
         run: |
@@ -150,10 +147,8 @@ jobs:
             {
               echo "### iOS-Build: FEHLGESCHLAGEN"
               echo ""
-              echo "Beim ersten Lauf dieses Workflows ist das erwartet — die iOS-App wurde vor"
-              echo "diesem Job nie gebaut. Bekannte Baustellen: \`ios/Podfile.lock\` stammt nicht"
-              echo "aus einem echten \`pod install\`, das Deployment-Target ist frisch auf 14.0"
-              echo "angehoben, und \`PrivacyInfo.xcprivacy\` ist neu. Die Log-Ausgabe oben ist die"
-              echo "Arbeitsliste."
+              echo "Der native Build hat keine Runner.app erzeugt. Die fehlgeschlagenen Schritte"
+              echo "oben zeigen den aktuellen Fehler; Toolchain, Plugin-Aufloesung und"
+              echo "Runner-Konfiguration gegen den dokumentierten Stand pruefen."
             } >> "$GITHUB_STEP_SUMMARY"
           fi

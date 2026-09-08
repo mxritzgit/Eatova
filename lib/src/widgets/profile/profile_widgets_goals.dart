@@ -40,7 +40,7 @@ class GoalsCard extends StatelessWidget {
           ),
           Divider(height: 1, thickness: 1, color: t.line),
           SettingsRow(
-            leading: const IconTile(icon: Icons.directions_walk_outlined),
+            leading: const IconTile.custom(child: StepsIcon()),
             title: l10n.profileGoalsSteps,
             value: '$dailySteps/${profile.dailyStepsGoal}',
             chevron: false,

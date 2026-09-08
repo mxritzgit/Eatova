@@ -213,41 +213,68 @@ class _NutritionGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    // One distinct macro token per tile: `orange` and `macroFat` are equal.
-    return Row(
-      children: [
-        Expanded(
-          child: _NutritionTile(
-            label: l10n.recipesNutritionKcalLabel,
-            value: '${recipe.caloriesKcal}',
-            color: t.accent,
+    final tiles = [
+      _NutritionTile(
+        label: l10n.recipesNutritionKcalLabel,
+        value: '${recipe.caloriesKcal}',
+        color: t.accent,
+      ),
+      _NutritionTile(
+        label: l10n.todayMacroProtein,
+        value: '${recipe.proteinG} g',
+        color: t.protein,
+      ),
+      _NutritionTile(
+        label: l10n.recipesNutritionCarbsLabel,
+        value: '${recipe.carbsG} g',
+        color: t.carbs,
+      ),
+      _NutritionTile(
+        label: l10n.todayMacroFat,
+        value: '${recipe.fatG} g',
+        color: t.fat,
+      ),
+    ];
+    var minimumWidth = 0.0;
+    for (final tile in tiles) {
+      for (final (text, style) in [
+        (tile.value, _NutritionTile.valueStyle(t)),
+        (tile.label.toUpperCase(), _NutritionTile.labelStyle(t)),
+      ]) {
+        final resolvedStyle = DefaultTextStyle.of(context).style.merge(style);
+        final painter = TextPainter(
+          text: TextSpan(
+            text: text,
+            style: MediaQuery.boldTextOf(context)
+                ? resolvedStyle.copyWith(fontWeight: FontWeight.bold)
+                : resolvedStyle,
           ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _NutritionTile(
-            label: l10n.todayMacroProtein,
-            value: '${recipe.proteinG} g',
-            color: t.protein,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _NutritionTile(
-            label: l10n.recipesNutritionCarbsLabel,
-            value: '${recipe.carbsG} g',
-            color: t.carbs,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: _NutritionTile(
-            label: l10n.todayMacroFat,
-            value: '${recipe.fatG} g',
-            color: t.fat,
-          ),
-        ),
-      ],
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+          locale: Localizations.maybeLocaleOf(context),
+        )..layout();
+        // Card padding and its two 1 px borders also consume width.
+        final width = painter.width.ceilToDouble() + 18;
+        painter.dispose();
+        if (width > minimumWidth) minimumWidth = width;
+      }
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = [4, 2, 1].firstWhere(
+          (count) =>
+              count * minimumWidth + (count - 1) * 8 <= constraints.maxWidth,
+          orElse: () => 1,
+        );
+        final width = (constraints.maxWidth - (columns - 1) * 8) / columns;
+        return Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final tile in tiles) SizedBox(width: width, child: tile),
+          ],
+        );
+      },
     );
   }
 }
@@ -269,6 +296,12 @@ class _NutritionTile extends StatelessWidget {
   /// text, but the kcal tile keeps the row's one shape.
   final Color color;
 
+  static TextStyle valueStyle(AppTokens t) =>
+      AppType.display(16, weight: FontWeight.w700, color: t.ink);
+
+  static TextStyle labelStyle(AppTokens t) =>
+      AppType.eyebrow(t.ink2, size: 9.5);
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
@@ -277,26 +310,19 @@ class _NutritionTile extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
       child: Column(
         children: [
-          // Above the number, not beside it: four tiles share a phone width
-          // and a leading dot would push the number into its ellipsis.
+          // Keep nutrient color separate from the readable value.
           Container(
             width: 8,
             height: 8,
             decoration: BoxDecoration(color: color, shape: BoxShape.circle),
           ),
           const SizedBox(height: 7),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppType.display(16, weight: FontWeight.w700, color: t.ink),
-          ),
+          Text(value, textAlign: TextAlign.center, style: valueStyle(t)),
           const SizedBox(height: 4),
           Text(
             label.toUpperCase(),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppType.eyebrow(t.ink2, size: 9.5),
+            textAlign: TextAlign.center,
+            style: labelStyle(t),
           ),
         ],
       ),
@@ -346,7 +372,7 @@ class _RecipeInfoSection extends StatelessWidget {
               width: double.infinity,
               child: Text(
                 body,
-                style: AppType.ui(13, color: t.ink2, height: 1.5),
+                style: AppType.ui(14, color: t.ink, height: 1.5),
               ),
             ),
           ),

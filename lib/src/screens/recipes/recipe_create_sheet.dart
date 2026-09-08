@@ -40,6 +40,8 @@ const int _nameMaxChars = 160; // LoggedMealLimits.mealNameMaxChars
 /// 20260819140000) so a 23514 can never turn a recipe into a local-only one.
 const int _portionMaxChars = 200;
 const int _ingredientsMaxChars = 4000;
+const int _portionMaxCodePoints = 1000;
+const int _ingredientsMaxCodePoints = 20000;
 
 /// `user_recipes.title` is `char_length(title) <= 300`, i.e. CODE POINTS.
 /// Flutter's `maxLength` counts grapheme clusters, so 160 ZWJ family emoji
@@ -280,7 +282,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   bool get _hasPhoto => _photoBytes != null;
 
   Future<void> _pickPhoto(ImageSource source) async {
-    if (_photoBusy) return;
+    if (_photoBusy || _saving) return;
     setState(() => _photoBusy = true);
     Uint8List? bytes;
     try {
@@ -373,6 +375,11 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
       ? context.l10n.recipesNameTooLongError
       : null;
 
+  String? _textFehler(TextEditingController controller, int maxCodePoints) =>
+      controller.text.trim().runes.length > maxCodePoints
+          ? context.l10n.recipesTextTooLongError
+          : null;
+
   /// Save is enabled when the required fields are filled and all fields are
   /// within their limits.
   bool get _isValid {
@@ -380,6 +387,8 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     // Required fields: empty means missing, not optional.
     if (_kcal.text.trim().isEmpty || _grams.text.trim().isEmpty) return false;
     return _nameFehler == null &&
+        _textFehler(_portion, _portionMaxCodePoints) == null &&
+        _textFehler(_ingredients, _ingredientsMaxCodePoints) == null &&
         _kcalFehler == null &&
         _gramsFehler == null &&
         _makroFehler(_protein) == null &&
@@ -395,7 +404,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   /// stays readable as a `VoidCallback` on the [FilledButton] (`null` =
   /// disabled), which recipe_create_sheet_test relies on.
   Future<void> _save() async {
-    if (!_isValid || _saving) return;
+    if (!_isValid || _saving || _photoBusy) return;
     // `maxLength` caps the name at 160 GRAPHEMES, which can still be more
     // than the 300 code points Postgres' `char_length` allows; `_isValid`
     // (via `_nameFehler`) has already rejected that case. Only trim left.
@@ -413,6 +422,12 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
         _felder.firstWhere((feld) => feld.controller == _portion);
     final portion = portionField.veraendert ? _portion.text.trim() : '';
     final slug = FitnessRecipe.userRecipeSlug();
+    // Capture every validated value before the asynchronous photo write.
+    final caloriesKcal = _zahl(_kcal);
+    final proteinG = _zahl(_protein);
+    final carbsG = _zahl(_carbs);
+    final fatG = _zahl(_fat);
+    final estimatedGrams = _zahl(_grams);
 
     // The store names the image cryptographically at random, not from the slug
     // (Security review 2026-08-11, finding 5: `user_<ms>` was guessable). If
@@ -428,9 +443,9 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     final bytes = _photoBytes;
     if (bytes != null) {
       setState(() => _saving = true);
+      FocusScope.of(context).unfocus();
       final referenz = await RecipeImageStore.instance.save(bytes: bytes);
       if (!mounted) return;
-      setState(() => _saving = false);
       if (referenz == null) {
         fotoFehlgeschlagen = true;
       } else {
@@ -451,11 +466,11 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
           preparation: '',
           professionalHint: '',
           imageAsset: imageAsset,
-          caloriesKcal: _zahl(_kcal),
-          proteinG: _zahl(_protein),
-          carbsG: _zahl(_carbs),
-          fatG: _zahl(_fat),
-          estimatedGrams: _zahl(_grams),
+          caloriesKcal: caloriesKcal,
+          proteinG: proteinG,
+          carbsG: carbsG,
+          fatG: fatG,
+          estimatedGrams: estimatedGrams,
           categories: const <String>['Eigene'],
           userCreated: true,
         ),
@@ -472,7 +487,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   bool _discardDialogOpen = false;
 
   Future<void> _askDiscard() async {
-    if (_discardDialogOpen) return;
+    if (_discardDialogOpen || _saving) return;
     _discardDialogOpen = true;
     final verwerfen = await _confirmDiscardChanges(context);
     _discardDialogOpen = false;
@@ -498,7 +513,13 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
         onDismissAttempt: _askDiscard,
         child: Padding(
           padding: EdgeInsets.only(bottom: viewInsets),
-          child: _buildSheet(context),
+          child: ExcludeFocus(
+            excluding: _saving,
+            child: AbsorbPointer(
+              absorbing: _saving,
+              child: _buildSheet(context),
+            ),
+          ),
         ),
       ),
     );
@@ -553,7 +574,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
               label: l10n.foodPhotoCardTitle,
               child: _RecipePhotoPicker(
                 bytes: _photoBytes,
-                busy: _photoBusy,
+                busy: _photoBusy || _saving,
                 onCamera: () => _pickPhoto(ImageSource.camera),
                 onGallery: () => _pickPhoto(ImageSource.gallery),
                 onRemove: _removePhoto,
@@ -585,6 +606,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                         label: l10n.recipesSectionPortion,
                         hint: l10n.recipesPortionHint,
                         maxChars: _portionMaxChars,
+                        errorText: _textFehler(_portion, _portionMaxCodePoints),
                       ),
                       _RecipeSheetField(
                         fieldKey: const ValueKey('recipe-create-grams'),
@@ -659,6 +681,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                 hint: l10n.recipesIngredientsHint,
                 maxLines: 3,
                 maxChars: _ingredientsMaxChars,
+                errorText: _textFehler(_ingredients, _ingredientsMaxCodePoints),
                 // The group header already carries the label; a second one
                 // would duplicate it. Screen-reader label stays (Semantics).
                 showLabel: false,
@@ -677,8 +700,13 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
               ),
               child: FilledButton.icon(
                 key: const ValueKey('recipe-create-save'),
-                onPressed: _isValid && !_saving ? _save : null,
-                icon: const Icon(Icons.check_rounded, size: 18),
+                onPressed: _isValid && !_saving && !_photoBusy ? _save : null,
+                icon: _saving
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.check_rounded, size: 18),
                 label: Text(
                   l10n.recipesSaveButtonLabel,
                   style: AppType.ui(14.5, weight: FontWeight.w700),

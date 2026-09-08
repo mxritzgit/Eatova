@@ -105,7 +105,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the release history.
 
 | Layer            | Technology                                                        |
 | ---------------- | ----------------------------------------------------------------- |
-| App              | [Flutter](https://flutter.dev) 3.44.0 stable (CI-pinned; Dart 3.12, pubspec lower bound `^3.11.5`), German + English (`gen_l10n`/ARB) |
+| App              | [Flutter](https://flutter.dev) 3.47.2 stable (CI-pinned; Dart 3.13.2, pubspec lower bound `^3.11.5`), German + English (`gen_l10n`/ARB) |
 | Backend          | [Supabase](https://supabase.com) — Auth, Postgres + RLS           |
 | Serverless       | Supabase Edge Functions (Deno / TypeScript)                       |
 | Product search   | Self-hosted [Meilisearch](https://www.meilisearch.com) index of [Open Food Facts](https://world.openfoodfacts.org), OFF API fallback |
@@ -210,7 +210,7 @@ folders. Desktop and web scaffolding was removed on purpose (services use
 ### Prerequisites
 
 - [Flutter SDK](https://docs.flutter.dev/get-started/install) — CI pins
-  **3.44.0 stable** (Dart 3.12); use the same locally. The pubspec constraint
+  **3.47.2 stable** (Dart 3.13.2); use the same locally. The pubspec constraint
   `^3.11.5` is the lower bound only.
 - Xcode (iOS) and/or Android Studio for device/emulator builds
 

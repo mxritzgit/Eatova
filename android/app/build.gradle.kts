@@ -1,5 +1,6 @@
 import java.io.FileInputStream
 import java.util.Properties
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.application")
@@ -10,7 +11,7 @@ plugins {
 
 // Release signing: android/key.properties holds keystore path and passwords and
 // is deliberately not in the repo (see android/.gitignore). If it is missing
-// (e.g. CI, which only builds debug), the release buildType below falls back to
+// (e.g. a local debug-only checkout), the release buildType below falls back to
 // debug signing so debug builds keep working; the task-graph guard at the
 // end of this file (E5) aborts any actual release artifact.
 val keystorePropertiesFile = rootProject.file("key.properties")
@@ -32,10 +33,6 @@ android {
         isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
-    }
-
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
     }
 
     defaultConfig {
@@ -83,6 +80,12 @@ android {
                 "proguard-rules.pro"
             )
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = JvmTarget.JVM_17
     }
 }
 

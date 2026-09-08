@@ -239,6 +239,21 @@ class LocalNotificationService
   final Future<String> Function() _localTimezoneName;
   bool _initialized = false;
 
+  // Native schedules may complete after a later cancel. Keep the entire
+  // cancel-first replacement atomic with respect to other replacements and
+  // logout/opt-out cancellations, in invocation order.
+  Future<void> _pendingMutation = Future<void>.value();
+
+  Future<void> _enqueueMutation(Future<void> Function() action) {
+    final result = _pendingMutation.then((_) => action());
+    // An unexpected failure must not poison all future cancellation attempts.
+    _pendingMutation = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace __) {},
+    );
+    return result;
+  }
+
   /// Locale for the Android channel name/description (see
   /// [NotificationLocalizable]). Defaults to German, reproducing the previous
   /// hardcoded string while nobody calls [setLocalizations].
@@ -376,7 +391,12 @@ class LocalNotificationService
   }
 
   @override
-  Future<void> scheduleAll(List<NotificationSpec> specs) async {
+  Future<void> scheduleAll(List<NotificationSpec> specs) {
+    final scheduled = List<NotificationSpec>.of(specs);
+    return _enqueueMutation(() => _scheduleAll(scheduled));
+  }
+
+  Future<void> _scheduleAll(List<NotificationSpec> specs) async {
     if (!_supported) return;
     await init();
     if (!_initialized) return;
@@ -417,7 +437,9 @@ class LocalNotificationService
   }
 
   @override
-  Future<void> cancelAll() async {
+  Future<void> cancelAll() => _enqueueMutation(_cancelAll);
+
+  Future<void> _cancelAll() async {
     if (!_supported) return;
     await init();
     if (!_initialized) return;

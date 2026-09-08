@@ -102,7 +102,7 @@ class _CoachAiNote extends StatelessWidget {
                   Padding(
                     padding: const EdgeInsets.only(top: 1),
                     child: Icon(
-                      Icons.auto_awesome_rounded,
+                      Icons.info_outline_rounded,
                       size: 13,
                       color: t.accent,
                     ),

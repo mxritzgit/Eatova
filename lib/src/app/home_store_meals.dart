@@ -532,6 +532,11 @@ mixin _HomeStoreMealsPart
         recipe,
         ..._userRecipes.where((r) => r.slug != recipe.slug)
       ];
+      // A fresh confirmation supersedes this recipe's pending deletion.
+      if (_pendingRecipeDeletes.contains(recipe.slug)) {
+        _pendingRecipeDeletes = <String>{..._pendingRecipeDeletes}
+          ..remove(recipe.slug);
+      }
     });
     _cacheUserRecipes();
     return _syncOrQueue(

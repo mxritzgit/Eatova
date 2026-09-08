@@ -566,19 +566,16 @@ class _AddMealSheetState extends State<AddMealSheet> {
   void _scheduleProductSearch(String value) {
     final query = value.trim();
     _productSearchDebounce?.cancel();
+    _productSearchRequestId++;
+    _searchSlowTimer?.cancel();
 
-    if (query.length < _autoSearchMinChars) {
-      _productSearchRequestId++;
-      _searchSlowTimer?.cancel();
-      // After the reset [_searchActive] is always false (fragment below
-      // [_autoSearchMinChars] with the unlock revoked), so the zone changes
-      // exactly when the results zone is still on screen. Nothing to clear and
-      // nothing to switch -> the frame would be identical (B3).
-      if (!_renderedSearchActive && !_searchStateDirty) return;
+    // Results and errors belong to the previous query, even before the new
+    // debounce fires. Clear them once; subsequent keystrokes with no state
+    // or zone change still avoid rebuilding the sheet (B3).
+    final hadSearchState = _searchStateDirty;
+    _explicitSearchRequested = false;
+    if (hadSearchState || _searchActive != _renderedSearchActive) {
       setState(() {
-        // New input revokes the magnifier/enter unlock: the previous hits
-        // belong to a different term.
-        _explicitSearchRequested = false;
         _isSearchingProducts = false;
         _searchIsSlow = false;
         _productSuggestions = const <ProductSearchResult>[];
@@ -586,15 +583,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
         _searchCameUpEmpty = false;
         _searchGaveUp = false;
       });
-      return;
     }
+    if (query.length < _autoSearchMinChars) return;
 
-    // Rebuild so _searchActive flips (favorites -> results zone) — but ONLY on
-    // a real flip (B3). Nothing else this branch touches reaches build: the
-    // input paints itself off the controller, the result zone's own state
-    // changes in the debounce callback, and the CTA reads the query at tap
-    // time, not at build time. So the zone switch is the complete condition.
-    if (_searchActive != _renderedSearchActive) setState(() {});
     _productSearchDebounce = Timer(
       _productSearchDebounceDelay,
       () => _searchProducts(
@@ -663,8 +654,10 @@ class _AddMealSheetState extends State<AddMealSheet> {
 
     final requestId = ++_productSearchRequestId;
     setState(() {
+      _productSuggestions = const <ProductSearchResult>[];
       _isSearchingProducts = true;
       _searchIsSlow = false;
+      _searchCameUpEmpty = false;
       _searchGaveUp = false;
       _productSearchMessage = null;
     });
@@ -1256,7 +1249,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       result: favorite.result,
       fallbackIcon: pinned
           ? Icons.favorite_rounded
-          : Icons.bookmark_outline_rounded,
+          : Icons.history_rounded,
       expanded: _expandedItemKey == key,
       justAdded: _justAddedKeys.contains(key),
       onTap: () => _toggleExpanded(key),

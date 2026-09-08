@@ -44,6 +44,7 @@ class RecipesScreen extends StatefulWidget {
     this.onCreateRecipe,
     this.onDeleteRecipe,
     this.onDeletePendingChanged,
+    this.isDeletePending,
     this.initialUserRecipes = const <FitnessRecipe>[],
     this.userRecipesAuthoritative = false,
     this.photoInput,
@@ -79,6 +80,11 @@ class RecipesScreen extends StatefulWidget {
   /// (2026-09-02).
   final void Function(String slug, {required bool pending})?
       onDeletePendingChanged;
+
+  /// Reads the current store state, including a new confirmation that has
+  /// cancelled a pending delete. A live callback also protects timer callbacks
+  /// that run before the next widget rebuild. Null keeps local undo behavior.
+  final bool Function(String slug)? isDeletePending;
 
   /// User recipes loaded from Supabase at boot; taken as the initial state so
   /// self-created recipes survive a restart.
@@ -418,6 +424,11 @@ class _RecipesScreenState extends State<RecipesScreen> {
       _userRecipes = List<FitnessRecipe>.of(widget.initialUserRecipes);
       _dropOwnFilterIfEmpty();
     }
+    for (final slug in _pendingDeletes.keys.toList(growable: false)) {
+      if (widget.isDeletePending?.call(slug) == false) {
+        _pendingDeletes.remove(slug)?.timer.cancel();
+      }
+    }
     // Outside the identity check on purpose (P3-04b): the sweep hangs off the
     // BOOT being finished, not off a list changing. A fresh identity says only
     // that the store assigned something — hydration assigns a stale-empty
@@ -578,7 +589,12 @@ class _RecipesScreenState extends State<RecipesScreen> {
 
   /// Persists a delete whose undo window has passed.
   Future<void> _commitDelete(FitnessRecipe recipe) async {
-    _pendingDeletes.remove(recipe.slug);
+    final pending = _pendingDeletes.remove(recipe.slug);
+    if (pending == null) return;
+    if (widget.isDeletePending?.call(recipe.slug) == false) {
+      if (mounted && !_disposing) setState(() {});
+      return;
+    }
     _userRecipes =
         _userRecipes.where((r) => r.slug != recipe.slug).toList(growable: true);
     if (mounted && !_disposing) setState(() {});

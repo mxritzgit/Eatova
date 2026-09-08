@@ -244,12 +244,15 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   Future<void> _openGoals() async {
     final result = await Navigator.of(context).push<SettingsResult>(
       MaterialPageRoute<SettingsResult>(
-        builder: (_) => GoalsScreen(
-          profile: _store.profile,
-          notificationsEnabled: _store.notificationsEnabled,
-          // D11: without this the `blocked` state never reaches the screen
-          // and the switch keeps claiming reminders are active.
-          reminderState: _store.reminderState,
+        builder: (_) => StoreSelector(
+          store: _store,
+          selector: () => _store.reminderState,
+          builder: (_) => GoalsScreen(
+            profile: _store.profile,
+            notificationsEnabled: _store.notificationsEnabled,
+            // Resume may change permission while this route remains open.
+            reminderState: _store.reminderState,
+          ),
         ),
       ),
     );
@@ -457,8 +460,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         keyId: 'Rezepte',
       ),
       AppNavItem(
-        icon: Icons.auto_awesome_outlined,
-        activeIcon: Icons.auto_awesome_rounded,
+        icon: Icons.chat_bubble_outline_rounded,
+        activeIcon: Icons.chat_bubble_rounded,
         label: l10n.navCoach,
         keyId: 'Coach',
       ),
@@ -640,6 +643,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         // for the "fits your goal" filter.
         selector: () => (
           _store.userRecipes,
+          _store.pendingRecipeDeletes,
           // The flag flips with the boot answer and gates the photo sweep
           // (P3-04b); without it in the slice the screen could miss the flip.
           _store.userRecipesAuthoritative,
@@ -667,6 +671,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             // Always wired: the undo window must hide the recipe from the
             // coach card even when nothing is persisted (2026-09-02).
             onDeletePendingChanged: _store.setRecipeDeletePending,
+            isDeletePending: (slug) => _store.pendingRecipeDeletes.contains(slug),
             // Remaining macros for the day (goal - consumed).
             remainingMacros: MacroProgress(
               proteinG:

@@ -92,9 +92,19 @@ class SquareIconButton extends StatelessWidget {
 
 /// Faintly tinted tile behind an icon (list rows, stats).
 class IconTile extends StatelessWidget {
-  const IconTile({super.key, required this.icon, this.color, this.size = 34});
+  const IconTile({super.key, required this.icon, this.color, this.size = 34})
+    : _child = null;
 
-  final IconData icon;
+  const IconTile.custom({
+    super.key,
+    required Widget child,
+    this.color,
+    this.size = 34,
+  }) : icon = null,
+       _child = child;
+
+  final IconData? icon;
+  final Widget? _child;
   final Color? color;
   final double size;
 
@@ -111,11 +121,21 @@ class IconTile extends StatelessWidget {
       // Not the full category color: the glyph would sit on its OWN 15 % tint
       // at ~2.2:1 in light mode — that is what [AppTokens.readableOnTint] is
       // for. Without a color the glyph sits on `tile` and stays `ink`.
-      child: Icon(
-        icon,
-        size: 16,
-        color: color == null ? t.ink : t.readableOnTint(color!),
-      ),
+      child: _child == null
+          ? Icon(
+              icon,
+              size: 16,
+              color: color == null ? t.ink : t.readableOnTint(color!),
+            )
+          : Center(
+              child: IconTheme(
+                data: IconThemeData(
+                  size: 16,
+                  color: color == null ? t.ink : t.readableOnTint(color!),
+                ),
+                child: _child,
+              ),
+            ),
     );
   }
 }

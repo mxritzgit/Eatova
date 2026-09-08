@@ -520,6 +520,10 @@
     "description": "Field error under the recipe name when it exceeds the server limit of 300 code points (Flutter's maxLength counts graphemes, so ZWJ emoji can overshoot)."
   },
   "recipesPhotoSaveFailedError": "Das Foto konnte nicht abgelegt werden.",
+  "recipesTextTooLongError": "Text ist zu lang – bitte kürzen.",
+  "@recipesTextTooLongError": {
+    "description": "Field error when recipe portion or ingredients exceed the database code-point limit."
+  },
   "recipesNoDataProvided": "Keine Angabe",
   "recipesNoPreparationYet": "Eigenes Rezept — keine Zubereitung hinterlegt.",
   "recipesSelfCreatedHint": "Selbst angelegt. Werte beruhen auf deinen Angaben.",

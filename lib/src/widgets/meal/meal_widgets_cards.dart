@@ -34,7 +34,7 @@ class MealPreviewCard extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(
-                        Icons.restaurant_menu_outlined,
+                        Icons.add_photo_alternate_outlined,
                         color: t.ink2,
                         size: 32,
                       ),
@@ -99,7 +99,7 @@ class _MealLoadingCardState extends State<MealLoadingCard>
         (Icons.image_search_rounded, l10n.foodLoadingStageDetect),
         (Icons.straighten_rounded, l10n.foodLoadingStageEstimate),
         (Icons.calculate_rounded, l10n.foodLoadingStageCalculate),
-        (Icons.auto_awesome_rounded, l10n.foodLoadingStageFinal),
+        (Icons.fact_check_outlined, l10n.foodLoadingStageFinal),
       ];
 
   @override
