@@ -241,8 +241,9 @@ regression and mutation evidence, retained design decisions, and delivery
 constraints. The commander checked and integrated the changes and requested
 additional independent reviews and counterexamples.
 
-- Branch remains `design/app-icon-polish`, HEAD `4ae47eb`. Design and review
-  fixes are **uncommitted and unpushed**; preserve all current changes.
+- At local review completion, branch `design/app-icon-polish` was based on
+  `4ae47eb`, with design and review fixes uncommitted. The delivery follow-up
+  below supersedes that local snapshot.
 - Fixed account-session races, logout stats delivery, trend invalidation,
   Coach history/image/dictation lifecycle, food search/barcode errors, recipe
   save/delete races, reminders and responsive profile/settings behavior.
@@ -267,3 +268,17 @@ additional independent reviews and counterexamples.
   recovery navigation decisions are explicitly bounded in the review.
 - Ignored evidence/backups: `.agents/review-2026-09-08/`, including each
   worktree's targeted proofs and root `final-*.log` combined verification.
+
+### Delivery follow-up, 2026-09-08
+
+The user authorized committing and pushing the entire reviewed stand, waiting
+for green CI, then merging to `main`. Implementation commit `919a55c` contains
+all 88 reviewed files, including the original design work. Its Gitleaks scan
+found no secrets; the working tree matched the preserved delivery hashes.
+
+[PR #68](https://github.com/mxritzgit/Eatova/pull/68) tracks this delivery from
+`design/app-icon-polish` to `main`. GitHub's current PR state, head SHA and
+check results are authoritative; do not infer pending or completed delivery
+from the earlier local-only notes. Merge is authorized only after all
+applicable CI checks, including native iOS and Android release, pass.
+Backend deployment and device installation remain separate from this merge.
