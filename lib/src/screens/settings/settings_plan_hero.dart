@@ -102,7 +102,7 @@ class SettingsPlanHero extends StatelessWidget {
                           child: Icon(
                             manual
                                 ? Icons.edit_rounded
-                                : Icons.auto_awesome_rounded,
+                                : Icons.calculate_outlined,
                             size: 17,
                             color: t.lime,
                           ),

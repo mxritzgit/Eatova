@@ -16,7 +16,7 @@ void main() {
       expect(await noop.writeWeight(80.5, DateTime(2026, 6, 4)), isFalse);
     });
 
-    test('read groundwork no-ops to empty/null', () async {
+    test('readWeightSamples no-ops to empty', () async {
       expect(
         await noop.readWeightSamples(
           from: DateTime(2026, 1, 1),
@@ -24,7 +24,6 @@ void main() {
         ),
         isEmpty,
       );
-      expect(await noop.readLastSleep(), isNull);
     });
   });
 }

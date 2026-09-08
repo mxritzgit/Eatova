@@ -59,9 +59,6 @@ class _StepsHealthService implements HealthService {
       const <WeightSample>[];
 
   @override
-  Future<SleepSample?> readLastSleep({DateTime? before}) async => null;
-
-  @override
   Future<int?> readStepsOnDay(DateTime day) async => null;
 }
 

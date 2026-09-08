@@ -481,6 +481,10 @@ void main() {
       expect(slot, MealSlot.dinner);
 
       await _scrollTo(tester, find.byKey(const ValueKey('today-coach-cta')));
+      expect(
+        tester.getSize(find.byKey(const ValueKey('today-coach-cta'))).height,
+        greaterThanOrEqualTo(44),
+      );
       await tester.tap(find.byKey(const ValueKey('today-coach-cta')));
       await tester.pumpAndSettle();
       expect(coach, 1);

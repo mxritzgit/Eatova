@@ -249,6 +249,10 @@ const Map<String, FunktionsErwartung> _erwarteteFunktionen = {
       definer: true,
       grund: 'gibt einen gebuchten Slot zurueck — client-aufrufbar waeren die '
           'fuenf Anfragen pro Tag unbegrenzt.'),
+  'refund_chat_quota_for_day': FunktionsErwartung.nurServer(
+      definer: true,
+      grund: 'erstattet den gebuchten UTC-Tag auch nach Mitternacht; '
+          'nur der Server darf bestaetigte Claims erstatten.'),
   'consume_edge_rate_limit': FunktionsErwartung.nurServer(
       definer: true, grund: 'das Rate-Limit selbst.'),
   'consume_edge_rate_limits': FunktionsErwartung.nurServer(

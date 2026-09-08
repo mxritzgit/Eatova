@@ -142,24 +142,36 @@ class OpenFoodFactsProductService implements ProductLookupService {
         configure: _setUserAgent,
       );
 
-      // v3 returns "not found" as 404 with a JSON body: parse first, decide
-      // after. Only real transport errors (no JSON) throw HttpException.
+      // v3 confirms unknown products in a 404 JSON envelope. Other HTTP
+      // failures say nothing about whether the barcode exists.
+      final status = response.statusCode;
+      final successful = status >= 200 && status < 300;
+      if (!successful && status != HttpStatus.notFound) {
+        throw ProductLookupHttpException(status);
+      }
       final Map<String, dynamic> decoded;
       try {
-        decoded = jsonDecode(response.body) as Map<String, dynamic>;
-      } catch (_) {
-        throw HttpException(
-          'OpenFoodFacts lookup failed: ${response.statusCode}',
-        );
+        final body = jsonDecode(response.body);
+        if (body is! Map<String, dynamic>) {
+          throw const ProductLookupFormatException();
+        }
+        decoded = body;
+      } on FormatException {
+        throw const ProductLookupFormatException();
       }
 
       final result = decoded['result'];
+      if (result is Map<String, dynamic> &&
+          result['id'] == 'product_not_found') {
+        throw ProductNotFoundException(cleanBarcode);
+      }
       final found =
+          successful &&
           result is Map<String, dynamic> &&
           result['id'] == 'product_found' &&
           decoded['product'] is Map<String, dynamic>;
       if (!found) {
-        throw ProductNotFoundException(cleanBarcode);
+        throw const ProductLookupFormatException();
       }
 
       final product = _normalizeProduct(
@@ -435,6 +447,21 @@ class OpenFoodFactsProductService implements ProductLookupService {
       'Eatova/1.0 (OpenFoodFacts nutrition lookup; mxritzgit/eatova)',
     );
   }
+}
+
+/// HTTP failure with a status the UI can classify, without response content.
+class ProductLookupHttpException extends HttpException {
+  ProductLookupHttpException(this.statusCode)
+    : super('OpenFoodFacts lookup failed: $statusCode');
+
+  final int statusCode;
+}
+
+/// A changed or malformed lookup envelope, never an authoritative non-hit.
+/// As a FormatException it also reaches the fallback's schema diagnostics.
+class ProductLookupFormatException extends FormatException {
+  const ProductLookupFormatException()
+    : super('OpenFoodFacts lookup returned a malformed response.');
 }
 
 /// The barcode does not exist in the queried source.

@@ -534,7 +534,7 @@ class _FoodAddBlock extends StatelessWidget {
             Expanded(
               child: _FoodQuickChip(
                 key: const ValueKey('food-action-ai'),
-                icon: Icons.auto_awesome_rounded,
+                icon: Icons.photo_camera_outlined,
                 label: l10n.foodActionAiScan,
                 filled: true,
                 onTap: onAiScan,

@@ -172,10 +172,25 @@ class GoalPlanCard extends StatelessWidget {
     final targets = const KcalCalculator().calculate(profile);
     // Range linear…dynamic (Kcal review 2026-08-21), see
     // KcalCalculator.weeksToGoalRange.
-    final weeks =
-        const KcalCalculator().weeksToGoalRange(profile, targets: targets);
+    final weeks = profile.manualEnergy
+        ? null
+        : const KcalCalculator().weeksToGoalRange(profile, targets: targets);
     // Ready-made sentence from KcalTargets, else null.
-    final paceWarning = isMaintain ? null : targets.paceWarning(l10n);
+    final paceWarning = isMaintain || profile.manualEnergy
+        ? null
+        : targets.paceWarning(l10n);
+    // Manual goals keep their own kcal: automatic pace and forecast no longer
+    // describe this plan. Match the rate shown on the goals screen.
+    final pace = profile.manualEnergy
+        ? paceLabelForWeeklyRateKg(
+            (profile.dailyKcalGoal - targets.maintenanceKcal) *
+                7 /
+                kcalPerKgBodyMass,
+            l10n,
+          )
+        : isMaintain
+            ? l10n.profileStable
+            : targets.effectivePaceLabel(l10n);
     // A directional goal carries the brand accent, "maintain" stays quiet.
     final accent = isMaintain ? t.ink2 : t.accent;
 
@@ -193,7 +208,7 @@ class GoalPlanCard extends StatelessWidget {
                 // right under the icon. `targetPointsUp` is null only when both
                 // weights are equal; the goal decides then.
                 icon: isMaintain
-                    ? Icons.shield_moon_outlined
+                    ? Icons.trending_flat_rounded
                     : (profile.targetPointsUp ?? goal.isGain)
                         ? Icons.trending_up_rounded
                         : Icons.trending_down_rounded,
@@ -274,9 +289,7 @@ class GoalPlanCard extends StatelessWidget {
                   child: _PlanChip(
                     icon: Icons.speed_rounded,
                     label: l10n.profilePlanChipPace,
-                    value: isMaintain
-                        ? l10n.profileStable
-                        : targets.effectivePaceLabel(l10n),
+                    value: pace,
                     color: accent,
                   ),
                 ),

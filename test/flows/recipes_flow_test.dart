@@ -37,6 +37,8 @@ void main() {
     expect(find.byKey(const ValueKey('recipe-add-button')), findsOneWidget);
     expect(find.byKey(const ValueKey('recipe-meal-picker-lunch')), findsNothing);
 
+    await tester.ensureVisible(find.byKey(const ValueKey('recipe-add-button')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('recipe-add-button')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('recipe-meal-picker-sheet')), findsOneWidget);
@@ -45,6 +47,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('590 kcal zu Mittagessen hinzugefügt.'), findsOneWidget);
 
+    await tester.ensureVisible(find.byKey(const ValueKey('recipe-detail-back')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('recipe-detail-back')));
     await tester.pumpAndSettle();
 
@@ -91,9 +95,13 @@ void main() {
     await tester.ensureVisible(recipeTile);
     await tester.tap(recipeTile);
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('recipe-add-button')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('recipe-add-button')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('recipe-meal-picker-lunch')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('recipe-detail-back')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('recipe-detail-back')));
     await tester.pumpAndSettle();

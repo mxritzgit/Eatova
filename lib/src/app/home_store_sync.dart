@@ -207,7 +207,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// [SyncOpKind.statsIncrement] entry with a derived id.
   String? _pendingStatsRequestId;
 
-  bool _statsFlushInFlight = false;
+  Future<void>? _statsFlushInFlight;
   Timer? _statsSaveDebounce;
 
   /// Not yet synced write operations (view for tests/debug).
@@ -847,6 +847,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         try {
           await _performOp(s, op);
           if (_disposed) return;
+          // A trend read during the write may have cached the old server row.
+          if (_opTouchesTrendWindow(op)) _invalidateTrendWindow();
         } catch (e, st) {
           if (_disposed) return;
           // The list may have changed during the await, so find the op by
@@ -1300,6 +1302,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     }
     // D9: scheduled reminders live in the OS, not in our cache — without this
     // they keep firing after the deletion.
+    _endNotificationSession();
     await notificationService.cancelAll();
     // B3: same reason — health state lives in the service object, not in the
     // namespaced cache.
@@ -1346,10 +1349,11 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       flushDeadlineHit = true;
       _logSignOutDeadline();
     });
-    // Only a flush THIS call started and that ran past the deadline is put
-    // back: its numbers are neither in the slot nor confirmed. A flight that
-    // was already running (the call returned at once) keeps its own outcome.
-    if (flushDeadlineHit && _statsFlushInFlight) _requeueInFlightStatsBundle();
+    // This also waits for a flush started before logout. Its unconfirmed
+    // bundle must reach disk before clear() closes the cache's write fence.
+    if (flushDeadlineHit && _statsFlushInFlight != null) {
+      _requeueInFlightStatsBundle();
+    }
     // Only what delivery could not shift justifies a surviving slot. The store
     // state is authoritative once boot has run. `preserveOutbox` holds
     // _outboxKey AND _pendingStatsKey.
@@ -1358,6 +1362,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         _pendingWeightLogsDelta.abs();
     // D9: scheduled reminders are OS state and know no user — else the family
     // tablet shows the previous user's streak reminder.
+    _endNotificationSession();
     await notificationService.cancelAll();
     // B3: health state is process-local and knows no user — else B's profile
     // card keeps showing A's connection.
@@ -1861,10 +1866,20 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     });
   }
 
-  Future<void> _flushStatsDelta() async {
+  Future<void> _flushStatsDelta() {
+    final running = _statsFlushInFlight;
+    if (running != null) return running;
+    late final Future<void> flight;
+    flight = _flushStatsDeltaNow().whenComplete(() {
+      if (identical(_statsFlushInFlight, flight)) _statsFlushInFlight = null;
+    });
+    _statsFlushInFlight = flight;
+    return flight;
+  }
+
+  Future<void> _flushStatsDeltaNow() async {
     final s = sync;
-    if (s == null) return;
-    if (_statsFlushInFlight) return;
+    if (_disposed || s == null) return;
     final meals = _pendingMealsDelta;
     final weightLogs = _pendingWeightLogsDelta;
     if (meals == 0 && weightLogs == 0) return;
@@ -1881,7 +1896,6 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     // to count the deltas, which beats a double increment on the next boot (the
     // server ADDS, so a replayed booked delta corrupts the counters for good).
     _persistPendingStatsDeltas();
-    _statsFlushInFlight = true;
     _inFlightStatsBundle =
         (meals: meals, weightLogs: weightLogs, requestId: requestId);
     try {
@@ -1929,7 +1943,6 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         _scheduleOutboxRetry();
       }
     } finally {
-      _statsFlushInFlight = false;
       _inFlightStatsBundle = null;
     }
   }

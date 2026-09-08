@@ -11,5 +11,6 @@ export 'controls.dart';
 export 'meters.dart';
 export 'rows.dart';
 export 'sheets.dart';
+export 'steps_icon.dart';
 export 'surfaces.dart';
 export 'text_scale.dart';

@@ -593,87 +593,88 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
     final fehler = _errorText(l10n);
     final gesperrt = !_valid;
     return Padding(
-      padding: EdgeInsets.fromLTRB(
-        20,
-        0,
-        20,
-        24 + MediaQuery.viewInsetsOf(context).bottom,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          const Center(child: _ProfileSheetGrabber()),
-          Text(l10n.profileLogWeightCta,
-              style: AppType.display(20, color: t.ink)),
-          const SizedBox(height: 16),
-          // Local TextField on a [FieldCapsule] (field / fieldFocus /
-          // fieldError, shadow, no ring) instead of SheetField: the floating
-          // `labelText` and the `kg` suffix are not part of its API.
-          FieldCapsule(
-            focusNode: _focus,
-            error: fehler != null,
-            padding: EdgeInsets.zero,
-            child: TextField(
-              key: const ValueKey('profile-weight-input'),
-              cursorOpacityAnimates: false,
-              controller: _controller,
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Center(child: _ProfileSheetGrabber()),
+            Text(
+              l10n.profileLogWeightCta,
+              style: AppType.display(20, color: t.ink),
+            ),
+            const SizedBox(height: 16),
+            // Local TextField on a [FieldCapsule] (field / fieldFocus /
+            // fieldError, shadow, no ring) instead of SheetField: the floating
+            // `labelText` and the `kg` suffix are not part of its API.
+            FieldCapsule(
               focusNode: _focus,
-              autofocus: true,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              onSubmitted: (_) => _save(),
-              style: AppType.ui(16, weight: FontWeight.w600, color: t.ink),
-              decoration: InputDecoration(
-                labelText: l10n.profileWeightInputLabel,
-                suffixText: 'kg',
-                filled: false,
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                errorBorder: InputBorder.none,
-                focusedErrorBorder: InputBorder.none,
-                disabledBorder: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
+              error: fehler != null,
+              padding: EdgeInsets.zero,
+              child: TextField(
+                key: const ValueKey('profile-weight-input'),
+                cursorOpacityAnimates: false,
+                controller: _controller,
+                focusNode: _focus,
+                autofocus: true,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                onSubmitted: (_) => _save(),
+                style: AppType.ui(16, weight: FontWeight.w600, color: t.ink),
+                decoration: InputDecoration(
+                  labelText: l10n.profileWeightInputLabel,
+                  suffixText: 'kg',
+                  filled: false,
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  errorBorder: InputBorder.none,
+                  focusedErrorBorder: InputBorder.none,
+                  disabledBorder: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
                 ),
               ),
             ),
-          ),
-          if (fehler != null) ...<Widget>[
-            const SizedBox(height: 6),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Text(
-                fehler,
-                key: const ValueKey('profile-weight-error'),
-                style: AppType.ui(
-                  11.5,
-                  weight: FontWeight.w500,
-                  color: t.danger,
+            if (fehler != null) ...<Widget>[
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Text(
+                  fehler,
+                  key: const ValueKey('profile-weight-error'),
+                  style: AppType.ui(
+                    11.5,
+                    weight: FontWeight.w500,
+                    color: t.danger,
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 16),
+            Semantics(
+              // Same pattern as the goals page: PrimaryActionButton cannot
+              // express "disabled" itself.
+              button: true,
+              enabled: !gesperrt,
+              child: Opacity(
+                opacity: gesperrt ? 0.4 : 1,
+                child: PrimaryActionButton(
+                  key: const ValueKey('profile-weight-save'),
+                  label: l10n.commonSave,
+                  icon: Icons.check_rounded,
+                  height: 50,
+                  onTap: gesperrt ? null : _save,
                 ),
               ),
             ),
           ],
-          const SizedBox(height: 16),
-          Semantics(
-            // Same pattern as the goals page: PrimaryActionButton cannot
-            // express "disabled" itself.
-            button: true,
-            enabled: !gesperrt,
-            child: Opacity(
-              opacity: gesperrt ? 0.4 : 1,
-              child: PrimaryActionButton(
-                key: const ValueKey('profile-weight-save'),
-                label: l10n.commonSave,
-                icon: Icons.check_rounded,
-                height: 50,
-                onTap: gesperrt ? null : _save,
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }

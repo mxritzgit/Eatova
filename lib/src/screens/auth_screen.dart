@@ -18,7 +18,8 @@ import '../widgets/common/app_snack.dart';
 import '../widgets/common/motion.dart';
 import '../widgets/shared/eatova_wordmark.dart';
 import 'auth_code_screen.dart';
-import 'settings/account_change_messages.dart' show kAccountMinPasswordLength;
+import 'settings/account_change_messages.dart'
+    show kAccountMinPasswordLength, classifyAuthError, AuthErrorKind;
 
 /// Eatova auth: one calm single screen that follows the display mode.
 ///
@@ -210,6 +211,21 @@ class _AuthScreenState extends State<AuthScreen> {
     // password. A 429 arrives as an AuthApiException, so no throttle is
     // swallowed here.
     if (isAuthNetworkError(error)) return l10n.authCodeOfflineError;
+    final classified = classifyAuthError(error);
+    switch (classified.kind) {
+      case AuthErrorKind.quotaExhausted:
+        return l10n.authCodeQuotaExhausted;
+      case AuthErrorKind.sendThrottled:
+        if (_isRegister) {
+          return l10n.authCodeRateLimitedSeconds(
+              classified.retryAfter!.inSeconds);
+        }
+        return l10n.settingsAccountRateLimited;
+      case AuthErrorKind.rateLimited:
+        return l10n.settingsAccountRateLimited;
+      default:
+        break;
+    }
     if (_matches(error, 'invalid_credentials', 'invalid login') ||
         _matches(error, 'invalid_credentials', 'invalid credentials')) {
       return l10n.authErrorInvalidCredentials;

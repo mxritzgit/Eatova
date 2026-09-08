@@ -1,7 +1,7 @@
 part of 'coach_chat_screen.dart';
 
 // ---------------------------------------------------------------------------
-// Header: square forest tile with sparkle icon, display title, lime dot plus
+// Header: square forest tile with conversation icon, display title, lime dot plus
 // status line below, and the three controls on the right (streak, (i),
 // sessions). No wordmark here — the app shell shows it on every tab.
 // ---------------------------------------------------------------------------
@@ -46,7 +46,7 @@ class _CoachTopBar extends StatelessWidget {
                   color: t.forest,
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: Icon(Icons.auto_awesome_rounded, size: 19, color: t.lime),
+                child: Icon(Icons.chat_bubble_outline_rounded, size: 19, color: t.lime),
               ),
               const SizedBox(width: 12),
               Flexible(

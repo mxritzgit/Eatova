@@ -15,6 +15,7 @@
 // asserts the overflow freedom this file used to hand-roll.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/fitness_recipe.dart';
@@ -192,6 +193,51 @@ void main() {
     expect(find.byKey(const ValueKey('recipe-add-button')), findsOneWidget);
     expect(find.byKey(const ValueKey('recipe-detail-back')), findsOneWidget);
   });
+
+  renderMatrix(
+    'Rezept-Naehrwerte bleiben bei 320 px und doppelter Schrift vollstaendig',
+    (tester, c) async {
+      await c.pump(
+        tester,
+        RecipeDetailScreen(recipe: _eigenes, onAddMeal: (_, __) {}),
+        surfaceSize: const Size(320, 720),
+        settle: true,
+      );
+
+      final texts = [
+        '${_eigenes.caloriesKcal}',
+        '${_eigenes.proteinG} g',
+        '${_eigenes.carbsG} g',
+        '${_eigenes.fatG} g',
+        c.l10n.recipesNutritionKcalLabel.toUpperCase(),
+        c.l10n.todayMacroProtein.toUpperCase(),
+        c.l10n.recipesNutritionCarbsLabel.toUpperCase(),
+        c.l10n.todayMacroFat.toUpperCase(),
+      ];
+      for (final text in texts) {
+        final finder = find.text(text);
+        expect(finder, findsOneWidget);
+        await tester.ensureVisible(finder);
+        await tester.pumpAndSettle();
+        final paragraph = tester.renderObject<RenderParagraph>(finder);
+        // Text finders still match the full string when an ellipsis hides it.
+        expect(paragraph.didExceedMaxLines, isFalse, reason: text);
+        expect(
+          paragraph.size.height + 0.5,
+          greaterThanOrEqualTo(
+            paragraph.getMaxIntrinsicHeight(paragraph.size.width),
+          ),
+          reason: '$text braucht Platz fuer alle Zeilen.',
+        );
+        final bounds = tester.getRect(finder);
+        expect(bounds.left, greaterThanOrEqualTo(20), reason: text);
+        expect(bounds.right, lessThanOrEqualTo(300), reason: text);
+      }
+      expect(tester.takeException(), isNull);
+    },
+    locales: const [Locale('de'), Locale('en')],
+    textScales: const [2.0],
+  );
 
   renderMatrix('Der Slot-Picker rendert overflow-frei', (tester, c) async {
     await _pumpTab(tester, c);

@@ -284,7 +284,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
       }
       if (mode === "exhausted") return jsonRes({ message: "EX_QUOTA_EXCEEDED" }, 400);
       quotaUsed++;
-      return jsonRes([{ used: quotaUsed, remaining: DAILY_LIMIT - quotaUsed }]);
+      return jsonRes([{ used: quotaUsed, remaining: DAILY_LIMIT - quotaUsed, quota_day: "2026-09-08" }]);
     }
     if (url.includes("/rest/v1/rpc/refund_chat_quota")) {
       quotaUsed = Math.max(0, quotaUsed - 1);

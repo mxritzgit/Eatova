@@ -184,3 +184,86 @@ Local full Flutter and Deno suites and the real PostgreSQL suite passed; isolate
 mutations demonstrate the new guards are detected. Two Codex review passes found
 no actionable regressions. Device installation and authenticated live flows
 remain distinct from merge and backend deployment.
+
+## App design polish, 2026-09-07
+
+The user requested replacing Today Steps' person icon and Coach sparkles, plus
+a broader design review. Local branch `design/app-icon-polish` starts from
+merged main `4ae47eb`. See [DESIGN-REVIEW-2026-09-07.md](DESIGN-REVIEW-2026-09-07.md)
+for the ten audit assignments, implemented icon/readability improvements,
+verification, and deferred profile-header details. The existing theme tokens
+remain authoritative. This work is local; commit, push, merge and installed
+device delivery are separate steps.
+
+### Resume context, 2026-09-08
+
+- Current local branch: `design/app-icon-polish`. The design changes and this
+  documentation are uncommitted and unpushed; preserve the working tree. Refresh
+  Git status before editing rather than assuming this snapshot is current.
+- Implemented: shared shoe-print icon for Today/profile steps, conversation
+  icons instead of Coach stars, contextual icons elsewhere, larger chat and
+  recipe text, clearer Food metadata, and responsive nutrition/statistics.
+  Detailed scope and follow-ups are in `DESIGN-REVIEW-2026-09-07.md`.
+- Verified on that code: 3,666 Flutter tests passed, 94.82% coverage excluding
+  generated localization, strict analyzer clean, independent Codex review clean.
+  Screenshots/logs are ignored under `build/design-polish/` and
+  `.agents/design-polish/`.
+- A debug APK was subsequently built and installed as an update on Android
+  emulator `fitpilot_pixel` (`emulator-5554`, Android 16/API 36). Today opened
+  successfully; existing app data was retained. No physical device/iOS build
+  has been installed in this design task.
+- The user noticed Steps missing above Macros in that Android build. This is
+  existing behavior, not removal by the icon changes: `stepsForFoodDate()` in
+  `lib/src/app/home_store_tracking.dart` returns null without available steps;
+  `today_screen.dart` omits the card for null. Health integration currently
+  uses Apple Health on iOS, with no Android step integration. The earlier
+  widget previews used explicit fixture steps. A visible unavailable-data
+  state was suggested but has NOT been implemented or selected by the user.
+- The user requested ten concurrent subagents. The previous session could
+  create only three, so ten audit assignments reused those three threads.
+  On 2026-09-08 the user authorized setting the machine-local Codex config's
+  `agents.max_concurrent_threads_per_session` to 10. TOML validity and unchanged
+  unrelated values were checked, and the original config was backed up beside
+  it. The effective limit must be checked in a fresh session; it has not been
+  demonstrated by spawning ten agents. This is machine-local configuration,
+  not part of the Git project.
+
+## Ten-agent review and fixes, 2026-09-08
+
+The user requested ten simultaneous subagents, a broad review of broken,
+unnecessary and outdated functionality, followed by validated fixes. This
+session successfully spawned **all ten concurrently** (11 runtime slots
+including the commander), superseding the unverified limit note above.
+Each used an isolated worktree with the original uncommitted design baseline.
+
+See [REVIEW-2026-09-08.md](REVIEW-2026-09-08.md) for 25 addressed findings,
+regression and mutation evidence, retained design decisions, and delivery
+constraints. The commander checked and integrated the changes and requested
+additional independent reviews and counterexamples.
+
+- Branch remains `design/app-icon-polish`, HEAD `4ae47eb`. Design and review
+  fixes are **uncommitted and unpushed**; preserve all current changes.
+- Fixed account-session races, logout stats delivery, trend invalidation,
+  Coach history/image/dictation lifecycle, food search/barcode errors, recipe
+  save/delete races, reminders and responsive profile/settings behavior.
+  Removed unused sleep API/layout wrapper, modernized Android compiler options
+  with the same JVM 17 target, and refreshed stale platform notes.
+- Final verification: strict analyzer clean, **3,734 Flutter tests passed**,
+  **95.04%** line coverage excluding generated l10n, **436 Deno tests passed**,
+  Deno lint/type checks clean. All 39 migrations and the full RLS suite passed
+  on isolated PostgreSQL 16. General and security Codex reviews found no
+  actionable introduced regressions. Lockfiles remain unchanged.
+- A new debug APK built successfully with CI dummy defines. It was **not
+  installed**; the emulator still has the earlier design build. Native iOS
+  compilation and microphone/permission testing remain unverified on Windows.
+  Android toolchain future-support warnings concern still-supported versions;
+  the coordinated AGP 9 migration is documented as future maintenance. The
+  final compiler-options change passed another debug build and scoped review.
+- Before deploying updated `coach-chat`, apply
+  `20260908120000_chat_quota_refund_day.sql`; neither has been deployed here.
+  The date-bound refund fix is only live after both steps.
+- Android Steps still hides for null data; no provider/unavailable-state
+  behavior was added. Existing stats-bundle deduplication and post-OTP
+  recovery navigation decisions are explicitly bounded in the review.
+- Ignored evidence/backups: `.agents/review-2026-09-08/`, including each
+  worktree's targeted proofs and root `final-*.log` combined verification.

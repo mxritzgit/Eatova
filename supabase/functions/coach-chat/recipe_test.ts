@@ -93,6 +93,19 @@ Deno.test("fehlender Titel oder fehlende kcal => null (unlesbar)", () => {
   assertEquals(parseRecipeDraft(""), null, "leer");
 });
 
+Deno.test("leere Zahlen bleiben fehlend statt 1 kcal oder 1 g zu erfinden", () => {
+  for (const blank of ["", " ", "\t\n"]) {
+    assertEquals(
+      parseRecipeDraft(JSON.stringify({ title: "Auflauf", calories_kcal: blank })),
+      null,
+      "leere kcal sind unlesbar",
+    );
+    const draft = parseRecipeDraft(JSON.stringify({ title: "Auflauf", calories_kcal: "520", estimated_g: blank }));
+    assertEquals(draft?.calories_kcal, 520, "numerischer String bleibt lesbar");
+    assertEquals(draft?.estimated_g, 300, "fehlende Gramm nutzen den bestehenden Fallback");
+  }
+});
+
 Deno.test("recipeSummary nennt Titel + kcal in beiden Sprachen", () => {
   const draft = parseRecipeDraft(VALID)!;
   const de = recipeSummary(draft, "de");

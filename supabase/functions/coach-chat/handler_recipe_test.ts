@@ -189,7 +189,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
         return jsonRes({ message: "EX_QUOTA_EXCEEDED" }, 400);
       }
       quotaUsed++;
-      return jsonRes([{ used: quotaUsed, remaining: DAILY_LIMIT - quotaUsed }]);
+      return jsonRes([{ used: quotaUsed, remaining: DAILY_LIMIT - quotaUsed, quota_day: "2026-09-08" }]);
     }
     if (url.includes("/rest/v1/rpc/refund_chat_quota")) {
       quotaUsed = Math.max(0, quotaUsed - 1);
@@ -455,6 +455,8 @@ Deno.test("Unlesbarer Draft: 502 + Refund, Slot wirklich zurueck", async () => {
       '{"refuse":"   "}', // blank refusal -> falls through to the draft parser
       '{"title":"","calories_kcal":520}', // empty title
       '{"title":"Auflauf","calories_kcal":"keine Ahnung"}', // unreadable kcal
+      '{"title":"Auflauf","calories_kcal":""}', // missing numeric statement
+      '{"title":"Auflauf","calories_kcal":"   "}', // whitespace is not zero kcal
     ]
   ) {
     const stub = installFetch({ draftContent });

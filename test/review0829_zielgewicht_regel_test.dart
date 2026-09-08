@@ -66,7 +66,7 @@ IconData _planIcon(WidgetTester tester) {
   const kandidaten = <IconData>[
     Icons.trending_down_rounded,
     Icons.trending_up_rounded,
-    Icons.shield_moon_outlined,
+    Icons.trending_flat_rounded,
   ];
   final gezeichnet = kandidaten
       .where(
@@ -278,7 +278,7 @@ void main() {
       // …aber ueber ihnen steht kein Abnehm-Plan mehr: weder das Wort noch ein
       // Tempo. "80 → 90" unter trending_down UND unter "Abnehmen" war die
       // Luege; die Karte liest jetzt effectiveWeightGoal.
-      expect(_planIcon(tester), Icons.shield_moon_outlined);
+      expect(_planIcon(tester), Icons.trending_flat_rounded);
       expect(find.text('Gewicht halten'), findsOneWidget);
       expect(find.text('HALTEN'), findsOneWidget,
           reason: 'auch der Beschriftungspol des Wunschgewichts');
@@ -299,7 +299,7 @@ void main() {
         ),
       );
 
-      expect(_planIcon(tester), Icons.shield_moon_outlined);
+      expect(_planIcon(tester), Icons.trending_flat_rounded);
       expect(find.text('Zunehmen'), findsNothing);
     });
 
@@ -341,7 +341,7 @@ void main() {
           dailyKcalGoal: 2600,
         ),
       );
-      expect(_planIcon(tester), Icons.shield_moon_outlined);
+      expect(_planIcon(tester), Icons.trending_flat_rounded);
     });
 
     testWidgets('Halten behaelt sein eigenes Symbol', (tester) async {
@@ -352,7 +352,7 @@ void main() {
       expect(
         find.descendant(
           of: find.byType(GoalPlanCard),
-          matching: find.byIcon(Icons.shield_moon_outlined),
+          matching: find.byIcon(Icons.trending_flat_rounded),
         ),
         findsOneWidget,
       );

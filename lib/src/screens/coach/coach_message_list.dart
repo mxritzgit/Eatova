@@ -195,7 +195,7 @@ class _MessageView extends StatelessWidget {
                         child: Text(
                           message.content,
                           style: AppType.ui(
-                            13.5,
+                            15,
                             color: t.onForest,
                             height: 1.5,
                           ),
@@ -207,7 +207,7 @@ class _MessageView extends StatelessWidget {
                       SelectionArea(
                         child: Text(
                           message.content,
-                          style: AppType.ui(13.5, color: t.ink, height: 1.5),
+                          style: AppType.ui(15, color: t.ink, height: 1.5),
                         ),
                       ),
                   ],
@@ -313,7 +313,7 @@ class _ErrorBanner extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Icon(Icons.info_outline_rounded, size: 16, color: t.warning),
+          Icon(Icons.error_outline_rounded, size: 16, color: t.warning),
           const SizedBox(width: 10),
           Expanded(
             child: Text(

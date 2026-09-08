@@ -15,21 +15,11 @@ class WeightSample {
   final DateTime measuredAt;
 }
 
-/// One aggregated sleep block (sum of the "asleep" phases) over a night
-/// window, in minutes.
-class SleepSample {
-  const SleepSample({required this.minutesAsleep, required this.end});
-
-  final int minutesAsleep;
-  final DateTime end;
-}
-
 class HealthSnapshot {
   const HealthSnapshot({
     required this.stepsToday,
     required this.fetchedAt,
     this.latestWeightKg,
-    this.lastSleepMinutes,
   });
 
   final int stepsToday;
@@ -37,11 +27,6 @@ class HealthSnapshot {
 
   /// Last known body weight (kg) from the health store, null if unavailable.
   final double? latestWeightKg;
-
-  /// Last night's sleep in minutes; always null since 2026-08-19 because the
-  /// SLEEP scope is no longer requested (see [readLastSleep]). Kept only until
-  /// the HealthService test fakes are brought in line.
-  final int? lastSleepMinutes;
 }
 
 abstract class HealthService {
@@ -61,7 +46,7 @@ abstract class HealthService {
   /// purpose strings in `ios/Runner/Info.plist` must match every scope.
   Future<HealthAuthState> requestAuthorization();
 
-  /// Reads today's step count (plus optional weight/sleep). Returns null when
+  /// Reads today's step count (plus optional weight). Returns null when
   /// not authorized or no data.
   Future<HealthSnapshot?> readSnapshot();
 
@@ -81,14 +66,6 @@ abstract class HealthService {
     required DateTime from,
     required DateTime to,
   });
-
-  /// Last contiguous sleep block before [before] (default: now).
-  ///
-  /// Null in EVERY implementation since 2026-08-19: the SLEEP scope is no
-  /// longer requested, because Apple rejects unused HealthKit scopes. Kept
-  /// only for the test fakes; removing it also removes [SleepSample] and
-  /// [HealthSnapshot.lastSleepMinutes].
-  Future<SleepSample?> readLastSleep({DateTime? before});
 }
 
 class NoopHealthService implements HealthService {
@@ -119,7 +96,4 @@ class NoopHealthService implements HealthService {
     required DateTime to,
   }) async =>
       const <WeightSample>[];
-
-  @override
-  Future<SleepSample?> readLastSleep({DateTime? before}) async => null;
 }

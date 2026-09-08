@@ -122,6 +122,12 @@ abstract class _HomeStoreBase extends ChangeNotifier {
 
   bool _disposed = false;
 
+  // Account cleanup precedes dispose. Prevent a pending permission result or
+  // meal callback from scheduling this account's reminders after cancellation.
+  bool _notificationSessionEnded = false;
+
+  void _endNotificationSession() => _notificationSessionEnded = true;
+
   // --- State --------------------------------------------------------------
   // Tab indices: 0 = Food, 1 = Rezepte, 2 = Coach.
   int selectedTab = 0;

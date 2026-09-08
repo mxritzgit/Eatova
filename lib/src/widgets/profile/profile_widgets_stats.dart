@@ -26,34 +26,18 @@ class ProfileStatTile extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,
         children: <Widget>[
-          Text(label, style: AppType.eyebrow(t.ink2, size: 9.5)),
+          Text(label, style: AppType.eyebrow(t.ink2, size: 11)),
           const SizedBox(height: 6),
-          // Number and unit share half a card width; without Flexible +
-          // FittedBox the two-column row overflows at textScaler 2.0 (§5).
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          // Let the unit move below the number instead of shrinking text.
+          Wrap(
+            spacing: 5,
+            runSpacing: 2,
+            crossAxisAlignment: WrapCrossAlignment.end,
             children: <Widget>[
-              Flexible(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    value,
-                    style: AppType.display(28, color: t.ink),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 5),
-              Flexible(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    unit,
-                    style:
-                        AppType.ui(11, weight: FontWeight.w500, color: t.ink2),
-                  ),
-                ),
+              Text(value, style: AppType.display(28, color: t.ink)),
+              Text(
+                unit,
+                style: AppType.ui(11, weight: FontWeight.w500, color: t.ink2),
               ),
             ],
           ),
@@ -63,7 +47,7 @@ class ProfileStatTile extends StatelessWidget {
   }
 }
 
-/// Two tiles side by side, equal height.
+/// Equal-height tiles side by side, stacking when larger text needs room.
 ///
 /// `IntrinsicHeight` instead of a fixed height: the tiles may grow with the
 /// system font but must not end up different heights.
@@ -75,16 +59,26 @@ class ProfileStatRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Expanded(child: left),
-          const SizedBox(width: 12),
-          Expanded(child: right),
-        ],
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final minTileWidth = MediaQuery.textScalerOf(context).scale(140);
+        if (constraints.maxWidth < minTileWidth * 2 + 12) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[left, const SizedBox(height: 12), right],
+          );
+        }
+        return IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Expanded(child: left),
+              const SizedBox(width: 12),
+              Expanded(child: right),
+            ],
+          ),
+        );
+      },
     );
   }
 }
-

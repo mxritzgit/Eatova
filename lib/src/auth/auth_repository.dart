@@ -1,12 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config/supabase_config.dart';
 import '../l10n/l10n.dart';
 import '../services/crash_reporter.dart';
 import 'auth_exceptions.dart';
+import 'auth_session_mutation.dart';
 import 'google_id_token_provider.dart';
 
 export 'auth_exceptions.dart';
@@ -147,11 +149,14 @@ class SupabaseAuthRepository implements AuthRepository {
   const SupabaseAuthRepository(
     this._client, {
     GoogleIdTokenProvider? googleIdTokenProvider,
+    http.Client? mutationHttpClient,
   }) : _googleIdTokenProvider =
-           googleIdTokenProvider ?? const GoogleSignInIdTokenProvider();
+           googleIdTokenProvider ?? const GoogleSignInIdTokenProvider(),
+       _mutationHttpClient = mutationHttpClient;
 
   final SupabaseClient _client;
   final GoogleIdTokenProvider _googleIdTokenProvider;
+  final http.Client? _mutationHttpClient;
 
   @override
   EatovaUser? get currentUser => _mapUser(_client.auth.currentUser);
@@ -213,7 +218,8 @@ class SupabaseAuthRepository implements AuthRepository {
     // than 24 h can swap the password without mailbox access. The mailbox
     // stays the root of trust: mail recovery resets the password and ends all
     // other sessions, and secure_email_change needs both mailboxes.
-    await _client.auth.updateUser(UserAttributes(password: newPassword));
+    await updateSessionUser(_client, UserAttributes(password: newPassword),
+        httpClient: _mutationHttpClient);
   }
 
   @override
@@ -229,8 +235,10 @@ class SupabaseAuthRepository implements AuthRepository {
     // The nonce only bites for sessions 24 h or older (see [updatePassword]).
     // Kept anyway: mandatory for old sessions, and the code mail makes the
     // change visible to the account owner.
-    await _client.auth.updateUser(
+    await updateSessionUser(
+      _client,
       UserAttributes(password: newPassword, nonce: code.trim()),
+      httpClient: _mutationHttpClient,
     );
   }
 
@@ -239,7 +247,8 @@ class SupabaseAuthRepository implements AuthRepository {
     // Deliberately without `emailRedirectTo`: the code flow needs no deep
     // link, and its absence blocks a template regression from reactivating
     // the hijackable `eatova://` link.
-    await _client.auth.updateUser(UserAttributes(email: newEmail.trim()));
+    await updateSessionUser(_client, UserAttributes(email: newEmail.trim()),
+        httpClient: _mutationHttpClient);
   }
 
   @override
@@ -247,10 +256,11 @@ class SupabaseAuthRepository implements AuthRepository {
     required String email,
     required String code,
   }) async {
-    await _client.auth.verifyOTP(
-      type: OtpType.emailChange,
+    await verifySessionEmailChange(
+      _client,
       email: email.trim(),
-      token: code.trim(),
+      code: code.trim(),
+      httpClient: _mutationHttpClient,
     );
   }
 
