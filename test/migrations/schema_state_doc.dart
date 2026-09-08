@@ -155,12 +155,12 @@ String schemaStateMarkdown(SchemaState s) {
   b.writeln('also erreicht sie ausser dem Funktionseigentuemer und');
   b.writeln('`service_role` niemand.');
   b.writeln();
-  b.writeln('### Warum `auth.uid()` und nicht `(select auth.uid())`');
+  b.writeln('### Direkte und gekapselte `auth.uid()`-Aufrufe');
   b.writeln();
   b.writeln('PostgreSQL empfiehlt fuer `stable` Funktionen in Policies die');
   b.writeln('Schreibweise `(select auth.uid())`: der Planer hebt sie in einen');
-  b.writeln('InitPlan und wertet sie einmal statt je Zeile aus. Alle Policies');
-  b.writeln('hier stehen trotzdem in der direkten Form — bewusst (Befund');
+  b.writeln('InitPlan und wertet sie einmal statt je Zeile aus. Die bestehenden');
+  b.writeln('Policies bleiben in der direkten Form — bewusst (Befund');
   b.writeln('P7-06, Review 2026-08-29):');
   b.writeln();
   b.writeln('* Der Gewinn faellt nur bei einem **Seq Scan** an. Jede Tabelle');
@@ -172,10 +172,10 @@ String schemaStateMarkdown(SchemaState s) {
   b.writeln('  Migration: die gesamte Zugriffskontrolle der App in einem');
   b.writeln('  Schritt neu geschrieben, fuer Mikrosekunden.');
   b.writeln();
-  b.writeln('Die Entscheidung ist nicht endgueltig: `normalisiereAusdruck` in');
+  b.writeln('Neue Training-Policies nutzen `(select auth.uid())`, ohne bestehende');
+  b.writeln('Policies umzuschreiben. `normalisiereAusdruck` in');
   b.writeln('`test/migrations/migration_schema.dart` liest beide Schreibweisen');
-  b.writeln('als dieselbe Bedingung, der Waechter bliebe nach einer Umstellung');
-  b.writeln('also gruen.');
+  b.writeln('als dieselbe Bedingung; der Waechter prueft beide Varianten.');
   b.writeln();
 
   final funktionen = s.funktionen.keys.toList()..sort();

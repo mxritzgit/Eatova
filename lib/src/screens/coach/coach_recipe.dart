@@ -305,51 +305,121 @@ class _RecipeAddSheet extends StatelessWidget {
 }
 
 /// Command menu above the composer: appears once the draft looks like a
-/// started command ("/", "/r", …) and completes it on tap. Currently one
-/// command (/recipe).
+/// started command ("/", "/r", …) and completes the matching command on tap.
 class _CommandSuggestions extends StatelessWidget {
-  const _CommandSuggestions({required this.onPick});
+  const _CommandSuggestions({required this.draft, required this.onPick});
 
+  final String draft;
   final ValueChanged<String> onPick;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    return Container(
-      key: const ValueKey('coach-command-menu'),
-      margin: const EdgeInsets.only(top: 8),
-      decoration: BoxDecoration(
-        color: t.surf,
-        borderRadius: BorderRadius.circular(rCard),
-        border: Border.all(color: t.line),
-        boxShadow: softShadow(t),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          key: const ValueKey('coach-command-recipe'),
-          // The command itself is deliberately not localized; only its
-          // description follows the app language.
-          onTap: () => onPick('/recipe'),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxHeight < 240;
+        return Container(
+          key: const ValueKey('coach-command-menu'),
+          margin: const EdgeInsets.only(top: 8),
+          decoration: BoxDecoration(
+            color: t.surf,
+            borderRadius: BorderRadius.circular(rCard),
+            border: Border.all(color: t.line),
+            boxShadow: softShadow(t),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Material(
+            color: Colors.transparent,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  if ('/recipe'.startsWith(draft.trimLeft().toLowerCase()))
+                    _CommandSuggestion(
+                      command: '/recipe',
+                      compact: compact,
+                      description: l10n.coachCommandRecipeDescription,
+                      icon: Icons.restaurant_rounded,
+                      onPick: onPick,
+                    ),
+                  if ('/plan'.startsWith(draft.trimLeft().toLowerCase()))
+                    _CommandSuggestion(
+                      command: '/plan',
+                      compact: compact,
+                      description: l10n.coachPlanCommandDescription,
+                      icon: Icons.fitness_center_rounded,
+                      onPick: onPick,
+                    ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _CommandSuggestion extends StatelessWidget {
+  const _CommandSuggestion({
+    required this.command,
+    required this.description,
+    required this.icon,
+    required this.onPick,
+    required this.compact,
+  });
+
+  final String command;
+  final String description;
+  final IconData icon;
+  final ValueChanged<String> onPick;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Semantics(
+      button: true,
+      child: InkWell(
+        key: ValueKey('coach-command-${command.substring(1)}'),
+        onTap: () => onPick(command),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
-            child: Column(
+            padding: EdgeInsets.symmetric(
+              horizontal: 15,
+              vertical: compact ? 8 : 12,
+            ),
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Text(
-                  '/recipe',
-                  style: AppType.ui(
-                    13.5,
-                    weight: FontWeight.w700,
-                    color: t.accent,
+                Icon(icon, size: 20, color: t.accent),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        command,
+                        semanticsLabel: compact
+                            ? '$command, $description'
+                            : null,
+                        style: AppType.ui(
+                          13.5,
+                          weight: FontWeight.w700,
+                          color: t.accent,
+                        ),
+                      ),
+                      if (!compact) ...<Widget>[
+                        const SizedBox(height: 3),
+                        Text(
+                          description,
+                          style: AppType.ui(12, color: t.ink2, height: 1.35),
+                        ),
+                      ],
+                    ],
                   ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  l10n.coachCommandRecipeDescription,
-                  style: AppType.ui(12, color: t.ink2, height: 1.35),
                 ),
               ],
             ),

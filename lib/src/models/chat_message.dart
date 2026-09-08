@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'coach_recipe_proposal.dart';
+import 'coach_training_proposal.dart';
 
 /// A single coach-chat message. Role is user|assistant; the system role stays
 /// server-side and is not modelled here.
@@ -13,6 +14,7 @@ class ChatMessage {
     this.refusal = false,
     this.imageBytes,
     this.recipeProposal,
+    this.trainingPlanProposal,
   });
 
   final String id;
@@ -30,17 +32,30 @@ class ChatMessage {
   /// screen then loads the image from the device-local RecipeImageStore.
   final CoachRecipeProposal? recipeProposal;
 
+  /// A validated /plan draft. It becomes user data only after explicit saving.
+  final CoachTrainingProposal? trainingPlanProposal;
+
   factory ChatMessage.fromRow(Map<String, dynamic> row) {
     final roleRaw = row['role']?.toString() ?? 'assistant';
     final rawRecipe = row['recipe'];
+    final rawPlan = row['training_plan'];
+    final conflictingProposals = rawRecipe != null && rawPlan != null;
     return ChatMessage(
       id: row['id']?.toString() ?? '',
       role: roleRaw == 'user' ? ChatRole.user : ChatRole.assistant,
       content: row['content']?.toString() ?? '',
       createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
       refusal: row['refusal'] == true,
-      recipeProposal:
-          rawRecipe is Map ? CoachRecipeProposal.fromJson(rawRecipe) : null,
+      recipeProposal: !conflictingProposals && rawRecipe is Map
+          ? CoachRecipeProposal.fromJson(rawRecipe)
+          : null,
+      trainingPlanProposal:
+          !conflictingProposals &&
+              row['role'] == 'assistant' &&
+              (row['refusal'] == null || row['refusal'] == false) &&
+              rawPlan is Map
+          ? CoachTrainingProposal.fromJson(rawPlan)
+          : null,
     );
   }
 
@@ -53,6 +68,7 @@ class ChatMessage {
       refusal: refusal ?? this.refusal,
       imageBytes: imageBytes,
       recipeProposal: recipeProposal,
+      trainingPlanProposal: trainingPlanProposal,
     );
   }
 }

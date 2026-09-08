@@ -197,6 +197,9 @@ class _ComposerState extends State<_Composer> {
                           vertical: 14, horizontal: 6),
                       // C8: the placeholder names the AI — in a running chat
                       // the composer is the only always-visible spot.
+                      // A wrapped hint must not reserve five input lines on
+                      // narrow screens while the actual draft is one line.
+                      hintMaxLines: 1,
                       hintText: limitReached
                           ? l10n.coachComposerHintLimitReached
                           : widget.listening

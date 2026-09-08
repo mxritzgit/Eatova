@@ -8,7 +8,7 @@
 // Measured with `debugTabBuilds` from eatova_home_page.dart, which counts real
 // builder passes per tab index (under `assert`, gone in release).
 //
-// Index 0 is the "Heute" tab (food is 1, recipes 2, coach 3); its selector
+// Index 0 is the "Heute" tab (food is 1, recipes 2, training 3, coach 4); its selector
 // slice also carries `lifetimeStats` and `userName`, so the expectations below
 // were re-measured for it.
 
@@ -155,8 +155,8 @@ void main() {
     await _pumpFrames(tester);
     final store = _storeOf(tester);
 
-    // Visit the three other tabs once (= mount them).
-    for (final tab in const [1, 2, 3]) {
+    // Visit the four other tabs once (= mount them).
+    for (final tab in const [1, 2, 3, 4]) {
       store.setTab(tab);
       await _pumpFrames(tester);
     }
@@ -164,10 +164,11 @@ void main() {
     final nachBesuch = Map<int, int>.from(debugTabBuilds);
     expect(nachBesuch[1], 1, reason: 'Food einmal gebaut');
     expect(nachBesuch[2], 1, reason: 'Rezepte einmal gebaut');
-    expect(nachBesuch[3], 1, reason: 'Coach einmal gebaut');
+    expect(nachBesuch[3], 1, reason: 'Training einmal gebaut');
+    expect(nachBesuch[4], 1, reason: 'Coach einmal gebaut');
 
-    // Five more switches across all tabs.
-    for (final tab in const [0, 1, 2, 3, 0]) {
+    // Six more switches across all tabs.
+    for (final tab in const [0, 1, 2, 3, 4, 0]) {
       store.setTab(tab);
       await _pumpFrames(tester);
     }
@@ -182,14 +183,14 @@ void main() {
       (tester) async {
     await _pumpHome(tester);
     final store = _storeOf(tester);
-    store.setTab(3);
+    store.setTab(4);
     await _pumpFrames(tester);
-    expect(debugTabBuilds[3], 1);
+    expect(debugTabBuilds[4], 1);
 
     // A plain date change in the food tab does not concern the coach context.
     store.setFoodDate(DateTime(2026, 8, 7));
     await _pumpFrames(tester);
-    expect(debugTabBuilds[3], 1);
+    expect(debugTabBuilds[4], 1);
 
     // Gegenprobe zur selben Aenderung: den HEUTE-Tab geht sie sehr wohl an, er
     // rendert genau diesen Tag (Datum, kcal, Makros, Mahlzeiten). Zwei
@@ -199,7 +200,7 @@ void main() {
     final heuteVorher = debugTabBuilds[0]!;
     store.setFoodDate(DateTime(2026, 8, 6));
     await _pumpFrames(tester);
-    expect(debugTabBuilds[3], 1);
+    expect(debugTabBuilds[4], 1);
     expect(debugTabBuilds[0], heuteVorher + 1,
         reason: 'ohne selectedFoodDate in der Slice zeigt die Tagesuebersicht '
             'nach einem Wechsel zwischen zwei Archivtagen weiter den alten Tag');
@@ -207,6 +208,6 @@ void main() {
     // A logged meal does change coachContext -> rebuild.
     store.addResultToDailyTotal(_meal('Testmahlzeit'));
     await _pumpFrames(tester);
-    expect(debugTabBuilds[3], 2);
+    expect(debugTabBuilds[4], 2);
   });
 }

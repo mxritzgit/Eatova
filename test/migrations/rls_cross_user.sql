@@ -866,4 +866,6 @@ select rlstest.erwarte_ablehnung(
   'dated refund as anon');
 rollback;
 
+\ir training_plans_rls.sql
+
 select 'RLS-Kreuzzugriffe: alle Erwartungen erfuellt' as ergebnis;

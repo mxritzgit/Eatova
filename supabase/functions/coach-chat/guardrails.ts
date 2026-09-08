@@ -69,6 +69,17 @@ export const RECIPE_REFUSAL_CATEGORIES: ReadonlySet<ClassifierCategory> =
     "injection",
   ]);
 
+// Training wishes are judged by the dedicated plan prompt for scope. The
+// classifier still owns every safety category and must fail closed when its
+// output is unusable, including requests phrased only as a workout name.
+export const PLAN_REFUSAL_CATEGORIES: ReadonlySet<ClassifierCategory> =
+  new Set([
+    "self_harm",
+    "eating_disorder",
+    "medical_risk",
+    "injection",
+  ]);
+
 /**
  * Does Layer 2 run? The only exclusion is empty text, not the presence of an
  * image: a blind classify(key, "") would hit the fail-closed `off_topic`

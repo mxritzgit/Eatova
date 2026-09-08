@@ -307,3 +307,121 @@ as documented above.
   live migration history, RPC permissions, deployed function version and the
   main-branch live drift check; record the results in the PR delivery follow-up.
   A device build installation remains separate.
+
+
+## Training implementation, 2026-09-08
+
+The user requested a complete Training tab, Coach `/plan` with explicit adoption,
+editable plans, and reversible exercise timers. Ten implementation/review agents
+worked in isolated worktrees: eight collaboration agents plus two Codex CLI
+agents after the collaboration surface refused additional concurrent threads.
+Root integrated their owned files and independently reviewed/tested the seams.
+Branch `feat/training-plans` starts at merged main `d17984a` (PR #69). The
+implementation was verified locally before delivery; its Training PR records
+the commit, CI, merge and backend deployment evidence.
+
+- Five lazy retained tabs: Today, Food, Recipes, Training, Coach. The new page
+  follows existing forest/lime tokens and Bricolage/Archivo typography. See
+  `TRAINING-DESIGN-2026-09-08.md` and `TRAINING-VISUAL-REVIEW-2026-09-08.md`.
+- Saved plan library, multiple workout days, timed or repetition-based exercises,
+  sets/rest/instructions; complete manual creation/editing, ordering and deletion.
+  The Training CTA fills `/plan ` in Coach without sending. Review/Edit/Adopt is
+  explicit; merely generating or dismissing a proposal never saves a plan.
+- The buffered `/plan` handler validates a strict versioned proposal in Dart,
+  TypeScript and PostgreSQL, uses existing quota/refund rules and stores only a
+  draft in assistant history. No AI write to the user's Training library.
+  Photos plus plan requests are rejected before generation/quota consumption.
+- Plan IDs are stable across retries/adoption. Existing encrypted account cache
+  and durable outbox handle offline CRUD; export includes accepted plans. A save
+  is acknowledged only after server delivery or verified local durability.
+- Player: start/pause/resume, +/-10 seconds, reset phase, previous/next set and
+  exercise, explicit set completion and rest skipping. Skips never count as
+  completed sets; stepping backward reverses later completion. At zero the timer
+  waits for confirmation. Timing uses elapsed monotonic time, not tick counts.
+- Background/covered routes pause. Save-and-leave/discard/finish wait for serialized
+  durable writes, with visible retry on failure. Recovery stores a full plan and
+  always resumes paused. Forced process termination can recover only the latest
+  durable checkpoint, not a guarantee of its very last millisecond. No automatic
+  training calories, invented history, notifications or new package dependencies.
+
+The general and security reviews reproduced and fixed lost acknowledged offline
+edits, replay changing an unacknowledged operation's identity, full-queue eviction,
+same-user token refresh invalidating player/Coach callbacks, stale Coach-tab test
+indices, and valid backend fallback-session rejection. The commander additionally
+checked usable buffered drafts when fallback history persistence fails. Critical
+regressions have red-before/green-after evidence. Real AuthGate tests cover token
+refresh, logout, A-to-B, late callbacks, and encrypted recovery/account isolation.
+The final store follow-up also fences saves during initial outbox hydration,
+prevents live sends when recovered ordering is unknown or queue admission fails,
+retains FIFO after a timed-out undurable write, and waits for actual persistence
+receipts before resolving Training capacity pressure. Successful immutable
+outbox snapshots establish durability even if a later verification write fails;
+a late live server acknowledgment is checked again after storage settles.
+Ordinary enqueue and hydration repair defer capacity trimming while a Training
+confirmation is unresolved. A never-persisted failed draft is removed first;
+once a save is confirmed, the existing generic cap/loss policy applies. Failed
+drafts leave the last confirmed UI state intact and report save failure.
+Logout cleanup also settles the affected operation's receipts before releasing
+its confirmation guard: durable pending changes survive, while only the exact
+never-durable draft is removed during the still-open account-cache window.
+Account retirement still prevents publishing a late Training result.
+
+Verification on the final integrated source:
+
+- **4,007 Flutter tests passed**; coverage **21,363 / 22,417 = 95.30%**, using
+  the CI exclusion for generated localization and exceeding the 88% floor.
+- Strict Flutter analyzer passed. The regular Android x64 debug APK built
+  successfully. Existing AGP/Kotlin future-support warnings remain; no toolchain
+  or dependency/lockfile upgrade was folded into this feature.
+- **470 Deno tests passed**, both together and in CI-style isolation across all
+  26 test files; Deno lint and all three function entrypoints passed.
+- All **40 migrations** replayed successfully against isolated PostgreSQL,
+  including Training JSON constraints, cross-account RLS and row-cap assertions.
+  SQL, Dart and backend validators have negative-control evidence.
+- General and security review findings were reproduced and corrected. The final
+  Coach remap review and final Training logout/receipt correction review found
+  no actionable residual issues. The store's final adjacent batch passed all
+  154 cases; the complete integrated Flutter suite above includes the final fix.
+- Independent visual renders checked Page/Coach with the real bundled fonts,
+  light/dark themes, 320-pixel width, 2x text and keyboard insets. All six design
+  findings were closed; the timer also passed its owner visual/lifecycle checks.
+- Final Gitleaks scan of all 75 changed/new files found no secrets; no changed
+  file exceeds 50 MiB. Dependency manifests and lockfiles remain unchanged.
+
+Root evidence: `root-test-1.log`, `root-analyze-1.log`, `root-apk-1.log`,
+`root-deno-individual.log`, `root-postgres.log`, `root-ui-final-review-1.log`, and
+`root-logout-final-review-1.log` under the ignored training evidence directory.
+All checks use dummy defines/stubbed requests and isolated PostgreSQL; no real AI
+generation, production user writes, or native iOS compilation in this task.
+The native Android fixture exercised Training, +/-10s, elapsed countdown/pause,
+background pause, save-and-leave, paused resume, explicit set completion and rest.
+It used an in-memory account cache and closed network stub. An initial load-error
+banner was traced to the fixture's missing `request: request` on `http.Response`:
+Postgrest dereferenced `response.request!`, so both load and upsert threw. Three
+isolated tests reproduced this without emulator timing; fixing only that mock
+field restored both operations. Root rebuilt and reinstalled the corrected
+fixture: the Training library had no error banner and the player opened normally
+(`native-corrected-training.png`, `native-corrected-player.png`). No product fix
+was needed for this fixture issue. A System UI ANR during the first heavily
+loaded emulator boot remains a separate observation, not an Eatova crash or a
+proven performance diagnosis. This fixture is not a live-backend or cold-start
+performance claim. The original emulator APK was backed up/restored after both
+passes without clearing app data; the headless emulator was stopped. The final
+regular Android debug build uses CI dummy defines and is not installed over the
+user's original build.
+
+Delivery remains separate: apply `20260908130000_training_plans.sql` before
+deploying the updated `coach-chat` and releasing this client (history now selects
+`training_plan`). At implementation handoff this migration and handler were not
+deployed, and no production-configured build was installed. The user subsequently
+authorized committing/pushing this feature, merging after green PR CI, and then
+applying the migration and deploying the handler. Record verified delivery in
+the Training PR (head `feat/training-plans`); authorization alone is not evidence
+of a successful rollout. A device/store release remains separate.
+Prior quota-refund migration and coach-chat v39 deployment belong to the earlier
+PR #69 delivery; they do not establish Training is live. Android Steps' null-data
+visibility behavior remains unchanged.
+
+Ignored evidence: `.agents/training-2026-09-08/` holds agent worktrees, root test,
+review and native logs, mutation proofs, and device/render captures. The shared
+documents are the continuation source; do not duplicate this archive.

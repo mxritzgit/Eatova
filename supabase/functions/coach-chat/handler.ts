@@ -18,6 +18,7 @@ import {
   type ClassifierResult,
   CLASSIFIER_CATEGORIES,
   layer2RefusalReason,
+  PLAN_REFUSAL_CATEGORIES,
   RECIPE_REFUSAL_CATEGORIES,
   refusalCategoriesFor,
   sanitizeUserContext,
@@ -36,6 +37,14 @@ import {
   recipeSummary,
   recipeSystemPrompt,
 } from "./recipe.ts";
+import {
+  parsePlanCommand,
+  parseTrainingPlanDraft,
+  parseTrainingPlanRefusal,
+  type CoachTrainingProposal,
+  trainingPlanSummary,
+  trainingPlanSystemPrompt,
+} from "./training_plan.ts";
 
 // Models and daily limit are overridable via function secrets.
 const MODEL_ANSWER     = Deno.env.get("COACH_MODEL_ANSWER") ?? "x-ai/grok-4.3";
@@ -1355,6 +1364,134 @@ async function handleRecipeMode(params: {
   }, 200);
 }
 
+// Training proposals are buffered like recipes. Cancelling the client does not
+// refund a paid generation; a completed proposal remains in the chat history.
+async function draftTrainingPlan(apiKey: string, wish: string, locale: CoachLocale): Promise<string> {
+  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://eatova.de",
+      "X-Title": "Eatova Coach",
+    },
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer),
+    body: JSON.stringify({
+      model: MODEL_ANSWER,
+      messages: [
+        { role: "system", content: trainingPlanSystemPrompt(locale) },
+        { role: "user", content: wish },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.3,
+      max_tokens: 4000,
+    }),
+  });
+  if (!resp.ok) {
+    // Response cleanup must not overwrite a known client-fault status and
+    // accidentally refund that paid call when the body stream is broken.
+    void resp.body?.cancel().catch(() => {});
+    throw new ProviderError(resp.status, `training plan provider status ${resp.status}`);
+  }
+  // Bound the entire provider envelope before parsing; no response or error
+  // body is ever copied into diagnostics.
+  const raw = await readBodyLimited(resp, 512 * 1024);
+  if (raw === null) throw new Error("training plan provider response too large");
+  const data = JSON.parse(raw);
+  const content = data?.choices?.[0]?.message?.content;
+  return typeof content === "string" ? content.trim() : "";
+}
+
+async function storeTrainingPlanMessage(
+  serviceKey: string,
+  supabaseUrl: string,
+  row: { user_id: string; session_id: string; content: string; training_plan: CoachTrainingProposal },
+): Promise<string | null> {
+  let resp: Response;
+  try {
+    resp = await supabaseFetch(`${supabaseUrl}/rest/v1/chat_messages?select=id`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${serviceKey}`, "apikey": serviceKey,
+        "Content-Type": "application/json", "Prefer": "return=representation",
+      },
+      body: JSON.stringify({ ...row, role: "assistant", refusal: false, refusal_reason: null }),
+    });
+  } catch (e) {
+    if (!isSupabaseIoError(e)) throw e;
+    console.error(isAbortError(e) ? "storeTrainingPlanMessage timeout" : "storeTrainingPlanMessage unavailable");
+    return null;
+  }
+  if (!resp.ok) {
+    console.error(`storeTrainingPlanMessage failed: ${resp.status}`);
+    return null;
+  }
+  const data = await readSupabaseBody(() => resp.json(), "storeTrainingPlanMessage");
+  const id = Array.isArray(data) ? data[0]?.id : data?.id;
+  return typeof id === "string" && SESSION_ID_RE.test(id) ? id : null;
+}
+
+async function handlePlanMode(params: {
+  serviceKey: string; supabaseUrl: string; openRouterKey: string;
+  userId: string; sessionId: string; message: string; locale: CoachLocale;
+  remaining: number | null; quotaDay: string | null;
+}): Promise<Response> {
+  const { serviceKey, supabaseUrl, openRouterKey, userId, sessionId, message, locale, remaining, quotaDay } = params;
+  const userStored = await storeMessage(serviceKey, supabaseUrl, {
+    user_id: userId, session_id: sessionId, role: "user", content: message,
+  });
+  if (!userStored) {
+    await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
+    return json({ error: "store_failed" }, 500);
+  }
+  await maybeAutoTitle(serviceKey, supabaseUrl, userId, sessionId, message);
+
+  let raw: string;
+  try {
+    raw = await draftTrainingPlan(openRouterKey, message, locale);
+  } catch (e) {
+    // JSON/transport errors can contain private prompt or provider response
+    // text. Only the stable class/status crosses the diagnostic boundary.
+    console.error(isProviderTimeout(e) ? "training plan provider timeout" :
+      e instanceof ProviderError ? `training plan provider status ${e.status}` : "training plan provider unavailable");
+    if (!isClientFaultFailure(e)) await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
+    await touchSession(serviceKey, supabaseUrl, sessionId);
+    return json({ error: isProviderTimeout(e) ? "provider_timeout" : "provider_error", session_id: sessionId }, isProviderTimeout(e) ? 504 : 502);
+  }
+
+  const refusalText = parseTrainingPlanRefusal(raw);
+  const quotaFields = { ...(remaining === null ? {} : { remaining }), daily_limit: DAILY_LIMIT, session_id: sessionId };
+  if (refusalText !== null) {
+    await storeMessage(serviceKey, supabaseUrl, {
+      user_id: userId, session_id: sessionId, role: "assistant", content: refusalText,
+      refusal: true, refusal_reason: "model_refusal",
+    });
+    await touchSession(serviceKey, supabaseUrl, sessionId);
+    return json({ reply: refusalText, refusal: true, refusal_reason: "model_refusal", ...quotaFields });
+  }
+  const draft = parseTrainingPlanDraft(raw);
+  if (draft === null) {
+    console.error(`training plan invalid (chars=${raw.length})`);
+    await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
+    await touchSession(serviceKey, supabaseUrl, sessionId);
+    return json({ error: "provider_error", session_id: sessionId }, 502);
+  }
+
+  const summary = trainingPlanSummary(draft, locale);
+  const [assistantMessageId] = await Promise.all([
+    storeTrainingPlanMessage(serviceKey, supabaseUrl, {
+      user_id: userId, session_id: sessionId, content: summary, training_plan: draft,
+    }),
+    touchSession(serviceKey, supabaseUrl, sessionId),
+  ]);
+  // A failed history insert leaves a valid ephemeral proposal, as for recipes.
+  // The training library is written only by the explicit adoption flow.
+  return json({
+    reply: summary, training_plan: draft, ...quotaFields,
+    ...(assistantMessageId === null ? {} : { assistant_message_id: assistantMessageId }),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Refusal texts for L1/L2
 // ---------------------------------------------------------------------------
@@ -2012,7 +2149,7 @@ async function userIdFromJwt(
 // client-controlled, so the stream itself is capped and past maxBytes the read
 // aborts (null) before an oversized body is fully in memory.
 // ---------------------------------------------------------------------------
-async function readBodyLimited(req: Request, maxBytes: number): Promise<string | null> {
+async function readBodyLimited(req: Request | Response, maxBytes: number): Promise<string | null> {
   if (!req.body) return "";
   const reader = req.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -2168,7 +2305,7 @@ export async function handleRequest(req: Request): Promise<Response> {
   if (rawBody === null) return json({ error: "payload_too_large" }, 413);
   let body: any;
   try { body = JSON.parse(rawBody); } catch { return json({ error: "Invalid JSON" }, 400); }
-  const message = typeof body?.message === "string" ? body.message.trim() : "";
+  const rawMessage = typeof body?.message === "string" ? body.message.trim() : "";
   const imageBase64Raw = typeof body?.image_base64 === "string" ? body.image_base64.trim() : "";
   const imageBase64 = imageBase64Raw.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "");
   const hasImage = imageBase64.length > 0;
@@ -2182,6 +2319,12 @@ export async function handleRequest(req: Request): Promise<Response> {
   // mode: "recipe": recipe JSON + image instead of a chat reply; the branch
   // sits after the classifier block.
   const isRecipeMode = body?.mode === "recipe";
+  const commandWish = parsePlanCommand(rawMessage);
+  const isPlanMode = body?.mode === "plan" || (!isRecipeMode && commandWish !== null);
+  const message = isPlanMode && commandWish !== null ? commandWish : rawMessage;
+  // Plans are text-only. Silently dropping a photo could bypass its safety
+  // context, so an explicit plan request with an attachment is invalid.
+  if (isPlanMode && hasImage) return json({ error: "plan_image_not_supported" }, 400);
   const locale: CoachLocale = body?.locale === "en" ? "en" : "de";
   const requestedSessionId =
     typeof body?.session_id === "string" && SESSION_ID_RE.test(body.session_id)
@@ -2204,8 +2347,8 @@ export async function handleRequest(req: Request): Promise<Response> {
   // requests reloaded and resent. Reject with 413 before any persistence. The
   // byte check is needed on top of the char check for multi-byte input.
   if (
-    message.length > MAX_INPUT_CHARS ||
-    new TextEncoder().encode(message).byteLength > MAX_INPUT_BYTES
+    rawMessage.length > MAX_INPUT_CHARS ||
+    new TextEncoder().encode(rawMessage).byteLength > MAX_INPUT_BYTES
   ) {
     return json({
       error: "message_too_long",
@@ -2269,9 +2412,9 @@ export async function handleRequest(req: Request): Promise<Response> {
 
   // Load history BEFORE the quota claim (E3): if it fails the request stops
   // here, before a slot is burned, instead of silently answering without
-  // context. Recipe mode needs no history and skips the roundtrip.
+  // context. Structured proposals need no history and skip the roundtrip.
   let history: HistoryMessage[] = [];
-  if (!isRecipeMode) {
+  if (!isRecipeMode && !isPlanMode) {
     const loaded = await loadHistory(serviceKey, supabaseUrl, userId, sessionId);
     if (loaded === null) {
       return json({ error: "history_unavailable" }, 500);
@@ -2309,12 +2452,12 @@ export async function handleRequest(req: Request): Promise<Response> {
   // nothing to classify and would hit the fail-closed off_topic default,
   // rejecting every legitimate upload. Two past bypasses came from narrowing
   // it — `if (!hasImage)`, and the recipe branch sitting before this block —
-  // and both silently disabled the crisis categories. Recipe mode now runs
-  // through here with RECIPE_REFUSAL_CATEGORIES.
+  // and both silently disabled the crisis categories. Both structured proposal
+  // modes must run this guard before reaching their dedicated draft prompts.
   if (shouldRunClassifier(message)) {
     const activeRefusalCategories = isRecipeMode
       ? RECIPE_REFUSAL_CATEGORIES
-      : refusalCategoriesFor(hasImage);
+      : isPlanMode ? PLAN_REFUSAL_CATEGORIES : refusalCategoriesFor(hasImage);
     let cls: ClassifierResult;
     try {
       cls = await classify(openRouterKey, message);
@@ -2322,7 +2465,10 @@ export async function handleRequest(req: Request): Promise<Response> {
       // Infra error: nothing delivered -> slot back and an honest status, like
       // the answer path (E2). Nothing is persisted yet. The timeout shares
       // this catch — one refund, only the status differs (504/502).
-      console.error(`classify failed: ${e instanceof Error ? e.message : String(e)}`);
+      // Transport and JSON errors can quote private input. ProviderError is
+      // constructed locally with status/digest only; preserve that safe detail.
+      console.error(isProviderTimeout(e) ? "classify timeout" :
+        e instanceof ProviderError ? `classify failed: ${e.message}` : "classify unavailable");
       // Refund only on an OUTAGE: a client-caused 4xx is a paid call, and
       // refunding it would make the slot reusable at will.
       if (!isClientFaultFailure(e)) {
@@ -2336,11 +2482,11 @@ export async function handleRequest(req: Request): Promise<Response> {
     // Not `activeRefusalCategories.has(...)` (W1): unusable model output
     // arrived as `off_topic`, so in any set WITHOUT off_topic broken JSON
     // silently disabled the crisis check. `refuseOnUnusableOutput` covers the
-    // one place with no second crisis layer behind Layer 2: recipe mode.
+    // structured proposal modes before a draft can be generated.
     const refusalReason = layer2RefusalReason({
       result: cls,
       categories: activeRefusalCategories,
-      refuseOnUnusableOutput: isRecipeMode,
+      refuseOnUnusableOutput: isRecipeMode || isPlanMode,
     });
     if (refusalReason !== null) {
       const reply = refusalForReason(refusalReason, locale);
@@ -2368,6 +2514,13 @@ export async function handleRequest(req: Request): Promise<Response> {
         daily_limit: DAILY_LIMIT,
       }, 200);
     }
+  }
+
+  if (isPlanMode) {
+    return await handlePlanMode({
+      serviceKey, supabaseUrl, openRouterKey, userId, sessionId, message, locale,
+      remaining: claim.remaining, quotaDay,
+    });
   }
 
   // ------------------------------------------------------------ RECIPE-MODE

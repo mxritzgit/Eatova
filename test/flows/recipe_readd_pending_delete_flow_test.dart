@@ -62,7 +62,7 @@ void main() {
         // Use the real shell's Coach callback: it is invoked only after the
         // actual Coach confirmation flow (covered in coach_recipe_flow_test).
         // The tab switch is programmatic because the Undo toast covers nav.
-        store.setTab(3);
+        store.setTab(4);
         await settleFrames(tester);
         final coach = tester.widget<CoachChatScreen>(
           find.byType(CoachChatScreen),

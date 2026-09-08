@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:developer' as dev;
 import 'dart:typed_data';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 // Only for the `ClientException` arm below: a connection that dies MID-STREAM
 // is past everything functions_client wraps, so the type arrives raw.
@@ -13,6 +14,7 @@ import '../l10n/l10n.dart';
 import '../models/chat_message.dart';
 import '../models/chat_session.dart';
 import '../models/coach_recipe_proposal.dart';
+import '../models/coach_training_proposal.dart';
 import 'crash_reporter.dart';
 import 'sync_error_messages.dart';
 import 'user_rpc.dart';
@@ -24,7 +26,7 @@ import 'user_rpc.dart';
 /// public.chat_messages (RLS scopes it to the user), invokes the function,
 /// reads the counter via get_chat_quota_today, and manages sessions by RPC.
 class CoachChatService {
-  /// [chatFrist], [rezeptFrist] and [fristPuffer] exist for the test suite
+  /// [chatFrist], [rezeptFrist], [planFrist] and [fristPuffer] are test seams
   /// alone and default to the constants below. The real deadlines are minutes
   /// long, so no test can sit one out; the timing cases run the same ledger at
   /// a fraction of its scale, with their numbers still DERIVED from
@@ -34,15 +36,18 @@ class CoachChatService {
     this._userId, {
     Duration? chatFrist,
     Duration? rezeptFrist,
+    Duration? planFrist,
     Duration? fristPuffer,
   })  : _chatFrist = chatFrist ?? chatDeadline,
         _rezeptFrist = rezeptFrist ?? recipeDeadline,
+        _planFrist = planFrist ?? planDeadline,
         _fristPuffer = fristPuffer ?? _deadlineGrace;
 
   final SupabaseClient _client;
   final String _userId;
   final Duration _chatFrist;
   final Duration _rezeptFrist;
+  final Duration _planFrist;
   final Duration _fristPuffer;
 
   // -------------------------------------------------------------------------
@@ -88,6 +93,10 @@ class CoachChatService {
   /// still finishing. The earlier 120 s left 30 s for everything that is not
   /// a provider call, which the upload and the DB hops eat by themselves.
   static const Duration recipeDeadline = Duration(seconds: 165);
+
+  /// Classification and draft generation without the recipe's 60-second image
+  /// request. Keep response headroom for the larger structured plan payload.
+  static const Duration planDeadline = Duration(seconds: 105);
 
   /// Grace the outer `timeout` gets on top of the abort signal. The signal is
   /// the clean exit (it tears the socket down); the timeout is the guarantee,
@@ -161,10 +170,11 @@ class CoachChatService {
     required String sessionId,
     required String gesendet,
     required DateTime begonnen,
+    Future<List<ChatMessage>> Function()? historyLoader,
   }) async {
     final List<ChatMessage> verlauf;
     try {
-      verlauf = await loadHistory(sessionId, limit: 2);
+      verlauf = await (historyLoader?.call() ?? loadHistory(sessionId, limit: 2));
     } catch (_) {
       // Already logged and reported by loadHistory; here it only means the
       // straggler cannot be proven.
@@ -423,17 +433,28 @@ class CoachChatService {
   Future<List<ChatMessage>> loadHistory(
     String sessionId, {
     int limit = 100,
+  }) => _readHistory(sessionId, limit: limit);
+
+  Future<List<ChatMessage>> _readHistory(
+    String sessionId, {
+    required int limit,
+    String? authorization,
   }) async {
     try {
-      final rows = await _client
+      final request = _client
           .from('chat_messages')
-          // `recipe`: the proposal JSON, so the card survives a reload.
-          .select('id, role, content, refusal, created_at, recipe')
+          // Proposals survive reload; neither query nor parser saves a plan.
+          .select(
+            'id, role, content, refusal, created_at, recipe, training_plan',
+          )
           .eq('user_id', _userId)
           .eq('session_id', sessionId)
           .inFilter('role', ['user', 'assistant'])
           .order('created_at', ascending: false)
           .limit(limit);
+      final rows = await (authorization == null
+          ? request
+          : request.setHeader('Authorization', authorization));
       final list = rows.map<ChatMessage>((row) {
         return ChatMessage.fromRow((row as Map).cast<String, dynamic>());
       }).toList();
@@ -839,6 +860,215 @@ class CoachChatService {
     }
   }
 
+  /// Generates a validated training draft for explicit review and adoption.
+  /// No training data is written here. A partial stream is never a plan.
+  Future<CoachPlanReply> requestPlan(
+    String wish, {
+    required String sessionId,
+    required String locale,
+  }) async {
+    final startedAt = clock.now();
+    final identity = _PlanRequestIdentity(_client);
+    String? authorization;
+    void verifyIdentity() {
+      if (!identity.isCurrent) {
+        throw CoachChatException(_l10n.coachErrorSessionExpired);
+      }
+    }
+    try {
+      authorization = await _planAuthorization();
+      verifyIdentity();
+      final result = await _mitFrist(_planFrist, (abort) async {
+        final res = await _client.functions.invoke(
+          'coach-chat',
+          headers: {'Authorization': authorization!},
+          body: {
+            'message': wish,
+            'mode': 'plan',
+            'locale': locale.toLowerCase().startsWith('en') ? 'en' : 'de',
+            'session_id': sessionId,
+          },
+          abortSignal: abort,
+        );
+        verifyIdentity();
+        final data = res.data;
+        if (data is Stream<List<int>>) {
+          // The deadline also covers the body, not just response headers.
+          final stream = await _sseLesen(data, null);
+          verifyIdentity();
+          final done = stream.done;
+          if (done == null) {
+            throw CoachChatException(_unreachableMessage);
+          }
+          return _planFromPayload(done, sessionId);
+        }
+        return _planFromPayload(
+          data is Map ? data : const <dynamic, dynamic>{},
+          sessionId,
+        );
+      });
+      verifyIdentity();
+      return result;
+    } on CoachQuotaExceeded {
+      verifyIdentity();
+      rethrow;
+    } on CoachChatException {
+      verifyIdentity();
+      rethrow;
+    } on TimeoutException catch (e, stack) {
+      verifyIdentity();
+      _logSendFailure(e, stack);
+      if (authorization == null) {
+        throw CoachChatException(_l10n.coachErrorTimeout);
+      }
+      return await _planAfterDeadline(
+        sessionId, wish, startedAt, authorization, verifyIdentity,
+      );
+    } on RequestAbortedException catch (e, stack) {
+      verifyIdentity();
+      _logSendFailure(e, stack);
+      if (authorization == null) {
+        throw CoachChatException(_l10n.coachErrorTimeout);
+      }
+      return await _planAfterDeadline(
+        sessionId, wish, startedAt, authorization, verifyIdentity,
+      );
+    } on AuthException {
+      throw CoachChatException(_l10n.coachErrorSessionExpired);
+    } on FunctionsHttpException catch (e, stack) {
+      verifyIdentity();
+      _logSendFailure(e, stack);
+      if (_statusIstVorfall(e.status)) _melde('coach.plan.http', e, stack);
+      throw _failureForStatus(e.status, e.details);
+    } on FunctionsRelayException catch (e, stack) {
+      verifyIdentity();
+      _logSendFailure(e, stack);
+      _melde('coach.plan.relay', e, stack);
+      throw CoachChatException(_unreachableMessage);
+    } on FunctionsFetchException catch (e, stack) {
+      verifyIdentity();
+      _logSendFailure(e, stack);
+      throw CoachChatException(_l10n.coachErrorNoConnection);
+    } on http.ClientException catch (e, stack) {
+      verifyIdentity();
+      _logSendFailure(e, stack);
+      throw CoachChatException(_l10n.coachErrorNoConnection);
+    } catch (e, stack) {
+      verifyIdentity();
+      _logSendFailure(e, stack);
+      _melde('coach.plan.unbekannt', e, stack);
+      throw CoachChatException(_unreachableMessage);
+    } finally {
+      unawaited(identity.dispose());
+    }
+  }
+
+  /// Capture the bearer before the SDK can await a different account's token.
+  /// Like userRpc, an anonymous call stays anonymous across a later login.
+  Future<String> _planAuthorization() async {
+    var session = _client.auth.currentSession;
+    if (session != null && session.user.id != _userId) {
+      throw const AuthException('Session changed');
+    }
+    if (session != null && session.isExpired) {
+      await _client.auth.refreshSession();
+      session = _client.auth.currentSession;
+    }
+    if (session != null && session.user.id != _userId) {
+      throw const AuthException('Session changed');
+    }
+    return 'Bearer ${session?.accessToken ?? ''}';
+  }
+
+  CoachPlanReply _planFromPayload(
+    Map<dynamic, dynamic> payload,
+    String sessionId,
+  ) {
+    final reply = payload['reply'] is String
+        ? (payload['reply'] as String).trim()
+        : '';
+    final refusal = payload['refusal'] == true;
+    final rawPlan = payload['training_plan'];
+    final returnedSession = payload['session_id'];
+    final proposal = !refusal && rawPlan is Map
+        ? CoachTrainingProposal.fromJson(rawPlan)
+        : null;
+    if (reply.isEmpty ||
+        (payload['refusal'] != null && payload['refusal'] is! bool) ||
+        (!refusal && proposal == null) ||
+        (rawPlan != null && payload['recipe'] != null) ||
+        (returnedSession != null &&
+            (returnedSession is! String ||
+                !RegExp(r'^[A-Za-z0-9_-]{1,100}$')
+                    .hasMatch(returnedSession)))) {
+      final error = CoachChatException(_l10n.coachErrorEmptyReply);
+      _melde('coach.plan.invalidResponse', error, StackTrace.current);
+      throw error;
+    }
+    final dailyLimit = _planCount(payload['daily_limit'], minimum: 1);
+    _tageslimitMerken(dailyLimit);
+    final messageId = payload['assistant_message_id'];
+    return CoachPlanReply(
+      reply: reply,
+      refusal: refusal,
+      refusalReason: payload['refusal_reason'] is String
+          ? payload['refusal_reason'] as String
+          : null,
+      proposal: proposal,
+      remaining: _planCount(payload['remaining']),
+      dailyLimit: dailyLimit,
+      // ensureSession can select this account's default after remote deletion.
+      // The request identity guard establishes the account, not ID equality.
+      sessionId: returnedSession is String ? returnedSession : sessionId,
+      assistantMessageId:
+          messageId is String &&
+              RegExp(r'^[A-Za-z0-9_-]{1,94}$').hasMatch(messageId)
+          ? messageId
+          : null,
+    );
+  }
+
+  static int? _planCount(Object? value, {int minimum = 0}) {
+    if (value is! num ||
+        !value.isFinite ||
+        value < minimum ||
+        value > 1000000 ||
+        value != value.truncateToDouble()) {
+      return null;
+    }
+    return value.toInt();
+  }
+
+  Future<CoachPlanReply> _planAfterDeadline(
+    String sessionId,
+    String wish,
+    DateTime startedAt,
+    String authorization,
+    void Function() verifyIdentity,
+  ) async {
+    verifyIdentity();
+    final message = await _nachzuegler(
+      sessionId: sessionId,
+      gesendet: wish,
+      begonnen: startedAt,
+      historyLoader: () => _readHistory(
+        sessionId, limit: 2, authorization: authorization,
+      ),
+    );
+    verifyIdentity();
+    final proposal = message?.trainingPlanProposal;
+    if (message == null || (proposal == null && !message.refusal)) {
+      throw CoachChatException(_l10n.coachErrorTimeout);
+    }
+    return CoachPlanReply(
+      reply: message.content,
+      refusal: message.refusal,
+      proposal: proposal,
+      sessionId: sessionId,
+      assistantMessageId: message.id.isEmpty ? null : message.id,
+    );
+  }
+
   String get _unreachableMessage => _l10n.coachErrorUnreachable;
 
   void _logSendFailure(Object error, StackTrace stack) {
@@ -928,6 +1158,40 @@ class CoachChatService {
 //   event: error  data: {"error":"provider_error"|"provider_timeout"}
 // `done` and `error` are mutually exclusive and always last.
 // ---------------------------------------------------------------------------
+
+/// Tracks account changes throughout one request, including A -> B -> A.
+/// Token refresh for the same account remains valid; a new login does not.
+class _PlanRequestIdentity {
+  _PlanRequestIdentity(this._client)
+      : _initialSession = _client.auth.currentSession,
+        _userId = _client.auth.currentUser?.id {
+    _subscription = _client.auth.onAuthStateChange.listen((state) {
+      if (state.session?.user.id != _userId ||
+          (state.event == AuthChangeEvent.signedIn &&
+              !identical(state.session, _initialSession) &&
+              identical(state.session, _client.auth.currentSession))) {
+        _changed = true;
+      }
+    }, onError: (Object error) {
+      _changed = true;
+    });
+  }
+
+  final SupabaseClient _client;
+  final Session? _initialSession;
+  final String? _userId;
+  late final StreamSubscription<AuthState> _subscription;
+  bool _changed = false;
+  bool _active = true;
+
+  bool get isCurrent =>
+      _active && !_changed && _client.auth.currentUser?.id == _userId;
+
+  Future<void> dispose() {
+    _active = false;
+    return _subscription.cancel();
+  }
+}
 
 /// What one finished `coach-chat` SSE response amounted to.
 class _SseAntwort {
@@ -1095,6 +1359,29 @@ class CoachRecipeReply {
   /// Id of the persisted assistant row, the key of the local image store so
   /// the card survives a reload. null on older function deployments, where the
   /// card is ephemeral.
+  final String? assistantMessageId;
+}
+
+/// Training-plan result. Refusals never carry an adoptable proposal.
+class CoachPlanReply {
+  const CoachPlanReply({
+    required this.reply,
+    required this.refusal,
+    required this.sessionId,
+    this.proposal,
+    this.refusalReason,
+    this.remaining,
+    this.dailyLimit,
+    this.assistantMessageId,
+  });
+
+  final String reply;
+  final bool refusal;
+  final String sessionId;
+  final CoachTrainingProposal? proposal;
+  final String? refusalReason;
+  final int? remaining;
+  final int? dailyLimit;
   final String? assistantMessageId;
 }
 
