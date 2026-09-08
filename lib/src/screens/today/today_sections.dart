@@ -190,64 +190,127 @@ class TodayStepsCard extends StatelessWidget {
         l10n.todayStepsGoal(formatThousands(ziel, locale)),
     ].join(' · ');
 
+    final title = Text(
+      l10n.todayStepsTitle,
+      style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
+    );
+    final count = Text(
+      formatThousands(schritte, locale),
+      key: const ValueKey('today-steps-value'),
+      style: AppType.display(16, weight: FontWeight.w700, color: t.ink),
+    );
+    final unit = Text(
+      l10n.todayStepsUnit,
+      style: AppType.ui(
+        9.5,
+        weight: FontWeight.w500,
+        color: t.ink2,
+        letterSpacing: 0.5,
+      ),
+    );
+    final subtitle = Text(
+      untertitel,
+      key: const ValueKey('today-steps-subtitle'),
+      style: AppType.ui(12, color: t.ink2, height: 1.4),
+    );
+    final icon = Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: t.lime.withValues(alpha: 0.28),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Center(child: StepsIcon(size: 22, color: t.accent)),
+    );
+    final value = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [count, unit],
+    );
+
+    double textWidth(Text text) {
+      final style = DefaultTextStyle.of(context).style.merge(text.style);
+      final painter = TextPainter(
+        text: TextSpan(
+          text: text.data,
+          style: MediaQuery.boldTextOf(context)
+              ? style.copyWith(fontWeight: FontWeight.bold)
+              : style,
+        ),
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+        locale: Localizations.maybeLocaleOf(context),
+      )..layout();
+      final width = painter.width.ceilToDouble();
+      painter.dispose();
+      return width;
+    }
+
+    final countWidth = textWidth(count);
+    final unitWidth = textWidth(unit);
+    final valueWidth = countWidth > unitWidth ? countWidth : unitWidth;
+    final headerWidth = 40 + 13 + textWidth(title) + 10 + valueWidth;
+
     return AppCard(
       key: const ValueKey('today-steps-card'),
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            alignment: WrapAlignment.spaceBetween,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: <Widget>[
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: t.lime.withValues(alpha: 0.28),
-                      borderRadius: BorderRadius.circular(14),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              // Keep the explanation beside the icon unless larger text needs
+              // separate rows for the title/count and the full explanation.
+              if (headerWidth <= constraints.maxWidth) {
+                return Row(
+                  children: [
+                    icon,
+                    const SizedBox(width: 13),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          title,
+                          if (untertitel.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            subtitle,
+                          ],
+                        ],
+                      ),
                     ),
-                    child: Center(child: StepsIcon(size: 22, color: t.accent)),
+                    const SizedBox(width: 10),
+                    value,
+                  ],
+                );
+              }
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          icon,
+                          const SizedBox(width: 13),
+                          Flexible(child: title),
+                        ],
+                      ),
+                      value,
+                    ],
                   ),
-                  const SizedBox(width: 13),
-                  Flexible(
-                    child: Text(
-                      l10n.todayStepsTitle,
-                      style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
-                    ),
-                  ),
+                  if (untertitel.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    subtitle,
+                  ],
                 ],
-              ),
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: <Widget>[
-                  Text(
-                    formatThousands(schritte, locale),
-                    key: const ValueKey('today-steps-value'),
-                    style: AppType.display(16, weight: FontWeight.w700, color: t.ink),
-                  ),
-                  Text(
-                    l10n.todayStepsUnit,
-                    style: AppType.ui(9.5, weight: FontWeight.w500, color: t.ink2, letterSpacing: 0.5),
-                  ),
-                ],
-              ),
-            ],
+              );
+            },
           ),
-          if (untertitel.isNotEmpty) ...<Widget>[
-            const SizedBox(height: 10),
-            Text(
-              untertitel,
-              key: const ValueKey('today-steps-subtitle'),
-              style: AppType.ui(12, color: t.ink2, height: 1.4),
-            ),
-          ],
           const SizedBox(height: 12),
           // Same bar as [MacroBar] (height, radius, animation) without the
           // label/value columns — those are already above.

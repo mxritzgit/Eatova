@@ -282,3 +282,28 @@ check results are authoritative; do not infer pending or completed delivery
 from the earlier local-only notes. Merge is authorized only after all
 applicable CI checks, including native iOS and Android release, pass.
 Backend deployment and device installation remain separate from this merge.
+
+### Steps layout follow-up, 2026-09-08
+
+PR #68 was merged as `77d0a72` after green CI, including native iOS. The user
+then reported that the Steps calorie explanation had moved underneath the
+entire header. At normal phone widths this placed it 53 pixels left of the
+title. `TodayStepsCard` now keeps the explanation below the title beside the
+footstep icon, with the count on the right. Narrow layouts with large text
+retain the readable stacked fallback. This supersedes the earlier full-width
+subtitle design decision; card placement and Android null-data behavior stay
+as documented above.
+
+- Four new geometry tests failed against the previous layout and pass with the
+  fix. All 82 Today tests and strict analysis pass. Four rendered cases cover
+  German/English, normal phone widths, and 320 pixels with doubled text.
+  Independent Codex review found no actionable regression. Evidence is ignored
+  under `.agents/steps-card-layout/` and `build/steps-card-layout/`.
+- Topic branch: `fix/today-steps-card-layout`. Full CI must pass before merge;
+  the branch's GitHub PR records the current delivery state.
+- The user also authorized the outstanding production migration
+  `20260908120000_chat_quota_refund_day.sql` and then deployment of `coach-chat`
+  after this merge. This is authorization, not evidence of deployment. Verify
+  live migration history, RPC permissions, deployed function version and the
+  main-branch live drift check; record the results in the PR delivery follow-up.
+  A device build installation remains separate.
