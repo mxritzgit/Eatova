@@ -8,6 +8,8 @@ import '../models/favorite_meal.dart';
 import '../models/fitness_recipe.dart';
 import '../models/lifetime_stats.dart';
 import '../models/logged_meal.dart';
+import '../models/training_plan.dart';
+import '../models/training_session.dart';
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
 import 'crash_reporter.dart';
@@ -279,6 +281,9 @@ class LocalCache {
   /// single safety net (the outbox). Now the same write-through as diary and
   /// favorites. PII (ingredients, amounts) -> cleared in [clear].
   String get _userRecipesKey => 'eatova.v1.user_recipes.$_userId';
+  String get _trainingPlansKey => 'eatova.v1.training_plans.$_userId';
+  String get _trainingSelectionKey => 'eatova.v1.training_selection.$_userId';
+  String get _trainingSessionKey => 'eatova.v1.training_session.$_userId';
 
   /// Daily activity: steps plus estimated burned kcal per local calendar day
   /// (blob key: YYYY-MM-DD, see local_day.dart). Health data, so PII ->
@@ -413,6 +418,71 @@ class LocalCache {
           name: 'local_cache');
       return null;
     }
+  }
+
+  Future<void> writeTrainingPlans(List<TrainingPlan> plans) =>
+      _writeJson(_trainingPlansKey, _trainingPlansToJson(plans));
+
+  static Map<String, dynamic> _trainingPlansToJson(List<TrainingPlan> plans) =>
+      {'items': plans.map((plan) => plan.toRow()).toList()};
+
+  Future<List<TrainingPlan>?> readTrainingPlans() async {
+    final json = await _readJson(_trainingPlansKey);
+    final items = json?['items'];
+    if (items is! List || items.length > 200) return null;
+    try {
+      final plans = items.map((row) =>
+          TrainingPlan.fromRow((row as Map).cast<String, dynamic>())).toList();
+      if (plans.map((plan) => plan.id).toSet().length != plans.length) return null;
+      return List.unmodifiable(plans);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> writeTrainingSelection(String? id) =>
+      _writeJson(_trainingSelectionKey, {'id': id});
+
+  Future<String?> readTrainingSelection() async {
+    final value = (await _readJson(_trainingSelectionKey))?['id'];
+    return value is String && RegExp(r'^[A-Za-z0-9_-]{1,100}$').hasMatch(value)
+        ? value
+        : null;
+  }
+
+  Future<TrainingSessionSnapshot?> readTrainingSession() async {
+    final snapshot = (await _readJson(_trainingSessionKey))?['snapshot'];
+    if (snapshot is! Map) return null;
+    try {
+      return TrainingSessionSnapshot.fromJson(snapshot);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _trainingSessionWriteTail = Future<void>.value();
+
+  /// A recovery checkpoint is the only copy, so failures cannot be swallowed.
+  /// Serialize even test stores; an older pause must not overtake a discard.
+  Future<bool> writeTrainingSession(TrainingSessionSnapshot? snapshot) {
+    final value = <String, dynamic>{'snapshot': snapshot?.toJson()};
+    final write = _trainingSessionWriteTail.then((_) async {
+      if (_closed) return false;
+      final saved = await _writeDurableNow(
+          _trainingSessionKey, 'training_session', value);
+      if (_closed) {
+        // Unlike outbox state, a recovery checkpoint never survives logout.
+        try {
+          await _store.remove(_trainingSessionKey);
+        } catch (_) {
+          return false;
+        }
+        return false;
+      }
+      return saved;
+    });
+    _trainingSessionWriteTail = write.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    return _trackWrite(write);
   }
 
   /// Daily activity (see [_dailyActivityKey]). Wire format:
@@ -598,6 +668,9 @@ class LocalCache {
     // User recipes are user content (ingredients, amounts): same M-1 reason
     // as the diary, even with [preserveOutbox].
     await _store.remove(_userRecipesKey);
+    await _store.remove(_trainingPlansKey);
+    await _store.remove(_trainingSelectionKey);
+    await _store.remove(_trainingSessionKey);
     // Steps/burned kcal are health data — same M-1 reason.
     await _store.remove(_dailyActivityKey);
     if (preserveOutbox) return;
@@ -651,6 +724,9 @@ class LocalCache {
   /// network load.
   void writeUserRecipesDebounced(List<FitnessRecipe> recipes) =>
       _scheduleWrite(_userRecipesKey, _userRecipesToJson(recipes));
+
+  void writeTrainingPlansDebounced(List<TrainingPlan> plans) =>
+      _scheduleWrite(_trainingPlansKey, _trainingPlansToJson(plans));
 
   /// Flushes all pending debounced writes immediately.
   ///

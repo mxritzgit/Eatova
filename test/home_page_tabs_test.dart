@@ -81,11 +81,11 @@ void main() {
         (tester) async {
       await _pumpHome(tester);
 
-      await _goToTab(tester, 3);
+      await _goToTab(tester, 4);
       final coachState = tester.state(find.byType(CoachChatScreen));
 
       await _goToTab(tester, 2);
-      await _goToTab(tester, 3);
+      await _goToTab(tester, 4);
 
       expect(
         identical(tester.state(find.byType(CoachChatScreen)), coachState),
@@ -101,14 +101,14 @@ void main() {
       // do nothing. Measure the draft's carrier instead: if the
       // TextEditingController instance survives the switch, so does its text.
       await _pumpHome(tester);
-      await _goToTab(tester, 3);
+      await _goToTab(tester, 4);
 
       final feld = find.byKey(const ValueKey('coach-input'));
       final controller = tester.widget<TextField>(feld).controller;
       expect(controller, isNotNull);
 
       await _goToTab(tester, 0);
-      await _goToTab(tester, 3);
+      await _goToTab(tester, 4);
 
       expect(identical(tester.widget<TextField>(feld).controller, controller),
           isTrue);
@@ -164,8 +164,8 @@ void main() {
     testWidgets('aus dem Coach-Tab fuehrt Zurueck auf Heute statt aus der App',
         (tester) async {
       await _pumpHome(tester);
-      await _goToTab(tester, 3);
-      expect(_storeOf(tester).selectedTab, 3);
+      await _goToTab(tester, 4);
+      expect(_storeOf(tester).selectedTab, 4);
 
       final handled = await WidgetsBinding.instance.handlePopRoute();
       await tester.pump();
@@ -234,7 +234,7 @@ void main() {
     // `test/coach_ai_disclosure_test.dart`, this group only asserts presence.
     testWidgets('der Coach-Tab nennt die KI', (tester) async {
       await _pumpHome(tester);
-      await _goToTab(tester, 3);
+      await _goToTab(tester, 4);
 
       expect(find.byKey(const ValueKey('coach-ai-note')), findsOneWidget,
           reason: 'der antippbare Hinweis im Leerzustand fuehrt ins (i)-Sheet');
@@ -243,7 +243,7 @@ void main() {
     testWidgets('der Tab-Rahmen traegt keine zweite Offenlegung',
         (tester) async {
       await _pumpHome(tester);
-      await _goToTab(tester, 3);
+      await _goToTab(tester, 4);
 
       expect(find.byKey(const ValueKey('coach-ai-disclosure')), findsNothing,
           reason: 'sonst steht die Aussage doppelt untereinander');

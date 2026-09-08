@@ -1,4 +1,4 @@
-// Tab navigation: the bottom nav switches between the four tabs and each
+// Tab navigation: the bottom nav switches between the five tabs and each
 // screen's core pins hold. Cold start lands on Heute (index 0).
 //
 // Since D6 the tabs live in a lazy [IndexedStack]: a visited tab stays MOUNTED
@@ -25,7 +25,7 @@ final DateTime _jetzt = DateTime(2026, 8, 20, 12, 30);
 
 void main() {
   testWidgetsRobust(
-      'Bottom navigation switches between Heute, Food, Rezepte and Coach', (
+      'Bottom navigation switches between Heute, Food, Rezepte, Training and Coach', (
     WidgetTester tester,
   ) async {
     // Pin the device locale: `EatovaApp` resolves via `resolveEatovaLocale`,
@@ -46,6 +46,8 @@ void main() {
       expect(find.byKey(const ValueKey('tab-fixed-2'), skipOffstage: false),
           findsNothing);
       expect(find.byKey(const ValueKey('tab-fixed-3'), skipOffstage: false),
+          findsNothing);
+      expect(find.byKey(const ValueKey('tab-fixed-4'), skipOffstage: false),
           findsNothing);
       expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
       expect(find.byKey(const ValueKey('today-kcal-hero')), findsOneWidget);
@@ -146,13 +148,18 @@ void main() {
       expect(putenTile, findsOneWidget);
       expect(find.text('Putenbällchen mit Reis & Gemüse'), findsWidgets);
 
+      await tester.tap(find.byKey(const ValueKey('nav-Training')));
+      await tester.pumpAndSettle();
+      expect(_sichtbarerTab(tester), 3);
+      expect(find.byKey(const ValueKey('training-empty-coach')), findsOneWidget);
+
       // Coach tab: the CoachOrb animates endlessly, so pumpAndSettle would
       // never settle — pump a bounded number of frames instead.
       await tester.tap(find.byKey(const ValueKey('nav-Coach')));
       for (var i = 0; i < 20; i++) {
         await tester.pump(const Duration(milliseconds: 50));
       }
-      expect(_sichtbarerTab(tester), 3);
+      expect(_sichtbarerTab(tester), 4);
       expect(find.byKey(const ValueKey('screen-coach')), findsOneWidget);
       expect(find.byKey(const ValueKey('coach-streak')), findsOneWidget);
 
@@ -175,6 +182,8 @@ void main() {
       expect(find.byKey(const ValueKey('tab-fixed-2'), skipOffstage: false),
           findsOneWidget);
       expect(find.byKey(const ValueKey('tab-fixed-3'), skipOffstage: false),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey('tab-fixed-4'), skipOffstage: false),
           findsOneWidget);
       expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsNothing);
       expect(find.byKey(const ValueKey('screen-recipes')), findsNothing);

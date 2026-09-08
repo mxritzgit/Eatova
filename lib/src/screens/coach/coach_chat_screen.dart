@@ -21,7 +21,9 @@ import '../../l10n/l10n.dart';
 import '../../models/chat_message.dart';
 import '../../models/chat_session.dart';
 import '../../models/coach_recipe_proposal.dart';
+import '../../models/coach_training_proposal.dart';
 import '../../models/fitness_recipe.dart';
+import '../../models/training_plan.dart';
 import '../../services/coach_chat_service.dart';
 import '../../services/meal_photo_compressor.dart';
 import '../../services/meal_photo_temp_file.dart';
@@ -32,6 +34,7 @@ import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
 import '../today/today_texts.dart' show greetingForHour;
+import '../training/training_plan_editor.dart';
 
 part 'coach_speech.dart';
 part 'coach_top_bar.dart';
@@ -40,6 +43,7 @@ part 'coach_orb.dart';
 part 'coach_message_list.dart';
 part 'coach_composer.dart';
 part 'coach_recipe.dart';
+part 'coach_plan.dart';
 part 'coach_sessions.dart';
 
 /// Coach chat: Grok-based fitness/nutrition coach.
@@ -58,6 +62,10 @@ class CoachChatScreen extends StatefulWidget {
     this.speechInput = const CoachSpeechInput(),
     this.onCreateRecipe,
     this.userRecipeSlugs = const <String>{},
+    this.onCreateTrainingPlan,
+    this.userTrainingPlanIds = const <String>{},
+    this.onOpenTraining,
+    this.planDraftRequest = 0,
   });
 
   final CoachChatService? service;
@@ -72,6 +80,14 @@ class CoachChatScreen extends StatefulWidget {
   /// Drives the "added" state of the cards, so deleting a recipe in the
   /// recipes tab re-enables the button on its own.
   final Set<String> userRecipeSlugs;
+
+  /// Runs only after the user confirms a reviewed or edited plan.
+  final Future<SyncDelivery> Function(TrainingPlan plan)? onCreateTrainingPlan;
+  final Set<String> userTrainingPlanIds;
+  final VoidCallback? onOpenTraining;
+
+  /// Increment to open the /plan composer from the Training tab without sending.
+  final int planDraftRequest;
 
   /// Streak for the pill top left. Callers pass
   /// `lifetimeStats.effectiveStreakOn(now)`, never `currentStreak` directly —
@@ -139,6 +155,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   /// An add is running (store image + createUserRecipe) — locks all card
   /// buttons until it finishes.
   bool _addingRecipe = false;
+  bool _reviewingTrainingPlan = false;
+  int _trainingAccountRevision = 0;
 
   /// How many send jobs (chat or recipe) are in flight.
   ///
@@ -202,6 +220,24 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     // it once before the first frame.
     if (widget.service != null) {
       _bootstrap();
+    }
+    if (widget.planDraftRequest > 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _applyCommand('/plan');
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant CoachChatScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(widget.service, oldWidget.service)) {
+      _trainingAccountRevision++;
+    }
+    if (widget.planDraftRequest != oldWidget.planDraftRequest) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _applyCommand('/plan');
+      });
     }
   }
 
@@ -571,13 +607,33 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       return;
     }
 
-    // Slash commands (only /recipe), text-only: an attached photo is a normal
+    if (hasImage && _planWishFrom(text) != null) {
+      setState(() => _error = l10n.coachPlanPhotoUnsupported);
+      return;
+    }
+
+    // Slash commands, text-only: an attached photo is a normal
     // coach question, not a command. An unknown /-command never reaches the
     // model — that would burn a daily slot on a typo.
     if (!hasImage && text.startsWith('/')) {
+      final planWish = _planWishFrom(text);
+      if (planWish != null) {
+        if (planWish.isEmpty) {
+          setState(() => _error = l10n.coachPlanEmptyHint);
+          return;
+        }
+        await _sendPlanRequest(
+          svc: svc,
+          sessionId: sessionId,
+          wish: planWish,
+          displayText: text,
+          l10n: l10n,
+        );
+        return;
+      }
       final recipeWish = _recipeWishFrom(text);
       if (recipeWish == null) {
-        setState(() => _error = l10n.coachCommandUnknownHint);
+        setState(() => _error = l10n.coachPlanUnknownCommandHint);
         return;
       }
       if (recipeWish.isEmpty) {
@@ -859,13 +915,24 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     return (match.group(1) ?? '').trim();
   }
 
+  static String? _planWishFrom(String text) {
+    final match = RegExp(
+      r'^/plan(?:\s+([\s\S]*))?$',
+      caseSensitive: false,
+    ).firstMatch(text.trim());
+    return match == null ? null : (match.group(1) ?? '').trim();
+  }
+
   /// The command menu shows while the draft looks like a started command:
-  /// starts with "/", no whitespace yet, and is a prefix of "/recipe".
+  /// starts with "/", no whitespace yet, and is a known command prefix.
   bool _commandMenuVisibleFor(String draftText) {
     final draft = draftText.trimLeft();
     if (!draft.startsWith('/')) return false;
-    if (draft.contains(' ') || draft.contains('\n')) return false;
-    return '/recipe'.startsWith(draft.toLowerCase());
+    if (RegExp(r'\s').hasMatch(draft)) return false;
+    return [
+      '/recipe',
+      '/plan',
+    ].any((command) => command.startsWith(draft.toLowerCase()));
   }
 
   /// Tap on a menu entry: command plus separating space into the field,
@@ -909,6 +976,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         createdAt: message.createdAt,
         refusal: message.refusal,
         recipeProposal: proposal.withImageBytes(bytes),
+        trainingPlanProposal: message.trainingPlanProposal,
       );
     }
     return result;
@@ -1031,6 +1099,225 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _sendevorgangBeendet();
     }
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
+  }
+
+  Future<void> _sendPlanRequest({
+    required CoachChatService svc,
+    required String sessionId,
+    required String wish,
+    required String displayText,
+    required AppLocalizations l10n,
+  }) async {
+    final accountRevision = _trainingAccountRevision;
+    HapticFeedback.selectionClick();
+    final userMsg = ChatMessage(
+      id: 'local-${DateTime.now().microsecondsSinceEpoch}',
+      role: ChatRole.user,
+      content: displayText,
+      createdAt: DateTime.now(),
+    );
+    final retry = _FehlgeschlageneSendung(
+      messageId: userMsg.id,
+      text: displayText,
+    );
+    setState(() {
+      _messages = [..._ohneAltenFehlschlag(displayText), userMsg];
+      if (_wiederholtFehlschlag(displayText)) _fehlgeschlagen = null;
+      _sendendeSessionId = sessionId;
+      _input.clear();
+      _laufendeSendungen++;
+      _error = null;
+    });
+    final submittedMessages = _messages;
+    bool isCurrentAccount() =>
+        mounted &&
+        identical(widget.service, svc) &&
+        _trainingAccountRevision == accountRevision;
+    bool isCurrentConversation() =>
+        isCurrentAccount() &&
+        _activeSessionId == sessionId &&
+        identical(_messages, submittedMessages);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
+    try {
+      final reply = await svc.requestPlan(
+        wish,
+        sessionId: sessionId,
+        locale: l10n.localeName,
+      );
+      if (!isCurrentAccount()) return;
+      // Quota is account-wide, including responses to another conversation.
+      _quotaUebernehmen(
+        remaining: reply.remaining,
+        dailyLimit: reply.dailyLimit,
+      );
+      if (!isCurrentConversation()) return;
+      final answer = ChatMessage(
+        id:
+            reply.assistantMessageId ??
+            'local-p-${DateTime.now().microsecondsSinceEpoch}',
+        role: ChatRole.assistant,
+        content: reply.reply,
+        createdAt: DateTime.now(),
+        refusal: reply.refusal,
+        trainingPlanProposal: reply.refusal ? null : reply.proposal,
+      );
+      if (reply.sessionId != sessionId) {
+        await _receiveRemappedPlan(
+          svc: svc,
+          sessionId: reply.sessionId,
+          answer: answer,
+          isCurrentAccount: isCurrentAccount,
+          isCurrentSource: isCurrentConversation,
+          l10n: l10n,
+        );
+        return;
+      }
+      setState(() {
+        _messages = [..._messages, answer];
+      });
+      HapticFeedback.lightImpact();
+      unawaited(_refreshSessions());
+    } on CoachQuotaExceeded catch (error) {
+      if (!isCurrentAccount()) return;
+      _quotaUebernehmen(remaining: 0, dailyLimit: error.dailyLimit);
+      if (!isCurrentConversation()) return;
+      setState(() {
+        _error = error.message;
+        _fehlgeschlagen = retry;
+      });
+    } on CoachChatException catch (error) {
+      if (!isCurrentConversation()) return;
+      setState(() {
+        _error = error.message;
+        _fehlgeschlagen = retry;
+      });
+    } finally {
+      _sendevorgangBeendet();
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
+  }
+
+  /// A paid plan can be valid even when its assistant history write failed.
+  /// Keep that buffered answer after remapping, without duplicating persisted IDs.
+  Future<void> _receiveRemappedPlan({
+    required CoachChatService svc,
+    required String sessionId,
+    required ChatMessage answer,
+    required bool Function() isCurrentAccount,
+    required bool Function() isCurrentSource,
+    required AppLocalizations l10n,
+  }) async {
+    List<ChatSession>? sessions;
+    try {
+      sessions = await svc.loadSessions();
+    } on CoachDataUnavailable {
+      // Keep the last known list; the response still names its actual session.
+    }
+    if (!isCurrentSource()) return;
+    // A fresh list also identifies this load across navigation away and back.
+    final loadingMessages = <ChatMessage>[];
+    setState(() {
+      if (sessions != null) _sessions = sessions;
+      _activeSessionId = sessionId;
+      _messages = loadingMessages;
+      _loading = true;
+      _fehlgeschlagen = null;
+      _error = l10n.coachSessionSwitchedNotice;
+    });
+    bool isCurrentTarget() =>
+        isCurrentAccount() &&
+        _activeSessionId == sessionId &&
+        identical(_messages, loadingMessages);
+    var history = <ChatMessage>[];
+    var historyUnavailable = false;
+    try {
+      history = await svc.loadHistory(sessionId);
+    } on CoachDataUnavailable {
+      historyUnavailable = true;
+    }
+    if (!isCurrentTarget()) return;
+    history = await _hydrateProposalImages(history);
+    if (!isCurrentTarget()) return;
+    setState(() {
+      _messages = [
+        ...history,
+        if (!history.any((message) => message.id == answer.id)) answer,
+      ];
+      _historyUnavailable = historyUnavailable;
+      _loading = false;
+      if (historyUnavailable) _error = l10n.coachErrorHistoryUnavailable;
+    });
+    HapticFeedback.lightImpact();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
+  }
+
+  bool _isTrainingPlanAdded(ChatMessage message) {
+    if (message.trainingPlanProposal == null) return false;
+    try {
+      return widget.userTrainingPlanIds.contains(
+        trainingPlanIdForMessage(message.id),
+      );
+    } on FormatException {
+      return false;
+    }
+  }
+
+  Future<void> _reviewTrainingPlan(ChatMessage message) async {
+    final proposal = message.trainingPlanProposal;
+    final onCreate = widget.onCreateTrainingPlan;
+    final service = widget.service;
+    final sessionId = _activeSessionId;
+    if (proposal == null ||
+        onCreate == null ||
+        _reviewingTrainingPlan ||
+        _isTrainingPlanAdded(message)) {
+      return;
+    }
+    final String planId;
+    try {
+      planId = trainingPlanIdForMessage(message.id);
+    } on FormatException {
+      showAppSnack(
+        context,
+        context.l10n.coachPlanSaveFailed,
+        tone: SnackTone.error,
+      );
+      return;
+    }
+    bool isCurrentDraft() =>
+        mounted &&
+        identical(widget.service, service) &&
+        _activeSessionId == sessionId &&
+        _messages.any(
+          (current) =>
+              current.id == message.id &&
+              identical(current.trainingPlanProposal, proposal),
+        );
+    HapticFeedback.selectionClick();
+    _inputFocus.unfocus();
+    setState(() => _reviewingTrainingPlan = true);
+    try {
+      await showTrainingPlanEditor(
+        context,
+        initialDraft: proposal,
+        submitLabel: context.l10n.coachPlanAdoptButton,
+        onSave: (draft) async {
+          // Sheet routes can outlive their original account or conversation.
+          // Recheck at the write boundary, not only when opening the sheet.
+          if (!isCurrentDraft()) {
+            throw StateError('Training draft is no longer active');
+          }
+          if (_isTrainingPlanAdded(message)) return SyncDelivery.delivered;
+          final result = await onCreate(draft.toTrainingPlan(id: planId));
+          if (!isCurrentDraft()) {
+            throw StateError('Training draft is no longer active');
+          }
+          return result;
+        },
+      );
+    } finally {
+      if (mounted) setState(() => _reviewingTrainingPlan = false);
+    }
   }
 
   /// Adopting a /recipe proposal — the ONLY way anything from a coach answer
@@ -1373,92 +1660,161 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     // No hero when the history merely failed to load (S3): the empty state
     // would claim "no conversation yet". Empty conversation + banner instead.
     final isHero = !_loading && _messages.isEmpty && !_historyUnavailable;
-    return Column(
-      key: const ValueKey('screen-coach'),
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // The header brings its own spacing (divider + 14 px).
-        _CoachTopBar(
-          streak: widget.streak,
-          onInfoTap: _openCoachInfoSheet,
-          onSessionsTap: _openSessionsSheet,
-        ),
-        Expanded(
-          child: AnimatedSwitcher(
-            duration: motionDuration(
-              context,
-              const Duration(milliseconds: 220),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Use the shell's available space, including keyboard and navigation.
+        // Secondary header details must not consume the command picker viewport.
+        final compactHeader = constraints.maxHeight < 360;
+        return Column(
+          key: const ValueKey('screen-coach'),
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // The header brings its own spacing (divider + 14 px).
+            _CoachTopBar(
+              compact: compactHeader,
+              streak: widget.streak,
+              onInfoTap: _openCoachInfoSheet,
+              onSessionsTap: _openSessionsSheet,
             ),
-            child: _loading
-                ? const Center(
-                    key: ValueKey('coach-loading'),
-                    child: SizedBox(
-                      width: 22,
-                      height: 22,
-                      // Color comes from progressIndicatorTheme (t.accent).
-                      child: CircularProgressIndicator(strokeWidth: 2),
+            Expanded(
+              child: _CoachConversationArea(
+                feedback: _fehlgeschlagen != null || _error != null
+                    ? Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (_fehlgeschlagen != null)
+                            _UnsentNotice(
+                              canRetry: _canInteract,
+                              onRetry: _wiederholen,
+                            ),
+                          if (_error != null) _ErrorBanner(text: _error!),
+                        ],
+                      )
+                    : null,
+                conversation: Stack(
+                  fit: StackFit.expand,
+                  children: <Widget>[
+                    AnimatedSwitcher(
+                      duration: motionDuration(
+                        context,
+                        const Duration(milliseconds: 220),
+                      ),
+                      child: _loading
+                          ? const Center(
+                              key: ValueKey('coach-loading'),
+                              child: SizedBox(
+                                width: 22,
+                                height: 22,
+                                // Color comes from progressIndicatorTheme (t.accent).
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                            )
+                          : isHero
+                          ? _CoachHero(
+                              name: widget.userName,
+                              onDisclosureTap: _openCoachInfoSheet,
+                            )
+                          : _Conversation(
+                              controller: _scroll,
+                              focus: _inputFocus,
+                              messages: _messages,
+                              sending: _sendingInActiveSession,
+                              preview: _streamVorschau,
+                              recipeAddedFor: _isRecipeAdded,
+                              // Card buttons stay disabled without a hook
+                              // (preview/test) and while an add is running.
+                              recipeAddEnabled:
+                                  widget.onCreateRecipe != null &&
+                                  !_addingRecipe,
+                              onAddRecipe: _addProposalToRecipes,
+                              planAddedFor: _isTrainingPlanAdded,
+                              planReviewEnabled:
+                                  widget.onCreateTrainingPlan != null &&
+                                  !_reviewingTrainingPlan,
+                              onReviewPlan: _reviewTrainingPlan,
+                              onOpenTraining: widget.onOpenTraining,
+                            ),
                     ),
-                  )
-                : isHero
-                ? _CoachHero(
-                    name: widget.userName,
-                    onDisclosureTap: _openCoachInfoSheet,
-                  )
-                : _Conversation(
-                    controller: _scroll,
-                    focus: _inputFocus,
-                    messages: _messages,
-                    sending: _sendingInActiveSession,
-                    preview: _streamVorschau,
-                    recipeAddedFor: _isRecipeAdded,
-                    // Card buttons stay disabled without a hook
-                    // (preview/test) and while an add is running.
-                    recipeAddEnabled:
-                        widget.onCreateRecipe != null && !_addingRecipe,
-                    onAddRecipe: _addProposalToRecipes,
-                  ),
-          ),
-        ),
-        // Right under the history, next to the bubble it refers to: the failed
-        // question is the last one.
-        if (_fehlgeschlagen != null)
-          _UnsentNotice(canRetry: _canInteract, onRetry: _wiederholen),
-        if (_error != null) _ErrorBanner(text: _error!),
-        // Only the draft's two consumers rebuild per keystroke; the
-        // conversation above stays untouched (perf finding 3, 2026-08-31).
-        ValueListenableBuilder<String>(
-          valueListenable: _draft,
-          builder: (context, draft, _) => Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Command menu: appears above the composer when typing "/"; a
-              // tap completes the command.
-              if (_commandMenuVisibleFor(draft))
-                _CommandSuggestions(onPick: _applyCommand),
-              const SizedBox(height: 8),
-              _Composer(
-                controller: _input,
-                focus: _inputFocus,
-                enabled: _canType,
-                canSend: _canInteract,
-                // Display value, not a state: an unknown quota shows the
-                // default limit so the composer claims neither exhausted nor
-                // a count.
-                remaining: _restFuerAnzeige,
-                draft: draft,
-                listening: _listening,
-                onSubmit: () => _send(),
-                onMic: _toggleSpeechInput,
-                onAttach: _openAttachSheet,
-                onQuotaTap: _openCoachInfoSheet,
+                    ValueListenableBuilder<String>(
+                      valueListenable: _draft,
+                      builder: (context, draft, _) =>
+                          _commandMenuVisibleFor(draft)
+                          ? Align(
+                              alignment: Alignment.bottomCenter,
+                              child: _CommandSuggestions(
+                                draft: draft,
+                                onPick: _applyCommand,
+                              ),
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
+                ),
               ),
-            ],
-          ),
-        ),
-      ],
+            ),
+            // Only the draft's two consumers rebuild per keystroke; the
+            // conversation above stays untouched (perf finding 3, 2026-08-31).
+            ValueListenableBuilder<String>(
+              valueListenable: _draft,
+              builder: (context, draft, _) => Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 8),
+                  _Composer(
+                    controller: _input,
+                    focus: _inputFocus,
+                    enabled: _canType,
+                    canSend: _canInteract,
+                    // Display value, not a state: an unknown quota shows the
+                    // default limit so the composer claims neither exhausted nor
+                    // a count.
+                    remaining: _restFuerAnzeige,
+                    draft: draft,
+                    listening: _listening,
+                    onSubmit: () => _send(),
+                    onMic: _toggleSpeechInput,
+                    onAttach: _openAttachSheet,
+                    onQuotaTap: _openCoachInfoSheet,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
+}
+
+/// Feedback shares the remaining viewport with the conversation. Long errors
+/// stay scrollable without displacing the composer above an open keyboard.
+class _CoachConversationArea extends StatelessWidget {
+  const _CoachConversationArea({required this.conversation, this.feedback});
+
+  final Widget conversation;
+  final Widget? feedback;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) => Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(child: conversation),
+        if (feedback != null)
+          ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: constraints.maxHeight * .6),
+            child: SingleChildScrollView(
+              key: const ValueKey('coach-feedback-scroll'),
+              child: feedback,
+            ),
+          ),
+      ],
+    ),
+  );
 }
 
 /// A send attempt that never reached the server — marker and retry job.

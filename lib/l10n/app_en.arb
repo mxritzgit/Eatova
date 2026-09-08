@@ -23,6 +23,7 @@
   "navToday": "Today",
   "navFood": "Food",
   "navRecipes": "Recipes",
+  "navTraining": "Training",
   "navCoach": "Coach",
   "todayGreetingNight": "Good night",
   "todayGreetingMorning": "Good morning",
@@ -1641,5 +1642,280 @@
   "foodFavoritesSheetSubtitle": "Tap to expand. \"Add\" logs into the selected meal, the heart removes the favorite.",
   "foodFavoritesSearchHint": "Search favorites",
   "foodFavoritesEmptyHint": "No favorites yet. Tap the heart on a search or scan result and the meal shows up here.",
-  "foodFavoritesNoMatchHint": "No favorite matches your search."
+  "foodFavoritesNoMatchHint": "No favorite matches your search.",
+  "trainingPageGoal": "Training goal",
+  "trainingPageContentLimit": "Your plan contains too much text. Shorten the descriptions and notes.",
+  "trainingPageInvalidCharacters": "Remove invisible control characters.",
+  "trainingPageTitle": "Training",
+  "trainingPageSubtitle": "Your plan. Your rhythm.",
+  "trainingPageCreate": "Create your own plan",
+  "trainingPageCreateTitle": "New plan",
+  "trainingPageCoach": "Plan with Coach",
+  "trainingPageEmptyTitle": "Make your next move.",
+  "trainingPageEmptyBody": "Build a plan with Coach or put together your own workout. You choose what to save.",
+  "trainingPagePlans": "My plans",
+  "trainingPageSwitchPlan": "Switch plan",
+  "trainingPageCurrentPlan": "YOUR TRAINING PLAN",
+  "trainingPageWorkout": "Workout",
+  "trainingPageExercises": "Exercises",
+  "trainingPageStart": "Start workout",
+  "trainingPageResume": "Resume workout",
+  "trainingPageInProgress": "Your workout is ready to continue.",
+  "trainingPageLoading": "Loading your training plans.",
+  "trainingPageLoadError": "Your plans could not be loaded. Please try again.",
+  "trainingPageRetry": "Try again",
+  "trainingPageEdit": "Edit",
+  "trainingPageDelete": "Delete plan",
+  "trainingPageDeleteTitle": "Delete training plan?",
+  "trainingPageDeleteBody": "This plan will be removed from your collection.",
+  "trainingPageDeleteError": "The plan could not be deleted. Please try again.",
+  "trainingPageDeleted": "Training plan deleted",
+  "trainingPageMore": "Plan options",
+  "trainingPageReviewTitle": "Review plan",
+  "trainingPageReviewBody": "Review each workout and adjust anything you need. The plan is added only when you save it.",
+  "trainingPageEditTitle": "Edit plan",
+  "trainingPageSave": "Save plan",
+  "trainingPageSaved": "Training plan saved",
+  "trainingPageSaving": "Saving …",
+  "trainingPageSaveError": "The plan could not be saved. Your draft is still here. Please try again.",
+  "trainingPageCancel": "Cancel",
+  "trainingPageClose": "Close",
+  "trainingPageDiscardTitle": "Discard changes?",
+  "trainingPageDiscardBody": "Your changes have not been saved yet.",
+  "trainingPageDiscard": "Discard",
+  "trainingPageKeepEditing": "Keep editing",
+  "trainingPagePlanName": "Plan name",
+  "trainingPagePlanNameHint": "e.g. My strength plan",
+  "trainingPageDescription": "Description",
+  "trainingPageDescriptionHint": "Your focus and goals",
+  "trainingPageWorkoutName": "Workout name",
+  "trainingPageWorkoutNameHint": "e.g. Full body",
+  "trainingPageWorkoutNotes": "Workout notes",
+  "trainingPageNotesHint": "Optional",
+  "trainingPageExerciseName": "Exercise name",
+  "trainingPageExerciseNameHint": "e.g. Squats",
+  "trainingPageExerciseNotes": "Technique and notes",
+  "trainingPageExerciseType": "Exercise type",
+  "trainingPageRepetitions": "Repetitions",
+  "trainingPageTimed": "Time",
+  "trainingPageSets": "Sets",
+  "trainingPageReps": "Repetitions per set",
+  "trainingPageDuration": "Seconds per set",
+  "trainingPageRest": "Rest in seconds",
+  "trainingPageAddWorkout": "Add workout",
+  "trainingPageAddExercise": "Add exercise",
+  "trainingPageRemoveWorkout": "Remove workout",
+  "trainingPageRemoveExercise": "Remove exercise",
+  "trainingPageMoveUp": "Move up",
+  "trainingPageMoveDown": "Move down",
+  "trainingPageInvalid": "Check the highlighted fields.",
+  "trainingPageRequired": "Please fill this in.",
+  "trainingPageTooLong": "Please shorten this.",
+  "trainingPageExerciseEmpty": "Add at least one exercise.",
+  "trainingPageWorkoutCount": "{count, plural, =1{1 workout} other{{count} workouts}}",
+  "@trainingPageWorkoutCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingPageExerciseCount": "{count, plural, =1{1 exercise} other{{count} exercises}}",
+  "@trainingPageExerciseCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingPageWorkoutNumber": "Workout {count}",
+  "@trainingPageWorkoutNumber": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingPageExerciseNumber": "Exercise {count}",
+  "@trainingPageExerciseNumber": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingPageRestSeconds": "{count}s rest",
+  "@trainingPageRestSeconds": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingPageSeconds": "{count}s",
+  "@trainingPageSeconds": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingPageSetsReps": "{sets} × {reps} reps",
+  "@trainingPageSetsReps": {
+    "placeholders": {
+      "sets": {
+        "type": "int"
+      },
+      "reps": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingPageSetsTime": "{sets} × {seconds}s",
+  "@trainingPageSetsTime": {
+    "placeholders": {
+      "sets": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingPageRange": "Enter {min}–{max}.",
+  "@trainingPageRange": {
+    "placeholders": {
+      "min": {
+        "type": "int"
+      },
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "coachPlanCommandDescription": "Creates a training plan to review and save",
+  "coachPlanEmptyHint": "After /plan, describe your goal, training days and equipment.",
+  "coachPlanPhotoUnsupported": "Training plans use text. Send your /plan request without a photo.",
+  "coachPlanUnknownCommandHint": "Unknown command. Use /recipe for a recipe or /plan for a training plan.",
+  "coachPlanCardEyebrow": "Training plan · Draft",
+  "coachPlanReviewButton": "Review plan",
+  "coachPlanAdoptButton": "Save training plan",
+  "coachPlanAddedLabel": "Saved",
+  "coachPlanOpenTraining": "Open training",
+  "coachPlanSaveFailed": "The plan could not be saved. Try again.",
+  "coachPlanCounts": "{days, plural, =1{1 workout day} other{{days} workout days}} · {exercises, plural, =1{1 exercise} other{{exercises} exercises}}",
+  "@coachPlanCounts": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      },
+      "exercises": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerBack": "Back to plan",
+  "trainingTimerPaused": "Paused",
+  "trainingTimerRunning": "Running",
+  "trainingTimerTimeUp": "Time is up",
+  "trainingTimerReview": "Your workout",
+  "trainingTimerRest": "Rest between sets",
+  "trainingTimerPause": "Pause",
+  "trainingTimerCompleteSet": "Complete set",
+  "trainingTimerContinue": "Continue to next set",
+  "trainingTimerRewind": "Rewind 10 sec",
+  "trainingTimerForward": "Forward 10 sec",
+  "trainingTimerReset": "Reset phase",
+  "trainingTimerSkipRest": "Skip rest",
+  "trainingTimerPreviousSet": "Previous set",
+  "trainingTimerNextSet": "Skip set",
+  "trainingTimerPreviousExercise": "Previous exercise",
+  "trainingTimerNextExercise": "Next exercise",
+  "trainingTimerNavigate": "Sets & exercises",
+  "trainingTimerNavigationHint": "Skipping does not count as completion. Going back resets progress from that set onward.",
+  "trainingTimerInstructions": "Exercise notes",
+  "trainingTimerUpNext": "Up next",
+  "trainingTimerFinish": "Finish workout",
+  "trainingTimerDiscard": "Discard workout",
+  "trainingTimerFinishTitle": "Finish this workout?",
+  "trainingTimerFinishBody": "You confirmed {completed} of {total} sets. Uncompleted sets stay uncompleted. The recovery checkpoint will be removed.",
+  "@trainingTimerFinishBody": {
+    "placeholders": {
+      "completed": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerDiscardTitle": "Discard this workout?",
+  "trainingTimerDiscardBody": "This workout’s progress and recovery checkpoint will be removed. Your plan is kept.",
+  "trainingTimerLeaveTitle": "Pause and leave?",
+  "trainingTimerLeaveBody": "Save your place to continue here later. The workout stays paused.",
+  "trainingTimerStay": "Stay here",
+  "trainingTimerSaveLeave": "Save & leave",
+  "trainingTimerSaving": "Saving your place…",
+  "trainingTimerSaved": "Recovery checkpoint saved",
+  "trainingTimerNotSaved": "Your place is not saved yet",
+  "trainingTimerSaveFailed": "Your place could not be saved. The workout is paused. Please retry.",
+  "trainingTimerRetry": "Retry",
+  "trainingTimerConfirmHint": "Confirm when you are ready. Nothing advances automatically.",
+  "trainingTimerRepetitions": "repetitions",
+  "trainingTimerMinutes": "min",
+  "trainingTimerSeconds": "sec",
+  "trainingTimerProgress": "{completed} of {total} sets completed",
+  "@trainingTimerProgress": {
+    "placeholders": {
+      "completed": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerSet": "Set {current} of {total}",
+  "@trainingTimerSet": {
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerSkipped": "{count} sets skipped",
+  "@trainingTimerSkipped": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerSecondsRemaining": "{seconds} seconds remaining",
+  "@trainingTimerSecondsRemaining": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerStart": "Start",
+  "trainingTimerResume": "Resume",
+  "trainingTimerAnnouncement": "{exercise}. {sets}. {status}.",
+  "@trainingTimerAnnouncement": {
+    "placeholders": {
+      "exercise": {
+        "type": "String"
+      },
+      "sets": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  }
 }

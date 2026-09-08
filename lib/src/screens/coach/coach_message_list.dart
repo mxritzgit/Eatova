@@ -14,6 +14,10 @@ class _Conversation extends StatelessWidget {
     required this.recipeAddedFor,
     required this.recipeAddEnabled,
     required this.onAddRecipe,
+    required this.planAddedFor,
+    required this.planReviewEnabled,
+    required this.onReviewPlan,
+    this.onOpenTraining,
   });
 
   final ScrollController controller;
@@ -32,6 +36,10 @@ class _Conversation extends StatelessWidget {
   final bool Function(ChatMessage message) recipeAddedFor;
   final bool recipeAddEnabled;
   final ValueChanged<ChatMessage> onAddRecipe;
+  final bool Function(ChatMessage message) planAddedFor;
+  final bool planReviewEnabled;
+  final ValueChanged<ChatMessage> onReviewPlan;
+  final VoidCallback? onOpenTraining;
 
   @override
   Widget build(BuildContext context) {
@@ -72,6 +80,10 @@ class _Conversation extends StatelessWidget {
             recipeAdded: recipeAddedFor(message),
             recipeAddEnabled: recipeAddEnabled,
             onAddRecipe: () => onAddRecipe(message),
+            planAdded: planAddedFor(message),
+            planReviewEnabled: planReviewEnabled,
+            onReviewPlan: () => onReviewPlan(message),
+            onOpenTraining: onOpenTraining,
           );
         },
       ),
@@ -86,11 +98,19 @@ class _MessageView extends StatelessWidget {
     this.recipeAdded = false,
     this.recipeAddEnabled = false,
     this.onAddRecipe,
+    this.planAdded = false,
+    this.planReviewEnabled = false,
+    this.onReviewPlan,
+    this.onOpenTraining,
   });
   final ChatMessage message;
   final bool recipeAdded;
   final bool recipeAddEnabled;
   final VoidCallback? onAddRecipe;
+  final bool planAdded;
+  final bool planReviewEnabled;
+  final VoidCallback? onReviewPlan;
+  final VoidCallback? onOpenTraining;
 
   @override
   Widget build(BuildContext context) {
@@ -179,7 +199,17 @@ class _MessageView extends StatelessWidget {
                     ],
                     // /rezept proposal: the card replaces the bubble text,
                     // which would only say the same thing twice.
-                    if (message.recipeProposal != null)
+                    if (message.trainingPlanProposal != null &&
+                        !fromUser &&
+                        !message.refusal)
+                      _TrainingPlanProposalCard(
+                        proposal: message.trainingPlanProposal!,
+                        added: planAdded,
+                        enabled: planReviewEnabled,
+                        onReview: onReviewPlan,
+                        onOpenTraining: onOpenTraining,
+                      )
+                    else if (message.recipeProposal != null)
                       _RecipeProposalCard(
                         proposal: message.recipeProposal!,
                         added: recipeAdded,

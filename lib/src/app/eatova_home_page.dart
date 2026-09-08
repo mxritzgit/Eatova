@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import '../auth/auth_repository.dart';
 import '../models/logged_meal.dart';
 import '../models/macro_progress.dart';
+import '../models/training_plan.dart';
+import '../models/training_session.dart';
 import '../services/data_export.dart';
 import '../services/eatova_sync.dart';
 import '../services/health_service.dart';
@@ -23,6 +25,8 @@ import '../screens/recipes/recipes_screen.dart';
 import '../screens/settings/goals_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../screens/today/today_screen.dart';
+import '../screens/training/training_screen.dart';
+import '../screens/training/training_player_screen.dart';
 import '../l10n/l10n.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/auth/welcome_screen.dart';
@@ -115,6 +119,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   /// (`_tabViews`), so a changed parameter would never reach a built tab.
   final ValueNotifier<MealSlot?> _addSlotRequest =
       ValueNotifier<MealSlot?>(null);
+  final ValueNotifier<int> _planDraftRequest = ValueNotifier<int>(0);
+  bool _trainingRouteOpen = false;
   bool _profileRouteOpen = false;
   late bool _welcomeFinished;
 
@@ -153,6 +159,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     _store.removeListener(_onStoreChanged);
     _profileRefresh.dispose();
     _addSlotRequest.dispose();
+    _planDraftRequest.dispose();
     _store.dispose();
     super.dispose();
   }
@@ -416,10 +423,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             ),
             // Tabs scroll internally, so no outer SingleChildScrollView.
             body: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-                child: _buildTabStack(tab),
-              ),
+              child: _buildTabStack(tab),
             ),
           ),
         );
@@ -430,12 +434,13 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   // --- Tabs (D6) ------------------------------------------------------------
 
   /// Tab order: 0 = today (day overview, landing), 1 = food (diary),
-  /// 2 = recipes, 3 = coach.
+  /// 2 = recipes, 3 = training, 4 = coach.
   static const int _tabHeute = 0;
   static const int _tabFood = 1;
   static const int _tabRezepte = 2;
-  static const int _tabCoach = 3;
-  static const int _tabCount = 4;
+  static const int _tabTraining = 3;
+  static const int _tabCoach = 4;
+  static const int _tabCount = 5;
 
   /// keyIds carry the test keys and stay German; labels come from the ARB.
   List<AppNavItem> _navItems(BuildContext context) {
@@ -458,6 +463,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         activeIcon: Icons.menu_book_rounded,
         label: l10n.navRecipes,
         keyId: 'Rezepte',
+      ),
+      AppNavItem(
+        icon: Icons.fitness_center_outlined,
+        activeIcon: Icons.fitness_center_rounded,
+        label: l10n.navTraining,
+        keyId: 'Training',
       ),
       AppNavItem(
         icon: Icons.chat_bubble_outline_rounded,
@@ -514,12 +525,20 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         // the kcal card (BackdropFilter is not raster-cacheable).
         child: LivelyEntrance(
           key: ValueKey('lively-tab-$index'),
-          child: switch (index) {
-            _tabFood => _foodTab(),
-            _tabRezepte => _recipesTab(),
-            _tabCoach => _coachTab(),
-            _ => _todayTab(),
-          },
+          child: Padding(
+            // Training owns its scroll gutters; other tabs retain the shell's
+            // established inset even while mounted in the hidden stack.
+            padding: index == _tabTraining
+                ? EdgeInsets.zero
+                : const EdgeInsets.fromLTRB(20, 12, 20, 12),
+            child: switch (index) {
+              _tabFood => _foodTab(),
+              _tabRezepte => _recipesTab(),
+              _tabTraining => _trainingTab(),
+              _tabCoach => _coachTab(),
+              _ => _todayTab(),
+            },
+          ),
         ),
       );
 
@@ -692,42 +711,137 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         },
       );
 
-  Widget _coachTab() => StoreSelector(
+  void _openTrainingCoach() {
+    _planDraftRequest.value++;
+    _store.setTab(_tabCoach);
+  }
+
+  void _startTrainingWorkout(TrainingPlan plan, int workoutIndex) {
+    final recovery = _store.trainingSession;
+    unawaited(_openTrainingPlayer(
+      plan: recovery == null ? plan : null,
+      workoutIndex: workoutIndex,
+      snapshot: recovery,
+    ));
+  }
+
+  void _resumeTrainingWorkout() {
+    final recovery = _store.trainingSession;
+    if (recovery == null) return;
+    unawaited(_openTrainingPlayer(snapshot: recovery));
+  }
+
+  Future<void> _openTrainingPlayer({
+    TrainingPlan? plan,
+    int workoutIndex = 0,
+    TrainingSessionSnapshot? snapshot,
+  }) async {
+    if (_trainingRouteOpen || !mounted) return;
+    _trainingRouteOpen = true;
+    final ownerSync = _store.sync;
+    try {
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute<void>(
+          builder: (_) => TrainingPlayerScreen(
+            plan: plan,
+            workoutIndex: workoutIndex,
+            initialSnapshot: snapshot,
+            onPersist: (value) async {
+              // Token refresh rebuilds the wrapper, not the owning session.
+              // AuthGate and HomeStore retire routes/cache on account changes.
+              if (!mounted ||
+                  widget.sync?.userId != ownerSync?.userId ||
+                  !identical(widget.sync?.client, ownerSync?.client)) {
+                throw StateError('Training session ended');
+              }
+              await _store.saveTrainingSession(value);
+            },
+          ),
+        ),
+      );
+    } finally {
+      _trainingRouteOpen = false;
+    }
+  }
+
+  Widget _trainingTab() => StoreSelector(
         store: _store,
-        // The INPUTS of `coachContext`; the getter itself builds a fresh
-        // string per call and must stay out.
         selector: () => (
-          _store.userName,
-          _store.lifetimeStats,
-          _store.profile,
-          _store.dailyConsumedKcal,
-          _store.macroProgress,
-          _store.loggedMeals,
-          // Deleting in the recipes tab must re-enable the card button —
-          // already while the delete sits in its undo window (2026-09-02).
-          _store.userRecipes,
-          _store.pendingRecipeDeletes,
+          _store.trainingPlans,
+          _store.selectedTrainingPlanId,
+          _store.trainingPlansLoading,
+          _store.trainingPlansLoadFailed,
+          _store.trainingSession,
         ),
         builder: (context) {
-          assert(_countTabBuild(_tabCoach));
-          // C8 (AI disclosure) lives in the coach screens; another line here
-          // would only repeat it.
-          return CoachChatScreen(
-            service: widget.sync?.coachChat,
-            userName: _store.userName,
-            streak: _store.lifetimeStats.effectiveStreakOn(clock.now()),
-            userContext: widget.sync != null ? _store.coachContext : null,
-            // Confirmed /recipe suggestions take the manual form's path.
-            onCreateRecipe:
-                widget.sync == null ? null : _store.createUserRecipe,
-            // `visibleUserRecipes`, not `userRecipes`: a recipe inside the
-            // recipes tab's undo window is gone from the user's point of view,
-            // so the card offers "add" again right away (2026-09-02).
-            userRecipeSlugs: {
-              for (final recipe in _store.visibleUserRecipes) recipe.slug,
-            },
+          assert(_countTabBuild(_tabTraining));
+          return TrainingScreen(
+            plans: _store.trainingPlans,
+            selectedPlanId: _store.selectedTrainingPlanId,
+            onSelectPlan: _store.selectTrainingPlan,
+            onCreatePlan: _store.saveTrainingPlan,
+            onUpdatePlan: (plan, draft) =>
+                _store.saveTrainingPlan(plan.copyWith(proposal: draft)),
+            onDeletePlan: _store.deleteTrainingPlan,
+            onStartWorkout: _startTrainingWorkout,
+            onOpenCoach: _openTrainingCoach,
+            loading: _store.trainingPlansLoading,
+            loadFailed: _store.trainingPlansLoadFailed,
+            onRetry: _store.retryTrainingPlans,
+            hasActiveSession: _store.trainingSession != null,
+            onResumeWorkout: _resumeTrainingWorkout,
           );
         },
+      );
+
+  Widget _coachTab() => ValueListenableBuilder<int>(
+        valueListenable: _planDraftRequest,
+        builder: (context, planRequest, _) => StoreSelector(
+          store: _store,
+          // The INPUTS of `coachContext`; the getter itself builds a fresh
+          // string per call and must stay out.
+          selector: () => (
+            _store.userName,
+            _store.lifetimeStats,
+            _store.profile,
+            _store.dailyConsumedKcal,
+            _store.macroProgress,
+            _store.loggedMeals,
+            // Deleting in the recipes tab must re-enable the card button —
+            // already while the delete sits in its undo window (2026-09-02).
+            _store.userRecipes,
+            _store.pendingRecipeDeletes,
+            _store.trainingPlans,
+          ),
+          builder: (context) {
+            assert(_countTabBuild(_tabCoach));
+            // C8 (AI disclosure) lives in the coach screens; another line here
+            // would only repeat it.
+            return CoachChatScreen(
+              // Keep pending replies and review sheets bound to this store's
+              // session when AuthGate rebuilds on a same-user token refresh.
+              service: _store.sync?.coachChat,
+              userName: _store.userName,
+              streak: _store.lifetimeStats.effectiveStreakOn(clock.now()),
+              userContext: widget.sync != null ? _store.coachContext : null,
+              // Confirmed /recipe suggestions take the manual form's path.
+              onCreateRecipe:
+                  widget.sync == null ? null : _store.createUserRecipe,
+              // `visibleUserRecipes`, not `userRecipes`: a recipe inside the
+              // recipes tab's undo window is gone from the user's point of view,
+              // so the card offers "add" again right away (2026-09-02).
+              userRecipeSlugs: {
+                for (final recipe in _store.visibleUserRecipes) recipe.slug,
+              },
+              onCreateTrainingPlan: _store.saveTrainingPlan,
+              userTrainingPlanIds: {
+                for (final plan in _store.trainingPlans) plan.id,
+              },
+              onOpenTraining: () => _store.setTab(_tabTraining),
+              planDraftRequest: planRequest,
+            );
+          },
+        ),
       );
 }
 
@@ -810,4 +924,3 @@ bool _countTabBuild(int tab) {
   debugTabBuilds.update(tab, (value) => value + 1, ifAbsent: () => 1);
   return true;
 }
-

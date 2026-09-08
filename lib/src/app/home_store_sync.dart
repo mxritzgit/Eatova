@@ -120,6 +120,12 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// (A2). Stays false after a FAILED hydration attempt too: the blob may be
   /// intact and merely unreadable right now.
   bool _syncStateHydrated = false;
+  bool _outboxInitialHydrationComplete = false;
+  int _outboxWriteRevision = 0;
+  int _durableOutboxRevision = 0;
+  List<SyncOp> _durableOutboxSnapshot = const [];
+  bool _trainingOutboxCapDeferred = false;
+  final Map<SyncOp, Set<Future<bool>>> _trainingOutboxReceipts = Map.identity();
 
   /// Gap F: reading the outbox slot THREW (as opposed to: the slot was empty).
   /// While this holds, the in-memory state is not a valid version of the
@@ -298,7 +304,15 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     // Without sync there is nothing to deliver (preview/test shell).
     if (sync == null) return Future<SyncDelivery>.value(SyncDelivery.delivered);
     final op = buildOp();
-    final entitaetBelegt = _orphanedEntities.contains(op.entityKey) ||
+    final trainingConfirmation = _unconfirmedTrainingOps.contains(op);
+    if (trainingConfirmation && !_outboxInitialHydrationComplete) {
+      throw StateError('Training storage is still loading');
+    }
+    // Unknown persisted order and a timed-out live write both retain FIFO.
+    final entitaetBelegt =
+        (trainingConfirmation &&
+            (_outboxHydrationFailed || _inFlightOps.containsKey(op.entityKey))) ||
+        _orphanedEntities.contains(op.entityKey) ||
         _outbox.any((o) => o.entityKey == op.entityKey);
     // Busy because a live write is RUNNING is not busy because one FAILED:
     // only a failure justifies the queue hint.
@@ -434,19 +448,30 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       op.kind == SyncOpKind.trackingDay;
 
   void _enqueueOp(SyncOp op) {
+    // An unacknowledged training draft must not evict a durable predecessor.
+    // The waiting caller reports failure if this op cannot enter the queue.
+    if (_unconfirmedTrainingOps.contains(op) &&
+        _outbox.length >= kOutboxMaxOps) {
+      throw StateError('Training change could not be saved');
+    }
     // Append-only during a running replay: it may be playing exactly the op
     // whose payload would otherwise be coalesced (and dropped on removal) —
     // unless the op has no payload to lose ([_koaleszenzTrotzReplaySicher]).
     // Same for an op with a live write in flight (see _koaleszenzUnsicher).
     final nurAnhaengen =
         (_outboxReplayInFlight && !_koaleszenzTrotzReplaySicher(op)) ||
-            _koaleszenzUnsicher(op);
+            _koaleszenzUnsicher(op) ||
+            _unconfirmedTrainingOps.contains(op);
     _outbox = enqueueCoalesced(_outbox, op, appendOnly: nurAnhaengen);
+    if (_unconfirmedTrainingOps.isNotEmpty && _outbox.length > kOutboxMaxOps) {
+      _trainingOutboxCapDeferred = true;
+    }
     // Cap only outside a running replay: a trim would shed ops the running pass
     // is about to deliver and mark their entities orphaned. The next enqueue
     // afterwards trims the few extra ops again.
     if (!_outboxReplayInFlight) {
-      final capped = capOutbox(_outbox);
+      final capped = _capOutboxPreservingTrainingConfirmations(_outbox);
+      _outbox = capped.queue;
       if (capped.dropped.isNotEmpty) {
         dev.log(
             'Outbox-Cap erreicht: ${capped.dropped.length} aelteste Op(s) '
@@ -456,7 +481,6 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         // data, see crash_reporter.dart).
         CrashReporter.breadcrumb(
             'outbox-cap: ${capped.dropped.length} ops dropped');
-        _outbox = capped.queue;
         // A6, exactly as in the replay drop path: a capped op is lost for
         // good, so its entity may exist only locally from here on.
         _markDroppedAsOrphaned(capped.dropped);
@@ -470,6 +494,33 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         _notifyDroppedOps(capped.dropped);
       }
     }
+    _persistOutbox();
+  }
+
+  ({List<SyncOp> queue, List<SyncOp> dropped})
+      _capOutboxPreservingTrainingConfirmations(List<SyncOp> queue) {
+    // A started write cannot be cancelled. Wait for its receipt before deciding
+    // whether a training draft can be rejected or is already acknowledged data.
+    if (_unconfirmedTrainingOps.isNotEmpty) {
+      if (queue.length > kOutboxMaxOps) _trainingOutboxCapDeferred = true;
+      return (queue: List<SyncOp>.of(queue), dropped: const <SyncOp>[]);
+    }
+    return capOutbox(queue);
+  }
+
+  void _settleTrainingOutboxCapacity() {
+    if (!_trainingOutboxCapDeferred || _disposed || _trainingSessionEnded ||
+        _outboxReplayInFlight || _unconfirmedTrainingOps.isNotEmpty) {
+      return;
+    }
+    _trainingOutboxCapDeferred = false;
+    final capped = capOutbox(_outbox);
+    if (capped.dropped.isEmpty) return;
+    _outbox = capped.queue;
+    _markDroppedAsOrphaned(capped.dropped);
+    final lostDeletes = capped.dropped.where((op) => op.isDelete).toList();
+    if (lostDeletes.isNotEmpty) unawaited(_restoreDroppedDeletes(lostDeletes));
+    _notifyDroppedOps(capped.dropped);
     _persistOutbox();
   }
 
@@ -570,6 +621,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     final s = sync;
     if (s == null || _disposed) return;
     final mealIds = <String>{}, favoriteIds = <String>{}, recipeSlugs = <String>{};
+    final trainingPlanIds = <String>{};
     for (final op in ops) {
       switch (op.kind) {
         case SyncOpKind.mealDelete:
@@ -578,6 +630,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           favoriteIds.add(op.entityId);
         case SyncOpKind.recipeDelete:
           recipeSlugs.add(op.entityId);
+        case SyncOpKind.trainingPlanDelete:
+          trainingPlanIds.add(op.entityId);
         default:
           break;
       }
@@ -641,6 +695,27 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         }
       } catch (e, st) {
         _reportRestoreFailure('recipes', e, st);
+      }
+    }
+    if (trainingPlanIds.isNotEmpty) {
+      try {
+        final rows = await s.trainingPlans.load();
+        if (_disposed || _trainingSessionEnded) return;
+        final pendingDeletes = _outbox
+            .where((op) => op.kind == SyncOpKind.trainingPlanDelete)
+            .map((op) => op.entityId)
+            .toSet();
+        _mutate(() {
+          final known = trainingPlans.map((plan) => plan.id).toSet();
+          _trainingPlans = [
+            ...trainingPlans,
+            ...rows.where((plan) => trainingPlanIds.contains(plan.id) &&
+                !known.contains(plan.id) && !pendingDeletes.contains(plan.id)),
+          ];
+        });
+        _cacheTrainingPlans();
+      } catch (e, st) {
+        _reportRestoreFailure('training-plans', e, st);
       }
     }
   }
@@ -806,6 +881,13 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         // steps over it; leaves it, its successor moved into exactly this slot.
         kursor = gefundenBei;
         gescannt = _outbox;
+        // Confirmation still owns this exact operation. Counted replay would
+        // replace its identity before the durable-write result can be checked.
+        // Later changes of the same plan must wait behind it as well.
+        if (_unconfirmedTrainingOps.contains(op)) {
+          blocked.add(op.entityKey);
+          continue;
+        }
         // If a live write is running for the entity, the op belongs to it
         // (gap B) — replaying it too would write the same row twice and a
         // mealInsert would count the meal twice. No `blocked` entry: nothing
@@ -952,6 +1034,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       }
     } finally {
       _outboxReplayInFlight = false;
+      _settleTrainingOutboxCapacity();
     }
     if (_disposed) return;
     // Restore first, THEN report: the snack claims the entry is back, so it
@@ -1123,6 +1206,14 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         await s.userRecipes.upsert(recipe);
       case SyncOpKind.recipeDelete:
         await s.userRecipes.delete(op.entityId);
+      case SyncOpKind.trainingPlanUpsert:
+        final plan = op.trainingPlan;
+        if (plan == null) throw _CorruptOpPayload(op.kind);
+        await s.trainingPlans.upsert(plan);
+        if (_unconfirmedTrainingOps.contains(op)) _deliveredTrainingOps.add(op);
+      case SyncOpKind.trainingPlanDelete:
+        await s.trainingPlans.delete(op.entityId);
+        if (_unconfirmedTrainingOps.contains(op)) _deliveredTrainingOps.add(op);
       case SyncOpKind.profileUpsert:
         // Gap D. The save is a full row upsert on the user id, so idempotent.
         // An unreadable/incomplete payload does NOT pass (A8 path): replay
@@ -1201,6 +1292,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     if (_outbox.isEmpty) return;
     var mealsTouched = false;
     for (final op in _outbox) {
+      if (_unconfirmedTrainingOps.contains(op)) continue;
       switch (op.kind) {
         case SyncOpKind.mealInsert:
         case SyncOpKind.mealUpsert:
@@ -1245,6 +1337,16 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         case SyncOpKind.recipeDelete:
           _userRecipes =
               _userRecipes.where((r) => r.slug != op.entityId).toList();
+        case SyncOpKind.trainingPlanUpsert:
+          final plan = op.trainingPlan;
+          if (plan == null) break;
+          _trainingPlans = [
+            plan,
+            ...trainingPlans.where((entry) => entry.id != plan.id),
+          ];
+        case SyncOpKind.trainingPlanDelete:
+          _trainingPlans = trainingPlans
+              .where((entry) => entry.id != op.entityId).toList();
         case SyncOpKind.profileUpsert:
           // Gap D, boot half: the server load sets `profile` to the old server
           // row, and the undelivered change goes back on top. The following
@@ -1333,6 +1435,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// also hold a profile op; same reasoning. `eatova.v1.profile.<uid>` still
   /// falls.
   Future<void> signOutCleanup() async {
+    _trainingSessionEnded = true;
     // Deliver before discarding: online the queue is empty afterwards and the
     // full clear applies as before. Bounded (F1-05): a silent socket must not
     // pin the logout — whatever is still undelivered at the deadline is
@@ -1405,6 +1508,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   ///
   /// [preserveOutbox] holds back `_outboxKey`/`_pendingStatsKey` (A2).
   Future<void> _clearCache({bool preserveOutbox = false}) async {
+    _trainingSessionEnded = true;
     // F1-02: a snapshot still writing (logout right after boot) must finish
     // BEFORE the purge, or its remaining slots land on cleared keys — the
     // encrypting store serialises per key, not across keys. Bounded: past the
@@ -1476,6 +1580,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     // (write-through), never the server-loaded ones — an offline cold start
     // showed an empty own-recipe list.
     await cache.writeUserRecipes(_userRecipes);
+    if (_disposed) return;
+    await cache.writeTrainingPlans(trainingPlans);
   }
 
   /// Only entries inside the boot window reach the durable cache. On-demand
@@ -1524,6 +1630,10 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     _cache?.writeUserRecipesDebounced(_userRecipes);
   }
 
+  void _cacheTrainingPlans() {
+    _cache?.writeTrainingPlansDebounced(trainingPlans);
+  }
+
   void _persistOutbox() {
     // After dispose the blob on disk is the last valid state of this session;
     // an in-memory queue touched by a late callback is not (F1-02).
@@ -1536,7 +1646,43 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       unawaited(_repairOutboxHydration());
       return;
     }
-    unawaited(_cache?.writeOutbox(_outbox) ?? Future<void>.value());
+    unawaited(_writeOutboxWithReceipt(_outbox));
+  }
+
+  Future<bool> _writeOutboxWithReceipt(List<SyncOp> queue) {
+    final cache = _cache;
+    if (_disposed || cache == null || _outboxHydrationFailed) {
+      return Future<bool>.value(false);
+    }
+    final snapshot = List<SyncOp>.unmodifiable(queue);
+    final watched = snapshot.where(_unconfirmedTrainingOps.contains).toList();
+    final revision = ++_outboxWriteRevision;
+    late final Future<bool> receipt;
+    receipt = cache.writeOutbox(snapshot).then((saved) {
+      // EncryptedKeyValueStore serializes this slot. A newer successful snapshot
+      // supersedes prior inclusions as well as prior omissions of an operation.
+      if (saved && revision > _durableOutboxRevision) {
+        _durableOutboxRevision = revision;
+        _durableOutboxSnapshot = snapshot;
+      }
+      return saved;
+    }).whenComplete(() {
+      for (final op in watched) {
+        _trainingOutboxReceipts[op]?.remove(receipt);
+      }
+    });
+    for (final op in watched) {
+      (_trainingOutboxReceipts[op] ??= <Future<bool>>{}).add(receipt);
+    }
+    return receipt;
+  }
+
+  Future<void> _settleTrainingOutboxReceipts(SyncOp op) async {
+    while (true) {
+      final pending = _trainingOutboxReceipts[op]?.toList();
+      if (pending == null || pending.isEmpty) return;
+      await Future.wait(pending);
+    }
   }
 
   /// Whether a failed re-hydration at [jetzt] is far enough from the last
@@ -1648,9 +1794,14 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       // double-book.
       var vereint = blob;
       for (final op in _outbox) {
-        vereint = enqueueCoalesced(vereint, op);
+        final unconfirmedTraining = _unconfirmedTrainingOps.contains(op);
+        // Recover acknowledged predecessors before admitting this session's
+        // drafts. Neither coalescing nor the cap may erase them for a draft.
+        if (unconfirmedTraining && vereint.length >= kOutboxMaxOps) continue;
+        vereint = enqueueCoalesced(vereint, op,
+            appendOnly: unconfirmedTraining);
       }
-      final capped = capOutbox(vereint);
+      final capped = _capOutboxPreservingTrainingConfirmations(vereint);
       _outbox = capped.queue;
       if (capped.dropped.isNotEmpty) {
         // As with the regular cap in [_enqueueOp] — unlike the cap during

@@ -23,6 +23,7 @@
   "navToday": "Heute",
   "navFood": "Food",
   "navRecipes": "Rezepte",
+  "navTraining": "Training",
   "navCoach": "Coach",
   "todayGreetingNight": "Gute Nacht",
   "todayGreetingMorning": "Guten Morgen",
@@ -1669,5 +1670,280 @@
   "foodFavoritesSheetSubtitle": "Antippen zum Aufklappen. „Hinzufügen\" loggt in die gewählte Mahlzeit, das Herz entfernt den Favoriten.",
   "foodFavoritesSearchHint": "Favoriten durchsuchen",
   "foodFavoritesEmptyHint": "Noch keine Favoriten. Tippe bei einem Suchtreffer oder Scan-Ergebnis auf das Herz, dann landet die Mahlzeit hier.",
-  "foodFavoritesNoMatchHint": "Kein Favorit passt zu deiner Suche."
+  "foodFavoritesNoMatchHint": "Kein Favorit passt zu deiner Suche.",
+  "trainingPageGoal": "Trainingsziel",
+  "trainingPageContentLimit": "Dein Plan enthält zu viel Text. Kürze die Beschreibungen und Hinweise.",
+  "trainingPageInvalidCharacters": "Entferne unsichtbare Steuerzeichen.",
+  "trainingPageTitle": "Training",
+  "trainingPageSubtitle": "Dein Plan. Dein Rhythmus.",
+  "trainingPageCreate": "Plan selbst erstellen",
+  "trainingPageCreateTitle": "Neuer Plan",
+  "trainingPageCoach": "Mit Coach planen",
+  "trainingPageEmptyTitle": "Zeit für deinen nächsten Schritt.",
+  "trainingPageEmptyBody": "Lass dir einen Plan erstellen oder stelle dein Training selbst zusammen. Du entscheidest, was du übernimmst.",
+  "trainingPagePlans": "Meine Pläne",
+  "trainingPageSwitchPlan": "Plan wechseln",
+  "trainingPageCurrentPlan": "DEIN TRAININGSPLAN",
+  "trainingPageWorkout": "Trainingseinheit",
+  "trainingPageExercises": "Übungen",
+  "trainingPageStart": "Training starten",
+  "trainingPageResume": "Training fortsetzen",
+  "trainingPageInProgress": "Dein Training wartet auf dich.",
+  "trainingPageLoading": "Deine Trainingspläne werden geladen.",
+  "trainingPageLoadError": "Deine Pläne konnten nicht geladen werden. Versuche es erneut.",
+  "trainingPageRetry": "Erneut versuchen",
+  "trainingPageEdit": "Bearbeiten",
+  "trainingPageDelete": "Plan löschen",
+  "trainingPageDeleteTitle": "Trainingsplan löschen?",
+  "trainingPageDeleteBody": "Dieser Plan wird aus deiner Sammlung entfernt.",
+  "trainingPageDeleteError": "Der Plan konnte nicht gelöscht werden. Bitte versuche es erneut.",
+  "trainingPageDeleted": "Trainingsplan gelöscht",
+  "trainingPageMore": "Planoptionen",
+  "trainingPageReviewTitle": "Plan prüfen",
+  "trainingPageReviewBody": "Prüfe die Einheiten und passe sie bei Bedarf an. Erst mit dem Speichern wird der Plan übernommen.",
+  "trainingPageEditTitle": "Plan bearbeiten",
+  "trainingPageSave": "Plan speichern",
+  "trainingPageSaved": "Trainingsplan gespeichert",
+  "trainingPageSaving": "Wird gespeichert …",
+  "trainingPageSaveError": "Der Plan konnte nicht gespeichert werden. Dein Entwurf bleibt hier. Versuche es erneut.",
+  "trainingPageCancel": "Abbrechen",
+  "trainingPageClose": "Schließen",
+  "trainingPageDiscardTitle": "Änderungen verwerfen?",
+  "trainingPageDiscardBody": "Deine Änderungen wurden noch nicht gespeichert.",
+  "trainingPageDiscard": "Verwerfen",
+  "trainingPageKeepEditing": "Weiter bearbeiten",
+  "trainingPagePlanName": "Name des Plans",
+  "trainingPagePlanNameHint": "z. B. Mein Krafttraining",
+  "trainingPageDescription": "Beschreibung",
+  "trainingPageDescriptionHint": "Dein Fokus und deine Ziele",
+  "trainingPageWorkoutName": "Name der Einheit",
+  "trainingPageWorkoutNameHint": "z. B. Ganzkörper",
+  "trainingPageWorkoutNotes": "Hinweise zur Einheit",
+  "trainingPageNotesHint": "Optional",
+  "trainingPageExerciseName": "Name der Übung",
+  "trainingPageExerciseNameHint": "z. B. Kniebeugen",
+  "trainingPageExerciseNotes": "Ausführung und Hinweise",
+  "trainingPageExerciseType": "Übungstyp",
+  "trainingPageRepetitions": "Wiederholungen",
+  "trainingPageTimed": "Zeit",
+  "trainingPageSets": "Sätze",
+  "trainingPageReps": "Wiederholungen pro Satz",
+  "trainingPageDuration": "Sekunden pro Satz",
+  "trainingPageRest": "Pause in Sekunden",
+  "trainingPageAddWorkout": "Einheit hinzufügen",
+  "trainingPageAddExercise": "Übung hinzufügen",
+  "trainingPageRemoveWorkout": "Einheit entfernen",
+  "trainingPageRemoveExercise": "Übung entfernen",
+  "trainingPageMoveUp": "Nach oben",
+  "trainingPageMoveDown": "Nach unten",
+  "trainingPageInvalid": "Prüfe die markierten Felder.",
+  "trainingPageRequired": "Bitte ausfüllen.",
+  "trainingPageTooLong": "Bitte kürzen.",
+  "trainingPageExerciseEmpty": "Füge mindestens eine Übung hinzu.",
+  "trainingPageWorkoutCount": "{count, plural, =1{1 Einheit} other{{count} Einheiten}}",
+  "@trainingPageWorkoutCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingPageExerciseCount": "{count, plural, =1{1 Übung} other{{count} Übungen}}",
+  "@trainingPageExerciseCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingPageWorkoutNumber": "Einheit {count}",
+  "@trainingPageWorkoutNumber": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingPageExerciseNumber": "Übung {count}",
+  "@trainingPageExerciseNumber": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingPageRestSeconds": "{count} Sek. Pause",
+  "@trainingPageRestSeconds": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingPageSeconds": "{count} Sek.",
+  "@trainingPageSeconds": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingPageSetsReps": "{sets} × {reps} Wdh.",
+  "@trainingPageSetsReps": {
+    "placeholders": {
+      "sets": {
+        "type": "int"
+      },
+      "reps": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingPageSetsTime": "{sets} × {seconds} Sek.",
+  "@trainingPageSetsTime": {
+    "placeholders": {
+      "sets": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingPageRange": "{min}–{max} eingeben.",
+  "@trainingPageRange": {
+    "placeholders": {
+      "min": {
+        "type": "int"
+      },
+      "max": {
+        "type": "int"
+      }
+    }
+  },
+  "coachPlanCommandDescription": "Erstellt einen Trainingsplan zum Prüfen und Übernehmen",
+  "coachPlanEmptyHint": "Beschreibe nach /plan dein Ziel, deine Trainingstage und dein Equipment.",
+  "coachPlanPhotoUnsupported": "Trainingspläne entstehen aus Text. Sende deinen /plan-Wunsch ohne Foto.",
+  "coachPlanUnknownCommandHint": "Unbekannter Befehl. Nutze /recipe für ein Rezept oder /plan für einen Trainingsplan.",
+  "coachPlanCardEyebrow": "Trainingsplan · Entwurf",
+  "coachPlanReviewButton": "Plan prüfen",
+  "coachPlanAdoptButton": "Trainingsplan übernehmen",
+  "coachPlanAddedLabel": "Übernommen",
+  "coachPlanOpenTraining": "Zum Training",
+  "coachPlanSaveFailed": "Der Plan konnte nicht übernommen werden. Versuche es erneut.",
+  "coachPlanCounts": "{days, plural, =1{1 Trainingstag} other{{days} Trainingstage}} · {exercises, plural, =1{1 Übung} other{{exercises} Übungen}}",
+  "@coachPlanCounts": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      },
+      "exercises": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerBack": "Zurück zum Plan",
+  "trainingTimerPaused": "Pausiert",
+  "trainingTimerRunning": "Läuft",
+  "trainingTimerTimeUp": "Zeit abgelaufen",
+  "trainingTimerReview": "Dein Training",
+  "trainingTimerRest": "Satzpause",
+  "trainingTimerPause": "Pause",
+  "trainingTimerCompleteSet": "Satz geschafft",
+  "trainingTimerContinue": "Zum nächsten Satz",
+  "trainingTimerRewind": "10 Sek. zurück",
+  "trainingTimerForward": "10 Sek. vor",
+  "trainingTimerReset": "Phase zurücksetzen",
+  "trainingTimerSkipRest": "Pause überspringen",
+  "trainingTimerPreviousSet": "Vorheriger Satz",
+  "trainingTimerNextSet": "Satz überspringen",
+  "trainingTimerPreviousExercise": "Vorherige Übung",
+  "trainingTimerNextExercise": "Nächste Übung",
+  "trainingTimerNavigate": "Sätze & Übungen",
+  "trainingTimerNavigationHint": "Überspringen zählt nicht als geschafft. Zurückgehen setzt den Fortschritt ab diesem Satz zurück.",
+  "trainingTimerInstructions": "Hinweise zur Übung",
+  "trainingTimerUpNext": "Nächste Übung",
+  "trainingTimerFinish": "Training beenden",
+  "trainingTimerDiscard": "Training verwerfen",
+  "trainingTimerFinishTitle": "Training beenden?",
+  "trainingTimerFinishBody": "Du hast {completed} von {total} Sätzen bestätigt. Nicht absolvierte Sätze bleiben offen. Der gespeicherte Wiedereinstieg wird entfernt.",
+  "@trainingTimerFinishBody": {
+    "placeholders": {
+      "completed": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerDiscardTitle": "Training verwerfen?",
+  "trainingTimerDiscardBody": "Der Fortschritt dieses Trainings und der gespeicherte Wiedereinstieg werden entfernt. Dein Plan bleibt erhalten.",
+  "trainingTimerLeaveTitle": "Pausieren und verlassen?",
+  "trainingTimerLeaveBody": "Speichere deinen Stand, um später hier fortzusetzen. Das Training bleibt pausiert.",
+  "trainingTimerStay": "Hier bleiben",
+  "trainingTimerSaveLeave": "Speichern & verlassen",
+  "trainingTimerSaving": "Stand wird gespeichert …",
+  "trainingTimerSaved": "Wiedereinstieg gespeichert",
+  "trainingTimerNotSaved": "Stand noch nicht gespeichert",
+  "trainingTimerSaveFailed": "Dein Stand konnte nicht gespeichert werden. Das Training ist pausiert. Bitte versuche es erneut.",
+  "trainingTimerRetry": "Erneut versuchen",
+  "trainingTimerConfirmHint": "Bestätige bewusst, wenn du bereit bist. Es geht nicht automatisch weiter.",
+  "trainingTimerRepetitions": "Wiederholungen",
+  "trainingTimerMinutes": "Min.",
+  "trainingTimerSeconds": "Sek.",
+  "trainingTimerProgress": "{completed} von {total} Sätzen geschafft",
+  "@trainingTimerProgress": {
+    "placeholders": {
+      "completed": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerSet": "Satz {current} von {total}",
+  "@trainingTimerSet": {
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerSkipped": "{count} Sätze übersprungen",
+  "@trainingTimerSkipped": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerSecondsRemaining": "Noch {seconds} Sekunden",
+  "@trainingTimerSecondsRemaining": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerStart": "Starten",
+  "trainingTimerResume": "Fortsetzen",
+  "trainingTimerAnnouncement": "{exercise}. {sets}. {status}.",
+  "@trainingTimerAnnouncement": {
+    "placeholders": {
+      "exercise": {
+        "type": "String"
+      },
+      "sets": {
+        "type": "String"
+      },
+      "status": {
+        "type": "String"
+      }
+    }
+  }
 }

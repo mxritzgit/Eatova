@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/fitness_recipe.dart';
+import 'package:eatova/src/models/coach_training_proposal.dart';
+import 'package:eatova/src/models/training_plan.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
@@ -283,6 +285,13 @@ void main() {
         SyncOp.favoriteDelete('fav-1'),
         SyncOp.recipeUpsert(_recipe()),
         SyncOp.recipeDelete('user_123'),
+        SyncOp.trainingPlanUpsert(TrainingPlan(id: 'training', proposal:
+            CoachTrainingProposal(title: 'Plan', workouts: [
+              TrainingWorkout(title: 'A', exercises: [
+                TrainingExercise(name: 'Squat', sets: 3, reps: 8, restSeconds: 60),
+              ]),
+            ]))),
+        SyncOp.trainingPlanDelete('training'),
         SyncOp.profileUpsert(const UserProfile()),
         SyncOp.trackingDay('2026-08-10'),
         SyncOp.statsIncrement(
@@ -307,6 +316,7 @@ void main() {
         SyncOp.mealDelete('m-1'),
         SyncOp.favoriteDelete('barcode:4001234'),
         SyncOp.recipeDelete('user_123'),
+        SyncOp.trainingPlanDelete('training'),
       ];
       for (final op in deletes) {
         expect(op.incrementAttempt().incrementAttempt().attempts, 2,

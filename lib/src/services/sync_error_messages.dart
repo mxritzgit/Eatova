@@ -206,7 +206,8 @@ OutboxVerdict classifyOutboxFailure(
 bool _isDeleteKind(SyncOpKind kind) =>
     kind == SyncOpKind.mealDelete ||
     kind == SyncOpKind.favoriteDelete ||
-    kind == SyncOpKind.recipeDelete;
+    kind == SyncOpKind.recipeDelete ||
+    kind == SyncOpKind.trainingPlanDelete;
 
 OutboxVerdict _verdictForCode(Object error) {
   // Anything that is not a PostgREST error is unclassified -> keep.

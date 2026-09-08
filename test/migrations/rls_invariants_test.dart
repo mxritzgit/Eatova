@@ -142,6 +142,11 @@ const Map<String, Erwartung> _erwartet = {
     clientBefehle: _voll,
     grund: 'Eigene Rezepte, vom Client angelegt und geloescht.',
   ),
+  'training_plans': Erwartung(
+    besitzerSpalte: 'user_id',
+    clientBefehle: _voll,
+    grund: 'Trainingsplaene, erst nach ausdruecklicher Uebernahme gespeichert.',
+  ),
   'chat_sessions': Erwartung(
     besitzerSpalte: 'user_id',
     clientBefehle: _voll,
@@ -214,6 +219,9 @@ class FunktionsErwartung {
 /// fewer. Hand-written for the same reason as [_erwartet]: derived from the
 /// migrations, a newly granted role would define its own expectation.
 const Map<String, FunktionsErwartung> _erwarteteFunktionen = {
+  'is_valid_training_plan': FunktionsErwartung.client(
+      definer: false,
+      grund: 'Reine JSON-Validierung fuer CHECKs, ohne Tabellenzugriff.'),
   // -- callable by the app -------------------------------------------------
   'create_chat_session': FunktionsErwartung.client(
       definer: true, grund: 'Coach: neue Unterhaltung anlegen.'),

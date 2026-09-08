@@ -3,6 +3,7 @@ import 'package:clock/clock.dart';
 import '../models/favorite_meal.dart';
 import '../models/fitness_recipe.dart';
 import '../models/logged_meal.dart';
+import '../models/training_plan.dart';
 import '../models/user_profile.dart';
 import 'meals_sync.dart' show mealResultFromJson, mealResultToJson;
 
@@ -74,6 +75,8 @@ enum SyncOpKind {
   favoriteDelete,
   recipeUpsert,
   recipeDelete,
+  trainingPlanUpsert,
+  trainingPlanDelete,
 
   /// Gap D: profile/goals (weight, kcal goal, diet, onboarding flag). Without
   /// it, an offline `applySettings`/`completeOnboarding` was silently
@@ -183,6 +186,18 @@ class SyncOp {
   factory SyncOp.recipeDelete(String slug) => SyncOp._(
       kind: SyncOpKind.recipeDelete, entityId: slug, payload: const {});
 
+  factory SyncOp.trainingPlanUpsert(TrainingPlan plan) => SyncOp._(
+        kind: SyncOpKind.trainingPlanUpsert,
+        entityId: plan.id,
+        payload: {'training_plan': plan.toRow()},
+      );
+
+  factory SyncOp.trainingPlanDelete(String id) => SyncOp._(
+        kind: SyncOpKind.trainingPlanDelete,
+        entityId: id,
+        payload: const {},
+      );
+
   /// The profile is ONE row per user (public.profiles.id = auth user), so a
   /// fixed [entityId]: all profile ops share an [entityKey], coalesce into a
   /// single entry, and the last change wins.
@@ -240,6 +255,9 @@ class SyncOp {
         SyncOpKind.recipeUpsert ||
         SyncOpKind.recipeDelete =>
           'recipe:$entityId',
+        SyncOpKind.trainingPlanUpsert ||
+        SyncOpKind.trainingPlanDelete =>
+          'training_plan:$entityId',
         SyncOpKind.profileUpsert => 'profile:$entityId',
         SyncOpKind.trackingDay => 'tracking:$entityId',
         SyncOpKind.statsIncrement => 'stats:$entityId',
@@ -257,7 +275,8 @@ class SyncOp {
   bool get isDelete =>
       kind == SyncOpKind.mealDelete ||
       kind == SyncOpKind.favoriteDelete ||
-      kind == SyncOpKind.recipeDelete;
+      kind == SyncOpKind.recipeDelete ||
+      kind == SyncOpKind.trainingPlanDelete;
 
   /// True for upsert-like ops — only those may be coalesced (payload
   /// replaced) on enqueue.
@@ -274,6 +293,7 @@ class SyncOp {
       kind == SyncOpKind.mealUpsert ||
       kind == SyncOpKind.favoriteUpsert ||
       kind == SyncOpKind.recipeUpsert ||
+      kind == SyncOpKind.trainingPlanUpsert ||
       kind == SyncOpKind.profileUpsert ||
       kind == SyncOpKind.trackingDay;
 
@@ -318,6 +338,17 @@ class SyncOp {
     if (raw is! Map) return null;
     try {
       return FitnessRecipe.fromRow(raw.cast<String, dynamic>());
+    } catch (_) {
+      return null;
+    }
+  }
+
+  TrainingPlan? get trainingPlan {
+    final raw = payload['training_plan'];
+    if (raw is! Map) return null;
+    try {
+      final plan = TrainingPlan.fromRow(raw.cast<String, dynamic>());
+      return plan.id == entityId ? plan : null;
     } catch (_) {
       return null;
     }

@@ -11,8 +11,8 @@
 Eatova makes everyday food logging fast: snap a meal photo and get an itemized
 nutrition estimate, scan a barcode, or search a self-hosted product index —
 then let an AI coach answer training and nutrition questions with your actual
-daily numbers as context. The app ships four tabs (**Heute**, **Food**,
-**Rezepte**, **Coach**), is localized in German and English once you're
+daily numbers as context. The app has five tabs (**Heute**, **Food**,
+**Rezepte**, **Training**, **Coach**), is localized in German and English once you're
 signed in, and targets Android and iOS only.
 
 > **i18n scope:** the screens behind sign-in follow the language picker
@@ -74,12 +74,17 @@ See [CHANGELOG.md](CHANGELOG.md) for the release history.
   A full page opened from the Food tab, not a tab of its own.
 - **Recipes** — browse recipes and add them straight to the tracker (on the
   day currently selected in the Food tab), plus your own recipes with a photo.
+- **Training** — create and edit plans with multiple workouts, repetitions or
+  timed exercises. The session player supports pause/resume, 10-second rewind
+  and forward, reset, and set/exercise navigation. Leaving saves a paused
+  checkpoint on this device; restarting requires deliberate resume.
 - **AI Coach** — chat coach for training and nutrition questions with session
   management, image input, speech input (iOS), a compact snapshot of your
   remaining macros as context, a daily quota, and layered safety filtering.
   The `/recipe` command returns a generated recipe with an AI picture as a
   card; it lands in your recipes only after you confirm it, and the picture
-  stays on the device.
+  stays on the device. `/plan` creates a training draft for review and editing;
+  only explicit adoption saves it to Training.
 - **Profile & stats** — weight log with chart, a stat bar (streak, record,
   meals logged, weigh-ins), body values, daily goals, and the Apple Health
   connection. Language, theme, the JSON data export, sign-out and account

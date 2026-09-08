@@ -10,11 +10,13 @@ class _CoachTopBar extends StatelessWidget {
     required this.streak,
     required this.onInfoTap,
     required this.onSessionsTap,
+    this.compact = false,
   });
 
   final int streak;
   final VoidCallback onInfoTap;
   final VoidCallback onSessionsTap;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -29,95 +31,132 @@ class _CoachTopBar extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(0, 2, 0, 14),
       // Wrap instead of Row: at textScaler 2.0 title, streak pill and two
       // buttons no longer fit on one line; the control group moves down.
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 12,
-        alignment: WrapAlignment.spaceBetween,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: <Widget>[
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: t.forest,
-                  borderRadius: BorderRadius.circular(14),
+      child: compact
+          ? Row(
+              key: const ValueKey('coach-header-compact'),
+              children: <Widget>[
+                Expanded(
+                  child: HeadingSemantics(
+                    level: 1,
+                    child: Text(
+                      l10n.navCoach,
+                      semanticsLabel: l10n.coachTitle,
+                      style: AppType.display(20, color: t.ink, height: 1.1),
+                    ),
+                  ),
                 ),
-                child: Icon(Icons.chat_bubble_outline_rounded, size: 19, color: t.lime),
-              ),
-              const SizedBox(width: 12),
-              Flexible(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                SquareIconButton(
+                  key: const ValueKey('coach-info'),
+                  icon: Icons.info_outline_rounded,
+                  onTap: onInfoTap,
+                  semanticLabel: l10n.coachInfoSemanticLabel,
+                ),
+                const SizedBox(width: 6),
+                SquareIconButton(
+                  key: const ValueKey('coach-sessions-open'),
+                  icon: Icons.forum_outlined,
+                  onTap: onSessionsTap,
+                  semanticLabel: l10n.coachSessionsSemanticLabel,
+                ),
+              ],
+            )
+          : Wrap(
+              spacing: 8,
+              runSpacing: 12,
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: <Widget>[
+                Row(
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    // The tab's rank-1 mark (P9-06c). It sits here and not on
-                    // the hero because this header is on screen in EVERY
-                    // state; the hero only exists while the chat is empty.
-                    // Title only: the status line below is context, and the
-                    // three controls on the right keep their own nodes.
-                    HeadingSemantics(
-                      level: 1,
-                      child: Text(
-                        l10n.coachTitle,
-                        style: AppType.display(22, color: t.ink, height: 1.1),
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: t.forest,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(
+                        Icons.chat_bubble_outline_rounded,
+                        size: 19,
+                        color: t.lime,
                       ),
                     ),
-                    const SizedBox(height: 3),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Container(
-                          width: 6,
-                          height: 6,
-                          decoration: BoxDecoration(
-                            color: t.lime,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Text(
-                            l10n.coachStatusLine,
-                            style: AppType.ui(
-                              11.5,
-                              weight: FontWeight.w500,
-                              color: t.ink2,
+                    const SizedBox(width: 12),
+                    Flexible(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          // The tab's rank-1 mark (P9-06c). It sits here and not on
+                          // the hero because this header is on screen in EVERY
+                          // state; the hero only exists while the chat is empty.
+                          // Title only: the status line below is context, and the
+                          // three controls on the right keep their own nodes.
+                          HeadingSemantics(
+                            level: 1,
+                            child: Text(
+                              l10n.coachTitle,
+                              style: AppType.display(
+                                22,
+                                color: t.ink,
+                                height: 1.1,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 3),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: <Widget>[
+                              Container(
+                                width: 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  color: t.lime,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  l10n.coachStatusLine,
+                                  style: AppType.ui(
+                                    11.5,
+                                    weight: FontWeight.w500,
+                                    color: t.ink2,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
-              ),
-            ],
-          ),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              _StreakPill(streak: streak),
-              const SizedBox(width: 6),
-              SquareIconButton(
-                key: const ValueKey('coach-info'),
-                icon: Icons.info_outline_rounded,
-                onTap: onInfoTap,
-                semanticLabel: l10n.coachInfoSemanticLabel,
-              ),
-              const SizedBox(width: 6),
-              SquareIconButton(
-                key: const ValueKey('coach-sessions-open'),
-                icon: Icons.forum_outlined,
-                onTap: onSessionsTap,
-                semanticLabel: l10n.coachSessionsSemanticLabel,
-              ),
-            ],
-          ),
-        ],
-      ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    _StreakPill(streak: streak),
+                    const SizedBox(width: 6),
+                    SquareIconButton(
+                      key: const ValueKey('coach-info'),
+                      icon: Icons.info_outline_rounded,
+                      onTap: onInfoTap,
+                      semanticLabel: l10n.coachInfoSemanticLabel,
+                    ),
+                    const SizedBox(width: 6),
+                    SquareIconButton(
+                      key: const ValueKey('coach-sessions-open'),
+                      icon: Icons.forum_outlined,
+                      onTap: onSessionsTap,
+                      semanticLabel: l10n.coachSessionsSemanticLabel,
+                    ),
+                  ],
+                ),
+              ],
+            ),
     );
   }
 }

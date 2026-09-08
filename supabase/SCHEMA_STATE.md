@@ -32,7 +32,7 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 `.github/workflows/security.yml`; die Bedienung steht in
 `supabase/SCHEMA_STATE_2026-06-07.md`.
 
-## Migrationen (39)
+## Migrationen (40)
 
 1. `20260516150000_create_profiles.sql`
 2. `20260516160000_app_data_schema.sql`
@@ -73,8 +73,9 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 37. `20260901100000_batch_edge_rate_limits.sql`
 38. `20260901100200_chat_quota_usage_retention.sql`
 39. `20260908120000_chat_quota_refund_day.sql`
+40. `20260908130000_training_plans.sql`
 
-## Tabellen in `public` (11)
+## Tabellen in `public` (12)
 
 | Tabelle | RLS | `authenticated` | `service_role` | Policies | angelegt in |
 |---|---|---|---|---|---|
@@ -87,6 +88,7 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 | `lifetime_stats_requests` | an | — | `delete`, `insert`, `references`, `select`, `trigger`, `truncate`, `update` | 0 | `20260814120000_audit_rls_guard.sql` |
 | `logged_meals` | an | `delete`, `insert`, `select`, `update` | `delete`, `insert`, `references`, `select`, `trigger`, `truncate`, `update` | 4 | `20260516160000_app_data_schema.sql` |
 | `profiles` | an | `select` | `delete`, `insert`, `references`, `select`, `trigger`, `truncate`, `update` | 3 | `20260516150000_create_profiles.sql` |
+| `training_plans` | an | `delete`, `insert`, `select`, `update` | `delete`, `insert`, `references`, `select`, `trigger`, `truncate`, `update` | 4 | `20260908130000_training_plans.sql` |
 | `user_recipes` | an | `delete`, `insert`, `select`, `update` | `delete`, `insert`, `references`, `select`, `trigger`, `truncate`, `update` | 4 | `20260530091000_user_recipes.sql` |
 | `weight_log` | an | `delete`, `insert`, `select`, `update` | `delete`, `insert`, `references`, `select`, `trigger`, `truncate`, `update` | 4 | `20260516160000_app_data_schema.sql` |
 
@@ -104,7 +106,7 @@ mit 42501.
 | `profiles` | `authenticated` | `insert` | 18 | `activity_level`, `age_years`, `carbs_goal_g`, `daily_kcal_goal`, `daily_sleep_goal_minutes`, `daily_steps_goal`, `daily_water_goal_ml`, `diet_preference`, `fat_goal_g`, `height_cm`, `id`, `manual_energy`, `onboarding_completed`, `protein_goal_g`, `sex`, `target_weight_kg`, `weight_goal`, `weight_kg` |
 | `profiles` | `authenticated` | `update` | 18 | `activity_level`, `age_years`, `carbs_goal_g`, `daily_kcal_goal`, `daily_sleep_goal_minutes`, `daily_steps_goal`, `daily_water_goal_ml`, `diet_preference`, `fat_goal_g`, `height_cm`, `id`, `manual_energy`, `onboarding_completed`, `protein_goal_g`, `sex`, `target_weight_kg`, `weight_goal`, `weight_kg` |
 
-## Policies (26)
+## Policies (30)
 
 | Tabelle | Policy | Befehl | Rollen | USING | WITH CHECK | aus |
 |---|---|---|---|---|---|---|
@@ -126,6 +128,10 @@ mit 42501.
 | `profiles` | `profiles_insert_own` | `insert` | `authenticated` | — | `auth.uid() = id` | `20260516150000_create_profiles.sql` |
 | `profiles` | `profiles_select_own` | `select` | `authenticated` | `auth.uid() = id` | — | `20260516150000_create_profiles.sql` |
 | `profiles` | `profiles_update_own` | `update` | `authenticated` | `auth.uid() = id` | `auth.uid() = id` | `20260516150000_create_profiles.sql` |
+| `training_plans` | `training_plans_delete_own` | `delete` | `authenticated` | `user_id = (select auth.uid())` | — | `20260908130000_training_plans.sql` |
+| `training_plans` | `training_plans_insert_own` | `insert` | `authenticated` | — | `user_id = (select auth.uid())` | `20260908130000_training_plans.sql` |
+| `training_plans` | `training_plans_select_own` | `select` | `authenticated` | `user_id = (select auth.uid())` | — | `20260908130000_training_plans.sql` |
+| `training_plans` | `training_plans_update_own` | `update` | `authenticated` | `user_id = (select auth.uid())` | `user_id = (select auth.uid())` | `20260908130000_training_plans.sql` |
 | `user_recipes` | `user_recipes_delete_own` | `delete` | `authenticated` | `user_id = auth.uid()` | — | `20260530091000_user_recipes.sql` |
 | `user_recipes` | `user_recipes_insert_own` | `insert` | `authenticated` | — | `user_id = auth.uid()` | `20260530091000_user_recipes.sql` |
 | `user_recipes` | `user_recipes_select_own` | `select` | `authenticated` | `user_id = auth.uid()` | — | `20260530091000_user_recipes.sql` |
@@ -139,12 +145,12 @@ Tabellen ohne Zeile hier tragen bewusst keine Policy: RLS ist an,
 also erreicht sie ausser dem Funktionseigentuemer und
 `service_role` niemand.
 
-### Warum `auth.uid()` und nicht `(select auth.uid())`
+### Direkte und gekapselte `auth.uid()`-Aufrufe
 
 PostgreSQL empfiehlt fuer `stable` Funktionen in Policies die
 Schreibweise `(select auth.uid())`: der Planer hebt sie in einen
-InitPlan und wertet sie einmal statt je Zeile aus. Alle Policies
-hier stehen trotzdem in der direkten Form — bewusst (Befund
+InitPlan und wertet sie einmal statt je Zeile aus. Die bestehenden
+Policies bleiben in der direkten Form — bewusst (Befund
 P7-06, Review 2026-08-29):
 
 * Der Gewinn faellt nur bei einem **Seq Scan** an. Jede Tabelle
@@ -156,12 +162,12 @@ P7-06, Review 2026-08-29):
   Migration: die gesamte Zugriffskontrolle der App in einem
   Schritt neu geschrieben, fuer Mikrosekunden.
 
-Die Entscheidung ist nicht endgueltig: `normalisiereAusdruck` in
+Neue Training-Policies nutzen `(select auth.uid())`, ohne bestehende
+Policies umzuschreiben. `normalisiereAusdruck` in
 `test/migrations/migration_schema.dart` liest beide Schreibweisen
-als dieselbe Bedingung, der Waechter bliebe nach einer Umstellung
-also gruen.
+als dieselbe Bedingung; der Waechter prueft beide Varianten.
 
-## Funktionen in `public` (22)
+## Funktionen in `public` (23)
 
 | Funktion | Rechte des | `search_path` | EXECUTE fuer | aus |
 |---|---|---|---|---|
@@ -177,6 +183,7 @@ also gruen.
 | `handle_new_user_profile` | **Eigentuemers** | `public` | `service_role` | `20260516150000_create_profiles.sql` |
 | `handle_new_user_stats` | **Eigentuemers** | `public` | `service_role` | `20260516160000_app_data_schema.sql` |
 | `increment_lifetime_stats` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260814120000_audit_rls_guard.sql` |
+| `is_valid_training_plan` | Aufrufers | `pg_catalog` | `authenticated`, `service_role` | `20260908130000_training_plans.sql` |
 | `list_chat_sessions` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260517170000_chat_sessions.sql` |
 | `prune_chat_quota_usage` | **Eigentuemers** | `public` | `service_role` | `20260901100200_chat_quota_usage_retention.sql` |
 | `prune_edge_rate_limits` | **Eigentuemers** | `public` | `service_role` | `20260901100200_chat_quota_usage_retention.sql` |
