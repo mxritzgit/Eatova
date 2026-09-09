@@ -524,7 +524,7 @@
   "recipesNoPreparationYet": "Your own recipe — no preparation steps added.",
   "recipesSelfCreatedHint": "Self-added. Values are based on what you entered.",
   "recipesNameAndCaloriesSuffice": "Name and calories are enough.",
-  "recipesGroupWhatIsIt": "What is it",
+  "recipesGroupWhatIsIt": "Your dish",
   "recipesNameHint": "e.g. Protein Bowl",
   "recipesPortionHint": "1 plate",
   "recipesGroupNutrition": "Nutrition",
@@ -1926,5 +1926,8 @@
   "foodScanContextExample": "For example: Döner without sauce.",
   "foodScanContextHelp": "Ingredients, preparation or amount · up to 400 characters. Your photo and note are sent to the AI for analysis.",
   "foodScanContextInvalid": "Please shorten the note to 400 characters and remove unusual control characters.",
-  "foodScanStart": "Start analysis"
+  "foodScanStart": "Start analysis",
+  "trainingCreateIntro": "Your rhythm. Your exercises. Build a plan that fits your life.",
+  "trainingWorkoutIntro": "Name your session and add your exercises.",
+  "recipesCreateIntro": "Your favourite dish, ready for your everyday routine."
 }

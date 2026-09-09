@@ -529,7 +529,7 @@
   "recipesNoPreparationYet": "Eigenes Rezept — keine Zubereitung hinterlegt.",
   "recipesSelfCreatedHint": "Selbst angelegt. Werte beruhen auf deinen Angaben.",
   "recipesNameAndCaloriesSuffice": "Name und Kalorien genügen.",
-  "recipesGroupWhatIsIt": "Was ist es",
+  "recipesGroupWhatIsIt": "Dein Gericht",
   "recipesNameHint": "z. B. Protein-Bowl",
   "recipesPortionHint": "1 Teller",
   "recipesGroupNutrition": "Nährwerte",
@@ -1954,5 +1954,8 @@
   "foodScanContextExample": "Zum Beispiel: Döner ohne Sauce.",
   "foodScanContextHelp": "Zutaten, Zubereitung oder Menge · bis zu 400 Zeichen. Foto und Hinweis werden zur Analyse an die KI gesendet.",
   "foodScanContextInvalid": "Bitte kürze den Hinweis auf 400 Zeichen und entferne ungewöhnliche Steuerzeichen.",
-  "foodScanStart": "Analyse starten"
+  "foodScanStart": "Analyse starten",
+  "trainingCreateIntro": "Dein Rhythmus. Deine Übungen. Stell dir einen Plan zusammen, der zu dir passt.",
+  "trainingWorkoutIntro": "Benenne deine Einheit und ergänze deine Übungen.",
+  "recipesCreateIntro": "Dein Lieblingsgericht, festgehalten für den Alltag."
 }

@@ -497,3 +497,37 @@ PR for `fix/workout-flow-dialogs-scan-context` records final test, CI, merge and
 deployment evidence. Authorization and local tests alone do not establish live
 delivery. Root evidence is in ignored `.agents/fixes-2026-09-09/`; reuse these
 shared documents and that PR instead of creating another full archive.
+
+## Training and recipe creation design, 2026-09-09
+
+The creation forms now share numbered sections, readable sentence-case labels,
+responsive field grids and contextual forest/lime headers. Training exercises
+have distinct expandable surfaces and full-width add actions; unavailable reorder
+controls stay out of single-item lists. Recipe nutrition uses two readable columns
+or one at larger text sizes, with measured label heights and full nutrient names.
+Photo actions retain their full labels and at least 48-pixel targets. Recipe Save
+and Close remain outside the scroll area; a compact keyboard header leaves room
+for focused input. Existing borderless field/focus tokens remain authoritative.
+
+The recipe discard guard now keeps its child mounted as the form becomes dirty,
+preserving keyboard focus. Validation, explicit save/discard, account callbacks,
+photo storage and draft data contracts are retained. Review caught a temporary
+single-line workout-notes regression; multiline input was restored and a test
+checks the saved line breaks. The reviewer reproduced that failure against the
+patch and verified the old behavior separately. Final general/security review
+found no remaining actionable introduced findings.
+
+Verification: **4,133 Flutter tests passed**, strict analysis passed, and the regular
+Android x64 debug APK built with CI dummy defines. Real-font renders cover light
+and dark, with German/English 320-pixel, double-text and keyboard regressions.
+The native Android fixture exercised new Training/recipe drafts, validation,
+keyboard input, scrolling, save and discard using an in-memory account/cache and
+closed network stubs. The original emulator APK was restored and hash-verified
+without clearing app data; the emulator was stopped. This does not install a
+production-configured release or exercise live provider calls.
+
+Delivery is authorized via the PR from `design/creation-editors`, merging only
+after green CI. Consult that PR for the final commit/merge state. No backend,
+schema or dependency update is needed; installed clients need a new app build.
+Ignored evidence lives in `.agents/creation-editors/` (final test/analyzer/review
+logs, visual renders and native captures).

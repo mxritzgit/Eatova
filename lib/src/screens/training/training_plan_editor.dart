@@ -314,12 +314,32 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
             textDirection: Directionality.of(context),
             textScaler: MediaQuery.textScalerOf(context),
           )..layout();
-          if (measure.width > constraints.maxWidth - 48) inline = false;
+          if (measure.width >
+              constraints.maxWidth -
+                  48 -
+                  (MediaQuery.textScalerOf(context).scale(14) <= 18 ? 58 : 0)) {
+            inline = false;
+          }
           measure.dispose();
         }
         return inline
             ? Row(
                 children: [
+                  if (MediaQuery.textScalerOf(context).scale(14) <= 18) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: context.t.forest,
+                        borderRadius: BorderRadius.circular(rControl),
+                      ),
+                      child: Icon(
+                        Icons.fitness_center_rounded,
+                        color: context.t.lime,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
                   Expanded(child: heading),
                   close,
                 ],
@@ -407,34 +427,58 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
         setState(() => value.error = value.validate(context.l10n));
       }
     },
-    child: SheetField(
-      key: ObjectKey(value),
-      fieldKey: ValueKey(key),
-      label: label,
-      hint: hint ?? label,
-      controller: value.controller,
-      enabled: !_busy,
-      maxLines: lines,
-      keyboardType: value.min == null
-          ? (lines > 1 ? TextInputType.multiline : TextInputType.text)
-          : TextInputType.number,
-      inputFormatters: value.min == null
-          ? null
-          : [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(4),
-            ],
-      errorText: value.error,
-      onChanged: (_) {
-        if (value.error != null) value.error = value.validate(context.l10n);
-        _changed();
-      },
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text(
+            label,
+            style: AppType.ui(
+              13,
+              color: context.t.ink2,
+              weight: FontWeight.w500,
+            ),
+          ),
+        ),
+        SheetField(
+          key: ObjectKey(value),
+          fieldKey: ValueKey(key),
+          label: null,
+          semanticLabel: label,
+          hint: hint ?? label,
+          controller: value.controller,
+          enabled: !_busy,
+          maxLines: lines,
+          keyboardType: value.min == null
+              ? (lines > 1 ? TextInputType.multiline : TextInputType.text)
+              : TextInputType.number,
+          inputFormatters: value.min == null
+              ? null
+              : [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(4),
+                ],
+          errorText: value.error,
+          onChanged: (_) {
+            if (value.error != null) value.error = value.validate(context.l10n);
+            _changed();
+          },
+        ),
+      ],
     ),
   );
 
   List<Widget> _editFields(BuildContext context) {
     final l10n = context.l10n;
     return [
+      if (widget.initialDraft == null) ...[
+        Text(
+          l10n.trainingCreateIntro,
+          style: AppType.ui(14, color: context.t.ink2, height: 1.45),
+        ),
+        const SizedBox(height: 22),
+      ],
       _field(
         _title,
         l10n.trainingPagePlanName,
@@ -446,7 +490,7 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
         l10n.trainingPageDescription,
         'training-editor-description',
         hint: l10n.trainingPageDescriptionHint,
-        lines: 3,
+        lines: 2,
       ),
       _field(
         _goal,
@@ -456,7 +500,7 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
       ),
       const SizedBox(height: 8),
       for (var i = 0; i < _workouts.length; i++) _workoutFields(context, i),
-      TextButton.icon(
+      CreationAddButton(
         key: const ValueKey('training-editor-add-workout'),
         onPressed: _busy || _workouts.length >= TrainingLimits.workoutsMax
             ? null
@@ -464,8 +508,7 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
                 _workouts.add(_WorkoutFields(null));
                 _changed();
               },
-        icon: const Icon(Icons.add_rounded),
-        label: Text(l10n.trainingPageAddWorkout),
+        label: l10n.trainingPageAddWorkout,
       ),
     ];
   }
@@ -478,23 +521,28 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 18),
-        SectionHeading(title: l10n.trainingPageWorkoutNumber(index + 1)),
-        _orderButtons(
-          keyPrefix: 'training-editor-workout-$index',
-          removeLabel: l10n.trainingPageRemoveWorkout,
-          index: index,
-          count: _workouts.length,
-          move: (target) {
-            _workouts.removeAt(index);
-            _workouts.insert(target, workout);
-            _changed();
-          },
-          remove: () {
-            _workouts.removeAt(index);
-            workout.dispose();
-            _changed();
-          },
+        CreationSectionHeading(
+          number: index + 1,
+          title: l10n.trainingPageWorkoutNumber(index + 1),
+          note: l10n.trainingWorkoutIntro,
         ),
+        if (_workouts.length > 1)
+          _orderButtons(
+            keyPrefix: 'training-editor-workout-$index',
+            removeLabel: l10n.trainingPageRemoveWorkout,
+            index: index,
+            count: _workouts.length,
+            move: (target) {
+              _workouts.removeAt(index);
+              _workouts.insert(target, workout);
+              _changed();
+            },
+            remove: () {
+              _workouts.removeAt(index);
+              workout.dispose();
+              _changed();
+            },
+          ),
         _field(
           workout.title,
           l10n.trainingPageWorkoutName,
@@ -510,7 +558,7 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
         ),
         for (var j = 0; j < workout.exercises.length; j++)
           _exerciseFields(context, index, j),
-        TextButton.icon(
+        CreationAddButton(
           key: ValueKey('training-editor-add-exercise-$index'),
           onPressed:
               _busy || workout.exercises.length >= TrainingLimits.exercisesMax
@@ -519,8 +567,7 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
                   workout.exercises.add(_ExerciseFields(null));
                   _changed();
                 },
-          icon: const Icon(Icons.add_rounded),
-          label: Text(l10n.trainingPageAddExercise),
+          label: l10n.trainingPageAddExercise,
         ),
         Divider(color: context.t.line, height: 28),
       ],
@@ -532,94 +579,123 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
     final exercise = exercises[index];
     final l10n = context.l10n;
     final prefix = 'training-editor-exercise-$workoutIndex-$index';
-    return ExpansionTile(
+    return Padding(
       key: ObjectKey(exercise),
-      initiallyExpanded: true,
-      tilePadding: EdgeInsets.zero,
-      childrenPadding: EdgeInsets.zero,
-      shape: const Border(),
-      collapsedShape: const Border(),
-      title: Text(
-        exercise.name.controller.text.trim().isEmpty
-            ? l10n.trainingPageExerciseNumber(index + 1)
-            : exercise.name.controller.text,
-        style: AppType.ui(15, color: context.t.ink, weight: FontWeight.w600),
-      ),
-      children: [
-        _orderButtons(
-          keyPrefix: prefix,
-          removeLabel: l10n.trainingPageRemoveExercise,
-          index: index,
-          count: exercises.length,
-          move: (target) {
-            exercises.removeAt(index);
-            exercises.insert(target, exercise);
-            _changed();
-          },
-          remove: () {
-            exercises.removeAt(index);
-            exercise.dispose();
-            _changed();
-          },
-        ),
-        _field(
-          exercise.name,
-          l10n.trainingPageExerciseName,
-          '$prefix-name',
-          hint: l10n.trainingPageExerciseNameHint,
-        ),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final timed in [false, true])
-                ChoiceChip(
-                  key: ValueKey('$prefix-${timed ? 'time' : 'reps'}'),
-                  selected: timed == exercise.timed,
-                  label: Text(
-                    timed
-                        ? l10n.trainingPageTimed
-                        : l10n.trainingPageRepetitions,
-                  ),
-                  selectedColor: context.t.lime,
-                  checkmarkColor: context.t.onLime,
-                  labelStyle: AppType.ui(
-                    14,
-                    color: timed == exercise.timed
-                        ? context.t.onLime
-                        : context.t.ink2,
-                  ),
-                  onSelected: _busy
-                      ? null
-                      : (_) {
-                          exercise.timed = timed;
-                          _changed();
-                        },
-                ),
-            ],
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Material(
+        color: context.t.surf,
+        borderRadius: BorderRadius.circular(rCard),
+        clipBehavior: Clip.antiAlias,
+        child: ExpansionTile(
+          initiallyExpanded: true,
+          iconColor: context.t.ink2,
+          collapsedIconColor: context.t.ink2,
+          tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          leading: ExcludeSemantics(
+            child: Text(
+              (index + 1).toString().padLeft(2, '0'),
+              style: AppType.display(18, color: context.t.accent),
+            ),
           ),
+          shape: const Border(),
+          collapsedShape: const Border(),
+          title: Text(
+            exercise.name.controller.text.trim().isEmpty
+                ? l10n.trainingPageExerciseNumber(index + 1)
+                : exercise.name.controller.text,
+            style: AppType.ui(
+              15,
+              color: context.t.ink,
+              weight: FontWeight.w600,
+            ),
+          ),
+          children: [
+            if (exercises.length > 1)
+              _orderButtons(
+                keyPrefix: prefix,
+                removeLabel: l10n.trainingPageRemoveExercise,
+                index: index,
+                count: exercises.length,
+                move: (target) {
+                  exercises.removeAt(index);
+                  exercises.insert(target, exercise);
+                  _changed();
+                },
+                remove: () {
+                  exercises.removeAt(index);
+                  exercise.dispose();
+                  _changed();
+                },
+              ),
+            _field(
+              exercise.name,
+              l10n.trainingPageExerciseName,
+              '$prefix-name',
+              hint: l10n.trainingPageExerciseNameHint,
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final timed in [false, true])
+                    ChoiceChip(
+                      key: ValueKey('$prefix-${timed ? 'time' : 'reps'}'),
+                      selected: timed == exercise.timed,
+                      label: Text(
+                        timed
+                            ? l10n.trainingPageTimed
+                            : l10n.trainingPageRepetitions,
+                      ),
+                      selectedColor: context.t.lime,
+                      checkmarkColor: context.t.onLime,
+                      labelStyle: AppType.ui(
+                        14,
+                        color: timed == exercise.timed
+                            ? context.t.onLime
+                            : context.t.ink2,
+                      ),
+                      onSelected: _busy
+                          ? null
+                          : (_) {
+                              exercise.timed = timed;
+                              _changed();
+                            },
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            CreationFieldGrid(
+              children: [
+                _field(exercise.sets, l10n.trainingPageSets, '$prefix-sets'),
+                if (exercise.timed)
+                  _field(
+                    exercise.duration,
+                    l10n.trainingPageDuration,
+                    '$prefix-duration',
+                  )
+                else
+                  _field(
+                    exercise.reps,
+                    l10n.trainingPageReps,
+                    '$prefix-repetitions',
+                  ),
+                _field(exercise.rest, l10n.trainingPageRest, '$prefix-rest'),
+              ],
+            ),
+            _field(
+              exercise.notes,
+              l10n.trainingPageExerciseNotes,
+              '$prefix-notes',
+              hint: l10n.trainingPageNotesHint,
+              lines: 2,
+            ),
+          ],
         ),
-        const SizedBox(height: 12),
-        _field(exercise.sets, l10n.trainingPageSets, '$prefix-sets'),
-        if (exercise.timed)
-          _field(
-            exercise.duration,
-            l10n.trainingPageDuration,
-            '$prefix-duration',
-          )
-        else
-          _field(exercise.reps, l10n.trainingPageReps, '$prefix-repetitions'),
-        _field(exercise.rest, l10n.trainingPageRest, '$prefix-rest'),
-        _field(
-          exercise.notes,
-          l10n.trainingPageExerciseNotes,
-          '$prefix-notes',
-          hint: l10n.trainingPageNotesHint,
-          lines: 2,
-        ),
-      ],
+      ),
     );
   }
 
