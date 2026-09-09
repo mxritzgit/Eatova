@@ -500,7 +500,7 @@ void main() {
       'recipe-create-kcal': 'Kalorien',
       'recipe-create-grams': 'Gewicht',
       'recipe-create-protein': 'Protein',
-      'recipe-create-carbs': 'KH',
+      'recipe-create-carbs': 'Kohlenhydrate',
       'recipe-create-fat': 'Fett',
       'recipe-create-ingredients': 'Zutaten',
     };

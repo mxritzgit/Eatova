@@ -8,6 +8,8 @@ import 'package:eatova/src/models/model_limits.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 
+import 'package:eatova/src/widgets/design/design.dart';
+
 import 'support/harness.dart' hide testWidgetsRobust;
 
 // D5: sheets discard filled-in forms silently.
@@ -111,7 +113,7 @@ Future<void> _tapBarrier(WidgetTester tester) async {
 
 Future<void> _dragSheetDown(WidgetTester tester) async {
   await tester.drag(
-    find.byKey(const ValueKey('recipe-create-sheet')),
+    find.byType(SheetHandle),
     const Offset(0, 600),
   );
   await tester.pumpAndSettle();

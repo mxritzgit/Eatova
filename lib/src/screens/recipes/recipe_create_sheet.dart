@@ -147,13 +147,13 @@ class _DiscardDragGuardState extends State<_DiscardDragGuard> {
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.active) return widget.child;
     return GestureDetector(
       // Without translucent, gaps between children stay uncovered.
       behavior: HitTestBehavior.translucent,
-      onVerticalDragStart: _onStart,
-      onVerticalDragUpdate: _onUpdate,
-      onVerticalDragEnd: _onEnd,
+      // Keep the child's element (and focused field) when dirty changes.
+      onVerticalDragStart: widget.active ? _onStart : null,
+      onVerticalDragUpdate: widget.active ? _onUpdate : null,
+      onVerticalDragEnd: widget.active ? _onEnd : null,
       child: widget.child,
     );
   }
@@ -162,10 +162,8 @@ class _DiscardDragGuardState extends State<_DiscardDragGuard> {
 /// Bottom sheet for creating an own recipe (photo, name, portion, nutrition,
 /// ingredients). Returns a [FitnessRecipe] via Navigator.pop on save.
 ///
-/// Four named groups ([_SheetGroup]) instead of one field column; the four
-/// nutrition fields sit side by side, four columns at normal text scale and
-/// two above ~1.25x (see [_FieldGrid]). Height is a functional constraint
-/// here, not cosmetics — see [_SheetGroup].
+/// Numbered sections scroll between the close control and the save action.
+/// Related values reflow to a single column on narrow or enlarged layouts.
 class _CreateRecipeSheet extends StatefulWidget {
   const _CreateRecipeSheet({required this.photoInput});
 
@@ -226,9 +224,8 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     _defaultsVorbelegt = true;
     final fallbackPortion = context.l10n.foodPortionFallback;
     _portion.text = fallbackPortion;
-    _felder
-        .firstWhere((feld) => feld.controller == _portion)
-        .start = fallbackPortion;
+    _felder.firstWhere((feld) => feld.controller == _portion).start =
+        fallbackPortion;
   }
 
   TextEditingController _feld([String start = '']) {
@@ -332,25 +329,25 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   }
 
   String? get _kcalFehler => _zahlFehler(
-        _kcal,
-        min: _kcalMin,
-        max: _kcalMax,
-        bereichstext: context.l10n.recipesRangeErrorKcal,
-      );
+    _kcal,
+    min: _kcalMin,
+    max: _kcalMax,
+    bereichstext: context.l10n.recipesRangeErrorKcal,
+  );
 
   String? get _gramsFehler => _zahlFehler(
-        _grams,
-        min: _gramsMin,
-        max: _gramsMax,
-        bereichstext: context.l10n.recipesRangeErrorGrams,
-      );
+    _grams,
+    min: _gramsMin,
+    max: _gramsMax,
+    bereichstext: context.l10n.recipesRangeErrorGrams,
+  );
 
   String? _makroFehler(TextEditingController controller) => _zahlFehler(
-        controller,
-        min: _macroMin,
-        max: _macroMax,
-        bereichstext: context.l10n.recipesRangeErrorGrams,
-      );
+    controller,
+    min: _macroMin,
+    max: _macroMax,
+    bereichstext: context.l10n.recipesRangeErrorGrams,
+  );
 
   /// Code-point cap on the name (see [_nameMaxCodePoints]); `maxLength` alone
   /// cannot enforce it.
@@ -360,8 +357,8 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
 
   String? _textFehler(TextEditingController controller, int maxCodePoints) =>
       controller.text.trim().runes.length > maxCodePoints
-          ? context.l10n.recipesTextTooLongError
-          : null;
+      ? context.l10n.recipesTextTooLongError
+      : null;
 
   /// Save is enabled when the required fields are filled and all fields are
   /// within their limits.
@@ -401,8 +398,9 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     // portion: its default is l10n-dependent, so an untouched or emptied
     // suggestion is "no real value". `_RecipeField.veraendert` decides — more
     // robust than comparing against the current ARB wording.
-    final portionField =
-        _felder.firstWhere((feld) => feld.controller == _portion);
+    final portionField = _felder.firstWhere(
+      (feld) => feld.controller == _portion,
+    );
     final portion = portionField.veraendert ? _portion.text.trim() : '';
     final slug = FitnessRecipe.userRecipeSlug();
     // Capture every validated value before the asynchronous photo write.
@@ -511,9 +509,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   Widget _buildSheet(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    // Rebuilt in the SheetScaffold look instead of using it: `SheetScaffold`
-    // has no key on its footer action, and the save button must stay a
-    // `FilledButton` keyed `recipe-create-save`.
+    final compact = sheetMaxHeightOf(context) < 400;
     return Container(
       key: const ValueKey('recipe-create-sheet'),
       // Safe-area and keyboard aware instead of a fixed 92 % (sheetMaxHeight):
@@ -524,277 +520,279 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
         color: t.bg,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(rSheet)),
       ),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 42,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: t.line,
-                  borderRadius: BorderRadius.circular(rPill),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SheetHandle(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 12, 12),
+            child: Row(
+              children: [
+                if (!compact &&
+                    MediaQuery.textScalerOf(context).scale(14) <= 18) ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: t.forest,
+                      borderRadius: BorderRadius.circular(rControl),
+                    ),
+                    child: Icon(
+                      Icons.menu_book_rounded,
+                      color: t.lime,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                ],
+                Expanded(
+                  child: HeadingSemantics(
+                    level: 1,
+                    child: Text(
+                      compact ? l10n.navRecipes : l10n.recipesOwnTitle,
+                      style: compact
+                          ? AppType.ui(
+                              15,
+                              color: t.ink,
+                              weight: FontWeight.w600,
+                            )
+                          : AppType.display(24, color: t.ink, height: 1.15),
+                    ),
+                  ),
                 ),
-              ),
+                IconButton(
+                  key: const ValueKey('recipe-create-close'),
+                  tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
+                  onPressed: _saving
+                      ? null
+                      : () {
+                          if (_dirty) {
+                            _askDiscard();
+                          } else {
+                            Navigator.pop(context);
+                          }
+                        },
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            Text(
-              l10n.recipesOwnTitle,
-              style: AppType.display(24, color: t.ink, height: 1.15),
-            ),
-            const SizedBox(height: 4),
-            // Deliberately short: the groups themselves mark what is optional
-            // (trailing label in their header).
-            Text(
-              l10n.recipesNameAndCaloriesSuffice,
-              style: AppType.ui(12.5, color: t.ink2, height: 1.4),
-            ),
-            const SizedBox(height: 12),
-            _SheetGroup(
-              label: l10n.foodPhotoCardTitle,
-              child: _RecipePhotoPicker(
-                bytes: _photoBytes,
-                busy: _photoBusy || _saving,
-                onCamera: () => _pickPhoto(ImageSource.camera),
-                onGallery: () => _pickPhoto(ImageSource.gallery),
-                onRemove: _removePhoto,
-              ),
-            ),
-            const SizedBox(height: 10),
-            _SheetGroup(
-              label: l10n.recipesGroupWhatIsIt,
+          ),
+          Flexible(
+            child: SingleChildScrollView(
+              key: const ValueKey('recipe-create-scroll'),
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _RecipeSheetField(
-                    fieldKey: const ValueKey('recipe-create-name'),
-                    controller: _name,
-                    label: l10n.foodAddItemNameLabel,
-                    hint: l10n.recipesNameHint,
-                    maxChars: _nameMaxChars,
-                    errorText: _nameFehler,
+                  Text(
+                    l10n.recipesCreateIntro,
+                    style: AppType.ui(14, color: t.ink2, height: 1.45),
                   ),
-                  const SizedBox(height: 12),
-                  _FieldGrid(
-                    // Portion and weight describe the same thing, so they sit
-                    // together and the nutrition group stays purely numeric.
-                    columns: 2,
-                    children: [
-                      _RecipeSheetField(
-                        fieldKey: const ValueKey('recipe-create-portion'),
-                        controller: _portion,
-                        label: l10n.recipesSectionPortion,
-                        hint: l10n.recipesPortionHint,
-                        maxChars: _portionMaxChars,
-                        errorText: _textFehler(_portion, _portionMaxCodePoints),
+                  if (compact) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      l10n.recipesNameAndCaloriesSuffice,
+                      style: AppType.ui(12, color: t.ink2, height: 1.4),
+                    ),
+                  ],
+                  const SizedBox(height: 22),
+                  _SheetGroup(
+                    number: 1,
+                    label: l10n.recipesGroupWhatIsIt,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _RecipeSheetField(
+                          fieldKey: const ValueKey('recipe-create-name'),
+                          controller: _name,
+                          label: l10n.foodAddItemNameLabel,
+                          hint: l10n.recipesNameHint,
+                          maxChars: _nameMaxChars,
+                          errorText: _nameFehler,
+                        ),
+                        const SizedBox(height: 12),
+                        _RecipeFieldGrid(
+                          // Portion and weight describe the same thing, so they sit
+                          // together and the nutrition group stays purely numeric.
+                          children: [
+                            _RecipeSheetField(
+                              fieldKey: const ValueKey('recipe-create-portion'),
+                              controller: _portion,
+                              label: l10n.recipesSectionPortion,
+                              hint: l10n.recipesPortionHint,
+                              maxChars: _portionMaxChars,
+                              errorText: _textFehler(
+                                _portion,
+                                _portionMaxCodePoints,
+                              ),
+                            ),
+                            _RecipeSheetField(
+                              fieldKey: const ValueKey('recipe-create-grams'),
+                              controller: _grams,
+                              label: l10n.foodAddItemWeightLabel,
+                              unit: 'g',
+                              numeric: true,
+                              errorText: _gramsFehler,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  _RecipePhotoPicker(
+                    bytes: _photoBytes,
+                    busy: _photoBusy || _saving,
+                    onCamera: () => _pickPhoto(ImageSource.camera),
+                    onGallery: () => _pickPhoto(ImageSource.gallery),
+                    onRemove: _removePhoto,
+                  ),
+                  const SizedBox(height: 24),
+                  _SheetGroup(
+                    number: 2,
+                    label: l10n.recipesGroupNutrition,
+                    trailing: l10n.recipesPerPortion,
+                    // Nutrient colors match the recipe detail view.
+                    child: _RecipeFieldGrid(
+                      children: [
+                        _RecipeSheetField(
+                          fieldKey: const ValueKey('recipe-create-kcal'),
+                          controller: _kcal,
+                          label: l10n.foodAddItemCaloriesLabel,
+                          unit: 'kcal',
+                          numeric: true,
+                          dot: t.accent,
+                          errorText: _kcalFehler,
+                        ),
+                        _RecipeSheetField(
+                          fieldKey: const ValueKey('recipe-create-protein'),
+                          controller: _protein,
+                          label: l10n.todayMacroProtein,
+                          unit: 'g',
+                          numeric: true,
+                          dot: t.protein,
+                          errorText: _makroFehler(_protein),
+                        ),
+                        _RecipeSheetField(
+                          fieldKey: const ValueKey('recipe-create-carbs'),
+                          controller: _carbs,
+                          label: l10n.todayMacroCarbs,
+                          unit: 'g',
+                          numeric: true,
+                          dot: t.carbs,
+                          errorText: _makroFehler(_carbs),
+                        ),
+                        _RecipeSheetField(
+                          fieldKey: const ValueKey('recipe-create-fat'),
+                          controller: _fat,
+                          label: l10n.todayMacroFat,
+                          unit: 'g',
+                          numeric: true,
+                          dot: t.fat,
+                          errorText: _makroFehler(_fat),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  _SheetGroup(
+                    number: 3,
+                    label: l10n.recipesSectionIngredients,
+                    trailing: l10n.recipesOptionalLabel,
+                    child: _RecipeSheetField(
+                      fieldKey: const ValueKey('recipe-create-ingredients'),
+                      controller: _ingredients,
+                      label: l10n.recipesSectionIngredients,
+                      hint: l10n.recipesIngredientsHint,
+                      maxLines: 3,
+                      maxChars: _ingredientsMaxChars,
+                      errorText: _textFehler(
+                        _ingredients,
+                        _ingredientsMaxCodePoints,
                       ),
-                      _RecipeSheetField(
-                        fieldKey: const ValueKey('recipe-create-grams'),
-                        controller: _grams,
-                        label: l10n.foodAddItemWeightLabel,
-                        unit: 'g',
-                        numeric: true,
-                        errorText: _gramsFehler,
-                      ),
-                    ],
+                      // The group header already carries the label; a second one
+                      // would duplicate it. Screen-reader label stays (Semantics).
+                      showLabel: false,
+                    ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 10),
-            _SheetGroup(
-              label: l10n.recipesGroupNutrition,
-              trailing: l10n.recipesPerPortion,
-              // Four numbers side by side instead of four full rows. The macro
-              // fields carry their token color as a dot, same encoding as the
-              // nutrition grid in the detail view.
-              child: _FieldGrid(
-                columns: 4,
+          ),
+          SafeArea(
+            top: false,
+            child: Container(
+              constraints: const BoxConstraints(minHeight: kButtonMinHeight),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _RecipeSheetField(
-                    fieldKey: const ValueKey('recipe-create-kcal'),
-                    controller: _kcal,
-                    label: l10n.foodAddItemCaloriesLabel,
-                    unit: 'kcal',
-                    numeric: true,
-                    dot: t.accent,
-                    errorText: _kcalFehler,
-                  ),
-                  _RecipeSheetField(
-                    fieldKey: const ValueKey('recipe-create-protein'),
-                    controller: _protein,
-                    label: l10n.todayMacroProtein,
-                    unit: 'g',
-                    numeric: true,
-                    dot: t.protein,
-                    errorText: _makroFehler(_protein),
-                  ),
-                  _RecipeSheetField(
-                    fieldKey: const ValueKey('recipe-create-carbs'),
-                    controller: _carbs,
-                    label: l10n.recipesNutritionCarbsLabel,
-                    unit: 'g',
-                    numeric: true,
-                    dot: t.carbs,
-                    errorText: _makroFehler(_carbs),
-                  ),
-                  _RecipeSheetField(
-                    fieldKey: const ValueKey('recipe-create-fat'),
-                    controller: _fat,
-                    label: l10n.todayMacroFat,
-                    unit: 'g',
-                    numeric: true,
-                    dot: t.fat,
-                    errorText: _makroFehler(_fat),
+                  if (!compact) ...[
+                    Text(
+                      l10n.recipesNameAndCaloriesSuffice,
+                      style: AppType.ui(12, color: t.ink2),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  // Must stay a `FilledButton` with `onPressed: _isValid ? _save :
+                  // null` — recipe_create_sheet_test casts to it and reads
+                  // `onPressed == null` as the disabled signal. Colours and shape
+                  // come from the button theme (F8-10); only the stature is local,
+                  // as a MINIMUM so a 2x label never outgrows the button.
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      minWidth: double.infinity,
+                      minHeight: 52,
+                    ),
+                    child: FilledButton.icon(
+                      key: const ValueKey('recipe-create-save'),
+                      onPressed: _isValid && !_saving && !_photoBusy
+                          ? _save
+                          : null,
+                      icon: _saving
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.check_rounded, size: 18),
+                      label: Text(
+                        l10n.recipesSaveButtonLabel,
+                        style: AppType.ui(14.5, weight: FontWeight.w700),
+                      ),
+                    ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 10),
-            _SheetGroup(
-              label: l10n.recipesSectionIngredients,
-              trailing: l10n.recipesOptionalLabel,
-              child: _RecipeSheetField(
-                fieldKey: const ValueKey('recipe-create-ingredients'),
-                controller: _ingredients,
-                label: l10n.recipesSectionIngredients,
-                hint: l10n.recipesIngredientsHint,
-                maxLines: 3,
-                maxChars: _ingredientsMaxChars,
-                errorText: _textFehler(_ingredients, _ingredientsMaxCodePoints),
-                // The group header already carries the label; a second one
-                // would duplicate it. Screen-reader label stays (Semantics).
-                showLabel: false,
-              ),
-            ),
-            const SizedBox(height: 14),
-            // Must stay a `FilledButton` with `onPressed: _isValid ? _save :
-            // null` — recipe_create_sheet_test casts to it and reads
-            // `onPressed == null` as the disabled signal. Colours and shape
-            // come from the button theme (F8-10); only the stature is local,
-            // as a MINIMUM so a 2x label never outgrows the button.
-            ConstrainedBox(
-              constraints: const BoxConstraints(
-                minWidth: double.infinity,
-                minHeight: 52,
-              ),
-              child: FilledButton.icon(
-                key: const ValueKey('recipe-create-save'),
-                onPressed: _isValid && !_saving && !_photoBusy ? _save : null,
-                icon: _saving
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.check_rounded, size: 18),
-                label: Text(
-                  l10n.recipesSaveButtonLabel,
-                  style: AppType.ui(14.5, weight: FontWeight.w700),
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// A named group of the create sheet: all-caps header above its content.
-///
-/// Deliberately without a wrapping card: an [AppCard] per group cost 4 x 24 px
-/// of padding and pushed the sheet over its height cap, which made it
-/// scrollable — and a scrollable wins the gesture arena against
-/// [_DiscardDragGuard], killing the discard guard's drag path.
+/// The same numbered sections as the Training editor.
 class _SheetGroup extends StatelessWidget {
   const _SheetGroup({
+    required this.number,
     required this.label,
     required this.child,
     this.trailing,
   });
 
+  final int number;
   final String label;
   final Widget child;
-
-  /// Muted trailing note on the right ("per portion", "optional").
   final String? trailing;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Expanded(
-              child: Text(
-                label.toUpperCase(),
-                style: AppType.eyebrow(t.ink2, size: 10),
-              ),
-            ),
-            if (trailing != null)
-              // `Flexible`, not fixed: at 2x text scale the note overflows the
-              // row otherwise.
-              Flexible(
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 10),
-                  child: Text(
-                    trailing!,
-                    textAlign: TextAlign.right,
-                    style: AppType.ui(
-                      11,
-                      weight: FontWeight.w500,
-                      color: t.ink2,
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        child,
-      ],
-    );
-  }
-}
-
-/// Equal-width cells side by side, with an escape hatch for large text.
-///
-/// Four number fields per row are right at normal scale and unusable at 2.0
-/// (~75 px per cell). Above 1.25x the column count halves and the `Wrap`
-/// breaks cleanly instead of overflowing.
-class _FieldGrid extends StatelessWidget {
-  const _FieldGrid({required this.columns, required this.children});
-
-  final int columns;
-  final List<Widget> children;
-
-  static const double _spacing = 9;
-
-  @override
-  Widget build(BuildContext context) {
-    final scale = MediaQuery.textScalerOf(context).scale(12) / 12;
-    final spalten = scale <= 1.25 ? columns : (columns > 2 ? 2 : 1);
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final breite =
-            (constraints.maxWidth - _spacing * (spalten - 1)) / spalten;
-        return Wrap(
-          spacing: _spacing,
-          runSpacing: 12,
-          children: [
-            for (final child in children)
-              SizedBox(width: breite > 0 ? breite : null, child: child),
-          ],
-        );
-      },
-    );
-  }
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      CreationSectionHeading(number: number, title: label, note: trailing),
+      child,
+    ],
+  );
 }
 
 /// Photo group: preview and explanation side by side, actions below.
@@ -823,7 +821,7 @@ class _RecipePhotoPicker extends StatelessWidget {
     final vorhanden = bytes != null;
     return AppCard(
       radius: rCard,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -861,22 +859,27 @@ class _RecipePhotoPicker extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      vorhanden ? l10n.recipesYourPhoto : l10n.recipesPhotoOfDish,
-                      style:
-                          AppType.ui(13, weight: FontWeight.w600, color: t.ink),
+                      vorhanden
+                          ? l10n.recipesYourPhoto
+                          : l10n.recipesPhotoOfDish,
+                      style: AppType.ui(
+                        15,
+                        weight: FontWeight.w600,
+                        color: t.ink,
+                      ),
                     ),
                     const SizedBox(height: 3),
                     Text(
                       busy
                           ? l10n.recipesPhotoPreparing
                           : l10n.recipesPhotoStaysOnDevice,
-                      style: AppType.ui(11.5, color: t.ink2, height: 1.3),
+                      style: AppType.ui(13, color: t.ink2, height: 1.4),
                     ),
                     if (vorhanden) ...[
                       const SizedBox(height: 3),
                       Text(
                         l10n.recipesPhotoNoLocationData,
-                        style: AppType.ui(11.5, color: t.ink2, height: 1.3),
+                        style: AppType.ui(13, color: t.ink2, height: 1.4),
                       ),
                     ],
                   ],
@@ -885,38 +888,28 @@ class _RecipePhotoPicker extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          // Fixed row of equal-width chips instead of a `Wrap`: there the
-          // third chip wrapped to a second line and cost ~37 px of height,
-          // which this sheet cannot spare (see `_SheetGroup`).
-          Row(
+          // Keep the full action labels and touch targets at larger text sizes.
+          CreationFieldGrid(
             children: [
-              Expanded(
-                child: _PhotoAction(
-                  actionKey: const ValueKey('recipe-create-photo-camera'),
-                  icon: Icons.photo_camera_outlined,
-                  label: l10n.recipesCameraAction,
-                  onTap: busy ? null : onCamera,
-                ),
+              _PhotoAction(
+                actionKey: const ValueKey('recipe-create-photo-camera'),
+                icon: Icons.photo_camera_outlined,
+                label: l10n.recipesCameraAction,
+                onTap: busy ? null : onCamera,
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _PhotoAction(
-                  actionKey: const ValueKey('recipe-create-photo-gallery'),
-                  icon: Icons.photo_library_outlined,
-                  label: l10n.recipesGalleryAction,
-                  onTap: busy ? null : onGallery,
-                ),
+              _PhotoAction(
+                actionKey: const ValueKey('recipe-create-photo-gallery'),
+                icon: Icons.photo_library_outlined,
+                label: l10n.recipesGalleryAction,
+                onTap: busy ? null : onGallery,
               ),
               if (vorhanden) ...[
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _PhotoAction(
-                    actionKey: const ValueKey('recipe-create-photo-remove'),
-                    icon: Icons.close_rounded,
-                    label: l10n.foodRemoveTooltip,
-                    onTap: busy ? null : onRemove,
-                    destructive: true,
-                  ),
+                _PhotoAction(
+                  actionKey: const ValueKey('recipe-create-photo-remove'),
+                  icon: Icons.close_rounded,
+                  label: l10n.foodRemoveTooltip,
+                  onTap: busy ? null : onRemove,
+                  destructive: true,
                 ),
               ],
             ],
@@ -959,14 +952,14 @@ class _PhotoAction extends StatelessWidget {
             key: actionKey,
             onTap: onTap,
             borderRadius: BorderRadius.circular(rChip),
-            child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+            child: Container(
+              constraints: const BoxConstraints(minHeight: kButtonMinHeight),
+              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(icon, size: 15, color: ton),
+                  Icon(icon, size: 18, color: ton),
                   const SizedBox(width: 6),
                   // `Flexible` is load-bearing: at 2x text scale the label is
                   // wider than its column, and a `Wrap` cannot break a single
@@ -974,10 +967,11 @@ class _PhotoAction extends StatelessWidget {
                   Flexible(
                     child: Text(
                       label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style:
-                          AppType.ui(12, weight: FontWeight.w600, color: ton),
+                      style: AppType.ui(
+                        14,
+                        weight: FontWeight.w600,
+                        color: ton,
+                      ),
                     ),
                   ),
                 ],
@@ -990,11 +984,52 @@ class _PhotoAction extends StatelessWidget {
   }
 }
 
-/// Labeled input on a [FieldCapsule] (field / fieldFocus / fieldError plus
-/// the text line below). Stays local because of the header: macro dot, unit
-/// suffix and a fixed one-line height that `SheetField.label` does not offer.
-/// The [ValueKey] sits directly on the [TextField] because
-/// recipe_create_sheet_test casts to it.
+/// Labeled input with nutrient encoding and a readable unit in the header.
+class _RecipeFieldGrid extends StatelessWidget {
+  const _RecipeFieldGrid({required this.children});
+
+  final List<_RecipeSheetField> children;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final scale = MediaQuery.textScalerOf(context);
+      final columns = constraints.maxWidth >= 300 * scale.scale(14) / 14
+          ? 2
+          : 1;
+      final width = (constraints.maxWidth - 12 * (columns - 1)) / columns;
+      var labelHeight = 0.0;
+      for (final field in children) {
+        final measure = TextPainter(
+          text: TextSpan(
+            text: field.heading,
+            style: _RecipeSheetField.labelStyle(context),
+          ),
+          textDirection: Directionality.of(context),
+          textScaler: scale,
+        )..layout(maxWidth: width - (field.dot == null ? 0 : 12));
+        if (measure.height > labelHeight) labelHeight = measure.height;
+        measure.dispose();
+      }
+      return _RecipeLabelHeight(
+        height: labelHeight,
+        child: CreationFieldGrid(children: children),
+      );
+    },
+  );
+}
+
+/// Reserve the measured label height without shrinking or clipping any text.
+class _RecipeLabelHeight extends InheritedWidget {
+  const _RecipeLabelHeight({required this.height, required super.child});
+
+  final double height;
+
+  @override
+  bool updateShouldNotify(_RecipeLabelHeight oldWidget) =>
+      height != oldWidget.height;
+}
+
 class _RecipeSheetField extends StatelessWidget {
   const _RecipeSheetField({
     required this.fieldKey,
@@ -1015,7 +1050,7 @@ class _RecipeSheetField extends StatelessWidget {
   final String label;
   final String? hint;
 
-  /// Unit — shown as a suffix in the all-caps header.
+  /// Unit shown next to the label.
   final String? unit;
 
   final bool numeric;
@@ -1039,51 +1074,50 @@ class _RecipeSheetField extends StatelessWidget {
   /// [_isValid] and names the valid range.
   final String? errorText;
 
+  String get heading => unit == null ? label : '$label · $unit';
+
+  static TextStyle labelStyle(BuildContext context) => AppType.ui(
+    13,
+    color: context.t.ink2,
+    weight: FontWeight.w500,
+    height: 1.35,
+  );
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final hasError = errorText != null;
-    final kopfzeile = unit == null
-        ? label.toUpperCase()
-        : '${label.toUpperCase()} · ${unit!.toUpperCase()}';
+    final labelHeight = context
+        .dependOnInheritedWidgetOfExactType<_RecipeLabelHeight>()
+        ?.height;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (showLabel) ...[
-          // Fixed header height, exactly one line: a wrapping long header made
-          // the neighbouring fields start visibly higher (user finding
-          // 2026-08-10). The FittedBox shrinks long headers instead, so all
-          // four fields align at any text size.
           SizedBox(
-            height: MediaQuery.textScalerOf(context).scale(9.5) * 1.35,
+            height: labelHeight,
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (dot != null) ...[
-                  Container(
-                    width: 6,
-                    height: 6,
-                    decoration:
-                        BoxDecoration(color: dot, shape: BoxShape.circle),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 5),
+                    child: Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: dot,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 6),
                 ],
-                Expanded(
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      kopfzeile,
-                      maxLines: 1,
-                      softWrap: false,
-                      style: AppType.eyebrow(t.ink2, size: 9.5),
-                    ),
-                  ),
-                ),
+                Expanded(child: Text(heading, style: labelStyle(context))),
               ],
             ),
           ),
-          const SizedBox(height: 5),
+          const SizedBox(height: 8),
         ],
         // The `Focus` ancestor only observes: `Focus.of` rebuilds the builder
         // whenever the inner field gains or loses focus.
@@ -1101,7 +1135,7 @@ class _RecipeSheetField extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Expanded(
-                      // The label is a separate all-caps line above the
+                      // The label is a separate line above the
                       // field, not `InputDecoration.labelText`, which would
                       // leave the field unlabeled for screen readers. This
                       // annotation restores it.
@@ -1115,6 +1149,8 @@ class _RecipeSheetField extends StatelessWidget {
                           maxLength: maxChars,
                           keyboardType: numeric
                               ? TextInputType.number
+                              : maxLines > 1
+                              ? TextInputType.multiline
                               : TextInputType.text,
                           inputFormatters: numeric
                               ? [FilteringTextInputFormatter.digitsOnly]
@@ -1122,7 +1158,7 @@ class _RecipeSheetField extends StatelessWidget {
                           textCapitalization: numeric
                               ? TextCapitalization.none
                               : TextCapitalization.sentences,
-                          style: AppType.ui(14, color: t.ink),
+                          style: AppType.ui(15, color: t.ink),
                           cursorColor: t.accent,
                           decoration: InputDecoration(
                             border: InputBorder.none,
@@ -1130,10 +1166,11 @@ class _RecipeSheetField extends StatelessWidget {
                             focusedBorder: InputBorder.none,
                             filled: false,
                             isDense: true,
-                            contentPadding:
-                                const EdgeInsets.symmetric(vertical: 12),
+                            contentPadding: const EdgeInsets.symmetric(
+                              vertical: 15,
+                            ),
                             hintText: hint,
-                            hintStyle: AppType.ui(14, color: t.ink2),
+                            hintStyle: AppType.ui(15, color: t.ink2),
                             // The character counter is noise here; input
                             // visibly stops at the limit anyway.
                             counterText: '',

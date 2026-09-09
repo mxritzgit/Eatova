@@ -635,8 +635,10 @@ void main() {
           settle: true,
         );
         await _openSheet(tester);
-        await tester
-            .tap(find.byKey(const ValueKey('recipe-create-photo-camera')));
+        final camera = find.byKey(const ValueKey('recipe-create-photo-camera'));
+        await tester.ensureVisible(camera);
+        await tester.pumpAndSettle();
+        await tester.tap(camera);
         await tester.pumpAndSettle();
 
         expect(tester.takeException(), isNull);
@@ -646,48 +648,20 @@ void main() {
       textScales: const <double>[1.0, 2.0],
     );
 
-    testWidgets('bei normaler Schrift kommt es ohne Scrollen aus',
-        (tester) async {
-      // Not cosmetics but function: once the content exceeds `sheetMaxHeight`
-      // (screen minus safe area minus keyboard minus 12 px; 840 px in this
-      // viewport) the sheet becomes scrollable, and then the save button slides
-      // off screen and the discard guard loses its drag, because a scroller
-      // wins the gesture arena against `_DiscardDragGuard`.
+    testWidgets('save and close stay reachable while the form scrolls', (tester) async {
       pinPhoneViewport(tester);
-      await tester.pumpWidget(
-        _app(Brightness.dark, photoInput: _FakeFotoquelle(bytes: _jpeg())),
-      );
+      await tester.pumpWidget(_app(Brightness.dark));
       await tester.pumpAndSettle();
       await _openSheet(tester);
-
-      final hoehe = tester
-          .getSize(find.byKey(const ValueKey('recipe-create-sheet')))
-          .height;
-      final rest = tester
-          .state<ScrollableState>(find
-              .descendant(
-                of: find.byKey(const ValueKey('recipe-create-sheet')),
-                matching: find.byType(Scrollable),
-              )
-              .first)
-          .position
-          .maxScrollExtent;
-      debugPrint('Sheet-Hoehe bei normaler Schrift: $hoehe px '
-          '(Rest-Scrollweg: $rest px)');
-      expect(rest, 0.0,
-          reason: 'Das Sheet scrollt — gemessener Inhalt: ${hoehe + rest} px '
-              'auf 852 px Bildschirm (Deckel sheetMaxHeight = 840 px).');
-      // 1179/3 x 2556/3 = 393 x 852 logical pixels. The test font is the worst
-      // case (every glyph a full em); on device with Archivo the sheet is
-      // shorter.
-      //
-      // The 92 % bound (783.84 px) is deliberately tighter than the safe-area
-      // cap: an iPhone 14 Pro leaves only 773 px free, so content needing
-      // 784 px here would already scroll there.
-      expect(hoehe, lessThan(852 * 0.92));
-      // Lower bound as a sanity anchor: a fraction here would mean the sheet
-      // lost its content.
-      expect(hoehe, greaterThan(300));
+      final save = find.byKey(const ValueKey('recipe-create-save'));
+      final close = find.byKey(const ValueKey('recipe-create-close'));
+      final before = tester.getRect(save);
+      await tester.ensureVisible(find.byKey(const ValueKey('recipe-create-ingredients')));
+      await tester.pumpAndSettle();
+      expect(tester.getRect(save), before);
+      expect(save.hitTestable(), findsOneWidget);
+      expect(close.hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
     });
   });
   group('Die vier Naehrwert-Felder stehen auf einer Linie', () {
@@ -725,22 +699,19 @@ void main() {
             k: obenVon(k),
         };
 
-        // The grid drops from four to two columns above 1.25x text scale
-        // (_FieldGrid), so which fields share a row depends on the scale —
-        // computed here rather than guessed.
-        final paare = c.textScale <= 1.25
+        // Two readable columns at normal size; a full-width field at enlarged sizes.
+        final paare = c.textScale == 1
             ? <List<String>>[
-                <String>[
-                  'recipe-create-kcal',
-                  'recipe-create-protein',
-                  'recipe-create-carbs',
-                  'recipe-create-fat',
-                ],
+                ['recipe-create-kcal', 'recipe-create-protein'],
+                ['recipe-create-carbs', 'recipe-create-fat'],
               ]
             : <List<String>>[
-                <String>['recipe-create-kcal', 'recipe-create-protein'],
-                <String>['recipe-create-carbs', 'recipe-create-fat'],
+                ['recipe-create-kcal'], ['recipe-create-protein'],
+                ['recipe-create-carbs'], ['recipe-create-fat'],
               ];
+        for (var i = 1; i < paare.length; i++) {
+          expect(kanten[paare[i].first]!, greaterThan(kanten[paare[i-1].first]!));
+        }
 
         for (final zeile in paare) {
           final tops = zeile.map((k) => kanten[k]!).toSet();
