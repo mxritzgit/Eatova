@@ -130,6 +130,7 @@ void main() {
 
     await tester.tap(_key('analyse-gallery-button'));
     await tester.pumpAndSettle();
+    await _tapVisible(tester, 'meal-scan-start');
     expect(_key('analyse-result-card'), findsOneWidget);
 
     await _tapVisible(tester, 'analyse-add-daily-button');

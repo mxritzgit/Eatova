@@ -1838,7 +1838,7 @@
   "trainingTimerFinish": "Finish workout",
   "trainingTimerDiscard": "Discard workout",
   "trainingTimerFinishTitle": "Finish this workout?",
-  "trainingTimerFinishBody": "You confirmed {completed} of {total} sets. Uncompleted sets stay uncompleted. The recovery checkpoint will be removed.",
+  "trainingTimerFinishBody": "You completed {completed} of {total} sets. Uncompleted sets stay uncompleted. The recovery checkpoint will be removed.",
   "@trainingTimerFinishBody": {
     "placeholders": {
       "completed": {
@@ -1860,7 +1860,8 @@
   "trainingTimerNotSaved": "Your place is not saved yet",
   "trainingTimerSaveFailed": "Your place could not be saved. The workout is paused. Please retry.",
   "trainingTimerRetry": "Retry",
-  "trainingTimerConfirmHint": "Confirm when you are ready. Nothing advances automatically.",
+  "trainingTimerConfirmHint": "The timer was paused or adjusted at zero. Confirm when you are ready to continue.",
+  "trainingTimerAutomaticHint": "Timed sets and rests continue automatically. You can pause at any time.",
   "trainingTimerRepetitions": "repetitions",
   "trainingTimerMinutes": "min",
   "trainingTimerSeconds": "sec",
@@ -1917,5 +1918,13 @@
         "type": "String"
       }
     }
-  }
+  },
+  "foodScanPreviewTitle": "Analyze photo",
+  "foodScanPreviewDescription": "Add details the photo cannot show. The AI will take your note into account when estimating.",
+  "foodScanPhotoLabel": "Selected meal photo",
+  "foodScanContextLabel": "Note about the food (optional)",
+  "foodScanContextExample": "For example: Döner without sauce.",
+  "foodScanContextHelp": "Ingredients, preparation or amount · up to 400 characters. Your photo and note are sent to the AI for analysis.",
+  "foodScanContextInvalid": "Please shorten the note to 400 characters and remove unusual control characters.",
+  "foodScanStart": "Start analysis"
 }

@@ -94,40 +94,23 @@ Future<bool> _fragAbbruch(
   BuildContext context, {
   required bool codeVerbraucht,
 }) async {
-  final t = context.t;
   final l10n = context.l10n;
-  final abbrechen = await showDialog<bool>(
+  final abbrechen = await showEatovaDialog<bool>(
     context: context,
-    builder: (dialogContext) => AlertDialog(
+    builder: (dialogContext) => EatovaConfirmDialog(
       key: const ValueKey<String>('account-change-discard-dialog'),
-      backgroundColor: t.surf,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(rSheet),
-      ),
-      title: Text(
-        l10n.settingsAccountDiscardTitle,
-        style: AppType.display(19, color: t.ink),
-      ),
-      content: Text(
-        codeVerbraucht
-            ? l10n.settingsAccountDiscardBodyConfirmed
-            : l10n.settingsAccountDiscardBody,
-        style: AppType.ui(13, color: t.ink2, height: 1.4),
-      ),
-      actions: <Widget>[
-        TextButton(
-          key: const ValueKey<String>('account-change-discard-keep'),
-          onPressed: () => Navigator.of(dialogContext).pop(false),
-          child: Text(l10n.settingsAccountDiscardKeep),
-        ),
-        TextButton(
-          key: const ValueKey<String>('account-change-discard-confirm'),
-          // Destructive red is the one color the theme may not decide.
-          style: TextButton.styleFrom(foregroundColor: t.danger),
-          onPressed: () => Navigator.of(dialogContext).pop(true),
-          child: Text(l10n.settingsAccountDiscardConfirm),
-        ),
-      ],
+      title: l10n.settingsAccountDiscardTitle,
+      body: codeVerbraucht
+          ? l10n.settingsAccountDiscardBodyConfirmed
+          : l10n.settingsAccountDiscardBody,
+      icon: Icons.edit_off_rounded,
+      destructive: true,
+      cancelKey: const ValueKey<String>('account-change-discard-keep'),
+      cancelLabel: l10n.settingsAccountDiscardKeep,
+      onCancel: () => Navigator.of(dialogContext).pop(false),
+      confirmKey: const ValueKey<String>('account-change-discard-confirm'),
+      confirmLabel: l10n.settingsAccountDiscardConfirm,
+      onConfirm: () => Navigator.of(dialogContext).pop(true),
     ),
   );
   return abbrechen ?? false;

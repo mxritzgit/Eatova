@@ -180,38 +180,48 @@ void main() {
     },
   );
 
-  testWidgets('zero waits for explicit set completion, rest waits too', (
-    tester,
-  ) async {
-    final clock = TimerTestClock();
-    final writes = <TrainingSessionSnapshot?>[];
-    await _host(
-      tester,
-      clock: clock,
-      persist: (s) async {
-        writes.add(s);
-      },
-    );
-    await _tap(tester, 'primary');
-    clock.elapse(const Duration(hours: 3));
-    await tester.pump(const Duration(milliseconds: 100));
-    expect(find.text('Time is up'), findsOneWidget);
-    expect(writes.last!.completedSets, isEmpty);
-    await _tap(tester, 'primary');
-    expect(writes.last!.phase, TrainingSessionPhase.rest);
-    expect(writes.last!.completedSets.length, 1);
-    expect(find.text('Paused'), findsOneWidget);
-    await _capture(tester, 'rest-light');
-    await _tap(tester, 'primary');
-    clock.elapse(const Duration(hours: 2));
-    await tester.pump(const Duration(milliseconds: 100));
-    expect(writes.last!.phase, TrainingSessionPhase.rest);
-    await _tap(tester, 'primary');
-    expect(writes.last!.setIndex, 1);
-    expect(writes.last!.phase, TrainingSessionPhase.exercise);
-    expect(find.text('Paused'), findsOneWidget);
-    await tester.pumpWidget(const SizedBox());
-  });
+  testWidgets(
+    'one start runs timed sets and rests and checkpoints every transition',
+    (tester) async {
+      final clock = TimerTestClock();
+      final writes = <TrainingSessionSnapshot?>[];
+      await _host(
+        tester,
+        clock: clock,
+        persist: (s) async {
+          writes.add(s);
+        },
+      );
+      await _tap(tester, 'primary');
+      clock.elapse(const Duration(seconds: 30));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump();
+      expect(find.text('Time is up'), findsNothing);
+      expect(find.text('Complete set'), findsNothing);
+      expect(writes.last!.phase, TrainingSessionPhase.rest);
+      expect(writes.last!.completedSets.length, 1);
+      expect(find.text('Running'), findsOneWidget);
+      expect(_key('skip-rest'), findsOneWidget);
+      expect(_key('next-set'), findsNothing);
+      await _capture(tester, 'rest-light');
+      clock.elapse(const Duration(seconds: 15));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump();
+      expect(writes.last!.setIndex, 1);
+      expect(writes.last!.phase, TrainingSessionPhase.exercise);
+      expect(find.text('Running'), findsOneWidget);
+      expect(_key('next-set'), findsOneWidget);
+      expect(writes.last!.remainingMilliseconds, 30000);
+      clock.elapse(const Duration(seconds: 30));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump();
+      expect(writes.last!.exerciseIndex, 1);
+      expect(writes.last!.completedSets.length, 2);
+      expect(find.text('Paused'), findsOneWidget);
+      expect(writes.every((s) => s!.toJson()['status'] == 'paused'), isTrue);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   testWidgets(
     'reps require action, expose pause, and do not complete unattended',
@@ -307,6 +317,108 @@ void main() {
     expect(writes.last!.completedSets.length, 1);
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets(
+    'background at expiry prevents completion and restores explicit zero',
+    (tester) async {
+      final clock = TimerTestClock();
+      final writes = <TrainingSessionSnapshot?>[];
+      await _host(tester, clock: clock, persist: (s) async => writes.add(s));
+      await _tap(tester, 'primary');
+      clock.elapse(const Duration(seconds: 30));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump(const Duration(milliseconds: 100));
+      clock.elapse(const Duration(days: 1));
+      await tester.pump(const Duration(seconds: 5));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      expect(writes.last!.phase, TrainingSessionPhase.exercise);
+      expect(writes.last!.remainingMilliseconds, 0);
+      expect(writes.last!.completedSets, isEmpty);
+      expect(find.text('Complete set'), findsOneWidget);
+      final checkpoint = writes.last!;
+      await tester.pumpWidget(const SizedBox());
+      await _host(
+        tester,
+        clock: clock,
+        snapshot: checkpoint,
+        persist: (_) async {},
+      );
+      expect(find.text('Time is up'), findsOneWidget);
+      expect(find.text('Complete set'), findsOneWidget);
+      await _tap(tester, 'primary');
+      expect(find.text('Rest between sets'), findsOneWidget);
+      expect(find.text('Running'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'popup at expiry pauses before an automatic completion callback',
+    (tester) async {
+      final clock = TimerTestClock();
+      final writes = <TrainingSessionSnapshot?>[];
+      await _host(tester, clock: clock, persist: (s) async => writes.add(s));
+      await _tap(tester, 'primary');
+      clock.elapse(const Duration(seconds: 30));
+      final context = tester.element(find.byType(TrainingPlayerScreen));
+      unawaited(
+        showDialog<void>(
+          context: context,
+          builder: (_) => const AlertDialog(title: Text('Covering popup')),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump();
+      clock.elapse(const Duration(days: 1));
+      await tester.pump(const Duration(seconds: 5));
+      expect(writes.last!.phase, TrainingSessionPhase.exercise);
+      expect(writes.last!.completedSets, isEmpty);
+      expect(writes.last!.remainingMilliseconds, 0);
+      Navigator.of(tester.element(find.text('Covering popup'))).pop();
+      await tester.pumpAndSettle();
+      expect(find.text('Complete set'), findsOneWidget);
+      expect(find.text('Running'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'automatic phase save failure pauses rest and retries same progress',
+    (tester) async {
+      final clock = TimerTestClock();
+      final writes = <TrainingSessionSnapshot?>[];
+      var fail = false;
+      await _host(
+        tester,
+        clock: clock,
+        persist: (s) async {
+          if (fail) throw StateError('private-path');
+          writes.add(s);
+        },
+      );
+      await _tap(tester, 'primary');
+      fail = true;
+      clock.elapse(const Duration(seconds: 30));
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump();
+      expect(_key('save-error'), findsOneWidget);
+      expect(find.text('Paused'), findsOneWidget);
+      expect(find.text('Rest between sets'), findsOneWidget);
+      expect(find.text('1 of 4 sets completed'), findsOneWidget);
+      expect(find.textContaining('private-path'), findsNothing);
+      clock.elapse(const Duration(days: 1));
+      await tester.pump(const Duration(seconds: 5));
+      fail = false;
+      await _tap(tester, 'retry');
+      expect(writes.last!.phase, TrainingSessionPhase.rest);
+      expect(writes.last!.remainingMilliseconds, 15000);
+      expect(writes.last!.completedSets.length, 1);
+      expect(find.text('Paused'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
 
   testWidgets('all navigation controls work and revoked progress can replay', (
     tester,

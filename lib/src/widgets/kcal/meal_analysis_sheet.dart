@@ -71,6 +71,7 @@ String _mealAnalysisExceptionMessage(
           ? l10n.foodAnalysisRateLimitUntilMessage(_clockLabel(resetAt))
           : l10n.foodAnalysisRateLimitError,
     MealAnalysisServerError(:final code) => switch (code) {
+        'invalid_hint' => l10n.foodScanContextInvalid,
         // `request_timeout` (408) is the server giving up on a body that
         // trickles in; from the user's side that is the same situation as the
         // provider taking too long, so it gets the same text.

@@ -101,37 +101,21 @@ Future<MealEditOutcome?> showEditMealSheet(
 ///
 /// Returns true to discard, false to keep the sheet open.
 Future<bool> _confirmDiscardChanges(BuildContext context) async {
-  final t = context.t;
   final l10n = context.l10n;
-  final verwerfen = await showDialog<bool>(
+  final verwerfen = await showEatovaDialog<bool>(
     context: context,
-    builder: (dialogContext) => AlertDialog(
+    builder: (dialogContext) => EatovaConfirmDialog(
       key: const ValueKey('discard-changes-dialog'),
-      backgroundColor: t.surf,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(rSheet),
-      ),
-      title: Text(
-        l10n.foodDiscardChangesTitle,
-        style: AppType.display(19, color: t.ink),
-      ),
-      content: Text(
-        l10n.foodDiscardChangesBody,
-        style: AppType.ui(13, color: t.ink2, height: 1.4),
-      ),
-      actions: [
-        TextButton(
-          key: const ValueKey('discard-changes-cancel'),
-          onPressed: () => Navigator.of(dialogContext).pop(false),
-          child: Text(l10n.foodDiscardChangesKeepEditing),
-        ),
-        TextButton(
-          key: const ValueKey('discard-changes-confirm'),
-          style: TextButton.styleFrom(foregroundColor: t.danger),
-          onPressed: () => Navigator.of(dialogContext).pop(true),
-          child: Text(l10n.foodDiscardChangesConfirm),
-        ),
-      ],
+      title: l10n.foodDiscardChangesTitle,
+      body: l10n.foodDiscardChangesBody,
+      icon: Icons.edit_off_rounded,
+      destructive: true,
+      cancelKey: const ValueKey('discard-changes-cancel'),
+      cancelLabel: l10n.foodDiscardChangesKeepEditing,
+      onCancel: () => Navigator.of(dialogContext).pop(false),
+      confirmKey: const ValueKey('discard-changes-confirm'),
+      confirmLabel: l10n.foodDiscardChangesConfirm,
+      onConfirm: () => Navigator.of(dialogContext).pop(true),
     ),
   );
   return verwerfen ?? false;

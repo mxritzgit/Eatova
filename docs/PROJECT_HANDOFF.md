@@ -425,3 +425,75 @@ visibility behavior remains unchanged.
 Ignored evidence: `.agents/training-2026-09-08/` holds agent worktrees, root test,
 review and native logs, mutation proofs, and device/render captures. The shared
 documents are the continuation source; do not duplicate this archive.
+
+## Workout and scan follow-up, 2026-09-09
+
+The previous Training delivery is complete: [PR #70](https://github.com/mxritzgit/Eatova/pull/70)
+merged as `3b50178`, migration `20260908130000_training_plans` is registered,
+and `coach-chat` v40 is active with JWT verification. The dated implementation
+handoff above predates that rollout. At the start of this follow-up all 40 local
+migrations matched live history, with `analyze-meal` v26 and `search-key` v8.
+
+Four requested fixes were developed by four agents in isolated worktrees from
+that clean main commit, then independently reviewed and integrated by root on
+`fix/workout-flow-dialogs-scan-context`:
+
+- Natural expiry now completes a timed set, runs its inter-set rest and starts
+  the next timed interval. Repetition sets remain manually completed; the final
+  review remains paused. Delayed ticks advance one visible phase only, and
+  manual seeking/skipping does not invent completion. Backgrounding, covered
+  routes and recovery remain paused; automatic transitions save checkpoints.
+- Ten confirmation/input dialog callsites share the new Eatova dialog family,
+  preserving explicit confirmation, cancel/back/barrier and dirty-form guards.
+  Real fonts, light/dark themes, 320-pixel width, double-size text and keyboard
+  insets were checked. A related component-calorie row now wraps after input.
+- Recovery is tied to its source workout. Deletion or an edit/removal retires
+  its checkpoint; unchanged reordering and unrelated deletion preserve it.
+  With no independent workout IDs, removing an identical duplicate is treated
+  conservatively. An encrypted suspension in the same checkpoint envelope is
+  durably written before a source mutation; a failed final clear cannot revive
+  the workout. Late player callbacks carry a per-source retirement generation.
+  Cached libraries can be unreadable or stale, including an empty list after a
+  failed mirror write. Only authoritative server data or an observed source
+  change can invalidate a full checkpoint, preserving offline recovery. A player
+  whose source was retired can leave without
+  writing; its callbacks cannot clear or replace newer recovery. Transient
+  checkpoint read failures require repair before mutation, while provably
+  malformed JSON cannot permanently block Training CRUD.
+- Camera/gallery scans first show a local photo preview with an optional food
+  note. Start sends it through the existing `freeTextHint`; cancel discards it,
+  retry retains the same request. Client/server enforce 400 UTF-16 units and
+  reject unsupported control characters without silent truncation. Provider
+  instructions and food observations have separate system/user roles. Context
+  is not independently persisted or logged. Account identity and photo-store
+  epoch guards also cover start/retry immediately before a widget rebuild.
+
+Root exercised the ordinary flows in an Android emulator with the full shell,
+an in-memory account/cache and a closed network mock: one start through timed
+set/rest/next set into paused repetitions; Save-and-leave followed by deletion
+removing Resume; photo/context/keyboard/start/loading/result/cancel and a fresh
+empty context. Real-font screenshots were inspected. Later review edge fixes
+have separate production-shell regression coverage; this native fixture is not
+a live provider or device-release claim. The original emulator APK was restored
+and its SHA256 verified without clearing app data; the emulator was stopped.
+
+Final integrated verification passed **4,122 Flutter tests** with **95.4% line
+coverage** (generated localization excluded), strict analysis and the regular
+Android x64 debug build. All **488 Deno tests** passed both together and in
+CI-style isolation across 26 files; lint and all three entrypoints passed.
+General and final security reviews have no remaining actionable findings.
+Review regressions were demonstrated before correction, including a stale
+encrypted plan mirror hiding newer durable recovery. Final source hashes were
+checked against the unchanged files used by the full test run. Root logs include
+`root-test-final2-1.log`, `root-analyze-final2-1.log`, `root-apk-final2-1.log`,
+`root-security-final2-1.log` and `root-deno-individual.log` in the evidence folder.
+The build retains existing AGP/Kotlin future-support warnings; no unrelated
+toolchain upgrade was included. Native iOS compilation and live AI output were
+not exercised.
+
+No schema or dependency change is required. Delivery must deploy `analyze-meal`
+from the merged source; client changes require a new app build. The authorized
+PR for `fix/workout-flow-dialogs-scan-context` records final test, CI, merge and
+deployment evidence. Authorization and local tests alone do not establish live
+delivery. Root evidence is in ignored `.agents/fixes-2026-09-09/`; reuse these
+shared documents and that PR instead of creating another full archive.

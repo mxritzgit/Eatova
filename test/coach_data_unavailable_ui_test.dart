@@ -123,7 +123,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.delete_outline_rounded).first);
     await _settle(tester);
     // Confirmation dialog.
-    await tester.tap(find.widgetWithText(TextButton, 'Löschen'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Löschen'));
     await _settle(tester);
 
     expect(svc.deleteCalls, 1);

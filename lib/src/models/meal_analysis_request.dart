@@ -61,7 +61,39 @@ class MealAnalysisRequest {
   final String imageId;
   final Uint8List? imageBytes;
   final MealPortionHint? portionHint;
+
+  /// Optional food observations for this scan only; never persisted locally.
   final String? freeTextHint;
+
+  /// Shared wire bound: UTF-16 code units, matching the Edge Function.
+  static const int maxHintLength = 400;
+
+  static final RegExp _unsupportedHintCharacters = RegExp(
+    r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F\u202A-\u202E\u2066-\u2069]',
+  );
+
+  static bool isValidHint(String? raw) =>
+      raw == null ||
+      (raw.length <= maxHintLength &&
+          !_unsupportedHintCharacters.hasMatch(raw));
+
+  static String? normalizedHint(String? raw) {
+    if (!isValidHint(raw)) {
+      throw const FormatException('Invalid meal hint.');
+    }
+    final normalized = raw?.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return normalized == null || normalized.isEmpty ? null : normalized;
+  }
+
+  /// Called only after the user starts analysis from the photo preview.
+  MealAnalysisRequest withHint(String? hint) => MealAnalysisRequest(
+    imageId: imageId,
+    imageBytes: imageBytes,
+    portionHint: portionHint,
+    freeTextHint: normalizedHint(hint),
+    language: language,
+    cancellation: cancellation ?? MealAnalysisCancellation(),
+  );
 
   /// App language at scan time (`'de'`/`'en'`), sent to the `analyze-meal`
   /// function so it names dishes in that language.

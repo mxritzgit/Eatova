@@ -71,6 +71,8 @@ class FixlaufServer {
       <String, Map<String, dynamic>>{};
   final Map<String, Map<String, dynamic>> recipeRows =
       <String, Map<String, dynamic>>{};
+  final Map<String, Map<String, dynamic>> trainingRows =
+      <String, Map<String, dynamic>>{};
   int mealsCounted = 0;
   int weightLogsCounted = 0;
   String? trackedDay;
@@ -232,6 +234,16 @@ class FixlaufServer {
                 'weight_kg': r['weight_kg'],
               })
           .toList());
+    }
+    if (path.contains('/training_plans')) {
+      if (req.method == 'POST') {
+        for (final row in _rowsOf(req.body)) {
+          trainingRows[row['id'] as String] = row;
+        }
+      } else if (req.method == 'DELETE') {
+        trainingRows.remove(_eqParam(req, 'id'));
+      }
+      return ok(trainingRows.values.toList());
     }
     if (req.method == 'GET') return ok(const <dynamic>[]);
     return http.Response('', 201, request: req);

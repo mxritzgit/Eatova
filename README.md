@@ -59,9 +59,10 @@ See [CHANGELOG.md](CHANGELOG.md) for the release history.
   streak. The landing tab; the Food tab is the diary itself.
 - **Food tracking** — calorie and macro tracking per meal slot (breakfast,
   lunch, dinner, snacks) with:
-  - **AI photo analysis** — in-app camera or gallery photo; the `analyze-meal`
-    Edge Function returns an itemized nutrition breakdown (per-component
-    grams/kcal) that can be re-portioned before and after logging.
+  - **AI photo analysis** — preview an in-app camera or gallery photo and add
+    optional food context, such as omitted sauce, before starting analysis.
+    The `analyze-meal` Edge Function returns an itemized nutrition estimate
+    (per-component grams/kcal) that can be re-portioned before and after logging.
   - **Barcode scanning** — product nutrition via `mobile_scanner`.
   - **Product search** — live text search against a self-hosted Meilisearch
     index of Open Food Facts, with the public Open Food Facts API as fallback.
@@ -76,8 +77,11 @@ See [CHANGELOG.md](CHANGELOG.md) for the release history.
   day currently selected in the Food tab), plus your own recipes with a photo.
 - **Training** — create and edit plans with multiple workouts, repetitions or
   timed exercises. The session player supports pause/resume, 10-second rewind
-  and forward, reset, and set/exercise navigation. Leaving saves a paused
-  checkpoint on this device; restarting requires deliberate resume.
+  and forward, reset, and set/exercise navigation. Timed sets advance into
+  their rest and next timed interval automatically; repetitions require manual
+  completion. Leaving saves a paused checkpoint on this device; restarting
+  requires deliberate resume. Removing its source plan or workout retires the
+  checkpoint.
 - **AI Coach** — chat coach for training and nutrition questions with session
   management, image input, speech input (iOS), a compact snapshot of your
   remaining macros as context, a daily quota, and layered safety filtering.

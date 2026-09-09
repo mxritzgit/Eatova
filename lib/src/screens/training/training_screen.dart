@@ -90,23 +90,18 @@ class _TrainingScreenState extends State<TrainingScreen> {
     if (_deleting) return;
     final delete = widget.onDeletePlan;
     final l10n = context.l10n;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showEatovaDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text(l10n.trainingPageDeleteTitle),
-        content: Text(l10n.trainingPageDeleteBody),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: Text(l10n.trainingPageCancel),
-          ),
-          TextButton(
-            key: const ValueKey('training-delete-confirm'),
-            style: TextButton.styleFrom(foregroundColor: context.t.danger),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text(l10n.trainingPageDelete),
-          ),
-        ],
+      builder: (dialogContext) => EatovaConfirmDialog(
+        title: l10n.trainingPageDeleteTitle,
+        body: l10n.trainingPageDeleteBody,
+        icon: Icons.delete_outline_rounded,
+        destructive: true,
+        cancelLabel: l10n.trainingPageCancel,
+        onCancel: () => Navigator.pop(dialogContext, false),
+        confirmKey: const ValueKey('training-delete-confirm'),
+        confirmLabel: l10n.trainingPageDelete,
+        onConfirm: () => Navigator.pop(dialogContext, true),
       ),
     );
     if (!mounted || confirmed != true) return;

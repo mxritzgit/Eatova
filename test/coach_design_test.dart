@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/foundation.dart'
     show debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -334,10 +333,9 @@ void main() {
     expect(kapsel().border, isNull);
   });
 
-  testWidgets('„Abbrechen" im Loesch-Dialog bleibt leise (ink2, nicht accent)',
+  testWidgets('Loeschdialog trennt weiche Nebenaktion und destruktive Aktion',
       (tester) async {
     await _pumpCoach(tester, service: _FakeCoach.create());
-
     await tester.tap(find.byKey(const ValueKey('coach-sessions-open')));
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(Icons.delete_outline_rounded));
@@ -345,24 +343,16 @@ void main() {
 
     expect(find.byType(AlertDialog), findsOneWidget);
     const t = AppTokens.dark;
-    final abbrechen = tester.renderObject<RenderParagraph>(
-      find.descendant(
-        of: find.widgetWithText(TextButton, 'Abbrechen'),
-        matching: find.text('Abbrechen'),
-      ),
+    final cancel = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Abbrechen'),
     );
-    expect(abbrechen.text.style?.color, t.ink2,
-        reason: 'ein lautes Abbrechen neben dem roten Loeschen kehrt die '
-            'Gewichtung um');
-    expect(abbrechen.text.style?.color, isNot(t.accent));
-
-    final loeschen = tester.renderObject<RenderParagraph>(
-      find.descendant(
-        of: find.widgetWithText(TextButton, 'Löschen'),
-        matching: find.text('Löschen'),
-      ),
+    final delete = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Löschen'),
     );
-    expect(loeschen.text.style?.color, t.danger);
+    expect(cancel.style!.backgroundColor!.resolve({}), t.field);
+    expect(cancel.style!.foregroundColor!.resolve({}), t.ink);
+    expect(delete.style!.backgroundColor!.resolve({}), t.danger);
+    expect(delete.style!.foregroundColor!.resolve({}), t.bg);
   });
 
   testWidgets('Verlauf nicht ladbar zeigt keinen Hero', (tester) async {

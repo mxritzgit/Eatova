@@ -292,7 +292,7 @@ void main() {
     await _openSessions(tester);
     await tester.tap(find.byIcon(Icons.delete_outline_rounded).last);
     await _frames(tester);
-    await tester.tap(find.widgetWithText(TextButton, 'Löschen'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Löschen'));
     await _frames(tester);
     Navigator.of(tester.element(find.text('Chat b'))).pop();
     await _frames(tester);

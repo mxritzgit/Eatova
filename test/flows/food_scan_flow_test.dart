@@ -28,9 +28,12 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
 
-    // The AI scan opens the (faked) in-app camera and the analysis sheet opens
-    // directly — no generic add sheet in between.
+    // The AI scan opens the (faked) in-app camera and the local preview opens
+    // before analysis — no generic add sheet in between.
     await tester.tap(find.byKey(const ValueKey('food-action-ai')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('meal-scan-start')));
+    await tester.tap(find.byKey(const ValueKey('meal-scan-start')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('analyse-result-card')), findsOneWidget);
     expect(find.text('Kartoffeln'), findsOneWidget);
@@ -113,6 +116,9 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('food-action-ai')));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('meal-scan-start')));
+    await tester.tap(find.byKey(const ValueKey('meal-scan-start')));
+    await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('analyse-result-card')), findsOneWidget);
 
     await tester.ensureVisible(find.byKey(const ValueKey('analyse-add-daily-button')));
@@ -166,6 +172,9 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('food-action-ai')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('meal-scan-start')));
+    await tester.tap(find.byKey(const ValueKey('meal-scan-start')));
     await tester.pumpAndSettle();
 
     // The heart renders (onToggleFavorite is wired).

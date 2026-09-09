@@ -1866,7 +1866,7 @@
   "trainingTimerFinish": "Training beenden",
   "trainingTimerDiscard": "Training verwerfen",
   "trainingTimerFinishTitle": "Training beenden?",
-  "trainingTimerFinishBody": "Du hast {completed} von {total} Sätzen bestätigt. Nicht absolvierte Sätze bleiben offen. Der gespeicherte Wiedereinstieg wird entfernt.",
+  "trainingTimerFinishBody": "Du hast {completed} von {total} Sätzen geschafft. Nicht absolvierte Sätze bleiben offen. Der gespeicherte Wiedereinstieg wird entfernt.",
   "@trainingTimerFinishBody": {
     "placeholders": {
       "completed": {
@@ -1888,7 +1888,8 @@
   "trainingTimerNotSaved": "Stand noch nicht gespeichert",
   "trainingTimerSaveFailed": "Dein Stand konnte nicht gespeichert werden. Das Training ist pausiert. Bitte versuche es erneut.",
   "trainingTimerRetry": "Erneut versuchen",
-  "trainingTimerConfirmHint": "Bestätige bewusst, wenn du bereit bist. Es geht nicht automatisch weiter.",
+  "trainingTimerConfirmHint": "Der Timer wurde bei null pausiert oder angepasst. Bestätige, wenn du bereit bist, fortzufahren.",
+  "trainingTimerAutomaticHint": "Sätze mit Timer und Satzpausen laufen automatisch weiter. Du kannst jederzeit pausieren.",
   "trainingTimerRepetitions": "Wiederholungen",
   "trainingTimerMinutes": "Min.",
   "trainingTimerSeconds": "Sek.",
@@ -1945,5 +1946,13 @@
         "type": "String"
       }
     }
-  }
+  },
+  "foodScanPreviewTitle": "Foto analysieren",
+  "foodScanPreviewDescription": "Ergänze, was auf dem Foto nicht zu erkennen ist. Die KI berücksichtigt deinen Hinweis bei der Schätzung.",
+  "foodScanPhotoLabel": "Ausgewähltes Mahlzeitenfoto",
+  "foodScanContextLabel": "Hinweis zum Essen (optional)",
+  "foodScanContextExample": "Zum Beispiel: Döner ohne Sauce.",
+  "foodScanContextHelp": "Zutaten, Zubereitung oder Menge · bis zu 400 Zeichen. Foto und Hinweis werden zur Analyse an die KI gesendet.",
+  "foodScanContextInvalid": "Bitte kürze den Hinweis auf 400 Zeichen und entferne ungewöhnliche Steuerzeichen.",
+  "foodScanStart": "Analyse starten"
 }

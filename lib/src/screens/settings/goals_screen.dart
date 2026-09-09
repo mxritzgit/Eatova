@@ -937,29 +937,21 @@ class _GoalsScreenState extends State<GoalsScreen> {
 /// Returns `true` = discard, `false`/dismissed = keep editing.
 Future<bool> _confirmDiscardChanges(BuildContext context) async {
   final l10n = context.l10n;
-  final verwerfen = await showDialog<bool>(
+  final verwerfen = await showEatovaDialog<bool>(
     context: context,
-    builder: (dialogContext) {
-      final t = dialogContext.t;
-      return AlertDialog(
-        key: const ValueKey('discard-changes-dialog'),
-        title: Text(l10n.foodDiscardChangesTitle),
-        content: Text(l10n.goalsDiscardChangesBody),
-        actions: <Widget>[
-          TextButton(
-            key: const ValueKey('discard-changes-cancel'),
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: Text(l10n.foodDiscardChangesKeepEditing),
-          ),
-          TextButton(
-            key: const ValueKey('discard-changes-confirm'),
-            style: TextButton.styleFrom(foregroundColor: t.danger),
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(l10n.foodDiscardChangesConfirm),
-          ),
-        ],
-      );
-    },
+    builder: (dialogContext) => EatovaConfirmDialog(
+      key: const ValueKey('discard-changes-dialog'),
+      title: l10n.foodDiscardChangesTitle,
+      body: l10n.goalsDiscardChangesBody,
+      icon: Icons.edit_off_rounded,
+      destructive: true,
+      cancelKey: const ValueKey('discard-changes-cancel'),
+      cancelLabel: l10n.foodDiscardChangesKeepEditing,
+      onCancel: () => Navigator.of(dialogContext).pop(false),
+      confirmKey: const ValueKey('discard-changes-confirm'),
+      confirmLabel: l10n.foodDiscardChangesConfirm,
+      onConfirm: () => Navigator.of(dialogContext).pop(true),
+    ),
   );
   return verwerfen ?? false;
 }

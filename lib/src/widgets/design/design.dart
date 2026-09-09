@@ -8,6 +8,7 @@
 library;
 
 export 'controls.dart';
+export 'dialogs.dart';
 export 'meters.dart';
 export 'rows.dart';
 export 'sheets.dart';

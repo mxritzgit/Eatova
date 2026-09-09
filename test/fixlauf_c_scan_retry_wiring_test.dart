@@ -159,6 +159,11 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('food-action-ai')));
       await _flush(tester);
+      expect(analyzer.requests, isEmpty);
+      await tester.enterText(find.byKey(const ValueKey('meal-scan-context')), '  Döner ohne Sauce  ');
+      await tester.ensureVisible(find.byKey(const ValueKey('meal-scan-start')));
+      await tester.tap(find.byKey(const ValueKey('meal-scan-start')));
+      await _flush(tester);
       expect(find.byKey(const ValueKey('analyse-error')), findsOneWidget);
       expect(analyzer.requests, hasLength(1));
 
@@ -166,6 +171,8 @@ void main() {
       await _flush(tester);
 
       expect(analyzer.requests, hasLength(2));
+      expect(analyzer.requests[0].freeTextHint, 'Döner ohne Sauce');
+      expect(analyzer.requests[1], same(analyzer.requests[0]));
       expect(analyzer.requests[1].imageId, 'test-photo');
       expect(analyzer.requests[1].language, 'de');
       expect(analyzer.requests[1].cancellation, same(kamera.cancellation),
@@ -197,6 +204,9 @@ void main() {
         await tester.pumpAndSettle();
 
         await tester.tap(find.byKey(const ValueKey('food-action-ai')));
+        await _flush(tester);
+        await tester.ensureVisible(find.byKey(const ValueKey('meal-scan-start')));
+        await tester.tap(find.byKey(const ValueKey('meal-scan-start')));
         await _flush(tester);
         await tester.tap(find.byKey(const ValueKey('analyse-manual-entry')));
         await tester.pumpAndSettle();
@@ -236,6 +246,11 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('analyse-gallery-button')));
       await _flush(tester);
+      expect(analyzer.requests, isEmpty);
+      await tester.enterText(find.byKey(const ValueKey('meal-scan-context')), '  Döner ohne Sauce  ');
+      await tester.ensureVisible(find.byKey(const ValueKey('meal-scan-start')));
+      await tester.tap(find.byKey(const ValueKey('meal-scan-start')));
+      await _flush(tester);
       expect(find.byKey(const ValueKey('analyse-error')), findsOneWidget);
       return analyzer;
     }
@@ -248,6 +263,8 @@ void main() {
       await _flush(tester);
 
       expect(analyzer.requests, hasLength(2));
+      expect(analyzer.requests[0].freeTextHint, 'Döner ohne Sauce');
+      expect(analyzer.requests[1], same(analyzer.requests[0]));
       expect(analyzer.requests[0].cancellation, isNotNull);
       expect(analyzer.requests[1].cancellation,
           same(analyzer.requests[0].cancellation));

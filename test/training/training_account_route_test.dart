@@ -133,6 +133,8 @@ void main() {
           }
           final purged = <String>[];
           final bSnapshot = _snapshot(_plan('b-plan', 'Private B training'));
+          servers[_userB.id]!.trainingRows[bSnapshot.plan.id] = bSnapshot.plan.toRow();
+          await caches[_userB.id]!.writeTrainingPlans([bSnapshot.plan]);
           await caches[_userB.id]!.writeTrainingSession(bSnapshot);
 
           await pumpLocalized(
@@ -234,7 +236,7 @@ void main() {
               'B finishes boot',
             );
             expect(identical(_currentStore(tester), storeA), isFalse);
-            expect(_currentStore(tester).trainingPlans, isEmpty);
+            expect(_currentStore(tester).trainingPlans.map((plan) => plan.id), ['b-plan']);
             expect(_currentStore(tester).trainingSession?.plan.id, 'b-plan');
           }
           final beforeLate = storage.snapshot;

@@ -17,6 +17,7 @@ import '../services/kcal_format.dart';
 import '../services/meal_analyzer.dart';
 import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_input.dart';
+import '../services/meal_scan_identity.dart';
 import '../services/meal_totals.dart';
 import '../services/meilisearch_product_service.dart';
 import '../services/open_food_facts_product_service.dart';
@@ -30,6 +31,7 @@ import '../widgets/kcal/add_meal_sheet.dart';
 import '../widgets/kcal/diary_meal_card.dart';
 import '../widgets/kcal/manual_meal_sheet.dart';
 import '../widgets/kcal/meal_analysis_sheet.dart';
+import '../widgets/kcal/meal_scan_preview_sheet.dart';
 import 'barcode_scanner_sheet.dart';
 import 'trends_screen.dart';
 
@@ -185,15 +187,21 @@ class MealAnalysisScreen extends StatelessWidget {
   // AI scan: in-app camera with slot picker -> photo -> analysis -> result
   // sheet in the chosen slot.
   Future<void> _scanWithCamera(BuildContext context) async {
+    final identity = MealScanIdentity();
     final capture = await cameraLauncher.launch(
       context,
       initialSlot: currentMealSlot(),
     );
-    if (capture == null || !context.mounted) return;
+    if (capture == null || !context.mounted || !identity.isCurrent) return;
     // One request for first try and retries (same bytes); the camera sheet's
     // cancel handle lets a swiped-away result sheet abort the attempt in
     // flight (review F4-02).
-    final request = capture.request.withLanguage(context.l10n.localeName);
+    final request = await showMealScanPreviewSheet(
+      context,
+      request: capture.request.withLanguage(context.l10n.localeName),
+      previewBytes: capture.previewBytes,
+    );
+    if (request == null || !context.mounted || !identity.isCurrent) return;
     // An attempt that fails before the sheet listens (validation, already
     // cancelled) must not surface as an unhandled zone error; the sheet's
     // error card reports it once it is up. `ignore` only marks it handled.
@@ -202,7 +210,9 @@ class MealAnalysisScreen extends StatelessWidget {
       context,
       slot: capture.slot,
       resultFuture: first,
-      retry: () => analyzer.analyze(request),
+      retry: () => identity.isCurrent
+          ? analyzer.analyze(request)
+          : Future.error(const MealAnalysisCancelled()),
       cancellation: request.cancellation,
       previewImage: capture.previewBytes,
       onAdd: onAddMeal,

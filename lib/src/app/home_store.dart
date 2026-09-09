@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:developer' as dev;
 
 import 'package:clock/clock.dart';
@@ -156,9 +157,36 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   List<LoggedMeal> _loggedMealsState = <LoggedMeal>[];
   List<FitnessRecipe> _userRecipesState = const <FitnessRecipe>[];
   List<TrainingPlan> _trainingPlansState = const <TrainingPlan>[];
+  bool _trainingPlansKnown = false;
+  bool _trainingPlansAuthoritative = false;
+  final Set<String> _trainingSourceIdsKnown = {};
   String? _selectedTrainingPlanId;
   TrainingSessionSnapshot? _trainingSession;
-  TrainingSessionSnapshot? get trainingSession => _trainingSession;
+  bool _trainingSessionRetired = false;
+  bool _trainingSessionHydrationFailed = false;
+  TrainingSessionSnapshot? get trainingSession {
+    final snapshot = _trainingSession;
+    if (snapshot == null || _trainingSessionRetired) return null;
+    return _trainingSourceAllows(snapshot) ? snapshot : null;
+  }
+
+  bool _trainingSourceAllows(TrainingSessionSnapshot snapshot) {
+    // Best-effort mirrors can lag a durable full checkpoint. Only server data
+    // or an observed source change can invalidate its embedded workout.
+    if (!_trainingPlansAuthoritative &&
+        !_trainingSourceIdsKnown.contains(snapshot.plan.id)) {
+      return true;
+    }
+    final source = trainingPlans
+        .where((plan) => plan.id == snapshot.plan.id)
+        .firstOrNull;
+    return _trainingSessionMatchesPlan(snapshot, source);
+  }
+  int _trainingSessionGeneration = 0;
+  final Map<String, int> _trainingSourceGenerations = {};
+  // Player callbacks carry the generation from route creation. Retirement is
+  // scoped by source plan, so deleting another plan cannot invalidate them.
+  int get trainingSessionGeneration => _trainingSessionGeneration;
   int _trainingSessionVersion = 0;
   final Set<SyncOp> _unconfirmedTrainingOps = {};
   final Set<SyncOp> _deliveredTrainingOps = {};
@@ -714,6 +742,7 @@ class HomeStore extends _HomeStoreBase
     final sessionVersion = _trainingSessionVersion;
     var outboxLesefehler = false;
     var deltaLesefehler = false;
+    var trainingSessionReadFailed = false;
     // The nine slot reads are independent, so they run concurrently and the
     // boot gate waits for the slowest decrypt instead of the sum (perf
     // finding 4, 2026-08-31). Waves of three, not one big Future.wait: each
@@ -743,12 +772,15 @@ class HomeStore extends _HomeStoreBase
     final (cachedTrainingPlans, cachedTrainingSelection, cachedTrainingSession) = await (
       _leseSlot('training_plans', cache.readTrainingPlans),
       _leseSlot('training_selection', cache.readTrainingSelection),
-      _leseSlot('training_session', cache.readTrainingSession),
+      _leseSlot('training_session',
+          () => cache.readTrainingSession(requireReadable: true),
+          onFehler: () => trainingSessionReadFailed = true),
     ).wait;
     if (_disposed) return;
     // Leave the persisted blob untouched while it could not be read, or the
     // next write would overwrite it.
     _outboxHydrationFailed = outboxLesefehler;
+    _trainingSessionHydrationFailed = trainingSessionReadFailed;
     // Same brake for the second half of the sync state (W7b): otherwise the
     // next flush restarts the deltas slot at 0 and the previous session's
     // meals are missing from the lifetime counters for good.
@@ -825,6 +857,7 @@ class HomeStore extends _HomeStoreBase
       if (cachedRecipes != null) _userRecipes = cachedRecipes;
       if (cachedTrainingPlans != null && trainingVersion == _trainingPlansVersion) {
         _trainingPlans = cachedTrainingPlans;
+        _trainingPlansKnown = true;
       }
       if (selectionVersion == _trainingSelectionVersion) {
         _selectedTrainingPlanId = cachedTrainingSelection;
@@ -845,6 +878,12 @@ class HomeStore extends _HomeStoreBase
       dailyConsumedKcal = consumedKcalForFoodDate(today);
       macroProgress = macroProgressForFoodDate(today);
     });
+    final snapshot = _trainingSession;
+    if (snapshot != null &&
+        !_outboxHydrationFailed &&
+        _outbox.any((op) => _sourceChangeInvalidates(op, snapshot))) {
+      await _discardInvalidTrainingRecovery();
+    }
   }
 
   /// Recomputes the two day values when re-hydration recovered outbox ops.
@@ -1009,6 +1048,8 @@ class HomeStore extends _HomeStoreBase
       final loadedTrainingPlans = results[6] as List<TrainingPlan>?;
       trainingPlansLoadFailed = loadedTrainingPlans == null;
       if (loadedTrainingPlans != null) {
+        _trainingPlansKnown = true;
+        _trainingPlansAuthoritative = true;
         _trainingPlans = vorher.trainingPlansVersion == _trainingPlansVersion
             ? loadedTrainingPlans
             : _mergeRacedLoad(
@@ -1035,6 +1076,9 @@ class HomeStore extends _HomeStoreBase
     if (healSave) _queueHealedProfileSave();
     // Valid training data remains cacheable even if the profile did not load.
     if (results[6] != null) _cacheTrainingPlans();
+    if (results[6] != null && !_outboxHydrationFailed) {
+      await _discardInvalidTrainingRecovery();
+    }
     unawaited(_writeCacheSnapshot());
     _completeProfileReady();
   }
