@@ -113,30 +113,21 @@ class _SessionsSheet extends StatelessWidget {
   }
 
   void _confirmDelete(BuildContext context, ChatSession s) {
-    final t = context.t;
     final l10n = context.l10n;
-    showDialog<void>(
+    showEatovaDialog<void>(
       context: context,
-      // Surface, radius, border and text styles come from dialogTheme.
-      builder: (ctx) => AlertDialog(
-        title: Text(l10n.coachSessionDeleteTitle),
-        content: Text(l10n.coachSessionDeleteBody(_sessionTitle(s, l10n))),
-        actions: <Widget>[
-          // Cancel stays quiet (ink2): the theme's accent would shout louder
-          // than the destructive action next to it.
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            style: TextButton.styleFrom(foregroundColor: t.ink2),
-            child: Text(l10n.commonCancel),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              onDelete(s.id);
-            },
-            child: Text(l10n.commonDelete, style: TextStyle(color: t.danger)),
-          ),
-        ],
+      builder: (ctx) => EatovaConfirmDialog(
+        title: l10n.coachSessionDeleteTitle,
+        body: l10n.coachSessionDeleteBody(_sessionTitle(s, l10n)),
+        icon: Icons.delete_outline_rounded,
+        destructive: true,
+        cancelLabel: l10n.commonCancel,
+        onCancel: () => Navigator.of(ctx).pop(),
+        confirmLabel: l10n.commonDelete,
+        onConfirm: () {
+          Navigator.of(ctx).pop();
+          onDelete(s.id);
+        },
       ),
     );
   }

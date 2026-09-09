@@ -92,7 +92,10 @@ class MealAnalysisServerError extends MealAnalysisException {
 /// `language`/`portionHint`/`freeTextHint` are testable without a network fake.
 Map<String, dynamic> buildAnalyzeMealBody(MealAnalysisRequest request) {
   final imageBytes = request.imageBytes;
-  final hint = EdgeFunctionMealAnalyzer._cleanHint(request.freeTextHint);
+  if (!MealAnalysisRequest.isValidHint(request.freeTextHint)) {
+    throw const MealAnalysisServerError(statusCode: 400, code: 'invalid_hint');
+  }
+  final hint = MealAnalysisRequest.normalizedHint(request.freeTextHint);
   return <String, dynamic>{
     if (imageBytes != null) 'imageBase64': base64Encode(imageBytes),
     'portionHint': request.portionHint?.name ?? MealPortionHint.normal.name,
@@ -230,6 +233,12 @@ class EdgeFunctionMealAnalyzer implements MealAnalyzer {
       throw const MealAnalysisReauthRequired();
     }
 
+    if (!MealAnalysisRequest.isValidHint(request.freeTextHint)) {
+      throw const MealAnalysisServerError(
+        statusCode: 400,
+        code: 'invalid_hint',
+      );
+    }
     final client = _clientFactory?.call() ?? createHttpClient(_policy);
     // A forced close aborts the socket; the pending request then fails with
     // a transport error, which the catch below renames to "cancelled".
@@ -277,11 +286,5 @@ class EdgeFunctionMealAnalyzer implements MealAnalyzer {
       unregister?.call();
       client.close(force: true);
     }
-  }
-
-  static String? _cleanHint(String? raw) {
-    final trimmed = raw?.replaceAll(RegExp(r'\s+'), ' ').trim();
-    if (trimmed == null || trimmed.isEmpty) return null;
-    return trimmed.length <= 400 ? trimmed : trimmed.substring(0, 400);
   }
 }

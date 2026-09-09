@@ -121,6 +121,16 @@ route, above a safe-area-aware control area where space permits.
 | Rest | Remaining rest and "Satzpause" | Pause / Resume | Skip rest, rewind / forward, reset |
 | Finished | Honest completion summary | Finish workout | Return to plan |
 
+The 2026-09-09 user follow-up replaces the original manual confirmation at
+natural timer expiry: completing a timed interval records that set, starts its
+configured inter-set rest, and starts the next timed interval after rest.
+Repetition sets retain explicit completion. Stop at a repetition exercise or the
+final review. A delayed callback advances only the currently visible phase;
+the next interval receives its full duration, with no unseen catch-up sets.
+Pause, reset, manual seek/navigation, backgrounding and route coverage remain
+interruptions under the user's control. An adjusted or recovered zero does not
+silently earn completion.
+
 Rewind means undo elapsed time (increase remaining by ten seconds); forward means
 consume elapsed time. Icon-only interpretation is ambiguous, so controls need
 visible short labels where possible and unambiguous localized semantic labels.
@@ -136,6 +146,17 @@ adjustments. Back offers an explicit way to pause and leave or continue; discard
 requires a distinct destructive confirmation. Persisted resume is paused so the
 user regains control after interruption. Backgrounding must not leave a timer
 silently creating phantom completed sets.
+
+Confirmation surfaces share the app's dialog family: a single readable surface,
+display heading, ordinary sentence-case body, one dominant full-width action
+and a quiet cancel action. Destructive actions use the danger token. Content and
+actions remain reachable together at large text sizes and above the keyboard.
+Dismissal still means cancel; a visual redesign never weakens confirmation.
+
+Recovery belongs to its saved source. Deleting the plan or removing/changing the
+source workout invalidates that checkpoint; reordering an unchanged workout or
+deleting an unrelated plan preserves it. Workouts do not have independent IDs,
+so removing an indistinguishable duplicate conservatively invalidates recovery.
 
 A thin linear/ring progress indicator may reinforce time; digits are the source
 of truth. No pulse on every second, rotating ornamental rings or decorative

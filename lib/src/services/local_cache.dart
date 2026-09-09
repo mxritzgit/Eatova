@@ -450,8 +450,23 @@ class LocalCache {
         : null;
   }
 
-  Future<TrainingSessionSnapshot?> readTrainingSession() async {
-    final snapshot = (await _readJson(_trainingSessionKey))?['snapshot'];
+  Future<TrainingSessionSnapshot?> readTrainingSession({
+    bool requireReadable = false,
+  }) async {
+    final value = await _readJson(_trainingSessionKey);
+    if (requireReadable && value == null) {
+      try {
+        await _assertSlotEmpty(_trainingSessionKey, 'training_session');
+      } on UnreadableCacheSlot catch (error) {
+        if (error.transient) rethrow;
+        // Invalid JSON cannot recover; it must not block a fresh workout.
+      }
+    }
+    // A source change may have reached the server before the app stopped.
+    // Retain progress for an explicit rollback, but never resume an unknown
+    // deletion outcome, even if an identical plan is later adopted again.
+    if (value?['source_change_pending'] == true) return null;
+    final snapshot = value?['snapshot'];
     if (snapshot is! Map) return null;
     try {
       return TrainingSessionSnapshot.fromJson(snapshot);
@@ -465,7 +480,19 @@ class LocalCache {
   /// A recovery checkpoint is the only copy, so failures cannot be swallowed.
   /// Serialize even test stores; an older pause must not overtake a discard.
   Future<bool> writeTrainingSession(TrainingSessionSnapshot? snapshot) {
-    final value = <String, dynamic>{'snapshot': snapshot?.toJson()};
+    return _writeTrainingSession({'snapshot': snapshot?.toJson()});
+  }
+
+  /// A reversible, durable fence before changing a paused workout's source.
+  /// Kept in the same encrypted slot as its backup, so no cross-slot commit
+  /// can expose a deleted workout after a crash or a failed final clear.
+  Future<bool> suspendTrainingSession(TrainingSessionSnapshot snapshot) =>
+      _writeTrainingSession({
+        'snapshot': snapshot.toJson(),
+        'source_change_pending': true,
+      });
+
+  Future<bool> _writeTrainingSession(Map<String, dynamic> value) {
     final write = _trainingSessionWriteTail.then((_) async {
       if (_closed) return false;
       final saved = await _writeDurableNow(

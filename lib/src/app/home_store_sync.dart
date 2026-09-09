@@ -1340,11 +1340,13 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         case SyncOpKind.trainingPlanUpsert:
           final plan = op.trainingPlan;
           if (plan == null) break;
+          _trainingSourceIdsKnown.add(op.entityId);
           _trainingPlans = [
             plan,
             ...trainingPlans.where((entry) => entry.id != plan.id),
           ];
         case SyncOpKind.trainingPlanDelete:
+          _trainingSourceIdsKnown.add(op.entityId);
           _trainingPlans = trainingPlans
               .where((entry) => entry.id != op.entityId).toList();
         case SyncOpKind.profileUpsert:
@@ -1581,7 +1583,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     // showed an empty own-recipe list.
     await cache.writeUserRecipes(_userRecipes);
     if (_disposed) return;
-    await cache.writeTrainingPlans(trainingPlans);
+    if (_trainingPlansKnown) await cache.writeTrainingPlans(trainingPlans);
   }
 
   /// Only entries inside the boot window reach the durable cache. On-demand
@@ -1631,7 +1633,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   }
 
   void _cacheTrainingPlans() {
-    _cache?.writeTrainingPlansDebounced(trainingPlans);
+    if (_trainingPlansKnown) {
+      _cache?.writeTrainingPlansDebounced(trainingPlans);
+    }
   }
 
   void _persistOutbox() {

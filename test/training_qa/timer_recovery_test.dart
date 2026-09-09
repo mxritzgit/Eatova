@@ -50,36 +50,33 @@ void main() {
     expect(controller.completedSetCount, 0);
   });
 
-  test('unattended zero waits; rest and sets require deliberate actions', () {
-    var time = Duration.zero;
-    final controller = TrainingSessionController(
-      plan: _plan(),
-      monotonicNow: () => time,
-      autoTick: false,
-    );
-    addTearDown(controller.dispose);
-    controller.start();
-    time += const Duration(days: 1);
-    controller.tick();
-    expect(controller.remaining, Duration.zero);
-    expect(controller.exerciseIndex, 0);
-    expect(controller.setIndex, 0);
-    expect(controller.completedSetCount, 0);
-    expect(controller.isRunning, isFalse);
-    controller.completeCurrentSet();
-    expect(controller.phase, TrainingSessionPhase.rest);
-    expect(controller.completedSetCount, 1);
-    expect(controller.remaining, const Duration(seconds: 15));
-    controller.start();
-    time += const Duration(seconds: 16);
-    controller.tick();
-    expect(controller.phase, TrainingSessionPhase.rest);
-    expect(controller.setIndex, 0);
-    controller.continueAfterRest();
-    expect(controller.setIndex, 1);
-    expect(controller.remaining, const Duration(seconds: 40));
-    expect(controller.isRunning, isFalse);
-  });
+  test(
+    'automatic rest and sets start with full duration after a late callback',
+    () {
+      var time = Duration.zero;
+      final controller = TrainingSessionController(
+        plan: _plan(),
+        monotonicNow: () => time,
+        autoTick: false,
+      );
+      addTearDown(controller.dispose);
+      controller.start();
+      time += const Duration(days: 1);
+      controller.tick();
+      expect(controller.exerciseIndex, 0);
+      expect(controller.setIndex, 0);
+      expect(controller.phase, TrainingSessionPhase.rest);
+      expect(controller.completedSetCount, 1);
+      expect(controller.remaining, const Duration(seconds: 15));
+      expect(controller.isRunning, isTrue);
+      time += const Duration(seconds: 16);
+      controller.tick();
+      expect(controller.phase, TrainingSessionPhase.exercise);
+      expect(controller.setIndex, 1);
+      expect(controller.remaining, const Duration(seconds: 40));
+      expect(controller.isRunning, isTrue);
+    },
+  );
 
   test(
     'reboot restores paused full snapshot without depending on the library',

@@ -86,6 +86,7 @@ MealAnalysisRequest _request({MealAnalysisCancellation? cancellation}) =>
       imageId: 'photo.jpg',
       imageBytes: _bytes,
       language: 'en',
+      freeTextHint: '  Döner 🥙 ohne\nSauce  ',
       cancellation: cancellation,
     );
 
@@ -151,6 +152,9 @@ void main() {
     expect(body['imageBase64'], base64Encode(_bytes));
     expect(body['language'], 'en');
     expect(body['portionHint'], 'normal');
+    expect(body['freeTextHint'], 'Döner 🥙 ohne Sauce');
+    expect(body.containsKey('imageId'), isFalse);
+    expect(body.containsKey('cancellation'), isFalse);
   });
 
   test('401 -> MealAnalysisReauthRequired', () async {

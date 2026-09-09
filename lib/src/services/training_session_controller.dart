@@ -11,16 +11,19 @@ final class TrainingSessionController extends ChangeNotifier {
     required TrainingPlan plan,
     int workoutIndex = 0,
     Duration Function()? monotonicNow,
+    bool Function()? canRun,
     bool autoTick = true,
   }) : this.fromSnapshot(
          _initial(plan, workoutIndex),
          monotonicNow: monotonicNow,
+         canRun: canRun,
          autoTick: autoTick,
        );
 
   TrainingSessionController.fromSnapshot(
     TrainingSessionSnapshot snapshot, {
     Duration Function()? monotonicNow,
+    bool Function()? canRun,
     bool autoTick = true,
   }) : plan = snapshot.plan,
        workoutIndex = snapshot.workoutIndex,
@@ -30,6 +33,7 @@ final class TrainingSessionController extends ChangeNotifier {
        _remaining = Duration(milliseconds: snapshot.remainingMilliseconds),
        _completed = snapshot.completedSets.toSet(),
        _skipped = snapshot.skippedSets.toSet(),
+       _canRun = canRun,
        _autoTick = autoTick {
     _watch.start();
     _now = monotonicNow ?? (() => _watch.elapsed);
@@ -54,6 +58,8 @@ final class TrainingSessionController extends ChangeNotifier {
   final TrainingPlan plan;
   final int workoutIndex;
   final bool _autoTick;
+  // Recheck visibility before a callback can record an automatic completion.
+  final bool Function()? _canRun;
   final Stopwatch _watch = Stopwatch();
   late final Duration Function() _now;
   final Set<TrainingSetReference> _completed;
@@ -115,10 +121,16 @@ final class TrainingSessionController extends ChangeNotifier {
   void start() {
     if (_disposed ||
         _running ||
+        !(_canRun?.call() ?? true) ||
         phase == TrainingSessionPhase.review ||
         (_isTimed && remaining == Duration.zero)) {
       return;
     }
+    _startRunning();
+    notifyListeners();
+  }
+
+  void _startRunning() {
     _anchor = _now();
     _anchorRemaining = _remaining;
     _running = true;
@@ -128,7 +140,6 @@ final class TrainingSessionController extends ChangeNotifier {
         (_) => tick(),
       );
     }
-    notifyListeners();
   }
 
   void pause() {
@@ -139,7 +150,21 @@ final class TrainingSessionController extends ChangeNotifier {
 
   void tick() {
     if (_disposed || !_running || !_isTimed) return;
-    if (remaining == Duration.zero) _stop();
+    if (!(_canRun?.call() ?? true)) {
+      pause();
+      return;
+    }
+    if (remaining == Duration.zero) {
+      _stop();
+      if (phase == TrainingSessionPhase.exercise) {
+        _completeSet();
+      } else {
+        _advance();
+      }
+      // A late callback ends only the visible phase. Every new interval gets
+      // its full duration instead of consuming time before it was presented.
+      _startNextTimedPhase();
+    }
     notifyListeners();
   }
 
@@ -165,7 +190,7 @@ final class TrainingSessionController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Explicit confirmation only; elapsed time and navigation are not completion.
+  /// Reps and a paused/adjusted zero require deliberate confirmation.
   void completeCurrentSet() {
     if (_disposed ||
         phase != TrainingSessionPhase.exercise ||
@@ -173,6 +198,12 @@ final class TrainingSessionController extends ChangeNotifier {
       return;
     }
     _stop();
+    _completeSet();
+    _startNextTimedPhase();
+    notifyListeners();
+  }
+
+  void _completeSet() {
     _completed.add(_current);
     _skipped.remove(_current);
     if (setIndex < exercise.sets - 1 && exercise.restSeconds > 0) {
@@ -181,7 +212,14 @@ final class TrainingSessionController extends ChangeNotifier {
     } else {
       _advance();
     }
-    notifyListeners();
+  }
+
+  void _startNextTimedPhase() {
+    if (phase != TrainingSessionPhase.review &&
+        _isTimed &&
+        (_canRun?.call() ?? true)) {
+      _startRunning();
+    }
   }
 
   /// Also permits explicitly skipping a rest that has not elapsed.

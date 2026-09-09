@@ -53,9 +53,10 @@ void main() {
     },
   );
 
-  test('zero never advances or completes an unattended exercise', () {
+  test('paused zero never advances or completes an unattended exercise', () {
     session.start();
     clock.elapse(const Duration(hours: 8));
+    session.pause();
     session.tick();
     session.start();
     session.tick();
@@ -76,26 +77,27 @@ void main() {
   });
 
   test(
-    'confirming zero enters paused rest and double confirmation is inert',
+    'confirming paused zero starts rest and double confirmation is inert',
     () {
       session.start();
       clock.elapse(const Duration(seconds: 30));
+      session.pause();
       session.completeCurrentSet();
       session.completeCurrentSet();
       expect(session.phase, TrainingSessionPhase.rest);
       expect(session.remaining, const Duration(seconds: 15));
-      expect(session.isRunning, isFalse);
+      expect(session.isRunning, isTrue);
       expect(session.completedSetCount, 1);
       expect(session.progress, .25);
     },
   );
 
-  test('rest zero also waits, then next set is paused', () {
+  test('skipping active rest deliberately leaves the next set paused', () {
     session.start();
     clock.elapse(const Duration(seconds: 30));
     session.completeCurrentSet();
     session.start();
-    clock.elapse(const Duration(hours: 2));
+    clock.elapse(const Duration(seconds: 2));
     session.tick();
     expect(session.phase, TrainingSessionPhase.rest);
     expect(session.completedSetCount, 1);

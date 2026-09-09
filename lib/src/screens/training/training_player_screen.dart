@@ -40,6 +40,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
   Future<void> _writes = Future<void>.value();
   Timer? _checkpointTimer;
   Animation<double>? _coverAnimation;
+  ModalRoute<dynamic>? _route;
   bool _covered = false;
   bool _allowPop = false;
   bool _leaving = false;
@@ -67,10 +68,12 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
             plan: widget.plan!,
             workoutIndex: widget.workoutIndex,
             monotonicNow: widget.monotonicNow,
+            canRun: _canRunSession,
           )
         : TrainingSessionController.fromSnapshot(
             widget.initialSnapshot!,
             monotonicNow: widget.monotonicNow,
+            canRun: _canRunSession,
           );
     _phaseIdentity = _currentPhaseIdentity;
     _hasStartedPhase = widget.initialSnapshot != null;
@@ -89,12 +92,23 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final animation = ModalRoute.of(context)?.secondaryAnimation;
+    _route = ModalRoute.of(context);
+    final animation = _route?.secondaryAnimation;
     if (animation != _coverAnimation) {
       _coverAnimation?.removeListener(_routeCoverageChanged);
       _coverAnimation = animation;
       animation?.addListener(_routeCoverageChanged);
     }
+    if (!_canRunSession() && _session.isRunning) _session.pause();
+  }
+
+  bool _canRunSession() {
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    return mounted &&
+        !_leaving &&
+        !_dialogOpen &&
+        (_route?.isCurrent ?? true) &&
+        (lifecycle == null || lifecycle == AppLifecycleState.resumed);
   }
 
   void _routeCoverageChanged() {
@@ -108,21 +122,16 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
 
   void _sessionChanged() {
     if (!mounted) return;
-    final reachedZero =
-        (_session.exercise.isTimed ||
-            _session.phase == TrainingSessionPhase.rest) &&
-        _wasRunning &&
-        !_session.isRunning &&
-        _session.remaining == Duration.zero;
+    final phaseChanged = _phaseIdentity != _currentPhaseIdentity;
+    final interrupted = _wasRunning && !_session.isRunning && !_canRunSession();
     _wasRunning = _session.isRunning;
-    if (_phaseIdentity != _currentPhaseIdentity) {
+    if (phaseChanged) {
       _phaseIdentity = _currentPhaseIdentity;
       _hasStartedPhase = false;
     }
     _hasStartedPhase = _hasStartedPhase || _session.isRunning;
     setState(() {});
-    if (reachedZero && !_leaving) {
-      // Listener callbacks never start or advance a phase.
+    if ((phaseChanged || interrupted) && !_leaving) {
       unawaited(_persist());
     }
   }
@@ -194,47 +203,37 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
     unawaited(_persist());
     _dialogOpen = true;
     final l = context.l10n;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showEatovaDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        scrollable: true,
-        title: Text(
-          discard
-              ? l.trainingTimerDiscardTitle
-              : finish
-              ? l.trainingTimerFinishTitle
-              : l.trainingTimerLeaveTitle,
-        ),
-        content: Text(
-          discard
-              ? l.trainingTimerDiscardBody
-              : finish
-              ? l.trainingTimerFinishBody(
-                  _session.completedSetCount,
-                  _session.totalSets,
-                )
-              : l.trainingTimerLeaveBody,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text(l.trainingTimerStay),
-          ),
-          TextButton(
-            key: const ValueKey('training-timer-confirm-exit'),
-            style: discard
-                ? TextButton.styleFrom(foregroundColor: context.t.danger)
-                : null,
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(
-              discard
-                  ? l.trainingTimerDiscard
-                  : finish
-                  ? l.trainingTimerFinish
-                  : l.trainingTimerSaveLeave,
-            ),
-          ),
-        ],
+      builder: (context) => EatovaConfirmDialog(
+        title: discard
+            ? l.trainingTimerDiscardTitle
+            : finish
+            ? l.trainingTimerFinishTitle
+            : l.trainingTimerLeaveTitle,
+        body: discard
+            ? l.trainingTimerDiscardBody
+            : finish
+            ? l.trainingTimerFinishBody(
+                _session.completedSetCount,
+                _session.totalSets,
+              )
+            : l.trainingTimerLeaveBody,
+        icon: discard
+            ? Icons.delete_outline_rounded
+            : finish
+            ? Icons.check_rounded
+            : Icons.pause_rounded,
+        destructive: discard,
+        cancelLabel: l.trainingTimerStay,
+        onCancel: () => Navigator.pop(context, false),
+        confirmKey: const ValueKey('training-timer-confirm-exit'),
+        confirmLabel: discard
+            ? l.trainingTimerDiscard
+            : finish
+            ? l.trainingTimerFinish
+            : l.trainingTimerSaveLeave,
+        onConfirm: () => Navigator.pop(context, true),
       ),
     );
     _dialogOpen = false;
@@ -289,8 +288,9 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
     );
   }
 
-  Widget _controlPair(Widget first, Widget second) => LayoutBuilder(
+  Widget _controlPair(Widget first, Widget? second) => LayoutBuilder(
     builder: (context, constraints) {
+      if (second == null) return first;
       final stack =
           constraints.maxWidth < 340 ||
           MediaQuery.textScalerOf(context).scale(14) > 21;
@@ -563,10 +563,12 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
                           ),
                         ),
                       ),
-                      if (atZero) ...[
+                      if (!review && timed) ...[
                         const SizedBox(height: 8),
                         Text(
-                          l.trainingTimerConfirmHint,
+                          atZero
+                              ? l.trainingTimerConfirmHint
+                              : l.trainingTimerAutomaticHint,
                           textAlign: TextAlign.center,
                           style: AppType.ui(14, color: t.onForest, height: 1.4),
                         ),
@@ -646,12 +648,14 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
                     Icons.chevron_left_rounded,
                     _session.canPreviousSet ? _session.previousSet : null,
                   ),
-                  _secondary(
-                    'next-set',
-                    rest ? l.trainingTimerContinue : l.trainingTimerNextSet,
-                    Icons.chevron_right_rounded,
-                    review ? null : _session.nextSet,
-                  ),
+                  rest
+                      ? null
+                      : _secondary(
+                          'next-set',
+                          l.trainingTimerNextSet,
+                          Icons.chevron_right_rounded,
+                          review ? null : _session.nextSet,
+                        ),
                 ),
                 const SizedBox(height: 8),
                 _controlPair(

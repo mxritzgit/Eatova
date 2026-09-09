@@ -143,7 +143,7 @@ void main() {
             reason: 'Lime ist der Nav-Kapsel vorbehalten.');
       });
 
-      testWidgets('Buttons tragen keine lokalen Farbkopien mehr',
+      testWidgets('Buttons verwenden die gemeinsame Aktionshierarchie',
           (tester) async {
         _pinViewport(tester);
         await _pumpApp(tester, brightness);
@@ -161,7 +161,7 @@ void main() {
         expect(groesse.height, greaterThanOrEqualTo(52));
         expect(groesse.width, greaterThan(300));
 
-        // Verwerfen-Dialog: nur das destruktive Rot ist lokal.
+        // Discard dialog: soft secondary action and a clear destructive action.
         await tester.enterText(
           find.byKey(const ValueKey('recipe-create-name')),
           'x',
@@ -169,17 +169,19 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tapAt(const Offset(10, 10));
         await tester.pumpAndSettle();
-        final cancel = tester.widget<TextButton>(
+        final cancel = tester.widget<FilledButton>(
           find.byKey(const ValueKey('discard-changes-cancel')),
         );
-        expect(cancel.style, isNull);
-        final confirm = tester.widget<TextButton>(
+        expect(cancel.style?.backgroundColor?.resolve(<WidgetState>{}), t.field);
+        expect(cancel.style?.foregroundColor?.resolve(<WidgetState>{}), t.ink);
+        final confirm = tester.widget<FilledButton>(
           find.byKey(const ValueKey('discard-changes-confirm')),
         );
         expect(
-          confirm.style?.foregroundColor?.resolve(<WidgetState>{}),
+          confirm.style?.backgroundColor?.resolve(<WidgetState>{}),
           t.danger,
         );
+        expect(confirm.style?.foregroundColor?.resolve(<WidgetState>{}), t.bg);
       });
     });
   }

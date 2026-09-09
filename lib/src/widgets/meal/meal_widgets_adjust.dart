@@ -29,34 +29,21 @@ Future<List<MealComponent>?> showWeightAdjustmentSheet(
 /// form; `true` = discard. `barrierDismissible` stays `true`: the dialog's own
 /// barrier swallows the tap, so a cancel cannot dismiss the route it protects.
 Future<bool> _confirmDiscardChanges(BuildContext context, String text) async {
-  final t = context.t;
   final l10n = context.l10n;
-  final verwerfen = await showDialog<bool>(
+  final verwerfen = await showEatovaDialog<bool>(
     context: context,
-    builder: (dialogContext) => AlertDialog(
+    builder: (dialogContext) => EatovaConfirmDialog(
       key: const ValueKey('discard-changes-dialog'),
-      backgroundColor: t.surf,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(rSheet),
-      ),
-      title: Text(
-        l10n.foodDiscardChangesTitle,
-        style: AppType.display(19, color: t.ink),
-      ),
-      content: Text(text, style: AppType.ui(13, color: t.ink2, height: 1.4)),
-      actions: [
-        TextButton(
-          key: const ValueKey('discard-changes-cancel'),
-          onPressed: () => Navigator.of(dialogContext).pop(false),
-          child: Text(l10n.foodDiscardChangesKeepEditing),
-        ),
-        TextButton(
-          key: const ValueKey('discard-changes-confirm'),
-          style: TextButton.styleFrom(foregroundColor: t.danger),
-          onPressed: () => Navigator.of(dialogContext).pop(true),
-          child: Text(l10n.foodDiscardChangesConfirm),
-        ),
-      ],
+      title: l10n.foodDiscardChangesTitle,
+      body: text,
+      icon: Icons.edit_off_rounded,
+      destructive: true,
+      cancelKey: const ValueKey('discard-changes-cancel'),
+      cancelLabel: l10n.foodDiscardChangesKeepEditing,
+      onCancel: () => Navigator.of(dialogContext).pop(false),
+      confirmKey: const ValueKey('discard-changes-confirm'),
+      confirmLabel: l10n.foodDiscardChangesConfirm,
+      onConfirm: () => Navigator.of(dialogContext).pop(true),
     ),
   );
   return verwerfen ?? false;
@@ -348,7 +335,7 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
   }
 
   Future<void> _addItemDialog() async {
-    final newItem = await showDialog<MealComponent>(
+    final newItem = await showEatovaDialog<MealComponent>(
       context: context,
       builder: (context) =>
           _AddItemDialog(restTraegtMakros: _restTraegtMakros),
@@ -783,14 +770,16 @@ class _ItemEditCard extends StatelessWidget {
           const SizedBox(height: 8),
           Padding(
             padding: const EdgeInsets.only(right: 6),
-            child: Row(
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Icon(
                   Icons.local_fire_department_outlined,
                   size: 14,
                   color: t.accent,
                 ),
-                const SizedBox(width: 6),
                 Text(
                   '${angepasst.grams} g · ${angepasst.caloriesKcal} kcal',
                   style: AppType.display(
@@ -800,7 +789,6 @@ class _ItemEditCard extends StatelessWidget {
                   ),
                 ),
                 if (item.kcalPer100G != null) ...[
-                  const SizedBox(width: 8),
                   Text(
                     '· ${item.kcalPer100G!.round()} kcal/100g',
                     style: AppType.display(
@@ -1106,6 +1094,9 @@ class _AddItemDialogState extends State<_AddItemDialog> {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
+    final compactFields =
+        MediaQuery.sizeOf(context).width >= 390 &&
+        MediaQuery.textScalerOf(context).scale(14) <= 18;
     return PopScope<MealComponent?>(
       // Only while something is filled in; an empty dialog closes immediately.
       canPop: !_dirty,
@@ -1113,204 +1104,197 @@ class _AddItemDialogState extends State<_AddItemDialog> {
         if (didPop) return;
         _askDiscard();
       },
-      child: AlertDialog(
-        backgroundColor: t.surf,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(rSheet),
-        ),
-        title: Text(
-          l10n.foodAddItemTitle,
-          style: AppType.display(18, color: t.ink),
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+      child: EatovaDialog(
+        title: l10n.foodAddItemTitle,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              l10n.foodAddItemManualHint,
+              style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              key: const ValueKey('analyse-add-item-name'),
+              cursorOpacityAnimates: false,
+              controller: _name,
+              autofocus: true,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: InputDecoration(
+                labelText: l10n.foodAddItemNameLabel,
+                hintText: l10n.foodAddItemNameHint,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Flex(
+              direction: compactFields ? Axis.horizontal : Axis.vertical,
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: compactFields
+                  ? CrossAxisAlignment.center
+                  : CrossAxisAlignment.stretch,
+              children: [
+                Flexible(
+                  child: TextField(
+                    key: const ValueKey('analyse-add-item-grams'),
+                    cursorOpacityAnimates: false,
+                    controller: _grams,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      // Same digit budget as the component row's field: as
+                      // many as the bound has, the range check below rejects
+                      // the rest (P8-02b).
+                      LengthLimitingTextInputFormatter(_postenEingabeZiffern),
+                    ],
+                    decoration: InputDecoration(
+                      labelText: l10n.foodAddItemWeightLabel,
+                      suffixText: 'g',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10, height: 10),
+                Flexible(
+                  child: TextField(
+                    key: const ValueKey('analyse-add-item-kcal'),
+                    cursorOpacityAnimates: false,
+                    controller: _kcal,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(_postenEingabeZiffern),
+                    ],
+                    decoration: InputDecoration(
+                      labelText: l10n.foodAddItemCaloriesLabel,
+                      suffixText: 'kcal',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            // The locked button states its own reason, like the row does.
+            if (!_grammGueltig) ...[
+              const SizedBox(height: 6),
               Text(
-                l10n.foodAddItemManualHint,
-                style: AppType.ui(
-                  12,
-                  weight: FontWeight.w500,
-                  color: t.ink2,
-                ),
-              ),
-              const SizedBox(height: 14),
-              TextField(
-                key: const ValueKey('analyse-add-item-name'),
-                cursorOpacityAnimates: false,
-                controller: _name,
-                autofocus: true,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: InputDecoration(
-                  labelText: l10n.foodAddItemNameLabel,
-                  hintText: l10n.foodAddItemNameHint,
-                ),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      key: const ValueKey('analyse-add-item-grams'),
-                      cursorOpacityAnimates: false,
-                      controller: _grams,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                        // Same digit budget as the component row's field: as
-                        // many as the bound has, the range check below rejects
-                        // the rest (P8-02b).
-                        LengthLimitingTextInputFormatter(_postenEingabeZiffern),
-                      ],
-                      decoration: InputDecoration(
-                        labelText: l10n.foodAddItemWeightLabel,
-                        suffixText: 'g',
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: TextField(
-                      key: const ValueKey('analyse-add-item-kcal'),
-                      cursorOpacityAnimates: false,
-                      controller: _kcal,
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(_postenEingabeZiffern),
-                      ],
-                      decoration: InputDecoration(
-                        labelText: l10n.foodAddItemCaloriesLabel,
-                        suffixText: 'kcal',
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              // The locked button states its own reason, like the row does.
-              if (!_grammGueltig) ...[
-                const SizedBox(height: 6),
-                Text(
-                  l10n.foodPortionRangeHint(_postenMinG, _postenMaxG),
-                  key: const ValueKey('analyse-add-item-grams-hint'),
-                  style: AppType.ui(
-                    11,
-                    weight: FontWeight.w600,
-                    color: t.warning,
-                  ),
-                ),
-              ],
-              if (!_kcalGueltig) ...[
-                const SizedBox(height: 6),
-                Text(
-                  l10n.foodAddItemCaloriesRangeHint(0, _postenMaxKcal),
-                  key: const ValueKey('analyse-add-item-kcal-hint'),
-                  style: AppType.ui(
-                    11,
-                    weight: FontWeight.w600,
-                    color: t.warning,
-                  ),
-                ),
-              ],
-              const SizedBox(height: 4),
-              // Expandable instead of three more required fields.
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  key: const ValueKey('analyse-add-item-macros-toggle'),
-                  onPressed: () =>
-                      setState(() => _makrosOffen = !_makrosOffen),
-                  style: TextButton.styleFrom(
-                    foregroundColor: t.ink,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 4,
-                    ),
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  icon: Icon(
-                    _makrosOffen
-                        ? Icons.expand_less_rounded
-                        : Icons.expand_more_rounded,
-                    size: 16,
-                  ),
-                  label: Text(
-                    l10n.foodAddItemMacrosToggle,
-                    style: AppType.ui(12, weight: FontWeight.w600),
-                  ),
-                ),
-              ),
-              if (_makrosOffen) ...[
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _MacroField(
-                        fieldKey: const ValueKey('analyse-add-item-protein'),
-                        controller: _protein,
-                        label: l10n.todayMacroProtein,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _MacroField(
-                        fieldKey: const ValueKey('analyse-add-item-carbs'),
-                        controller: _carbs,
-                        label: l10n.foodMacroTileCarbsLabel,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _MacroField(
-                        fieldKey: const ValueKey('analyse-add-item-fat'),
-                        controller: _fat,
-                        label: l10n.todayMacroFat,
-                      ),
-                    ),
-                  ],
-                ),
-                if (!_makrosGueltig) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    l10n.foodMacroRangeHint,
-                    style: AppType.ui(
-                      11,
-                      weight: FontWeight.w600,
-                      color: t.warning,
-                    ),
-                  ),
-                ],
-              ],
-              const SizedBox(height: 10),
-              Text(
-                _makroHinweis,
-                key: const ValueKey('analyse-add-item-macro-hint'),
+                l10n.foodPortionRangeHint(_postenMinG, _postenMaxG),
+                key: const ValueKey('analyse-add-item-grams-hint'),
                 style: AppType.ui(
                   11,
-                  weight: FontWeight.w500,
-                  color: t.ink2,
-                  height: 1.4,
+                  weight: FontWeight.w600,
+                  color: t.warning,
                 ),
               ),
             ],
-          ),
+            if (!_kcalGueltig) ...[
+              const SizedBox(height: 6),
+              Text(
+                l10n.foodAddItemCaloriesRangeHint(0, _postenMaxKcal),
+                key: const ValueKey('analyse-add-item-kcal-hint'),
+                style: AppType.ui(
+                  11,
+                  weight: FontWeight.w600,
+                  color: t.warning,
+                ),
+              ),
+            ],
+            const SizedBox(height: 4),
+            // Expandable instead of three more required fields.
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                key: const ValueKey('analyse-add-item-macros-toggle'),
+                onPressed: () => setState(() => _makrosOffen = !_makrosOffen),
+                style: TextButton.styleFrom(
+                  foregroundColor: t.ink,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 4,
+                  ),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                icon: Icon(
+                  _makrosOffen
+                      ? Icons.expand_less_rounded
+                      : Icons.expand_more_rounded,
+                  size: 16,
+                ),
+                label: Text(
+                  l10n.foodAddItemMacrosToggle,
+                  style: AppType.ui(12, weight: FontWeight.w600),
+                ),
+              ),
+            ),
+            if (_makrosOffen) ...[
+              const SizedBox(height: 6),
+              Flex(
+                direction: compactFields ? Axis.horizontal : Axis.vertical,
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: compactFields
+                    ? CrossAxisAlignment.center
+                    : CrossAxisAlignment.stretch,
+                children: [
+                  Flexible(
+                    child: _MacroField(
+                      fieldKey: const ValueKey('analyse-add-item-protein'),
+                      controller: _protein,
+                      label: l10n.todayMacroProtein,
+                    ),
+                  ),
+                  const SizedBox(width: 8, height: 8),
+                  Flexible(
+                    child: _MacroField(
+                      fieldKey: const ValueKey('analyse-add-item-carbs'),
+                      controller: _carbs,
+                      label: l10n.foodMacroTileCarbsLabel,
+                    ),
+                  ),
+                  const SizedBox(width: 8, height: 8),
+                  Flexible(
+                    child: _MacroField(
+                      fieldKey: const ValueKey('analyse-add-item-fat'),
+                      controller: _fat,
+                      label: l10n.todayMacroFat,
+                    ),
+                  ),
+                ],
+              ),
+              if (!_makrosGueltig) ...[
+                const SizedBox(height: 6),
+                Text(
+                  l10n.foodMacroRangeHint,
+                  style: AppType.ui(
+                    11,
+                    weight: FontWeight.w600,
+                    color: t.warning,
+                  ),
+                ),
+              ],
+            ],
+            const SizedBox(height: 10),
+            Text(
+              _makroHinweis,
+              key: const ValueKey('analyse-add-item-macro-hint'),
+              style: AppType.ui(
+                11,
+                weight: FontWeight.w500,
+                color: t.ink2,
+                height: 1.4,
+              ),
+            ),
+          ],
         ),
         actions: [
-          TextButton(
+          EatovaDialogAction(
+            buttonKey: const ValueKey('analyse-add-item-save'),
+            label: l10n.commonAdd,
+            onPressed: _isValid ? _submit : null,
+          ),
+          EatovaDialogAction(
+            label: l10n.commonCancel,
+            secondary: true,
             // maybePop, not pop: an explicit cancel also asks first.
             onPressed: () => Navigator.of(context).maybePop(),
-            child: Text(l10n.commonCancel),
-          ),
-          // Colours/shape from filledButtonTheme (F8-10).
-          FilledButton(
-            key: const ValueKey('analyse-add-item-save'),
-            onPressed: _isValid ? _submit : null,
-            child: Text(
-              l10n.commonAdd,
-              style: AppType.ui(14, weight: FontWeight.w600),
-            ),
           ),
         ],
       ),

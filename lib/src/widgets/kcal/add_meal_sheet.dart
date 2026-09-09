@@ -8,7 +8,6 @@ import 'package:image_picker/image_picker.dart';
 import '../../l10n/l10n.dart';
 import '../../models/favorite_meal.dart';
 import '../../models/logged_meal.dart';
-import '../../models/meal_analysis_request.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../screens/barcode_scanner_sheet.dart';
 import '../../services/favorites_view.dart';
@@ -16,6 +15,7 @@ import '../../services/eatova_http.dart';
 import '../../services/local_day.dart';
 import '../../services/meal_analyzer.dart';
 import '../../services/meal_photo_input.dart';
+import '../../services/meal_scan_identity.dart';
 import '../../services/meals_sync.dart';
 import '../../services/open_food_facts_product_service.dart';
 import '../../theme/app_tokens.dart';
@@ -28,6 +28,7 @@ import 'existing_meals_list.dart';
 import 'favorites_sheet.dart';
 import 'manual_meal_sheet.dart';
 import 'meal_analysis_sheet.dart';
+import 'meal_scan_preview_sheet.dart';
 import 'meal_suggestion_item.dart';
 import 'slot_selector.dart';
 
@@ -829,6 +830,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
   // ─── Photo / gallery / barcode ────────────────────────────────────────
 
   Future<void> _pickAndAnalyze(ImageSource source) async {
+    final identity = MealScanIdentity();
+    final analyzer = widget.analyzer;
     MealPhotoSelection? selection;
     try {
       selection = await widget.photoInput.pick(source);
@@ -846,23 +849,28 @@ class _AddMealSheetState extends State<AddMealSheet> {
       );
       return;
     }
-    if (selection == null || !mounted) return;
+    if (selection == null || !mounted || !identity.isCurrent) return;
 
     // One request for first try and retries: the sheet re-runs it from the
     // same bytes, and the shared cancel handle lets a swiped-away sheet abort
     // whichever attempt is in flight (review F4-02).
-    final request = _cancellable(
-      selection.request.withLanguage(context.l10n.localeName),
+    final request = await showMealScanPreviewSheet(
+      context,
+      request: selection.request.withLanguage(context.l10n.localeName),
+      previewBytes: selection.previewBytes,
     );
+    if (request == null || !mounted || !identity.isCurrent) return;
     // An attempt that fails before the sheet listens (validation, already
     // cancelled) must not surface as an unhandled zone error; the sheet's
     // error card reports it once it is up. `ignore` only marks it handled.
-    final first = widget.analyzer.analyze(request)..ignore();
+    final first = analyzer.analyze(request)..ignore();
     final outcome = await showMealAnalysisSheet(
       context,
       slot: _selectedSlot,
       resultFuture: first,
-      retry: () => widget.analyzer.analyze(request),
+      retry: () => identity.isCurrent
+          ? analyzer.analyze(request)
+          : Future.error(const MealAnalysisCancelled()),
       cancellation: request.cancellation,
       previewImage: selection.previewBytes,
       onAdd: _logAndMirror,
@@ -874,20 +882,6 @@ class _AddMealSheetState extends State<AddMealSheet> {
     if (outcome == MealAnalysisSheetOutcome.manualEntry && mounted) {
       await _openManualEntry();
     }
-  }
-
-  /// The picker's request carries no cancel handle; attach one so the result
-  /// sheet can abort. A request that already has one is left alone.
-  static MealAnalysisRequest _cancellable(MealAnalysisRequest request) {
-    if (request.cancellation != null) return request;
-    return MealAnalysisRequest(
-      imageId: request.imageId,
-      imageBytes: request.imageBytes,
-      portionHint: request.portionHint,
-      freeTextHint: request.freeTextHint,
-      language: request.language,
-      cancellation: MealAnalysisCancellation(),
-    );
   }
 
   Future<void> _scanBarcode() async {

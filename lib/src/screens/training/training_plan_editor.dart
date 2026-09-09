@@ -111,24 +111,19 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
     }
     _closing = true;
     final l10n = context.l10n;
-    final discard = await showDialog<bool>(
+    final discard = await showEatovaDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => EatovaConfirmDialog(
         key: const ValueKey('training-discard-dialog'),
-        title: Text(l10n.trainingPageDiscardTitle),
-        content: Text(l10n.trainingPageDiscardBody),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: Text(l10n.trainingPageKeepEditing),
-          ),
-          TextButton(
-            key: const ValueKey('training-discard-confirm'),
-            style: TextButton.styleFrom(foregroundColor: context.t.danger),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text(l10n.trainingPageDiscard),
-          ),
-        ],
+        title: l10n.trainingPageDiscardTitle,
+        body: l10n.trainingPageDiscardBody,
+        icon: Icons.edit_off_rounded,
+        destructive: true,
+        cancelLabel: l10n.trainingPageKeepEditing,
+        onCancel: () => Navigator.pop(dialogContext, false),
+        confirmKey: const ValueKey('training-discard-confirm'),
+        confirmLabel: l10n.trainingPageDiscard,
+        onConfirm: () => Navigator.pop(dialogContext, true),
       ),
     );
     _closing = false;

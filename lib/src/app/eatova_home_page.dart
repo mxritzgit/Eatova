@@ -739,6 +739,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     if (_trainingRouteOpen || !mounted) return;
     _trainingRouteOpen = true;
     final ownerSync = _store.sync;
+    final sessionGeneration = _store.trainingSessionGeneration;
+    final sourcePlanId = (snapshot?.plan ?? plan)!.id;
     try {
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
@@ -747,14 +749,31 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             workoutIndex: workoutIndex,
             initialSnapshot: snapshot,
             onPersist: (value) async {
-              // Token refresh rebuilds the wrapper, not the owning session.
-              // AuthGate and HomeStore retire routes/cache on account changes.
-              if (!mounted ||
-                  widget.sync?.userId != ownerSync?.userId ||
-                  !identical(widget.sync?.client, ownerSync?.client)) {
-                throw StateError('Training session ended');
+              bool sourceRetired() {
+                // Token refresh preserves the owner; account changes do not.
+                if (!mounted ||
+                    widget.sync?.userId != ownerSync?.userId ||
+                    !identical(widget.sync?.client, ownerSync?.client)) {
+                  throw StateError('Training session ended');
+                }
+                return _store.isTrainingSessionRetired(
+                  generation: sessionGeneration,
+                  sourcePlanId: sourcePlanId,
+                );
               }
-              await _store.saveTrainingSession(value);
+
+              if (sourceRetired()) return;
+              try {
+                await _store.saveTrainingSession(
+                  value,
+                  generation: sessionGeneration,
+                  sourcePlanId: sourcePlanId,
+                );
+              } catch (_) {
+                // Source invalidation may have overtaken an awaited write.
+                // The obsolete route can close without touching new recovery.
+                if (!sourceRetired()) rethrow;
+              }
             },
           ),
         ),
