@@ -67,7 +67,7 @@ async function run(
     }
     if (url.href === "https://openrouter.ai/api/v1/chat/completions") {
       let content: string;
-      if (data.max_tokens === 50) content = JSON.stringify({ category: "fitness", confidence: "high" });
+      if (data.max_tokens === 256) content = JSON.stringify({ category: "fitness", confidence: "high" });
       else if (data.response_format) content = JSON.stringify(options.providerDraft ?? draft());
       else content = "Ordinary coaching answer.";
       return json({ choices: [{ message: { content } }] });
@@ -126,9 +126,9 @@ for (const command of ["/planet training", "/planx", "/dance training"]) {
     check(result.status === 200 && !result.result.training_plan, "Unknown command generated a plan");
     // The classifier also requests structured JSON now. Only the larger
     // response-format call is the training-plan draft; classifier calls use
-    // the dedicated 50-token budget.
+    // the dedicated 256-token budget.
     check(
-      !result.calls.some((call) => call.body.response_format && call.body.max_tokens !== 50),
+      !result.calls.some((call) => call.body.response_format && call.body.max_tokens !== 256),
       "Unknown command used draft generation",
     );
   });

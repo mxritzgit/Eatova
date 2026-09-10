@@ -115,7 +115,7 @@ function stubNetwork(defaultDraft: string, options: Options = {}) {
     }
     if (url === "https://openrouter.ai/api/v1/chat/completions") {
       assert(signal, "provider deadline");
-      if (body.max_tokens === 50) {
+      if (body.max_tokens === 256) {
         if (options.classifierError) return Promise.reject(options.classifierError);
         if (options.classifierBodyInvalid) return Promise.resolve(new Response("PRIVATE_REQUEST_CONTENT"));
         return Promise.resolve(response({ choices: [{ message: { content: options.classifier ?? JSON.stringify({
@@ -156,7 +156,7 @@ function stubNetwork(defaultDraft: string, options: Options = {}) {
   return {
     calls, logs, ledger,
     callsTo: (part: string) => calls.filter((call) => call.url.includes(part)),
-    draftCalls: () => calls.filter((call) => call.url.includes("chat/completions") && call.body.max_tokens !== 50 && call.body.max_tokens !== 800),
+    draftCalls: () => calls.filter((call) => call.url.includes("chat/completions") && call.body.max_tokens !== 256 && call.body.max_tokens !== 800),
     restore: () => {
       globalThis.fetch = originalFetch;
       Date.now = originalNow;

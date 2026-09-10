@@ -558,3 +558,38 @@ message path schedules the cosmetic auto-title update while the provider works,
 so neither operation adds avoidable serial latency to the first response. The
 ownership filter, quota/refund paths, stream handling, and persistence checks
 remain unchanged.
+
+## Coach false refusals, 2026-09-10
+
+Production records for the reported greeting and lighter Raising Cane's sauce
+request both show `classifier_off_topic` (Layer 2). The earlier rollout is active
+as `coach-chat` v42, but its smoke checks covered authentication only. Historical
+records do not distinguish a semantic misclassification from the old malformed
+JSON fallback; the old classifier also classified both synthetic examples
+correctly during this investigation. Do not claim the original provider output
+or a specific token-exhaustion cause was recovered from logs.
+
+The classifier now uses a strict category/confidence schema, compatible-provider
+routing, and a 256-token budget with minimal reasoning. The classifier and answer
+prompts explicitly include cooking, lighter sauces and restaurant-inspired
+recipes; ordinary lower-calorie food is not itself an eating-disorder signal.
+All messages still pass the prefilter and classifier, including greetings.
+
+Unusable ordinary-chat classifications now stop before answering or persisting,
+return a retryable provider error, and use the existing outage refund path.
+Explicit provider content filtering remains charged and stops every mode.
+Recognized safety categories retain their refusal even if confidence metadata is
+missing or completion is truncated. Recipe/plan fail-closed behavior, image
+fallback, crisis replies and Layer-3 prompt-leak checks remain covered.
+Diagnostics contain fixed labels and allowlisted completion metadata only.
+
+Verification: 4,134 Flutter tests and strict analysis passed; all 494 Deno tests,
+lint and entrypoint checks passed. Regression tests reproduced the false-topic
+fallback and both security-review findings before correction. A local production
+handler with isolated database stubs and real OpenRouter calls answered both
+reported examples and blocked crisis, dangerous-diet and off-topic controls.
+One recipe answer reached the existing answer-length cap; this change does not
+raise that cap. Final review, CI, merge and deployed verification are recorded in
+the PR for `fix/coach-guardrail-false-refusals`. Only `coach-chat` needs deployment;
+no schema or app-build change is needed. Ignored evidence is in
+`.agents/coach-guardrails-2026-09-10/`.

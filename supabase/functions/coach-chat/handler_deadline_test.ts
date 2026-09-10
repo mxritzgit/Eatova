@@ -175,8 +175,8 @@ function installFetch(options: StubOptions = {}): FetchStub {
     if (url.includes("/rest/v1/rpc/refund_chat_quota")) return new Response(null, { status: 204 });
     if (url.includes("openrouter.ai")) {
       const parsed = JSON.parse(body) as JsonRecord;
-      // Klassifizierer und Antwort trennen sich am Token-Budget (50 vs. 800).
-      if (parsed.max_tokens === 50) {
+      // Klassifizierer und Antwort trennen sich am Token-Budget (256 vs. 800).
+      if (parsed.max_tokens === 256) {
         return jsonRes({
           choices: [{ message: { content: JSON.stringify({ category: "fitness", confidence: "high" }) } }],
         });

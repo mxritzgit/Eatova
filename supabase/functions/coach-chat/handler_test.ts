@@ -75,6 +75,8 @@ interface StubOptions {
    * failure (W1): a paid call after which no classification exists.
    */
   classifierContent?: string;
+  /** Provider completion status, including truncated structured output. */
+  classifierFinishReason?: string;
   /**
    * Behaviour of claim_chat_quota. "ok" grants a slot, "exhausted" answers
    * EX_QUOTA_EXCEEDED, "forbidden" fails loudly if the claim is reached at
@@ -281,8 +283,8 @@ function installFetch(options: StubOptions = {}): FetchStub {
       const parsed = JSON.parse(body) as JsonRecord;
       openRouterBodies.push(parsed);
       // Classifier and answer call differ unambiguously in token budget
-      // (50 vs. 800).
-      if (parsed.max_tokens === 50) {
+      // (256 vs. 800).
+      if (parsed.max_tokens === 256) {
         if (options.classifierHangs) return hangUntilAbort(signal);
         if (options.classifierStatus !== undefined) {
           // Classifier infra failure (provider answers non-ok).
@@ -293,6 +295,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
         }
         return jsonRes({
           choices: [{
+            finish_reason: options.classifierFinishReason ?? "stop",
             message: {
               content: options.classifierContent ?? JSON.stringify({
                 category: options.classifierCategory ?? "fitness",
@@ -349,7 +352,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
     calls,
     openRouterBodies,
     callsTo: (fragment: string) => calls.filter((call) => call.url.includes(fragment)),
-    classifierBodies: () => openRouterBodies.filter((b) => b.max_tokens === 50),
+    classifierBodies: () => openRouterBodies.filter((b) => b.max_tokens === 256),
     answerBodies: () => openRouterBodies.filter((b) => b.max_tokens === 800),
     gateBatches: () =>
       calls
@@ -427,7 +430,7 @@ Deno.test("Kostengarantie: der Klassifizierer sieht nie das Bild", async () => {
       "Klassifizierer-Body enthaelt ein Fragment der Base64-Nutzlast",
     );
     // So the image path costs exactly the same as the text path.
-    assertEquals(bodies[0].max_tokens, 50, "max_tokens");
+    assertEquals(bodies[0].max_tokens, 256, "max_tokens");
 
     const messages = bodies[0].messages as { role: string; content: unknown }[];
     assertEquals(messages.length, 2, "system + user");
@@ -504,7 +507,13 @@ Deno.test("Bild + off_topic -> Layer 3 entscheidet (Quota + Answer-Call)", async
     assertEquals(stub.classifierBodies().length, 1, "Klassifizierer lief trotzdem");
     assertEquals(stub.answerBodies().length, 1, "Answer-Call");
     const classifierFormat = stub.classifierBodies()[0].response_format as JsonRecord;
-    assertEquals(classifierFormat.type, "json_object", "Classifier requests structured JSON");
+    assertEquals(classifierFormat.type, "json_schema", "Classifier requests a constrained schema");
+    const schemaConfig = classifierFormat.json_schema as JsonRecord;
+    assertEquals(schemaConfig.strict, true, "strict schema");
+    const schema = schemaConfig.schema as JsonRecord;
+    assertEquals(schema.additionalProperties, false, "no invented fields");
+    assertEquals((stub.classifierBodies()[0].provider as JsonRecord).require_parameters, true,
+      "route only to providers that support the schema");
     const classifierReasoning = stub.classifierBodies()[0].reasoning as JsonRecord;
     assertEquals(classifierReasoning.effort, "minimal", "Classifier disables unnecessary reasoning");
     assertEquals(
@@ -667,8 +676,8 @@ Deno.test("Textpfad unveraendert: on-topic laeuft durch bis zur Antwort", async 
 
 // ---------------------------------------------------------------------------
 // W1: unusable model output is distinguishable from a real off_topic
-// (ClassifierResult.parseFailed). Only the recipe path may react to it; chat
-// and image path must behave exactly as before, which these tests pin down.
+// (ClassifierResult.parseFailed). Chat reports a retryable provider failure;
+// image and structured proposal paths retain their existing safety policy.
 // ---------------------------------------------------------------------------
 
 Deno.test("W1-Gegenprobe: echtes off_topic im Chat bleibt die normale Off-Topic-Refusal", async () => {
@@ -692,28 +701,129 @@ Deno.test("W1-Gegenprobe: echtes off_topic im Chat bleibt die normale Off-Topic-
   }
 });
 
-Deno.test("W1: unparsbare Classifier-Antwort aendert den Chat-Pfad nicht (off_topic-Refusal)", async () => {
-  // In chat, off_topic is in the refusal set, so the fail-closed default
-  // still catches the glitch. The reply must be byte-identical to a real
-  // off_topic.
+Deno.test("Chat: unbrauchbare Klassifikation ist ein Providerfehler, keine Themenablehnung", async () => {
   for (
     const content of [
+      "", // Gemini can exhaust its completion budget before emitting JSON
       "Ich denke, das ist Fitness.", // no JSON at all
       '{"category":"banane","confidence":"high"}', // unknown category
       '{"category":', // truncated JSON
+      '{"category":"smalltalk","confidence":"invalid"}',
     ]
   ) {
     const stub = installFetch({ classifierContent: content });
     try {
       const res = await handleRequest(makeRequest({
-        message: "Wie viel Protein brauche ich beim Cutting?",
+        message: "hi",
       }));
-      assertEquals(res.status, 200, `${content}: Status`);
+      assertEquals(res.status, 502, `${content}: Status`);
       const body = await res.json() as JsonRecord;
-      assertEquals(body.reply, OFF_TOPIC_REPLY, `${content}: unveraenderter Text`);
-      assertEquals(body.refusal_reason, "off_topic", `${content}: refusal_reason`);
+      assertEquals(body.error, "provider_error", `${content}: ehrlicher Fehler`);
+      assert(!("refusal_reason" in body), "keine erfundene Kategorie");
       assertEquals(stub.answerBodies().length, 0, `${content}: kein Answer-Call`);
-      assertEquals(stub.callsTo("refund_chat_quota").length, 0, `${content}: kein Refund`);
+      assertEquals(stub.callsTo("refund_chat_quota").length, 1, `${content}: genau ein Refund`);
+      assertEquals(stub.callsTo("chat_messages").filter((c) => c.method === "POST").length, 0,
+        "Fehler wird nicht als Ablehnung gespeichert");
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+Deno.test("Chat: abgeschnittene Klassifikation darf selbst mit gueltigem JSON nicht freigeben", async () => {
+  const stub = installFetch({ classifierCategory: "nutrition", classifierFinishReason: "length" });
+  try {
+    const res = await handleRequest(makeRequest({ message: "Low Kcalorie Raising Canes Soße" }));
+    assertEquals(res.status, 502, "unvollstaendige Klassifikation");
+    assertEquals(stub.answerBodies().length, 0, "kein ungepruefter Answer-Call");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 1, "ein Refund");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("Alle drei Schichten: Begruessung und leichte Restaurant-Sosse duerfen durch", async () => {
+  for (const example of [
+    { message: "hi", category: "smalltalk", answer: "Hi! Wobei kann ich dir heute helfen?" },
+    { message: "Sag mir eine Low Kcalorie Raising Canes Soße", category: "nutrition",
+      answer: "Verruehre Joghurt, etwas Ketchup, Knoblauch und Pfeffer fuer eine leichte Sauce." },
+  ]) {
+    const stub = installFetch({ classifierCategory: example.category, answerContent: example.answer });
+    try {
+      const res = await handleRequest(makeRequest({ message: example.message }));
+      const body = await res.json() as JsonRecord;
+      assertEquals(res.status, 200, "Status");
+      assertEquals(body.refusal, false, "keine Ablehnung");
+      assertEquals(body.reply, example.answer, "Antwort passiert Layer 3");
+      assertEquals(stub.classifierBodies().length, 1, "Layer 2 laeuft auch bei Begruessungen");
+      assertEquals(stub.answerBodies().length, 1, "Layer 3 laeuft");
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+Deno.test("Begruessung und Rezeptname umgehen keine Sicherheitskategorie", async () => {
+  for (const category of ["self_harm", "eating_disorder", "medical_risk", "injection"]) {
+    const stub = installFetch({ classifierCategory: category });
+    try {
+      const res = await handleRequest(makeRequest({ message: "hi, eine leichte Raising Canes Sosse bitte" }));
+      const body = await res.json() as JsonRecord;
+      assertEquals(body.refusal_reason, category, "Sicherheitskategorie bleibt massgeblich");
+      assertEquals(stub.classifierBodies().length, 1, "kein Keyword-Bypass");
+      assertEquals(stub.answerBodies().length, 0, "keine Antwort hinter Sicherheitsgrenze");
+      assertEquals(stub.callsTo("refund_chat_quota").length, 0, "echte Ablehnung bleibt kostenpflichtig");
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+Deno.test("Unbrauchbarer Klassifikator loggt weder Antwortinhalt noch fremde Metadaten", async () => {
+  const privateMarker = "PRIVATE_PROVIDER_CONTENT";
+  const stub = installFetch({ classifierContent: privateMarker, classifierFinishReason: privateMarker });
+  const originalError = console.error;
+  const messages: string[] = [];
+  console.error = (...args: unknown[]) => messages.push(args.join(" "));
+  try {
+    const res = await handleRequest(makeRequest({ message: "hi" }));
+    assertEquals(res.status, 502, "Status");
+    assert(messages.some((line) => line.includes("finish_reason=other")), "diagnostische Metadaten");
+    assert(messages.every((line) => !line.includes(privateMarker)), "keine privaten Providertexte im Log");
+  } finally {
+    console.error = originalError;
+    stub.restore();
+  }
+});
+
+Deno.test("Review: erkannte Sicherheitskategorien bleiben bei unvollstaendigen Metadaten gesperrt", async () => {
+  for (const category of ["self_harm", "eating_disorder", "medical_risk", "injection"]) {
+    for (const incomplete of ["confidence", "length"]) {
+      const stub = installFetch({
+        classifierContent: JSON.stringify({ category, ...(incomplete === "length" ? { confidence: "high" } : {}) }),
+        classifierFinishReason: incomplete === "length" ? "length" : "stop",
+      });
+      try {
+        const res = await handleRequest(makeRequest({ message: "Bitte hilf mir damit", image_base64: IMAGE_BASE64 }));
+        const body = await res.json() as JsonRecord;
+        assertEquals(body.refusal_reason, category, "Gefahr darf nicht zum Bild-Fallback werden");
+        assertEquals(stub.answerBodies().length, 0, "kein Vision-Call");
+        assertEquals(stub.callsTo("refund_chat_quota").length, 0, "Sicherheitsablehnung bleibt bezahlt");
+      } finally {
+        stub.restore();
+      }
+    }
+  }
+});
+
+Deno.test("Review: Provider-Sicherheitsfilter bleibt in jedem Modus ohne Refund gesperrt", async () => {
+  for (const extra of [{}, { image_base64: IMAGE_BASE64 }, { mode: "recipe" }, { mode: "plan" }]) {
+    const stub = installFetch({ classifierContent: "", classifierFinishReason: "content_filter" });
+    try {
+      const res = await handleRequest(makeRequest({ message: "Bitte hilf mir damit", ...extra }));
+      assertEquals(res.status, 502, "keine verwendbare Providerantwort");
+      assertEquals(stub.openRouterBodies.length, 1, "kein weiterer Provider-Call");
+      assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein gratis Wiederholungsbudget");
     } finally {
       stub.restore();
     }

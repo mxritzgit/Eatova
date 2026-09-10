@@ -295,8 +295,8 @@ function installFetch(options: StubOptions = {}): FetchStub {
     }
     if (url.includes("openrouter.ai")) {
       const parsed = JSON.parse(body) as JsonRecord;
-      // Die drei Chat-Calls trennen sich am Token-Budget (50/800/900).
-      if (parsed.max_tokens === 50) {
+      // Die drei Chat-Calls trennen sich am Token-Budget (256/800/900).
+      if (parsed.max_tokens === 256) {
         return jsonRes({
           choices: [{
             message: {

@@ -60,7 +60,7 @@ interface RecordedCall {
 interface StubOptions {
   /** "ok" (default), "exhausted" or "forbidden" (claim must never happen). */
   quota?: "ok" | "exhausted" | "forbidden";
-  /** Category returned by the classifier call (max_tokens 50). */
+  /** Category returned by the classifier call (max_tokens 256). */
   classifierCategory?: string;
   /**
    * RAW content of the classifier reply, overriding classifierCategory. For
@@ -102,7 +102,7 @@ const CLASSIFIER_UNUSABLE_REPLY_EN =
 
 /**
  * The three OpenRouter chat calls are told apart by their token budget
- * (classifier 50, answer 800, draft 900), as in handler_test.ts.
+ * (classifier 256, answer 800, draft 900), as in handler_test.ts.
  */
 function maxTokensOf(body: string): number {
   return Number((JSON.parse(body) as JsonRecord).max_tokens);
@@ -210,7 +210,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
       const budget = maxTokensOf(body);
       // Classifier BEFORE the draftStatus branch: a simulated draft failure
       // must not take the layer-2 call down with it.
-      if (budget === 50) {
+      if (budget === 256) {
         return jsonRes({
           choices: [{
             message: {
@@ -349,7 +349,7 @@ Deno.test("Recipe-Mode Happy Path: Rezept + Bild + Summary, 1 Slot", async () =>
     // call.
     assertEquals(stub.callsTo("chat/completions").length, 2, "Classifier + Draft");
     assertEquals(
-      completionsWithBudget(stub, 50).length,
+      completionsWithBudget(stub, 256).length,
       1,
       "Layer 2 laeuft auch im Rezept-Modus",
     );

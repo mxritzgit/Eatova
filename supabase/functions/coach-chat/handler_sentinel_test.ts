@@ -107,7 +107,7 @@ function installFetch(options: StubOptions = {}) {
     }
     if (url.includes("openrouter.ai")) {
       const parsed = JSON.parse(body) as JsonRecord;
-      if (parsed.max_tokens === 50) {
+      if (parsed.max_tokens === 256) {
         return jsonRes({
           choices: [{
             message: {
@@ -280,7 +280,7 @@ Deno.test("E5: User-Message nicht speicherbar -> Fehler statt Antwort auf eine N
     assertEquals(res.status, 500, "Status");
     assertEquals(body.error, "store_failed", "Fehlercode");
     assert(
-      stub.calls.every((c) => !c.url.includes("openrouter.ai") || JSON.parse(c.body).max_tokens === 50),
+      stub.calls.every((c) => !c.url.includes("openrouter.ai") || JSON.parse(c.body).max_tokens === 256),
       "kein teurer Answer-Call fuer eine Nachricht, die nicht persistiert ist",
     );
     // The claimed slot is refunded here too.
