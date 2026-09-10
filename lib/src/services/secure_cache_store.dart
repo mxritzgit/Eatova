@@ -1404,10 +1404,15 @@ class EncryptedKeyValueStore implements KeyValueStore, RawSlotProbe {
   /// unusable value are both `null`.
   final Set<String> _cipherUnavailableKeys = <String>{};
 
+  // Receipts are authoritative fences over OTHER slots. Losing one must not
+  // turn stale history or a recovery checkpoint into an undeleted workout.
+  static bool _preserveBrokenSlot(String key) =>
+      key.startsWith('eatova.v1.training_history_deletions.');
+
   @override
   Future<String?> getString(String key) async {
     final raw = await _inner.getString(key);
-    if (raw == null || raw.isEmpty) {
+    if (raw == null || (raw.isEmpty && !_preserveBrokenSlot(key))) {
       _cipherUnavailableKeys.remove(key);
       return null;
     }
@@ -1472,7 +1477,9 @@ class EncryptedKeyValueStore implements KeyValueStore, RawSlotProbe {
   @override
   Future<RawSlotState> rawSlotState(String key) async {
     final raw = await _inner.getString(key);
-    if (raw == null || raw.isEmpty) return RawSlotState.empty;
+    if (raw == null || (raw.isEmpty && !_preserveBrokenSlot(key))) {
+      return RawSlotState.empty;
+    }
     return _cipherUnavailableKeys.contains(key)
         ? RawSlotState.unreadableForNow
         // The last read handed the value over (or none has run): whatever the
@@ -1615,13 +1622,16 @@ class EncryptedKeyValueStore implements KeyValueStore, RawSlotProbe {
 
   /// A slot is provably undecryptable (invalidated keystore key, restored
   /// backup, tampering) or lost its magic after the migration closed — ONLY
-  /// these cases, see [_provesBrokenCiphertext]. Purges PER KEY.
+  /// these cases, see [_provesBrokenCiphertext]. Purges PER KEY, except for
+  /// authoritative deletion fences that cannot safely be replaced by empty.
   Future<void> _onUndecryptable(String key, Object error, StackTrace s) async {
-    try {
-      await _inner.remove(key);
-    } catch (e) {
-      dev.log('EncryptedKeyValueStore: remove nach Decrypt-Fehler scheiterte',
-          error: e, name: 'secure_cache_store');
+    if (!_preserveBrokenSlot(key)) {
+      try {
+        await _inner.remove(key);
+      } catch (e) {
+        dev.log('EncryptedKeyValueStore: remove nach Decrypt-Fehler scheiterte',
+            error: e, name: 'secure_cache_store');
+      }
     }
     if (error is ExpiredPlaintextCacheSlot) {
       if (_expiredPlaintextReported) return;

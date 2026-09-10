@@ -84,11 +84,18 @@ class SharedPreferencesStore implements KeyValueStore {
   Future<String?> getString(String key) async => _prefs.getString(key);
 
   @override
-  Future<void> setString(String key, String value) =>
-      _prefs.setString(key, value);
+  Future<void> setString(String key, String value) async {
+    if (!await _prefs.setString(key, value)) {
+      throw StateError('Preferences write was not acknowledged');
+    }
+  }
 
   @override
-  Future<void> remove(String key) => _prefs.remove(key);
+  Future<void> remove(String key) async {
+    if (!await _prefs.remove(key)) {
+      throw StateError('Preferences removal was not acknowledged');
+    }
+  }
 }
 
 /// In-memory store for tests (no plugin channel needed).
@@ -473,11 +480,36 @@ class LocalCache {
 
   /// UUID-only receipts fence stale history and recovery even when mirror
   /// cleanup fails. Never replace unreadable receipts with an empty set.
-  Future<Set<String>> readTrainingHistoryDeletions() async {
-    final json = await _readJson(_trainingHistoryDeletionsKey);
-    if (json == null) {
+  Future<Set<String>> readTrainingHistoryDeletions() =>
+      _queueTrainingDeletion(_readTrainingHistoryDeletionsNow).timeout(
+        settleBudget,
+        onTimeout: () => throw const UnreadableCacheSlot(
+          'training_history_deletions', 'Pending cache operation',
+        ),
+      );
+
+  Future<Set<String>> _readTrainingHistoryDeletionsNow() async {
+    // Unlike mirrors, even an empty string or invalid JSON is an occupied,
+    // unreadable fence. Only an absent slot establishes no prior deletions.
+    final String? raw;
+    try {
+      raw = await _store.getString(_trainingHistoryDeletionsKey);
+    } catch (error) {
+      throw UnreadableCacheSlot(
+          'training_history_deletions', error.runtimeType.toString());
+    }
+    if (raw == null) {
       await _assertSlotEmpty(_trainingHistoryDeletionsKey, 'training_history_deletions');
       return {};
+    }
+    final dynamic json;
+    try {
+      json = jsonDecode(raw);
+    } catch (_) {
+      throw const FormatException('Invalid training deletion receipts');
+    }
+    if (json is! Map<String, dynamic>) {
+      throw const FormatException('Invalid training deletion receipts');
     }
     final ids = json['ids'];
     if (json.length != 1 || ids is! List || ids.length > 100000 ||
@@ -488,22 +520,44 @@ class LocalCache {
     return ids.cast<String>().toSet();
   }
 
-  Future<void> _trainingDeletionWriteTail = Future<void>.value();
+  // SharedPreferences is global. Keep the whole read/modify/write ordered
+  // across cache instances, even after logout's bounded settle expires.
+  // Reads and account-deletion purges use the same namespace queue.
+  static final Map<String, Future<void>> _trainingDeletionTails = {};
+
+  Future<T> _queueTrainingDeletion<T>(Future<T> Function() operation) {
+    final key = _trainingHistoryDeletionsKey;
+    final prior = _trainingDeletionTails[key] ?? Future<void>.value();
+    final result = prior.then((_) => operation());
+    final tail = result.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _trainingDeletionTails[key] = tail;
+    unawaited(tail.then((_) {
+      if (identical(_trainingDeletionTails[key], tail)) {
+        _trainingDeletionTails.remove(key);
+      }
+    }));
+    return result;
+  }
 
   Future<bool> rememberTrainingHistoryDeletion(String id) {
     if (!isUuidShape(id)) throw const FormatException('Invalid training history ID');
-    final write = _trainingDeletionWriteTail.then((_) async {
+    final write = _queueTrainingDeletion(() async {
       if (_closed) return false;
-      final ids = await readTrainingHistoryDeletions();
+      final ids = await _readTrainingHistoryDeletionsNow();
       if (_closed) return false;
-      if (ids.contains(id)) return true;
-      if (ids.length >= 100000) throw StateError('Training deletion receipt limit reached');
+      if (!ids.contains(id) && ids.length >= 100000) {
+        throw StateError('Training deletion receipt limit reached');
+      }
       ids.add(id);
+      // A failed SharedPreferences write may already be visible in its
+      // optimistic memory cache. Even an existing ID needs a confirmed write
+      // before the caller may consume the corresponding outbox operation.
       return _writeDurableNow(_trainingHistoryDeletionsKey,
           'training_history_deletions', {'ids': ids.toList()});
     });
-    _trainingDeletionWriteTail = write.then<void>((_) {}, onError: (Object _) {});
-    return _trackWrite(write);
+    // Timeout releases the caller, never the namespace lock. A later retry
+    // must still wait behind the unfinished write and merge its final state.
+    return _trackWrite(write).timeout(settleBudget, onTimeout: () => false);
   }
 
   static Map<String, dynamic> _trainingPlansToJson(List<TrainingPlan> plans) =>
@@ -767,6 +821,10 @@ class LocalCache {
     // write the just-deleted PII straight back (F1-02).
     close();
 
+    final receiptPurge = preserveOutbox ? null : _trackWrite(
+      _queueTrainingDeletion(() => _store.remove(_trainingHistoryDeletionsKey)),
+    );
+
     await _store.remove(_profileKey);
     await _store.remove(_legacyDailyKey);
     await _store.remove(_statsKey);
@@ -786,9 +844,11 @@ class LocalCache {
     // Steps/burned kcal are health data — same M-1 reason.
     await _store.remove(_dailyActivityKey);
     if (preserveOutbox) return;
-    await _store.remove(_trainingHistoryDeletionsKey);
     await _store.remove(_outboxKey);
     await _store.remove(_pendingStatsKey);
+    // A timed-out old encryption may still land. Its ordered purge remains
+    // queued even if this await times out; subsequent reads cannot bypass it.
+    await receiptPurge!.timeout(settleBudget);
   }
 
   // ---- Debounced blob writes (G9b) ----------------------------------------
@@ -1007,9 +1067,9 @@ class LocalCache {
   /// through the decorator would return `null` once more and this check would
   /// wave the loss through. The raw look needs no cipher and cannot.
   ///
-  /// A provably broken ciphertext stays "empty": the decorator PURGES such a
-  /// slot on read, so the raw look finds nothing — correct, since nothing is
-  /// left that overwriting could lose.
+  /// Broken mirror ciphertext is purged and counts as empty. Authoritative
+  /// training-deletion receipts stay occupied even when their bytes are
+  /// irreparable: they fence stale data held in other slots.
   ///
   /// P3-02c: the throw carries [UnreadableCacheSlot.transient], so the caller
   /// can tell a slot that is merely unreadable RIGHT NOW from one whose
