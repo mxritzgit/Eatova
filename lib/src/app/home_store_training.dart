@@ -80,6 +80,7 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
     _ensureTrainingSessionActive();
     _mutate(() {
       _trainingSession = recovered;
+      _protectedTrainingRecoveryId = recovered?.sessionId;
       _trainingSessionRetired =
           recovered != null &&
           !_trainingSourceAllows(recovered) &&
@@ -89,6 +90,21 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
       _trainingSessionVersion++;
     });
   }
+
+  /// Resolve storage before deciding whether to resume or start a workout.
+  Future<TrainingSessionSnapshot?> prepareTrainingSessionRecovery() =>
+      _serializeTrainingSession(() async {
+        _ensureTrainingSessionActive();
+        if (sync != null && !_outboxInitialHydrationComplete) {
+          throw StateError('Training storage is still loading');
+        }
+        await _repairTrainingHistoryDeletions();
+        await _repairTrainingSessionRead();
+        _ensureTrainingSessionActive();
+        final recovery = trainingSession;
+        _protectedTrainingRecoveryId = recovery?.sessionId;
+        return recovery;
+      });
 
   /// A retired route may leave without writing over a replacement checkpoint.
   bool isTrainingSessionRetired({
@@ -125,6 +141,11 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
         throw StateError('Pending training completion must be retried');
       }
       final active = trainingSession;
+      if (validated != null && active != null &&
+          active.sessionId == _protectedTrainingRecoveryId &&
+          validated.sessionId != active.sessionId) {
+        throw StateError('Existing training recovery must be resolved');
+      }
       final sourceId =
           sourcePlanId ?? validated?.plan.id ?? _trainingSession?.plan.id;
       if ((sourcePlanId != null &&
@@ -146,6 +167,7 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
       _ensureTrainingSessionActive();
       _mutate(() {
         _trainingSession = validated;
+        if (validated == null) _protectedTrainingRecoveryId = null;
         _trainingSessionRetired = false;
         _trainingSessionVersion++;
       });

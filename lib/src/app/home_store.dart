@@ -190,7 +190,8 @@ abstract class _HomeStoreBase extends ChangeNotifier {
     _trainingHistoryKnown = true;
     _trainingHistoryVersion++;
   }
-  bool trainingHistoryLoadFailed = false;
+  bool _trainingHistoryLoadFailed = false;
+  bool get trainingHistoryLoadFailed => _trainingHistoryLoadFailed || _trainingHistoryDeletionReadFailed;
 
 
   List<TrainingPlan> _trainingPlansState = const <TrainingPlan>[];
@@ -201,6 +202,7 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   TrainingSessionSnapshot? _trainingSession;
   bool _trainingSessionRetired = false;
   bool _trainingSessionHydrationFailed = false;
+  String? _protectedTrainingRecoveryId;
   TrainingSessionSnapshot? get trainingSession {
     final snapshot = _trainingSession;
     if (_trainingHistoryDeletionReadFailed || snapshot == null || _trainingSessionRetired || _trainingHistoryDeletedIds.contains(snapshot.sessionId) || trainingHistory.any((entry) => entry.id == snapshot.sessionId)) return null;
@@ -929,6 +931,9 @@ class HomeStore extends _HomeStoreBase
       }
       if (sessionVersion == _trainingSessionVersion && !_trainingSessionEnded) {
         _trainingSession = cachedTrainingSession;
+        if (trainingDeletionReadFailed || trainingSessionReadFailed) {
+          _protectedTrainingRecoveryId = cachedTrainingSession?.sessionId;
+        }
       }
       // Merge, not assign: an early health refresh may already have written
       // today before hydration finished — the newer in-memory value wins for
@@ -983,6 +988,19 @@ class HomeStore extends _HomeStoreBase
     final s = sync!;
     final today = clock.now();
     _mutate(() => _bootLoadInFlight = true);
+    // Retry local privacy reads as well as the server. Offline repair can
+    // restore the preserved history and unfinished checkpoint independently.
+    if (_trainingHistoryDeletionReadFailed || _trainingSessionHydrationFailed) {
+      try {
+        await prepareTrainingSessionRecovery();
+      } catch (_) {
+        // Keep this collection hidden; unrelated server loads remain useful.
+      }
+      if (_disposed || _trainingSessionEnded) {
+        _bootLoadInFlight = false;
+        return;
+      }
+    }
     // F1-01: the gate is open on the cached profile while these loads run, so
     // a live write can land in the window. Remember each collection's version
     // and content BEFORE the requests go out: unchanged afterwards means the
@@ -1112,11 +1130,11 @@ class HomeStore extends _HomeStoreBase
       }
 
       final loadedTrainingHistory = results[7] as List<TrainingHistoryEntry>?;
-      trainingHistoryLoadFailed = loadedTrainingHistory == null || _trainingHistoryDeletionReadFailed;
+      _trainingHistoryLoadFailed = loadedTrainingHistory == null;
       if (loadedTrainingHistory != null) {
         _trainingHistory = vorher.trainingHistoryVersion == _trainingHistoryVersion
             ? loadedTrainingHistory
-            : _mergeRacedLoad(local: trainingHistory, server: loadedTrainingHistory,
+            : _mergeRacedLoad(local: _trainingHistoryState, server: loadedTrainingHistory,
                 baseline: vorher.trainingHistory, keyOf: (entry) => entry.id);
       }
       final loadedTrainingPlans = results[6] as List<TrainingPlan>?;
@@ -1418,7 +1436,7 @@ class _BootBaseline {
         weightLog: store.weightLog,
         userRecipes: store._userRecipes,
         trainingPlans: store.trainingPlans,
-        trainingHistory: store.trainingHistory,
+        trainingHistory: store._trainingHistoryState,
       );
 
   final int profileVersion;

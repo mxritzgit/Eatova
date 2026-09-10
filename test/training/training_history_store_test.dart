@@ -26,6 +26,7 @@ import 'training_timer_fixtures.dart';
 
 class _Server {
   bool offline = false;
+  bool failLoads = false;
   bool ambiguous = false;
   bool rejectHistory = false;
   bool hideHistory = false;
@@ -37,6 +38,14 @@ class _Server {
   final deleted = <String>{};
   Future<http.Response> handle(http.Request request) async {
     requests.add(request);
+    if (failLoads && request.method == 'GET') {
+      return http.Response(
+        '{"code":"PGRST000","message":"fixture load unavailable"}',
+        400,
+        headers: {'content-type': 'application/json'},
+        request: request,
+      );
+    }
     if (offline) throw http.ClientException('fixture offline');
     Object? result = [];
     final isHistory = request.url.path.endsWith('/training_history');
@@ -119,6 +128,27 @@ class _Cache extends LocalCache {
   bool failOutbox = false;
   bool failClear = false;
   bool failDeletionReceipt = false;
+  bool failDeletionRead = false;
+  bool failSessionRead = false;
+  Completer<void>? holdDeletionRead;
+
+  @override
+  Future<Set<String>> readTrainingHistoryDeletions() async {
+    if (failDeletionRead) throw StateError('fixture receipt read unavailable');
+    await holdDeletionRead?.future;
+    return super.readTrainingHistoryDeletions();
+  }
+
+  @override
+  Future<TrainingSessionSnapshot?> readTrainingSession({
+    bool requireReadable = false,
+  }) async {
+    if (failSessionRead) {
+      throw StateError('fixture checkpoint read unavailable');
+    }
+    return super.readTrainingSession(requireReadable: requireReadable);
+  }
+
   bool failHistoryMirror = false;
 
   @override
@@ -215,6 +245,27 @@ TrainingHistoryEntry _entry() =>
       controller.dispose();
       return entry;
     });
+
+TrainingSessionSnapshot _unfinished() {
+  final controller = TrainingSessionController(
+    plan: timerPlan(),
+    workoutIndex: 1,
+    autoTick: false,
+  );
+  controller.setCurrentActual(reps: 4, weightKg: 7.5);
+  final snapshot = controller.snapshot();
+  controller.dispose();
+  return snapshot;
+}
+
+Future<void> _seedRecovery(
+  _Harness env,
+  TrainingSessionSnapshot snapshot,
+) async {
+  await env.cache.writeProfile(const UserProfile(onboardingCompleted: true));
+  await env.cache.writeTrainingPlans([snapshot.plan]);
+  await env.cache.writeTrainingSession(snapshot);
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -553,6 +604,188 @@ void main() {
       await expectLater(
         env.store.completeTrainingSession(entry, generation: 0),
         throwsA(isA<TrainingCompletionDeleted>()),
+      );
+    },
+  );
+
+  test(
+    'receipt read failure preserves valid history through complete boot cache snapshots',
+    () async {
+      final storage = InMemoryKeyValueStore();
+      final env = _Harness(_Server()..failLoads = true, storage: storage);
+      final entry = _entry();
+      await env.cache.writeProfile(
+        const UserProfile(onboardingCompleted: true),
+      );
+      await env.cache.writeTrainingHistory([entry]);
+      env.cache.failDeletionRead = true;
+      await h.bootUntilIdle(env.store);
+      expect(env.store.bootLoadInFlight, isFalse);
+      await env.settle();
+      expect(env.store.trainingHistory, isEmpty);
+      expect(env.store.trainingHistoryLoadFailed, isTrue);
+      expect(
+        (await env.cache.readTrainingHistory())!.single.toRow(),
+        entry.toRow(),
+      );
+      env.dispose();
+      final reboot = _Harness(_Server()..failLoads = true, storage: storage);
+      await h.bootUntilIdle(reboot.store);
+      expect(reboot.store.bootLoadInFlight, isFalse);
+      expect(reboot.store.trainingHistory.single.toRow(), entry.toRow());
+    },
+  );
+
+  test(
+    'history retry repairs receipt reads during failed loads and retains hidden pending overlays and recovery',
+    () async {
+      final server = _Server()
+        ..failLoads = true
+        ..rejectHistory = true;
+      final env = _Harness(server, storage: InMemoryKeyValueStore());
+      final snapshot = _unfinished();
+      final synced = _entry();
+      final queued = _entry();
+      await _seedRecovery(env, snapshot);
+      await env.cache.writeTrainingHistory([synced]);
+      await env.cache.writeOutbox([SyncOp.trainingHistoryInsert(queued)]);
+      env.cache.failDeletionRead = true;
+      await h.bootUntilIdle(env.store);
+      expect(env.store.bootLoadInFlight, isFalse);
+      expect(env.store.trainingHistory, isEmpty);
+      expect(env.store.trainingSession, isNull);
+      await env.store.retryTrainingHistory();
+      expect(env.store.trainingHistory, isEmpty);
+      expect(env.store.trainingSession, isNull);
+      env.cache.failDeletionRead = false;
+      await env.store.retryTrainingHistory();
+      expect(env.store.trainingHistory.map((entry) => entry.id).toSet(), {
+        synced.id,
+        queued.id,
+      });
+      expect(env.store.trainingSession!.toJson(), snapshot.toJson());
+      expect(
+        env.store.trainingHistoryLoadFailed,
+        isTrue,
+      ); // Network still offline.
+      server.failLoads = false;
+      server.rejectHistory = false;
+      server.seedPlan = true;
+      server.rows['A:${synced.id}'] = {'user_id': 'A', ...synced.toRow()};
+      await env.store.retryTrainingHistory();
+      expect(env.store.trainingHistoryLoadFailed, isFalse);
+      expect(env.store.trainingHistory.map((entry) => entry.id).toSet(), {
+        synced.id,
+        queued.id,
+      });
+      expect(env.store.trainingSession!.sessionId, snapshot.sessionId);
+    },
+  );
+
+  for (final prepareFirst in [false, true]) {
+    test(
+      'repaired unfinished recovery rejects an unrelated session until explicitly cleared (prepare=$prepareFirst)',
+      () async {
+        final env = _Harness(
+          _Server()..failLoads = true,
+          storage: InMemoryKeyValueStore(),
+        );
+        final snapshot = _unfinished();
+        await _seedRecovery(env, snapshot);
+        env.cache.failDeletionRead = true;
+        await h.bootUntilIdle(env.store);
+        expect(env.store.bootLoadInFlight, isFalse);
+        expect(env.store.trainingSession, isNull);
+        await expectLater(
+          env.store.prepareTrainingSessionRecovery(),
+          throwsStateError,
+        );
+        env.cache.failDeletionRead = false;
+        if (prepareFirst) {
+          expect(
+            (await env.store.prepareTrainingSessionRecovery())!.toJson(),
+            snapshot.toJson(),
+          );
+        }
+        final fresh = _unfinished();
+        expect(fresh.sessionId, isNot(snapshot.sessionId));
+        await expectLater(
+          env.store.saveTrainingSession(fresh),
+          throwsStateError,
+        );
+        expect(
+          (await env.cache.readTrainingSession())!.toJson(),
+          snapshot.toJson(),
+        );
+        expect(env.store.trainingSession!.sessionId, snapshot.sessionId);
+        await env.store.saveTrainingSession(snapshot);
+        await env.store.saveTrainingSession(null);
+        await env.store.saveTrainingSession(fresh);
+        expect(env.store.trainingSession!.sessionId, fresh.sessionId);
+      },
+    );
+  }
+
+  test(
+    'prepare repairs checkpoint reads and cannot publish after an account switch',
+    () async {
+      final env = _Harness(
+        _Server()..failLoads = true,
+        storage: InMemoryKeyValueStore(),
+      );
+      final snapshot = _unfinished();
+      await _seedRecovery(env, snapshot);
+      env.cache.failDeletionRead = true;
+      env.cache.failSessionRead = true;
+      await h.bootUntilIdle(env.store);
+      expect(env.store.bootLoadInFlight, isFalse);
+      env.cache.failDeletionRead = false;
+      await expectLater(
+        env.store.prepareTrainingSessionRecovery(),
+        throwsStateError,
+      );
+      env.cache.failSessionRead = false;
+      expect(
+        (await env.store.prepareTrainingSessionRecovery())!.toJson(),
+        snapshot.toJson(),
+      );
+      await signIn(env.client, 'B');
+      await expectLater(
+        env.store.prepareTrainingSessionRecovery(),
+        throwsStateError,
+      );
+      expect(
+        (await env.cache.readTrainingSession())!.toJson(),
+        snapshot.toJson(),
+      );
+    },
+  );
+
+  test(
+    'prepare rejects a late receipt read after its pinned account changes',
+    () async {
+      final env = _Harness(
+        _Server()..failLoads = true,
+        storage: InMemoryKeyValueStore(),
+      );
+      final snapshot = _unfinished();
+      await _seedRecovery(env, snapshot);
+      env.cache.failDeletionRead = true;
+      await h.bootUntilIdle(env.store);
+      expect(env.store.bootLoadInFlight, isFalse);
+      env.cache.failDeletionRead = false;
+      final gate = Completer<void>();
+      env.cache.holdDeletionRead = gate;
+      final preparing = env.store.prepareTrainingSessionRecovery();
+      await h.settle();
+      await signIn(env.client, 'B');
+      final rejected = expectLater(preparing, throwsStateError);
+      gate.complete();
+      await rejected;
+      expect(env.store.trainingSession, isNull);
+      expect(
+        (await env.cache.readTrainingSession())!.toJson(),
+        snapshot.toJson(),
       );
     },
   );

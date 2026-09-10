@@ -785,8 +785,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         if (_disposed || _trainingSessionEnded) return;
         final pending = _outbox.where((op) => op.kind == SyncOpKind.trainingHistoryDelete).map((op) => op.entityId).toSet();
         _mutate(() {
-          final known = trainingHistory.map((entry) => entry.id).toSet();
-          _trainingHistory = [...trainingHistory, ...rows.where((entry) => trainingHistoryIds.contains(entry.id) && !known.contains(entry.id) && !pending.contains(entry.id))];
+          final known = _trainingHistoryState.map((entry) => entry.id).toSet();
+          _trainingHistory = [..._trainingHistoryState, ...rows.where((entry) => trainingHistoryIds.contains(entry.id) && !known.contains(entry.id) && !pending.contains(entry.id))];
         });
         _cacheTrainingHistory();
       } catch (e, st) { _reportRestoreFailure('training-history', e, st); }
@@ -1482,9 +1482,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
               _userRecipes.where((r) => r.slug != op.entityId).toList();
         case SyncOpKind.trainingHistoryInsert:
           final entry = op.trainingHistory;
-          if (entry != null) _trainingHistory = [entry, ...trainingHistory.where((item) => item.id != entry.id)];
+          if (entry != null) _trainingHistory = [entry, ..._trainingHistoryState.where((item) => item.id != entry.id)];
         case SyncOpKind.trainingHistoryDelete:
-          _trainingHistory = trainingHistory.where((entry) => entry.id != op.entityId).toList();
+          _trainingHistory = _trainingHistoryState.where((entry) => entry.id != op.entityId).toList();
         case SyncOpKind.trainingPlanUpsert:
           final plan = op.trainingPlan;
           if (plan == null) break;
@@ -1734,7 +1734,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     // showed an empty own-recipe list.
     await cache.writeUserRecipes(_userRecipes);
     if (_disposed) return;
-    if (_trainingHistoryKnown) await cache.writeTrainingHistory(trainingHistory);
+    if (_trainingHistoryKnown && !_trainingHistoryDeletionReadFailed) {
+      await cache.writeTrainingHistory(trainingHistory);
+    }
     if (_trainingPlansKnown) await cache.writeTrainingPlans(trainingPlans);
   }
 
@@ -1846,6 +1848,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     }
     _ensureTrainingHistoryOwner();
     _mutate(() {
+      if (_trainingHistoryDeletionReadFailed) {
+        _protectedTrainingRecoveryId = _trainingSession?.sessionId;
+      }
       _trainingHistoryDeletedIds.addAll(ids);
       _trainingHistoryDeletionReadFailed = false;
       _trainingHistoryDeletionsHydrated = true;

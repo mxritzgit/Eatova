@@ -75,7 +75,7 @@ mixin _HomeStoreTrainingHistoryPart
     _mutate(() {
       _trainingHistory = [
         validated,
-        ...trainingHistory.where((item) => item.id != entry.id),
+        ..._trainingHistoryState.where((item) => item.id != entry.id),
       ];
       _trainingSessionRetired = true;
       _retireTrainingSource(entry.snapshot.plan.id);
@@ -122,12 +122,6 @@ mixin _HomeStoreTrainingHistoryPart
     );
     _ensureTrainingSessionActive();
     await _rememberTrainingHistoryDeletion(id);
-    _mutate(
-      () => _trainingHistory = trainingHistory
-          .where((entry) => entry.id != id)
-          .toList(),
-    );
-    _cacheTrainingHistory();
     return delivery;
   });
 }
