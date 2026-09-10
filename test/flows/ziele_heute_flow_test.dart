@@ -15,7 +15,9 @@
 // sentences.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase/supabase.dart';
 
 import 'package:eatova/main.dart';
@@ -26,6 +28,7 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/today/today_texts.dart' show kcalThousands;
 import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/kcal_calculator.dart';
+import 'package:eatova/src/services/secure_cache_store.dart';
 import 'package:eatova/src/widgets/design/design.dart' show AppToggle;
 
 import '../fixlauf_a_helpers.dart';
@@ -188,6 +191,25 @@ void main() {
   testWidgetsRobust(
       'Ziele: Rechner-Modus landet auf Heute, Manuell friert das Ziel ein',
       (WidgetTester tester) async {
+    // This flow checks server persistence with unavailable local storage.
+    // Cache boot is scoped to sync.userId, even when the fake HTTP client has
+    // no auth session. Resolve both native storage boundaries explicitly;
+    // platform storage I/O otherwise stalls in the widget's fake-async zone.
+    SharedPreferences.setMockInitialValues({});
+    CacheKeyProvider.debugReset();
+    addTearDown(CacheKeyProvider.debugReset);
+    var keystoreReads = 0;
+    const secureStorage =
+        MethodChannel('plugins.it_nomads.com/flutter_secure_storage');
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      secureStorage,
+      (call) async {
+        if (call.method == 'read') keystoreReads++;
+        throw PlatformException(code: 'keystore-unavailable');
+      },
+    );
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(secureStorage, null));
     tester.platformDispatcher.localesTestValue = const [Locale('en', 'US')];
     addTearDown(tester.platformDispatcher.clearLocalesTestValue);
 
@@ -219,6 +241,8 @@ void main() {
     );
     expect(_storeOf(tester).sync, isNotNull,
         reason: 'ohne echten Sync prueft dieser Flow nur In-Memory-Felder');
+    expect(keystoreReads, 1,
+        reason: 'der Flow bootet explizit ohne verfuegbaren lokalen Cache');
 
     // Cold start: the hero shows the server profile.
     expect(await _heuteTab(tester), _erwartet(_startProfil.dailyKcalGoal));
