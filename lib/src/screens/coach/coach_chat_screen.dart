@@ -974,15 +974,25 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     List<ChatMessage> history,
   ) async {
     final result = List<ChatMessage>.of(history);
+    // Proposal images are independent local reads. Loading them one by one
+    // made opening a long conversation wait for every file in sequence,
+    // even though the history itself was already available. Start all reads
+    // together and apply the results by index so message order stays stable.
+    final imageStore = RecipeImageStore.instance;
+    final reads = <Future<(int, ChatMessage, Uint8List?)>>[];
     for (var i = 0; i < result.length; i++) {
       final message = result[i];
       final proposal = message.recipeProposal;
       if (proposal == null || proposal.imageBytes != null) continue;
-      final bytes = await RecipeImageStore.instance.readProposalImage(
-        message.id,
-      );
-      if (bytes == null) continue;
-      result[i] = ChatMessage(
+      reads.add(() async {
+        final bytes = await imageStore.readProposalImage(message.id);
+        return (i, message, bytes);
+      }());
+    }
+    for (final (index, message, bytes) in await Future.wait(reads)) {
+      final proposal = message.recipeProposal;
+      if (proposal == null || bytes == null) continue;
+      result[index] = ChatMessage(
         id: message.id,
         role: message.role,
         content: message.content,
