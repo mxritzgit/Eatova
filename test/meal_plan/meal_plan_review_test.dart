@@ -99,6 +99,7 @@ void main() {
     'eaten checked quantities must not check a new meal with the same amount',
     () {
       final recipe = fitnessRecipes.first.copyWith(
+        ingredients: '',
         structuredIngredients: [
           RecipeIngredient(
             name: 'Oats',

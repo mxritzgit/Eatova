@@ -10,6 +10,7 @@ import '../../models/planned_meal.dart';
 import '../../models/shopping_list.dart';
 import '../../services/local_day.dart';
 import '../../services/sync_error_messages.dart';
+import '../../services/uuid.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
 import '../../widgets/common/app_snack.dart';
@@ -67,6 +68,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      useSafeArea: true,
       backgroundColor: context.t.bg,
       builder: (_) => _PlanEditor(store: store, day: day, plan: plan),
     );
@@ -360,6 +362,7 @@ class _PlanEditor extends StatefulWidget {
 }
 
 class _PlanEditorState extends State<_PlanEditor> {
+  late final String _draftId = widget.plan?.id ?? uuidV4();
   late final _servings = TextEditingController(
     text: '${widget.plan?.servings ?? 1}',
   );
@@ -401,6 +404,7 @@ class _PlanEditorState extends State<_PlanEditor> {
       final plan =
           widget.plan?.copyWith(day: _day, slot: _slot, servings: amount) ??
           PlannedMeal.create(
+            id: _draftId,
             recipe: _recipe!,
             day: _day,
             slot: _slot,

@@ -47,7 +47,8 @@ List<ShoppingItem> buildShoppingList(
         ..sort((a, b) => a.id.compareTo(b.id));
   for (final plan in sorted) {
     final recipe = plan.recipe;
-    if (recipe.structuredIngredients.isEmpty) {
+    if (recipe.structuredIngredients.isEmpty ||
+        recipe.ingredients.trim().isNotEmpty) {
       unquantified.add(
         ShoppingItem(
           id: identity(['text', plan.id, recipe.ingredients, plan.servings]),
@@ -56,7 +57,6 @@ List<ShoppingItem> buildShoppingList(
           servings: plan.servings,
         ),
       );
-      continue;
     }
     for (final ingredient in recipe.structuredIngredients) {
       final key = ingredient.shoppingKey;

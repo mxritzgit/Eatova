@@ -28,7 +28,7 @@ FitnessRecipe recipe({
   double batch = 1,
 }) => fitnessRecipes.first.copyWith(
   title: 'Oats',
-  ingredients: '100 g oats\nMilk to taste',
+  ingredients: ingredients.isEmpty ? '100 g oats\nMilk to taste' : '',
   structuredIngredients: ingredients,
   batchServings: batch,
 );
@@ -245,6 +245,61 @@ void main() {
   });
 
   test(
+    'mixed recipe shopping keeps supplementary text and its check identity',
+    () {
+      final mixedRecipe = recipe(
+        ingredients: [oats(200)],
+        batch: 2,
+      ).copyWith(ingredients: 'Salt to taste');
+      final mixed = plan(value: mixedRecipe, servings: 1.5);
+      final items = buildShoppingList([mixed], today);
+      expect(items.where((i) => i.grams != null).single.grams, 150);
+      final text = items.where((i) => i.grams == null).single;
+      expect(text.name, 'Salt to taste');
+      expect(text.recipeTitle, 'Oats');
+      expect(text.servings, 1.5);
+      expect(
+        buildShoppingList([
+          mixed.copyWith(slot: MealSlot.lunch),
+        ], today).where((i) => i.grams == null).single.id,
+        text.id,
+      );
+      expect(
+        buildShoppingList([
+          mixed.copyWith(servings: 2),
+        ], today).where((i) => i.grams == null).single.id,
+        isNot(text.id),
+      );
+      final changed = plan(
+        value: mixedRecipe.copyWith(ingredients: 'Pepper to taste'),
+        servings: 1.5,
+        id: mixed.id,
+      );
+      expect(
+        buildShoppingList([
+          changed,
+        ], today).where((i) => i.grams == null).single.id,
+        isNot(text.id),
+      );
+      for (final empty in ['', '  \n ']) {
+        expect(
+          buildShoppingList([
+            plan(value: mixedRecipe.copyWith(ingredients: empty)),
+          ], today).where((i) => i.grams == null),
+          isEmpty,
+        );
+      }
+      // A recipe with no ingredient information retains its honest reminder.
+      expect(
+        buildShoppingList([
+          plan(value: recipe().copyWith(ingredients: '')),
+        ], today).single.grams,
+        isNull,
+      );
+    },
+  );
+
+  test(
     'offline plan/check/edit/eaten survives cold restart without duplicate or future log',
     () async {
       await withClock(Clock.fixed(today), () async {
@@ -396,6 +451,39 @@ void main() {
       expect(store.loggedMeals.single.effectiveLocalDay, '2026-09-10');
       expect(tester.takeException(), isNull);
     });
+  });
+
+  testWidgets('full recipe selector stays below the top system inset', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding = const FakeViewPadding(top: 72);
+    tester.view.viewPadding = const FakeViewPadding(top: 72);
+    addTearDown(tester.view.reset);
+    final store = HomeStore(
+      sync: null,
+      health: const NoopHealthService(),
+      notificationService: const NoopNotificationService(),
+      initialUserName: 'Fixture',
+      emitSnack: h.SnackCapture().call,
+    );
+    addTearDown(store.dispose);
+    await pumpLocalized(
+      tester,
+      MealPlanScreen(store: store),
+      locale: const Locale('en'),
+      surfaceSize: const Size(390, 800),
+      safeArea: false,
+      scaffold: false,
+    );
+    await tester.tap(find.text('Plan a meal').first);
+    await tester.pumpAndSettle();
+    final title = find.descendant(
+      of: find.byType(BottomSheet),
+      matching: find.text('Plan a meal'),
+    );
+    expect(tester.getTopLeft(title).dy, greaterThanOrEqualTo(72));
+    expect(tester.takeException(), isNull);
   });
 
   for (final locale in ['de', 'en']) {
