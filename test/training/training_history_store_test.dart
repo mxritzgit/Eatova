@@ -713,6 +713,13 @@ void main() {
           env.store.saveTrainingSession(fresh),
           throwsStateError,
         );
+        await expectLater(
+          env.store.completeTrainingSession(
+            _entry(),
+            generation: env.store.trainingSessionGeneration,
+          ),
+          throwsStateError,
+        );
         expect(
           (await env.cache.readTrainingSession())!.toJson(),
           snapshot.toJson(),
@@ -725,6 +732,34 @@ void main() {
       },
     );
   }
+
+  test(
+    'prepared unfinished recovery can complete its matching session',
+    () async {
+      final env = _Harness(
+        _Server()..failLoads = true,
+        storage: InMemoryKeyValueStore(),
+      );
+      final snapshot = _unfinished();
+      await _seedRecovery(env, snapshot);
+      await h.bootUntilIdle(env.store);
+      final recovered = await env.store.prepareTrainingSessionRecovery();
+      final controller = TrainingSessionController.fromSnapshot(
+        recovered!,
+        autoTick: false,
+      );
+      controller.start();
+      controller.completeCurrentSet();
+      final completed = controller.completion();
+      controller.dispose();
+      await env.store.completeTrainingSession(
+        completed,
+        generation: env.store.trainingSessionGeneration,
+      );
+      expect(env.store.trainingHistory.single.id, snapshot.sessionId);
+      expect(env.store.trainingSession, isNull);
+    },
+  );
 
   test(
     'prepare repairs checkpoint reads and cannot publish after an account switch',

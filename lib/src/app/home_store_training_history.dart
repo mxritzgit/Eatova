@@ -45,6 +45,12 @@ mixin _HomeStoreTrainingHistoryPart
       throw const TrainingCompletionSourceRetired();
     }
     final validated = TrainingHistoryEntry.fromRow(entry.toRow());
+    final active = trainingSession;
+    if (active != null &&
+        active.sessionId == _protectedTrainingRecoveryId &&
+        validated.id != active.sessionId) {
+      throw StateError('Existing training recovery must be resolved');
+    }
     if (!trainingHistory.any((item) => item.id == entry.id) &&
         trainingHistory.length >= TrainingHistorySync.limit) {
       throw StateError('Training history limit reached');
