@@ -531,3 +531,17 @@ after green CI. Consult that PR for the final commit/merge state. No backend,
 schema or dependency update is needed; installed clients need a new app build.
 Ignored evidence lives in `.agents/creation-editors/` (final test/analyzer/review
 logs, visual renders and native captures).
+
+## Meal scan context preview design, 2026-09-10
+
+The photo-analysis preview now gives the captured meal a clear visual entry
+point: a photo-check header, ready status, branded photo surface and a focused
+context workspace. The context input keeps the existing 400 UTF-16-unit and
+control-character contract, shows a live limit indicator, and offers localized
+one-tap suggestions that become check states instead of duplicating text.
+
+The account, cancel-before-upload, retry, language and request normalization
+contracts remain unchanged. The new behavior is covered in
+`test/meal_scan_context_test.dart`; the preview was rendered in both palettes
+at 390 px and the existing 320 px/2x-text/keyboard matrix remains green.
+Delivery is still separate until this branch passes full CI and is merged.
