@@ -2005,11 +2005,12 @@
       }
     }
   },
-  "mealPlanPortionCount": "{count} servings",
+  "mealPlanPortionCount": "{count, plural, =1{1 serving} other{{count} servings}}",
   "@mealPlanPortionCount": {
     "placeholders": {
       "count": {
-        "type": "String"
+        "type": "num",
+        "format": "decimalPattern"
       }
     }
   },

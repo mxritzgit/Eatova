@@ -514,6 +514,10 @@ void main() {
         expect(tester.takeException(), isNull);
         await tester.scrollUntilVisible(find.text('Oats'), 150);
         expect(find.text('Oats'), findsOneWidget);
+        expect(
+          find.textContaining(locale == 'de' ? '1 Portion\n' : '1 serving\n'),
+          findsOneWidget,
+        );
         expect(tester.takeException(), isNull);
       });
     });

@@ -2033,11 +2033,12 @@
       }
     }
   },
-  "mealPlanPortionCount": "{count} Portionen",
+  "mealPlanPortionCount": "{count, plural, =1{1 Portion} other{{count} Portionen}}",
   "@mealPlanPortionCount": {
     "placeholders": {
       "count": {
-        "type": "String"
+        "type": "num",
+        "format": "decimalPattern"
       }
     }
   },

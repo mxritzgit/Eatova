@@ -229,13 +229,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      l.mealPlanPortionCount(
-                        NumberFormat.decimalPattern(
-                          l.localeName,
-                        ).format(plan.servings),
-                      ),
-                    ),
+                    Text(l.mealPlanPortionCount(plan.servings)),
                     if (plan.isEaten) ...[
                       const SizedBox(height: 8),
                       Text(
@@ -341,7 +335,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
               subtitle: Text(
                 item.grams != null
                     ? '${NumberFormat('0.##', l.localeName).format(item.grams)} g'
-                    : '${l.mealPlanPortionCount(NumberFormat.decimalPattern(l.localeName).format(item.servings))}\n'
+                    : '${l.mealPlanPortionCount(item.servings!)}\n'
                           '${item.name.isEmpty ? l.mealPlanNoIngredients : item.name}',
               ),
             ),
