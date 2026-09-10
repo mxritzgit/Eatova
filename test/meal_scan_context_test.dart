@@ -285,6 +285,42 @@ void main() {
     },
   );
 
+  testWidgets('context suggestions add once and keep analysis available', (
+    tester,
+  ) async {
+    pinPhoneViewport(tester);
+    await pumpLocalized(
+      tester,
+      const MealScanPreviewSheet(
+        request: MealAnalysisRequest(imageId: 'photo'),
+        previewBytes: null,
+      ),
+      locale: const Locale('de'),
+    );
+
+    final sauceSuggestion = find.widgetWithText(TextButton, 'ohne Sauce');
+    await tester.ensureVisible(sauceSuggestion);
+    await tester.tap(sauceSuggestion);
+    await tester.pump();
+    expect(
+      tester.widget<TextField>(_key('meal-scan-context')).controller!.text,
+      'ohne Sauce',
+    );
+    expect(
+      tester.widget<PrimaryActionButton>(_key('meal-scan-start')).onTap,
+      isNotNull,
+    );
+
+    // A repeated tap becomes a check state instead of duplicating the note.
+    await tester.ensureVisible(sauceSuggestion);
+    await tester.tap(sauceSuggestion);
+    await tester.pump();
+    expect(
+      tester.widget<TextField>(_key('meal-scan-context')).controller!.text,
+      'ohne Sauce',
+    );
+  });
+
   for (final camera in [true, false]) {
     testWidgets(
       'parent disposal during ${camera ? 'camera' : 'gallery'} preview never uploads',
