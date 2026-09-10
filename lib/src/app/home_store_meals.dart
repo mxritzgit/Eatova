@@ -512,6 +512,58 @@ mixin _HomeStoreMealsPart
 
   // --- Own recipes ----------------------------------------------------------
 
+  final Map<String, int> _recipeMutationVersions = {};
+  final Map<String, int> _recipeConfirmedVersions = {};
+
+  /// Saves an editor draft only after delivery or durable outbox acceptance.
+  Future<SyncDelivery> saveUserRecipe(FitnessRecipe recipe) =>
+      _saveRecipeDraft(recipe, requireExisting: false);
+
+  /// Replaces the same owned recipe; a stale route cannot recreate a deletion.
+  Future<SyncDelivery> updateUserRecipe(FitnessRecipe recipe) =>
+      _saveRecipeDraft(recipe, requireExisting: true);
+
+  Future<SyncDelivery> _saveRecipeDraft(
+    FitnessRecipe recipe, {required bool requireExisting}
+  ) async {
+    if (_disposed || _trainingSessionEnded || !recipe.userCreated ||
+        !recipe.slug.startsWith('user_') || recipe.slug.length > 200 ||
+        recipe.title.trim().isEmpty || recipe.title.runes.length > 300 ||
+        recipe.description.runes.length > 4000 ||
+        recipe.portion.runes.length > 1000 ||
+        recipe.ingredients.runes.length > 20000 ||
+        recipe.preparation.runes.length > 20000 ||
+        recipe.imageAsset.runes.length > 2048 ||
+        recipe.categories.length > 32 ||
+        recipe.categories.join(',').runes.length > 2000 ||
+        recipe.caloriesKcal < 0 || recipe.caloriesKcal > 10000 ||
+        recipe.estimatedGrams < 0 || recipe.estimatedGrams > 10000 ||
+        [recipe.proteinG, recipe.carbsG, recipe.fatG].any((n) => n < 0 || n > 1000)) {
+      throw StateError('Recipe cannot be saved');
+    }
+    if (requireExisting && (!_userRecipes.any((r) => r.slug == recipe.slug && r.userCreated) ||
+        _pendingRecipeDeletes.contains(recipe.slug))) {
+      throw StateError('Recipe is no longer available');
+    }
+    final validated = FitnessRecipe.fromRow(recipe.toRow()).copyWith(
+      professionalHint: recipe.professionalHint,
+    );
+    final version = (_recipeMutationVersions[recipe.slug] ?? 0) + 1;
+    _recipeMutationVersions[recipe.slug] = version;
+    final delivery = await _confirmMutation(
+      'Recipe', SyncOp.recipeUpsert(validated),
+      () => sync!.userRecipes.upsert(validated),
+    );
+    if ((_recipeConfirmedVersions[recipe.slug] ?? 0) < version) {
+      _recipeConfirmedVersions[recipe.slug] = version;
+      _mutate(() {
+        _userRecipes = [validated, ..._userRecipes.where((r) => r.slug != recipe.slug)];
+      });
+      _cacheUserRecipes();
+    }
+    return delivery;
+  }
+
   // Gap A: own recipes were the only user collection WITHOUT a local
   // write-through; the outbox was their only safety net. Both mutations
   // therefore mirror into the cache BEFORE the network write.
@@ -527,6 +579,8 @@ mixin _HomeStoreMealsPart
   /// result and says both in ONE sentence, while the store withholds its own
   /// hint ([aufruferMeldetAusgang]).
   Future<SyncDelivery> createUserRecipe(FitnessRecipe recipe) {
+    _recipeConfirmedVersions[recipe.slug] = (_recipeMutationVersions[recipe.slug] ?? 0) + 1;
+    _recipeMutationVersions[recipe.slug] = _recipeConfirmedVersions[recipe.slug]!;
     _mutate(() {
       _userRecipes = [
         recipe,
@@ -550,6 +604,8 @@ mixin _HomeStoreMealsPart
   /// Deletes an own recipe. Reports the outcome like [createUserRecipe] — an
   /// unbacked "deleted" would be the same error in reverse.
   Future<SyncDelivery> deleteUserRecipe(String slug) {
+    _recipeConfirmedVersions[slug] = (_recipeMutationVersions[slug] ?? 0) + 1;
+    _recipeMutationVersions[slug] = _recipeConfirmedVersions[slug]!;
     _mutate(() {
       _userRecipes = _userRecipes.where((r) => r.slug != slug).toList();
       // The undo window is over once the delete is real: drop the flag with
