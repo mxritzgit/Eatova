@@ -86,6 +86,16 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
             monotonicNow: widget.monotonicNow,
             canRun: _canRunSession,
           );
+    _note.text = widget.initialSnapshot?.recoveryNote ?? '';
+    if (widget.initialSnapshot?.pendingCompletionAt != null) {
+      _pendingCompletion = TrainingHistoryEntry.fromRecovery(
+        widget.initialSnapshot!,
+      );
+      _note.text = _pendingCompletion!.note;
+      _saveFailed = true;
+      _retryIntent = _SaveIntent.complete;
+      _terminalIntent = _SaveIntent.complete;
+    }
     _phaseIdentity = _currentPhaseIdentity;
     _hasStartedPhase = widget.initialSnapshot != null;
     _session.addListener(_sessionChanged);
@@ -166,14 +176,19 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
     unawaited(_persist());
   }
 
+  TrainingSessionSnapshot _recoverySnapshot() =>
+      _pendingCompletion?.recoverySnapshot() ??
+      TrainingSessionSnapshot.fromJson({
+        ..._session.snapshot().toJson(),
+        if (_note.text.isNotEmpty) 'recovery_note': _note.text,
+      });
+
   Future<void> _persist([_SaveIntent intent = _SaveIntent.checkpoint]) {
     if ((_leaving || _terminalIntent != null) &&
         intent == _SaveIntent.checkpoint) {
       return Future<void>.value();
     }
-    final snapshot = intent == _SaveIntent.clear
-        ? null
-        : (_pendingCompletion?.snapshot ?? _session.snapshot());
+    final snapshot = intent == _SaveIntent.clear ? null : _recoverySnapshot();
     // Capture the account-pinned callback alongside its immutable value.
     final persist = widget.onPersist;
     if (intent != _SaveIntent.checkpoint) {
@@ -289,7 +304,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
     // External route removal cannot await a save. Retain queue order and never
     // enqueue behind a terminal clear. Root rejects writes after account changes.
     if (!_leaving && _terminalIntent == null) {
-      final snapshot = _session.snapshot();
+      final snapshot = _recoverySnapshot();
       final persist = widget.onPersist;
       _writes = _writes
           .then((_) => persist(snapshot))
@@ -667,7 +682,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
                   const SizedBox(height: 12),
                   for (final reference in _session.completedSets) ...[
                     Text(
-                      '${_session.workout.exercises[reference.exerciseIndex].name} ? ${l.trainingTimerSet(reference.setIndex + 1, _session.workout.exercises[reference.exerciseIndex].sets)}',
+                      '${_session.workout.exercises[reference.exerciseIndex].name} \u00b7 ${l.trainingTimerSet(reference.setIndex + 1, _session.workout.exercises[reference.exerciseIndex].sets)}',
                       style: AppType.ui(
                         15,
                         color: t.ink,
@@ -739,13 +754,17 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
                   const SizedBox(height: 8),
                   SheetField(
                     controller: _note,
+                    fieldKey: const ValueKey('training-history-note'),
                     label: null,
                     semanticLabel: l.trainingHistoryNote,
                     hint: l.trainingActualOptional,
                     maxLines: 3,
                     maxLength: TrainingLimits.notesMaxLength,
                     enabled: !_leaving && _pendingCompletion == null,
-                    onChanged: (_) => _pendingCompletion = null,
+                    onChanged: (_) {
+                      _pendingCompletion = null;
+                      unawaited(_persist());
+                    },
                   ),
                   const SizedBox(height: 16),
                 ],

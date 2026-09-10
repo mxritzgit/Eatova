@@ -28,6 +28,8 @@ class _Server {
   bool offline = false;
   bool ambiguous = false;
   bool rejectHistory = false;
+  bool hideHistory = false;
+  bool seedPlan = false;
   Completer<void>? hold;
   final entered = Completer<void>();
   final rows = <String, Map<String, dynamic>>{};
@@ -60,7 +62,13 @@ class _Server {
       }
     } else if (isHistory) {
       final owner = request.url.queryParameters['user_id']!.substring(3);
-      result = rows.values.where((row) => row['user_id'] == owner).toList();
+      result = hideHistory
+          ? []
+          : rows.values.where((row) => row['user_id'] == owner).toList();
+    } else if (seedPlan &&
+        request.method == 'GET' &&
+        request.url.path.endsWith('/training_plans')) {
+      result = [timerPlan().toRow()];
     } else if (request.url.path.endsWith('/profiles')) {
       result = null;
     } else if (request.url.path.endsWith('/lifetime_stats')) {
@@ -176,7 +184,9 @@ void main() {
         raw,
         AesGcmCacheCipher(Uint8List(32)),
       );
-      final server = _Server()..offline = true;
+      final server = _Server()
+        ..offline = true
+        ..seedPlan = true;
       final first = _Harness(server, storage: storage);
       await first.boot();
       final entry = _entry();
@@ -215,6 +225,79 @@ void main() {
       await b.boot();
       expect(b.store.trainingHistory, isEmpty);
       expect(b.store.trainingSession, isNull);
+    },
+  );
+
+  test(
+    'ambiguous completion preserves its full candidate across restart and source deletion',
+    () async {
+      final raw = InMemoryKeyValueStore();
+      final server = _Server()
+        ..ambiguous = true
+        ..hideHistory = true;
+      final env = _Harness(server, storage: raw);
+      await env.boot();
+      env.cache.failOutbox = true;
+      final original = _entry();
+      final entry = TrainingHistoryEntry(
+        snapshot: original.snapshot,
+        finishedAt: original.finishedAt,
+        note: 'Keep these exact values',
+      );
+      await expectLater(
+        env.store.completeTrainingSession(entry, generation: 0),
+        throwsStateError,
+      );
+      final recovery = (await env.cache.readTrainingSession())!;
+      expect(
+        TrainingHistoryEntry.fromRecovery(recovery).toRow(),
+        entry.toRow(),
+      );
+      expect(server.rows.values.single['session'], entry.toRow()['session']);
+      await expectLater(env.store.saveTrainingSession(null), throwsStateError);
+      await env.store.deleteTrainingPlan(entry.snapshot.plan.id);
+      expect(env.store.trainingSession?.sessionId, entry.id);
+      await env.settle();
+      env.dispose();
+      final reboot = _Harness(server, storage: raw);
+      await reboot.boot();
+      final restored = TrainingHistoryEntry.fromRecovery(
+        reboot.store.trainingSession!,
+      );
+      expect(restored.toRow(), entry.toRow());
+      final changed = TrainingHistoryEntry(
+        snapshot: original.snapshot,
+        finishedAt: original.finishedAt,
+        note: 'Changed after request',
+      );
+      await expectLater(
+        reboot.store.completeTrainingSession(changed, generation: 0),
+        throwsStateError,
+      );
+      server.ambiguous = false;
+      await reboot.store.completeTrainingSession(restored, generation: 0);
+      expect(reboot.store.trainingHistory.single.toRow(), entry.toRow());
+      expect(server.rows.length, 1);
+      expect(await reboot.cache.readTrainingSession(), isNull);
+    },
+  );
+
+  test(
+    'acknowledged history with failed cleanup permits the next workout',
+    () async {
+      final env = _Harness(_Server(), storage: InMemoryKeyValueStore());
+      await env.boot();
+      env.cache.failClear = true;
+      final first = _entry();
+      await env.store.completeTrainingSession(first, generation: 0);
+      final next = _entry();
+      await env.store.saveTrainingSession(next.snapshot);
+      expect(env.store.trainingSession?.sessionId, next.id);
+      await env.store.completeTrainingSession(
+        next,
+        generation: env.store.trainingSessionGeneration,
+      );
+      expect(env.store.trainingHistory.length, 2);
     },
   );
 
@@ -423,7 +506,9 @@ void main() {
       final raw = InMemoryKeyValueStore();
       final cache = LocalCache(raw, 'A');
       await cache.writeOutbox(entries);
-      final server = _Server()..offline = true;
+      final server = _Server()
+        ..offline = true
+        ..seedPlan = true;
       final env = _Harness(server, storage: raw);
       await cache.writeProfile(const UserProfile(onboardingCompleted: true));
       await h.bootUntilIdle(env.store);

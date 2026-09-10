@@ -92,8 +92,10 @@ final class TrainingSetActual {
   }
 }
 
-DateTime trainingTimestamp(Object? value) {
-  if (value is! String || !value.endsWith('Z')) {
+DateTime trainingTimestamp(Object? value, {bool allowOffset = false}) {
+  if (value is! String ||
+      !(value.endsWith('Z') ||
+          (allowOffset && RegExp(r'[+-][0-9]{2}:[0-9]{2}$').hasMatch(value)))) {
     throw const FormatException('Invalid training timestamp');
   }
   final date = DateTime.tryParse(value);
@@ -112,6 +114,9 @@ final class TrainingSessionSnapshot {
     List<TrainingSetActual> actualSets = const [],
     this.draftReps,
     this.draftWeightKg,
+    this.pendingCompletionAt,
+    this.pendingCompletionNote,
+    this.recoveryNote,
     required this.workoutIndex,
     required this.exerciseIndex,
     required this.setIndex,
@@ -141,6 +146,22 @@ final class TrainingSessionSnapshot {
           !actualReferences.add(actual.reference) ||
           actual.completedAt.isBefore(this.startedAt)) {
         throw const FormatException('Invalid training actual values');
+      }
+    }
+    if (recoveryNote != null) {
+      TrainingJson.text(recoveryNote, TrainingLimits.notesMaxLength);
+    }
+    if ((pendingCompletionAt == null) != (pendingCompletionNote == null)) {
+      throw const FormatException('Invalid pending completion');
+    }
+    if (pendingCompletionAt != null) {
+      trainingTimestamp(pendingCompletionAt!.toUtc().toIso8601String());
+      TrainingJson.text(pendingCompletionNote, TrainingLimits.notesMaxLength);
+      if (phase != TrainingSessionPhase.review ||
+          actualSets.length != completedSets.length ||
+          pendingCompletionAt!.isBefore(this.startedAt) ||
+          actualSets.any((a) => a.completedAt.isAfter(pendingCompletionAt!))) {
+        throw const FormatException('Invalid pending completion');
       }
     }
     TrainingJson.integer(workoutIndex, 0, plan.workouts.length - 1);
@@ -200,6 +221,10 @@ final class TrainingSessionSnapshot {
     }
   }
 
+  /// Local-only receipt recovery; excluded from the immutable server snapshot.
+  final String? recoveryNote;
+  final DateTime? pendingCompletionAt;
+  final String? pendingCompletionNote;
   final int? draftReps;
   final double? draftWeightKg;
   final String sessionId;
@@ -220,7 +245,12 @@ final class TrainingSessionSnapshot {
 
   factory TrainingSessionSnapshot.fromJson(Map<dynamic, dynamic> json) {
     final version = TrainingJson.integer(json['schema_version'], 1, 2);
+    final pending =
+        json.containsKey('pending_completion_at') ||
+        json.containsKey('pending_completion_note');
     TrainingJson.requireKeys(json, {
+      if (json.containsKey('recovery_note')) 'recovery_note',
+      if (pending) ...['pending_completion_at', 'pending_completion_note'],
       if (version == 2) ...[
         'session_id',
         'started_at',
@@ -296,6 +326,21 @@ final class TrainingSessionSnapshot {
       throw const FormatException('Invalid training actuals');
     }
     return TrainingSessionSnapshot(
+      recoveryNote: json.containsKey('recovery_note')
+          ? TrainingJson.text(
+              json['recovery_note'],
+              TrainingLimits.notesMaxLength,
+            )
+          : null,
+      pendingCompletionAt: pending
+          ? trainingTimestamp(json['pending_completion_at'])
+          : null,
+      pendingCompletionNote: pending
+          ? TrainingJson.text(
+              json['pending_completion_note'],
+              TrainingLimits.notesMaxLength,
+            )
+          : null,
       draftReps: version == 2 && json['draft_reps'] != null
           ? TrainingJson.integer(json['draft_reps'], 0, 1000)
           : null,
@@ -339,6 +384,11 @@ final class TrainingSessionSnapshot {
 
   Map<String, dynamic> toJson() => {
     'schema_version': 2,
+    if (recoveryNote != null) 'recovery_note': recoveryNote,
+    if (pendingCompletionAt != null) ...{
+      'pending_completion_at': pendingCompletionAt!.toUtc().toIso8601String(),
+      'pending_completion_note': pendingCompletionNote,
+    },
     'draft_reps': draftReps,
     'draft_weight_kg': draftWeightKg,
     'session_id': sessionId,

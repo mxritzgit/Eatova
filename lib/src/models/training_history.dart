@@ -14,7 +14,9 @@ final class TrainingHistoryEntry {
     String note = '',
   }) : finishedAt = finishedAt.toUtc(),
        note = TrainingJson.text(note, TrainingLimits.notesMaxLength) {
-    if (snapshot.phase != TrainingSessionPhase.review ||
+    if (snapshot.recoveryNote != null ||
+        snapshot.pendingCompletionAt != null ||
+        snapshot.phase != TrainingSessionPhase.review ||
         this.finishedAt.isBefore(snapshot.startedAt) ||
         snapshot.actualSets.length != snapshot.completedSets.length) {
       throw const FormatException('Incomplete training history');
@@ -35,6 +37,28 @@ final class TrainingHistoryEntry {
   final String note;
   String get id => snapshot.sessionId;
 
+  TrainingSessionSnapshot recoverySnapshot() =>
+      TrainingSessionSnapshot.fromJson({
+        ...snapshot.toJson(),
+        'pending_completion_at': finishedAt.toIso8601String(),
+        'pending_completion_note': note,
+      });
+
+  factory TrainingHistoryEntry.fromRecovery(TrainingSessionSnapshot recovery) {
+    final json = recovery.toJson()
+      ..remove('pending_completion_at')
+      ..remove('pending_completion_note');
+    final finishedAt = recovery.pendingCompletionAt;
+    if (finishedAt == null) {
+      throw const FormatException('No pending completion');
+    }
+    return TrainingHistoryEntry(
+      snapshot: TrainingSessionSnapshot.fromJson(json),
+      finishedAt: finishedAt,
+      note: recovery.pendingCompletionNote!,
+    );
+  }
+
   Map<String, dynamic> toRow() => {
     'id': id,
     'finished_at': finishedAt.toIso8601String(),
@@ -49,7 +73,7 @@ final class TrainingHistoryEntry {
     TrainingJson.requireKeys(session, const {'snapshot', 'note'});
     final result = TrainingHistoryEntry(
       snapshot: TrainingSessionSnapshot.fromJson(session['snapshot'] as Map),
-      finishedAt: trainingTimestamp(row['finished_at']),
+      finishedAt: trainingTimestamp(row['finished_at'], allowOffset: true),
       note: TrainingJson.text(session['note'], TrainingLimits.notesMaxLength),
     );
     if (row['id'] != result.id) {

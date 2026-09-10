@@ -205,6 +205,7 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   }
 
   bool _trainingSourceAllows(TrainingSessionSnapshot snapshot) {
+    if (snapshot.pendingCompletionAt != null) return true;
     // Best-effort mirrors can lag a durable full checkpoint. Only server data
     // or an observed source change can invalidate its embedded workout.
     if (!_trainingPlansAuthoritative &&

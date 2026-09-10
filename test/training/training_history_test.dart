@@ -43,6 +43,45 @@ void main() {
     },
   );
 
+  test(
+    'local pending completion metadata roundtrips but cannot enter server history',
+    () {
+      final value = entry();
+      final pending = TrainingSessionSnapshot.fromJson(
+        value.recoverySnapshot().toJson(),
+      );
+      expect(TrainingHistoryEntry.fromRecovery(pending).toRow(), value.toRow());
+      expect(
+        () => TrainingHistoryEntry(
+          snapshot: pending,
+          finishedAt: value.finishedAt,
+        ),
+        throwsFormatException,
+      );
+      final malformed = pending.toJson()..remove('pending_completion_note');
+      expect(
+        () => TrainingSessionSnapshot.fromJson(malformed),
+        throwsFormatException,
+      );
+    },
+  );
+
+  test('PostgREST offset timestamps load while recovery requires UTC', () {
+    final value = entry();
+    final row = value.toRow();
+    row['finished_at'] = value.finishedAt.toIso8601String().replaceFirst(
+      'Z',
+      '+00:00',
+    );
+    expect(TrainingHistoryEntry.fromRow(row).toRow(), value.toRow());
+    final snapshot = value.snapshot.toJson();
+    snapshot['started_at'] = '2026-09-10T12:00:00';
+    expect(
+      () => TrainingSessionSnapshot.fromJson(snapshot),
+      throwsFormatException,
+    );
+  });
+
   test('partial completion marks untouched sets skipped, never performed', () {
     withClock(Clock.fixed(now), () {
       final controller = TrainingSessionController(

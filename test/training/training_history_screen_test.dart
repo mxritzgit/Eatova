@@ -170,6 +170,65 @@ void main() {
     },
   );
 
+  testWidgets('ordinary review note remains in a saved recovery checkpoint', (
+    tester,
+  ) async {
+    TrainingSessionSnapshot? checkpoint;
+    final entry = _entry();
+    await _host(
+      tester,
+      TrainingPlayerScreen(
+        initialSnapshot: entry.snapshot,
+        onPersist: (value) async => checkpoint = value,
+        onComplete: (_) async {},
+      ),
+    );
+    final note = find.byKey(const ValueKey('training-history-note'));
+    await tester.ensureVisible(note);
+    await tester.enterText(note, 'Keep this note');
+    await tester.pumpAndSettle();
+    expect(checkpoint!.recoveryNote, 'Keep this note');
+    final restored = TrainingSessionSnapshot.fromJson(checkpoint!.toJson());
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    await _host(
+      tester,
+      TrainingPlayerScreen(
+        initialSnapshot: restored,
+        onPersist: (_) async {},
+        onComplete: (_) async {},
+      ),
+    );
+    expect(find.text('Keep this note'), findsOneWidget);
+  });
+
+  testWidgets(
+    'restored pending completion retries identical note and timestamp without edits',
+    (tester) async {
+      final entry = _entry();
+      TrainingHistoryEntry? saved;
+      await _host(
+        tester,
+        TrainingPlayerScreen(
+          initialSnapshot: entry.recoverySnapshot(),
+          onPersist: (_) async {},
+          onComplete: (value) async => saved = value,
+        ),
+      );
+      expect(
+        tester
+            .widget<TextButton>(
+              find.byKey(const ValueKey('training-timer-discard')),
+            )
+            .onPressed,
+        isNull,
+      );
+      await _tap(tester, 'training-timer-retry');
+      expect(saved!.toRow(), entry.toRow());
+      expect(find.text('Open fixture'), findsOneWidget);
+    },
+  );
+
   testWidgets(
     'retired source exits without completion or recovery-clear claim',
     (tester) async {
@@ -214,7 +273,8 @@ void main() {
       expect(tester.takeException(), isNull);
       await _saveImage(tester, 'history-detail-$locale-320');
       await tester.scrollUntilVisible(
-        find.byKey(const ValueKey('training-history-delete')), 250,
+        find.byKey(const ValueKey('training-history-delete')),
+        250,
       );
       await tester.pump();
       final rect = tester.getRect(

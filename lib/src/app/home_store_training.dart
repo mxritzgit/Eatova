@@ -12,7 +12,13 @@ bool _trainingSessionMatchesPlan(
   int matches(TrainingPlan value) => value.workouts
       .where((workout) => jsonEncode(workout.toJson()) == source)
       .length;
-  return matches(plan) >= matches(snapshot.plan);
+  final identities = jsonEncode(
+    snapshot.workout.exercises.map((e) => e.id).toList(),
+  );
+  return matches(plan) >= matches(snapshot.plan) &&
+      plan.workouts.any((workout) =>
+          jsonEncode(workout.toJson()) == source &&
+          jsonEncode(workout.exercises.map((e) => e.id).toList()) == identities);
 }
 
 mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
@@ -33,6 +39,7 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
   }
 
   bool _sourceChangeInvalidates(SyncOp op, TrainingSessionSnapshot snapshot) =>
+      snapshot.pendingCompletionAt == null &&
       (op.kind == SyncOpKind.trainingPlanUpsert ||
           op.kind == SyncOpKind.trainingPlanDelete) &&
       op.entityId == snapshot.plan.id &&
@@ -105,6 +112,11 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
     return _serializeTrainingSession(() async {
       _ensureTrainingSessionActive();
       await _repairTrainingSessionRead();
+      if (_trainingSession?.pendingCompletionAt != null &&
+          !trainingHistory.any((entry) => entry.id == _trainingSession!.sessionId) &&
+          jsonEncode(validated?.toJson()) != jsonEncode(_trainingSession?.toJson())) {
+        throw StateError('Pending training completion must be retried');
+      }
       final active = trainingSession;
       final sourceId =
           sourcePlanId ?? validated?.plan.id ?? _trainingSession?.plan.id;

@@ -576,7 +576,7 @@ void main() {
       final env = _Harness(_Server(), storage: storage);
       await env.boot();
       final source = plan().workouts.single;
-      final other = source.copyWith(title: 'Other day');
+      final other = source.copyWith(title: 'Other day', exercises: [for (var i = 0; i < source.exercises.length; i++) source.exercises[i].copyWith(id: 'other-$i')]);
       final original = multiPlan([other, source]);
       final snapshot = snapshotFor(original, workout: 1);
       await env.store.saveTrainingPlan(original);
@@ -601,10 +601,10 @@ void main() {
       final env = _Harness(_Server());
       await env.boot();
       final source = plan().workouts.single;
-      final other = source.copyWith(title: 'Other day');
+      final other = source.copyWith(title: 'Other day', exercises: [for (var i = 0; i < source.exercises.length; i++) source.exercises[i].copyWith(id: 'other-$i')]);
       final original = multiPlan([
         source,
-        change == 'duplicate removal' ? source : other,
+        change == 'duplicate removal' ? source.copyWith(exercises: [for (var i = 0; i < source.exercises.length; i++) source.exercises[i].copyWith(id: 'duplicate-$i')]) : other,
       ]);
       await env.store.saveTrainingPlan(original);
       await env.store.saveTrainingSession(snapshotFor(original));

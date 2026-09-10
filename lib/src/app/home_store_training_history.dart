@@ -16,8 +16,27 @@ mixin _HomeStoreTrainingHistoryPart
           ? SyncDelivery.queuedRetry
           : SyncDelivery.delivered;
     }
-    if (generation <
-        (_trainingSourceGenerations[entry.snapshot.plan.id] ?? 0)) {
+    await _repairTrainingSessionRead();
+    final pending =
+        _trainingSession?.pendingCompletionAt != null &&
+            !trainingHistory.any(
+              (item) => item.id == _trainingSession!.sessionId,
+            )
+        ? _trainingSession
+        : null;
+    if (pending != null &&
+        jsonEncode(TrainingHistoryEntry.fromRecovery(pending).toRow()) !=
+            jsonEncode(entry.toRow())) {
+      throw StateError('Pending training completion must be retried');
+    }
+    if (pending == null &&
+        (generation <
+                (_trainingSourceGenerations[entry.snapshot.plan.id] ?? 0) ||
+            !_trainingSourceAllows(entry.snapshot) ||
+            _trainingSourceChanges.any(
+              (op) => _sourceChangeInvalidates(op, entry.snapshot),
+            ) ||
+            _sourceDeliveryInvalidates(entry.snapshot))) {
       throw const TrainingCompletionSourceRetired();
     }
     final validated = TrainingHistoryEntry.fromRow(entry.toRow());
@@ -28,12 +47,12 @@ mixin _HomeStoreTrainingHistoryPart
     // Persist the identity before sending. A crash during the network request
     // must retry the same completion, even for upgraded legacy checkpoints.
     final cache = _cache;
-    if (cache == null ||
-        !await cache.writeTrainingSession(validated.snapshot)) {
+    final recovery = validated.recoverySnapshot();
+    if (cache == null || !await cache.writeTrainingSession(recovery)) {
       throw StateError('Training session could not be saved');
     }
     _ensureTrainingSessionActive();
-    _trainingSession = validated.snapshot;
+    _trainingSession = recovery;
     final op = SyncOp.trainingHistoryInsert(validated);
     final delivery = await _confirmMutation(
       'Training-history',
