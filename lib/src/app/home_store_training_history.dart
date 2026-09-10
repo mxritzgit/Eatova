@@ -7,6 +7,9 @@ mixin _HomeStoreTrainingHistoryPart
     required int generation,
   }) => _serializeTrainingSession(() async {
     _ensureTrainingSessionActive();
+    if (_trainingHistoryDeletedIds.contains(entry.id)) {
+      throw const TrainingCompletionDeleted();
+    }
     if (trainingHistory.any((item) => item.id == entry.id)) {
       return _outbox.any(
             (op) =>
@@ -19,6 +22,7 @@ mixin _HomeStoreTrainingHistoryPart
     await _repairTrainingSessionRead();
     final pending =
         _trainingSession?.pendingCompletionAt != null &&
+            !_trainingHistoryDeletedIds.contains(_trainingSession!.sessionId) &&
             !trainingHistory.any(
               (item) => item.id == _trainingSession!.sessionId,
             )
@@ -54,11 +58,11 @@ mixin _HomeStoreTrainingHistoryPart
     _ensureTrainingSessionActive();
     _trainingSession = recovery;
     final op = SyncOp.trainingHistoryInsert(validated);
-    final delivery = await _confirmMutation(
-      'Training-history',
-      op,
-      () => sync!.trainingHistory.insert(validated),
-    );
+    final delivery = await _confirmMutation('Training-history', op, () async {
+      if (!await sync!.trainingHistory.insert(validated)) {
+        _rememberTrainingHistoryDeletion(validated.id);
+      }
+    });
     _ensureTrainingSessionActive();
     _mutate(() {
       _trainingHistory = [
@@ -78,6 +82,9 @@ mixin _HomeStoreTrainingHistoryPart
         _trainingSession = null;
         _trainingSessionVersion++;
       });
+    }
+    if (_trainingHistoryDeletedIds.contains(entry.id)) {
+      throw const TrainingCompletionDeleted();
     }
     return delivery;
   });
@@ -106,6 +113,7 @@ mixin _HomeStoreTrainingHistoryPart
       () => sync!.trainingHistory.delete(id),
     );
     _ensureTrainingSessionActive();
+    _rememberTrainingHistoryDeletion(id);
     _mutate(
       () => _trainingHistory = trainingHistory
           .where((entry) => entry.id != id)

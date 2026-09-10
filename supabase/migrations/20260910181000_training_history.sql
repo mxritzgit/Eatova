@@ -145,9 +145,72 @@ create trigger training_history_row_cap before insert on public.training_history
   for each row execute function public.enforce_user_row_cap('user_id', '2000', 'id');
 alter table public.training_history enable row level security;
 create policy training_history_select_own on public.training_history for select to authenticated using (user_id = (select auth.uid()));
-create policy training_history_insert_own on public.training_history for insert to authenticated with check (user_id = (select auth.uid()));
-create policy training_history_delete_own on public.training_history for delete to authenticated using (user_id = (select auth.uid()));
--- No UPDATE grant: retries INSERT ... ON CONFLICT DO NOTHING preserve history.
+-- Authenticated mutations use the receipt-aware RPCs below.
 revoke all on public.training_history from public, anon, authenticated;
-grant select, insert, delete on public.training_history to authenticated;
+grant select on public.training_history to authenticated;
 grant all on public.training_history to service_role;
+
+-- Permanent identity-only receipts stop delayed devices resurrecting deleted data.
+create table public.training_history_deletions (
+  user_id uuid not null references auth.users(id) on delete cascade,
+  id uuid not null,
+  primary key (user_id, id)
+);
+create trigger training_history_deletions_row_cap before insert on public.training_history_deletions
+  for each row execute function public.enforce_user_row_cap('user_id', '100000', 'id');
+alter table public.training_history_deletions enable row level security;
+create policy training_history_deletions_select_own on public.training_history_deletions
+  for select to authenticated using (user_id = (select auth.uid()));
+revoke all on public.training_history_deletions from public, anon, authenticated;
+grant select on public.training_history_deletions to authenticated;
+grant all on public.training_history_deletions to service_role;
+
+create or replace function public.record_training_history(p_id uuid, p_finished_at timestamptz, p_session jsonb)
+returns boolean language plpgsql security definer set search_path = pg_catalog as $$
+declare owner_id uuid := auth.uid(); identity_count bigint;
+begin
+  if owner_id is null then raise exception 'Authentication required' using errcode = '42501'; end if;
+  if p_id is null or p_finished_at is null or p_session is null then
+    raise exception 'Invalid training completion' using errcode = '22023';
+  end if;
+  -- One owner lock orders device requests and makes the shared budget exact.
+  perform pg_advisory_xact_lock(hashtextextended('training_history:' || owner_id::text, 0));
+  if exists(select 1 from public.training_history_deletions where user_id = owner_id and id = p_id) then
+    return false;
+  end if;
+  if exists(select 1 from public.training_history where user_id = owner_id and id = p_id) then
+    return true;
+  end if;
+  select (select count(*) from public.training_history where user_id = owner_id) +
+         (select count(*) from public.training_history_deletions where user_id = owner_id) into identity_count;
+  if identity_count >= 100000 then raise exception 'Training identity limit reached' using errcode = '22023'; end if;
+  insert into public.training_history(user_id,id,finished_at,session)
+    values(owner_id,p_id,p_finished_at,p_session);
+  return true;
+end;
+$$;
+
+create or replace function public.delete_training_history(p_id uuid)
+returns void language plpgsql security definer set search_path = pg_catalog as $$
+declare owner_id uuid := auth.uid(); identity_count bigint;
+begin
+  if owner_id is null then raise exception 'Authentication required' using errcode = '42501'; end if;
+  if p_id is null then raise exception 'Invalid training identity' using errcode = '22023'; end if;
+  perform pg_advisory_xact_lock(hashtextextended('training_history:' || owner_id::text, 0));
+  if exists(select 1 from public.training_history_deletions where user_id = owner_id and id = p_id) then
+    return;
+  end if;
+  -- Existing history can always move to a receipt, including at capacity.
+  if not exists(select 1 from public.training_history where user_id = owner_id and id = p_id) then
+    select (select count(*) from public.training_history where user_id = owner_id) +
+           (select count(*) from public.training_history_deletions where user_id = owner_id) into identity_count;
+    if identity_count >= 100000 then raise exception 'Training identity limit reached' using errcode = '22023'; end if;
+  end if;
+  delete from public.training_history where user_id = owner_id and id = p_id;
+  insert into public.training_history_deletions(user_id,id) values(owner_id,p_id) on conflict do nothing;
+end;
+$$;
+revoke all on function public.record_training_history(uuid,timestamptz,jsonb) from public, anon, authenticated;
+revoke all on function public.delete_training_history(uuid) from public, anon, authenticated;
+grant execute on function public.record_training_history(uuid,timestamptz,jsonb) to authenticated, service_role;
+grant execute on function public.delete_training_history(uuid) to authenticated, service_role;

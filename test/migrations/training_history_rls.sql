@@ -67,17 +67,62 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111"}';
 select rlstest.erwarte_zeilen('select * from public.training_history',1,'own history/export');
 select rlstest.erwarte_zeilen($q$select * from public.training_history where user_id='22222222-2222-2222-2222-222222222222'$q$,0,'foreign history/export');
-select rlstest.erwarte_zeilen($q$delete from public.training_history where user_id='22222222-2222-2222-2222-222222222222'$q$,0,'foreign history delete');
+select rlstest.erwarte_ablehnung($q$delete from public.training_history where user_id='22222222-2222-2222-2222-222222222222'$q$,'direct history delete bypass');
 select rlstest.erwarte_ablehnung($q$insert into public.training_history(user_id,id,finished_at,session) values
   ('22222222-2222-2222-2222-222222222222','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','2026-09-10T12:02:00Z',rlstest.training_history('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'))$q$,'forged history owner');
+select rlstest.erwarte_ablehnung($q$insert into public.training_history(user_id,id,finished_at,session) values
+  ('11111111-1111-1111-1111-111111111111','dddddddd-dddd-4ddd-8ddd-dddddddddddd','2026-09-10T12:02:00Z',rlstest.training_history('dddddddd-dddd-4ddd-8ddd-dddddddddddd'))$q$,'direct own insert cannot bypass receipts');
+select rlstest.erwarte_sqlstate($q$select public.record_training_history('dddddddd-dddd-4ddd-8ddd-dddddddddddd','2026-09-10T12:02:00Z',rlstest.training_history('dddddddd-dddd-4ddd-8ddd-dddddddddddd') || '{"user_id":"22222222-2222-2222-2222-222222222222"}'::jsonb)$q$,'23514','record RPC validates payload and rejects forged metadata');
 select rlstest.erwarte_ablehnung($q$update public.training_history set session=jsonb_set(session,'{note}','"changed"')$q$,'immutable completion');
 select rlstest.erwarte_ablehnung($q$update public.training_history set user_id='22222222-2222-2222-2222-222222222222'$q$,'history owner reassignment');
-select rlstest.erwarte_zeilen($q$insert into public.training_history(user_id,id,finished_at,session) values
-  ('11111111-1111-1111-1111-111111111111','aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','2026-09-10T12:02:00Z',rlstest.training_history()) on conflict(user_id,id) do nothing$q$,0,'same completion retry');
+select public.record_training_history('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','2026-09-10T12:02:00Z',rlstest.training_history());
 select rlstest.erwarte_zeilen('select * from public.training_history',1,'retry did not duplicate history');
 update public.training_plans set plan=jsonb_set(plan,'{title}','"Edited plan"') where id='source-plan';
 delete from public.training_plans where id='source-plan';
 select rlstest.erwarte_zeilen($q$select * from public.training_history where session #>> '{snapshot,plan,plan,title}'='Original plan'$q$,1,'history survives source edit/delete');
+
+-- Two independent device requests for A: accepted insert/lost response, B's
+-- delete, then A's old retry. The receipt carries no performance or note data.
+select public.record_training_history('cccccccc-cccc-4ccc-8ccc-cccccccccccc','2026-09-10T12:02:00Z',rlstest.training_history('cccccccc-cccc-4ccc-8ccc-cccccccccccc'));
+select public.delete_training_history('cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+select public.delete_training_history('cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+do $$ begin
+  if public.record_training_history('cccccccc-cccc-4ccc-8ccc-cccccccccccc','2026-09-10T12:02:00Z',rlstest.training_history('cccccccc-cccc-4ccc-8ccc-cccccccccccc')) is distinct from false then
+    raise exception 'TRAINING HISTORY: delayed device resurrected deleted completion';
+  end if;
+end $$;
+select rlstest.erwarte_zeilen('select * from public.training_history',1,'delayed retry remains deleted');
+select rlstest.erwarte_zeilen('select * from public.training_history_deletions',1,'own deletion receipt/export');
+select rlstest.erwarte_ablehnung($q$delete from public.training_history_deletions$q$,'cannot erase deletion receipt');
+select rlstest.erwarte_ablehnung($q$insert into public.training_history_deletions values('22222222-2222-2222-2222-222222222222','dddddddd-dddd-4ddd-8ddd-dddddddddddd')$q$,'forged deletion owner');
+-- The same UUID belongs independently to B. A's receipt does not suppress B.
+set local request.jwt.claims = '{"sub":"22222222-2222-2222-2222-222222222222"}';
+do $$ begin
+  if public.record_training_history('cccccccc-cccc-4ccc-8ccc-cccccccccccc','2026-09-10T12:02:00Z',rlstest.training_history('cccccccc-cccc-4ccc-8ccc-cccccccccccc')) is distinct from true then
+    raise exception 'TRAINING HISTORY: foreign receipt suppressed another owner';
+  end if;
+end $$;
+select public.delete_training_history('cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+select rlstest.erwarte_zeilen('select * from public.training_history_deletions',1,'B sees only own receipt');
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111"}';
+
+-- Fill only identities as fixture owner, avoiding 100k trigger scans during
+-- seeding. Production RPCs are tested at the real shared 100,000 budget.
+savepoint training_identity_budget;
+reset role;
+alter table public.training_history_deletions disable trigger training_history_deletions_row_cap;
+insert into public.training_history_deletions(user_id,id)
+ select '11111111-1111-1111-1111-111111111111',md5('training-budget-' || n::text)::uuid from generate_series(1,99998) n;
+alter table public.training_history_deletions enable trigger training_history_deletions_row_cap;
+set local role authenticated;
+select rlstest.erwarte_sqlstate($q$select public.delete_training_history('dddddddd-dddd-4ddd-8ddd-dddddddddddd')$q$,'22023','random deletion cannot exceed identity budget');
+select rlstest.erwarte_sqlstate($q$select public.record_training_history('dddddddd-dddd-4ddd-8ddd-dddddddddddd','2026-09-10T12:02:00Z',rlstest.training_history('dddddddd-dddd-4ddd-8ddd-dddddddddddd'))$q$,'22023','new completion cannot exceed shared identity budget');
+-- Deleting existing history needs no extra identity and remains possible.
+select public.delete_training_history('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+select public.delete_training_history('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+select rlstest.erwarte_zeilen('select * from public.training_history',0,'existing completion deletable at budget');
+select rlstest.erwarte_zeilen('select * from public.training_history_deletions',100000,'bounded identity receipts');
+rollback to training_identity_budget;
 
 set local role service_role;
 delete from public.profiles where id='11111111-1111-1111-1111-111111111111';
@@ -85,9 +130,14 @@ select rlstest.erwarte_zeilen($q$select * from public.training_history where use
 set local role anon;
 select rlstest.erwarte_ablehnung('select * from public.training_history','anonymous history');
 select rlstest.erwarte_ablehnung('delete from public.training_history','anonymous history deletion');
+select rlstest.erwarte_ablehnung('select * from public.training_history_deletions','anonymous receipts');
+select rlstest.erwarte_ablehnung($q$select public.delete_training_history('dddddddd-dddd-4ddd-8ddd-dddddddddddd')$q$,'anonymous delete RPC');
+select rlstest.erwarte_ablehnung($q$select public.record_training_history('dddddddd-dddd-4ddd-8ddd-dddddddddddd',now(),null)$q$,'anonymous record RPC');
 set local role authenticated;
 set local request.jwt.claims = '{}';
 select rlstest.erwarte_zeilen('select * from public.training_history',0,'missing subject history');
+select rlstest.erwarte_ablehnung($q$select public.delete_training_history('dddddddd-dddd-4ddd-8ddd-dddddddddddd')$q$,'missing subject deletion');
+select rlstest.erwarte_ablehnung($q$select public.record_training_history('dddddddd-dddd-4ddd-8ddd-dddddddddddd',now(),null)$q$,'missing subject completion');
 set local request.jwt.claims = '{"sub":"22222222-2222-2222-2222-222222222222"}';
 select rlstest.erwarte_zeilen('select * from public.training_history',1,'B retains own history');
 select set_config('request.jwt.claims',jsonb_build_object('sub','11111111-1111-1111-1111-111111111111',
@@ -95,7 +145,9 @@ select set_config('request.jwt.claims',jsonb_build_object('sub','11111111-1111-1
 select public.delete_account();
 reset role;
 do $$ begin
-  if exists(select 1 from public.training_history where user_id='11111111-1111-1111-1111-111111111111')
+  if exists(select 1 from public.training_history_deletions where user_id='11111111-1111-1111-1111-111111111111')
+     or (select count(*) from public.training_history_deletions where user_id='22222222-2222-2222-2222-222222222222') <> 1
+     or exists(select 1 from public.training_history where user_id='11111111-1111-1111-1111-111111111111')
      or (select count(*) from public.training_history where user_id='22222222-2222-2222-2222-222222222222') <> 1 then
     raise exception 'TRAINING HISTORY: account cascade/ownership failed';
   end if;

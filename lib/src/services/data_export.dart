@@ -49,6 +49,7 @@ class DataExportService {
     'planned_meals',
     'shopping_checks',
     'training_history',
+    'training_history_deletions',
     'chat_sessions',
     'chat_messages',
     'chat_quota_usage',

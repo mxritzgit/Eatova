@@ -2179,5 +2179,6 @@
   "trainingActualMissing": "Ergänze die Wiederholungen der erledigten Sätze, bevor du das Training speicherst.",
   "trainingHistorySourceChanged": "Dein Plan wurde geändert. Dieses Training wurde nicht gespeichert.",
   "trainingActualConfirmLegacyTimed": "Abgeschlossenes Intervall bestätigen",
-  "trainingHistoryDeleteAction": "Training löschen"
+  "trainingHistoryDeleteAction": "Training löschen",
+  "trainingHistoryAlreadyDeleted": "Dieses Training wurde auf einem anderen Gerät gelöscht."
 }

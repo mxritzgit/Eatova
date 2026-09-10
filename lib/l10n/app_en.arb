@@ -2151,5 +2151,6 @@
   "trainingActualMissing": "Enter the actual repetitions for completed sets before saving the workout.",
   "trainingHistorySourceChanged": "Your plan changed. This workout was not saved.",
   "trainingActualConfirmLegacyTimed": "Confirm completed interval",
-  "trainingHistoryDeleteAction": "Delete workout"
+  "trainingHistoryDeleteAction": "Delete workout",
+  "trainingHistoryAlreadyDeleted": "This workout was deleted on another device."
 }

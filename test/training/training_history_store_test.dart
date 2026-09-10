@@ -34,11 +34,14 @@ class _Server {
   final entered = Completer<void>();
   final rows = <String, Map<String, dynamic>>{};
   final requests = <http.Request>[];
+  final deleted = <String>{};
   Future<http.Response> handle(http.Request request) async {
     requests.add(request);
     Object? result = [];
     final isHistory = request.url.path.endsWith('/training_history');
-    if (isHistory && request.method != 'GET') {
+    final isRecord = request.url.path.endsWith('/rpc/record_training_history');
+    final isDelete = request.url.path.endsWith('/rpc/delete_training_history');
+    if (isRecord || isDelete) {
       if (offline) throw http.ClientException('fixture offline');
       if (rejectHistory) {
         return http.Response(
@@ -50,15 +53,42 @@ class _Server {
       }
       if (!entered.isCompleted) entered.complete();
       await hold?.future;
-      if (request.method == 'POST') {
-        final raw = jsonDecode(request.body);
-        final row = (raw is List ? raw.single : raw) as Map<String, dynamic>;
-        rows.putIfAbsent('${row['user_id']}:${row['id']}', () => row);
-        if (ambiguous) throw http.ClientException('fixture lost response');
+      final params = jsonDecode(request.body) as Map<String, dynamic>;
+      final bearer =
+          request.headers['Authorization'] ??
+          request.headers['authorization'] ??
+          '';
+      final token = bearer.replaceFirst('Bearer ', '').split('.');
+      final owner = token.length == 3
+          ? (jsonDecode(
+                      utf8.decode(
+                        base64Url.decode(base64Url.normalize(token[1])),
+                      ),
+                    )
+                    as Map)['sub']
+                as String
+          : 'A';
+      final key = '$owner:${params['p_id']}';
+      if (isRecord) {
+        result = !deleted.contains(key);
+        if (result == true) {
+          rows.putIfAbsent(
+            key,
+            () => {
+              'user_id': owner,
+              'id': params['p_id'],
+              'finished_at': params['p_finished_at'],
+              'session': params['p_session'],
+            },
+          );
+        }
+        if (ambiguous) {
+          throw http.ClientException('fixture lost response');
+        }
       } else {
-        rows.remove(
-          '${request.url.queryParameters['user_id']!.substring(3)}:${request.url.queryParameters['id']!.substring(3)}',
-        );
+        deleted.add(key);
+        rows.remove(key);
+        result = null;
       }
     } else if (isHistory) {
       final owner = request.url.queryParameters['user_id']!.substring(3);
@@ -302,6 +332,61 @@ void main() {
   );
 
   test(
+    'two devices cannot resurrect a deletion after an ambiguous durable completion',
+    () async {
+      final server = _Server()..ambiguous = true;
+      final storageA = InMemoryKeyValueStore();
+      final deviceA = _Harness(server, storage: storageA);
+      await deviceA.boot();
+      final entry = _entry();
+      await deviceA.store.completeTrainingSession(entry, generation: 0);
+      expect(
+        (await deviceA.cache.readOutbox())!.where(
+          (op) => op.kind == SyncOpKind.trainingHistoryInsert,
+        ),
+        hasLength(1),
+      );
+      server.ambiguous = false;
+      final deviceB = _Harness(server, storage: InMemoryKeyValueStore());
+      await deviceB.boot();
+      expect(deviceB.store.trainingHistory.single.id, entry.id);
+      await deviceB.store.deleteTrainingHistory(entry.id);
+      await deviceB.store.deleteTrainingHistory(entry.id);
+      expect(server.rows, isEmpty);
+      expect(server.deleted, {'A:${entry.id}'});
+      deviceA.store.flushPendingWrites();
+      await deviceA.settle();
+      expect(server.rows, isEmpty);
+      expect(deviceA.store.trainingHistory, isEmpty);
+      expect(await deviceA.cache.readOutbox(), isEmpty);
+      deviceA.dispose();
+      server.offline = true;
+      final reboot = _Harness(server, storage: storageA);
+      await reboot.boot();
+      expect(reboot.store.trainingHistory, isEmpty);
+      expect(reboot.store.trainingSession, isNull);
+    },
+  );
+
+  test(
+    'deleted pending completion ends without publishing or keeping recovery',
+    () async {
+      final server = _Server();
+      final env = _Harness(server, storage: InMemoryKeyValueStore());
+      await env.boot();
+      final entry = _entry();
+      server.deleted.add('A:${entry.id}');
+      await expectLater(
+        env.store.completeTrainingSession(entry, generation: 0),
+        throwsA(isA<TrainingCompletionDeleted>()),
+      );
+      expect(env.store.trainingHistory, isEmpty);
+      expect(await env.cache.readTrainingSession(), isNull);
+      expect(await env.cache.readOutbox() ?? [], isEmpty);
+    },
+  );
+
+  test(
     'failed outbox receipt retains recovery and reports no completion',
     () async {
       final env = _Harness(
@@ -374,7 +459,7 @@ void main() {
             .where(
               (r) =>
                   r.method == 'POST' &&
-                  r.url.path.endsWith('/training_history'),
+                  r.url.path.endsWith('/rpc/record_training_history'),
             )
             .single
             .headers['authorization'],

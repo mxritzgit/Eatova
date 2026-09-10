@@ -1325,11 +1325,12 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       case SyncOpKind.trainingHistoryInsert:
         final entry = op.trainingHistory;
         if (entry == null) throw _CorruptOpPayload(op.kind);
-        await s.trainingHistory.insert(entry);
+        if (!await s.trainingHistory.insert(entry)) _rememberTrainingHistoryDeletion(entry.id);
         if (_unconfirmedTrainingOps.contains(op)) _deliveredTrainingOps.add(op);
       case SyncOpKind.trainingHistoryDelete:
         if (!isUuidShape(op.entityId)) throw _CorruptOpPayload(op.kind);
         await s.trainingHistory.delete(op.entityId);
+        _rememberTrainingHistoryDeletion(op.entityId);
         if (_unconfirmedTrainingOps.contains(op)) _deliveredTrainingOps.add(op);
       case SyncOpKind.trainingPlanUpsert:
         final plan = op.trainingPlan;
@@ -1820,6 +1821,14 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   void _cacheMealPlans() {
     if (_disposed || _trainingSessionEnded) return;
     unawaited(_cache?.writeMealPlans(_plannedMeals, _shoppingChecks) ?? Future<void>.value());
+  }
+
+  void _rememberTrainingHistoryDeletion(String id) {
+    final owner = sync?.client.auth.currentUser;
+    if (_disposed || _trainingSessionEnded || (owner != null && owner.id != sync?.userId)) return;
+    _trainingHistoryDeletedIds.add(id);
+    _mutate(() => _trainingHistory = trainingHistory.where((entry) => entry.id != id).toList());
+    _cacheTrainingHistory();
   }
 
   void _cacheTrainingHistory() {

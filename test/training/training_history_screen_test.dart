@@ -10,6 +10,7 @@ import 'package:eatova/src/screens/training/training_player_screen.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/services/training_session_controller.dart';
 import 'package:eatova/src/theme/app_theme.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -167,6 +168,71 @@ void main() {
       expect(attempts, hasLength(2));
       expect(attempts.last.toRow(), attempts.first.toRow());
       expect(find.text('Open fixture'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'invalid review field retires when its set is rewound then skipped',
+    (tester) async {
+      final controller = TrainingSessionController(
+        plan: timerPlan(),
+        workoutIndex: 1,
+        autoTick: false,
+      );
+      controller.start();
+      controller.completeCurrentSet();
+      final snapshot = controller.snapshot();
+      controller.dispose();
+      TrainingHistoryEntry? saved;
+      await _host(
+        tester,
+        TrainingPlayerScreen(
+          initialSnapshot: snapshot,
+          onPersist: (_) async {},
+          onComplete: (value) async => saved = value,
+        ),
+      );
+      final reps = find.byKey(const ValueKey('training-actual-reps'));
+      await tester.ensureVisible(reps);
+      await tester.enterText(reps, '');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      await _tap(tester, 'training-timer-previous-set');
+      await _tap(tester, 'training-timer-next-set');
+      expect(find.byKey(const ValueKey('training-actual-reps')), findsNothing);
+      expect(
+        tester
+            .widget<PrimaryActionButton>(
+              find.byKey(const ValueKey('training-timer-primary')),
+            )
+            .onTap,
+        isNotNull,
+      );
+      await _tap(tester, 'training-timer-primary');
+      await _tap(tester, 'training-timer-confirm-exit');
+      expect(saved, isNotNull);
+      expect(saved!.snapshot.completedSets, isEmpty);
+      expect(saved!.snapshot.skippedSets, hasLength(1));
+    },
+  );
+
+  testWidgets(
+    'remote deletion exits pending completion with truthful feedback',
+    (tester) async {
+      await _host(
+        tester,
+        TrainingPlayerScreen(
+          initialSnapshot: _entry().recoverySnapshot(),
+          onPersist: (_) async {},
+          onComplete: (_) async => throw const TrainingCompletionDeleted(),
+        ),
+      );
+      await _tap(tester, 'training-timer-retry');
+      expect(find.text('Open fixture'), findsOneWidget);
+      expect(
+        find.text('This workout was deleted on another device.'),
+        findsOneWidget,
+      );
     },
   );
 

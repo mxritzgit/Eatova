@@ -152,6 +152,11 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
       _hasStartedPhase = false;
       _actualValid = true;
     }
+    _invalidActuals.removeWhere(
+      (ref) =>
+          _session.phase != TrainingSessionPhase.review ||
+          !_session.completedSets.contains(ref),
+    );
     _hasStartedPhase = _hasStartedPhase || _session.isRunning;
     setState(() {});
     if ((phaseChanged || interrupted) && !_leaving) {
@@ -219,6 +224,13 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
             if (mounted) Navigator.of(context).pop();
           });
         }
+      } on TrainingCompletionDeleted {
+        if (!mounted) return;
+        showAppSnack(context, context.l10n.trainingHistoryAlreadyDeleted);
+        setState(() => _allowPop = true);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) Navigator.of(context).pop();
+        });
       } on TrainingCompletionSourceRetired {
         if (!mounted) return;
         showAppSnack(context, context.l10n.trainingHistorySourceChanged);

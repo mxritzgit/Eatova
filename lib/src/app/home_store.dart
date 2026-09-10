@@ -180,10 +180,11 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   }
   List<TrainingHistoryEntry> _trainingHistoryState = const [];
   int _trainingHistoryVersion = 0;
+  final Set<String> _trainingHistoryDeletedIds = {};
   bool _trainingHistoryKnown = false;
   List<TrainingHistoryEntry> get trainingHistory => _trainingHistoryState;
   set _trainingHistory(List<TrainingHistoryEntry> value) {
-    _trainingHistoryState = List.unmodifiable([...value]..sort((a, b) => b.finishedAt.compareTo(a.finishedAt)));
+    _trainingHistoryState = List.unmodifiable([...value.where((entry) => !_trainingHistoryDeletedIds.contains(entry.id))]..sort((a, b) => b.finishedAt.compareTo(a.finishedAt)));
     _trainingHistoryKnown = true;
     _trainingHistoryVersion++;
   }
@@ -200,7 +201,7 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   bool _trainingSessionHydrationFailed = false;
   TrainingSessionSnapshot? get trainingSession {
     final snapshot = _trainingSession;
-    if (snapshot == null || _trainingSessionRetired || trainingHistory.any((entry) => entry.id == snapshot.sessionId)) return null;
+    if (snapshot == null || _trainingSessionRetired || _trainingHistoryDeletedIds.contains(snapshot.sessionId) || trainingHistory.any((entry) => entry.id == snapshot.sessionId)) return null;
     return _trainingSourceAllows(snapshot) ? snapshot : null;
   }
 

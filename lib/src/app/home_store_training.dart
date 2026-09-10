@@ -113,6 +113,7 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
       _ensureTrainingSessionActive();
       await _repairTrainingSessionRead();
       if (_trainingSession?.pendingCompletionAt != null &&
+          !_trainingHistoryDeletedIds.contains(_trainingSession!.sessionId) &&
           !trainingHistory.any((entry) => entry.id == _trainingSession!.sessionId) &&
           jsonEncode(validated?.toJson()) != jsonEncode(_trainingSession?.toJson())) {
         throw StateError('Pending training completion must be retried');

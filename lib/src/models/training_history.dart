@@ -6,6 +6,11 @@ final class TrainingCompletionSourceRetired implements Exception {
   const TrainingCompletionSourceRetired();
 }
 
+/// The server has permanently deleted this session on another device.
+final class TrainingCompletionDeleted implements Exception {
+  const TrainingCompletionDeleted();
+}
+
 /// An immutable completed workout, independent of the source plan's lifetime.
 final class TrainingHistoryEntry {
   TrainingHistoryEntry({

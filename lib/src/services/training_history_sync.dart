@@ -2,6 +2,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/training_history.dart';
 import 'uuid.dart';
+import 'user_rpc.dart';
 
 /// Each request pins both its bearer and ownership filter to this account.
 class TrainingHistorySync {
@@ -44,29 +45,34 @@ class TrainingHistorySync {
     return List.unmodifiable(result);
   }
 
-  Future<void> insert(TrainingHistoryEntry entry) async {
+  /// False is a permanent deletion receipt, not a retryable write failure.
+  Future<bool> insert(TrainingHistoryEntry entry) async {
     final validated = TrainingHistoryEntry.fromRow(entry.toRow());
-    final authorization = await _authorization();
-    await _client
-        .from('training_history')
-        .upsert(
-          {'user_id': _userId, ...validated.toRow()},
-          onConflict: 'user_id,id',
-          ignoreDuplicates: true,
-        )
-        .setHeader('Authorization', authorization);
+    final result = await userRpc(
+      _client,
+      _userId,
+      'record_training_history',
+      params: {
+        'p_id': validated.id,
+        'p_finished_at': validated.toRow()['finished_at'],
+        'p_session': validated.toRow()['session'],
+      },
+    );
+    if (result is! bool) {
+      throw const FormatException('Invalid training receipt');
+    }
+    return result;
   }
 
   Future<void> delete(String id) async {
     if (!isUuidShape(id)) {
       throw const FormatException('Invalid training history ID');
     }
-    final authorization = await _authorization();
-    await _client
-        .from('training_history')
-        .delete()
-        .eq('user_id', _userId)
-        .eq('id', id)
-        .setHeader('Authorization', authorization);
+    await userRpc(
+      _client,
+      _userId,
+      'delete_training_history',
+      params: {'p_id': id},
+    );
   }
 }
