@@ -52,7 +52,7 @@ begin
         if jsonb_typeof(nutrient->field) <> 'number' then return false; end if;
         if (nutrient->>field)::numeric < 0
             or (nutrient->>field)::numeric >
-                case when field = 'calories_kcal' then 900 else 100 end
+                (case when field = 'calories_kcal' then 900 else 100 end)
             then return false; end if;
       end if;
     end loop;

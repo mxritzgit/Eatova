@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:eatova/src/models/fitness_recipe.dart';
+import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
@@ -80,6 +81,32 @@ void main() {
     expect(changed.toMealResultForServings(0.5).caloriesKcal, 250);
     expect(logged.caloriesKcal, 50);
   });
+
+  test(
+    'unknown macros and measured zero survive diary cache and outbox JSON',
+    () async {
+      final meal = LoggedMeal(
+        id: 'ingredient-diary',
+        result: _recipe([
+          _ingredient(calories: 0, protein: null),
+        ]).toMealResultForServings(0.5),
+        loggedAt: DateTime.utc(2026, 9, 10, 12),
+        localDay: '2026-09-10',
+      );
+      final encoded =
+          jsonDecode(jsonEncode(loggedMealToJson(meal)))
+              as Map<String, dynamic>;
+      final decoded = loggedMealFromJson(encoded);
+      expect(decoded.result.protein, '-');
+      expect(decoded.result.carbs, '0 g');
+      expect(decoded.result.explicitZeroKcal, isTrue);
+      final cache = LocalCache(InMemoryKeyValueStore(), 'diary-owner');
+      await cache.writeLoggedMeals([meal]);
+      final restored = (await cache.readLoggedMeals())!.single;
+      expect(restored.result.protein, '-');
+      expect(restored.result.explicitZeroKcal, isTrue);
+    },
+  );
 
   test(
     'row, cache and outbox preserve exact ingredients and batch servings',
