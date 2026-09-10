@@ -422,7 +422,11 @@ void main() {
     // Without this the line above would also hold for an `onAddMeal` that
     // nothing can ever reach — the recipes tab's OWN add button must fill the
     // very list the coach left empty.
-    await tester.tap(find.byKey(const ValueKey('recipe-add-button')));
+    final addButton = find.byKey(const ValueKey('recipe-add-button'));
+    await tester.ensureVisible(addButton);
+    await _settle(tester, rounds: 3);
+    expect(addButton.hitTestable(), findsOneWidget);
+    await tester.tap(addButton);
     await _settle(tester);
     expect(find.byKey(const ValueKey('recipe-meal-picker-sheet')),
         findsOneWidget);
@@ -436,7 +440,11 @@ void main() {
         reason: 'der Rezepte-Tab loggt sehr wohl — die leere Liste oben ist '
             'eine Aussage ueber den Coach, kein toter Recorder');
 
-    await tester.tap(find.byKey(const ValueKey('recipe-detail-back')));
+    final detailBack = find.byKey(const ValueKey('recipe-detail-back'));
+    await tester.ensureVisible(detailBack);
+    await _settle(tester, rounds: 3);
+    expect(detailBack.hitTestable(), findsOneWidget);
+    await tester.tap(detailBack);
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('screen-recipes')), findsOneWidget);
 
