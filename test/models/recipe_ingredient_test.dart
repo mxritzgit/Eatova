@@ -106,6 +106,17 @@ void main() {
     },
   );
 
+  test('legacy servings reject overflow without silently capping totals', () {
+    final legacy = _recipe([]);
+    expect(legacy.canLogServings(1), isTrue);
+    expect(legacy.canLogServings(2), isFalse);
+    expect(() => legacy.toMealResultForServings(2), throwsFormatException);
+    final energy = legacy.copyWith(proteinG: 0, carbsG: 0, fatG: 0);
+    expect(() => energy.toMealResultForServings(11), throwsFormatException);
+    expect(_recipe([_ingredient(protein: null)]).canLogServings(0.5), isTrue);
+    expect(_recipe([_ingredient(calories: null)]).canLogServings(0.5), isFalse);
+  });
+
   test('legacy rows remain manual per-serving recipes', () {
     final row = _recipe([]).toRow()
       ..remove('structured_ingredients')

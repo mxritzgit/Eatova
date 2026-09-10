@@ -101,6 +101,15 @@ class FitnessRecipe {
         servings: servings,
       );
 
+  bool canLogServings(double servings) {
+    try {
+      toMealResultForServings(servings);
+      return true;
+    } on FormatException {
+      return false;
+    }
+  }
+
   FitnessRecipe copyWith({
     String? title,
     String? description,
@@ -451,6 +460,13 @@ class FitnessRecipe {
     final calories = nutrition.caloriesKcal!;
     // Structured recipes have no measured cooked yield in this version.
     final grams = hasStructuredIngredients ? 0 : estimatedGrams * servings;
+    if (!hasStructuredIngredients && servings != 1 &&
+        (calories < 0 || calories > LoggedMealLimits.caloriesKcalMax ||
+            grams < 0 || grams > LoggedMealLimits.estimatedGMax ||
+            [nutrition.proteinG!, nutrition.carbsG!, nutrition.fatG!]
+                .any((n) => n < 0 || n > LoggedMealLimits.macroGMax))) {
+      throw const FormatException('Recipe portion exceeds storage limits');
+    }
     String macro(double? n) => n == null
         ? '-'
         : (hasStructuredIngredients || servings != 1
