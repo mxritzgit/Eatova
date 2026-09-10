@@ -25,7 +25,9 @@ import {
 } from './normalize.ts';
 
 // Vision model (image in, JSON text out). The OPENROUTER_MODEL secret
-// overrides this default; keep code and secret in sync to avoid drift.
+// overrides this default; keep code and secret in sync to avoid drift. Gemini
+// Flash accepts OpenAI-compatible image_url parts through OpenRouter, so the
+// same model can inspect the meal photo and return the structured JSON below.
 //
 // Footguns:
 //  1) No "-image" models: that family generates images and cannot return
@@ -34,7 +36,7 @@ import {
 //     max_tokens budget on reasoning -> empty output.
 //  3) gemini-3.x-flash-lite can think, hence reasoning.effort 'minimal'
 //     below (same empty-output trap as 2).
-const OPENROUTER_MODEL = Deno.env.get('OPENROUTER_MODEL') ?? 'google/gemini-3.5-flash-lite';
+const OPENROUTER_MODEL = Deno.env.get('OPENROUTER_MODEL') ?? 'google/gemini-3.8-flash';
 const ALLOWED_ORIGINS = (Deno.env.get('EATOVA_ALLOWED_ORIGINS') ?? '')
   .split(',')
   .map((origin) => origin.trim())

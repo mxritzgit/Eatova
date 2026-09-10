@@ -377,10 +377,25 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       });
       return;
     }
+    // These reads are independent once the active session is known. Start
+    // quota alongside history so a slow quota RPC does not add a round-trip
+    // to the first coach render.
+    final knownQuota = _quota;
+    final quotaFuture = () async {
+      try {
+        return await svc.loadQuotaToday();
+      } on CoachDataUnavailable {
+        return knownQuota;
+      }
+    }();
+
     List<ChatMessage> history;
     try {
       history = await svc.loadHistory(activeId);
     } on CoachDataUnavailable {
+      // Consume the parallel task on this early exit to avoid an unhandled
+      // failure while retaining the existing history error state.
+      await quotaFuture;
       // "Not loadable" is not "empty": an empty _messages would show the hero
       // state and present the history as deleted.
       if (!mounted || _activeSessionId != sessionBeforeLoad) return;
@@ -396,12 +411,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     history = await _hydrateProposalImages(history);
     // Unknown stays unknown: the last known state survives instead of being
     // replaced by a guess.
-    ChatQuotaSnapshot? quota = _quota;
-    try {
-      quota = await svc.loadQuotaToday();
-    } on CoachDataUnavailable {
-      // Intentionally empty — `quota` keeps the known state.
-    }
+    // The quota RPC has been running alongside history; preserve the previous
+    // snapshot when it is unavailable rather than inventing a value.
+    final quota = await quotaFuture;
     var refreshedSessions = sessions;
     if (sessions.isEmpty) {
       try {
@@ -874,8 +886,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     // A newly typed text must survive: [_send] always clears the field, even
     // with `textOverride`. The failed question itself typed again is consumed
     // by the retry, not restored.
-    final fremderEntwurf =
-        _input.text.trim() == auftrag.text.trim() ? '' : _input.text;
+    final fremderEntwurf = _input.text.trim() == auftrag.text.trim()
+        ? ''
+        : _input.text;
     setState(() {
       _messages = _messages
           .where((m) => m.id != auftrag.messageId)
@@ -1036,12 +1049,13 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       // Fire and forget, except on the drift path below, which has to wait for
       // the file. `catchError` keeps that await from throwing into a branch
       // that only knows coach errors.
-      final bildGespeichert = serverId != null &&
+      final bildGespeichert =
+          serverId != null &&
               imageBytes != null &&
               imageStore.scopeToken == imageScope
           ? imageStore
-              .saveProposalImage(messageId: serverId, bytes: imageBytes)
-              .catchError((Object _) => false)
+                .saveProposalImage(messageId: serverId, bytes: imageBytes)
+                .catchError((Object _) => false)
           : null;
       if (bildGespeichert != null) unawaited(bildGespeichert);
       // Images exist only in this response: keep them in the original user's
@@ -1884,8 +1898,10 @@ class _UnsentNotice extends StatelessWidget {
                 onTap: onRetry,
                 borderRadius: BorderRadius.circular(rPill),
                 child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
@@ -1946,8 +1962,11 @@ class _CoachInfoSheetUnbekannt extends StatelessWidget {
             children: <Widget>[
               Text(
                 l10n.coachTitle,
-                style:
-                    AppType.display(20, weight: FontWeight.w700, color: t.ink),
+                style: AppType.display(
+                  20,
+                  weight: FontWeight.w700,
+                  color: t.ink,
+                ),
               ),
               const SizedBox(height: 6),
               Text(

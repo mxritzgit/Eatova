@@ -46,9 +46,14 @@ import {
   trainingPlanSystemPrompt,
 } from "./training_plan.ts";
 
-// Models and daily limit are overridable via function secrets.
-const MODEL_ANSWER     = Deno.env.get("COACH_MODEL_ANSWER") ?? "x-ai/grok-4.3";
-const MODEL_CLASSIFIER = Deno.env.get("COACH_MODEL_CLASSIFIER") ?? "x-ai/grok-4.3";
+// Models and daily limit are overridable via function secrets. Keep the
+// answer and classifier on the same low-latency multimodal Gemini model: it
+// handles normal coach messages and image_url parts in one OpenRouter route,
+// which avoids provider hand-offs and keeps behaviour consistent for photo
+// follow-ups. Operators can still pin a different model with the secrets.
+const DEFAULT_COACH_MODEL = "google/gemini-3.8-flash";
+const MODEL_ANSWER     = Deno.env.get("COACH_MODEL_ANSWER") ?? DEFAULT_COACH_MODEL;
+const MODEL_CLASSIFIER = Deno.env.get("COACH_MODEL_CLASSIFIER") ?? DEFAULT_COACH_MODEL;
 // Image GENERATION needs its own model: the "-image" family outputs images and
 // is NOT usable for photo->JSON analysis (see analyze-meal).
 const MODEL_IMAGE      = Deno.env.get("COACH_IMAGE_MODEL") ?? "google/gemini-3.1-flash-image";
@@ -1265,7 +1270,8 @@ async function handleRecipeMode(params: {
     await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
     return json({ error: "store_failed" }, 500);
   }
-  await maybeAutoTitle(serviceKey, supabaseUrl, userId, sessionId, message);
+  void maybeAutoTitle(serviceKey, supabaseUrl, userId, sessionId, message)
+    .catch(() => console.error("maybeAutoTitle unavailable"));
 
   let raw: string;
   try {
@@ -1444,7 +1450,8 @@ async function handlePlanMode(params: {
     await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
     return json({ error: "store_failed" }, 500);
   }
-  await maybeAutoTitle(serviceKey, supabaseUrl, userId, sessionId, message);
+  void maybeAutoTitle(serviceKey, supabaseUrl, userId, sessionId, message)
+    .catch(() => console.error("maybeAutoTitle unavailable"));
 
   let raw: string;
   try {
@@ -2553,8 +2560,13 @@ export async function handleRequest(req: Request): Promise<Response> {
     return json({ error: "store_failed" }, 500);
   }
   // First real user message in the session becomes the title, so the session
-  // list is not all default titles.
-  await maybeAutoTitle(serviceKey, supabaseUrl, userId, sessionId, message);
+  // list is not all default titles. This write is cosmetic and ownership
+  // scoped; start it while the provider is working instead of putting a
+  // Supabase round-trip in front of every answer. The helper already handles
+  // expected transport failures, while this final guard prevents an
+  // unexpected rejection from becoming an unhandled promise.
+  void maybeAutoTitle(serviceKey, supabaseUrl, userId, sessionId, message)
+    .catch(() => console.error("maybeAutoTitle unavailable"));
 
   // Deliberately unchecked: the answer exists and the slot is spent, so
   // withholding it over a persistence hiccup would be the bigger harm. The two

@@ -113,8 +113,9 @@ default, or infer that all later findings are fixed just because an earlier run 
 
 - Preserve the selected calorie model unless asked to revisit it. Its rationale
   is in `docs/REVIEW-KCAL-2026-08-21.md` and Claude's calorie-review note.
-- The classifier staying on grok-4.3 was a user decision in the performance run.
-  Streaming does not eliminate the preceding classifier's latency.
+- OpenRouter-backed meal analysis and Coach answer/classifier calls default to
+  `google/gemini-3.8-flash`, which accepts the existing image-to-text payload.
+  Function secrets can still pin an operator-selected model explicitly.
 - Keep the existing `list_chat_sessions` query: the proposed rewrite was measured
   slower and reverted. Preserve per-operation outbox persistence (DATA-7); the
   candidate search, not the persistence cadence, was optimized.
@@ -545,3 +546,15 @@ contracts remain unchanged. The new behavior is covered in
 `test/meal_scan_context_test.dart`; the preview was rendered in both palettes
 at 390 px and the existing 320 px/2x-text/keyboard matrix remains green.
 Delivery is still separate until this branch passes full CI and is merged.
+
+## OpenRouter Gemini and Coach latency, 2026-09-10
+
+The default OpenRouter model for `analyze-meal`, Coach answers, and the Coach
+classifier is now `google/gemini-3.8-flash`. The Coach image-generation model
+remains separate because it serves a different image-output contract.
+
+Coach bootstrap starts the quota read alongside history loading. The normal
+message path schedules the cosmetic auto-title update while the provider works,
+so neither operation adds avoidable serial latency to the first response. The
+ownership filter, quota/refund paths, stream handling, and persistence checks
+remain unchanged.
