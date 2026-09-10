@@ -46,6 +46,7 @@ const Set<String> _tabellenLautMigrationen = <String>{
   'user_recipes',
   'training_plans',
   'training_history',
+  'training_history_deletions',
   'planned_meals',
   'shopping_checks',
   'chat_sessions',

@@ -149,8 +149,13 @@ const Map<String, Erwartung> _erwartet = {
   ),
   'training_history': Erwartung(
     besitzerSpalte: 'user_id',
-    clientBefehle: {'select', 'insert', 'delete'},
-    grund: 'Abgeschlossene Trainings bleiben unveraenderlich; kein UPDATE-Recht.',
+    clientBefehle: {'select'},
+    grund: 'Abschluss und Loeschung nur per RPC mit dauerhaftem Loeschbeleg.',
+  ),
+  'training_history_deletions': Erwartung(
+    besitzerSpalte: 'user_id',
+    clientBefehle: {'select'},
+    grund: 'Eigene Loeschkennungen verhindern spaetes Wiederanlegen; keine Leistungsdaten.',
   ),
   'planned_meals': Erwartung(
     besitzerSpalte: 'user_id',
@@ -234,6 +239,10 @@ class FunktionsErwartung {
 /// fewer. Hand-written for the same reason as [_erwartet]: derived from the
 /// migrations, a newly granted role would define its own expectation.
 const Map<String, FunktionsErwartung> _erwarteteFunktionen = {
+  'record_training_history': FunktionsErwartung.client(
+      definer: true, grund: 'Bestaetigt eigene unveraenderliche Abschluesse oder vorhandene Loeschung.'),
+  'delete_training_history': FunktionsErwartung.client(
+      definer: true, grund: 'Entfernt eigene Leistungsdaten atomar und bewahrt nur die Loeschkennung.'),
   'is_valid_training_exercise_ids': FunktionsErwartung.client(
       definer: false, grund: 'Validiert stabile Uebungsidentitaeten im gespeicherten Plan.'),
   'is_valid_training_history': FunktionsErwartung.client(

@@ -106,6 +106,8 @@ class FixlaufServer {
 
   http.Client client() => MockClient(_handle);
 
+  final Set<String> trainingHistoryDeletions = {};
+
   Future<http.Response> _handle(http.Request req) async {
     if (offline) throw http.ClientException('offline', req.url);
     if (silent) return Completer<http.Response>().future;
@@ -135,6 +137,24 @@ class FixlaufServer {
         500,
         headers: const {'Content-Type': 'application/json'}, request: req);
 
+    if (path.contains('/rpc/record_training_history')) {
+      final body = jsonDecode(req.body) as Map<String, dynamic>;
+      final id = body['p_id'] as String;
+      if (trainingHistoryDeletions.contains(id)) return ok(false);
+      trainingHistoryRows.putIfAbsent(id, () => {
+        'id': id,
+        'finished_at': body['p_finished_at'],
+        'session': body['p_session'],
+      });
+      return ok(true);
+    }
+    if (path.contains('/rpc/delete_training_history')) {
+      final body = jsonDecode(req.body) as Map<String, dynamic>;
+      final id = body['p_id'] as String;
+      trainingHistoryDeletions.add(id);
+      trainingHistoryRows.remove(id);
+      return ok(const <String, dynamic>{});
+    }
     if (path.contains('/rpc/increment_lifetime_stats')) {
       if (rejectRpcs) return fail();
       final body = jsonDecode(req.body) as Map<String, dynamic>;
@@ -237,13 +257,12 @@ class FixlaufServer {
               })
           .toList());
     }
-    if (path.contains('/training_history')) {
-      if (req.method == 'POST') {
-        for (final row in _rowsOf(req.body)) {
-          trainingHistoryRows.putIfAbsent(row['id'] as String, () => row);
-        }
-      } else if (req.method == 'DELETE') {
-        trainingHistoryRows.remove(_eqParam(req, 'id'));
+    if (path.endsWith('/training_history_deletions')) {
+      return ok(trainingHistoryDeletions.map((id) => {'id': id}).toList());
+    }
+    if (path.endsWith('/training_history')) {
+      if (req.method != 'GET') {
+        return http.Response('{}', 403, request: req);
       }
       return ok(trainingHistoryRows.values.toList());
     }
