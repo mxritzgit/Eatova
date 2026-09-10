@@ -131,6 +131,15 @@ void main() {
     final source = recipe();
     final saved = plan(value: source);
     expect(saved.recipe.title, 'Oats');
+    final longRecipe = source.copyWith(
+      description: 'a' * 4000,
+      portion: 'a' * 1000,
+      ingredients: 'a' * 20000,
+      preparation: 'a' * 20000,
+      imageAsset: 'a' * 2048,
+    );
+    expect(plan(value: longRecipe).recipe.ingredients.length, 20000);
+
     expect(source.copyWith(title: 'Edited').title, 'Edited');
     expect(saved.recipe.title, 'Oats');
     final json = saved.toJson();

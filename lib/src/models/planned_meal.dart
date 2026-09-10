@@ -103,13 +103,13 @@ class PlannedMeal {
     }
     final snapshot = raw.cast<String, dynamic>();
     for (final entry in <String, int>{
-      'slug': 300,
+      'slug': 200,
       'title': 300,
-      'description': 2000,
-      'portion': 500,
-      'ingredients': 10000,
-      'preparation': 10000,
-      'image_asset': 1000,
+      'description': 4000,
+      'portion': 1000,
+      'ingredients': 20000,
+      'preparation': 20000,
+      'image_asset': 2048,
     }.entries) {
       final value = snapshot[entry.key];
       if (value is! String ||
@@ -127,12 +127,18 @@ class PlannedMeal {
       'estimated_g',
     ]) {
       final value = snapshot[key];
-      if (value is! num || !value.isFinite || value < 0 || value > 1000000) {
+      if (value is! num ||
+          !value.isFinite ||
+          value < 0 ||
+          value >
+              ((key == 'calories_kcal' || key == 'estimated_g')
+                  ? 10000
+                  : 1000)) {
         throw const FormatException('Invalid recipe nutrition');
       }
     }
     final encoded = jsonEncode(snapshot);
-    if (utf8.encode(encoded).length > 65536) {
+    if (utf8.encode(encoded).length > 300000) {
       throw const FormatException('Recipe snapshot too large');
     }
     FitnessRecipe.fromRow(snapshot);

@@ -1,6 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/logged_meal.dart';
+import '../models/lifetime_stats.dart';
 import '../models/planned_meal.dart';
 import 'meals_sync.dart';
 import 'user_rpc.dart';
@@ -48,7 +49,7 @@ class MealPlansSync {
     );
   }
 
-  Future<void> convert(
+  Future<MealPlanConversion> convert(
     PlannedMeal plan,
     LoggedMeal meal, {
     required bool trackDay,
@@ -57,7 +58,7 @@ class MealPlansSync {
     if (!plan.isEaten || meal.id != plan.id || meal.slot != plan.slot) {
       throw const FormatException('Invalid meal conversion');
     }
-    await userRpc(
+    final response = await userRpc(
       _client,
       _userId,
       'eat_planned_meal',
@@ -80,6 +81,13 @@ class MealPlansSync {
         'p_track_day': trackDay,
       },
     );
+    final result = MealPlanConversion.fromJson(
+      (response as Map).cast<String, dynamic>(),
+    );
+    if (result.plan.id != plan.id) {
+      throw const FormatException('Mismatched conversion receipt');
+    }
+    return result;
   }
 
   static double? _macro(String value) => double.tryParse(
@@ -88,4 +96,49 @@ class MealPlansSync {
         ).firstMatch(value)?.group(0)?.replaceAll(',', '.') ??
         '',
   );
+}
+
+class MealPlanConversion {
+  const MealPlanConversion({
+    required this.plan,
+    required this.meal,
+    required this.stats,
+    required this.created,
+  });
+  final PlannedMeal plan;
+  final LoggedMeal? meal;
+  final LifetimeStats stats;
+  final bool created;
+  factory MealPlanConversion.fromJson(Map<String, dynamic> json) {
+    final plan = PlannedMeal.fromJson(
+      (json['plan'] as Map).cast<String, dynamic>(),
+    );
+    final raw = json['meal'];
+    final meal = raw == null
+        ? null
+        : LoggedMeal(
+            id: raw['id'],
+            loggedAt: DateTime.parse(raw['logged_at']).toLocal(),
+            localDay: raw['local_day'],
+            forcedSlot: raw['forced_slot'] == null
+                ? null
+                : MealSlot.values.byName(raw['forced_slot']),
+            result: mealResultFromJson(
+              (raw['payload'] as Map).cast<String, dynamic>(),
+            ),
+          );
+    if (!plan.isEaten ||
+        (meal != null && meal.id != plan.id) ||
+        json['created'] is! bool) {
+      throw const FormatException('Invalid conversion receipt');
+    }
+    return MealPlanConversion(
+      plan: plan,
+      meal: meal,
+      stats: LifetimeStats.fromRow(
+        (json['stats'] as Map).cast<String, dynamic>(),
+      ),
+      created: json['created'],
+    );
+  }
 }

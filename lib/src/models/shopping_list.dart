@@ -30,6 +30,7 @@ List<ShoppingItem> buildShoppingList(
     DateTime(weekStart.year, weekStart.month, weekStart.day + 7),
   );
   final groups = <String, ({String name, double grams})>{};
+  final sources = <String, Set<String>>{};
   final unquantified = <ShoppingItem>[];
   String identity(Object value) =>
       '$start:${sha256.convert(utf8.encode(jsonEncode(value)))}';
@@ -59,6 +60,7 @@ List<ShoppingItem> buildShoppingList(
     }
     for (final ingredient in recipe.structuredIngredients) {
       final key = ingredient.shoppingKey;
+      (sources[key] ??= {}).add(plan.id);
       final previous = groups[key];
       groups[key] = (
         name: previous?.name ?? ingredient.name,
@@ -72,7 +74,12 @@ List<ShoppingItem> buildShoppingList(
       groups.entries
           .map(
             (e) => ShoppingItem(
-              id: identity(['grams', e.key, e.value.grams.toStringAsFixed(6)]),
+              id: identity([
+                'grams',
+                e.key,
+                e.value.grams.toStringAsFixed(6),
+                sources[e.key]!.toList()..sort(),
+              ]),
               name: e.value.name,
               grams: e.value.grams,
             ),

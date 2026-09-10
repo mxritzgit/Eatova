@@ -69,46 +69,47 @@ mixin _HomeStoreMealPlanPart
 
   /// One outbox intent owns the recipe snapshot, conversion receipt, diary row
   /// and server counters. Subsequent diary changes follow this UUID in FIFO.
-  Future<SyncDelivery> eatPlannedMeal(String id) => _serializeMealPlan(
-    () async {
-      _ensureMealPlanActive();
-      final plan = _plannedMeals.where((p) => p.id == id).firstOrNull;
-      if (plan == null || plan.removed) {
-        throw StateError('Meal no longer planned');
+  Future<SyncDelivery> eatPlannedMeal(
+    String id,
+  ) => _serializeMealPlan(() async {
+    _ensureMealPlanActive();
+    final plan = _plannedMeals.where((p) => p.id == id).firstOrNull;
+    if (plan == null || plan.removed) {
+      throw StateError('Meal no longer planned');
+    }
+    if (plan.isEaten) return SyncDelivery.delivered;
+    final now = clock.now();
+    final converted = plan.copyWith(eatenAt: now);
+    final meal = LoggedMeal(
+      id: plan.id,
+      result: plan.recipe.toMealResultForServings(plan.servings, _l10n),
+      loggedAt: now,
+      localDay: localDayKey(now),
+      forcedSlot: plan.slot,
+    );
+    final op = SyncOp.mealPlanConvert(converted, meal, trackDay: true);
+    MealPlanConversion? receipt;
+    final delivery = await _confirmMutation('meal-plan-eaten', op, () async {
+      receipt = await sync!.mealPlans.convert(converted, meal, trackDay: true);
+      _reconcileMealPlanConversion(receipt!, op);
+    });
+    _ensureMealPlanActive();
+    _mutate(() {
+      if (receipt == null) _putPlannedMeal(converted);
+      if (receipt == null && !loggedMeals.any((m) => m.id == meal.id)) {
+        loggedMeals = [meal, ...loggedMeals];
+        lifetimeStats = lifetimeStats.incrementMeals().recordTrackedDay(now);
       }
-      if (plan.isEaten) return SyncDelivery.delivered;
-      final now = clock.now();
-      final converted = plan.copyWith(eatenAt: now);
-      final meal = LoggedMeal(
-        id: plan.id,
-        result: plan.recipe.toMealResultForServings(plan.servings, _l10n),
-        loggedAt: now,
-        localDay: localDayKey(now),
-        forcedSlot: plan.slot,
-      );
-      final delivery = await _confirmMutation(
-        'meal-plan-eaten',
-        SyncOp.mealPlanConvert(converted, meal, trackDay: true),
-        () => sync!.mealPlans.convert(converted, meal, trackDay: true),
-      );
-      _ensureMealPlanActive();
-      _mutate(() {
-        _putPlannedMeal(converted);
-        if (!loggedMeals.any((m) => m.id == meal.id)) {
-          loggedMeals = [meal, ...loggedMeals];
-          lifetimeStats = lifetimeStats.incrementMeals().recordTrackedDay(now);
-        }
-        dailyConsumedKcal = consumedKcalForFoodDate(now);
-        macroProgress = macroProgressForFoodDate(now);
-        _invalidateTrendWindow();
-      });
-      _cacheMealPlans();
-      _cacheLoggedMeals();
-      _cacheLifetimeStats();
-      unawaited(_rescheduleStreakReminder());
-      return delivery;
-    },
-  );
+      dailyConsumedKcal = consumedKcalForFoodDate(now);
+      macroProgress = macroProgressForFoodDate(now);
+      _invalidateTrendWindow();
+    });
+    _cacheMealPlans();
+    _cacheLoggedMeals();
+    _cacheLifetimeStats();
+    unawaited(_rescheduleStreakReminder());
+    return delivery;
+  });
 
   Future<void> retryMealPlans() async {
     _ensureMealPlanActive();
@@ -119,6 +120,8 @@ mixin _HomeStoreMealPlanPart
   Future<void> _loadMealPlans() async {
     final s = sync;
     if (s == null || _disposed || _trainingSessionEnded) return;
+    final baselinePlans = _plannedMeals;
+    final baselineChecks = _shoppingChecks;
     final version = _mealPlansVersion;
     _mutate(() => mealPlansLoading = true);
     try {
@@ -129,6 +132,23 @@ mixin _HomeStoreMealPlanPart
           _plannedMeals = List.unmodifiable(data.plans);
           _shoppingChecks = {
             for (final check in data.checks) check.id: check.checked,
+          };
+          _mealPlansVersion++;
+        } else {
+          _plannedMeals = HomeStore._mergeRacedLoad(
+            local: _plannedMeals,
+            server: data.plans,
+            baseline: baselinePlans,
+            keyOf: (p) => p.id,
+          );
+          _shoppingChecks = {
+            for (final check in data.checks)
+              check.id: baselineChecks[check.id] != _shoppingChecks[check.id]
+                  ? _shoppingChecks[check.id] ?? check.checked
+                  : check.checked,
+            for (final entry in _shoppingChecks.entries)
+              if (!data.checks.any((c) => c.id == entry.key))
+                entry.key: entry.value,
           };
           _mealPlansVersion++;
         }

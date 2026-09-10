@@ -1281,7 +1281,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         final plan = op.plannedMeal;
         final meal = op.meal;
         if (plan == null || meal == null) throw _CorruptOpPayload(op.kind);
-        await s.mealPlans.convert(plan, meal, trackDay: op.trackDay);
+        final receipt = await s.mealPlans.convert(plan, meal, trackDay: op.trackDay);
+        _reconcileMealPlanConversion(receipt, op);
         if (_unconfirmedTrainingOps.contains(op)) _deliveredTrainingOps.add(op);
       case SyncOpKind.shoppingCheck:
         final check = op.shoppingCheckValue;
@@ -1782,6 +1783,40 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     _cache?.writeUserRecipesDebounced(_userRecipes);
   }
 
+  void _reconcileMealPlanConversion(MealPlanConversion receipt, SyncOp op) {
+    if (_disposed || _trainingSessionEnded) return;
+    _mutate(() {
+      _putPlannedMeal(receipt.plan);
+      loggedMeals = [
+        if (receipt.meal != null) receipt.meal!,
+        ...loggedMeals.where((m) => m.id != receipt.plan.id),
+      ];
+      final index = _outbox.indexWhere((candidate) => identical(candidate, op));
+      if (index >= 0) {
+        for (final later in _outbox.skip(index + 1).where(
+          (candidate) => candidate.entityId == op.entityId,
+        )) {
+          if (later.kind == SyncOpKind.mealDelete) {
+            loggedMeals = loggedMeals.where((m) => m.id != op.entityId).toList();
+          } else if (later.kind == SyncOpKind.mealUpsert && later.meal != null) {
+            loggedMeals = [
+              later.meal!,
+              ...loggedMeals.where((m) => m.id != op.entityId),
+            ];
+          }
+        }
+      }
+      lifetimeStats = receipt.stats;
+      _overlayPendingTrackingDays(excluding: op);
+      dailyConsumedKcal = consumedKcalForFoodDate(clock.now());
+      macroProgress = macroProgressForFoodDate(clock.now());
+      _invalidateTrendWindow();
+    });
+    _cacheMealPlans();
+    _cacheLoggedMeals();
+    _cacheLifetimeStats();
+  }
+
   void _cacheMealPlans() {
     if (_disposed || _trainingSessionEnded) return;
     unawaited(_cache?.writeMealPlans(_plannedMeals, _shoppingChecks) ?? Future<void>.value());
@@ -2126,8 +2161,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   ///
   /// [LifetimeStats.recordTrackedDay] is idempotent per day and a no-op for
   /// days before the last counted one, so FIFO order carries itself.
-  void _overlayPendingTrackingDays() {
+  void _overlayPendingTrackingDays({SyncOp? excluding}) {
     for (final op in _outbox) {
+      if (identical(op, excluding)) continue;
       if (op.kind == SyncOpKind.mealPlanConvert && op.trackDay &&
           !_unconfirmedTrainingOps.contains(op)) {
         final meal = op.meal;

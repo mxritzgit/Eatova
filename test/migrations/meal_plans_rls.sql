@@ -27,8 +27,14 @@ select public.save_planned_meal(rlstest.meal_plan('aaaaaaaa-0000-4000-8000-00000
 select public.save_shopping_check('2026-09-07:'||repeat('a',64),true);
 do $$
 declare draft jsonb := rlstest.meal_plan('aaaaaaaa-0000-4000-8000-000000000001');
-  bad jsonb;
+  bad jsonb; large_recipe jsonb;
 begin
+  large_recipe := draft || jsonb_build_object('recipe', draft->'recipe' ||
+    jsonb_build_object('description', repeat('a',4000),'portion',repeat('a',1000),
+      'ingredients',repeat('a',20000),'preparation',repeat('a',20000),
+      'image_asset',repeat('a',2048)));
+  if not public.is_valid_planned_meal(large_recipe) then
+    raise exception 'MEALPLAN: legal recipe field limits rejected'; end if;
   if (select count(*) from public.planned_meals where id='aaaaaaaa-0000-4000-8000-000000000001') <> 1
     then raise exception 'MEALPLAN: own plan invisible'; end if;
   if exists(select 1 from public.logged_meals where id='aaaaaaaa-0000-4000-8000-000000000001')
@@ -64,7 +70,7 @@ end $$;
 select set_config('request.jwt.claims','{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}',true);
 do $$
 declare draft jsonb := rlstest.meal_plan('aaaaaaaa-0000-4000-8000-000000000001');
-  consumed jsonb; meal jsonb; before_meals integer;
+  consumed jsonb; meal jsonb; receipt jsonb; before_meals integer;
 begin
   consumed := draft || jsonb_build_object('eaten_at',now());
   meal := rlstest.plan_meal('aaaaaaaa-0000-4000-8000-000000000001');
@@ -75,8 +81,14 @@ begin
   if (select plan->>'eaten_at' from public.planned_meals where user_id=auth.uid()
       and id='aaaaaaaa-0000-4000-8000-000000000001') is not null then
     raise exception 'MEALPLAN: invalid meal prematurely consumed plan'; end if;
-  perform public.eat_planned_meal(consumed,meal,true);
-  perform public.eat_planned_meal(consumed,meal,true);
+  receipt := public.eat_planned_meal(consumed,meal,true);
+  if receipt->>'created' <> 'true' or receipt->'plan' <> consumed then
+    raise exception 'MEALPLAN: missing canonical creation receipt'; end if;
+  receipt := public.eat_planned_meal(consumed,meal,true);
+  if receipt->>'created' <> 'false' or receipt->'plan' <> consumed
+    or receipt->'meal'->>'local_day' <> current_date::text
+    or (receipt->'stats'->>'meals_logged')::integer <> before_meals+1 then
+    raise exception 'MEALPLAN: non-canonical retry receipt'; end if;
   perform public.save_planned_meal(draft||'{"servings":2}');
   if (select count(*) from public.logged_meals where id='aaaaaaaa-0000-4000-8000-000000000001')<>1
     then raise exception 'MEALPLAN: duplicate consumed diary row'; end if;
@@ -90,7 +102,9 @@ begin
   -- Removing a diary entry does not erase its conversion receipt: retries may
   -- never resurrect a deliberately deleted consumed meal.
   delete from public.logged_meals where id='aaaaaaaa-0000-4000-8000-000000000001';
-  perform public.eat_planned_meal(consumed,meal,true);
+  receipt := public.eat_planned_meal(consumed,meal,true);
+  if receipt->'meal' is distinct from 'null'::jsonb or receipt->>'created' <> 'false' then
+    raise exception 'MEALPLAN: deleted meal receipt returned stale diary'; end if;
   if exists(select 1 from public.logged_meals where id='aaaaaaaa-0000-4000-8000-000000000001')
     then raise exception 'MEALPLAN: retry resurrected deleted meal'; end if;
 end $$;
@@ -104,6 +118,18 @@ select rlstest.erwarte_sqlstate($q$select public.eat_planned_meal(
   rlstest.meal_plan('bbbbbbbb-0000-4000-8000-000000000001')||jsonb_build_object('eaten_at',now()),
   rlstest.plan_meal('bbbbbbbb-0000-4000-8000-000000000001'),true)$q$,'23505','foreign diary UUID collision');
 select rlstest.erwarte_zeilen('select * from public.planned_meals where user_id=auth.uid() and id=''bbbbbbbb-0000-4000-8000-000000000001''',0,'collision left no plan receipt');
+
+-- Hidden historical plans must not exhaust the active-plan allowance.
+set local role service_role;
+insert into public.planned_meals(user_id,id,plan)
+select '11111111-1111-1111-1111-111111111111',
+  ('cccccccc-0000-4000-8000-'||lpad(i::text,12,'0'))::uuid,
+  rlstest.meal_plan(('cccccccc-0000-4000-8000-'||lpad(i::text,12,'0'))::uuid)
+    || jsonb_build_object('day',(current_date-36)::text)
+from generate_series(1,500) i;
+set local role authenticated;
+select public.save_planned_meal(rlstest.meal_plan('aaaaaaaa-0000-4000-8000-000000000002'));
+select rlstest.erwarte_zeilen('select * from public.planned_meals where id=''aaaaaaaa-0000-4000-8000-000000000002''',1,'historical plans leave active capacity');
 
 set local role anon;
 select set_config('request.jwt.claims','{}',true);

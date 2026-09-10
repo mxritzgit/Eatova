@@ -3,7 +3,7 @@ create or replace function public.is_valid_planned_meal(p jsonb)
 returns boolean language plpgsql immutable set search_path = public as $$
 declare r jsonb; k text; n numeric; d date;
 begin
-  if jsonb_typeof(p) is distinct from 'object' or octet_length(p::text) > 70000
+  if jsonb_typeof(p) is distinct from 'object' or octet_length(p::text) > 310000
     or not (p ?& array['id','day','slot','servings','recipe','removed','eaten_at'])
     or (p - array['id','day','slot','servings','recipe','removed','eaten_at']) <> '{}'::jsonb
     or jsonb_typeof(p->'id') <> 'string'
@@ -23,18 +23,18 @@ begin
     if (p->>'removed')::boolean then return false; end if;
   end if;
   r := p->'recipe';
-  if jsonb_typeof(r) is distinct from 'object' or octet_length(r::text) > 65536 then return false; end if;
+  if jsonb_typeof(r) is distinct from 'object' or octet_length(r::text) > 300000 then return false; end if;
   foreach k in array array['slug','title','description','portion','ingredients','preparation','image_asset'] loop
     if jsonb_typeof(r->k) is distinct from 'string' then return false; end if;
-    if char_length(r->>k) > case k when 'slug' then 300 when 'title' then 300
-      when 'description' then 2000 when 'portion' then 500 when 'image_asset' then 1000
-      else 10000 end then return false; end if;
+    if char_length(r->>k) > (case k when 'slug' then 200 when 'title' then 300
+      when 'description' then 4000 when 'portion' then 1000 when 'image_asset' then 2048
+      else 20000 end) then return false; end if;
   end loop;
   if btrim(r->>'title') = '' or btrim(r->>'slug') = '' then return false; end if;
   foreach k in array array['calories_kcal','protein_g','carbs_g','fat_g','estimated_g'] loop
     if jsonb_typeof(r->k) is distinct from 'number' then return false; end if;
     n := (r->>k)::numeric;
-    if n < 0 or n > 1000000 then return false; end if;
+    if n < 0 or n > (case when k in ('calories_kcal','estimated_g') then 10000 else 1000 end) then return false; end if;
   end loop;
   if not public.recipe_ingredients_valid(
     coalesce(r->'structured_ingredients','[]'::jsonb),
@@ -87,7 +87,8 @@ begin
   if old->>'eaten_at' is not null then return; end if;
   if old is null and ((select count(*) from public.planned_meals where user_id=u) >= 10000
     or (select count(*) from public.planned_meals where user_id=u
-      and plan->>'eaten_at' is null and plan->>'removed'='false') >= 500) then
+      and plan->>'eaten_at' is null and plan->>'removed'='false'
+      and (plan->>'day')::date >= (now() at time zone 'utc')::date - 35) >= 500) then
     raise exception 'EX_PLAN_LIMIT'; end if;
   insert into public.planned_meals(user_id,id,plan) values(u,(p_plan->>'id')::uuid,p_plan)
   on conflict(user_id,id) do update set plan=excluded.plan;
@@ -131,8 +132,8 @@ revoke all on function public.load_meal_plan() from public, anon;
 grant execute on function public.load_meal_plan() to authenticated;
 
 create or replace function public.eat_planned_meal(p_plan jsonb,p_meal jsonb,p_track_day boolean)
-returns void language plpgsql security definer set search_path = public as $$
-declare u uuid := auth.uid(); old jsonb; meal_id uuid;
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare u uuid := auth.uid(); old jsonb; meal_id uuid; created boolean := false;
 begin
   if u is null then raise exception 'EX_USER_REQUIRED' using errcode='42501'; end if;
   if not public.is_valid_planned_meal(p_plan) or p_plan->>'eaten_at' is null
@@ -155,7 +156,7 @@ begin
   meal_id := (p_plan->>'id')::uuid;
   perform pg_advisory_xact_lock(hashtextextended(u::text || ':meal-plan',0));
   select plan into old from public.planned_meals where user_id=u and id=meal_id for update;
-  if old->>'eaten_at' is not null then return; end if;
+  if old->>'eaten_at' is null then
   if old is null and (select count(*) from public.planned_meals where user_id=u) >= 10000 then
     raise exception 'EX_PLAN_LIMIT'; end if;
   -- Never overwrite an unrelated or foreign diary UUID. A conflict aborts the
@@ -171,6 +172,11 @@ begin
   on conflict(user_id,id) do update set plan=excluded.plan;
   perform public.increment_lifetime_stats(p_meals=>1,p_request_id=>meal_id);
   if p_track_day then perform public.record_tracking_day((p_meal->>'local_day')::date); end if;
+  created := true;
+  end if;
+  return jsonb_build_object('plan',(select plan from public.planned_meals where user_id=u and id=meal_id),
+    'meal',(select to_jsonb(m) from public.logged_meals m where user_id=u and id=meal_id),
+    'stats',(select to_jsonb(s) from public.lifetime_stats s where user_id=u),'created',created);
 end;
 $$;
 revoke all on function public.eat_planned_meal(jsonb,jsonb,boolean) from public, anon;
