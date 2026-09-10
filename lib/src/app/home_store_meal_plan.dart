@@ -27,8 +27,19 @@ mixin _HomeStoreMealPlanPart
       if (validated.isEaten || existing?.isEaten == true) {
         throw StateError('Meal already eaten');
       }
+      final activeSince = localDayKey(
+        clock.now().subtract(const Duration(days: 35)),
+      );
       if (existing == null &&
-          _plannedMeals.where((p) => !p.removed && !p.isEaten).length >= 500) {
+          _plannedMeals
+                  .where(
+                    (p) =>
+                        !p.removed &&
+                        !p.isEaten &&
+                        p.day.compareTo(activeSince) >= 0,
+                  )
+                  .length >=
+              500) {
         throw StateError('Meal plan limit reached');
       }
       final delivery = await _confirmMutation(

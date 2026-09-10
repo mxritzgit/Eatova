@@ -311,6 +311,30 @@ void main() {
   });
 
   test(
+    'historical cached plans do not exhaust the active planning limit',
+    () async {
+      await withClock(Clock.fixed(today), () async {
+        final store = HomeStore(
+          sync: null,
+          health: const NoopHealthService(),
+          notificationService: const NoopNotificationService(),
+          initialUserName: 'Fixture',
+          emitSnack: h.SnackCapture().call,
+        );
+        addTearDown(store.dispose);
+        for (var i = 0; i < 500; i++) {
+          await store.savePlannedMeal(
+            plan().copyWith(day: today.subtract(const Duration(days: 36))),
+          );
+        }
+        final fresh = plan();
+        await store.savePlannedMeal(fresh);
+        expect(store.plannedMeals.any((p) => p.id == fresh.id), isTrue);
+      });
+    },
+  );
+
+  test(
     'remove stays removed after restart and account cleanup purges planner mirror',
     () async {
       final raw = InMemoryKeyValueStore();
