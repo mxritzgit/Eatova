@@ -7,6 +7,7 @@ mixin _HomeStoreTrainingHistoryPart
     required int generation,
   }) => _serializeTrainingSession(() async {
     _ensureTrainingSessionActive();
+    await _repairTrainingHistoryDeletions();
     if (_trainingHistoryDeletedIds.contains(entry.id)) {
       throw const TrainingCompletionDeleted();
     }
@@ -58,12 +59,19 @@ mixin _HomeStoreTrainingHistoryPart
     _ensureTrainingSessionActive();
     _trainingSession = recovery;
     final op = SyncOp.trainingHistoryInsert(validated);
+    var deletedResponse = false;
     final delivery = await _confirmMutation('Training-history', op, () async {
       if (!await sync!.trainingHistory.insert(validated)) {
-        _rememberTrainingHistoryDeletion(validated.id);
+        deletedResponse = true;
+        await _rememberTrainingHistoryDeletion(validated.id);
       }
     });
     _ensureTrainingSessionActive();
+    // A failed local receipt may queue the insert, but must not acknowledge
+    // completion or clear its recovery until the deletion fence is durable.
+    if (deletedResponse && !_trainingHistoryDeletedIds.contains(validated.id)) {
+      throw StateError('Training deletion could not be saved');
+    }
     _mutate(() {
       _trainingHistory = [
         validated,
@@ -113,7 +121,7 @@ mixin _HomeStoreTrainingHistoryPart
       () => sync!.trainingHistory.delete(id),
     );
     _ensureTrainingSessionActive();
-    _rememberTrainingHistoryDeletion(id);
+    await _rememberTrainingHistoryDeletion(id);
     _mutate(
       () => _trainingHistory = trainingHistory
           .where((entry) => entry.id != id)

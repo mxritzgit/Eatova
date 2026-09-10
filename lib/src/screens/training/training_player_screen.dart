@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/training_plan.dart';
@@ -13,6 +14,30 @@ import '../../widgets/design/design.dart';
 import '../../widgets/common/app_snack.dart';
 
 enum _SaveIntent { checkpoint, leave, clear, complete }
+
+// The model and Postgres count code points; retain whole displayed characters.
+class _TrainingNoteFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    if (newValue.text.runes.length <= TrainingLimits.notesMaxLength) {
+      return newValue;
+    }
+    var length = 0;
+    final text = newValue.text.characters.takeWhile((character) {
+      length += character.runes.length;
+      return length <= TrainingLimits.notesMaxLength;
+    }).join();
+    return TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(
+        offset: newValue.selection.extentOffset.clamp(0, text.length),
+      ),
+    );
+  }
+}
 
 /// A self-contained player. The caller provides account-pinned durable storage.
 class TrainingPlayerScreen extends StatefulWidget {
@@ -193,7 +218,13 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
         intent == _SaveIntent.checkpoint) {
       return Future<void>.value();
     }
-    final snapshot = intent == _SaveIntent.clear ? null : _recoverySnapshot();
+    TrainingSessionSnapshot? snapshot;
+    Object? validationError;
+    try {
+      snapshot = intent == _SaveIntent.clear ? null : _recoverySnapshot();
+    } catch (error) {
+      validationError = error;
+    }
     // Capture the account-pinned callback alongside its immutable value.
     final persist = widget.onPersist;
     if (intent != _SaveIntent.checkpoint) {
@@ -204,6 +235,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
     if (mounted) setState(() {});
     final operation = _writes.then((_) async {
       try {
+        if (validationError != null) throw validationError;
         if (intent == _SaveIntent.complete) {
           final complete = widget.onComplete;
           if (complete == null) {
@@ -316,11 +348,15 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
     // External route removal cannot await a save. Retain queue order and never
     // enqueue behind a terminal clear. Root rejects writes after account changes.
     if (!_leaving && _terminalIntent == null) {
-      final snapshot = _recoverySnapshot();
-      final persist = widget.onPersist;
-      _writes = _writes
-          .then((_) => persist(snapshot))
-          .catchError((Object _) {});
+      try {
+        final snapshot = _recoverySnapshot();
+        final persist = widget.onPersist;
+        _writes = _writes
+            .then((_) => persist(snapshot))
+            .catchError((Object _) {});
+      } catch (_) {
+        // Retain the last valid checkpoint if an external edit is invalid.
+      }
     }
     _session.dispose();
     _scroll.dispose();
@@ -771,7 +807,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
                     semanticLabel: l.trainingHistoryNote,
                     hint: l.trainingActualOptional,
                     maxLines: 3,
-                    maxLength: TrainingLimits.notesMaxLength,
+                    inputFormatters: [_TrainingNoteFormatter()],
                     enabled: !_leaving && _pendingCompletion == null,
                     onChanged: (_) {
                       _pendingCompletion = null;

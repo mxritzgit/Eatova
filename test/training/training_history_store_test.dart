@@ -37,6 +37,7 @@ class _Server {
   final deleted = <String>{};
   Future<http.Response> handle(http.Request request) async {
     requests.add(request);
+    if (offline) throw http.ClientException('fixture offline');
     Object? result = [];
     final isHistory = request.url.path.endsWith('/training_history');
     final isRecord = request.url.path.endsWith('/rpc/record_training_history');
@@ -117,6 +118,18 @@ class _Cache extends LocalCache {
   _Cache(super.store, super.userId);
   bool failOutbox = false;
   bool failClear = false;
+  bool failDeletionReceipt = false;
+  bool failHistoryMirror = false;
+
+  @override
+  Future<bool> rememberTrainingHistoryDeletion(String id) => failDeletionReceipt
+      ? Future.value(false)
+      : super.rememberTrainingHistoryDeletion(id);
+
+  @override
+  Future<void> writeTrainingHistory(List<TrainingHistoryEntry> value) =>
+      failHistoryMirror ? Future.value() : super.writeTrainingHistory(value);
+
   Completer<void>? holdOutbox;
   final entered = Completer<void>();
   @override
@@ -365,6 +378,182 @@ void main() {
       await reboot.boot();
       expect(reboot.store.trainingHistory, isEmpty);
       expect(reboot.store.trainingSession, isNull);
+    },
+  );
+
+  test(
+    'deletion receipt fences stale encrypted recovery and history across offline restart',
+    () async {
+      final raw = InMemoryKeyValueStore();
+      final storage = EncryptedKeyValueStore(
+        raw,
+        AesGcmCacheCipher(Uint8List(32)),
+      );
+      final server = _Server()
+        ..ambiguous = true
+        ..seedPlan = true;
+      final a = _Harness(server, storage: storage);
+      await a.boot();
+      a.cache.failClear = true;
+      final entry = _entry();
+      await a.store.completeTrainingSession(entry, generation: 0);
+      await a.settle();
+      expect((await a.cache.readTrainingSession())?.sessionId, entry.id);
+      expect((await a.cache.readTrainingHistory())!.single.id, entry.id);
+      server.ambiguous = false;
+      final b = _Harness(server, storage: InMemoryKeyValueStore());
+      await b.boot();
+      await b.store.deleteTrainingHistory(entry.id);
+      a.cache.failHistoryMirror = true;
+      a.store.flushPendingWrites();
+      await a.settle();
+      expect(await a.cache.readOutbox(), isEmpty);
+      // Both old payloads deliberately remain on disk: the receipt is the guard.
+      expect((await a.cache.readTrainingSession())?.sessionId, entry.id);
+      expect((await a.cache.readTrainingHistory())!.single.id, entry.id);
+      a.dispose();
+      server.offline = true;
+      final reboot = _Harness(server, storage: storage);
+      reboot.cache.failClear = true;
+      await h.bootUntilIdle(reboot.store);
+      expect(reboot.store.trainingSession, isNull);
+      expect(reboot.store.trainingHistory, isEmpty);
+      expect(
+        await raw.getString('eatova.v1.training_history_deletions.A'),
+        startsWith(cacheCipherMagic),
+      );
+
+      await expectLater(
+        reboot.store.completeTrainingSession(entry, generation: 0),
+        throwsA(isA<TrainingCompletionDeleted>()),
+      );
+      await expectLater(
+        reboot.store.saveTrainingSession(entry.recoverySnapshot()),
+        throwsA(isA<TrainingCompletionDeleted>()),
+      );
+      expect(reboot.store.trainingHistory, isEmpty);
+      expect(await reboot.cache.readOutbox(), isEmpty);
+      final other = _Harness(server, storage: storage, owner: 'B');
+      await other.boot();
+      expect(await other.cache.readTrainingHistoryDeletions(), isEmpty);
+      await other.store.completeTrainingSession(entry, generation: 0);
+      expect(other.store.trainingHistory.single.id, entry.id);
+    },
+  );
+
+  test(
+    'failed deletion receipt retains replay until durable local retirement',
+    () async {
+      final storage = InMemoryKeyValueStore();
+      final server = _Server()
+        ..ambiguous = true
+        ..seedPlan = true;
+      final a = _Harness(server, storage: storage);
+      await a.boot();
+      a.cache.failClear = true;
+      final entry = _entry();
+      await a.store.completeTrainingSession(entry, generation: 0);
+      server.ambiguous = false;
+      final b = _Harness(server, storage: InMemoryKeyValueStore());
+      await b.boot();
+      await b.store.deleteTrainingHistory(entry.id);
+      a.cache.failDeletionReceipt = true;
+      a.store.flushPendingWrites();
+      await a.settle();
+      expect(server.rows, isEmpty);
+      expect(
+        (await a.cache.readOutbox())!.where(
+          (op) => op.kind == SyncOpKind.trainingHistoryInsert,
+        ),
+        hasLength(1),
+      );
+      expect(await a.cache.readTrainingHistoryDeletions(), isEmpty);
+      expect((await a.cache.readTrainingSession())?.sessionId, entry.id);
+      a.cache.failDeletionReceipt = false;
+      a.store.flushPendingWrites();
+      await a.settle();
+      expect(await a.cache.readOutbox(), isEmpty);
+      expect(await a.cache.readTrainingHistoryDeletions(), {entry.id});
+      a.dispose();
+      server.offline = true;
+      final reboot = _Harness(server, storage: storage);
+      await h.bootUntilIdle(reboot.store);
+      expect(reboot.store.trainingSession, isNull);
+      expect(reboot.store.trainingHistory, isEmpty);
+    },
+  );
+
+  test(
+    'live false receipt cannot acknowledge completion when its local deletion fence fails',
+    () async {
+      final server = _Server();
+      final env = _Harness(server, storage: InMemoryKeyValueStore());
+      await env.boot();
+      final entry = _entry();
+      server.deleted.add('A:${entry.id}');
+      env.cache.failDeletionReceipt = true;
+      await expectLater(
+        env.store.completeTrainingSession(entry, generation: 0),
+        throwsStateError,
+      );
+      expect(env.store.trainingHistory, isEmpty);
+      expect(
+        (await env.cache.readTrainingSession())?.toJson(),
+        entry.recoverySnapshot().toJson(),
+      );
+      expect(
+        (await env.cache.readOutbox())!.where(
+          (op) => op.kind == SyncOpKind.trainingHistoryInsert,
+        ),
+        hasLength(1),
+      );
+      env.cache.failDeletionReceipt = false;
+      env.store.flushPendingWrites();
+      await env.settle();
+      expect(await env.cache.readTrainingHistoryDeletions(), {entry.id});
+      expect(await env.cache.readOutbox(), isEmpty);
+      expect(env.store.trainingSession, isNull);
+    },
+  );
+
+  test(
+    'unreadable deletion receipts fail closed without overwriting recovery',
+    () async {
+      final storage = InMemoryKeyValueStore();
+      final server = _Server()..offline = true;
+      final env = _Harness(server, storage: storage);
+      final entry = _entry();
+      await env.cache.writeTrainingSession(entry.recoverySnapshot());
+      await env.cache.writeTrainingHistory([entry]);
+      await storage.setString(
+        'eatova.v1.training_history_deletions.A',
+        '{broken',
+      );
+      await h.bootUntilIdle(env.store);
+      expect(env.store.trainingSession, isNull);
+      expect(env.store.trainingHistory, isEmpty);
+      await expectLater(
+        env.store.completeTrainingSession(entry, generation: 0),
+        throwsStateError,
+      );
+      expect(
+        (await env.cache.readTrainingSession())?.toJson(),
+        entry.recoverySnapshot().toJson(),
+      );
+      expect(
+        await storage.getString('eatova.v1.training_history_deletions.A'),
+        '{broken',
+      );
+      await storage.setString(
+        'eatova.v1.training_history_deletions.A',
+        jsonEncode({
+          'ids': [entry.id],
+        }),
+      );
+      await expectLater(
+        env.store.completeTrainingSession(entry, generation: 0),
+        throwsA(isA<TrainingCompletionDeleted>()),
+      );
     },
   );
 

@@ -17,6 +17,7 @@ import '../models/weight_log.dart';
 import 'crash_reporter.dart';
 import 'secure_cache_store.dart';
 import 'sync_outbox.dart';
+import 'uuid.dart';
 
 /// Minimal async key-value store behind [LocalCache]. Abstracts
 /// SharedPreferences so the cache is unit-testable without a plugin channel
@@ -294,6 +295,7 @@ class LocalCache {
   String get _mealPlansKey => 'eatova.v1.meal_plans.$_userId';
 
   String get _trainingHistoryKey => 'eatova.v1.training_history.$_userId';
+  String get _trainingHistoryDeletionsKey => 'eatova.v1.training_history_deletions.$_userId';
   String get _trainingPlansKey => 'eatova.v1.training_plans.$_userId';
   String get _trainingSelectionKey => 'eatova.v1.training_selection.$_userId';
   String get _trainingSessionKey => 'eatova.v1.training_session.$_userId';
@@ -468,6 +470,41 @@ class LocalCache {
 
   Future<void> writeTrainingPlans(List<TrainingPlan> plans) =>
       _writeJson(_trainingPlansKey, _trainingPlansToJson(plans));
+
+  /// UUID-only receipts fence stale history and recovery even when mirror
+  /// cleanup fails. Never replace unreadable receipts with an empty set.
+  Future<Set<String>> readTrainingHistoryDeletions() async {
+    final json = await _readJson(_trainingHistoryDeletionsKey);
+    if (json == null) {
+      await _assertSlotEmpty(_trainingHistoryDeletionsKey, 'training_history_deletions');
+      return {};
+    }
+    final ids = json['ids'];
+    if (json.length != 1 || ids is! List || ids.length > 100000 ||
+        ids.any((id) => id is! String || !isUuidShape(id)) ||
+        ids.toSet().length != ids.length) {
+      throw const FormatException('Invalid training deletion receipts');
+    }
+    return ids.cast<String>().toSet();
+  }
+
+  Future<void> _trainingDeletionWriteTail = Future<void>.value();
+
+  Future<bool> rememberTrainingHistoryDeletion(String id) {
+    if (!isUuidShape(id)) throw const FormatException('Invalid training history ID');
+    final write = _trainingDeletionWriteTail.then((_) async {
+      if (_closed) return false;
+      final ids = await readTrainingHistoryDeletions();
+      if (_closed) return false;
+      if (ids.contains(id)) return true;
+      if (ids.length >= 100000) throw StateError('Training deletion receipt limit reached');
+      ids.add(id);
+      return _writeDurableNow(_trainingHistoryDeletionsKey,
+          'training_history_deletions', {'ids': ids.toList()});
+    });
+    _trainingDeletionWriteTail = write.then<void>((_) {}, onError: (Object _) {});
+    return _trackWrite(write);
+  }
 
   static Map<String, dynamic> _trainingPlansToJson(List<TrainingPlan> plans) =>
       {'items': plans.map((plan) => plan.toRow()).toList()};
@@ -718,11 +755,10 @@ class LocalCache {
 
   /// Clears the user slots.
   ///
-  /// [preserveOutbox] `true` keeps exactly [_outboxKey] and [_pendingStatsKey]
-  /// and deletes everything else (A2): sign-out must not destroy unsynced
-  /// meals — they replay on the same user's next login. Both slots are
-  /// encrypted and namespaced by user id, so the M-1 PII argument no longer
-  /// applies to them.
+  /// [preserveOutbox] `true` keeps outbox, pending stats and UUID-only training
+  /// deletion receipts. Receipts prevent retained inserts from resurfacing.
+  /// All other slots are deleted; unsynced meals replay on the same user's
+  /// next login. This retained sync state is encrypted and namespaced by user.
   ///
   /// Default `false` = account deletion clears everything.
   Future<void> clear({bool preserveOutbox = false}) async {
@@ -750,6 +786,7 @@ class LocalCache {
     // Steps/burned kcal are health data — same M-1 reason.
     await _store.remove(_dailyActivityKey);
     if (preserveOutbox) return;
+    await _store.remove(_trainingHistoryDeletionsKey);
     await _store.remove(_outboxKey);
     await _store.remove(_pendingStatsKey);
   }
@@ -863,7 +900,7 @@ class LocalCache {
       // path is cleared unconditionally (see [clear]), so take the blob back
       // out. The `remove` rides the store's OWN per-key queue and therefore
       // lands after this write. Deliberately not in [_writeDurable]: a purge
-      // with `preserveOutbox` keeps exactly those two slots.
+      // with `preserveOutbox` keeps durable sync state.
       if (_closed) await _store.remove(key);
     } catch (e) {
       // A cache write must never kill the UI path — it is pure speed-up for

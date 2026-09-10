@@ -111,6 +111,12 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
         : TrainingSessionSnapshot.fromJson(snapshot.toJson());
     return _serializeTrainingSession(() async {
       _ensureTrainingSessionActive();
+      if (validated != null) {
+        await _repairTrainingHistoryDeletions();
+        if (_trainingHistoryDeletedIds.contains(validated.sessionId)) {
+          throw const TrainingCompletionDeleted();
+        }
+      }
       await _repairTrainingSessionRead();
       if (_trainingSession?.pendingCompletionAt != null &&
           !_trainingHistoryDeletedIds.contains(_trainingSession!.sessionId) &&
@@ -148,7 +154,7 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
 
   Future<void> _discardInvalidTrainingRecovery() =>
       _serializeTrainingSession(() async {
-        if (_disposed || _trainingSessionEnded) return;
+        if (_disposed || _trainingSessionEnded || _trainingHistoryDeletionReadFailed) return;
         final snapshot = _trainingSession;
         if (snapshot == null || trainingSession != null) return;
         _mutate(() {

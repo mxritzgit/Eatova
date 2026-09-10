@@ -181,8 +181,10 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   List<TrainingHistoryEntry> _trainingHistoryState = const [];
   int _trainingHistoryVersion = 0;
   final Set<String> _trainingHistoryDeletedIds = {};
+  bool _trainingHistoryDeletionsHydrated = false;
+  bool _trainingHistoryDeletionReadFailed = false;
   bool _trainingHistoryKnown = false;
-  List<TrainingHistoryEntry> get trainingHistory => _trainingHistoryState;
+  List<TrainingHistoryEntry> get trainingHistory => _trainingHistoryDeletionReadFailed ? const [] : _trainingHistoryState;
   set _trainingHistory(List<TrainingHistoryEntry> value) {
     _trainingHistoryState = List.unmodifiable([...value.where((entry) => !_trainingHistoryDeletedIds.contains(entry.id))]..sort((a, b) => b.finishedAt.compareTo(a.finishedAt)));
     _trainingHistoryKnown = true;
@@ -201,7 +203,7 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   bool _trainingSessionHydrationFailed = false;
   TrainingSessionSnapshot? get trainingSession {
     final snapshot = _trainingSession;
-    if (snapshot == null || _trainingSessionRetired || _trainingHistoryDeletedIds.contains(snapshot.sessionId) || trainingHistory.any((entry) => entry.id == snapshot.sessionId)) return null;
+    if (_trainingHistoryDeletionReadFailed || snapshot == null || _trainingSessionRetired || _trainingHistoryDeletedIds.contains(snapshot.sessionId) || trainingHistory.any((entry) => entry.id == snapshot.sessionId)) return null;
     return _trainingSourceAllows(snapshot) ? snapshot : null;
   }
 
@@ -788,6 +790,7 @@ class HomeStore extends _HomeStoreBase
     var outboxLesefehler = false;
     var deltaLesefehler = false;
     var trainingSessionReadFailed = false;
+    var trainingDeletionReadFailed = false;
     // The nine slot reads are independent, so they run concurrently and the
     // boot gate waits for the slowest decrypt instead of the sum (perf
     // finding 4, 2026-08-31). Waves of three, not one big Future.wait: each
@@ -822,7 +825,13 @@ class HomeStore extends _HomeStoreBase
           onFehler: () => trainingSessionReadFailed = true),
       _leseSlot('training_history', cache.readTrainingHistory),
     ).wait;
+    final cachedTrainingDeletions = await _leseSlot(
+      'training_history_deletions', cache.readTrainingHistoryDeletions,
+      onFehler: () => trainingDeletionReadFailed = true);
     if (_disposed) return;
+    _trainingHistoryDeletedIds.addAll(cachedTrainingDeletions ?? <String>{});
+    _trainingHistoryDeletionReadFailed = trainingDeletionReadFailed;
+    _trainingHistoryDeletionsHydrated = !trainingDeletionReadFailed;
     // Leave the persisted blob untouched while it could not be read, or the
     // next write would overwrite it.
     _outboxHydrationFailed = outboxLesefehler;
@@ -1103,7 +1112,7 @@ class HomeStore extends _HomeStoreBase
       }
 
       final loadedTrainingHistory = results[7] as List<TrainingHistoryEntry>?;
-      trainingHistoryLoadFailed = loadedTrainingHistory == null;
+      trainingHistoryLoadFailed = loadedTrainingHistory == null || _trainingHistoryDeletionReadFailed;
       if (loadedTrainingHistory != null) {
         _trainingHistory = vorher.trainingHistoryVersion == _trainingHistoryVersion
             ? loadedTrainingHistory

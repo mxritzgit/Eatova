@@ -269,6 +269,113 @@ void main() {
   });
 
   testWidgets(
+    'emoji notes retain whole graphemes within the model limit and can finish',
+    (tester) async {
+      final checkpoints = <TrainingSessionSnapshot?>[];
+      TrainingHistoryEntry? completed;
+      await _host(
+        tester,
+        TrainingPlayerScreen(
+          initialSnapshot: _entry().snapshot,
+          onPersist: (value) async => checkpoints.add(value),
+          onComplete: (value) async => completed = value,
+        ),
+      );
+      final note = find.byKey(const ValueKey('training-history-note'));
+      await tester.ensureVisible(note);
+      await tester.enterText(note, '👍🏽' * 300);
+      await tester.pumpAndSettle();
+      final accepted = tester.widget<TextField>(note).controller!.text;
+      expect(accepted, '👍🏽' * 250);
+      expect(checkpoints.last!.recoveryNote, accepted);
+      expect(tester.takeException(), isNull);
+      await _tap(tester, 'training-timer-back');
+      expect(
+        find.byKey(const ValueKey('training-timer-confirm-exit')),
+        findsOneWidget,
+      );
+      await _tap(tester, 'training-timer-confirm-exit');
+      final restored = checkpoints.last!;
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      await _host(
+        tester,
+        TrainingPlayerScreen(
+          initialSnapshot: restored,
+          onPersist: (_) async {},
+          onComplete: (value) async => completed = value,
+        ),
+      );
+      await _tap(tester, 'training-timer-primary');
+      await _tap(tester, 'training-timer-confirm-exit');
+      expect(completed!.note, accepted);
+      expect(completed!.id, restored.sessionId);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'invalid external note cannot trap the discard dialog or replace recovery',
+    (tester) async {
+      final checkpoints = <TrainingSessionSnapshot?>[];
+      final completed = <TrainingHistoryEntry>[];
+      await _host(
+        tester,
+        TrainingPlayerScreen(
+          initialSnapshot: _entry().snapshot,
+          onPersist: (value) async => checkpoints.add(value),
+          onComplete: (value) async => completed.add(value),
+        ),
+      );
+      final note = find.byKey(const ValueKey('training-history-note'));
+      await tester.ensureVisible(note);
+      tester.widget<TextField>(note).controller!.text = '👍🏽' * 300;
+      await _tap(tester, 'training-timer-back');
+      expect(
+        find.byKey(const ValueKey('training-timer-confirm-exit')),
+        findsOneWidget,
+      );
+      await _tap(tester, 'training-timer-confirm-exit');
+      expect(find.byType(TrainingPlayerScreen), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      expect(
+        checkpoints.every(
+          (value) => (value?.recoveryNote ?? '').runes.length <= 500,
+        ),
+        isTrue,
+      );
+      await _tap(tester, 'training-timer-discard');
+      await _tap(tester, 'training-timer-confirm-exit');
+      expect(find.text('Open fixture'), findsOneWidget);
+      expect(checkpoints.last, isNull);
+      expect(completed, isEmpty);
+    },
+  );
+
+  testWidgets(
+    'invalid external note during route disposal retains the last valid checkpoint',
+    (tester) async {
+      final checkpoints = <TrainingSessionSnapshot?>[];
+      await _host(
+        tester,
+        TrainingPlayerScreen(
+          initialSnapshot: _entry().snapshot,
+          onPersist: (value) async => checkpoints.add(value),
+          onComplete: (_) async {},
+        ),
+      );
+      final note = find.byKey(const ValueKey('training-history-note'));
+      await tester.ensureVisible(note);
+      tester.widget<TextField>(note).controller!.text = '👍🏽' * 300;
+      final count = checkpoints.length;
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      expect(checkpoints.length, count);
+    },
+  );
+
+  testWidgets(
     'restored pending completion retries identical note and timestamp without edits',
     (tester) async {
       final entry = _entry();

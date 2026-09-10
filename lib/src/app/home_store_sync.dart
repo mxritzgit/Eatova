@@ -1325,12 +1325,12 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       case SyncOpKind.trainingHistoryInsert:
         final entry = op.trainingHistory;
         if (entry == null) throw _CorruptOpPayload(op.kind);
-        if (!await s.trainingHistory.insert(entry)) _rememberTrainingHistoryDeletion(entry.id);
+        if (!await s.trainingHistory.insert(entry)) await _rememberTrainingHistoryDeletion(entry.id);
         if (_unconfirmedTrainingOps.contains(op)) _deliveredTrainingOps.add(op);
       case SyncOpKind.trainingHistoryDelete:
         if (!isUuidShape(op.entityId)) throw _CorruptOpPayload(op.kind);
         await s.trainingHistory.delete(op.entityId);
-        _rememberTrainingHistoryDeletion(op.entityId);
+        await _rememberTrainingHistoryDeletion(op.entityId);
         if (_unconfirmedTrainingOps.contains(op)) _deliveredTrainingOps.add(op);
       case SyncOpKind.trainingPlanUpsert:
         final plan = op.trainingPlan;
@@ -1823,16 +1823,51 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     unawaited(_cache?.writeMealPlans(_plannedMeals, _shoppingChecks) ?? Future<void>.value());
   }
 
-  void _rememberTrainingHistoryDeletion(String id) {
+  void _ensureTrainingHistoryOwner() {
     final owner = sync?.client.auth.currentUser;
-    if (_disposed || _trainingSessionEnded || (owner != null && owner.id != sync?.userId)) return;
+    if (_disposed || _trainingSessionEnded || (_cache?.isClosed ?? false) ||
+        (owner != null && owner.id != sync?.userId)) {
+      throw StateError('Training storage unavailable');
+    }
+  }
+
+  Future<void> _repairTrainingHistoryDeletions() async {
+    _ensureTrainingHistoryOwner();
+    if (_trainingHistoryDeletionsHydrated && !_trainingHistoryDeletionReadFailed) return;
+    final cache = _cache;
+    if (cache == null) throw StateError('Training storage unavailable');
+    Set<String> ids;
+    try {
+      ids = await cache.readTrainingHistoryDeletions();
+    } catch (_) {
+      _ensureTrainingHistoryOwner();
+      _mutate(() => _trainingHistoryDeletionReadFailed = true);
+      throw StateError('Training storage unavailable');
+    }
+    _ensureTrainingHistoryOwner();
+    _mutate(() {
+      _trainingHistoryDeletedIds.addAll(ids);
+      _trainingHistoryDeletionReadFailed = false;
+      _trainingHistoryDeletionsHydrated = true;
+      _trainingHistory = _trainingHistoryState;
+    });
+  }
+
+  Future<void> _rememberTrainingHistoryDeletion(String id) async {
+    _ensureTrainingHistoryOwner();
+    // This receipt must precede consuming the server's false response. The
+    // history mirror and recovery cleanup are best effort and can both fail.
+    if (!await (_cache?.rememberTrainingHistoryDeletion(id) ?? Future.value(false))) {
+      throw StateError('Training deletion could not be saved');
+    }
+    _ensureTrainingHistoryOwner();
     _trainingHistoryDeletedIds.add(id);
-    _mutate(() => _trainingHistory = trainingHistory.where((entry) => entry.id != id).toList());
+    _mutate(() => _trainingHistory = _trainingHistoryState.where((entry) => entry.id != id).toList());
     _cacheTrainingHistory();
   }
 
   void _cacheTrainingHistory() {
-    if (_trainingHistoryKnown) unawaited(_cache?.writeTrainingHistory(trainingHistory) ?? Future<void>.value());
+    if (_trainingHistoryKnown && !_trainingHistoryDeletionReadFailed) unawaited(_cache?.writeTrainingHistory(trainingHistory) ?? Future<void>.value());
   }
 
   void _cacheTrainingPlans() {
