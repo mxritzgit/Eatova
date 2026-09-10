@@ -802,35 +802,62 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   }
 
   void _startTrainingWorkout(TrainingPlan plan, int workoutIndex) {
-    final recovery = _store.trainingSession;
     unawaited(_openTrainingPlayer(
-      plan: recovery == null ? plan : null,
+      plan: plan,
       workoutIndex: workoutIndex,
-      snapshot: recovery,
     ));
   }
 
   void _resumeTrainingWorkout() {
-    final recovery = _store.trainingSession;
-    if (recovery == null) return;
-    unawaited(_openTrainingPlayer(snapshot: recovery));
+    unawaited(_openTrainingPlayer());
   }
 
   Future<void> _openTrainingPlayer({
     TrainingPlan? plan,
     int workoutIndex = 0,
-    TrainingSessionSnapshot? snapshot,
   }) async {
     if (_trainingRouteOpen || !mounted) return;
     _trainingRouteOpen = true;
     final ownerStore = _store;
-    final sessionGeneration = _store.trainingSessionGeneration;
-    final sourcePlanId = (snapshot?.plan ?? plan)!.id;
+    final sessionGeneration = ownerStore.trainingSessionGeneration;
     try {
+      TrainingSessionSnapshot? snapshot;
+      TrainingPlan? currentPlan;
+      late final String sourcePlanId;
+      try {
+        // A failed receipt read hides recovery; only repaired storage can
+        // establish that starting a new session will not replace saved work.
+        snapshot = await ownerStore.prepareTrainingSessionRecovery();
+        if (!mounted || !_isStoreSessionCurrent(ownerStore)) return;
+        currentPlan = snapshot == null
+            ? ownerStore.trainingPlans
+                .where((candidate) => candidate.id == plan?.id)
+                .firstOrNull
+            : null;
+        if (snapshot == null &&
+            (currentPlan == null ||
+                workoutIndex < 0 ||
+                workoutIndex >= currentPlan.workouts.length)) {
+          return;
+        }
+        sourcePlanId = (snapshot?.plan ?? currentPlan)!.id;
+        if (ownerStore.isTrainingSessionRetired(
+          generation: sessionGeneration,
+          sourcePlanId: sourcePlanId,
+        )) {
+          return;
+        }
+      } catch (_) {
+        if (mounted && _isStoreSessionCurrent(ownerStore)) {
+          _emitSnack(context.l10n.commonGenericRetryError,
+              icon: Icons.error_outline_rounded, tone: SnackTone.error);
+        }
+        return;
+      }
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
           builder: (_) => TrainingPlayerScreen(
-            plan: plan,
+            plan: currentPlan,
             workoutIndex: workoutIndex,
             initialSnapshot: snapshot,
             history: ownerStore.trainingHistory,
