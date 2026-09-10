@@ -124,7 +124,13 @@ for (const command of ["/planet training", "/planx", "/dance training"]) {
   Deno.test(`QA: unknown command ${command} stays ordinary chat`, async () => {
     const result = await run({ message: command });
     check(result.status === 200 && !result.result.training_plan, "Unknown command generated a plan");
-    check(!result.calls.some((call) => call.body.response_format), "Unknown command used draft generation");
+    // The classifier also requests structured JSON now. Only the larger
+    // response-format call is the training-plan draft; classifier calls use
+    // the dedicated 50-token budget.
+    check(
+      !result.calls.some((call) => call.body.response_format && call.body.max_tokens !== 50),
+      "Unknown command used draft generation",
+    );
   });
 }
 

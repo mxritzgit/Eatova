@@ -764,6 +764,11 @@ Deno.test('Erfolgsfall -> 200 mit normalisiertem Ergebnis und Rate-Limit-Stand',
     // Shape of the provider request: this is what costs money.
     assertEquals(stub.openRouterBodies.length, 1, 'Provider-Calls');
     const providerBody = stub.openRouterBodies[0];
+    assertEquals(
+      providerBody.model,
+      'google/gemini-3.8-flash',
+      'OpenRouter uses the Gemini Flash vision model by default',
+    );
     assertEquals(providerBody.max_tokens, 4096, 'max_tokens');
     assertEquals((providerBody.response_format as JsonRecord).type, 'json_object', 'response_format');
 

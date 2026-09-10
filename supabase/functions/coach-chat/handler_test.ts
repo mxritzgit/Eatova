@@ -503,6 +503,20 @@ Deno.test("Bild + off_topic -> Layer 3 entscheidet (Quota + Answer-Call)", async
     assertEquals(stub.callsTo("claim_chat_quota").length, 1, "claim_chat_quota-Calls");
     assertEquals(stub.classifierBodies().length, 1, "Klassifizierer lief trotzdem");
     assertEquals(stub.answerBodies().length, 1, "Answer-Call");
+    const classifierFormat = stub.classifierBodies()[0].response_format as JsonRecord;
+    assertEquals(classifierFormat.type, "json_object", "Classifier requests structured JSON");
+    const classifierReasoning = stub.classifierBodies()[0].reasoning as JsonRecord;
+    assertEquals(classifierReasoning.effort, "minimal", "Classifier disables unnecessary reasoning");
+    assertEquals(
+      stub.classifierBodies()[0].model,
+      "google/gemini-3.8-flash",
+      "Classifier uses Gemini Flash by default",
+    );
+    assertEquals(
+      stub.answerBodies()[0].model,
+      "google/gemini-3.8-flash",
+      "Coach answer uses Gemini Flash by default",
+    );
     // The answer call gets the image; that is where it belongs.
     assert(
       JSON.stringify(stub.answerBodies()[0]).includes("image_url"),
