@@ -103,7 +103,7 @@ async function withStub(
       }
       if (url.endsWith("/api/v1/images")) return Promise.resolve(json({ data: [] }));
       if (url.endsWith("/api/v1/chat/completions")) {
-        if (body.max_tokens === 50) {
+        if (body.max_tokens === 256) {
           return Promise.resolve(json({ choices: [{ message: { content: '{"category":"nutrition","confidence":"high"}' } }] }));
         }
         if (options.midnightFailure) {
