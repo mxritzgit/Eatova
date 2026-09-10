@@ -412,6 +412,11 @@ class MealAnalysisResult {
 
   bool get hasItemizedBreakdown => items.isNotEmpty;
 
+  /// Recipe portions have measured nutrition but no inferred cooked yield.
+  bool get isRecipeWithoutCookedWeight =>
+      MealResultSource.resolve(sourceLabel) == MealResultSource.recipe &&
+      estimatedGrams <= 0 && effectiveKcalPer100G == null;
+
   /// kcal/100 g if the value is usable, else `null`.
   ///
   /// See [MealComponent.effectiveKcalPer100G]: `0` is the server's sentinel for
@@ -443,6 +448,9 @@ class MealAnalysisResult {
   /// The density becomes the reference only when calories and grams yield
   /// nothing (source portion 0 g or 0 kcal).
   MealAnalysisResult adjustedToGrams(int grams) {
+    // Without a cooked mass/density there is no conversion factor. Retain the
+    // snapshot instead of replacing its measured calories with the 0 sentinel.
+    if (isRecipeWithoutCookedWeight) return this;
     final zielGramm = clampPortionGrams(grams);
     final dichte = effectiveKcalPer100G;
     final int neueKcal;

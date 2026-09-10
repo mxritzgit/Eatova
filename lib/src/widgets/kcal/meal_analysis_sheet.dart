@@ -149,6 +149,7 @@ MealPortionAdjustment? mealPortionAdjustment(
   List<MealComponent>? adjustment,
 ) {
   if (adjustment == null || adjustment.isEmpty) return null;
+  if (current.isRecipeWithoutCookedWeight) return null;
   final grams = _weightOnlyGrams(current, adjustment);
   if (grams != null) {
     return MealPortionAdjustment.weight(current.adjustedToGrams(grams));

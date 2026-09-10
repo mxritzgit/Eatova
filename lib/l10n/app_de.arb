@@ -1965,6 +1965,8 @@
   "trainingCreateIntro": "Dein Rhythmus. Deine Übungen. Stell dir einen Plan zusammen, der zu dir passt.",
   "trainingWorkoutIntro": "Benenne deine Einheit und ergänze deine Übungen.",
   "recipesCreateIntro": "Dein Lieblingsgericht, festgehalten für den Alltag.",
+  "recipeCalcSavedPortion": "Gespeicherte Rezeptportion",
+  "recipeCalcNoCookedWeight": "Dieses Rezept wurde nach Portionen eingetragen. Sein gekochtes Gewicht wurde nicht erfasst, daher ist keine Grammanpassung möglich. Die gespeicherten Nährwerte bleiben unverändert.",
   "ingredientEmpty": "Füge abgewogene Zutaten hinzu, um dein Rezept zu berechnen.",
   "ingredientAdd": "Zutat hinzufügen",
   "ingredientEdit": "Zutat bearbeiten",

@@ -1937,6 +1937,8 @@
   "trainingCreateIntro": "Your rhythm. Your exercises. Build a plan that fits your life.",
   "trainingWorkoutIntro": "Name your session and add your exercises.",
   "recipesCreateIntro": "Your favourite dish, ready for your everyday routine.",
+  "recipeCalcSavedPortion": "Saved recipe portion",
+  "recipeCalcNoCookedWeight": "This recipe was logged by servings. Its cooked weight was not recorded, so gram adjustments are unavailable. The saved nutrition stays unchanged.",
   "ingredientEmpty": "Add weighed ingredients to calculate your recipe.",
   "ingredientAdd": "Add ingredient",
   "ingredientEdit": "Edit ingredient",
