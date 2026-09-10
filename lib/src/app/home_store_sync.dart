@@ -1201,6 +1201,10 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// a backwards system-time jump cannot make an op undroppable.
   OutboxVerdict _verdictFor(Object error, SyncOp op) {
     if (error is _CorruptOpPayload) return OutboxVerdict.drop;
+    if (op.isMealPlanIntent) {
+      final verdict = classifyOutboxFailure(error, 0, kind: op.kind);
+      return verdict == OutboxVerdict.drop ? OutboxVerdict.retryCounted : verdict;
+    }
     final verdict = classifyOutboxFailure(error, op.attempts, kind: op.kind);
     if (verdict != OutboxVerdict.drop) return verdict;
     if (op.isDelete) {
@@ -1240,6 +1244,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   ///
   /// Weight and steps are absent on purpose: the projection is kcal + macros.
   static bool _opTouchesTrendWindow(SyncOp op) =>
+      op.kind == SyncOpKind.mealPlanConvert ||
       op.kind == SyncOpKind.mealInsert ||
       op.kind == SyncOpKind.mealUpsert ||
       op.kind == SyncOpKind.mealDelete;
@@ -1252,6 +1257,22 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       _invalidateTrendWindow();
     }
     switch (op.kind) {
+      case SyncOpKind.mealPlanUpsert:
+        final plan = op.plannedMeal;
+        if (plan == null) throw _CorruptOpPayload(op.kind);
+        await s.mealPlans.save(plan);
+        if (_unconfirmedTrainingOps.contains(op)) _deliveredTrainingOps.add(op);
+      case SyncOpKind.mealPlanConvert:
+        final plan = op.plannedMeal;
+        final meal = op.meal;
+        if (plan == null || meal == null) throw _CorruptOpPayload(op.kind);
+        await s.mealPlans.convert(plan, meal, trackDay: op.trackDay);
+        if (_unconfirmedTrainingOps.contains(op)) _deliveredTrainingOps.add(op);
+      case SyncOpKind.shoppingCheck:
+        final check = op.shoppingCheckValue;
+        if (check == null) throw _CorruptOpPayload(op.kind);
+        await s.mealPlans.check(check);
+        if (_unconfirmedTrainingOps.contains(op)) _deliveredTrainingOps.add(op);
       case SyncOpKind.mealInsert:
         final meal = op.meal;
         if (meal == null) throw _CorruptOpPayload(op.kind);
@@ -1373,6 +1394,23 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     for (final op in _outbox) {
       if (_unconfirmedTrainingOps.contains(op)) continue;
       switch (op.kind) {
+        case SyncOpKind.mealPlanUpsert:
+          final plan = op.plannedMeal;
+          if (plan != null) _putPlannedMeal(plan);
+        case SyncOpKind.shoppingCheck:
+          final check = op.shoppingCheckValue;
+          if (check != null) {
+            _shoppingChecks = {..._shoppingChecks, check.id: check.checked};
+            _mealPlansVersion++;
+          }
+        case SyncOpKind.mealPlanConvert:
+          final plan = op.plannedMeal;
+          final meal = op.meal;
+          if (plan == null || meal == null) break;
+          _putPlannedMeal(plan);
+          loggedMeals = [meal, ...loggedMeals.where((m) => m.id != meal.id)];
+          if (op.trackDay) lifetimeStats = lifetimeStats.recordTrackedDay(meal.loggedAt);
+          mealsTouched = true;
         case SyncOpKind.mealInsert:
         case SyncOpKind.mealUpsert:
           final meal = op.meal;
@@ -1709,6 +1747,11 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
 
   void _cacheUserRecipes() {
     _cache?.writeUserRecipesDebounced(_userRecipes);
+  }
+
+  void _cacheMealPlans() {
+    if (_disposed || _trainingSessionEnded) return;
+    unawaited(_cache?.writeMealPlans(_plannedMeals, _shoppingChecks) ?? Future<void>.value());
   }
 
   void _cacheTrainingPlans() {
@@ -2048,6 +2091,11 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// days before the last counted one, so FIFO order carries itself.
   void _overlayPendingTrackingDays() {
     for (final op in _outbox) {
+      if (op.kind == SyncOpKind.mealPlanConvert && op.trackDay &&
+          !_unconfirmedTrainingOps.contains(op)) {
+        final meal = op.meal;
+        if (meal != null) lifetimeStats = lifetimeStats.recordTrackedDay(meal.loggedAt);
+      }
       if (op.kind != SyncOpKind.trackingDay) continue;
       final tag = DateTime.tryParse(op.entityId);
       if (tag != null) lifetimeStats = lifetimeStats.recordTrackedDay(tag);

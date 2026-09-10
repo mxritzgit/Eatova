@@ -13,6 +13,7 @@ import '../models/favorite_meal.dart';
 import '../models/fitness_recipe.dart';
 import '../models/lifetime_stats.dart';
 import '../models/logged_meal.dart';
+import '../models/planned_meal.dart';
 import '../models/macro_progress.dart';
 import '../models/meal_analysis_result.dart';
 import '../models/model_limits.dart' show isValidWeightLogKg;
@@ -47,6 +48,7 @@ import '../widgets/common/app_snack.dart';
 import 'auth_gate.dart' show IntentionalSignOut;
 
 part 'home_store_meals.dart';
+part 'home_store_meal_plan.dart';
 part 'home_store_profile.dart';
 part 'home_store_sync.dart';
 part 'home_store_tracking.dart';
@@ -156,6 +158,21 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   List<FavoriteMeal> _favoritesState = <FavoriteMeal>[];
   List<LoggedMeal> _loggedMealsState = <LoggedMeal>[];
   List<FitnessRecipe> _userRecipesState = const <FitnessRecipe>[];
+  List<PlannedMeal> _plannedMeals = const [];
+  Map<String, bool> _shoppingChecks = const {};
+  int _mealPlansVersion = 0;
+  bool mealPlansLoading = false;
+  bool mealPlansLoadFailed = false;
+  List<PlannedMeal> get plannedMeals => List.unmodifiable(
+    _plannedMeals.where((p) => !p.removed));
+  Map<String, bool> get shoppingChecks => Map.unmodifiable(_shoppingChecks);
+  void _putPlannedMeal(PlannedMeal plan) {
+    final existing = _plannedMeals.where((p) => p.id == plan.id).firstOrNull;
+    if (existing?.isEaten == true && !plan.isEaten) return;
+    _plannedMeals = [plan, ..._plannedMeals.where((p) => p.id != plan.id)];
+    _mealPlansVersion++;
+  }
+
   List<TrainingPlan> _trainingPlansState = const <TrainingPlan>[];
   bool _trainingPlansKnown = false;
   bool _trainingPlansAuthoritative = false;
@@ -460,7 +477,8 @@ class HomeStore extends _HomeStoreBase
         _HomeStoreTrackingPart,
         _HomeStoreProfilePart,
         _HomeStoreMealsPart,
-        _HomeStoreTrainingPart {
+        _HomeStoreTrainingPart,
+        _HomeStoreMealPlanPart {
   HomeStore({
     required super.sync,
     required super.health,
@@ -696,6 +714,7 @@ class HomeStore extends _HomeStoreBase
     // the ops stay queued and _applyPendingOpsToState layers them on top.
     await _replayOutbox();
     await _bootFromSupabase();
+    await _loadMealPlans();
     // Flush stats deltas persisted from the last run: the boot load just reset
     // lifetimeStats, and increment_lifetime_stats adds atomically on top.
     if (_pendingMealsDelta != 0 || _pendingWeightLogsDelta != 0) {
@@ -737,6 +756,8 @@ class HomeStore extends _HomeStoreBase
     final cache = _cache;
     if (cache == null) return;
     final today = clock.now();
+    final mealPlanVersion = _mealPlansVersion;
+    final cachedMealPlans = await _leseSlot('meal_plans', cache.readMealPlans);
     final trainingVersion = _trainingPlansVersion;
     final selectionVersion = _trainingSelectionVersion;
     final sessionVersion = _trainingSessionVersion;
@@ -827,6 +848,7 @@ class HomeStore extends _HomeStoreBase
         cachedFavorites == null &&
         cachedWeightLog == null &&
         cachedRecipes == null &&
+        cachedMealPlans == null &&
         cachedTrainingPlans == null &&
         cachedTrainingSession == null &&
         cachedActivity == null &&
@@ -855,6 +877,11 @@ class HomeStore extends _HomeStoreBase
       // server answer makes it, and [userRecipesAuthoritative] carries it to
       // the one consumer that draws conclusions from a missing entry.
       if (cachedRecipes != null) _userRecipes = cachedRecipes;
+      if (cachedMealPlans != null && mealPlanVersion == _mealPlansVersion) {
+        _plannedMeals = List.unmodifiable(cachedMealPlans.plans);
+        _shoppingChecks = Map.of(cachedMealPlans.checks);
+        _mealPlansVersion++;
+      }
       if (cachedTrainingPlans != null && trainingVersion == _trainingPlansVersion) {
         _trainingPlans = cachedTrainingPlans;
         _trainingPlansKnown = true;

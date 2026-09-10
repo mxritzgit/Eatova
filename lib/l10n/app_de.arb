@@ -2012,5 +2012,49 @@
   "recipeEditIncompleteNutrition": "Unvollständige Nährwerte: — bedeutet, dass für mindestens eine Zutat Angaben fehlen.",
   "recipeEditNutritionTooLarge": "Die Menge pro Portion ist zu groß. Prüfe die Zutaten oder erhöhe die Kochportionen.",
   "recipeEditCannotLog": "Prüfe die Portionen und ergänze fehlende Kalorien der Zutaten, bevor du das Rezept einträgst.",
-  "recipeEditCoachSource": "Mit Coach erstellt"
+  "recipeEditCoachSource": "Mit Coach erstellt",
+  "mealPlanTitle": "Speiseplan",
+  "mealPlanIntro": "Plane deine Woche. Erst ?Heute gegessen? ?bernimmt eine Mahlzeit ins Tagebuch.",
+  "mealPlanWeek": "Wochenplan",
+  "mealPlanShopping": "Einkaufsliste",
+  "mealPlanPreviousWeek": "Vorherige Woche",
+  "mealPlanNextWeek": "N?chste Woche",
+  "mealPlanEmptyDay": "Noch nichts geplant.",
+  "mealPlanAdd": "Mahlzeit planen",
+  "mealPlanEdit": "Planung bearbeiten",
+  "mealPlanEatToday": "Heute gegessen",
+  "mealPlanEatenOn": "Am {date} eingetragen",
+  "@mealPlanEatenOn": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "mealPlanPortionCount": "{count} Portionen",
+  "@mealPlanPortionCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "mealPlanServings": "Portionen",
+  "mealPlanServingsError": "Gib 0,1 bis 100 Portionen ein.",
+  "mealPlanSaved": "Gespeichert.",
+  "mealPlanSavedOffline": "Auf diesem Ger?t gespeichert. Wird sp?ter synchronisiert.",
+  "mealPlanSaveError": "Nicht gespeichert. Pr?fe deine Verbindung oder den Ger?tespeicher und versuche es erneut.",
+  "mealPlanLoadError": "Der aktuelle Serverstand konnte nicht geladen werden. Gespeicherte Planungen bleiben sichtbar.",
+  "mealPlanShoppingIntro": "Zutaten f?r noch nicht gegessene Mahlzeiten dieser Woche. Ge?nderte Mengen werden wieder abgew?hlt.",
+  "mealPlanShoppingEmpty": "Plane zuerst eine Mahlzeit f?r diese Woche.",
+  "mealPlanWeighed": "Abgewogene Zutaten",
+  "mealPlanUnquantified": "Mengen selbst pr?fen",
+  "mealPlanUnquantifiedHint": "Diese Rezepte haben Freitext-Zutaten. Pr?fe die Mengen f?r deine geplanten Portionen selbst.",
+  "mealPlanNoIngredients": "Keine Zutaten angegeben. Rezept vor dem Einkauf pr?fen.",
+  "mealPlanChooseRecipe": "Rezept ausw?hlen",
+  "mealPlanSearchRecipe": "Rezepte durchsuchen",
+  "mealPlanNoRecipes": "Keine passenden Rezepte.",
+  "mealPlanSnapshotHint": "Diese Planung beh?lt das Rezept in seiner jetzigen Form. Sp?tere Rezept?nderungen ?ndern den Plan nicht.",
+  "mealPlanRetry": "Erneut laden",
+  "mealPlanCannotLog": "Zum Eintragen fehlen Kalorien oder die Portion ist zu gro?. Korrigiere die Portion oder plane das vervollst?ndigte Rezept erneut."
 }

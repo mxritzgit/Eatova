@@ -46,6 +46,8 @@ class DataExportService {
     'weight_log',
     'user_recipes',
     'training_plans',
+    'planned_meals',
+    'shopping_checks',
     'chat_sessions',
     'chat_messages',
     'chat_quota_usage',

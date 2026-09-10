@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'coach_chat_service.dart';
 import 'lifetime_stats_sync.dart';
 import 'meals_sync.dart';
+import 'meal_plans_sync.dart';
 import 'profile_sync.dart';
 import 'tracking_sync.dart';
 import 'training_plans_sync.dart';
@@ -23,6 +24,7 @@ class EatovaSync {
     required this.lifetimeStats,
     required this.userRecipes,
     required this.trainingPlans,
+    required this.mealPlans,
   });
 
   /// [coachChat] is a test seam: [CoachChatService] talks to an edge function,
@@ -43,6 +45,7 @@ class EatovaSync {
       lifetimeStats: LifetimeStatsSync(client, userId),
       userRecipes: UserRecipesSync(client, userId),
       trainingPlans: TrainingPlansSync(client, userId),
+      mealPlans: MealPlansSync(client, userId),
     );
   }
 
@@ -58,6 +61,7 @@ class EatovaSync {
   final LifetimeStatsSync lifetimeStats;
   final UserRecipesSync userRecipes;
   final TrainingPlansSync trainingPlans;
+  final MealPlansSync mealPlans;
 
   /// GDPR Art. 17: deletes the user's auth.users row, app tables cascade, and
   /// the client must log out afterwards. Not freely movable — the RPC needs a

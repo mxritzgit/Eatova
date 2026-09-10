@@ -8,6 +8,7 @@ import '../models/favorite_meal.dart';
 import '../models/fitness_recipe.dart';
 import '../models/lifetime_stats.dart';
 import '../models/logged_meal.dart';
+import '../models/planned_meal.dart';
 import '../models/training_plan.dart';
 import '../models/training_session.dart';
 import '../models/user_profile.dart';
@@ -281,6 +282,8 @@ class LocalCache {
   /// single safety net (the outbox). Now the same write-through as diary and
   /// favorites. PII (ingredients, amounts) -> cleared in [clear].
   String get _userRecipesKey => 'eatova.v1.user_recipes.$_userId';
+  String get _mealPlansKey => 'eatova.v1.meal_plans.$_userId';
+
   String get _trainingPlansKey => 'eatova.v1.training_plans.$_userId';
   String get _trainingSelectionKey => 'eatova.v1.training_selection.$_userId';
   String get _trainingSessionKey => 'eatova.v1.training_session.$_userId';
@@ -418,6 +421,26 @@ class LocalCache {
           name: 'local_cache');
       return null;
     }
+  }
+
+  Future<void> writeMealPlans(List<PlannedMeal> plans,
+      Map<String, bool> checks) => _writeJson(_mealPlansKey, {
+    'plans': plans.map((plan) => plan.toJson()).toList(),
+    'checks': checks.entries.map((e) =>
+      ShoppingCheck(id: e.key, checked: e.value).toJson()).toList(),
+  });
+
+  Future<({List<PlannedMeal> plans, Map<String, bool> checks})?> readMealPlans() async {
+    final json = await _readJson(_mealPlansKey);
+    try {
+      final plans = (json?['plans'] as List).map((row) =>
+        PlannedMeal.fromJson((row as Map).cast<String, dynamic>())).toList();
+      final checks = (json?['checks'] as List).map((row) =>
+        ShoppingCheck.fromJson((row as Map).cast<String, dynamic>())).toList();
+      if (plans.length > 10000 || checks.length > 2000 ||
+          plans.map((p) => p.id).toSet().length != plans.length) { return null; }
+      return (plans: plans, checks: {for (final c in checks) c.id: c.checked});
+    } catch (_) { return null; }
   }
 
   Future<void> writeTrainingPlans(List<TrainingPlan> plans) =>
@@ -695,6 +718,7 @@ class LocalCache {
     // User recipes are user content (ingredients, amounts): same M-1 reason
     // as the diary, even with [preserveOutbox].
     await _store.remove(_userRecipesKey);
+    await _store.remove(_mealPlansKey);
     await _store.remove(_trainingPlansKey);
     await _store.remove(_trainingSelectionKey);
     await _store.remove(_trainingSessionKey);

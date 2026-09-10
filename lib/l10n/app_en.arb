@@ -1984,5 +1984,49 @@
   "recipeEditIncompleteNutrition": "Incomplete nutrition: — means at least one ingredient is missing this value.",
   "recipeEditNutritionTooLarge": "The amount per serving is too large. Check ingredients or increase batch servings.",
   "recipeEditCannotLog": "Check the servings and fill in missing ingredient calories before logging this recipe.",
-  "recipeEditCoachSource": "Created with Coach"
+  "recipeEditCoachSource": "Created with Coach",
+  "mealPlanTitle": "Meal plan",
+  "mealPlanIntro": "Plan your week. Only ?Eaten today? adds a meal to your diary.",
+  "mealPlanWeek": "Weekly plan",
+  "mealPlanShopping": "Shopping list",
+  "mealPlanPreviousWeek": "Previous week",
+  "mealPlanNextWeek": "Next week",
+  "mealPlanEmptyDay": "Nothing planned yet.",
+  "mealPlanAdd": "Plan a meal",
+  "mealPlanEdit": "Edit planned meal",
+  "mealPlanEatToday": "Eaten today",
+  "mealPlanEatenOn": "Logged on {date}",
+  "@mealPlanEatenOn": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "mealPlanPortionCount": "{count} servings",
+  "@mealPlanPortionCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "mealPlanServings": "Servings",
+  "mealPlanServingsError": "Enter 0.1 to 100 servings.",
+  "mealPlanSaved": "Saved.",
+  "mealPlanSavedOffline": "Saved on this device. Will sync later.",
+  "mealPlanSaveError": "Not saved. Check your connection or device storage and try again.",
+  "mealPlanLoadError": "Could not load the latest plan. Saved meals remain available.",
+  "mealPlanShoppingIntro": "Ingredients for meals you have not eaten this week. Changed amounts become unchecked again.",
+  "mealPlanShoppingEmpty": "Plan a meal for this week to start your list.",
+  "mealPlanWeighed": "Weighed ingredients",
+  "mealPlanUnquantified": "Check amounts yourself",
+  "mealPlanUnquantifiedHint": "These recipes have free-text ingredients. Check amounts for your planned servings yourself.",
+  "mealPlanNoIngredients": "No ingredients listed. Check the recipe before shopping.",
+  "mealPlanChooseRecipe": "Choose a recipe",
+  "mealPlanSearchRecipe": "Search recipes",
+  "mealPlanNoRecipes": "No matching recipes.",
+  "mealPlanSnapshotHint": "This plan keeps the recipe as it is now. Later recipe edits will not change the plan.",
+  "mealPlanRetry": "Retry",
+  "mealPlanCannotLog": "Calories are missing or the serving is too large to log. Reduce the serving or complete the recipe and plan it again."
 }
