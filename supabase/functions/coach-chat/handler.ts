@@ -2,10 +2,10 @@
 //
 // Split from index.ts so the whole request path is testable without a server.
 //
-// 3-layer safety so Grok stays a fitness/nutrition coach:
+// 3-layer safety so Gemini stays a fitness/nutrition coach:
 //   Layer 1 - deterministic pre-filter (prefilter.ts), deliberately lax; it
 //             only saves cost, Layer 2 is the real protection.
-//   Layer 2 - LLM classifier (small Grok call); categories in guardrails.ts.
+//   Layer 2 - LLM classifier (small Gemini call); categories in guardrails.ts.
 //   Layer 3 - hardened system prompt plus a refusal-pattern output check.
 //
 // DAILY_LIMIT/day/user is reserved atomically via claim_chat_quota, granted to
@@ -329,6 +329,14 @@ async function classify(
         { role: "user", content: message },
       ],
       temperature: 0,
+      // Gemini supports OpenAI-compatible structured output through
+      // OpenRouter. Keeping the classifier on a JSON-only wire avoids
+      // markdown/preamble retries and makes the short call deterministic.
+      response_format: { type: "json_object" },
+      // The classifier has no useful hidden reasoning to expose. Minimal
+      // effort leaves the token budget for the category JSON and reduces
+      // first-token latency on Gemini Flash.
+      reasoning: { effort: "minimal" },
       max_tokens: 50,
     }),
   });
@@ -600,7 +608,7 @@ function finalizeAnswer(
     refusal = true;
     reply = reply.replace(/^__REFUSE__\s*/, "").trim();
   }
-  // Safety net: cut the reply if Grok tries to leak the prompt. P5-05: this
+  // Safety net: cut the reply if Gemini tries to leak the prompt. P5-05: this
   // check fires on the MODEL's reply, not on the input, so the reply language
   // follows the request locale like every other refusal — it used to be the
   // only one hardcoded in German. F1: leaksPrompt() also fires on recited
@@ -620,7 +628,7 @@ function finalizeAnswer(
       // 200 without content is a provider failure, not a refusal (F5-02):
       // the catch refunds the slot and answers 502, nothing is persisted.
       // Only the finish_reason is logged — status meta, never a body.
-      throw new ProviderError(502, `Grok-Antwort leer (finish_reason=${finishReason})`);
+      throw new ProviderError(502, `OpenRouter-Antwort leer (finish_reason=${finishReason})`);
     }
   }
   // Cut off by the token budget: mark it so the user sees the reply is
@@ -657,7 +665,7 @@ async function answer(
     const text = await resp.text();
     throw new ProviderError(
       resp.status,
-      `Grok-Call fehlgeschlagen: ${resp.status} (${await redactedBodyMeta(text)})`,
+      `OpenRouter-Call fehlgeschlagen: ${resp.status} (${await redactedBodyMeta(text)})`,
     );
   }
   const data = await resp.json();
@@ -797,7 +805,7 @@ function consumeProviderFrames(state: AnswerStreamState): void {
       // mirrors user input into its error objects (CWE-532).
       throw new ProviderError(
         frameErrorStatus(frame.error),
-        "Grok-Stream: Fehler-Frame vom Provider",
+        "OpenRouter-Stream: Fehler-Frame vom Provider",
       );
     }
     const choice = frame?.choices?.[0];
@@ -838,10 +846,10 @@ async function openAnswerStream(
     const text = await resp.text();
     throw new ProviderError(
       resp.status,
-      `Grok-Stream fehlgeschlagen: ${resp.status} (${await redactedBodyMeta(text)})`,
+      `OpenRouter-Stream fehlgeschlagen: ${resp.status} (${await redactedBodyMeta(text)})`,
     );
   }
-  if (!resp.body) throw new ProviderError(502, "Grok-Stream ohne Body");
+  if (!resp.body) throw new ProviderError(502, "OpenRouter-Stream ohne Body");
   return {
     reader: resp.body.getReader(),
     decoder: new TextDecoder(),
