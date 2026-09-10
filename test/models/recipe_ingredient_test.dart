@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:eatova/src/models/fitness_recipe.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
@@ -51,6 +52,9 @@ void main() {
     expect(meal.carbs, '0 g');
     expect(meal.estimatedGrams, 0, reason: 'Raw weight is not cooked yield');
     expect(meal.kcalPer100G, 0);
+    expect(meal.portionNotes, startsWith('0,5 Portionen'));
+    expect(recipe.toMealResultForServings(0.5, enL10n).portionNotes,
+      startsWith('0.5 servings'));
   });
 
   test(

@@ -458,6 +458,12 @@ class FitnessRecipe {
       throw const FormatException('Recipe nutrition cannot be logged');
     }
     final calories = nutrition.caloriesKcal!;
+    final servingText = (servings == servings.roundToDouble()
+        ? '${servings.round()}' : '$servings')
+        .replaceAll('.', sprache.localeName == 'de' ? ',' : '.');
+    final portionNote = hasStructuredIngredients || servings != 1
+        ? sprache.recipeCalcServingsCount(servingText)
+        : displayPortion(sprache);
     // Structured recipes have no measured cooked yield in this version.
     final grams = hasStructuredIngredients ? 0 : estimatedGrams * servings;
     if (!hasStructuredIngredients && servings != 1 &&
@@ -482,7 +488,7 @@ class FitnessRecipe {
       fat: macro(nutrition.fatG),
       confidence: MealResultConfidence.recipe.code,
       portionNotes:
-          '${displayPortion(sprache)} · '
+          '$portionNote · '
           '${displayDescription(sprache)} '
           '${displayProfessionalHint(sprache)}',
       sourceLabel: MealResultSource.recipe.code,
