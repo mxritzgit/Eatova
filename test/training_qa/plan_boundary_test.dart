@@ -22,7 +22,7 @@ void main() {
       TrainingPlan.fromJson(jsonDecode(jsonEncode(plan.toJson()))).toJson(),
       plan.toJson(),
     );
-    expect(plan.toRow().keys, unorderedEquals(['id', 'plan']));
+    expect(plan.toRow().keys, unorderedEquals(['id', 'plan', 'exercise_ids']));
   });
 
   for (final level in ['plan', 'workout', 'exercise']) {

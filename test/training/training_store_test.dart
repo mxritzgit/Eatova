@@ -364,6 +364,8 @@ class _TrainingReadFailCipher implements CacheCipher {
 }
 
 TrainingSessionSnapshot _snapshot() => TrainingSessionSnapshot(
+  sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  startedAt: DateTime.utc(2026, 9, 10),
   plan: plan(),
   workoutIndex: 0,
   exerciseIndex: 0,

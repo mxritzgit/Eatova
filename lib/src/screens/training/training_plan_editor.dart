@@ -5,6 +5,7 @@ import '../../l10n/l10n.dart';
 import '../../models/coach_training_proposal.dart';
 import '../../models/training_plan.dart';
 import '../../services/sync_error_messages.dart';
+import '../../services/uuid.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/design/design.dart';

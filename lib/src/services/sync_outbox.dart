@@ -5,6 +5,7 @@ import '../models/fitness_recipe.dart';
 import '../models/logged_meal.dart';
 import '../models/planned_meal.dart';
 import '../models/training_plan.dart';
+import '../models/training_history.dart';
 import '../models/user_profile.dart';
 import 'meals_sync.dart' show mealResultFromJson, mealResultToJson;
 
@@ -81,6 +82,8 @@ enum SyncOpKind {
   recipeDelete,
   trainingPlanUpsert,
   trainingPlanDelete,
+  trainingHistoryInsert,
+  trainingHistoryDelete,
 
   /// Gap D: profile/goals (weight, kcal goal, diet, onboarding flag). Without
   /// it, an offline `applySettings`/`completeOnboarding` was silently
@@ -225,6 +228,14 @@ class SyncOp {
   factory SyncOp.recipeDelete(String slug) => SyncOp._(
       kind: SyncOpKind.recipeDelete, entityId: slug, payload: const {});
 
+  factory SyncOp.trainingHistoryInsert(TrainingHistoryEntry entry) => SyncOp._(
+    kind: SyncOpKind.trainingHistoryInsert, entityId: entry.id,
+    payload: {'training_history': entry.toRow()},
+  );
+  factory SyncOp.trainingHistoryDelete(String id) => SyncOp._(
+    kind: SyncOpKind.trainingHistoryDelete, entityId: id, payload: const {},
+  );
+
   factory SyncOp.trainingPlanUpsert(TrainingPlan plan) => SyncOp._(
         kind: SyncOpKind.trainingPlanUpsert,
         entityId: plan.id,
@@ -300,6 +311,7 @@ class SyncOp {
         SyncOpKind.trainingPlanUpsert ||
         SyncOpKind.trainingPlanDelete =>
           'training_plan:$entityId',
+        SyncOpKind.trainingHistoryInsert || SyncOpKind.trainingHistoryDelete => 'training_history:$entityId',
         SyncOpKind.profileUpsert => 'profile:$entityId',
         SyncOpKind.trackingDay => 'tracking:$entityId',
         SyncOpKind.statsIncrement => 'stats:$entityId',
@@ -314,11 +326,16 @@ class SyncOp {
   /// deadline in the store, and at the queue cap it falls only once no write
   /// op is left. Not undroppable though — that would be an immortal op; where
   /// it falls, the store restores the entry locally and reports it.
+  /// History is the only copy after its recovery checkpoint is retired.
+  bool get isTrainingHistoryIntent => kind == SyncOpKind.trainingHistoryInsert ||
+      kind == SyncOpKind.trainingHistoryDelete;
+
   bool get isDelete =>
       kind == SyncOpKind.mealDelete ||
       kind == SyncOpKind.favoriteDelete ||
       kind == SyncOpKind.recipeDelete ||
-      kind == SyncOpKind.trainingPlanDelete;
+      kind == SyncOpKind.trainingPlanDelete ||
+      kind == SyncOpKind.trainingHistoryDelete;
 
   /// True for upsert-like ops — only those may be coalesced (payload
   /// replaced) on enqueue.
@@ -383,6 +400,15 @@ class SyncOp {
     } catch (_) {
       return null;
     }
+  }
+
+  TrainingHistoryEntry? get trainingHistory {
+    final raw = payload['training_history'];
+    if (raw is! Map) return null;
+    try {
+      final entry = TrainingHistoryEntry.fromRow(raw);
+      return entry.id == entityId ? entry : null;
+    } catch (_) { return null; }
   }
 
   TrainingPlan? get trainingPlan {
@@ -566,7 +592,7 @@ List<SyncOp> enqueueCoalesced(
   final dropped = <SyncOp>[];
   // Pass 1: write ops, oldest first.
   for (final op in queue) {
-    if (overflow > 0 && !op.isDelete && !op.isMealPlanIntent) {
+    if (overflow > 0 && !op.isDelete && !op.isMealPlanIntent && !op.isTrainingHistoryIntent) {
       dropped.add(op);
       overflow--;
     } else {
@@ -578,7 +604,7 @@ List<SyncOp> enqueueCoalesced(
   if (overflow > 0) {
     final survivors = <SyncOp>[];
     for (final op in kept) {
-      if (overflow > 0 && !op.isMealPlanIntent) {
+      if (overflow > 0 && !op.isMealPlanIntent && !op.isTrainingHistoryIntent) {
         dropped.add(op);
         overflow--;
       } else {

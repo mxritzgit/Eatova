@@ -2104,5 +2104,80 @@
   "healthConnectLoading": "Health Connect wird geprüft",
   "healthConnectMissingTitle": "Noch keine Schrittdaten",
   "healthConnectMissingHint": "Für diesen Tag liegen keine Schritte vor. Prüfe die Verbindung und Datenquellen in deinem Profil.",
-  "healthConnectReview": "Verbindung prüfen"
+  "healthConnectReview": "Verbindung prüfen",
+  "trainingHistoryTitle": "Trainingsverlauf",
+  "trainingHistorySubtitle": "Deine abgeschlossenen Trainings.",
+  "trainingHistoryEmpty": "Hier erscheinen deine bestätigten Trainingsabschlüsse. Starte ein Training und speichere es am Ende.",
+  "trainingHistoryLoadError": "Der Verlauf konnte nicht geladen werden. Gespeicherte Trainings bleiben verfügbar. Versuche es erneut.",
+  "trainingHistoryLastTime": "Letztes Mal",
+  "trainingHistoryNote": "Notiz zum Training",
+  "trainingHistoryDeleteTitle": "Training löschen?",
+  "trainingHistoryDeleteBody": "Dieser Abschluss und seine Satzwerte werden aus deinem Verlauf entfernt. Dein Trainingsplan bleibt erhalten.",
+  "trainingHistoryDeleted": "Training aus dem Verlauf gelöscht",
+  "trainingHistoryDeleteError": "Das Training konnte nicht gelöscht werden. Versuche es erneut.",
+  "trainingHistoryTimed": "Zeitintervall abgeschlossen",
+  "trainingHistorySetValue": "Satz {set}: {reps} · {weight}",
+  "@trainingHistorySetValue": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      },
+      "reps": {
+        "type": "String"
+      },
+      "weight": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingHistorySkippedSet": "Satz {set}: übersprungen",
+  "@trainingHistorySkippedSet": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingHistoryRepsValue": "{reps} Wiederholungen",
+  "@trainingHistoryRepsValue": {
+    "placeholders": {
+      "reps": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingHistoryWeightValue": "{weight} kg",
+  "@trainingHistoryWeightValue": {
+    "placeholders": {
+      "weight": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingHistoryStarted": "Aufzeichnung ab: {date}",
+  "@trainingHistoryStarted": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingHistoryFinished": "Beendet: {date}",
+  "@trainingHistoryFinished": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingActualReps": "Geschaffte Wiederholungen",
+  "trainingActualWeight": "Gewicht (kg, optional)",
+  "trainingActualOptional": "Optional",
+  "trainingActualNoWeight": "Gewicht nicht erfasst",
+  "trainingActualInvalid": "Wiederholungen: 0–1000. Gewicht: 0–2000 kg oder leer.",
+  "trainingActualReview": "Deine Satzwerte",
+  "trainingActualMissing": "Ergänze die Wiederholungen der erledigten Sätze, bevor du das Training speicherst.",
+  "trainingHistorySourceChanged": "Dein Plan wurde geändert. Dieses Training wurde nicht gespeichert.",
+  "trainingActualConfirmLegacyTimed": "Abgeschlossenes Intervall bestätigen",
+  "trainingHistoryDeleteAction": "Training löschen"
 }

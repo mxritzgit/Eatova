@@ -2076,5 +2076,80 @@
   "healthConnectLoading": "Checking Health Connect",
   "healthConnectMissingTitle": "No step data yet",
   "healthConnectMissingHint": "No steps are available for this day. Review the connection and data sources in your profile.",
-  "healthConnectReview": "Review connection"
+  "healthConnectReview": "Review connection",
+  "trainingHistoryTitle": "Workout history",
+  "trainingHistorySubtitle": "Your completed workouts.",
+  "trainingHistoryEmpty": "Your confirmed workouts appear here. Start a workout and save it when you finish.",
+  "trainingHistoryLoadError": "History could not load. Saved workouts remain available. Try again.",
+  "trainingHistoryLastTime": "Last time",
+  "trainingHistoryNote": "Workout note",
+  "trainingHistoryDeleteTitle": "Delete workout?",
+  "trainingHistoryDeleteBody": "This completion and its set values will be removed from your history. Your training plan stays saved.",
+  "trainingHistoryDeleted": "Workout deleted from history",
+  "trainingHistoryDeleteError": "The workout could not be deleted. Try again.",
+  "trainingHistoryTimed": "Timed interval completed",
+  "trainingHistorySetValue": "Set {set}: {reps} · {weight}",
+  "@trainingHistorySetValue": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      },
+      "reps": {
+        "type": "String"
+      },
+      "weight": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingHistorySkippedSet": "Set {set}: skipped",
+  "@trainingHistorySkippedSet": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingHistoryRepsValue": "{reps} reps",
+  "@trainingHistoryRepsValue": {
+    "placeholders": {
+      "reps": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingHistoryWeightValue": "{weight} kg",
+  "@trainingHistoryWeightValue": {
+    "placeholders": {
+      "weight": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingHistoryStarted": "Recorded from: {date}",
+  "@trainingHistoryStarted": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingHistoryFinished": "Finished: {date}",
+  "@trainingHistoryFinished": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingActualReps": "Actual repetitions",
+  "trainingActualWeight": "Weight (kg, optional)",
+  "trainingActualOptional": "Optional",
+  "trainingActualNoWeight": "Weight not recorded",
+  "trainingActualInvalid": "Repetitions: 0–1000. Weight: 0–2000 kg or blank.",
+  "trainingActualReview": "Your set values",
+  "trainingActualMissing": "Enter the actual repetitions for completed sets before saving the workout.",
+  "trainingHistorySourceChanged": "Your plan changed. This workout was not saved.",
+  "trainingActualConfirmLegacyTimed": "Confirm completed interval",
+  "trainingHistoryDeleteAction": "Delete workout"
 }

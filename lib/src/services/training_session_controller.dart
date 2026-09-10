@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:clock/clock.dart';
 
 import '../models/training_plan.dart';
+import '../models/training_history.dart';
 import '../models/training_session.dart';
 
 /// Timer callbacks refresh the UI; only monotonic elapsed time changes duration.
@@ -26,6 +28,13 @@ final class TrainingSessionController extends ChangeNotifier {
     bool Function()? canRun,
     bool autoTick = true,
   }) : plan = snapshot.plan,
+       sessionId = snapshot.sessionId,
+       startedAt = snapshot.startedAt,
+       _actuals = {
+         for (final actual in snapshot.actualSets) actual.reference: actual,
+       },
+       _draftReps = snapshot.draftReps,
+       _draftWeightKg = snapshot.draftWeightKg,
        workoutIndex = snapshot.workoutIndex,
        _exerciseIndex = snapshot.exerciseIndex,
        _setIndex = snapshot.setIndex,
@@ -52,6 +61,71 @@ final class TrainingSessionController extends ChangeNotifier {
       remainingMilliseconds:
           (plan.workouts[workoutIndex].exercises.first.durationSeconds ?? 0) *
           1000,
+    );
+  }
+
+  final String sessionId;
+  final DateTime startedAt;
+  final Map<TrainingSetReference, TrainingSetActual> _actuals;
+  int? _draftReps;
+  double? _draftWeightKg;
+  int? get actualReps =>
+      exercise.isTimed ? null : (_draftReps ?? exercise.reps);
+  double? get actualWeightKg => _draftWeightKg;
+  List<TrainingSetActual> get actualSets => List.unmodifiable(_actuals.values);
+
+  void setCurrentActual({int? reps, double? weightKg}) {
+    if (_disposed || phase != TrainingSessionPhase.exercise) return;
+    // Use the same validation as the completed ledger.
+    TrainingSetActual(
+      reference: _current,
+      completedAt: clock.now(),
+      reps: reps,
+      weightKg: weightKg,
+    );
+    _draftReps = exercise.isTimed ? null : reps;
+    _draftWeightKg = weightKg;
+  }
+
+  void setCompletedActual(
+    TrainingSetReference reference, {
+    int? reps,
+    double? weightKg,
+  }) {
+    if (_disposed || !_completed.contains(reference)) return;
+    _actuals[reference] = TrainingSetActual(
+      reference: reference,
+      completedAt: _actuals[reference]?.completedAt ?? clock.now().toUtc(),
+      reps: reps,
+      weightKg: weightKg,
+    );
+    notifyListeners();
+  }
+
+  TrainingHistoryEntry completion({String note = '', DateTime? finishedAt}) {
+    final skipped = {..._skipped};
+    for (var e = 0; e < workout.exercises.length; e++) {
+      for (var s = 0; s < workout.exercises[e].sets; s++) {
+        final ref = TrainingSetReference(exerciseIndex: e, setIndex: s);
+        if (!_completed.contains(ref)) skipped.add(ref);
+      }
+    }
+    return TrainingHistoryEntry(
+      snapshot: TrainingSessionSnapshot(
+        sessionId: sessionId,
+        startedAt: startedAt,
+        plan: plan,
+        workoutIndex: workoutIndex,
+        exerciseIndex: workout.exercises.length - 1,
+        setIndex: workout.exercises.last.sets - 1,
+        phase: TrainingSessionPhase.review,
+        remainingMilliseconds: 0,
+        completedSets: completedSets,
+        skippedSets: skipped.toList(),
+        actualSets: actualSets,
+      ),
+      finishedAt: finishedAt ?? clock.now(),
+      note: note,
     );
   }
 
@@ -204,6 +278,14 @@ final class TrainingSessionController extends ChangeNotifier {
   }
 
   void _completeSet() {
+    _actuals[_current] = TrainingSetActual(
+      reference: _current,
+      completedAt: clock.now().toUtc(),
+      reps: actualReps,
+      weightKg: actualWeightKg,
+    );
+    _draftReps = null;
+    _draftWeightKg = null;
     _completed.add(_current);
     _skipped.remove(_current);
     if (setIndex < exercise.sets - 1 && exercise.restSeconds > 0) {
@@ -231,6 +313,8 @@ final class TrainingSessionController extends ChangeNotifier {
   }
 
   void _advance() {
+    _draftReps = null;
+    _draftWeightKg = null;
     if (setIndex < exercise.sets - 1) {
       _setIndex++;
     } else if (exerciseIndex < workout.exercises.length - 1) {
@@ -275,6 +359,9 @@ final class TrainingSessionController extends ChangeNotifier {
     bool atOrAfter(TrainingSetReference entry) =>
         entry.exerciseIndex > exerciseIndex ||
         (entry.exerciseIndex == exerciseIndex && entry.setIndex >= setIndex);
+    _actuals.removeWhere((ref, _) => atOrAfter(ref));
+    _draftReps = null;
+    _draftWeightKg = null;
     _completed.removeWhere(atOrAfter);
     _skipped.removeWhere(atOrAfter);
     _phase = TrainingSessionPhase.exercise;
@@ -305,6 +392,11 @@ final class TrainingSessionController extends ChangeNotifier {
   }
 
   TrainingSessionSnapshot snapshot() => TrainingSessionSnapshot(
+    sessionId: sessionId,
+    startedAt: startedAt,
+    actualSets: actualSets,
+    draftReps: _draftReps,
+    draftWeightKg: _draftWeightKg,
     plan: plan,
     workoutIndex: workoutIndex,
     exerciseIndex: exerciseIndex,

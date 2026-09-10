@@ -94,10 +94,14 @@ void main() {
       expect(_readout(tester), '00:40');
       await _tap(tester, 'training-timer-primary');
       time += const Duration(seconds: 7);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
       await _frames(tester);
       expect(checkpoints.last!.remainingMilliseconds, 33000);
       time += const Duration(hours: 1);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await _frames(tester);
       expect(_readout(tester), '00:33');

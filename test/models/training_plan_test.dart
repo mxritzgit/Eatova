@@ -403,11 +403,14 @@ void main() {
         );
         expect(first.id, 'coach_msg-1');
         expect(first.id, retry.id);
-        expect(first.toRow(), {'id': 'coach_msg-1', 'plan': draft.toJson()});
+        expect(first.toRow()['id'], 'coach_msg-1');
+        expect(first.toRow()['plan'], draft.toJson());
+        expect(first.toRow()['exercise_ids'], isNotEmpty);
         expect(first.title, draft.title);
         expect(first.description, draft.description);
         expect(first.goal, draft.goal);
-        expect(first.proposal, same(draft));
+        expect(first.proposal.toJson(), draft.toJson());
+        expect(first.toJson(), retry.toJson());
         expect(first.copyWith().toJson(), first.toJson());
         final changed = first.copyWith(
           proposal: draft.copyWith(title: 'Edited'),

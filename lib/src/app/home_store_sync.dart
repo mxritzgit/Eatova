@@ -701,6 +701,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     if (s == null || _disposed) return;
     final mealIds = <String>{}, favoriteIds = <String>{}, recipeSlugs = <String>{};
     final trainingPlanIds = <String>{};
+    final trainingHistoryIds = <String>{};
     for (final op in ops) {
       switch (op.kind) {
         case SyncOpKind.mealDelete:
@@ -709,6 +710,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           favoriteIds.add(op.entityId);
         case SyncOpKind.recipeDelete:
           recipeSlugs.add(op.entityId);
+        case SyncOpKind.trainingHistoryDelete:
+          trainingHistoryIds.add(op.entityId);
         case SyncOpKind.trainingPlanDelete:
           trainingPlanIds.add(op.entityId);
         default:
@@ -775,6 +778,18 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       } catch (e, st) {
         _reportRestoreFailure('recipes', e, st);
       }
+    }
+    if (trainingHistoryIds.isNotEmpty) {
+      try {
+        final rows = await s.trainingHistory.load();
+        if (_disposed || _trainingSessionEnded) return;
+        final pending = _outbox.where((op) => op.kind == SyncOpKind.trainingHistoryDelete).map((op) => op.entityId).toSet();
+        _mutate(() {
+          final known = trainingHistory.map((entry) => entry.id).toSet();
+          _trainingHistory = [...trainingHistory, ...rows.where((entry) => trainingHistoryIds.contains(entry.id) && !known.contains(entry.id) && !pending.contains(entry.id))];
+        });
+        _cacheTrainingHistory();
+      } catch (e, st) { _reportRestoreFailure('training-history', e, st); }
     }
     if (trainingPlanIds.isNotEmpty) {
       try {
@@ -1201,7 +1216,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// a backwards system-time jump cannot make an op undroppable.
   OutboxVerdict _verdictFor(Object error, SyncOp op) {
     if (error is _CorruptOpPayload) return OutboxVerdict.drop;
-    if (op.isMealPlanIntent) {
+    if (op.isMealPlanIntent || op.isTrainingHistoryIntent) {
       final verdict = classifyOutboxFailure(error, 0, kind: op.kind);
       return verdict == OutboxVerdict.drop ? OutboxVerdict.retryCounted : verdict;
     }
@@ -1306,6 +1321,15 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         await s.userRecipes.upsert(recipe);
       case SyncOpKind.recipeDelete:
         await s.userRecipes.delete(op.entityId);
+      case SyncOpKind.trainingHistoryInsert:
+        final entry = op.trainingHistory;
+        if (entry == null) throw _CorruptOpPayload(op.kind);
+        await s.trainingHistory.insert(entry);
+        if (_unconfirmedTrainingOps.contains(op)) _deliveredTrainingOps.add(op);
+      case SyncOpKind.trainingHistoryDelete:
+        if (!isUuidShape(op.entityId)) throw _CorruptOpPayload(op.kind);
+        await s.trainingHistory.delete(op.entityId);
+        if (_unconfirmedTrainingOps.contains(op)) _deliveredTrainingOps.add(op);
       case SyncOpKind.trainingPlanUpsert:
         final plan = op.trainingPlan;
         if (plan == null) throw _CorruptOpPayload(op.kind);
@@ -1454,6 +1478,11 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         case SyncOpKind.recipeDelete:
           _userRecipes =
               _userRecipes.where((r) => r.slug != op.entityId).toList();
+        case SyncOpKind.trainingHistoryInsert:
+          final entry = op.trainingHistory;
+          if (entry != null) _trainingHistory = [entry, ...trainingHistory.where((item) => item.id != entry.id)];
+        case SyncOpKind.trainingHistoryDelete:
+          _trainingHistory = trainingHistory.where((entry) => entry.id != op.entityId).toList();
         case SyncOpKind.trainingPlanUpsert:
           final plan = op.trainingPlan;
           if (plan == null) break;
@@ -1703,6 +1732,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     // showed an empty own-recipe list.
     await cache.writeUserRecipes(_userRecipes);
     if (_disposed) return;
+    if (_trainingHistoryKnown) await cache.writeTrainingHistory(trainingHistory);
     if (_trainingPlansKnown) await cache.writeTrainingPlans(trainingPlans);
   }
 
@@ -1755,6 +1785,10 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   void _cacheMealPlans() {
     if (_disposed || _trainingSessionEnded) return;
     unawaited(_cache?.writeMealPlans(_plannedMeals, _shoppingChecks) ?? Future<void>.value());
+  }
+
+  void _cacheTrainingHistory() {
+    if (_trainingHistoryKnown) unawaited(_cache?.writeTrainingHistory(trainingHistory) ?? Future<void>.value());
   }
 
   void _cacheTrainingPlans() {

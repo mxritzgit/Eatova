@@ -10,6 +10,7 @@ import '../models/lifetime_stats.dart';
 import '../models/logged_meal.dart';
 import '../models/planned_meal.dart';
 import '../models/training_plan.dart';
+import '../models/training_history.dart';
 import '../models/training_session.dart';
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
@@ -292,6 +293,7 @@ class LocalCache {
   String get _userRecipesKey => 'eatova.v1.user_recipes.$_userId';
   String get _mealPlansKey => 'eatova.v1.meal_plans.$_userId';
 
+  String get _trainingHistoryKey => 'eatova.v1.training_history.$_userId';
   String get _trainingPlansKey => 'eatova.v1.training_plans.$_userId';
   String get _trainingSelectionKey => 'eatova.v1.training_selection.$_userId';
   String get _trainingSessionKey => 'eatova.v1.training_session.$_userId';
@@ -448,6 +450,19 @@ class LocalCache {
       if (plans.length > 10000 || checks.length > 2000 ||
           plans.map((p) => p.id).toSet().length != plans.length) { return null; }
       return (plans: plans, checks: {for (final c in checks) c.id: c.checked});
+    } catch (_) { return null; }
+  }
+
+  Future<void> writeTrainingHistory(List<TrainingHistoryEntry> entries) =>
+      _writeJson(_trainingHistoryKey, {'items': entries.map((e) => e.toRow()).toList()});
+
+  Future<List<TrainingHistoryEntry>?> readTrainingHistory() async {
+    final items = (await _readJson(_trainingHistoryKey))?['items'];
+    if (items is! List || items.length > 2000) return null;
+    try {
+      final entries = items.map((row) => TrainingHistoryEntry.fromRow(row as Map)).toList();
+      if (entries.map((e) => e.id).toSet().length != entries.length) return null;
+      return List.unmodifiable(entries);
     } catch (_) { return null; }
   }
 
@@ -728,6 +743,7 @@ class LocalCache {
     // as the diary, even with [preserveOutbox].
     await _store.remove(_userRecipesKey);
     await _store.remove(_mealPlansKey);
+    await _store.remove(_trainingHistoryKey);
     await _store.remove(_trainingPlansKey);
     await _store.remove(_trainingSelectionKey);
     await _store.remove(_trainingSessionKey);

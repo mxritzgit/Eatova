@@ -79,6 +79,7 @@ Future<void> _host(
                   initialSnapshot: snapshot,
                   monotonicNow: clock?.now,
                   onPersist: persist,
+                  onComplete: (_) => persist(null),
                 ),
               ),
             ),
@@ -242,7 +243,7 @@ void main() {
           writes.add(s);
         },
       );
-      expect(find.text('12'), findsOneWidget);
+      expect(find.text('12'), findsWidgets);
       expect(_key('rewind'), findsNothing);
       await _tap(tester, 'primary');
       clock.elapse(const Duration(days: 1));
@@ -274,12 +275,14 @@ void main() {
     clock.elapse(const Duration(milliseconds: 7123));
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
     await tester.pump();
     expect(writes.last!.remainingMilliseconds, 22877);
     expect(writes.last!.completedSets, isEmpty);
     clock.elapse(const Duration(days: 3));
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump();
     expect(find.text('Paused'), findsOneWidget);
     expect(writes.last!.remainingMilliseconds, 22877);
@@ -327,10 +330,13 @@ void main() {
       await _tap(tester, 'primary');
       clock.elapse(const Duration(seconds: 30));
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
       await tester.pump(const Duration(milliseconds: 100));
       clock.elapse(const Duration(days: 1));
       await tester.pump(const Duration(seconds: 5));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pump();
       expect(writes.last!.phase, TrainingSessionPhase.exercise);
@@ -594,6 +600,8 @@ void main() {
       await tester.pumpAndSettle();
       final count = writes.length;
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pumpAndSettle();
       expect(writes.length, count);
@@ -741,7 +749,9 @@ void main() {
       reason: 'No checkpoint may be queued after a terminal clear',
     );
     expect(find.text('Open fixture'), findsOneWidget);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump();
   });
 

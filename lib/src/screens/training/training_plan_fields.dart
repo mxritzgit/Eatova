@@ -74,7 +74,8 @@ class _WorkoutFields {
 
 class _ExerciseFields {
   _ExerciseFields(TrainingExercise? value)
-    : name = _PlanText(
+    : id = value?.id ?? uuidV4(),
+      name = _PlanText(
         value?.name ?? '',
         TrainingLimits.titleMaxLength,
         required: true,
@@ -94,6 +95,7 @@ class _ExerciseFields {
       ),
       timed = value?.isTimed ?? false;
 
+  final String id;
   final _PlanText name, notes, sets, reps, duration, rest;
   bool timed;
 
@@ -106,6 +108,7 @@ class _ExerciseFields {
   ];
 
   TrainingExercise build() => TrainingExercise(
+    id: id,
     name: name.controller.text,
     notes: notes.controller.text,
     sets: sets.number,

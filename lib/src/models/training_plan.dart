@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+
 import 'coach_training_proposal.dart';
 import 'training_limits.dart';
 import 'training_workout.dart';
@@ -7,8 +11,41 @@ export 'training_workout.dart';
 
 /// An adopted or manually created plan. Ownership is set only by the store.
 final class TrainingPlan {
-  TrainingPlan({required String id, required this.proposal})
-    : id = TrainingJson.id(id);
+  TrainingPlan({required String id, required CoachTrainingProposal proposal})
+    : id = TrainingJson.id(id),
+      proposal = _identify(id, proposal);
+
+  static CoachTrainingProposal _identify(
+    String id,
+    CoachTrainingProposal value,
+  ) {
+    final seen = <String>{};
+    return value.copyWith(
+      workouts: [
+        for (var w = 0; w < value.workouts.length; w++)
+          value.workouts[w].copyWith(
+            exercises: [
+              for (var e = 0; e < value.workouts[w].exercises.length; e++)
+                value.workouts[w].exercises[e].copyWith(
+                  id: (() {
+                    final original = value.workouts[w].exercises[e].id;
+                    final identity =
+                        original ??
+                        'legacy_${sha256.convert(utf8.encode('$id:$w:$e'))}';
+                    TrainingJson.id(identity);
+                    if (!seen.add(identity)) {
+                      throw const FormatException(
+                        'Duplicate exercise identity',
+                      );
+                    }
+                    return identity;
+                  })(),
+                ),
+            ],
+          ),
+      ],
+    );
+  }
 
   final String id;
   final CoachTrainingProposal proposal;
@@ -21,7 +58,11 @@ final class TrainingPlan {
 
   /// Local cache and outbox envelopes carry no client-supplied owner.
   factory TrainingPlan.fromJson(Map<dynamic, dynamic> json) {
-    TrainingJson.requireKeys(json, const {'id', 'plan'});
+    TrainingJson.requireKeys(json, {
+      'id',
+      'plan',
+      if (json.containsKey('exercise_ids')) 'exercise_ids',
+    });
     return TrainingPlan.fromRow(json);
   }
 
@@ -35,10 +76,42 @@ final class TrainingPlan {
     if (proposal == null) {
       throw const FormatException('Invalid training plan');
     }
-    return proposal.toTrainingPlan(id: id);
+    final rawIds = row['exercise_ids'];
+    if (rawIds == null) return proposal.toTrainingPlan(id: id);
+    if (rawIds is! List || rawIds.length != proposal.workouts.length) {
+      throw const FormatException('Invalid exercise identities');
+    }
+    return TrainingPlan(
+      id: id,
+      proposal: proposal.copyWith(
+        workouts: [
+          for (var w = 0; w < proposal.workouts.length; w++)
+            proposal.workouts[w].copyWith(
+              exercises: (() {
+                final ids = rawIds[w];
+                final exercises = proposal.workouts[w].exercises;
+                if (ids is! List || ids.length != exercises.length) {
+                  throw const FormatException('Invalid exercise identities');
+                }
+                return [
+                  for (var e = 0; e < exercises.length; e++)
+                    exercises[e].copyWith(id: TrainingJson.id(ids[e])),
+                ];
+              })(),
+            ),
+        ],
+      ),
+    );
   }
 
-  Map<String, dynamic> toJson() => {'id': id, 'plan': proposal.toJson()};
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'plan': proposal.toJson(),
+    'exercise_ids': [
+      for (final workout in workouts)
+        [for (final exercise in workout.exercises) exercise.id],
+    ],
+  };
 
   Map<String, dynamic> toRow() => toJson();
 

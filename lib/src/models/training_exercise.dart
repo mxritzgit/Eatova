@@ -3,6 +3,7 @@ import 'training_limits.dart';
 /// One exercise uses either repetitions or a timed work interval per set.
 final class TrainingExercise {
   TrainingExercise({
+    this.id,
     required String name,
     required int sets,
     int? reps,
@@ -36,6 +37,8 @@ final class TrainingExercise {
     }
   }
 
+  /// Adopted-plan identity; intentionally excluded from the Coach v1 payload.
+  final String? id;
   final String name;
   final int sets;
   final int? reps;
@@ -96,6 +99,7 @@ final class TrainingExercise {
 
   /// Passing null explicitly clears the repetitions or the duration.
   TrainingExercise copyWith({
+    String? id,
     String? name,
     int? sets,
     Object? reps = _unchanged,
@@ -103,6 +107,7 @@ final class TrainingExercise {
     int? restSeconds,
     String? notes,
   }) => TrainingExercise(
+    id: id ?? this.id,
     name: name ?? this.name,
     sets: sets ?? this.sets,
     reps: _nullableInt(reps, this.reps),

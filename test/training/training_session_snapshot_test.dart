@@ -16,14 +16,14 @@ void main() {
   }
 
   test('strict wire roundtrip accepts lossless numeric integers', () {
-    final json = valid()..['schema_version'] = 1.0;
+    final json = valid()..['schema_version'] = 2.0;
     json['remaining_milliseconds'] = 30000.0;
-    expect(TrainingSessionSnapshot.fromJson(json).toJson(), valid());
+    expect(TrainingSessionSnapshot.fromJson(json).toJson(), json);
   });
 
   final invalid = <String, void Function(Map<String, dynamic>)>{
     'running status': (j) => j['status'] = 'running',
-    'unknown schema': (j) => j['schema_version'] = 2,
+    'unknown schema': (j) => j['schema_version'] = 3,
     'unknown field': (j) => j['owner'] = 'someone',
     'missing field': (j) => j.remove('skipped_sets'),
     'fraction': (j) => j['remaining_milliseconds'] = .5,
