@@ -4,6 +4,7 @@ import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/models/coach_training_proposal.dart';
+import 'package:eatova/src/models/coach_training_context.dart';
 import 'package:eatova/src/models/training_plan.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
@@ -78,6 +79,7 @@ class _PlanCoach extends CoachChatService {
   }
 
   final calls = <({String wish, String locale, String session})>[];
+  final briefCalls = <CoachTrainingContext>[];
   List<ChatMessage> history = [];
   List<ChatMessage> fallbackHistory = [];
   CoachDataUnavailable? fallbackHistoryFailure;
@@ -125,6 +127,25 @@ class _PlanCoach extends CoachChatService {
       const ChatQuotaSnapshot(used: 0, remaining: 5, dailyLimit: 5);
 
   @override
+  Future<CoachPlanReply> requestPlanWithContext(
+    String wish, {
+    required String sessionId,
+    required String locale,
+    required CoachTrainingContext trainingContext,
+  }) async {
+    briefCalls.add(trainingContext);
+    final reply = await requestPlan(wish, sessionId: sessionId, locale: locale);
+    if (trainingContext.intent != CoachTrainingIntent.discuss) return reply;
+    return CoachPlanReply(
+      reply: 'Dieser Plan passt zu deinem Ziel.',
+      refusal: false,
+      sessionId: sessionId,
+      remaining: 4,
+      dailyLimit: 5,
+    );
+  }
+
+  @override
   Future<CoachPlanReply> requestPlan(
     String wish, {
     required String sessionId,
@@ -153,6 +174,14 @@ Future<void> _frames(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 400));
 }
 
+Future<void> _tapVisible(WidgetTester tester, Finder finder) async {
+  await tester.ensureVisible(finder);
+  await _frames(tester);
+  expect(finder.hitTestable(), findsOneWidget);
+  await tester.tap(finder);
+  await _frames(tester);
+}
+
 Future<void> _mount(
   WidgetTester tester,
   _PlanCoach service, {
@@ -163,6 +192,7 @@ Future<void> _mount(
   double scale = 1,
   Size size = const Size(402, 820),
   int planDraftRequest = 0,
+  TrainingPlan? selectedPlan,
 }) async {
   await pumpLocalized(
     tester,
@@ -172,6 +202,7 @@ Future<void> _mount(
       userTrainingPlanIds: savedIds,
       onOpenTraining: onOpenTraining,
       planDraftRequest: planDraftRequest,
+      selectedPlanForCoach: selectedPlan,
     ),
     locale: locale,
     textScale: scale,
@@ -380,14 +411,10 @@ void main() {
       expect(find.byKey(const ValueKey('coach-command-recipe')), findsNothing);
       await tester.tap(find.byKey(const ValueKey('coach-command-plan')));
       await _frames(tester);
-      expect(
-        tester
-            .widget<TextField>(find.byKey(const ValueKey('coach-input')))
-            .controller!
-            .text,
-        '/plan ',
-      );
+      expect(find.byKey(const ValueKey('coach-brief-submit')), findsOneWidget);
       expect(coach.calls, isEmpty);
+      await tester.tap(find.byKey(const ValueKey('coach-brief-close')));
+      await _frames(tester);
       await _send(tester, '/plan');
       expect(coach.calls, isEmpty);
       expect(find.textContaining('Beschreibe nach /plan'), findsOneWidget);
@@ -766,13 +793,7 @@ void main() {
       await tester.pump();
       await tester.tap(plan);
       await _frames(tester);
-      expect(
-        tester
-            .widget<TextField>(find.byKey(const ValueKey('coach-input')))
-            .controller!
-            .text,
-        '/plan ',
-      );
+      expect(find.byKey(const ValueKey('coach-brief-submit')), findsOneWidget);
     });
     expect(errors, isEmpty, reason: describeOverflows(errors));
   });
@@ -783,16 +804,164 @@ void main() {
     final coach = _PlanCoach.create();
     await _mount(tester, coach, planDraftRequest: 1);
     expect(coach.calls, isEmpty);
-    expect(
-      tester
-          .widget<TextField>(find.byKey(const ValueKey('coach-input')))
-          .controller!
-          .text,
-      '/plan ',
-    );
+    expect(find.byKey(const ValueKey('coach-brief-submit')), findsOneWidget);
   });
 
+  testWidgets(
+    'brief submit sends reviewed choices once and adoption creates a separate editable copy',
+    (tester) async {
+      final coach = _PlanCoach.create();
+      final original = _proposal(
+        title: 'My saved plan',
+      ).toTrainingPlan(id: 'original');
+      final saves = <TrainingPlan>[];
+      await _mount(
+        tester,
+        coach,
+        selectedPlan: original,
+        savedIds: {'original'},
+        planDraftRequest: 1,
+        locale: const Locale('en'),
+        onCreate: (plan) async {
+          saves.add(plan);
+          return SyncDelivery.delivered;
+        },
+      );
+      expect(coach.calls, isEmpty);
+      await _tapVisible(tester, find.text('Adapt'));
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('coach-brief-goal')),
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey('coach-brief-goal')),
+        'Build strength',
+      );
+      await _frames(tester);
+      await _tapVisible(tester, find.text('Dumbbells'));
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('coach-brief-submit')),
+      );
+      await tester.tap(find.byKey(const ValueKey('coach-brief-submit')));
+      await _frames(tester);
+      expect(coach.calls, hasLength(1));
+      expect(coach.briefCalls.single.goal, 'Build strength');
+      expect(coach.briefCalls.single.intent, CoachTrainingIntent.adapt);
+      expect(
+        coach.briefCalls.single.equipment,
+        CoachTrainingEquipment.dumbbells,
+      );
+      expect(coach.briefCalls.single.selectedPlan, same(original.proposal));
+      expect(saves, isEmpty);
+      expect(original.title, 'My saved plan');
+      await _review(tester);
+      expect(
+        find.byKey(const ValueKey('training-editor-save')),
+        findsOneWidget,
+      );
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('training-editor-save')),
+      );
+      await tester.tap(find.byKey(const ValueKey('training-editor-save')));
+      await _frames(tester);
+      expect(saves.single.id, 'coach_server-plan-1');
+      expect(saves.single.id, isNot(original.id));
+      expect(original.title, 'My saved plan');
+    },
+  );
+
+  testWidgets(
+    'discussion and retry use the same selected snapshot without adopting a plan',
+    (tester) async {
+      final coach = _PlanCoach.create()
+        ..failure = const CoachChatException('Offline');
+      final plan = _proposal().toTrainingPlan(id: 'selected');
+      await _mount(
+        tester,
+        coach,
+        selectedPlan: plan,
+        savedIds: {'selected'},
+        planDraftRequest: 1,
+      );
+      final submit = find.byKey(const ValueKey('coach-brief-submit'));
+      await tester.ensureVisible(submit);
+      await tester.tap(submit);
+      await _frames(tester);
+      expect(coach.briefCalls.single.intent, CoachTrainingIntent.discuss);
+      coach.failure = null;
+      final retry = find.byKey(const ValueKey('coach-unsent-retry'));
+      await tester.ensureVisible(retry);
+      await tester.tap(retry);
+      await _frames(tester);
+      expect(coach.briefCalls, hasLength(2));
+      expect(coach.briefCalls.last, same(coach.briefCalls.first));
+      expect(find.byKey(const ValueKey('coach-plan-card')), findsNothing);
+      expect(find.text('Dieser Plan passt zu deinem Ziel.'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'deleted selection and account change cannot send an open brief',
+    (tester) async {
+      final coach = _PlanCoach.create();
+      final plan = _proposal().toTrainingPlan(id: 'selected');
+      await _mount(
+        tester,
+        coach,
+        selectedPlan: plan,
+        savedIds: {'selected'},
+        planDraftRequest: 1,
+      );
+      await _mount(tester, coach, selectedPlan: plan, planDraftRequest: 1);
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('coach-brief-submit')),
+      );
+      await tester.tap(find.byKey(const ValueKey('coach-brief-submit')));
+      await _frames(tester);
+      expect(coach.calls, isEmpty);
+      expect(find.byKey(const ValueKey('coach-brief-submit')), findsOneWidget);
+      final other = _PlanCoach.create();
+      await _mount(
+        tester,
+        other,
+        selectedPlan: plan,
+        savedIds: {'selected'},
+        planDraftRequest: 1,
+      );
+      expect(find.byKey(const ValueKey('coach-brief-submit')), findsNothing);
+      expect(coach.calls, isEmpty);
+      expect(other.calls, isEmpty);
+    },
+  );
+
   for (final locale in [const Locale('de'), const Locale('en')]) {
+    testWidgets(
+      'brief reflows at 320px and 2x with keyboard (${locale.languageCode})',
+      (tester) async {
+        final coach = _PlanCoach.create();
+        final errors = await collectOverflows(() async {
+          await _mount(
+            tester,
+            coach,
+            planDraftRequest: 1,
+            locale: locale,
+            scale: 2,
+            size: const Size(320, 568),
+          );
+          final goal = find.byKey(const ValueKey('coach-brief-goal'));
+          await tester.ensureVisible(goal);
+          await tester.enterText(goal, 'Strength');
+          tester.view.viewInsets = const FakeViewPadding(bottom: 240);
+          addTearDown(tester.view.resetViewInsets);
+          await _frames(tester);
+          final submit = find.byKey(const ValueKey('coach-brief-submit'));
+          await tester.ensureVisible(submit);
+          await tester.tap(submit);
+          await _frames(tester);
+          expect(coach.briefCalls, hasLength(1));
+        });
+        expect(errors, isEmpty, reason: describeOverflows(errors));
+      },
+    );
     testWidgets(
       'Plan card and review reflow at 320px with 2x text (${locale.languageCode})',
       (tester) async {

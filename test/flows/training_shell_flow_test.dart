@@ -314,6 +314,7 @@ void main() {
         );
         expect(input.controller!.text, isEmpty);
         expect(find.byKey(const ValueKey('coach-brief-scroll')), findsOneWidget);
+        expect(find.byKey(const ValueKey('coach-brief-submit')), findsOneWidget);
         expect(store.trainingPlans, isEmpty);
         expect(find.byKey(const ValueKey('coach-plan-card')), findsNothing);
         await _tap(tester, 'coach-brief-close');

@@ -22,6 +22,7 @@ import '../../models/chat_message.dart';
 import '../../models/chat_session.dart';
 import '../../models/coach_recipe_proposal.dart';
 import '../../models/coach_training_proposal.dart';
+import '../../models/coach_training_context.dart';
 import '../../models/fitness_recipe.dart';
 import '../../models/training_plan.dart';
 import '../../services/coach_chat_service.dart';
@@ -35,6 +36,7 @@ import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
 import '../today/today_texts.dart' show greetingForHour;
 import '../training/training_plan_editor.dart';
+import 'coach_training_brief.dart';
 
 part 'coach_speech.dart';
 part 'coach_top_bar.dart';
@@ -66,6 +68,7 @@ class CoachChatScreen extends StatefulWidget {
     this.userTrainingPlanIds = const <String>{},
     this.onOpenTraining,
     this.planDraftRequest = 0,
+    this.selectedPlanForCoach,
   });
 
   final CoachChatService? service;
@@ -86,8 +89,9 @@ class CoachChatScreen extends StatefulWidget {
   final Set<String> userTrainingPlanIds;
   final VoidCallback? onOpenTraining;
 
-  /// Increment to open the /plan composer from the Training tab without sending.
+  /// Increment to open a training brief without sending a request.
   final int planDraftRequest;
+  final TrainingPlan? selectedPlanForCoach;
 
   /// Streak for the pill top left. Callers pass
   /// `lifetimeStats.effectiveStreakOn(now)`, never `currentStreak` directly —
@@ -156,6 +160,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   /// buttons until it finishes.
   bool _addingRecipe = false;
   bool _reviewingTrainingPlan = false;
+  bool _briefingTrainingPlan = false;
+  ValueNotifier<bool>? _briefIsActive;
   int _trainingAccountRevision = 0;
 
   /// How many send jobs (chat or recipe) are in flight.
@@ -223,7 +229,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     }
     if (widget.planDraftRequest > 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _applyCommand('/plan');
+        if (mounted) _openTrainingBrief(selectedPlan: widget.selectedPlanForCoach);
       });
     }
   }
@@ -233,10 +239,11 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     super.didUpdateWidget(oldWidget);
     if (!identical(widget.service, oldWidget.service)) {
       _trainingAccountRevision++;
+      _briefIsActive?.value = false;
     }
     if (widget.planDraftRequest != oldWidget.planDraftRequest) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _applyCommand('/plan');
+        if (mounted) _openTrainingBrief(selectedPlan: widget.selectedPlanForCoach);
       });
     }
   }
@@ -318,6 +325,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _briefIsActive?.value = false;
     _cancelSpeechInput();
     _input.dispose();
     _draft.dispose();
@@ -593,6 +601,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     String? textOverride,
     Uint8List? imageBytes,
     String? imageMimeType,
+    CoachTrainingContext? trainingContext,
   }) async {
     // Grabbed before the first `await`: safe context access.
     final l10n = context.l10n;
@@ -640,6 +649,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
           wish: planWish,
           displayText: text,
           l10n: l10n,
+          trainingContext: trainingContext,
         );
         return;
       }
@@ -900,6 +910,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       textOverride: auftrag.text,
       imageBytes: auftrag.imageBytes,
       imageMimeType: auftrag.imageMimeType,
+      trainingContext: auftrag.trainingContext,
     );
     // `_send` clears the field synchronously before its first await, so the
     // draft goes back right away instead of vanishing while the retry runs.
@@ -948,13 +959,52 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     ].any((command) => command.startsWith(draft.toLowerCase()));
   }
 
-  /// Tap on a menu entry: command plus separating space into the field,
-  /// cursor at the end.
+  /// Plan discovery opens a brief; recipe discovery prepares the composer.
   void _applyCommand(String command) {
+    if (command == '/plan') {
+      unawaited(_openTrainingBrief());
+      return;
+    }
     HapticFeedback.selectionClick();
     _input.text = '$command ';
     _input.selection = TextSelection.collapsed(offset: _input.text.length);
     _inputFocus.requestFocus();
+  }
+
+  Future<void> _openTrainingBrief({TrainingPlan? selectedPlan}) async {
+    if (_briefingTrainingPlan || _sending) return;
+    final service = widget.service;
+    final revision = _trainingAccountRevision;
+    final session = _activeSessionId;
+    bool sourceIsCurrent() => mounted &&
+        identical(widget.service, service) &&
+        _trainingAccountRevision == revision &&
+        (session == null || _activeSessionId == session) &&
+        (selectedPlan == null || widget.userTrainingPlanIds.contains(selectedPlan.id));
+    _briefingTrainingPlan = true;
+    final active = ValueNotifier(true);
+    _briefIsActive = active;
+    _inputFocus.unfocus();
+    try {
+      final submitted = await showCoachTrainingBrief(
+        context,
+        selectedPlan: selectedPlan,
+        initialWish: _planWishFrom(_input.text) ?? '',
+        canSubmit: () => sourceIsCurrent() && _canInteract,
+        isActive: active,
+      );
+      if (submitted == null || !sourceIsCurrent() || !_canInteract) return;
+      // Only this explicit submission can consume a request. Keep the snapshot
+      // on its retry job, never implicitly attach it to later ordinary chat.
+      await _send(
+        textOverride: '/plan ${submitted.wish}',
+        trainingContext: submitted.context,
+      );
+    } finally {
+      _briefingTrainingPlan = false;
+      if (identical(_briefIsActive, active)) _briefIsActive = null;
+      active.dispose();
+    }
   }
 
   /// "Added" is derived, never stored: the card slug comes deterministically
@@ -1131,6 +1181,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     required String wish,
     required String displayText,
     required AppLocalizations l10n,
+    CoachTrainingContext? trainingContext,
   }) async {
     final accountRevision = _trainingAccountRevision;
     HapticFeedback.selectionClick();
@@ -1143,6 +1194,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     final retry = _FehlgeschlageneSendung(
       messageId: userMsg.id,
       text: displayText,
+      trainingContext: trainingContext,
     );
     setState(() {
       _messages = [..._ohneAltenFehlschlag(displayText), userMsg];
@@ -1163,11 +1215,10 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         identical(_messages, submittedMessages);
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
     try {
-      final reply = await svc.requestPlan(
-        wish,
-        sessionId: sessionId,
-        locale: l10n.localeName,
-      );
+      final reply = trainingContext == null
+          ? await svc.requestPlan(wish, sessionId: sessionId, locale: l10n.localeName)
+          : await svc.requestPlanWithContext(wish, sessionId: sessionId,
+              locale: l10n.localeName, trainingContext: trainingContext);
       if (!isCurrentAccount()) return;
       // Quota is account-wide, including responses to another conversation.
       _quotaUebernehmen(
@@ -1853,6 +1904,7 @@ class _FehlgeschlageneSendung {
     required this.text,
     this.imageBytes,
     this.imageMimeType,
+    this.trainingContext,
   });
 
   /// Id of the bubble in the history; the retry removes exactly this one, so
@@ -1862,6 +1914,7 @@ class _FehlgeschlageneSendung {
   final String text;
   final Uint8List? imageBytes;
   final String? imageMimeType;
+  final CoachTrainingContext? trainingContext;
 }
 
 /// "Not sent" under the history, with the retry button next to it.

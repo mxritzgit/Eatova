@@ -156,13 +156,11 @@ void main() {
         );
         await tester.tap(find.byKey(const ValueKey('coach-command-plan')));
         await tester.pumpAndSettle();
-        expect(
-          tester
-              .widget<TextField>(find.byKey(const ValueKey('coach-input')))
-              .controller!
-              .text,
-          '/plan ',
-        );
+        expect(find.byKey(const ValueKey('coach-brief-submit')), findsOneWidget);
+        await tester.tap(find.byKey(const ValueKey('coach-brief-close')));
+        await tester.pumpAndSettle();
+        await tester.enterText(find.byKey(const ValueKey('coach-input')), '/plan ');
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey('coach-send')));
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
