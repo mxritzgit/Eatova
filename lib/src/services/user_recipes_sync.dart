@@ -33,7 +33,7 @@ class UserRecipesSync {
           .select(
             'slug, title, description, portion, ingredients, preparation, '
             'image_asset, calories_kcal, protein_g, carbs_g, fat_g, '
-            'estimated_g, categories',
+            'estimated_g, categories, structured_ingredients, batch_servings',
           )
           .eq('user_id', _userId)
           .order('created_at', ascending: false)

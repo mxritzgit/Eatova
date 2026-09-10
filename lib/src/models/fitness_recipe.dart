@@ -4,10 +4,12 @@ import 'meal_analysis_result.dart';
 import 'model_limits.dart';
 import 'recipe_catalog_de.dart';
 import 'recipe_catalog_en.dart';
+import 'recipe_ingredient.dart';
 import 'user_profile.dart';
 
 export 'recipe_catalog_de.dart' show recipeCatalogDe;
 export 'recipe_catalog_en.dart' show recipeCatalogEn;
+export 'recipe_ingredient.dart';
 
 /// The `High Protein` category, as a constant instead of a repeated literal:
 /// it is the one tag that is DERIVED from the numbers (see [HighProteinRule]),
@@ -68,6 +70,8 @@ class FitnessRecipe {
     required this.estimatedGrams,
     required this.categories,
     this.userCreated = false,
+    this.structuredIngredients = const [],
+    this.batchServings = 1,
   });
 
   final String slug;
@@ -84,6 +88,56 @@ class FitnessRecipe {
   final int fatG;
   final int estimatedGrams;
   final List<String> categories;
+
+  /// Whole-batch raw ingredient weights, independent of cooked portion weight.
+  final List<RecipeIngredient> structuredIngredients;
+  final double batchServings;
+  bool get hasStructuredIngredients => structuredIngredients.isNotEmpty;
+
+  RecipeCalculation calculationForServings(double servings) =>
+      RecipeCalculation.calculate(
+        structuredIngredients,
+        batchServings: batchServings,
+        servings: servings,
+      );
+
+  FitnessRecipe copyWith({
+    String? title,
+    String? description,
+    String? portion,
+    String? ingredients,
+    String? preparation,
+    String? professionalHint,
+    String? imageAsset,
+    int? caloriesKcal,
+    int? proteinG,
+    int? carbsG,
+    int? fatG,
+    int? estimatedGrams,
+    List<String>? categories,
+    List<RecipeIngredient>? structuredIngredients,
+    double? batchServings,
+  }) => FitnessRecipe(
+    slug: slug,
+    title: title ?? this.title,
+    description: description ?? this.description,
+    portion: portion ?? this.portion,
+    ingredients: ingredients ?? this.ingredients,
+    preparation: preparation ?? this.preparation,
+    professionalHint: professionalHint ?? this.professionalHint,
+    imageAsset: imageAsset ?? this.imageAsset,
+    caloriesKcal: caloriesKcal ?? this.caloriesKcal,
+    proteinG: proteinG ?? this.proteinG,
+    carbsG: carbsG ?? this.carbsG,
+    fatG: fatG ?? this.fatG,
+    estimatedGrams: estimatedGrams ?? this.estimatedGrams,
+    categories: List.unmodifiable(categories ?? this.categories),
+    userCreated: userCreated,
+    structuredIngredients: List.unmodifiable(
+      structuredIngredients ?? this.structuredIngredients,
+    ),
+    batchServings: batchServings ?? this.batchServings,
+  );
 
   /// True for user-created recipes (no image asset), so the UI can render them
   /// without Image.asset.
@@ -186,6 +240,15 @@ class FitnessRecipe {
   /// Serialises this recipe for an upsert on public.user_recipes. The sync sets
   /// user_id; the DB fills id/created_at/updated_at. categories becomes text[].
   Map<String, dynamic> toRow() {
+    validateRecipeServings(batchServings);
+    if (structuredIngredients.length > RecipeIngredient.maxIngredients) {
+      throw const FormatException('Invalid ingredient count');
+    }
+    final calculated = hasStructuredIngredients
+        ? calculationForServings(1)
+        : null;
+    calculated?.validateStorageLimits();
+    final known = calculated?.knownNutrition;
     return <String, dynamic>{
       'slug': slug,
       'title': title,
@@ -194,12 +257,16 @@ class FitnessRecipe {
       'ingredients': ingredients,
       'preparation': preparation,
       'image_asset': imageAsset,
-      'calories_kcal': caloriesKcal,
-      'protein_g': proteinG,
-      'carbs_g': carbsG,
-      'fat_g': fatG,
-      'estimated_g': estimatedGrams,
+      'calories_kcal': known?.caloriesKcal?.round() ?? caloriesKcal,
+      'protein_g': known?.proteinG?.round() ?? proteinG,
+      'carbs_g': known?.carbsG?.round() ?? carbsG,
+      'fat_g': known?.fatG?.round() ?? fatG,
+      'estimated_g': hasStructuredIngredients ? 0 : estimatedGrams,
       'categories': categories,
+      'structured_ingredients': structuredIngredients
+          .map((i) => i.toJson())
+          .toList(),
+      'batch_servings': batchServings,
     };
   }
 
@@ -209,6 +276,23 @@ class FitnessRecipe {
   /// at render time, rather than a hardcoded German placeholder.
   /// userCreated is true by definition: every row here is user-made.
   factory FitnessRecipe.fromRow(Map<String, dynamic> row) {
+    final ingredients = RecipeIngredient.listFromJson(
+      row.containsKey('structured_ingredients')
+          ? row['structured_ingredients'] ?? false
+          : const [],
+    );
+    final rawServings = row['batch_servings'];
+    if (row.containsKey('batch_servings') && rawServings is! num) {
+      throw const FormatException('Invalid recipe servings');
+    }
+    final servings = (rawServings as num?)?.toDouble() ?? 1.0;
+    validateRecipeServings(servings);
+    if (ingredients.isNotEmpty) {
+      RecipeCalculation.calculate(
+        ingredients,
+        batchServings: servings,
+      ).validateStorageLimits();
+    }
     final rawCategories = row['categories'];
     final categories = rawCategories is List
         ? rawCategories.map((c) => c.toString()).toList(growable: false)
@@ -237,6 +321,8 @@ class FitnessRecipe {
       estimatedGrams: _toInt(row['estimated_g']),
       categories: categories.isEmpty ? const <String>['Eigene'] : categories,
       userCreated: true,
+      structuredIngredients: ingredients,
+      batchServings: servings,
     );
   }
 
@@ -329,16 +415,55 @@ class FitnessRecipe {
   /// `payload` JSON, which is bounded only as a whole
   /// ([LoggedMealLimits.payloadMaxBytes]) and is fed from fields the create
   /// sheet already caps.
-  MealAnalysisResult toMealResult([AppLocalizations? l10n]) {
+  MealAnalysisResult toMealResult([AppLocalizations? l10n]) =>
+      toMealResultForServings(1, l10n);
+
+  /// Creates a diary snapshot. Raw ingredient mass is never a cooked yield.
+  /// Missing calories cannot fit the diary schema, so callers must ask users
+  /// to fill them in before logging. Unknown macros remain unknown.
+  MealAnalysisResult toMealResultForServings(
+    double servings, [
+    AppLocalizations? l10n,
+  ]) {
+    validateRecipeServings(servings);
+    if (hasStructuredIngredients) {
+      calculationForServings(servings).validateStorageLimits();
+    }
     final sprache = l10n ?? deL10n;
+    final nutrition = hasStructuredIngredients
+        ? calculationForServings(servings).nutrition
+        : RecipeNutrition(
+            caloriesKcal: caloriesKcal * servings,
+            proteinG: proteinG * servings,
+            carbsG: carbsG * servings,
+            fatG: fatG * servings,
+          );
+    if (hasStructuredIngredients &&
+        (nutrition.caloriesKcal == null ||
+            nutrition.caloriesKcal! > LoggedMealLimits.caloriesKcalMax ||
+            [
+              nutrition.proteinG,
+              nutrition.carbsG,
+              nutrition.fatG,
+            ].any((n) => n != null && n > LoggedMealLimits.macroGMax))) {
+      throw const FormatException('Recipe nutrition cannot be logged');
+    }
+    final calories = nutrition.caloriesKcal!;
+    // Structured recipes have no measured cooked yield in this version.
+    final grams = hasStructuredIngredients ? 0 : estimatedGrams * servings;
+    String macro(double? n) => n == null
+        ? '-'
+        : (hasStructuredIngredients || servings != 1
+              ? MealAnalysisResult.macroForGrams(n, 100)
+              : _macroText(n.round()));
     return MealAnalysisResult(
       mealName: clampMealName(title),
-      caloriesKcal: clampMealCaloriesKcal(caloriesKcal),
-      estimatedGrams: clampMealEstimatedG(estimatedGrams),
-      kcalPer100G: clampKcalPer100G(kcalPer100G),
-      protein: _macroText(proteinG),
-      carbs: _macroText(carbsG),
-      fat: _macroText(fatG),
+      caloriesKcal: clampMealCaloriesKcal(calories),
+      estimatedGrams: clampMealEstimatedG(grams),
+      kcalPer100G: hasStructuredIngredients ? 0 : clampKcalPer100G(kcalPer100G),
+      protein: macro(nutrition.proteinG),
+      carbs: macro(nutrition.carbsG),
+      fat: macro(nutrition.fatG),
       confidence: MealResultConfidence.recipe.code,
       portionNotes:
           '${displayPortion(sprache)} · '
@@ -346,6 +471,7 @@ class FitnessRecipe {
           '${displayProfessionalHint(sprache)}',
       sourceLabel: MealResultSource.recipe.code,
       brand: 'Eatova',
+      explicitZeroKcal: hasStructuredIngredients && calories == 0,
     );
   }
 }
