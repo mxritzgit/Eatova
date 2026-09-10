@@ -692,6 +692,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           assert(_countTabBuild(_tabRezepte));
           final ownerStore = _store;
           return RecipesScreen(
+            productService: widget.productService,
             // No hard foodDate: falls back to the store's selectedFoodDate,
             // read at call time, so adding lands on the food tab's day.
             onAddMeal: (result, slot) => _store.addResultToDailyTotal(

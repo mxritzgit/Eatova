@@ -122,6 +122,18 @@ void main() {
                     TrainingSetReference(exerciseIndex: 0, setIndex: 1),
                   ]
                 : const [],
+            actualSets: exit == 'finish'
+                ? [
+                    TrainingSetActual(
+                      reference: const TrainingSetReference(exerciseIndex: 0, setIndex: 0),
+                      completedAt: _now,
+                    ),
+                    TrainingSetActual(
+                      reference: const TrainingSetReference(exerciseIndex: 0, setIndex: 1),
+                      completedAt: _now,
+                    ),
+                  ]
+                : const [],
           );
           await cache.writeProfile(completedProfile);
           await cache.writeTrainingPlans([source]);

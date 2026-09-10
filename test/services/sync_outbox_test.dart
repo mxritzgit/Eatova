@@ -3,6 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/coach_training_proposal.dart';
 import 'package:eatova/src/models/training_plan.dart';
+import 'package:eatova/src/models/training_history.dart';
+import 'package:eatova/src/models/training_session.dart';
+import 'package:eatova/src/models/planned_meal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
@@ -275,7 +278,38 @@ void main() {
 
   group('SyncOp.attempts (Zustellversuchs-Budget)', () {
     test('frische Ops starten bei 0 — jede Factory, keine ausgelassen', () {
+      final now = DateTime.utc(2026, 9, 10, 12);
+      const id = '20260910-0000-4000-8000-000000000001';
+      final planned = PlannedMeal.create(
+        id: id, recipe: _recipe(), day: now, slot: MealSlot.lunch,
+      );
+      final history = TrainingHistoryEntry(
+        snapshot: TrainingSessionSnapshot(
+          sessionId: id, startedAt: now,
+          plan: TrainingPlan(id: 'history-plan', proposal: CoachTrainingProposal(
+            title: 'Plan', workouts: [TrainingWorkout(title: 'A', exercises: [
+              TrainingExercise(name: 'Squat', sets: 1, reps: 8, restSeconds: 0),
+            ])],
+          )),
+          workoutIndex: 0, exerciseIndex: 0, setIndex: 0,
+          phase: TrainingSessionPhase.review, remainingMilliseconds: 0,
+          completedSets: const [TrainingSetReference(exerciseIndex: 0, setIndex: 0)],
+          actualSets: [TrainingSetActual(
+            reference: const TrainingSetReference(exerciseIndex: 0, setIndex: 0),
+            reps: 8, completedAt: now,
+          )],
+        ),
+        finishedAt: now,
+      );
       final ops = <SyncOp>[
+        SyncOp.mealPlanUpsert(planned),
+        SyncOp.mealPlanConvert(planned.copyWith(eatenAt: now), LoggedMeal(
+          id: id, result: _recipe().toMealResult(), loggedAt: now,
+          localDay: '2026-09-10', forcedSlot: MealSlot.lunch,
+        ), trackDay: true),
+        SyncOp.shoppingCheck(ShoppingCheck(id: '2026-09-07:${'a' * 64}', checked: true)),
+        SyncOp.trainingHistoryInsert(history),
+        SyncOp.trainingHistoryDelete(id),
         SyncOp.mealInsert(_meal('m-1'), trackDay: true),
         SyncOp.mealUpsert(_meal('m-1')),
         SyncOp.mealDelete('m-1'),
