@@ -22,11 +22,14 @@ import '../../models/meal_analysis_result.dart';
 import '../../models/user_profile.dart';
 import '../../services/meal_photo_input.dart';
 import '../../services/recipe_image_store.dart';
+import '../../services/open_food_facts_product_service.dart';
 import '../../services/sync_error_messages.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/design/design.dart';
+import '../../widgets/recipes/recipe_ingredient_editor.dart';
+import '../../widgets/recipes/recipe_portion_selector.dart';
 
 part 'recipes_header.dart';
 part 'recipe_cards.dart';
@@ -42,6 +45,10 @@ class RecipesScreen extends StatefulWidget {
     this.remainingMacros,
     this.diet = DietPreference.none,
     this.onCreateRecipe,
+    this.onUpdateRecipe,
+    this.isSessionCurrent,
+    this.onOpenMealPlan,
+    this.productService,
     this.onDeleteRecipe,
     this.onDeletePendingChanged,
     this.isDeletePending,
@@ -67,6 +74,10 @@ class RecipesScreen extends StatefulWidget {
   /// via user_recipes); null keeps the recipe local to this session. Returns
   /// what actually happened (Gap E), which drives the success text.
   final Future<SyncDelivery> Function(FitnessRecipe recipe)? onCreateRecipe;
+  final Future<SyncDelivery> Function(FitnessRecipe recipe)? onUpdateRecipe;
+  final bool Function()? isSessionCurrent;
+  final VoidCallback? onOpenMealPlan;
+  final ProductLookupService? productService;
 
   /// Optional hook for deleting a user recipe by slug, forwarded to
   /// user_recipes.delete. Null means no persistence.
@@ -229,6 +240,8 @@ class _RecipeIndex {
       foldRecipeSearchText(recipe.title),
       foldRecipeSearchText(recipe.description),
       foldRecipeSearchText(recipe.ingredients),
+      for (final ingredient in recipe.structuredIngredients)
+        foldRecipeSearchText(ingredient.name),
       // Categories match on the neutral identity AND on the localised label:
       // under `en` the hint promises "category", so "breakfast" must find the
       // recipes tagged "Frühstück".
@@ -249,7 +262,10 @@ class _RecipeIndex {
   /// The chip check now short-circuits the query check. Both are pure, so the
   /// result is the same as the old `matchesFilter && matchesQuery` — it just
   /// stops folding recipes a category filter has already dropped.
-  List<FitnessRecipe> filtered({required String query, required String filter}) {
+  List<FitnessRecipe> filtered({
+    required String query,
+    required String filter,
+  }) {
     final cached = _filtered;
     if (cached != null && _filterQuery == query && _filterName == filter) {
       return cached;
@@ -312,7 +328,10 @@ class _RecipeIndex {
 
   /// Up to three recipes with the highest macro match; only scores above 0
   /// count. The diet pre-filter runs before the ranking.
-  List<FitnessRecipe> goalMatches(MacroProgress remaining, DietPreference diet) {
+  List<FitnessRecipe> goalMatches(
+    MacroProgress remaining,
+    DietPreference diet,
+  ) {
     final cached = _goalMatches;
     if (cached != null &&
         _goalDiet == diet &&
@@ -480,9 +499,11 @@ class _RecipesScreenState extends State<RecipesScreen> {
       return;
     }
     _photoSweepDone = true;
-    unawaited(RecipeImageStore.instance.reconcileRecipePhotos(
-      _userRecipes.map((r) => r.imageAsset).toList(growable: false),
-    ));
+    unawaited(
+      RecipeImageStore.instance.reconcileRecipePhotos(
+        _userRecipes.map((r) => r.imageAsset).toList(growable: false),
+      ),
+    );
   }
 
   /// Memo holder for the current language and recipe set; see [_RecipeIndex]
@@ -541,11 +562,48 @@ class _RecipesScreenState extends State<RecipesScreen> {
         builder: (_) => RecipeDetailScreen(
           recipe: recipe,
           onAddMeal: widget.onAddMeal,
+          onEdit: recipe.userCreated ? _editRecipe : null,
+          photoInput: widget.photoInput,
+          productService: widget.productService,
+          isSessionCurrent: () =>
+              mounted &&
+              !_disposing &&
+              (widget.isSessionCurrent?.call() ?? true),
           // Offer delete only for self-created recipes.
-          onDelete: recipe.userCreated ? () => _deleteUserRecipe(recipe) : null,
+          onDelete: recipe.userCreated
+              ? () {
+                  if (!mounted ||
+                      _disposing ||
+                    widget.isSessionCurrent?.call() == false) {
+                  return;
+                }
+                  final current = _userRecipes
+                      .where((r) => r.slug == recipe.slug)
+                      .firstOrNull;
+                  if (current != null) _deleteUserRecipe(current);
+                }
+              : null,
         ),
       ),
     );
+  }
+
+  Future<SyncDelivery> _editRecipe(FitnessRecipe recipe) async {
+    if (!mounted || _disposing || !(widget.isSessionCurrent?.call() ?? true)) {
+      throw StateError('Recipe session ended');
+    }
+    final persist = widget.onUpdateRecipe ?? widget.onCreateRecipe;
+    final delivery = await _melde(persist?.call(recipe));
+    if (!mounted || _disposing || !(widget.isSessionCurrent?.call() ?? true)) {
+      throw StateError('Recipe session ended');
+    }
+    setState(() {
+      _userRecipes = [
+        for (final current in _userRecipes)
+          current.slug == recipe.slug ? recipe : current,
+      ];
+    });
+    return delivery;
   }
 
   /// Hides a user recipe and opens its undo window. Called from the detail
@@ -650,15 +708,19 @@ class _RecipesScreenState extends State<RecipesScreen> {
       backgroundColor: Colors.transparent,
       builder: (_) => _CreateRecipeSheet(
         photoInput: widget.photoInput ?? DeviceMealPhotoInput(),
+        productService: widget.productService,
+        onSave: widget.onCreateRecipe,
+        isSessionCurrent: () =>
+            mounted && !_disposing && (widget.isSessionCurrent?.call() ?? true),
       ),
     );
     if (ergebnis == null || !mounted) return;
     final recipe = ergebnis.rezept;
-    setState(() => _userRecipes.insert(0, recipe));
+    setState(() => _userRecipes = [recipe, ..._userRecipes.where((r) => r.slug != recipe.slug)]);
     // Gap E: the message waits for the outcome instead of asserting it. It
     // arrives after [kSyncDeliveryWindow] at the latest — the store caps the
     // wait because a Supabase write carries no timeout.
-    final ausgang = await _melde(widget.onCreateRecipe?.call(recipe));
+    final ausgang = ergebnis.delivery ?? SyncDelivery.delivered;
     if (!mounted) return;
     showAppSnack(
       context,
@@ -685,8 +747,10 @@ class _RecipesScreenState extends State<RecipesScreen> {
     // Recommendation carousel: the diet-filtered catalog pool (PROD-6),
     // rotated by calendar day so it is not the same four cards forever. Only
     // the pool is memoised — the rotation has to keep turning.
-    final recommended =
-        rotatedRecommendations(index.catalogPool(widget.diet), clock.now());
+    final recommended = rotatedRecommendations(
+      index.catalogPool(widget.diet),
+      clock.now(),
+    );
     final remaining = widget.remainingMacros;
     final goalMatches = remaining == null
         ? const <FitnessRecipe>[]
@@ -694,8 +758,9 @@ class _RecipesScreenState extends State<RecipesScreen> {
 
     // A fixed carousel height plus growing text overflows at textScaler 2.0;
     // same technique as `MacroBar` in the design library.
-    final carouselHeight =
-        MediaQuery.textScalerOf(context).scale(236).clamp(236.0, 430.0);
+    final carouselHeight = MediaQuery.textScalerOf(
+      context,
+    ).scale(236).clamp(236.0, 430.0);
 
     // D6: the PageStorageKey gives the list a stable identity in the route's
     // PageStorage, so the scroll position survives a tab switch. It sits on a
@@ -708,7 +773,10 @@ class _RecipesScreenState extends State<RecipesScreen> {
         padding: const EdgeInsets.only(bottom: 28),
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         children: [
-          _RecipesHeader(onCreate: _openCreateSheet),
+          _RecipesHeader(
+            onCreate: _openCreateSheet,
+            onOpenMealPlan: widget.onOpenMealPlan,
+          ),
           const SizedBox(height: 14),
           _RecipeSearchField(
             controller: _searchController,

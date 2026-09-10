@@ -3,12 +3,16 @@ part of 'recipes_screen.dart';
 // ---------------------------------------------------------------------------
 // Recipe detail view (own route push). [RecipeDetailScreen] is public.
 // ---------------------------------------------------------------------------
-class RecipeDetailScreen extends StatelessWidget {
+class RecipeDetailScreen extends StatefulWidget {
   const RecipeDetailScreen({
     super.key,
     required this.recipe,
     required this.onAddMeal,
     this.onDelete,
+    this.onEdit,
+    this.photoInput,
+    this.isSessionCurrent,
+    this.productService,
   });
 
   final FitnessRecipe recipe;
@@ -16,22 +20,70 @@ class RecipeDetailScreen extends StatelessWidget {
 
   /// Optional delete hook, set only for own recipes.
   final VoidCallback? onDelete;
+  final Future<SyncDelivery> Function(FitnessRecipe)? onEdit;
+  final MealPhotoInput? photoInput;
+  final bool Function()? isSessionCurrent;
+  final ProductLookupService? productService;
+
+  @override
+  State<RecipeDetailScreen> createState() => _RecipeDetailScreenState();
+}
+
+class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
+  late FitnessRecipe recipe = widget.recipe;
+  VoidCallback? get onDelete => widget.onDelete;
+
+  Future<void> _edit() async {
+    if (widget.isSessionCurrent?.call() == false) return;
+    final result = await showModalBottomSheet<RezeptEntwurfErgebnis>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _CreateRecipeSheet(
+        initialRecipe: recipe,
+        photoInput: widget.photoInput ?? DeviceMealPhotoInput(),
+        productService: widget.productService,
+        onSave: widget.onEdit,
+        isSessionCurrent: widget.isSessionCurrent,
+      ),
+    );
+    if (!mounted ||
+        result == null ||
+        widget.isSessionCurrent?.call() == false) {
+      return;
+    }
+    setState(() => recipe = result.rezept);
+    showAppSnack(
+      context,
+      deliveryHint(
+        result.fotoFehlgeschlagen
+            ? context.l10n.recipeEditPhotoRetained
+            : context.l10n.recipeEditSaved,
+        result.delivery ?? SyncDelivery.delivered,
+        context.l10n,
+      ),
+      icon: Icons.check_circle_rounded,
+    );
+  }
 
   Future<void> _showMealPicker(BuildContext context) async {
-    final slot = await showEatovaSheet<MealSlot>(
+    if (widget.isSessionCurrent?.call() == false) return;
+    final selection = await showEatovaSheet<({MealSlot slot, double servings})>(
       context,
       _MealSlotPickerSheet(recipe: recipe),
     );
-    if (!context.mounted || slot == null) return;
-    _add(context, slot);
+    if (!context.mounted || selection == null) return;
+    _add(context, selection.slot, selection.servings);
   }
 
-  void _add(BuildContext context, MealSlot slot) {
+  void _add(BuildContext context, MealSlot slot, double servings) {
     final l10n = context.l10n;
-    onAddMeal(recipe.toMealResult(l10n), slot);
+    if (widget.isSessionCurrent?.call() == false) return;
+    final result = recipe.toMealResultForServings(servings, l10n);
+    widget.onAddMeal(result, slot);
     showAppSnack(
       context,
-      l10n.commonKcalAddedToSlot(recipe.caloriesKcal, slot.label(l10n)),
+      l10n.commonKcalAddedToSlot(result.caloriesKcal, slot.label(l10n)),
       icon: Icons.check_circle_rounded,
     );
   }
@@ -88,6 +140,13 @@ class RecipeDetailScreen extends StatelessWidget {
                 style: AppType.display(28, color: t.ink, height: 1.1),
               ),
               const SizedBox(height: 10),
+              if (recipe.slug.startsWith('user_coach_')) ...[
+                Text(
+                  l10n.recipeEditCoachSource,
+                  style: AppType.ui(14, color: t.ink2),
+                ),
+                const SizedBox(height: 8),
+              ],
               Text(
                 recipe.displayDescription(l10n),
                 style: AppType.ui(14, color: t.ink2, height: 1.45),
@@ -104,7 +163,25 @@ class RecipeDetailScreen extends StatelessWidget {
                 ),
               ],
               const SizedBox(height: 18),
+              if (widget.onEdit != null && recipe.userCreated) ...[
+                OutlinedButton.icon(
+                  key: const ValueKey('recipe-detail-edit'),
+                  onPressed: _edit,
+                  icon: const Icon(Icons.edit_outlined),
+                  label: Text(l10n.recipeEditTitle),
+                ),
+                const SizedBox(height: 18),
+              ],
               _NutritionGrid(recipe: recipe),
+              if (recipe.hasStructuredIngredients &&
+                  !recipe.calculationForServings(1).isComplete) ...[
+                const SizedBox(height: 8),
+                Text(
+                  l10n.recipeEditIncompleteNutrition,
+                  key: const ValueKey('recipe-nutrition-incomplete'),
+                  style: AppType.ui(14, color: t.ink2, height: 1.4),
+                ),
+              ],
               const SizedBox(height: 18),
               _AddToMealCard(
                 recipe: recipe,
@@ -113,11 +190,15 @@ class RecipeDetailScreen extends StatelessWidget {
               const SizedBox(height: 18),
               _RecipeInfoSection(
                 title: l10n.recipesSectionPortion,
-                body: recipe.displayPortion(l10n),
+                body: recipe.hasStructuredIngredients
+                    ? '${l10n.recipeEditBatchServings}: ${_nutritionNumber(recipe.batchServings)}\n${recipe.displayPortion(l10n)}'
+                    : recipe.displayPortion(l10n),
               ),
               _RecipeInfoSection(
                 title: l10n.recipesSectionIngredients,
-                body: recipe.displayIngredients(l10n),
+                body: recipe.hasStructuredIngredients
+                    ? '${recipe.structuredIngredients.map((i) => '${_nutritionNumber(i.grams)} g ${i.name}').join('\n')}${recipe.ingredients.isEmpty ? '' : '\n\n${recipe.ingredients}'}'
+                    : recipe.displayIngredients(l10n),
               ),
               _RecipeInfoSection(
                 title: l10n.recipesSectionPreparation,
@@ -171,10 +252,12 @@ class _AddToMealCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      l10n.recipesKcalProteinSummary(
-                        recipe.caloriesKcal,
-                        recipe.proteinG,
-                      ),
+                      recipe.hasStructuredIngredients
+                          ? _recipeSummary(recipe, l10n)
+                          : l10n.recipesKcalProteinSummary(
+                              recipe.caloriesKcal,
+                              recipe.proteinG,
+                            ),
                       style: AppType.ui(
                         12,
                         weight: FontWeight.w500,
@@ -213,25 +296,26 @@ class _NutritionGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
+    final n = _recipeNutrition(recipe);
     final tiles = [
       _NutritionTile(
         label: l10n.recipesNutritionKcalLabel,
-        value: '${recipe.caloriesKcal}',
+        value: _nutritionNumber(n.caloriesKcal),
         color: t.accent,
       ),
       _NutritionTile(
         label: l10n.todayMacroProtein,
-        value: '${recipe.proteinG} g',
+        value: '${_nutritionNumber(n.proteinG)} g',
         color: t.protein,
       ),
       _NutritionTile(
         label: l10n.recipesNutritionCarbsLabel,
-        value: '${recipe.carbsG} g',
+        value: '${_nutritionNumber(n.carbsG)} g',
         color: t.carbs,
       ),
       _NutritionTile(
         label: l10n.todayMacroFat,
-        value: '${recipe.fatG} g',
+        value: '${_nutritionNumber(n.fatG)} g',
         color: t.fat,
       ),
     ];
