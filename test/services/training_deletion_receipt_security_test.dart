@@ -93,6 +93,24 @@ class _HeldCipher implements CacheCipher {
       delegate.decrypt(key, armored);
 }
 
+class _FailingRemovalStorage extends InMemoryKeyValueStore {
+  String? failingKey;
+  final entered = Completer<void>();
+  final release = Completer<void>();
+  int receiptRemoves = 0;
+
+  @override
+  Future<void> remove(String key) async {
+    if (key == _receiptKey) receiptRemoves++;
+    if (key == failingKey) {
+      if (!entered.isCompleted) entered.complete();
+      await release.future;
+      throw StateError('private fixture payload must not leave the cache');
+    }
+    await super.remove(key);
+  }
+}
+
 TrainingHistoryEntry _entry() =>
     withClock(Clock.fixed(DateTime.utc(2026, 9, 10, 12)), () {
       final controller = TrainingSessionController(
@@ -391,6 +409,133 @@ void main() {
           InMemoryKeyValueStore(raw.snapshot),
         ).readTrainingHistoryDeletions(),
         {_second},
+      );
+    },
+  );
+
+  test(
+    'failed dependent cleanup preserves cold-start receipt and releases its reserved barrier',
+    () async {
+      final raw = _FailingRemovalStorage();
+      addTearDown(() {
+        if (!raw.release.isCompleted) raw.release.complete();
+      });
+      final old = _cache(raw);
+      final entry = _entry();
+      await old.writeTrainingHistory([entry]);
+      expect(await old.writeTrainingSession(entry.recoverySnapshot()), isTrue);
+      expect(await old.rememberTrainingHistoryDeletion(_first), isTrue);
+      final receiptBefore = raw.snapshot[_receiptKey];
+      raw.failingKey = 'eatova.v1.profile.$_owner';
+      final cleanup = expectLater(
+        old.clear(),
+        throwsA(
+          isA<UnwritableCacheSlot>().having(
+            (error) => error.toString(),
+            'sanitized failure',
+            isNot(contains('private fixture payload')),
+          ),
+        ),
+      );
+      await raw.entered.future;
+
+      // Reserving the receipt operation only AFTER cleanup would let this new
+      // instance pass and its receipt would later be erased by a successful purge.
+      final next = _cache(raw);
+      var nextFinished = false;
+      final nextWrite = next.rememberTrainingHistoryDeletion(_second).then((
+        saved,
+      ) {
+        nextFinished = true;
+        return saved;
+      });
+      await pumpEventQueue();
+      final finishedBeforeRelease = nextFinished;
+      final removesBeforeRelease = raw.receiptRemoves;
+      final receiptDuringCleanup = raw.snapshot[_receiptKey];
+      raw.release.complete();
+      await cleanup;
+      expect(
+        await nextWrite,
+        isTrue,
+        reason: 'failed cleanup releases the barrier for a safe retry',
+      );
+      final cold = _cache(InMemoryKeyValueStore(raw.snapshot));
+      expect((await cold.readTrainingHistory())!.single.id, _first);
+      expect((await cold.readTrainingSession())!.sessionId, _first);
+      expect(
+        await cold.readTrainingHistoryDeletions(),
+        {_first, _second},
+        reason:
+            'stale payloads remain fenced after restart despite the failed cleanup',
+      );
+      expect(
+        finishedBeforeRelease,
+        isFalse,
+        reason: 'cleanup owns its reserved namespace position',
+      );
+      expect(
+        removesBeforeRelease,
+        0,
+        reason:
+            'the receipt cannot be removed while dependent cleanup is incomplete',
+      );
+      expect(receiptDuringCleanup, receiptBefore);
+      expect(raw.receiptRemoves, 0);
+
+      raw.failingKey = null;
+      await next.clear();
+      expect(raw.snapshot.containsKey(_receiptKey), isFalse);
+      expect(
+        raw.snapshot.containsKey('eatova.v1.training_history.$_owner'),
+        isFalse,
+      );
+      expect(
+        raw.snapshot.containsKey('eatova.v1.training_session.$_owner'),
+        isFalse,
+      );
+    },
+  );
+
+  testWidgets(
+    'failed cleanup releases its barrier behind a timed-out old encryption',
+    (tester) async {
+      const third = '33333333-3333-4333-8333-333333333333';
+      final raw = _FailingRemovalStorage();
+      expect(await _cache(raw).rememberTrainingHistoryDeletion(_first), isTrue);
+      final held = _HeldCipher();
+      final old = _cache(raw, cipher: held);
+      final oldWrite = old.rememberTrainingHistoryDeletion(_second);
+      await tester.pump();
+      expect(held.writes, 1);
+      old.close();
+      raw.failingKey = 'eatova.v1.profile.$_owner';
+      raw.release.complete();
+      await expectLater(
+        _cache(raw).clear(),
+        throwsA(isA<UnwritableCacheSlot>()),
+      );
+      final next = _cache(raw);
+      final nextWrite = next.rememberTrainingHistoryDeletion(third);
+      await tester.pump(
+        LocalCache.settleBudget + const Duration(milliseconds: 1),
+      );
+      expect(await oldWrite, isFalse);
+      expect(await nextWrite, isFalse);
+      expect(raw.receiptRemoves, 0);
+
+      held.release.complete();
+      await tester.pump();
+      expect(await next.readTrainingHistoryDeletions(), {
+        _first,
+        _second,
+        third,
+      });
+      expect(
+        raw.receiptRemoves,
+        0,
+        reason:
+            'the failed cleanup reservation releases without deleting any receipt',
       );
     },
   );

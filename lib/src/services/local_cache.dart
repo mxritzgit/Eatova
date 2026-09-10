@@ -821,31 +821,51 @@ class LocalCache {
     // write the just-deleted PII straight back (F1-02).
     close();
 
+    // Reserve the namespace now, but retain its authoritative receipt until
+    // every dependent slot is gone. A failed cleanup must release the barrier
+    // without turning leftover history/recovery into an undeleted workout.
+    final cleanupSucceeded = preserveOutbox ? null : Completer<bool>();
     final receiptPurge = preserveOutbox ? null : _trackWrite(
-      _queueTrainingDeletion(() => _store.remove(_trainingHistoryDeletionsKey)),
+      _queueTrainingDeletion(() async {
+        if (!await cleanupSucceeded!.future) return;
+        try {
+          await _store.remove(_trainingHistoryDeletionsKey);
+        } catch (error) {
+          throw UnwritableCacheSlot(
+              'training_history_deletions', error.runtimeType.toString());
+        }
+      }),
     );
 
-    await _store.remove(_profileKey);
-    await _store.remove(_legacyDailyKey);
-    await _store.remove(_statsKey);
-    await _store.remove(_notificationsKey);
-    await _store.remove(_healthConnectKey);
-    await _store.remove(_loggedMealsKey);
-    await _store.remove(_favoritesKey);
-    await _store.remove(_weightLogKey);
-    // User recipes are user content (ingredients, amounts): same M-1 reason
-    // as the diary, even with [preserveOutbox].
-    await _store.remove(_userRecipesKey);
-    await _store.remove(_mealPlansKey);
-    await _store.remove(_trainingHistoryKey);
-    await _store.remove(_trainingPlansKey);
-    await _store.remove(_trainingSelectionKey);
-    await _store.remove(_trainingSessionKey);
-    // Steps/burned kcal are health data — same M-1 reason.
-    await _store.remove(_dailyActivityKey);
+    try {
+      await _store.remove(_profileKey);
+      await _store.remove(_legacyDailyKey);
+      await _store.remove(_statsKey);
+      await _store.remove(_notificationsKey);
+      await _store.remove(_healthConnectKey);
+      await _store.remove(_loggedMealsKey);
+      await _store.remove(_favoritesKey);
+      await _store.remove(_weightLogKey);
+      // User recipes are user content (ingredients, amounts): same M-1 reason
+      // as the diary, even with [preserveOutbox].
+      await _store.remove(_userRecipesKey);
+      await _store.remove(_mealPlansKey);
+      await _store.remove(_trainingHistoryKey);
+      await _store.remove(_trainingPlansKey);
+      await _store.remove(_trainingSelectionKey);
+      await _store.remove(_trainingSessionKey);
+      // Steps/burned kcal are health data — same M-1 reason.
+      await _store.remove(_dailyActivityKey);
+      if (!preserveOutbox) {
+        await _store.remove(_outboxKey);
+        await _store.remove(_pendingStatsKey);
+        cleanupSucceeded!.complete(true);
+      }
+    } catch (error) {
+      cleanupSucceeded?.complete(false);
+      throw UnwritableCacheSlot('account_cache', error.runtimeType.toString());
+    }
     if (preserveOutbox) return;
-    await _store.remove(_outboxKey);
-    await _store.remove(_pendingStatsKey);
     // A timed-out old encryption may still land. Its ordered purge remains
     // queued even if this await times out; subsequent reads cannot bypass it.
     await receiptPurge!.timeout(settleBudget);
