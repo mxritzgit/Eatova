@@ -268,6 +268,85 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     );
   }
 
+  /// Confirms a mutation only after server delivery or a durable outbox receipt.
+  /// Callers publish their entity state after this resolves and retain their
+  /// own per-entity ordering. The existing confirmation registry also protects
+  /// these operations from coalescing, replay and premature capacity trimming.
+  Future<SyncDelivery> _confirmMutation(
+    String operation,
+    SyncOp op,
+    Future<void> Function() send, {
+    VoidCallback? onDelivered,
+  }) async {
+    void ensureActive() {
+      if (_disposed || _trainingSessionEnded || (_cache?.isClosed ?? false)) {
+        throw StateError('Account session ended');
+      }
+      final currentUser = sync?.client.auth.currentUser;
+      if (currentUser != null && currentUser.id != sync?.userId) {
+        throw StateError('Account session ended');
+      }
+    }
+
+    ensureActive();
+    _unconfirmedTrainingOps.add(op);
+    try {
+      final delivery = await _syncOrQueue(
+        operation,
+        send,
+        () => op,
+        onDelivered: () {
+          if (_unconfirmedTrainingOps.contains(op)) {
+            _deliveredTrainingOps.add(op);
+          }
+          onDelivered?.call();
+        },
+        aufruferMeldetAusgang: true,
+      );
+      ensureActive();
+      if (delivery == SyncDelivery.delivered ||
+          _deliveredTrainingOps.contains(op)) {
+        return SyncDelivery.delivered;
+      }
+      if (_cache == null ||
+          _outboxHydrationFailed ||
+          !_outbox.any((entry) => identical(entry, op))) {
+        throw StateError('Change could not be saved');
+      }
+      await _writeOutboxWithReceipt(_outbox);
+      await _settleTrainingOutboxReceipts(op);
+      ensureActive();
+      if (_deliveredTrainingOps.contains(op)) return SyncDelivery.delivered;
+      if (!_outbox.any((entry) => identical(entry, op)) ||
+          !_durableOutboxSnapshot.any((entry) => identical(entry, op))) {
+        throw StateError('Change could not be saved');
+      }
+      return delivery;
+    } catch (_) {
+      // Retirement may reject the UI result while disk writes are settling.
+      // Remove only a draft that was never acknowledged by either destination.
+      await _settleTrainingOutboxReceipts(op);
+      final acknowledged =
+          _deliveredTrainingOps.contains(op) ||
+          _durableOutboxSnapshot.any((entry) => identical(entry, op));
+      if (!_disposed && !acknowledged) {
+        final remaining = _outbox
+            .where((entry) => !identical(entry, op))
+            .toList();
+        if (remaining.length != _outbox.length) {
+          _outbox = remaining;
+          if (!(_cache?.isClosed ?? true)) _persistOutbox();
+        }
+      }
+      rethrow;
+    } finally {
+      _unconfirmedTrainingOps.remove(op);
+      _deliveredTrainingOps.remove(op);
+      _trainingOutboxReceipts.remove(op);
+      _settleTrainingOutboxCapacity();
+    }
+  }
+
   /// Fire-and-forget sync write WITHOUT rollback (DATA-7): optimistic local
   /// state stands, and the operation sits as a persisted outbox entry in the
   /// retry queue until the server acknowledges it.
