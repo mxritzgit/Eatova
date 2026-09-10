@@ -32,7 +32,7 @@ interface StubOptions {
    * through unchanged, so a broken shape stays testable.
    */
   rateLimitBody?: unknown;
-  /** The expensive answer call (max_tokens 800) fails with 500. */
+  /** The expensive answer call (max_tokens 3072) fails with 500. */
   answerFails?: boolean;
   /** GET on chat_messages (loadHistory) answers 500. */
   historyFails?: boolean;

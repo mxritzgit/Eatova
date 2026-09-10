@@ -59,9 +59,10 @@ const MODEL_CLASSIFIER = Deno.env.get("COACH_MODEL_CLASSIFIER") ?? DEFAULT_COACH
 const MODEL_IMAGE      = Deno.env.get("COACH_IMAGE_MODEL") ?? "google/gemini-3.1-flash-image";
 
 const DAILY_LIMIT            = positiveIntFromEnv("COACH_DAILY_LIMIT", 5);
-// Token budget of the chat answer (classifier 256, recipe draft 900 — the
-// three budgets tell the calls apart in the test stubs).
-const ANSWER_MAX_TOKENS      = 800;
+// Gemini counts reasoning AND visible text against this cap. The former
+// 800-token budget cut off ordinary recipes mid-sentence. Leave headroom for
+// both; the prompt still asks for concise answers, not for filling this cap.
+const ANSWER_MAX_TOKENS      = 3072;
 const MAX_IMAGE_BASE64_CHARS = 6_000_000;
 const MAX_CONTENT_LENGTH     = 6_250_000;
 const HISTORY_LIMIT          = 10;
@@ -618,10 +619,11 @@ function answerPayload(
       { role: "user", content: userContent },
     ],
     temperature: 0.5,
-    // 800 (was 600): with the plain-text style a ~250-word reply plus a
-    // per-slot breakdown ran into finish_reason=length mid-sentence. The
-    // budget also identifies this call for the test stubs.
     max_tokens: ANSWER_MAX_TOKENS,
+    // Use the lowest effort advertised by Gemini 3.8 Flash, preserving
+    // output room and latency. Exclusion only removes reasoning from the
+    // wire; it does NOT stop reasoning from consuming the token budget.
+    reasoning: { effort: "low", exclude: true },
     ...(stream ? { stream: true } : {}),
   };
 }
@@ -1142,8 +1144,8 @@ async function draftRecipe(
       ],
       response_format: { type: "json_object" },
       temperature: 0.4,
-      // More than the chat's 800: ingredients plus 8 steps need room. The
-      // budget also identifies this call uniquely, which test stubs rely on.
+      // Separate budget for structured recipe drafts; test stubs use it
+      // to distinguish this call from the ordinary chat answer.
       max_tokens: 900,
     }),
   });

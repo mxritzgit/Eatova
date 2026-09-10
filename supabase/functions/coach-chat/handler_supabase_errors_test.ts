@@ -148,7 +148,7 @@ for (const stage of ["user-store", "title", "assistant-store", "recipe-store", "
       equal(refunds.length, stage === "user-store" ? 1 : 0, "refund count");
       if (stage === "user-store") {
         equal(body.error, "store_failed", "critical write failure");
-        equal(calls.some((call) => call.body.max_tokens === 800), false, "no paid answer after failed user store");
+        equal(calls.some((call) => call.body.max_tokens === 3072), false, "no paid answer after failed user store");
       } else if (stage === "recipe-store") {
         equal(body.recipe.title, "Auflauf", "finished recipe delivered");
         equal("assistant_message_id" in body, false, "no invented persisted id");

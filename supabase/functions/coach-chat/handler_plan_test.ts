@@ -122,7 +122,7 @@ function stubNetwork(defaultDraft: string, options: Options = {}) {
           category: options.category ?? "fitness", confidence: "high",
         }) } }] }, options.classifierStatus));
       }
-      if (body.max_tokens === 800) return Promise.resolve(response({ choices: [{ message: { content: "Normal chat reply." } }] }));
+      if (body.max_tokens === 3072) return Promise.resolve(response({ choices: [{ message: { content: "Normal chat reply." } }] }));
       options.draftRequested?.();
       if (options.draftStalls) return stall(signal);
       if (options.draftError) return Promise.reject(options.draftError);
@@ -156,7 +156,7 @@ function stubNetwork(defaultDraft: string, options: Options = {}) {
   return {
     calls, logs, ledger,
     callsTo: (part: string) => calls.filter((call) => call.url.includes(part)),
-    draftCalls: () => calls.filter((call) => call.url.includes("chat/completions") && call.body.max_tokens !== 256 && call.body.max_tokens !== 800),
+    draftCalls: () => calls.filter((call) => call.url.includes("chat/completions") && call.body.max_tokens !== 256 && call.body.max_tokens !== 3072),
     restore: () => {
       globalThis.fetch = originalFetch;
       Date.now = originalNow;
