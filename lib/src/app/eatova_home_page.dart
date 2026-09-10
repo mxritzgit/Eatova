@@ -21,11 +21,13 @@ import '../screens/coach/coach_chat_screen.dart';
 import '../screens/meal_analysis_screen.dart';
 import '../screens/onboarding_screen.dart';
 import '../screens/profile_screen.dart';
+import '../screens/recipes/meal_plan_screen.dart';
 import '../screens/recipes/recipes_screen.dart';
 import '../screens/settings/goals_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../screens/today/today_screen.dart';
 import '../screens/training/training_screen.dart';
+import '../screens/training/training_history_screen.dart';
 import '../screens/training/training_player_screen.dart';
 import '../l10n/l10n.dart';
 import '../theme/app_tokens.dart';
@@ -120,7 +122,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   final ValueNotifier<MealSlot?> _addSlotRequest =
       ValueNotifier<MealSlot?>(null);
   final ValueNotifier<int> _planDraftRequest = ValueNotifier<int>(0);
+  TrainingPlan? _selectedPlanForCoach;
   bool _trainingRouteOpen = false;
+  bool _trainingHistoryRouteOpen = false;
   bool _profileRouteOpen = false;
   late bool _welcomeFinished;
 
@@ -671,6 +675,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         ),
         builder: (context) {
           assert(_countTabBuild(_tabRezepte));
+          final ownerStore = _store;
           return RecipesScreen(
             // No hard foodDate: falls back to the store's selectedFoodDate,
             // read at call time, so adding lands on the food tab's day.
@@ -684,7 +689,15 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             userRecipesAuthoritative: _store.userRecipesAuthoritative,
             // Persistence only with real sync (test/preview: session-local).
             onCreateRecipe:
-                widget.sync == null ? null : _store.createUserRecipe,
+                widget.sync == null ? null : ownerStore.saveUserRecipe,
+            onUpdateRecipe:
+                widget.sync == null ? null : ownerStore.updateUserRecipe,
+            isSessionCurrent: () => _isStoreSessionCurrent(ownerStore),
+            onOpenMealPlan: () {
+              if (_isStoreSessionCurrent(ownerStore)) {
+                unawaited(MealPlanScreen.open(context, ownerStore));
+              }
+            },
             onDeleteRecipe:
                 widget.sync == null ? null : _store.deleteUserRecipe,
             // Always wired: the undo window must hide the recipe from the
@@ -712,8 +725,64 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       );
 
   void _openTrainingCoach() {
+    _selectedPlanForCoach = null;
     _planDraftRequest.value++;
     _store.setTab(_tabCoach);
+  }
+
+  bool _isStoreSessionCurrent(HomeStore ownerStore) {
+    final ownerSync = ownerStore.sync;
+    final currentUser = ownerSync?.client.auth.currentUser;
+    return mounted &&
+        identical(_store, ownerStore) &&
+        widget.sync?.userId == ownerSync?.userId &&
+        identical(widget.sync?.client, ownerSync?.client) &&
+        (currentUser == null || currentUser.id == ownerSync?.userId);
+  }
+
+  void _discussTrainingPlan(TrainingPlan plan) {
+    if (!_isStoreSessionCurrent(_store)) return;
+    final current = _store.trainingPlans.where((p) => p.id == plan.id).firstOrNull;
+    if (current == null) return;
+    _selectedPlanForCoach = current;
+    _planDraftRequest.value++;
+    _store.setTab(_tabCoach);
+  }
+
+  Future<void> _openTrainingHistory() async {
+    if (_trainingHistoryRouteOpen || !_isStoreSessionCurrent(_store)) return;
+    _trainingHistoryRouteOpen = true;
+    final ownerStore = _store;
+    try {
+      await Navigator.of(context).push<void>(MaterialPageRoute<void>(
+        builder: (_) => StoreSelector(
+          store: ownerStore,
+          selector: () => (
+            ownerStore.trainingHistory,
+            ownerStore.trainingHistoryLoading,
+            ownerStore.trainingHistoryLoadFailed,
+          ),
+          builder: (_) => TrainingHistoryScreen(
+            entries: ownerStore.trainingHistory,
+            loading: ownerStore.trainingHistoryLoading,
+            loadFailed: ownerStore.trainingHistoryLoadFailed,
+            onRetry: () {
+              if (_isStoreSessionCurrent(ownerStore)) {
+                ownerStore.retryTrainingHistory();
+              }
+            },
+            onDelete: (id) async {
+              if (!_isStoreSessionCurrent(ownerStore)) {
+                throw StateError('Training session ended');
+              }
+              return ownerStore.deleteTrainingHistory(id);
+            },
+          ),
+        ),
+      ));
+    } finally {
+      _trainingHistoryRouteOpen = false;
+    }
   }
 
   void _startTrainingWorkout(TrainingPlan plan, int workoutIndex) {
@@ -738,7 +807,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   }) async {
     if (_trainingRouteOpen || !mounted) return;
     _trainingRouteOpen = true;
-    final ownerSync = _store.sync;
+    final ownerStore = _store;
     final sessionGeneration = _store.trainingSessionGeneration;
     final sourcePlanId = (snapshot?.plan ?? plan)!.id;
     try {
@@ -748,15 +817,23 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             plan: plan,
             workoutIndex: workoutIndex,
             initialSnapshot: snapshot,
+            history: ownerStore.trainingHistory,
+            onComplete: (entry) async {
+              if (!_isStoreSessionCurrent(ownerStore)) {
+                throw StateError('Training session ended');
+              }
+              await ownerStore.completeTrainingSession(
+                entry,
+                generation: sessionGeneration,
+              );
+            },
             onPersist: (value) async {
               bool sourceRetired() {
                 // Token refresh preserves the owner; account changes do not.
-                if (!mounted ||
-                    widget.sync?.userId != ownerSync?.userId ||
-                    !identical(widget.sync?.client, ownerSync?.client)) {
+                if (!_isStoreSessionCurrent(ownerStore)) {
                   throw StateError('Training session ended');
                 }
-                return _store.isTrainingSessionRetired(
+                return ownerStore.isTrainingSessionRetired(
                   generation: sessionGeneration,
                   sourcePlanId: sourcePlanId,
                 );
@@ -764,7 +841,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
 
               if (sourceRetired()) return;
               try {
-                await _store.saveTrainingSession(
+                await ownerStore.saveTrainingSession(
                   value,
                   generation: sessionGeneration,
                   sourcePlanId: sourcePlanId,
@@ -804,6 +881,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             onDeletePlan: _store.deleteTrainingPlan,
             onStartWorkout: _startTrainingWorkout,
             onOpenCoach: _openTrainingCoach,
+            onDiscussPlan: _discussTrainingPlan,
+            discussPlanLabel: context.l10n.coachBriefDiscussAction,
+            onOpenHistory: () => unawaited(_openTrainingHistory()),
             loading: _store.trainingPlansLoading,
             loadFailed: _store.trainingPlansLoadFailed,
             onRetry: _store.retryTrainingPlans,
@@ -858,6 +938,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               },
               onOpenTraining: () => _store.setTab(_tabTraining),
               planDraftRequest: planRequest,
+              selectedPlanForCoach: _selectedPlanForCoach,
             );
           },
         ),

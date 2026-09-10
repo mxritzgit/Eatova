@@ -297,7 +297,7 @@ void main() {
     });
   });
 
-  testWidgets('Training opens /plan on first and cached Coach mount without sending',
+  testWidgets('Training opens its brief on first and cached Coach mount without sending',
       (tester) async {
     await withClock(Clock.fixed(_now), () async {
       final cache = LocalCache(InMemoryKeyValueStore(), kFixlaufUser);
@@ -312,9 +312,11 @@ void main() {
         final input = tester.widget<TextField>(
           find.byKey(const ValueKey('coach-input')),
         );
-        expect(input.controller!.text, '/plan ');
+        expect(input.controller!.text, isEmpty);
+        expect(find.byKey(const ValueKey('coach-brief-scroll')), findsOneWidget);
         expect(store.trainingPlans, isEmpty);
         expect(find.byKey(const ValueKey('coach-plan-card')), findsNothing);
+        await _tap(tester, 'coach-brief-close');
       }
       await tester.pumpWidget(const SizedBox.shrink());
       await _frames(tester);
