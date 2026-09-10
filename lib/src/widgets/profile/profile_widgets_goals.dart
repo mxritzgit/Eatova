@@ -13,7 +13,7 @@ class GoalsCard extends StatelessWidget {
 
   final UserProfile profile;
   final int dailyKcal;
-  final int dailySteps;
+  final int? dailySteps;
   final VoidCallback? onEdit;
 
   @override
@@ -42,7 +42,7 @@ class GoalsCard extends StatelessWidget {
           SettingsRow(
             leading: const IconTile.custom(child: StepsIcon()),
             title: l10n.profileGoalsSteps,
-            value: '$dailySteps/${profile.dailyStepsGoal}',
+            value: '${dailySteps ?? '–'}/${profile.dailyStepsGoal}',
             chevron: false,
           ),
           if (hatMakros) ...<Widget>[

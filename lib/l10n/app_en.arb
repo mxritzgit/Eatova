@@ -2059,5 +2059,22 @@
   "coachBriefAdaptWish": "Propose an adaptation of the selected training plan using my brief.",
   "coachBriefDiscussWish": "Discuss how well the selected training plan fits my brief.",
   "coachBriefInvalid": "Check your goal and request. Use plain text without commands. If the saved plan contains invalid details, edit it in Training first.",
-  "coachBriefUnavailable": "The chat is not ready or your quota is used up. Close the brief and check the chat."
+  "coachBriefUnavailable": "The chat is not ready or your quota is used up. Close the brief and check the chat.",
+  "healthConnectTitle": "Health Connect",
+  "healthConnectSetup": "Connect Health Connect to see your steps and estimate calories burned.",
+  "healthConnectConnected": "Steps connected. Refresh to read today's data.",
+  "healthConnectNoData": "Connected, but no step data is available for today. Check Health Connect to see whether your phone or a fitness app is providing steps.",
+  "healthConnectDenied": "Steps access was denied or revoked. Allow it again or open permissions in Health Connect.",
+  "healthConnectUpdateRequired": "Install or update Health Connect before connecting your steps.",
+  "healthConnectUnavailable": "Health Connect is unavailable on this device.",
+  "healthConnectError": "Health Connect could not be checked. Try again or review its settings.",
+  "healthConnectStepsOnly": "Read steps only. Keep logging your weight here manually.",
+  "healthConnectConnect": "Connect steps",
+  "healthConnectRefresh": "Refresh",
+  "healthConnectInstall": "Install / update",
+  "healthConnectSettings": "Open Health Connect",
+  "healthConnectLoading": "Checking Health Connect",
+  "healthConnectMissingTitle": "No step data yet",
+  "healthConnectMissingHint": "No steps are available for this day. Review the connection and data sources in your profile.",
+  "healthConnectReview": "Review connection"
 }

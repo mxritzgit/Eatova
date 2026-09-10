@@ -2087,5 +2087,22 @@
   "coachBriefAdaptWish": "Schlage eine Anpassung des ausgewählten Trainingsplans anhand meines Briefings vor.",
   "coachBriefDiscussWish": "Besprich, wie gut der ausgewählte Trainingsplan zu meinem Briefing passt.",
   "coachBriefInvalid": "Prüfe Ziel und Wunsch. Verwende normalen Text ohne Befehle. Falls der gespeicherte Plan ungültige Angaben enthält, bearbeite ihn zuerst in Training.",
-  "coachBriefUnavailable": "Der Chat ist noch nicht bereit oder das Kontingent ist aufgebraucht. Schließe das Briefing und prüfe den Chat."
+  "coachBriefUnavailable": "Der Chat ist noch nicht bereit oder das Kontingent ist aufgebraucht. Schließe das Briefing und prüfe den Chat.",
+  "healthConnectTitle": "Health Connect",
+  "healthConnectSetup": "Verbinde Health Connect, um deine Schritte zu sehen und den Kalorienverbrauch zu schätzen.",
+  "healthConnectConnected": "Schritte verbunden. Aktualisiere, um Tagesdaten zu lesen.",
+  "healthConnectNoData": "Verbunden, aber für heute sind noch keine Schrittdaten vorhanden. Prüfe in Health Connect, ob dein Smartphone oder eine Fitness-App Schritte bereitstellt.",
+  "healthConnectDenied": "Der Zugriff auf Schritte wurde nicht erlaubt oder entzogen. Erlaube ihn erneut oder öffne die Berechtigungen in Health Connect.",
+  "healthConnectUpdateRequired": "Health Connect muss installiert oder aktualisiert werden, bevor du Schritte verbinden kannst.",
+  "healthConnectUnavailable": "Health Connect ist auf diesem Gerät nicht verfügbar.",
+  "healthConnectError": "Health Connect konnte nicht geprüft werden. Versuche es erneut oder prüfe die Einstellungen.",
+  "healthConnectStepsOnly": "Nur Schritte lesen. Gewicht trägst du hier weiterhin selbst ein.",
+  "healthConnectConnect": "Schritte verbinden",
+  "healthConnectRefresh": "Aktualisieren",
+  "healthConnectInstall": "Installieren / Aktualisieren",
+  "healthConnectSettings": "Health Connect öffnen",
+  "healthConnectLoading": "Health Connect wird geprüft",
+  "healthConnectMissingTitle": "Noch keine Schrittdaten",
+  "healthConnectMissingHint": "Für diesen Tag liegen keine Schritte vor. Prüfe die Verbindung und Datenquellen in deinem Profil.",
+  "healthConnectReview": "Verbindung prüfen"
 }

@@ -4,7 +4,33 @@
 /// nothing proves data actually flows — the normal case when the user toggled
 /// nothing. It must not pass as [granted], or the app claims it is synced and
 /// permanently counts 0 steps.
-enum HealthAuthState { unknown, granted, unverified, denied, unsupported }
+enum HealthAuthState {
+  unknown,
+  granted,
+  unverified,
+  denied,
+  unsupported,
+
+  /// Health Connect is authorized but has no step records for today.
+  noData,
+
+  /// The Android device cannot provide Health Connect.
+  unavailable,
+
+  /// Health Connect must be installed or updated before requesting access.
+  updateRequired,
+
+  /// Availability, permission verification or reading temporarily failed.
+  error,
+}
+
+/// Optional Android recovery actions; iOS keeps its existing integration.
+abstract interface class HealthConnectAccess {
+  Future<bool> openSettings();
+
+  /// Restores this account's previously persisted opt-in, never OS permission.
+  void restoreConnection();
+}
 
 /// A single weight sample from the health store, used by the import path to
 /// prefill the last known weight on connect.
@@ -41,9 +67,8 @@ abstract class HealthService {
   void reset();
 
   /// Triggers the system permission prompt. Returns the resulting auth state.
-  /// Requests READ (steps/weight) and WRITE (weight) in one go so write-back
-  /// works right after connect. Never add scopes no feature reads — the
-  /// purpose strings in `ios/Runner/Info.plist` must match every scope.
+  /// Android requests steps READ only; iOS reads steps/weight and writes
+  /// weight. Never add scopes no feature reads.
   Future<HealthAuthState> requestAuthorization();
 
   /// Reads today's step count (plus optional weight). Returns null when
@@ -51,9 +76,8 @@ abstract class HealthService {
   Future<HealthSnapshot?> readSnapshot();
 
   /// Step total of one local calendar day [day], the backfill path for past
-  /// days. Positive values only, else null: without read permission
-  /// `getTotalStepsInInterval` sums to 0 instead of failing, so 0 is
-  /// indistinguishable from "no access". Always null off iOS.
+  /// days. Null means unavailable. Android preserves measured zero; iOS
+  /// returns positive values only because HealthKit hides read permission.
   Future<int?> readStepsOnDay(DateTime day);
 
   /// Writes a body weight sample (kg) at [when] to the health store. False if
@@ -94,6 +118,5 @@ class NoopHealthService implements HealthService {
   Future<List<WeightSample>> readWeightSamples({
     required DateTime from,
     required DateTime to,
-  }) async =>
-      const <WeightSample>[];
+  }) async => const <WeightSample>[];
 }

@@ -36,6 +36,9 @@ class ProfileScreen extends StatelessWidget {
     required this.onOpenSettings,
     required this.onConnectHealth,
     required this.onRefreshHealth,
+    this.healthConnect = false,
+    this.healthSyncing = false,
+    this.onHealthSettings,
   });
 
   final String name;
@@ -60,6 +63,9 @@ class ProfileScreen extends StatelessWidget {
   final VoidCallback onOpenSettings;
   final VoidCallback onConnectHealth;
   final VoidCallback onRefreshHealth;
+  final bool healthConnect;
+  final bool healthSyncing;
+  final VoidCallback? onHealthSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -139,13 +145,20 @@ class ProfileScreen extends StatelessWidget {
                   GoalsCard(
                     profile: profile,
                     dailyKcal: dailyConsumedKcal,
-                    dailySteps: dailySteps,
+                    dailySteps: healthConnect &&
+                            (healthAuthState != HealthAuthState.granted ||
+                                !DateUtils.isSameDay(healthLastFetch, DateTime.now()))
+                        ? null
+                        : dailySteps,
                     onEdit: onEditProfile,
                   ),
                   const SizedBox(height: 22),
                   SectionHeading(title: l10n.profileSectionConnections),
                   const SizedBox(height: 12),
                   HealthConnectionCard(
+                    healthConnect: healthConnect,
+                    syncing: healthSyncing,
+                    onSettings: onHealthSettings,
                     state: healthAuthState,
                     lastFetch: healthLastFetch,
                     onConnect: onConnectHealth,

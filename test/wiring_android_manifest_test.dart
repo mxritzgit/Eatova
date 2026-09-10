@@ -377,16 +377,12 @@ void main() {
     test('HealthDataSdkService wird aus dem Merge genommen', () {
       final s = _mitNamen(services, _serviceHealthSdk);
       expect(s, isNotNull,
-          reason: 'androidx.health.connect:connect-client injiziert diesen '
-              'Dienst mit android:exported="true" OHNE android:permission. '
-              'Health Connect ist auf Android unerreichbar (jede Methode in '
-              'apple_health_service.dart steigt mit `if (!Platform.isIOS) '
-              'return` aus) — der Dienst hat keinen Aufrufer.');
+          reason: 'Legacy Health Platform is unrelated to Health Connect.');
       expect(s!['tools:node'], 'remove');
     });
 
     test(
-        'ausser der Launcher-Activity ist KEINE Komponente exportiert '
+        'nur Launcher und oeffentliche Datenschutz-Erklaerung sind ungeschuetzt '
         '(die Invariante hinter E4)', () {
       final komponenten = <_Element>[
         ..._elemente(application.inhalt, 'activity'),
@@ -402,10 +398,52 @@ void main() {
           .map((k) => k.name)
           .toList();
 
-      expect(exportiert, ['.MainActivity'],
+      expect(exportiert, ['.MainActivity', '.HealthPrivacyActivity'],
           reason: 'Jede weitere ungeschuetzt exportierte Komponente ist eine '
               'von aussen ansteuerbare Flaeche. Kommt hier etwas dazu, war es '
               'entweder ein Versehen oder es braucht ein android:permission.');
     });
+
+    test(
+      'Health Connect exposes its rationale, alias and read-only steps scope',
+      () {
+        final healthPermissions = berechtigungen
+            .where((p) => p.name.startsWith('android.permission.health.'))
+            .where((p) => p['tools:node'] != 'remove')
+            .map((p) => p.name);
+        expect(healthPermissions, ['android.permission.health.READ_STEPS']);
+        final rationale = _mitNamen(
+          _elemente(application.inhalt, 'activity'),
+          '.HealthPrivacyActivity',
+        )!;
+        expect(
+          rationale.inhalt,
+          contains('androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE'),
+        );
+        final alias = _mitNamen(
+          _elemente(application.inhalt, 'activity-alias'),
+          'ViewPermissionUsageActivity',
+        )!;
+        expect(alias['android:targetActivity'], '.HealthPrivacyActivity');
+        expect(
+          alias['android:permission'],
+          'android.permission.START_VIEW_PERMISSION_USAGE',
+        );
+        expect(
+          alias.inhalt,
+          contains('android.intent.category.HEALTH_PERMISSIONS'),
+        );
+        final native = File(
+          'android/app/src/main/kotlin/com/eatova/app/HealthConnectBridge.kt',
+        ).readAsStringSync();
+        expect(native, contains('client.aggregate('));
+        expect(
+          native,
+          contains('result.success(response[StepsRecord.COUNT_TOTAL])'),
+        );
+        expect(native, isNot(contains('readRecords(')));
+        expect(native, isNot(contains('Log.')));
+      },
+    );
   });
 }

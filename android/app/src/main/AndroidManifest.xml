@@ -2,6 +2,7 @@
     xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
     <!-- PROD-1 (flutter_local_notifications): POST_NOTIFICATIONS drives the
          Android 13+ runtime dialog. Only inexact alarms are scheduled
          (AndroidScheduleMode.inexactAllowWhileIdle), so no
@@ -97,6 +98,23 @@
                     android:host="login-callback" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".HealthPrivacyActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+        </activity>
+        <activity-alias
+            android:name="ViewPermissionUsageActivity"
+            android:exported="true"
+            android:targetActivity=".HealthPrivacyActivity"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
@@ -130,12 +148,8 @@
              requires declaring its component here, or it fails silently like
              D1. -->
 
-        <!-- E4: package:health injects this service exported="true" without
-             android:permission — the only unguarded exported component besides
-             the launcher activity. Health Connect is unreachable on Android
-             (apple_health_service.dart bails on `if (!Platform.isIOS)`), so the
-             service has no caller and is removed. Cleaner fix would be dropping
-             `health` from the Android build in pubspec.yaml. -->
+        <!-- Legacy Health Platform service, unrelated to Health Connect.
+             Keep its unguarded exported component out of the merged manifest. -->
         <service
             android:name="androidx.health.platform.client.impl.sdkservice.HealthDataSdkService"
             tools:node="remove" />
@@ -146,6 +160,10 @@
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
+        <package android:name="com.google.android.apps.healthdata" />
+        <intent>
+            <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+        </intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>

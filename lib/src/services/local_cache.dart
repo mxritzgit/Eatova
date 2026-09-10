@@ -267,6 +267,14 @@ class LocalCache {
   String get _legacyDailyKey => 'eatova.v1.daily.$_userId';
   String get _statsKey => 'eatova.v1.stats.$_userId';
   String get _notificationsKey => 'eatova.v1.notifications_enabled.$_userId';
+  String get _healthConnectKey => 'eatova.v1.health_connect_enabled.$_userId';
+
+  Future<void> writeHealthConnectEnabled(bool enabled) =>
+      _writeJson(_healthConnectKey, {'enabled': enabled});
+
+  /// Only an intact boolean opt-in permits a silent Android reconnect.
+  Future<bool> readHealthConnectEnabled() async =>
+      (await _readJson(_healthConnectKey))?['enabled'] == true;
 
   // DATA-7 offline persistence: diary, favorites and weight log are mirrored
   // so an offline cold start does not begin with an empty diary. Plus the
@@ -712,6 +720,7 @@ class LocalCache {
     await _store.remove(_legacyDailyKey);
     await _store.remove(_statsKey);
     await _store.remove(_notificationsKey);
+    await _store.remove(_healthConnectKey);
     await _store.remove(_loggedMealsKey);
     await _store.remove(_favoritesKey);
     await _store.remove(_weightLogKey);

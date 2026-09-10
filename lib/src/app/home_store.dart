@@ -141,6 +141,8 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   int selectedTab = 0;
   int dailyConsumedKcal = 0;
   int dailySteps = 0;
+  int _healthGeneration = 0;
+  bool _healthSessionEnded = false;
   // Lives here, not in _HomeStoreTrackingPart: the logout path in
   // _HomeStoreSyncPart resets it on user change (B3), and tracking depends on
   // sync, not the other way round.
@@ -674,8 +676,8 @@ class HomeStore extends _HomeStoreBase
     if (debugCache != null) {
       _cache = debugCache;
     } else {
-      final userId = s.client.auth.currentUser?.id;
-      if (userId != null && userId.isNotEmpty) {
+      final userId = s.userId;
+      if (userId.isNotEmpty) {
         _cache = await LocalCache.create(userId);
       }
     }
@@ -686,6 +688,7 @@ class HomeStore extends _HomeStoreBase
       // would have to preserve — the A2 window does not exist here.
       _syncStateHydrated = true;
     }
+    unawaited(restoreHealthConnection());
     _outboxInitialHydrationComplete = true;
     // A real cached profile makes the state displayable, so the server load
     // becomes a correction rather than a start step and may finish in the
@@ -1316,6 +1319,9 @@ class HomeStore extends _HomeStoreBase
   @override
   void dispose() {
     _disposed = true;
+    _healthGeneration++;
+    if (!_healthSessionEnded) health.reset();
+    _healthSessionEnded = true;
     _statsSaveDebounce?.cancel();
     _outboxRetryTimer?.cancel();
     _outboxRetryTimer = null;

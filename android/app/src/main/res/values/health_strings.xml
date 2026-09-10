@@ -1,0 +1,6 @@
+<resources>
+    <string name="health_connect_title">Health Connect</string>
+    <string name="health_connect_rationale">Eatova reads your steps from Health Connect to display daily activity and estimate calories burned. Daily totals are stored in your encrypted app cache. Eatova does not read or write weight through Health Connect. You can revoke steps access at any time in Health Connect settings.</string>
+    <string name="health_connect_privacy">Privacy policy</string>
+    <string name="health_connect_close">Close</string>
+</resources>

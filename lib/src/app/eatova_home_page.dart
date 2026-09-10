@@ -144,7 +144,14 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     // No sync (preview/test) means no boot/welcome phase.
     _welcomeFinished = widget.sync == null;
     if (widget.healthService != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _store.connectHealth());
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (widget.healthService is HealthConnectAccess) {
+          // Production restores only after its account cache has been read.
+          if (widget.sync == null) unawaited(_store.restoreHealthConnection());
+        } else {
+          unawaited(_store.connectHealth());
+        }
+      });
     }
     _store.start();
   }
@@ -190,9 +197,13 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   bool get _healthMayRefresh => switch (_store.healthAuthState) {
         HealthAuthState.granted ||
         HealthAuthState.unverified ||
-        HealthAuthState.denied =>
+        HealthAuthState.denied ||
+        HealthAuthState.noData ||
+        HealthAuthState.updateRequired ||
+        HealthAuthState.error =>
           true,
-        HealthAuthState.unknown || HealthAuthState.unsupported => false,
+        HealthAuthState.unknown || HealthAuthState.unsupported ||
+        HealthAuthState.unavailable => false,
       };
 
   void _refreshHealthSteps() {
@@ -341,6 +352,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               dailySteps: _store.dailySteps,
               healthAuthState: _store.healthAuthState,
               healthLastFetch: _store.healthLastFetch,
+              healthConnect: _store.health is HealthConnectAccess,
+              healthSyncing: _store.healthSyncing,
+              onHealthSettings: _store.openHealthSettings,
               onLogWeight: _store.logWeight,
               onEditProfile: _openGoals,
               onOpenSettings: _openSettings,
@@ -579,6 +593,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             burnedKcal: _store.burnedKcalForFoodDate(tag),
             // null = no step source -> no steps card.
             steps: _store.stepsForFoodDate(tag),
+            healthConnect: _store.health is HealthConnectAccess,
             streak: _store.lifetimeStats.effectiveStreakOn(clock.now()),
             profileInitial: _store.profileInitial,
             onDateSelected: _store.setFoodDate,

@@ -1617,8 +1617,11 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// `health.reset()` clears verifier and cached `authState`;
   /// `healthAuthState` is the copy the profile card renders.
   void _resetHealthConnection() {
+    _healthGeneration++;
+    _healthSessionEnded = true;
     health.reset();
     healthAuthState = health.authState;
+    dailySteps = 0;
   }
 
   /// Clears the local cache. Prefers the booted [_cache], the injected

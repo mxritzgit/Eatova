@@ -764,6 +764,7 @@ const Set<String> legacyCacheSlotNames = <String>{
   'pending_stats',
   'user_recipes',
   'daily_activity',
+  'health_connect_enabled',
 };
 
 /// Whether [key] is a cache slot `eatova.v1.<slot>.<uid>`. Checks prefix and
