@@ -147,6 +147,26 @@ const Map<String, Erwartung> _erwartet = {
     clientBefehle: _voll,
     grund: 'Trainingsplaene, erst nach ausdruecklicher Uebernahme gespeichert.',
   ),
+  'training_history': Erwartung(
+    besitzerSpalte: 'user_id',
+    clientBefehle: {'select'},
+    grund: 'Abschluss und Loeschung nur per RPC mit dauerhaftem Loeschbeleg.',
+  ),
+  'training_history_deletions': Erwartung(
+    besitzerSpalte: 'user_id',
+    clientBefehle: {'select'},
+    grund: 'Eigene Loeschkennungen verhindern spaetes Wiederanlegen; keine Leistungsdaten.',
+  ),
+  'planned_meals': Erwartung(
+    besitzerSpalte: 'user_id',
+    clientBefehle: {'select'},
+    grund: 'Geplante Mahlzeiten; Schreiben und atomare Tagebuchuebernahme nur per RPC.',
+  ),
+  'shopping_checks': Erwartung(
+    besitzerSpalte: 'user_id',
+    clientBefehle: {'select'},
+    grund: 'Abgehakte Einkaufspositionen; validierte Aenderungen nur per RPC.',
+  ),
   'chat_sessions': Erwartung(
     besitzerSpalte: 'user_id',
     clientBefehle: _voll,
@@ -219,6 +239,27 @@ class FunktionsErwartung {
 /// fewer. Hand-written for the same reason as [_erwartet]: derived from the
 /// migrations, a newly granted role would define its own expectation.
 const Map<String, FunktionsErwartung> _erwarteteFunktionen = {
+  'record_training_history': FunktionsErwartung.client(
+      definer: true, grund: 'Bestaetigt eigene unveraenderliche Abschluesse oder vorhandene Loeschung.'),
+  'delete_training_history': FunktionsErwartung.client(
+      definer: true, grund: 'Entfernt eigene Leistungsdaten atomar und bewahrt nur die Loeschkennung.'),
+  'is_valid_training_exercise_ids': FunktionsErwartung.client(
+      definer: false, grund: 'Validiert stabile Uebungsidentitaeten im gespeicherten Plan.'),
+  'is_valid_training_history': FunktionsErwartung.client(
+      definer: false, grund: 'Validiert vollstaendige Leistungs- und Abschluss-Snapshots.'),
+  'is_valid_planned_meal': FunktionsErwartung.client(
+      definer: false, grund: 'Reine Validierung des begrenzten Mahlzeiten-Snapshots.'),
+  'save_planned_meal': FunktionsErwartung.client(
+      definer: true, grund: 'Eigene Mahlzeit planen; fremde Besitzer sind nicht waehlbar.'),
+  'save_shopping_check': FunktionsErwartung.client(
+      definer: true, grund: 'Eigene Einkaufsposition mit validierter Identitaet abhaken.'),
+  'load_meal_plan': FunktionsErwartung.client(
+      definer: true, grund: 'Liest nur den Speiseplan und die Haken von auth.uid().'),
+  'eat_planned_meal': FunktionsErwartung.client(
+      definer: true, grund: 'Atomare, idempotente Uebernahme in Tagebuch und Zaehler.'),
+  'recipe_ingredients_valid': FunktionsErwartung.client(
+      definer: false,
+      grund: 'Validiert strukturierte Zutaten und Portionsgrenzen ohne Tabellenzugriff.'),
   'is_valid_training_plan': FunktionsErwartung.client(
       definer: false,
       grund: 'Reine JSON-Validierung fuer CHECKs, ohne Tabellenzugriff.'),

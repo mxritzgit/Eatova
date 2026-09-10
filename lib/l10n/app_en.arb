@@ -1936,5 +1936,222 @@
   "foodScanStart": "Start analysis",
   "trainingCreateIntro": "Your rhythm. Your exercises. Build a plan that fits your life.",
   "trainingWorkoutIntro": "Name your session and add your exercises.",
-  "recipesCreateIntro": "Your favourite dish, ready for your everyday routine."
+  "recipesCreateIntro": "Your favourite dish, ready for your everyday routine.",
+  "recipeCalcSavedPortion": "Saved recipe portion",
+  "recipeCalcNoCookedWeight": "This recipe was logged by servings. Its cooked weight was not recorded, so gram adjustments are unavailable. The saved nutrition stays unchanged.",
+  "ingredientEmpty": "Add weighed ingredients to calculate your recipe.",
+  "ingredientAdd": "Add ingredient",
+  "ingredientEdit": "Edit ingredient",
+  "ingredientRemove": "Remove ingredient",
+  "ingredientLimit": "A recipe can contain up to 100 ingredients.",
+  "ingredientIncomplete": "Nutrition incomplete",
+  "ingredientIncompleteHelp": "Blank values remain unknown. Calories are needed for every ingredient before you can log this recipe.",
+  "ingredientSearch": "Search products",
+  "ingredientSearchHint": "Food or brand",
+  "ingredientManual": "Enter ingredient manually",
+  "ingredientSearching": "Searching products…",
+  "ingredientSearchError": "Products could not be loaded. Try the search again or enter the ingredient manually.",
+  "ingredientNoResults": "No products found. Try another name or enter the ingredient manually.",
+  "ingredientName": "Ingredient name",
+  "ingredientNameHint": "For example, oats",
+  "ingredientGrams": "Weight in this batch (g)",
+  "ingredientKcal": "Calories per 100 g (kcal)",
+  "ingredientProtein": "Protein per 100 g (g)",
+  "ingredientCarbs": "Carbs per 100 g (g)",
+  "ingredientFat": "Fat per 100 g (g)",
+  "ingredientPer100Help": "Enter the ingredient weight for the whole batch. Copy nutrition values per 100 g from the label; leave missing values blank.",
+  "ingredientUnknown": "Unknown",
+  "ingredientSave": "Use ingredient",
+  "ingredientNameError": "Use a name of up to 160 characters without line breaks.",
+  "ingredientNumberError": "Enter a number from {min} to {max}.",
+  "@ingredientNumberError": {"placeholders": {"min": {"type": "String"}, "max": {"type": "String"}}},
+  "recipeCalcServings": "Servings to log",
+  "recipeCalcServingsError": "Enter between 0.1 and 100 servings, for example 0.5.",
+  "recipeCalcServingsCount": "{count} servings",
+  "@recipeCalcServingsCount": {"placeholders": {"count": {"type": "String"}}},
+  "recipeEditTitle": "Edit recipe",
+  "recipeEditIntro": "Update your recipe. Previously logged meals stay unchanged.",
+  "recipeEditDescription": "Description",
+  "recipeEditSave": "Save changes",
+  "recipeEditSaved": "Recipe updated",
+  "recipeEditPreparationHint": "Describe the preparation step by step.",
+  "recipeEditSaveFailed": "Changes could not be saved safely. Your draft is still here. Try again.",
+  "recipeEditSessionChanged": "Your sign-in changed. Close this draft and reopen the recipe.",
+  "recipeEditPhotoRetained": "Recipe updated. The new photo could not be saved; the previous photo was kept",
+  "recipeEditMealPlan": "Meal plan",
+  "recipeEditCalculateIngredients": "Calculate from ingredients",
+  "recipeEditCalculateHint": "Weigh ingredients and divide nutrition into batch servings.",
+  "recipeEditBatchServings": "Total batch servings",
+  "recipeEditCalculatedHint": "Nutrition is calculated from your ingredients.",
+  "recipeEditIncompleteNutrition": "Incomplete nutrition: — means at least one ingredient is missing this value.",
+  "recipeEditNutritionTooLarge": "The amount per serving is too large. Check ingredients or increase batch servings.",
+  "recipeEditCannotLog": "Check the servings and fill in missing ingredient calories before logging this recipe.",
+  "recipeEditCoachSource": "Created with Coach",
+  "mealPlanTitle": "Meal plan",
+  "mealPlanIntro": "Plan your week. Only “Eaten today” adds a meal to your diary.",
+  "mealPlanWeek": "Weekly plan",
+  "mealPlanShopping": "Shopping list",
+  "mealPlanPreviousWeek": "Previous week",
+  "mealPlanNextWeek": "Next week",
+  "mealPlanEmptyDay": "Nothing planned yet.",
+  "mealPlanAdd": "Plan a meal",
+  "mealPlanEdit": "Edit planned meal",
+  "mealPlanEatToday": "Eaten today",
+  "mealPlanEatenOn": "Logged on {date}",
+  "@mealPlanEatenOn": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "mealPlanPortionCount": "{count, plural, =1{1 serving} other{{count} servings}}",
+  "@mealPlanPortionCount": {
+    "placeholders": {
+      "count": {
+        "type": "num",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "mealPlanServings": "Servings",
+  "mealPlanServingsError": "Enter 0.1 to 100 servings.",
+  "mealPlanSaved": "Saved.",
+  "mealPlanSavedOffline": "Saved on this device. Will sync later.",
+  "mealPlanSaveError": "Not saved. Check your connection or device storage and try again.",
+  "mealPlanLoadError": "Could not load the latest plan. Saved meals remain available.",
+  "mealPlanShoppingIntro": "Ingredients for meals you have not eaten this week. Changed amounts become unchecked again.",
+  "mealPlanShoppingEmpty": "Plan a meal for this week to start your list.",
+  "mealPlanWeighed": "Weighed ingredients",
+  "mealPlanUnquantified": "Check amounts yourself",
+  "mealPlanUnquantifiedHint": "These recipes have free-text ingredients. Check amounts for your planned servings yourself.",
+  "mealPlanNoIngredients": "No ingredients listed. Check the recipe before shopping.",
+  "mealPlanChooseRecipe": "Choose a recipe",
+  "mealPlanSearchRecipe": "Search recipes",
+  "mealPlanNoRecipes": "No matching recipes.",
+  "mealPlanSnapshotHint": "This plan keeps the recipe as it is now. Later recipe edits will not change the plan.",
+  "mealPlanRetry": "Retry",
+  "mealPlanCannotLog": "Calories are missing or the serving is too large to log. Reduce the serving or complete the recipe and plan it again.",
+  "coachBriefTitle": "Your training brief",
+  "coachBriefDataUsed": "Coach uses the details below and the selected plan, if any, for this request. Check the defaults. Other profile data and training history are not included.",
+  "coachBriefDefaultGoal": "General fitness",
+  "coachBriefGoal": "Training goal",
+  "coachBriefExperience": "Experience",
+  "coachBriefBeginner": "Beginner",
+  "coachBriefIntermediate": "Intermediate",
+  "coachBriefAdvanced": "Advanced",
+  "coachBriefEquipment": "Available equipment",
+  "coachBriefBodyweight": "Bodyweight",
+  "coachBriefDumbbells": "Dumbbells",
+  "coachBriefGym": "Gym",
+  "coachBriefSessions": "Sessions per week",
+  "coachBriefMinutes": "Minutes per session",
+  "coachBriefWish": "Request or question (optional)",
+  "coachBriefSelectedPlan": "Selected plan",
+  "coachBriefPreviewPlan": "Review the plan being shared",
+  "coachBriefIntent": "What would you like to do?",
+  "coachBriefDiscuss": "Discuss",
+  "coachBriefAdapt": "Adapt",
+  "coachBriefDiscussAction": "Discuss / adapt with Coach",
+  "coachBriefDraftNotice": "Sending uses one Coach request. Review and edit suggestions before saving them as a new plan. Your saved plan stays intact. This brief is not saved as a profile.",
+  "coachBriefGenerate": "Request plan draft",
+  "coachBriefSendDiscussion": "Discuss plan",
+  "coachBriefCreateWish": "Create a suitable training plan using my brief.",
+  "coachBriefAdaptWish": "Propose an adaptation of the selected training plan using my brief.",
+  "coachBriefDiscussWish": "Discuss how well the selected training plan fits my brief.",
+  "coachBriefInvalid": "Check your goal and request. Use plain text without commands. If the saved plan contains invalid details, edit it in Training first.",
+  "coachBriefUnavailable": "The chat is not ready or your quota is used up. Close the brief and check the chat.",
+  "healthConnectTitle": "Health Connect",
+  "healthConnectSetup": "Connect Health Connect to see your steps and estimate calories burned.",
+  "healthConnectConnected": "Steps connected. Refresh to read today's data.",
+  "healthConnectNoData": "Connected, but no step data is available for today. Check Health Connect to see whether your phone or a fitness app is providing steps.",
+  "healthConnectDenied": "Steps access was denied or revoked. Allow it again or open permissions in Health Connect.",
+  "healthConnectUpdateRequired": "Install or update Health Connect before connecting your steps.",
+  "healthConnectUnavailable": "Health Connect is unavailable on this device.",
+  "healthConnectError": "Health Connect could not be checked. Try again or review its settings.",
+  "healthConnectStepsOnly": "Read steps only. Keep logging your weight here manually.",
+  "healthConnectConnect": "Connect steps",
+  "healthConnectRefresh": "Refresh",
+  "healthConnectInstall": "Install / update",
+  "healthConnectSettings": "Open Health Connect",
+  "healthConnectLoading": "Checking Health Connect",
+  "healthConnectMissingTitle": "No step data yet",
+  "healthConnectMissingHint": "No steps are available for this day. Review the connection and data sources in your profile.",
+  "healthConnectReview": "Review connection",
+  "trainingHistoryTitle": "Workout history",
+  "trainingHistorySubtitle": "Your completed workouts.",
+  "trainingHistoryEmpty": "Your confirmed workouts appear here. Start a workout and save it when you finish.",
+  "trainingHistoryLoadError": "History could not load. Saved workouts remain available. Try again.",
+  "trainingHistoryLastTime": "Last time",
+  "trainingHistoryNote": "Workout note",
+  "trainingHistoryDeleteTitle": "Delete workout?",
+  "trainingHistoryDeleteBody": "This completion and its set values will be removed from your history. Your training plan stays saved.",
+  "trainingHistoryDeleted": "Workout deleted from history",
+  "trainingHistoryDeleteError": "The workout could not be deleted. Try again.",
+  "trainingHistoryTimed": "Timed interval completed",
+  "trainingHistorySetValue": "Set {set}: {reps} · {weight}",
+  "@trainingHistorySetValue": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      },
+      "reps": {
+        "type": "String"
+      },
+      "weight": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingHistorySkippedSet": "Set {set}: skipped",
+  "@trainingHistorySkippedSet": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingHistoryRepsValue": "{reps} reps",
+  "@trainingHistoryRepsValue": {
+    "placeholders": {
+      "reps": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingHistoryWeightValue": "{weight} kg",
+  "@trainingHistoryWeightValue": {
+    "placeholders": {
+      "weight": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingHistoryStarted": "Recorded from: {date}",
+  "@trainingHistoryStarted": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingHistoryFinished": "Finished: {date}",
+  "@trainingHistoryFinished": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingActualReps": "Actual repetitions",
+  "trainingActualWeight": "Weight (kg, optional)",
+  "trainingActualOptional": "Optional",
+  "trainingActualNoWeight": "Weight not recorded",
+  "trainingActualInvalid": "Repetitions: 0–1000. Weight: 0–2000 kg or blank.",
+  "trainingActualReview": "Your set values",
+  "trainingActualMissing": "Enter the actual repetitions for completed sets before saving the workout.",
+  "trainingHistorySourceChanged": "Your plan changed. This workout was not saved.",
+  "trainingActualConfirmLegacyTimed": "Confirm completed interval",
+  "trainingHistoryDeleteAction": "Delete workout",
+  "trainingHistoryAlreadyDeleted": "This workout was deleted on another device."
 }

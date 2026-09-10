@@ -5,6 +5,7 @@ import 'dart:io';
 import '../l10n/l10n.dart';
 import '../models/meal_analysis_result.dart';
 import '../models/model_limits.dart';
+import '../models/recipe_ingredient.dart';
 import 'eatova_http.dart';
 
 abstract class ProductLookupService {
@@ -28,6 +29,7 @@ class ProductSearchResult {
     required this.kcalPer100G,
     required this.result,
     this.imageUrl,
+    this.ingredientNutritionPer100g,
   });
 
   final String code;
@@ -37,12 +39,26 @@ class ProductSearchResult {
   final MealAnalysisResult result;
   final String? imageUrl;
 
+  /// Original per-100 g precision, before the diary's portion rounding.
+  final RecipeNutrition? ingredientNutritionPer100g;
+
   factory ProductSearchResult.fromOpenFoodFacts(Map<String, dynamic> product) {
     // Straight out of the search index, not from the scanner (which is pinned
     // to EAN/UPC): clamped to the `logged_meals.barcode` column before anything
     // builds a favorite key or a log row from it (P2-01b).
     final code = clampBarcode(product['code']?.toString()) ?? '';
     final result = MealAnalysisResult.fromOpenFoodFacts(product, code);
+    final rawNutrients = product['nutriments'];
+    double? macro(String key) {
+      final raw = rawNutrients is Map ? rawNutrients[key] : null;
+      final value = raw is num
+          ? raw.toDouble()
+          : (raw is String ? double.tryParse(raw.replaceAll(',', '.')) : null);
+      return value != null && value.isFinite && value >= 0 && value <= 100
+          ? value
+          : null;
+    }
+
     final brand = result.brand?.trim();
     final quantity = _firstNonEmptyString(product, const ['quantity']);
     final imageUrl = _firstNonEmptyString(product, const [
@@ -64,6 +80,15 @@ class ProductSearchResult {
       kcalPer100G: result.kcalPer100G,
       result: result,
       imageUrl: imageUrl,
+      ingredientNutritionPer100g: RecipeNutrition(
+        caloriesKcal:
+            isLoggableKcalPer100G(result.kcalPer100G) || result.explicitZeroKcal
+            ? result.kcalPer100G
+            : null,
+        proteinG: macro('proteins_100g'),
+        carbsG: macro('carbohydrates_100g'),
+        fatG: macro('fat_100g'),
+      ),
     );
   }
 }

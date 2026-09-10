@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:clock/clock.dart';
 import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/app/home_store.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/coach_training_proposal.dart';
 import 'package:eatova/src/models/training_plan.dart';
 import 'package:eatova/src/models/training_session.dart';
@@ -45,6 +48,78 @@ class _FailSessionCache extends LocalCache {
   @override
   Future<bool> writeTrainingSession(TrainingSessionSnapshot? snapshot) async =>
       fail ? false : super.writeTrainingSession(snapshot);
+}
+
+class _FailRecoveryReadCache extends LocalCache {
+  _FailRecoveryReadCache() : super(InMemoryKeyValueStore(), kFixlaufUser);
+
+  bool failDeletionReads = true;
+  Completer<void>? repairGate;
+  int deletionReads = 0;
+  int sessionWrites = 0;
+
+  @override
+  Future<Set<String>> readTrainingHistoryDeletions() async {
+    deletionReads++;
+    if (failDeletionReads) throw StateError('Simulated encrypted storage error');
+    await repairGate?.future;
+    return super.readTrainingHistoryDeletions();
+  }
+
+  @override
+  Future<bool> writeTrainingSession(TrainingSessionSnapshot? snapshot) {
+    sessionWrites++;
+    return super.writeTrainingSession(snapshot);
+  }
+}
+
+TrainingSessionSnapshot _savedRecovery(TrainingPlan plan) =>
+    TrainingSessionSnapshot(
+      plan: plan,
+      sessionId: '44f8625f-7f4b-4ffc-b6b0-ec94fcae1f39',
+      startedAt: _now.subtract(const Duration(minutes: 3)),
+      workoutIndex: 0,
+      exerciseIndex: 0,
+      setIndex: 1,
+      phase: TrainingSessionPhase.exercise,
+      remainingMilliseconds: 12000,
+      completedSets: const [
+        TrainingSetReference(exerciseIndex: 0, setIndex: 0),
+      ],
+      actualSets: [
+        TrainingSetActual(
+          reference: const TrainingSetReference(exerciseIndex: 0, setIndex: 0),
+          completedAt: _now.subtract(const Duration(minutes: 1)),
+        ),
+      ],
+      recoveryNote: 'Keep my saved progress',
+    );
+
+Future<HomeStore> _mountHiddenRecovery(
+  WidgetTester tester,
+  _FailRecoveryReadCache cache,
+  TrainingSessionSnapshot snapshot,
+) async {
+  await cache.writeProfile(completedProfile);
+  await cache.writeTrainingPlans([snapshot.plan]);
+  await cache.writeTrainingSession(snapshot);
+  final server = FixlaufServer();
+  server.trainingRows[snapshot.plan.id] = snapshot.plan.toRow();
+  final store = await _mount(
+    tester,
+    cache,
+    connected: true,
+    serverOverride: server,
+  );
+  await pumpUntil(tester, () => !store.bootLoadInFlight,
+      'cached recovery and server plans are loaded');
+  expect(cache.deletionReads, greaterThan(0));
+  expect(store.trainingSession, isNull);
+  expect((await cache.readTrainingSession())?.toJson(), snapshot.toJson());
+  store.setTab(3);
+  await _frames(tester);
+  expect(find.byKey(const ValueKey('training-resume')), findsNothing);
+  return store;
 }
 
 Future<void> _frames(WidgetTester tester) async {
@@ -98,6 +173,110 @@ Future<void> _tap(WidgetTester tester, String key) async {
 }
 
 void main() {
+  testWidgets('start repairs a hidden recovery before creating a player', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(_now), () async {
+      final cache = _FailRecoveryReadCache();
+      final snapshot = _savedRecovery(_plan());
+      final store = await _mountHiddenRecovery(tester, cache, snapshot);
+      cache.failDeletionReads = false;
+
+      await _tap(tester, 'training-start');
+
+      final player = tester.widget<TrainingPlayerScreen>(
+        find.byType(TrainingPlayerScreen),
+      );
+      expect(player.initialSnapshot?.toJson(), snapshot.toJson());
+      expect(store.trainingSession?.toJson(), snapshot.toJson());
+      expect((await cache.readTrainingSession())?.toJson(), snapshot.toJson());
+      await tester.pumpWidget(const SizedBox.shrink());
+      await _frames(tester);
+    });
+  });
+
+  testWidgets('unavailable recovery blocks start and allows a safe retry', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(_now), () async {
+      final cache = _FailRecoveryReadCache();
+      final snapshot = _savedRecovery(_plan());
+      await _mountHiddenRecovery(tester, cache, snapshot);
+      final writesBeforeStart = cache.sessionWrites;
+      final message = tester.element(find.byType(EatovaHomePage))
+          .l10n.commonGenericRetryError;
+
+      await _tap(tester, 'training-start');
+
+      expect(find.byType(TrainingPlayerScreen), findsNothing);
+      expect(find.text(message), findsOneWidget);
+      expect(cache.sessionWrites, writesBeforeStart);
+      expect((await cache.readTrainingSession())?.toJson(), snapshot.toJson());
+
+      cache.failDeletionReads = false;
+      await _tap(tester, 'training-start');
+      expect(tester.widget<TrainingPlayerScreen>(
+        find.byType(TrainingPlayerScreen),
+      ).initialSnapshot?.sessionId, snapshot.sessionId);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await _frames(tester);
+    });
+  });
+
+  testWidgets('repeated starts share one pending repair and one player route', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(_now), () async {
+      final cache = _FailRecoveryReadCache();
+      final snapshot = _savedRecovery(_plan());
+      await _mountHiddenRecovery(tester, cache, snapshot);
+      final previousReads = cache.deletionReads;
+      cache.failDeletionReads = false;
+      final repair = cache.repairGate = Completer<void>();
+
+      await _tap(tester, 'training-start');
+      await _tap(tester, 'training-start');
+      expect(find.byType(TrainingPlayerScreen), findsNothing);
+      expect(cache.deletionReads, previousReads + 1);
+
+      repair.complete();
+      await _frames(tester);
+      expect(find.byType(TrainingPlayerScreen, skipOffstage: false),
+          findsOneWidget);
+      expect((await cache.readTrainingSession())?.toJson(), snapshot.toJson());
+      await tester.pumpWidget(const SizedBox.shrink());
+      await _frames(tester);
+    });
+  });
+
+  testWidgets('sign out during recovery repair cannot open a player', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(_now), () async {
+      final cache = _FailRecoveryReadCache();
+      final snapshot = _savedRecovery(_plan());
+      final store = await _mountHiddenRecovery(tester, cache, snapshot);
+      cache.failDeletionReads = false;
+      final repair = cache.repairGate = Completer<void>();
+      await _tap(tester, 'training-start');
+      expect(find.byType(TrainingPlayerScreen), findsNothing);
+      final writesBeforeSignOut = cache.sessionWrites;
+
+      await tester.runAsync(() async {
+        final signOut = store.signOutCleanup();
+        repair.complete();
+        await signOut;
+      });
+      await _frames(tester);
+
+      expect(find.byType(TrainingPlayerScreen, skipOffstage: false), findsNothing);
+      expect(cache.sessionWrites, writesBeforeSignOut);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await _frames(tester);
+    });
+  });
+
   for (final sourceChange in ['removed', 'changed']) {
     for (final exit in ['save', 'discard', 'finish']) {
       testWidgets('retired player can $exit after boot source is $sourceChange', (
@@ -120,6 +299,18 @@ void main() {
                 ? const [
                     TrainingSetReference(exerciseIndex: 0, setIndex: 0),
                     TrainingSetReference(exerciseIndex: 0, setIndex: 1),
+                  ]
+                : const [],
+            actualSets: exit == 'finish'
+                ? [
+                    TrainingSetActual(
+                      reference: const TrainingSetReference(exerciseIndex: 0, setIndex: 0),
+                      completedAt: _now,
+                    ),
+                    TrainingSetActual(
+                      reference: const TrainingSetReference(exerciseIndex: 0, setIndex: 1),
+                      completedAt: _now,
+                    ),
                   ]
                 : const [],
           );
@@ -297,7 +488,7 @@ void main() {
     });
   });
 
-  testWidgets('Training opens /plan on first and cached Coach mount without sending',
+  testWidgets('Training opens its brief on first and cached Coach mount without sending',
       (tester) async {
     await withClock(Clock.fixed(_now), () async {
       final cache = LocalCache(InMemoryKeyValueStore(), kFixlaufUser);
@@ -312,9 +503,12 @@ void main() {
         final input = tester.widget<TextField>(
           find.byKey(const ValueKey('coach-input')),
         );
-        expect(input.controller!.text, '/plan ');
+        expect(input.controller!.text, isEmpty);
+        expect(find.byKey(const ValueKey('coach-brief-scroll')), findsOneWidget);
+        expect(find.byKey(const ValueKey('coach-brief-submit')), findsOneWidget);
         expect(store.trainingPlans, isEmpty);
         expect(find.byKey(const ValueKey('coach-plan-card')), findsNothing);
+        await _tap(tester, 'coach-brief-close');
       }
       await tester.pumpWidget(const SizedBox.shrink());
       await _frames(tester);

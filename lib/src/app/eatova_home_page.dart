@@ -21,11 +21,13 @@ import '../screens/coach/coach_chat_screen.dart';
 import '../screens/meal_analysis_screen.dart';
 import '../screens/onboarding_screen.dart';
 import '../screens/profile_screen.dart';
+import '../screens/recipes/meal_plan_screen.dart';
 import '../screens/recipes/recipes_screen.dart';
 import '../screens/settings/goals_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../screens/today/today_screen.dart';
 import '../screens/training/training_screen.dart';
+import '../screens/training/training_history_screen.dart';
 import '../screens/training/training_player_screen.dart';
 import '../l10n/l10n.dart';
 import '../theme/app_tokens.dart';
@@ -120,7 +122,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   final ValueNotifier<MealSlot?> _addSlotRequest =
       ValueNotifier<MealSlot?>(null);
   final ValueNotifier<int> _planDraftRequest = ValueNotifier<int>(0);
+  TrainingPlan? _selectedPlanForCoach;
   bool _trainingRouteOpen = false;
+  bool _trainingHistoryRouteOpen = false;
   bool _profileRouteOpen = false;
   late bool _welcomeFinished;
 
@@ -140,7 +144,14 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     // No sync (preview/test) means no boot/welcome phase.
     _welcomeFinished = widget.sync == null;
     if (widget.healthService != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _store.connectHealth());
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (widget.healthService is HealthConnectAccess) {
+          // Production restores only after its account cache has been read.
+          if (widget.sync == null) unawaited(_store.restoreHealthConnection());
+        } else {
+          unawaited(_store.connectHealth());
+        }
+      });
     }
     _store.start();
   }
@@ -186,9 +197,13 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   bool get _healthMayRefresh => switch (_store.healthAuthState) {
         HealthAuthState.granted ||
         HealthAuthState.unverified ||
-        HealthAuthState.denied =>
+        HealthAuthState.denied ||
+        HealthAuthState.noData ||
+        HealthAuthState.updateRequired ||
+        HealthAuthState.error =>
           true,
-        HealthAuthState.unknown || HealthAuthState.unsupported => false,
+        HealthAuthState.unknown || HealthAuthState.unsupported ||
+        HealthAuthState.unavailable => false,
       };
 
   void _refreshHealthSteps() {
@@ -337,6 +352,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               dailySteps: _store.dailySteps,
               healthAuthState: _store.healthAuthState,
               healthLastFetch: _store.healthLastFetch,
+              healthConnect: _store.health is HealthConnectAccess,
+              healthSyncing: _store.healthSyncing,
+              onHealthSettings: _store.openHealthSettings,
               onLogWeight: _store.logWeight,
               onEditProfile: _openGoals,
               onOpenSettings: _openSettings,
@@ -575,6 +593,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             burnedKcal: _store.burnedKcalForFoodDate(tag),
             // null = no step source -> no steps card.
             steps: _store.stepsForFoodDate(tag),
+            healthConnect: _store.health is HealthConnectAccess,
             streak: _store.lifetimeStats.effectiveStreakOn(clock.now()),
             profileInitial: _store.profileInitial,
             onDateSelected: _store.setFoodDate,
@@ -671,7 +690,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         ),
         builder: (context) {
           assert(_countTabBuild(_tabRezepte));
+          final ownerStore = _store;
           return RecipesScreen(
+            productService: widget.productService,
             // No hard foodDate: falls back to the store's selectedFoodDate,
             // read at call time, so adding lands on the food tab's day.
             onAddMeal: (result, slot) => _store.addResultToDailyTotal(
@@ -684,7 +705,15 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             userRecipesAuthoritative: _store.userRecipesAuthoritative,
             // Persistence only with real sync (test/preview: session-local).
             onCreateRecipe:
-                widget.sync == null ? null : _store.createUserRecipe,
+                widget.sync == null ? null : ownerStore.saveUserRecipe,
+            onUpdateRecipe:
+                widget.sync == null ? null : ownerStore.updateUserRecipe,
+            isSessionCurrent: () => _isStoreSessionCurrent(ownerStore),
+            onOpenMealPlan: () {
+              if (_isStoreSessionCurrent(ownerStore)) {
+                unawaited(MealPlanScreen.open(context, ownerStore));
+              }
+            },
             onDeleteRecipe:
                 widget.sync == null ? null : _store.deleteUserRecipe,
             // Always wired: the undo window must hide the recipe from the
@@ -712,51 +741,142 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       );
 
   void _openTrainingCoach() {
+    _selectedPlanForCoach = null;
     _planDraftRequest.value++;
     _store.setTab(_tabCoach);
   }
 
+  bool _isStoreSessionCurrent(HomeStore ownerStore) {
+    final ownerSync = ownerStore.sync;
+    final currentUser = ownerSync?.client.auth.currentUser;
+    return mounted &&
+        identical(_store, ownerStore) &&
+        widget.sync?.userId == ownerSync?.userId &&
+        identical(widget.sync?.client, ownerSync?.client) &&
+        (currentUser == null || currentUser.id == ownerSync?.userId);
+  }
+
+  void _discussTrainingPlan(TrainingPlan plan) {
+    if (!_isStoreSessionCurrent(_store)) return;
+    final current = _store.trainingPlans.where((p) => p.id == plan.id).firstOrNull;
+    if (current == null) return;
+    _selectedPlanForCoach = current;
+    _planDraftRequest.value++;
+    _store.setTab(_tabCoach);
+  }
+
+  Future<void> _openTrainingHistory() async {
+    if (_trainingHistoryRouteOpen || !_isStoreSessionCurrent(_store)) return;
+    _trainingHistoryRouteOpen = true;
+    final ownerStore = _store;
+    try {
+      await Navigator.of(context).push<void>(MaterialPageRoute<void>(
+        builder: (_) => StoreSelector(
+          store: ownerStore,
+          selector: () => (
+            ownerStore.trainingHistory,
+            ownerStore.trainingHistoryLoading,
+            ownerStore.trainingHistoryLoadFailed,
+          ),
+          builder: (_) => TrainingHistoryScreen(
+            entries: ownerStore.trainingHistory,
+            loading: ownerStore.trainingHistoryLoading,
+            loadFailed: ownerStore.trainingHistoryLoadFailed,
+            onRetry: () {
+              if (_isStoreSessionCurrent(ownerStore)) {
+                ownerStore.retryTrainingHistory();
+              }
+            },
+            onDelete: (id) async {
+              if (!_isStoreSessionCurrent(ownerStore)) {
+                throw StateError('Training session ended');
+              }
+              return ownerStore.deleteTrainingHistory(id);
+            },
+          ),
+        ),
+      ));
+    } finally {
+      _trainingHistoryRouteOpen = false;
+    }
+  }
+
   void _startTrainingWorkout(TrainingPlan plan, int workoutIndex) {
-    final recovery = _store.trainingSession;
     unawaited(_openTrainingPlayer(
-      plan: recovery == null ? plan : null,
+      plan: plan,
       workoutIndex: workoutIndex,
-      snapshot: recovery,
     ));
   }
 
   void _resumeTrainingWorkout() {
-    final recovery = _store.trainingSession;
-    if (recovery == null) return;
-    unawaited(_openTrainingPlayer(snapshot: recovery));
+    unawaited(_openTrainingPlayer());
   }
 
   Future<void> _openTrainingPlayer({
     TrainingPlan? plan,
     int workoutIndex = 0,
-    TrainingSessionSnapshot? snapshot,
   }) async {
     if (_trainingRouteOpen || !mounted) return;
     _trainingRouteOpen = true;
-    final ownerSync = _store.sync;
-    final sessionGeneration = _store.trainingSessionGeneration;
-    final sourcePlanId = (snapshot?.plan ?? plan)!.id;
+    final ownerStore = _store;
+    final sessionGeneration = ownerStore.trainingSessionGeneration;
     try {
+      TrainingSessionSnapshot? snapshot;
+      TrainingPlan? currentPlan;
+      late final String sourcePlanId;
+      try {
+        // A failed receipt read hides recovery; only repaired storage can
+        // establish that starting a new session will not replace saved work.
+        snapshot = await ownerStore.prepareTrainingSessionRecovery();
+        if (!mounted || !_isStoreSessionCurrent(ownerStore)) return;
+        currentPlan = snapshot == null
+            ? ownerStore.trainingPlans
+                .where((candidate) => candidate.id == plan?.id)
+                .firstOrNull
+            : null;
+        if (snapshot == null &&
+            (currentPlan == null ||
+                workoutIndex < 0 ||
+                workoutIndex >= currentPlan.workouts.length)) {
+          return;
+        }
+        sourcePlanId = (snapshot?.plan ?? currentPlan)!.id;
+        if (ownerStore.isTrainingSessionRetired(
+          generation: sessionGeneration,
+          sourcePlanId: sourcePlanId,
+        )) {
+          return;
+        }
+      } catch (_) {
+        if (mounted && _isStoreSessionCurrent(ownerStore)) {
+          _emitSnack(context.l10n.commonGenericRetryError,
+              icon: Icons.error_outline_rounded, tone: SnackTone.error);
+        }
+        return;
+      }
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
           builder: (_) => TrainingPlayerScreen(
-            plan: plan,
+            plan: currentPlan,
             workoutIndex: workoutIndex,
             initialSnapshot: snapshot,
+            history: ownerStore.trainingHistory,
+            onComplete: (entry) async {
+              if (!_isStoreSessionCurrent(ownerStore)) {
+                throw StateError('Training session ended');
+              }
+              await ownerStore.completeTrainingSession(
+                entry,
+                generation: sessionGeneration,
+              );
+            },
             onPersist: (value) async {
               bool sourceRetired() {
                 // Token refresh preserves the owner; account changes do not.
-                if (!mounted ||
-                    widget.sync?.userId != ownerSync?.userId ||
-                    !identical(widget.sync?.client, ownerSync?.client)) {
+                if (!_isStoreSessionCurrent(ownerStore)) {
                   throw StateError('Training session ended');
                 }
-                return _store.isTrainingSessionRetired(
+                return ownerStore.isTrainingSessionRetired(
                   generation: sessionGeneration,
                   sourcePlanId: sourcePlanId,
                 );
@@ -764,7 +884,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
 
               if (sourceRetired()) return;
               try {
-                await _store.saveTrainingSession(
+                await ownerStore.saveTrainingSession(
                   value,
                   generation: sessionGeneration,
                   sourcePlanId: sourcePlanId,
@@ -804,6 +924,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             onDeletePlan: _store.deleteTrainingPlan,
             onStartWorkout: _startTrainingWorkout,
             onOpenCoach: _openTrainingCoach,
+            onDiscussPlan: _discussTrainingPlan,
+            discussPlanLabel: context.l10n.coachBriefDiscussAction,
+            onOpenHistory: () => unawaited(_openTrainingHistory()),
             loading: _store.trainingPlansLoading,
             loadFailed: _store.trainingPlansLoadFailed,
             onRetry: _store.retryTrainingPlans,
@@ -858,6 +981,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               },
               onOpenTraining: () => _store.setTab(_tabTraining),
               planDraftRequest: planRequest,
+              selectedPlanForCoach: _selectedPlanForCoach,
             );
           },
         ),

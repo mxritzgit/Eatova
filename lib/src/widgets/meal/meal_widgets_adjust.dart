@@ -13,6 +13,21 @@ Future<List<MealComponent>?> showWeightAdjustmentSheet(
   BuildContext context,
   MealAnalysisResult result,
 ) {
+  if (result.isRecipeWithoutCookedWeight) {
+    return showEatovaDialog<List<MealComponent>>(
+      context: context,
+      builder: (dialogContext) => EatovaDialog(
+        title: context.l10n.recipeCalcSavedPortion,
+        content: Text(context.l10n.recipeCalcNoCookedWeight),
+        actions: [
+          EatovaDialogAction(
+            label: context.l10n.commonClose,
+            onPressed: () => Navigator.of(dialogContext).pop(),
+          ),
+        ],
+      ),
+    );
+  }
   return showModalBottomSheet<List<MealComponent>>(
     context: context,
     backgroundColor: context.t.bg,

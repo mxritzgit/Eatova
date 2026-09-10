@@ -7,7 +7,7 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'src/app/eatova_app.dart';
 import 'src/config/supabase_config.dart';
-import 'src/services/apple_health_service.dart';
+import 'src/services/platform_health_service.dart';
 import 'src/services/crash_reporter.dart';
 import 'src/services/notification_service.dart';
 import 'src/theme/app_theme.dart';
@@ -89,7 +89,7 @@ Future<void> _bootAndRun() async {
 /// Apple Health on every device.
 @visibleForTesting
 EatovaApp buildEatovaApp() => EatovaApp(
-      healthService: AppleHealthService(),
+      healthService: createPlatformHealthService(),
       notificationService: LocalNotificationService(),
     );
 

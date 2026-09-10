@@ -3,7 +3,9 @@ import 'package:clock/clock.dart';
 import '../models/favorite_meal.dart';
 import '../models/fitness_recipe.dart';
 import '../models/logged_meal.dart';
+import '../models/planned_meal.dart';
 import '../models/training_plan.dart';
+import '../models/training_history.dart';
 import '../models/user_profile.dart';
 import 'meals_sync.dart' show mealResultFromJson, mealResultToJson;
 
@@ -67,6 +69,9 @@ const int kOutboxDeleteMaxAttempts = 64;
 /// counting itself happens via a separate [SyncOpKind.statsIncrement] entry
 /// that replay creates atomically with removing the source op.
 enum SyncOpKind {
+  mealPlanUpsert,
+  mealPlanConvert,
+  shoppingCheck,
   mealInsert,
   mealUpsert,
   mealDelete,
@@ -77,6 +82,8 @@ enum SyncOpKind {
   recipeDelete,
   trainingPlanUpsert,
   trainingPlanDelete,
+  trainingHistoryInsert,
+  trainingHistoryDelete,
 
   /// Gap D: profile/goals (weight, kcal goal, diet, onboarding flag). Without
   /// it, an offline `applySettings`/`completeOnboarding` was silently
@@ -145,6 +152,41 @@ class SyncOp {
         attempts: attempts + 1,
       );
 
+  factory SyncOp.mealPlanUpsert(PlannedMeal plan) => SyncOp._(
+    kind: SyncOpKind.mealPlanUpsert, entityId: plan.id,
+    payload: {'planned_meal': plan.toJson()});
+
+  factory SyncOp.mealPlanConvert(PlannedMeal plan, LoggedMeal meal,
+      {required bool trackDay}) => SyncOp._(
+    kind: SyncOpKind.mealPlanConvert, entityId: plan.id,
+    payload: {'planned_meal': plan.toJson(), 'meal': loggedMealToJson(meal),
+      'track_day': trackDay});
+
+  factory SyncOp.shoppingCheck(ShoppingCheck check) => SyncOp._(
+    kind: SyncOpKind.shoppingCheck, entityId: check.id,
+    payload: {'shopping_check': check.toJson()});
+
+  PlannedMeal? get plannedMeal {
+    try {
+      final plan = PlannedMeal.fromJson(
+        (payload['planned_meal'] as Map).cast<String, dynamic>());
+      return plan.id == entityId ? plan : null;
+    } catch (_) { return null; }
+  }
+
+  ShoppingCheck? get shoppingCheckValue {
+    try {
+      final check = ShoppingCheck.fromJson(
+        (payload['shopping_check'] as Map).cast<String, dynamic>());
+      return check.id == entityId ? check : null;
+    } catch (_) { return null; }
+  }
+
+  // Conversion is one durable transaction. Neither capacity nor a prolonged
+  // outage may discard half of the user's accepted action.
+  bool get isMealPlanIntent => kind == SyncOpKind.mealPlanConvert ||
+      kind == SyncOpKind.mealPlanUpsert || kind == SyncOpKind.shoppingCheck;
+
   factory SyncOp.mealInsert(LoggedMeal meal, {required bool trackDay}) =>
       SyncOp._(kind: SyncOpKind.mealInsert, entityId: meal.id, payload: {
         'meal': loggedMealToJson(meal),
@@ -185,6 +227,14 @@ class SyncOp {
 
   factory SyncOp.recipeDelete(String slug) => SyncOp._(
       kind: SyncOpKind.recipeDelete, entityId: slug, payload: const {});
+
+  factory SyncOp.trainingHistoryInsert(TrainingHistoryEntry entry) => SyncOp._(
+    kind: SyncOpKind.trainingHistoryInsert, entityId: entry.id,
+    payload: {'training_history': entry.toRow()},
+  );
+  factory SyncOp.trainingHistoryDelete(String id) => SyncOp._(
+    kind: SyncOpKind.trainingHistoryDelete, entityId: id, payload: const {},
+  );
 
   factory SyncOp.trainingPlanUpsert(TrainingPlan plan) => SyncOp._(
         kind: SyncOpKind.trainingPlanUpsert,
@@ -244,10 +294,13 @@ class SyncOp {
   /// `weight:<id>`, `favorite:<key>`, `recipe:<slug>`, `profile:self`,
   /// `tracking:<YYYY-MM-DD>`, `stats:<request-uuid>`).
   String get entityKey => switch (kind) {
+        SyncOpKind.mealPlanUpsert ||
+        SyncOpKind.mealPlanConvert ||
         SyncOpKind.mealInsert ||
         SyncOpKind.mealUpsert ||
         SyncOpKind.mealDelete =>
           'meal:$entityId',
+        SyncOpKind.shoppingCheck => 'shopping_check:$entityId',
         SyncOpKind.weightInsert => 'weight:$entityId',
         SyncOpKind.favoriteUpsert ||
         SyncOpKind.favoriteDelete =>
@@ -258,6 +311,7 @@ class SyncOp {
         SyncOpKind.trainingPlanUpsert ||
         SyncOpKind.trainingPlanDelete =>
           'training_plan:$entityId',
+        SyncOpKind.trainingHistoryInsert || SyncOpKind.trainingHistoryDelete => 'training_history:$entityId',
         SyncOpKind.profileUpsert => 'profile:$entityId',
         SyncOpKind.trackingDay => 'tracking:$entityId',
         SyncOpKind.statsIncrement => 'stats:$entityId',
@@ -272,11 +326,16 @@ class SyncOp {
   /// deadline in the store, and at the queue cap it falls only once no write
   /// op is left. Not undroppable though — that would be an immortal op; where
   /// it falls, the store restores the entry locally and reports it.
+  /// History is the only copy after its recovery checkpoint is retired.
+  bool get isTrainingHistoryIntent => kind == SyncOpKind.trainingHistoryInsert ||
+      kind == SyncOpKind.trainingHistoryDelete;
+
   bool get isDelete =>
       kind == SyncOpKind.mealDelete ||
       kind == SyncOpKind.favoriteDelete ||
       kind == SyncOpKind.recipeDelete ||
-      kind == SyncOpKind.trainingPlanDelete;
+      kind == SyncOpKind.trainingPlanDelete ||
+      kind == SyncOpKind.trainingHistoryDelete;
 
   /// True for upsert-like ops — only those may be coalesced (payload
   /// replaced) on enqueue.
@@ -341,6 +400,15 @@ class SyncOp {
     } catch (_) {
       return null;
     }
+  }
+
+  TrainingHistoryEntry? get trainingHistory {
+    final raw = payload['training_history'];
+    if (raw is! Map) return null;
+    try {
+      final entry = TrainingHistoryEntry.fromRow(raw);
+      return entry.id == entityId ? entry : null;
+    } catch (_) { return null; }
   }
 
   TrainingPlan? get trainingPlan {
@@ -524,7 +592,7 @@ List<SyncOp> enqueueCoalesced(
   final dropped = <SyncOp>[];
   // Pass 1: write ops, oldest first.
   for (final op in queue) {
-    if (overflow > 0 && !op.isDelete) {
+    if (overflow > 0 && !op.isDelete && !op.isMealPlanIntent && !op.isTrainingHistoryIntent) {
       dropped.add(op);
       overflow--;
     } else {
@@ -536,7 +604,7 @@ List<SyncOp> enqueueCoalesced(
   if (overflow > 0) {
     final survivors = <SyncOp>[];
     for (final op in kept) {
-      if (overflow > 0) {
+      if (overflow > 0 && !op.isMealPlanIntent && !op.isTrainingHistoryIntent) {
         dropped.add(op);
         overflow--;
       } else {

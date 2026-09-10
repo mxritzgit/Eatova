@@ -20,6 +20,8 @@
 import 'package:eatova/main.dart' show buildEatovaApp;
 import 'package:eatova/src/app/eatova_app.dart';
 import 'package:eatova/src/services/apple_health_service.dart';
+import 'package:eatova/src/services/android_health_service.dart';
+import 'package:flutter/foundation.dart';
 import 'package:eatova/src/services/crash_reporter.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -124,12 +126,20 @@ void main() {
     });
 
     test('healthService ist AppleHealthService (B3)', () {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
       final EatovaApp app = buildEatovaApp();
 
       expect(app.healthService, isNotNull,
           reason: 'null bedeutet NoopHealthService — Apple Health app-weit '
               'tot, und der unverified-Zustand aus Welle 2 laeuft ins Leere');
       expect(app.healthService, isA<AppleHealthService>());
+    });
+
+    test('healthService uses Health Connect on Android', () {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      expect(buildEatovaApp().healthService, isA<AndroidHealthService>());
     });
 
     test('das Schadensbild ist real: ohne die Argumente greifen die Noops', () {

@@ -3,15 +3,17 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'coach_chat_service.dart';
 import 'lifetime_stats_sync.dart';
 import 'meals_sync.dart';
+import 'meal_plans_sync.dart';
 import 'profile_sync.dart';
 import 'tracking_sync.dart';
 import 'training_plans_sync.dart';
+import 'training_history_sync.dart';
 import 'user_recipes_sync.dart';
 import 'user_rpc.dart';
 
 /// Bundles all Supabase sync services for one authenticated user; built per
 /// user in EatovaApp and released when the home page disposes. Workout
-/// recovery checkpoints stay local; only accepted training plans synchronize.
+/// recovery checkpoints stay local; accepted plans and completed workouts synchronize.
 class EatovaSync {
   EatovaSync._({
     required this.client,
@@ -23,6 +25,8 @@ class EatovaSync {
     required this.lifetimeStats,
     required this.userRecipes,
     required this.trainingPlans,
+    required this.mealPlans,
+    required this.trainingHistory,
   });
 
   /// [coachChat] is a test seam: [CoachChatService] talks to an edge function,
@@ -43,6 +47,8 @@ class EatovaSync {
       lifetimeStats: LifetimeStatsSync(client, userId),
       userRecipes: UserRecipesSync(client, userId),
       trainingPlans: TrainingPlansSync(client, userId),
+      mealPlans: MealPlansSync(client, userId),
+      trainingHistory: TrainingHistorySync(client, userId),
     );
   }
 
@@ -58,6 +64,8 @@ class EatovaSync {
   final LifetimeStatsSync lifetimeStats;
   final UserRecipesSync userRecipes;
   final TrainingPlansSync trainingPlans;
+  final MealPlansSync mealPlans;
+  final TrainingHistorySync trainingHistory;
 
   /// GDPR Art. 17: deletes the user's auth.users row, app tables cascade, and
   /// the client must log out afterwards. Not freely movable — the RPC needs a

@@ -9,6 +9,8 @@ import 'package:supabase/supabase.dart';
 
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/chat_message.dart';
+import 'package:eatova/src/models/coach_training_context.dart';
+import 'package:eatova/src/models/coach_training_proposal.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 
 final _now = DateTime.utc(2026, 9, 8, 12);
@@ -147,6 +149,116 @@ class _DelayedTokenClient extends SupabaseClient {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  CoachTrainingContext brief(CoachTrainingIntent intent) =>
+      CoachTrainingContext(
+        intent: intent,
+        goal: 'Build strength',
+        experience: CoachTrainingExperience.beginner,
+        equipment: CoachTrainingEquipment.dumbbells,
+        sessionsPerWeek: 2,
+        minutesPerSession: 20,
+        selectedPlan: intent == CoachTrainingIntent.create
+            ? null
+            : CoachTrainingProposal.fromJson(_plan()),
+      );
+
+  for (final intent in CoachTrainingIntent.values) {
+    test(
+      'typed training context $intent is per-request, with no implicit profile or writes',
+      () async {
+        final requests = <http.Request>[];
+        final context = brief(intent);
+        final discussion = intent == CoachTrainingIntent.discuss;
+        final service = _service((request) async {
+          requests.add(request);
+          return _json(
+            discussion ? (_reply()..remove('training_plan')) : _reply(),
+          );
+        });
+        final reply = await service.requestPlanWithContext(
+          'Help with this plan',
+          sessionId: 's1',
+          locale: 'en',
+          trainingContext: context,
+        );
+        expect(requests, hasLength(1));
+        expect(requests.single.url.path, endsWith('/functions/v1/coach-chat'));
+        expect(jsonDecode(requests.single.body), {
+          'message': 'Help with this plan',
+          'mode': discussion ? 'chat' : 'plan',
+          'locale': 'en',
+          'session_id': 's1',
+          'training_context': context.toJson(),
+        });
+        expect(reply.proposal, discussion ? isNull : isNotNull);
+        // A subsequent explicit command must not inherit a previous snapshot.
+        if (!discussion) {
+          await service.requestPlan(
+            'Another plan',
+            sessionId: 's1',
+            locale: 'en',
+          );
+          expect(
+            (jsonDecode(requests.last.body) as Map).containsKey(
+              'training_context',
+            ),
+            isFalse,
+          );
+        }
+      },
+    );
+  }
+
+  test('discussion cannot silently adopt a returned draft or recipe', () async {
+    final service = _service((_) async => _json(_reply()));
+    await expectLater(
+      service.requestPlanWithContext(
+        'Discuss',
+        sessionId: 's1',
+        locale: 'en',
+        trainingContext: brief(CoachTrainingIntent.discuss),
+      ),
+      throwsA(isA<CoachChatException>()),
+    );
+  });
+
+  test('personalized response is rejected after an account switch', () async {
+    final pending = Completer<http.Response>();
+    final invoked = Completer<void>();
+    final requests = <http.Request>[];
+    final client = _client(
+      MockClient((request) {
+        requests.add(request);
+        invoked.complete();
+        return pending.future;
+      }),
+    );
+    await _signIn(client, 'A');
+    final service = CoachChatService(client, 'A');
+    final response = service.requestPlanWithContext(
+      'Adapt',
+      sessionId: 's1',
+      locale: 'en',
+      trainingContext: brief(CoachTrainingIntent.adapt),
+    );
+    final assertion = expectLater(
+      response,
+      throwsA(
+        isA<CoachChatException>().having(
+          (error) => error.message,
+          'identity error',
+          deL10n.coachErrorSessionExpired,
+        ),
+      ),
+    );
+    await invoked.future;
+    await _signIn(client, 'B');
+    pending.complete(_json(_reply()));
+    await assertion;
+    expect(requests, hasLength(1));
+    expect(requests.single.headers['Authorization'], 'Bearer fixture-A');
+  });
 
   group('Training plan protocol', () {
     test(

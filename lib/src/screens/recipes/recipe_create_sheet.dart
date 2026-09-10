@@ -16,9 +16,11 @@ class RezeptEntwurfErgebnis {
   const RezeptEntwurfErgebnis({
     required this.rezept,
     required this.fotoFehlgeschlagen,
+    this.delivery,
   });
 
   final FitnessRecipe rezept;
+  final SyncDelivery? delivery;
 
   /// Es lag ein Foto vor, aber die Ablage auf dem Geraet schlug fehl. Das
   /// Rezept wurde trotzdem gespeichert — ohne Bild, weil eine baumelnde
@@ -165,12 +167,22 @@ class _DiscardDragGuardState extends State<_DiscardDragGuard> {
 /// Numbered sections scroll between the close control and the save action.
 /// Related values reflow to a single column on narrow or enlarged layouts.
 class _CreateRecipeSheet extends StatefulWidget {
-  const _CreateRecipeSheet({required this.photoInput});
+  const _CreateRecipeSheet({
+    required this.photoInput,
+    this.initialRecipe,
+    this.onSave,
+    this.isSessionCurrent,
+    this.productService,
+  });
 
   /// Camera/gallery picker. Returns EXIF-free bytes already
   /// (`DeviceMealPhotoInput` runs them through `compressMealPhoto`) — the same
   /// pipeline the AI scan uses.
   final MealPhotoInput photoInput;
+  final FitnessRecipe? initialRecipe;
+  final Future<SyncDelivery> Function(FitnessRecipe)? onSave;
+  final bool Function()? isSessionCurrent;
+  final ProductLookupService? productService;
 
   @override
   State<_CreateRecipeSheet> createState() => _CreateRecipeSheetState();
@@ -187,6 +199,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   /// dirty again.
   final List<_RecipeField> _felder = <_RecipeField>[];
 
+  late final String _draftSlug;
   late final TextEditingController _name;
   late final TextEditingController _portion;
   late final TextEditingController _grams;
@@ -195,20 +208,33 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   late final TextEditingController _carbs;
   late final TextEditingController _fat;
   late final TextEditingController _ingredients;
+  late final TextEditingController _preparation;
+  late final TextEditingController _description;
+  late List<RecipeIngredient> _structuredIngredients;
+  late bool _structured;
+  late double? _batchServings;
+  bool _ingredientsChanged = false;
 
   @override
   void initState() {
     super.initState();
-    _name = _feld();
+    final recipe = widget.initialRecipe;
+    _draftSlug = recipe?.slug ?? FitnessRecipe.userRecipeSlug();
+    _structuredIngredients = List.of(recipe?.structuredIngredients ?? []);
+    _structured = recipe?.hasStructuredIngredients ?? false;
+    _batchServings = recipe?.batchServings ?? 1;
+    _name = _feld(recipe?.title ?? '');
     // The portion default lands in didChangeDependencies — l10n needs a built
     // BuildContext, which initState does not have yet.
-    _portion = _feld();
-    _grams = _feld('300');
-    _kcal = _feld();
-    _protein = _feld();
-    _carbs = _feld();
-    _fat = _feld();
-    _ingredients = _feld();
+    _portion = _feld(recipe?.portion ?? '');
+    _grams = _feld(recipe?.estimatedGrams.toString() ?? '300');
+    _kcal = _feld(recipe?.caloriesKcal.toString() ?? '');
+    _protein = _feld(recipe?.proteinG.toString() ?? '');
+    _carbs = _feld(recipe?.carbsG.toString() ?? '');
+    _fat = _feld(recipe?.fatG.toString() ?? '');
+    _ingredients = _feld(recipe?.ingredients ?? '');
+    _preparation = _feld(recipe?.preparation ?? '');
+    _description = _feld(recipe?.description ?? '');
   }
 
   /// Applies the l10n-dependent portion default exactly once: not in
@@ -222,6 +248,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     super.didChangeDependencies();
     if (_defaultsVorbelegt) return;
     _defaultsVorbelegt = true;
+    if (widget.initialRecipe != null) return;
     final fallbackPortion = context.l10n.foodPortionFallback;
     _portion.text = fallbackPortion;
     _felder.firstWhere((feld) => feld.controller == _portion).start =
@@ -255,14 +282,16 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   // leaves no orphaned file.
 
   Uint8List? _photoBytes;
+  bool _photoRemoved = false;
+  String? _saveError;
 
   /// True while the system picker is open or the bytes are being scrubbed.
   bool _photoBusy = false;
 
-  bool get _hasPhoto => _photoBytes != null;
+  bool get _sessionCurrent => widget.isSessionCurrent?.call() ?? true;
 
   Future<void> _pickPhoto(ImageSource source) async {
-    if (_photoBusy || _saving) return;
+    if (_photoBusy || _saving || !_sessionCurrent) return;
     setState(() => _photoBusy = true);
     Uint8List? bytes;
     try {
@@ -279,11 +308,17 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     if (!mounted) return;
     setState(() {
       _photoBusy = false;
-      if (bytes != null) _photoBytes = bytes;
+      if (bytes != null && _sessionCurrent) {
+        _photoBytes = bytes;
+        _photoRemoved = false;
+      }
     });
   }
 
-  void _removePhoto() => setState(() => _photoBytes = null);
+  void _removePhoto() => setState(() {
+    _photoBytes = null;
+    _photoRemoved = widget.initialRecipe?.imageAsset.isNotEmpty ?? false;
+  });
 
   void _melde(String text) {
     if (!mounted) return;
@@ -298,7 +333,14 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   /// D5: any field differs from its start value, or an unsaved photo sits in
   /// the sheet. Without the second half a fresh photo would be the one content
   /// a barrier tap discards silently.
-  bool get _dirty => _felder.any((feld) => feld.veraendert) || _hasPhoto;
+  bool get _dirty =>
+      _ingredientsChanged ||
+      _structured !=
+          (widget.initialRecipe?.hasStructuredIngredients ?? false) ||
+      _batchServings != (widget.initialRecipe?.batchServings ?? 1) ||
+      _felder.any((feld) => feld.veraendert) ||
+      _photoBytes != null ||
+      _photoRemoved;
 
   // ── Field validation ────────────────────────────────────────────────────
   //
@@ -364,11 +406,23 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   /// within their limits.
   bool get _isValid {
     if (_name.text.trim().isEmpty) return false;
+    if (_structured) {
+      return _structuredIngredients.isNotEmpty &&
+          _batchServings != null &&
+          _calculation?.fitsStorageLimits == true &&
+          _nameFehler == null &&
+          _textFehler(_portion, _portionMaxCodePoints) == null &&
+          _textFehler(_ingredients, _ingredientsMaxCodePoints) == null &&
+          _textFehler(_preparation, _ingredientsMaxCodePoints) == null &&
+          _textFehler(_description, 2000) == null;
+    }
     // Required fields: empty means missing, not optional.
     if (_kcal.text.trim().isEmpty || _grams.text.trim().isEmpty) return false;
     return _nameFehler == null &&
         _textFehler(_portion, _portionMaxCodePoints) == null &&
         _textFehler(_ingredients, _ingredientsMaxCodePoints) == null &&
+        _textFehler(_preparation, _ingredientsMaxCodePoints) == null &&
+        _textFehler(_description, 2000) == null &&
         _kcalFehler == null &&
         _gramsFehler == null &&
         _makroFehler(_protein) == null &&
@@ -379,42 +433,56 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   int _zahl(TextEditingController controller) =>
       int.tryParse(controller.text.trim()) ?? 0;
 
-  /// Runs fully synchronously without a photo (no `await` before the `pop`);
-  /// only the image branch waits on the store. Returns `Future<void>` but
-  /// stays readable as a `VoidCallback` on the [FilledButton] (`null` =
-  /// disabled), which recipe_create_sheet_test relies on.
+  RecipeCalculation? get _calculation =>
+      !_structured || _structuredIngredients.isEmpty || _batchServings == null
+      ? null
+      : RecipeCalculation.calculate(
+          _structuredIngredients,
+          batchServings: _batchServings!,
+        );
+
+  /// Freeze the validated draft before IO and close only after persistence.
   Future<void> _save() async {
     if (!_isValid || _saving || _photoBusy) return;
+    if (!_sessionCurrent) {
+      setState(() => _saveError = context.l10n.recipeEditSessionChanged);
+      return;
+    }
     // `maxLength` caps the name at 160 GRAPHEMES, which can still be more
     // than the 300 code points Postgres' `char_length` allows; `_isValid`
     // (via `_nameFehler`) has already rejected that case. Only trim left.
     final name = _name.text.trim();
     if (name.runes.length > _nameMaxCodePoints) return;
     final ingredients = _ingredients.text.trim();
-    // description/preparation/professionalHint have no field here and are
-    // stored empty (neutral marker); display resolves them into the CURRENT
-    // locale via `FitnessRecipe.display*`. Persisting the localized ARB text
-    // would freeze the language the recipe was created in. Same for the
-    // portion: its default is l10n-dependent, so an untouched or emptied
-    // suggestion is "no real value". `_RecipeField.veraendert` decides — more
-    // robust than comparing against the current ARB wording.
+    final preparation = _preparation.text.trim();
+    final description = _description.text.trim();
+    // Keep an untouched creation placeholder locale-neutral. Editing preserves
+    // the stored portion, including empty text.
     final portionField = _felder.firstWhere(
       (feld) => feld.controller == _portion,
     );
-    final portion = portionField.veraendert ? _portion.text.trim() : '';
-    final slug = FitnessRecipe.userRecipeSlug();
+    final portion = widget.initialRecipe != null || portionField.veraendert
+        ? _portion.text.trim()
+        : '';
+    final original = widget.initialRecipe;
+    final slug = _draftSlug;
     // Capture every validated value before the asynchronous photo write.
-    final caloriesKcal = _zahl(_kcal);
-    final proteinG = _zahl(_protein);
-    final carbsG = _zahl(_carbs);
-    final fatG = _zahl(_fat);
-    final estimatedGrams = _zahl(_grams);
+    final known = _calculation?.knownNutrition;
+    final caloriesKcal = known?.caloriesKcal?.round() ?? _zahl(_kcal);
+    final proteinG = known?.proteinG?.round() ?? _zahl(_protein);
+    final carbsG = known?.carbsG?.round() ?? _zahl(_carbs);
+    final fatG = known?.fatG?.round() ?? _zahl(_fat);
+    final estimatedGrams = _structured ? 0 : _zahl(_grams);
+    final structuredIngredients = List<RecipeIngredient>.unmodifiable(
+      _structured ? _structuredIngredients : <RecipeIngredient>[],
+    );
+    final batchServings = _structured ? _batchServings! : 1.0;
 
     // The store names the image cryptographically at random, not from the slug
     // (Security review 2026-08-11, finding 5: `user_<ms>` was guessable). If
     // the write fails, the recipe is saved without an image — a dangling
     // reference would be worse than none.
-    var imageAsset = '';
+    var imageAsset = _photoRemoved ? '' : original?.imageAsset ?? '';
     // Reist mit dem Ergebnis nach draussen: das Sheet darf das Scheitern NICHT
     // selbst melden. Es poppt unmittelbar danach, und der Erfolgs-Toast des
     // Aufrufers legt sich sofort darueber — die Meldung erreichte den Nutzer
@@ -435,26 +503,64 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     }
 
     if (!mounted) return;
+    if (!_sessionCurrent) {
+      setState(() {
+        _saving = false;
+        _saveError = context.l10n.recipeEditSessionChanged;
+      });
+      return;
+    }
+    final recipe = FitnessRecipe(
+      slug: slug,
+      title: name,
+      description: description,
+      portion: portion,
+      ingredients: ingredients,
+      preparation: preparation,
+      professionalHint: original?.professionalHint ?? '',
+      imageAsset: imageAsset,
+      caloriesKcal: caloriesKcal,
+      proteinG: proteinG,
+      carbsG: carbsG,
+      fatG: fatG,
+      estimatedGrams: estimatedGrams,
+      categories: original?.categories ?? const <String>['Eigene'],
+      userCreated: true,
+      structuredIngredients: structuredIngredients,
+      batchServings: batchServings,
+    );
+    SyncDelivery? delivery;
+    if (widget.onSave != null) {
+      setState(() {
+        _saving = true;
+        _saveError = null;
+      });
+      FocusScope.of(context).unfocus();
+      try {
+        delivery = await widget.onSave!(recipe);
+      } catch (_) {
+        if (mounted) {
+          setState(() {
+            _saving = false;
+            _saveError = context.l10n.recipeEditSaveFailed;
+          });
+        }
+        return;
+      }
+      if (!mounted) return;
+      if (!_sessionCurrent) {
+        setState(() {
+          _saving = false;
+          _saveError = context.l10n.recipeEditSessionChanged;
+        });
+        return;
+      }
+    }
     Navigator.of(context).pop(
       RezeptEntwurfErgebnis(
+        rezept: recipe,
         fotoFehlgeschlagen: fotoFehlgeschlagen,
-        rezept: FitnessRecipe(
-          slug: slug,
-          title: name,
-          description: '',
-          portion: portion,
-          ingredients: ingredients,
-          preparation: '',
-          professionalHint: '',
-          imageAsset: imageAsset,
-          caloriesKcal: caloriesKcal,
-          proteinG: proteinG,
-          carbsG: carbsG,
-          fatG: fatG,
-          estimatedGrams: estimatedGrams,
-          categories: const <String>['Eigene'],
-          userCreated: true,
-        ),
+        delivery: delivery,
       ),
     );
   }
@@ -484,13 +590,13 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     return PopScope<RezeptEntwurfErgebnis?>(
       // Only while something is actually filled in; an empty sheet closes
       // immediately.
-      canPop: !_dirty,
+      canPop: !_dirty && !_saving,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
         _askDiscard();
       },
       child: _DiscardDragGuard(
-        active: _dirty,
+        active: _dirty || _saving,
         onDismissAttempt: _askDiscard,
         child: Padding(
           padding: EdgeInsets.only(bottom: viewInsets),
@@ -548,7 +654,11 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                   child: HeadingSemantics(
                     level: 1,
                     child: Text(
-                      compact ? l10n.navRecipes : l10n.recipesOwnTitle,
+                      widget.initialRecipe != null
+                          ? l10n.recipeEditTitle
+                          : compact
+                          ? l10n.navRecipes
+                          : l10n.recipesOwnTitle,
                       style: compact
                           ? AppType.ui(
                               15,
@@ -584,7 +694,9 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    l10n.recipesCreateIntro,
+                    widget.initialRecipe != null
+                        ? l10n.recipeEditIntro
+                        : l10n.recipesCreateIntro,
                     style: AppType.ui(14, color: t.ink2, height: 1.45),
                   ),
                   if (compact) ...[
@@ -609,6 +721,19 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                           maxChars: _nameMaxChars,
                           errorText: _nameFehler,
                         ),
+                        if (widget.initialRecipe != null) ...[
+                          const SizedBox(height: 12),
+                          _RecipeSheetField(
+                            fieldKey: const ValueKey(
+                              'recipe-create-description',
+                            ),
+                            controller: _description,
+                            label: l10n.recipeEditDescription,
+                            maxLines: 3,
+                            maxChars: 2000,
+                            errorText: _textFehler(_description, 2000),
+                          ),
+                        ],
                         const SizedBox(height: 12),
                         _RecipeFieldGrid(
                           // Portion and weight describe the same thing, so they sit
@@ -625,14 +750,15 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                                 _portionMaxCodePoints,
                               ),
                             ),
-                            _RecipeSheetField(
-                              fieldKey: const ValueKey('recipe-create-grams'),
-                              controller: _grams,
-                              label: l10n.foodAddItemWeightLabel,
-                              unit: 'g',
-                              numeric: true,
-                              errorText: _gramsFehler,
-                            ),
+                            if (!_structured)
+                              _RecipeSheetField(
+                                fieldKey: const ValueKey('recipe-create-grams'),
+                                controller: _grams,
+                                label: l10n.foodAddItemWeightLabel,
+                                unit: 'g',
+                                numeric: true,
+                                errorText: _gramsFehler,
+                              ),
                           ],
                         ),
                       ],
@@ -641,58 +767,104 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                   const SizedBox(height: 10),
                   _RecipePhotoPicker(
                     bytes: _photoBytes,
+                    existingRecipe: !_photoRemoved
+                        ? widget.initialRecipe
+                        : null,
                     busy: _photoBusy || _saving,
                     onCamera: () => _pickPhoto(ImageSource.camera),
                     onGallery: () => _pickPhoto(ImageSource.gallery),
                     onRemove: _removePhoto,
                   ),
                   const SizedBox(height: 24),
-                  _SheetGroup(
-                    number: 2,
-                    label: l10n.recipesGroupNutrition,
-                    trailing: l10n.recipesPerPortion,
-                    // Nutrient colors match the recipe detail view.
-                    child: _RecipeFieldGrid(
-                      children: [
-                        _RecipeSheetField(
-                          fieldKey: const ValueKey('recipe-create-kcal'),
-                          controller: _kcal,
-                          label: l10n.foodAddItemCaloriesLabel,
-                          unit: 'kcal',
-                          numeric: true,
-                          dot: t.accent,
-                          errorText: _kcalFehler,
+                  Material(
+                    color: Colors.transparent,
+                    child: SwitchListTile.adaptive(
+                      key: const ValueKey('recipe-create-structured'),
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(
+                        l10n.recipeEditCalculateIngredients,
+                        style: AppType.ui(
+                          15,
+                          color: t.ink,
+                          weight: FontWeight.w600,
                         ),
-                        _RecipeSheetField(
-                          fieldKey: const ValueKey('recipe-create-protein'),
-                          controller: _protein,
-                          label: l10n.todayMacroProtein,
-                          unit: 'g',
-                          numeric: true,
-                          dot: t.protein,
-                          errorText: _makroFehler(_protein),
-                        ),
-                        _RecipeSheetField(
-                          fieldKey: const ValueKey('recipe-create-carbs'),
-                          controller: _carbs,
-                          label: l10n.todayMacroCarbs,
-                          unit: 'g',
-                          numeric: true,
-                          dot: t.carbs,
-                          errorText: _makroFehler(_carbs),
-                        ),
-                        _RecipeSheetField(
-                          fieldKey: const ValueKey('recipe-create-fat'),
-                          controller: _fat,
-                          label: l10n.todayMacroFat,
-                          unit: 'g',
-                          numeric: true,
-                          dot: t.fat,
-                          errorText: _makroFehler(_fat),
-                        ),
-                      ],
+                      ),
+                      subtitle: Text(
+                        l10n.recipeEditCalculateHint,
+                        style: AppType.ui(14, color: t.ink2, height: 1.4),
+                      ),
+                      value: _structured,
+                      onChanged: (value) => setState(() => _structured = value),
                     ),
                   ),
+                  const SizedBox(height: 16),
+                  if (_structured) ...[
+                    RecipeIngredientEditor(
+                      ingredients: _structuredIngredients,
+                      productService: widget.productService,
+                      onChanged: (value) => setState(() {
+                        _structuredIngredients = List.unmodifiable(value);
+                        _ingredientsChanged = true;
+                      }),
+                    ),
+                    const SizedBox(height: 16),
+                    RecipePortionSelector(
+                      initialServings: _batchServings ?? 1,
+                      label: l10n.recipeEditBatchServings,
+                      onChanged: (value) =>
+                          setState(() => _batchServings = value),
+                    ),
+                    if (_calculation != null) ...[
+                      const SizedBox(height: 16),
+                      _CalculatedNutrition(calculation: _calculation!),
+                    ],
+                  ] else
+                    _SheetGroup(
+                      number: 2,
+                      label: l10n.recipesGroupNutrition,
+                      trailing: l10n.recipesPerPortion,
+                      // Nutrient colors match the recipe detail view.
+                      child: _RecipeFieldGrid(
+                        children: [
+                          _RecipeSheetField(
+                            fieldKey: const ValueKey('recipe-create-kcal'),
+                            controller: _kcal,
+                            label: l10n.foodAddItemCaloriesLabel,
+                            unit: 'kcal',
+                            numeric: true,
+                            dot: t.accent,
+                            errorText: _kcalFehler,
+                          ),
+                          _RecipeSheetField(
+                            fieldKey: const ValueKey('recipe-create-protein'),
+                            controller: _protein,
+                            label: l10n.todayMacroProtein,
+                            unit: 'g',
+                            numeric: true,
+                            dot: t.protein,
+                            errorText: _makroFehler(_protein),
+                          ),
+                          _RecipeSheetField(
+                            fieldKey: const ValueKey('recipe-create-carbs'),
+                            controller: _carbs,
+                            label: l10n.todayMacroCarbs,
+                            unit: 'g',
+                            numeric: true,
+                            dot: t.carbs,
+                            errorText: _makroFehler(_carbs),
+                          ),
+                          _RecipeSheetField(
+                            fieldKey: const ValueKey('recipe-create-fat'),
+                            controller: _fat,
+                            label: l10n.todayMacroFat,
+                            unit: 'g',
+                            numeric: true,
+                            dot: t.fat,
+                            errorText: _makroFehler(_fat),
+                          ),
+                        ],
+                      ),
+                    ),
                   const SizedBox(height: 24),
                   _SheetGroup(
                     number: 3,
@@ -714,6 +886,25 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                       showLabel: false,
                     ),
                   ),
+                  const SizedBox(height: 24),
+                  _SheetGroup(
+                    number: 4,
+                    label: l10n.recipesSectionPreparation,
+                    trailing: l10n.recipesOptionalLabel,
+                    child: _RecipeSheetField(
+                      fieldKey: const ValueKey('recipe-create-preparation'),
+                      controller: _preparation,
+                      label: l10n.recipesSectionPreparation,
+                      hint: l10n.recipeEditPreparationHint,
+                      maxLines: 5,
+                      maxChars: _ingredientsMaxChars,
+                      errorText: _textFehler(
+                        _preparation,
+                        _ingredientsMaxCodePoints,
+                      ),
+                      showLabel: false,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -726,9 +917,19 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  if (_saveError != null) ...[
+                    Text(
+                      _saveError!,
+                      key: const ValueKey('recipe-edit-save-error'),
+                      style: AppType.ui(14, color: t.danger, height: 1.4),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
                   if (!compact) ...[
                     Text(
-                      l10n.recipesNameAndCaloriesSuffice,
+                      _structured
+                          ? l10n.recipeEditCalculatedHint
+                          : l10n.recipesNameAndCaloriesSuffice,
                       style: AppType.ui(12, color: t.ink2),
                       textAlign: TextAlign.center,
                     ),
@@ -756,7 +957,9 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                             )
                           : const Icon(Icons.check_rounded, size: 18),
                       label: Text(
-                        l10n.recipesSaveButtonLabel,
+                        widget.initialRecipe != null
+                            ? l10n.recipeEditSave
+                            : l10n.recipesSaveButtonLabel,
                         style: AppType.ui(14.5, weight: FontWeight.w700),
                       ),
                     ),
@@ -806,9 +1009,11 @@ class _RecipePhotoPicker extends StatelessWidget {
     required this.onCamera,
     required this.onGallery,
     required this.onRemove,
+    this.existingRecipe,
   });
 
   final Uint8List? bytes;
+  final FitnessRecipe? existingRecipe;
   final bool busy;
   final VoidCallback onCamera;
   final VoidCallback onGallery;
@@ -818,7 +1023,8 @@ class _RecipePhotoPicker extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    final vorhanden = bytes != null;
+    final vorhanden =
+        bytes != null || (existingRecipe?.imageAsset.isNotEmpty ?? false);
     return AppCard(
       radius: rCard,
       padding: const EdgeInsets.all(16),
@@ -833,7 +1039,7 @@ class _RecipePhotoPicker extends StatelessWidget {
                 height: 60,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(rControl),
-                  child: vorhanden
+                  child: bytes != null
                       ? Image.memory(
                           bytes!,
                           key: const ValueKey('recipe-create-photo-preview'),
@@ -846,6 +1052,11 @@ class _RecipePhotoPicker extends StatelessWidget {
                           cacheWidth:
                               (60 * MediaQuery.devicePixelRatioOf(context))
                                   .round(),
+                        )
+                      : vorhanden
+                      ? _RecipeImage(
+                          recipe: existingRecipe!,
+                          placeholderRadius: rControl,
                         )
                       : ImagePlaceholder(
                           radius: rControl,

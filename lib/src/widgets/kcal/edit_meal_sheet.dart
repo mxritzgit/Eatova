@@ -361,7 +361,13 @@ class _EditMealSheetState extends State<EditMealSheet> {
                 children: [
                   _SummaryCard(result: _result, adjusted: _resultChanged),
                   const SizedBox(height: 10),
-                  SizedBox(
+                  if (_result.isRecipeWithoutCookedWeight)
+                    Text(
+                      l10n.recipeCalcNoCookedWeight,
+                      key: const ValueKey('edit-meal-no-cooked-weight'),
+                      style: AppType.ui(13.5, color: t.ink2, height: 1.4),
+                    )
+                  else SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
                       key: const ValueKey('edit-meal-adjust-button'),
@@ -544,7 +550,9 @@ class _SummaryCard extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              '${result.caloriesKcal} kcal · ${result.estimatedGrams} g',
+              result.isRecipeWithoutCookedWeight
+                  ? '${result.caloriesKcal} kcal · ${context.l10n.recipeCalcSavedPortion}'
+                  : '${result.caloriesKcal} kcal · ${result.estimatedGrams} g',
               style: AppType.display(16, color: t.ink),
             ),
           ),

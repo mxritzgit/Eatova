@@ -1964,5 +1964,222 @@
   "foodScanStart": "Analyse starten",
   "trainingCreateIntro": "Dein Rhythmus. Deine Übungen. Stell dir einen Plan zusammen, der zu dir passt.",
   "trainingWorkoutIntro": "Benenne deine Einheit und ergänze deine Übungen.",
-  "recipesCreateIntro": "Dein Lieblingsgericht, festgehalten für den Alltag."
+  "recipesCreateIntro": "Dein Lieblingsgericht, festgehalten für den Alltag.",
+  "recipeCalcSavedPortion": "Gespeicherte Rezeptportion",
+  "recipeCalcNoCookedWeight": "Dieses Rezept wurde nach Portionen eingetragen. Sein gekochtes Gewicht wurde nicht erfasst, daher ist keine Grammanpassung möglich. Die gespeicherten Nährwerte bleiben unverändert.",
+  "ingredientEmpty": "Füge abgewogene Zutaten hinzu, um dein Rezept zu berechnen.",
+  "ingredientAdd": "Zutat hinzufügen",
+  "ingredientEdit": "Zutat bearbeiten",
+  "ingredientRemove": "Zutat entfernen",
+  "ingredientLimit": "Ein Rezept kann bis zu 100 Zutaten enthalten.",
+  "ingredientIncomplete": "Nährwerte unvollständig",
+  "ingredientIncompleteHelp": "Leere Werte bleiben unbekannt. Zum Eintragen des Rezepts werden die Kalorien jeder Zutat benötigt.",
+  "ingredientSearch": "Produkte suchen",
+  "ingredientSearchHint": "Lebensmittel oder Marke",
+  "ingredientManual": "Zutat manuell eingeben",
+  "ingredientSearching": "Produkte werden gesucht…",
+  "ingredientSearchError": "Produkte konnten nicht geladen werden. Suche erneut oder gib die Zutat manuell ein.",
+  "ingredientNoResults": "Keine Produkte gefunden. Suche nach einem anderen Namen oder gib die Zutat manuell ein.",
+  "ingredientName": "Name der Zutat",
+  "ingredientNameHint": "Zum Beispiel Haferflocken",
+  "ingredientGrams": "Gewicht im gesamten Rezept (g)",
+  "ingredientKcal": "Kalorien pro 100 g (kcal)",
+  "ingredientProtein": "Eiweiß pro 100 g (g)",
+  "ingredientCarbs": "Kohlenhydrate pro 100 g (g)",
+  "ingredientFat": "Fett pro 100 g (g)",
+  "ingredientPer100Help": "Wiege die Zutat für das gesamte Rezept ab. Übernimm die Nährwerte pro 100 g vom Etikett; fehlende Werte bleiben leer.",
+  "ingredientUnknown": "Unbekannt",
+  "ingredientSave": "Zutat übernehmen",
+  "ingredientNameError": "Verwende einen Namen mit bis zu 160 Zeichen ohne Zeilenumbrüche.",
+  "ingredientNumberError": "Gib eine Zahl zwischen {min} und {max} ein.",
+  "@ingredientNumberError": {"placeholders": {"min": {"type": "String"}, "max": {"type": "String"}}},
+  "recipeCalcServings": "Portionen zum Eintragen",
+  "recipeCalcServingsError": "Gib zwischen 0,1 und 100 Portionen ein, zum Beispiel 0,5.",
+  "recipeCalcServingsCount": "{count} Portionen",
+  "@recipeCalcServingsCount": {"placeholders": {"count": {"type": "String"}}},
+  "recipeEditTitle": "Rezept bearbeiten",
+  "recipeEditIntro": "Passe dein Rezept an. Bereits eingetragene Mahlzeiten bleiben unverändert.",
+  "recipeEditDescription": "Beschreibung",
+  "recipeEditSave": "Änderungen speichern",
+  "recipeEditSaved": "Rezept aktualisiert",
+  "recipeEditPreparationHint": "Beschreibe die Zubereitung Schritt für Schritt.",
+  "recipeEditSaveFailed": "Änderungen konnten nicht sicher gespeichert werden. Dein Entwurf bleibt hier. Versuche es erneut.",
+  "recipeEditSessionChanged": "Deine Anmeldung hat sich geändert. Schließe diesen Entwurf und öffne das Rezept erneut.",
+  "recipeEditPhotoRetained": "Rezept aktualisiert. Das neue Foto konnte nicht gespeichert werden; das bisherige Foto bleibt erhalten",
+  "recipeEditMealPlan": "Speiseplan",
+  "recipeEditCalculateIngredients": "Aus Zutaten berechnen",
+  "recipeEditCalculateHint": "Zutaten wiegen und die Nährwerte auf Kochportionen verteilen.",
+  "recipeEditBatchServings": "Kochportionen insgesamt",
+  "recipeEditCalculatedHint": "Die Nährwerte werden aus den Zutaten berechnet.",
+  "recipeEditIncompleteNutrition": "Unvollständige Nährwerte: — bedeutet, dass für mindestens eine Zutat Angaben fehlen.",
+  "recipeEditNutritionTooLarge": "Die Menge pro Portion ist zu groß. Prüfe die Zutaten oder erhöhe die Kochportionen.",
+  "recipeEditCannotLog": "Prüfe die Portionen und ergänze fehlende Kalorien der Zutaten, bevor du das Rezept einträgst.",
+  "recipeEditCoachSource": "Mit Coach erstellt",
+  "mealPlanTitle": "Speiseplan",
+  "mealPlanIntro": "Plane deine Woche. Erst „Heute gegessen“ übernimmt eine Mahlzeit ins Tagebuch.",
+  "mealPlanWeek": "Wochenplan",
+  "mealPlanShopping": "Einkaufsliste",
+  "mealPlanPreviousWeek": "Vorherige Woche",
+  "mealPlanNextWeek": "Nächste Woche",
+  "mealPlanEmptyDay": "Noch nichts geplant.",
+  "mealPlanAdd": "Mahlzeit planen",
+  "mealPlanEdit": "Planung bearbeiten",
+  "mealPlanEatToday": "Heute gegessen",
+  "mealPlanEatenOn": "Am {date} eingetragen",
+  "@mealPlanEatenOn": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "mealPlanPortionCount": "{count, plural, =1{1 Portion} other{{count} Portionen}}",
+  "@mealPlanPortionCount": {
+    "placeholders": {
+      "count": {
+        "type": "num",
+        "format": "decimalPattern"
+      }
+    }
+  },
+  "mealPlanServings": "Portionen",
+  "mealPlanServingsError": "Gib 0,1 bis 100 Portionen ein.",
+  "mealPlanSaved": "Gespeichert.",
+  "mealPlanSavedOffline": "Auf diesem Gerät gespeichert. Wird später synchronisiert.",
+  "mealPlanSaveError": "Nicht gespeichert. Prüfe deine Verbindung oder den Gerätespeicher und versuche es erneut.",
+  "mealPlanLoadError": "Der aktuelle Serverstand konnte nicht geladen werden. Gespeicherte Planungen bleiben sichtbar.",
+  "mealPlanShoppingIntro": "Zutaten für noch nicht gegessene Mahlzeiten dieser Woche. Geänderte Mengen werden wieder abgewählt.",
+  "mealPlanShoppingEmpty": "Plane zuerst eine Mahlzeit für diese Woche.",
+  "mealPlanWeighed": "Abgewogene Zutaten",
+  "mealPlanUnquantified": "Mengen selbst prüfen",
+  "mealPlanUnquantifiedHint": "Diese Rezepte haben Freitext-Zutaten. Prüfe die Mengen für deine geplanten Portionen selbst.",
+  "mealPlanNoIngredients": "Keine Zutaten angegeben. Rezept vor dem Einkauf prüfen.",
+  "mealPlanChooseRecipe": "Rezept auswählen",
+  "mealPlanSearchRecipe": "Rezepte durchsuchen",
+  "mealPlanNoRecipes": "Keine passenden Rezepte.",
+  "mealPlanSnapshotHint": "Diese Planung behält das Rezept in seiner jetzigen Form. Spätere Rezeptänderungen ändern den Plan nicht.",
+  "mealPlanRetry": "Erneut laden",
+  "mealPlanCannotLog": "Zum Eintragen fehlen Kalorien oder die Portion ist zu groß. Korrigiere die Portion oder plane das vervollständigte Rezept erneut.",
+  "coachBriefTitle": "Dein Trainingsbriefing",
+  "coachBriefDataUsed": "Coach verwendet die folgenden Angaben und gegebenenfalls den ausgewählten Plan für diese Anfrage. Prüfe die Vorauswahl. Weitere Profilwerte oder Trainingsverlauf werden nicht mitgesendet.",
+  "coachBriefDefaultGoal": "Allgemeine Fitness",
+  "coachBriefGoal": "Trainingsziel",
+  "coachBriefExperience": "Erfahrung",
+  "coachBriefBeginner": "Einstieg",
+  "coachBriefIntermediate": "Regelmäßig dabei",
+  "coachBriefAdvanced": "Fortgeschritten",
+  "coachBriefEquipment": "Verfügbares Equipment",
+  "coachBriefBodyweight": "Körpergewicht",
+  "coachBriefDumbbells": "Kurzhanteln",
+  "coachBriefGym": "Fitnessstudio",
+  "coachBriefSessions": "Einheiten pro Woche",
+  "coachBriefMinutes": "Minuten pro Einheit",
+  "coachBriefWish": "Wunsch oder Frage (optional)",
+  "coachBriefSelectedPlan": "Ausgewählter Plan",
+  "coachBriefPreviewPlan": "Mitgesendeten Plan ansehen",
+  "coachBriefIntent": "Was möchtest du tun?",
+  "coachBriefDiscuss": "Besprechen",
+  "coachBriefAdapt": "Anpassen",
+  "coachBriefDiscussAction": "Mit Coach besprechen / anpassen",
+  "coachBriefDraftNotice": "Das Senden verwendet eine Coach-Anfrage. Vorschläge prüfst und bearbeitest du vor der Übernahme als neuen Plan. Dein gespeicherter Plan bleibt erhalten. Dieses Briefing wird nicht als Profil gespeichert.",
+  "coachBriefGenerate": "Planentwurf anfragen",
+  "coachBriefSendDiscussion": "Plan besprechen",
+  "coachBriefCreateWish": "Erstelle einen passenden Trainingsplan anhand meines Briefings.",
+  "coachBriefAdaptWish": "Schlage eine Anpassung des ausgewählten Trainingsplans anhand meines Briefings vor.",
+  "coachBriefDiscussWish": "Besprich, wie gut der ausgewählte Trainingsplan zu meinem Briefing passt.",
+  "coachBriefInvalid": "Prüfe Ziel und Wunsch. Verwende normalen Text ohne Befehle. Falls der gespeicherte Plan ungültige Angaben enthält, bearbeite ihn zuerst in Training.",
+  "coachBriefUnavailable": "Der Chat ist noch nicht bereit oder das Kontingent ist aufgebraucht. Schließe das Briefing und prüfe den Chat.",
+  "healthConnectTitle": "Health Connect",
+  "healthConnectSetup": "Verbinde Health Connect, um deine Schritte zu sehen und den Kalorienverbrauch zu schätzen.",
+  "healthConnectConnected": "Schritte verbunden. Aktualisiere, um Tagesdaten zu lesen.",
+  "healthConnectNoData": "Verbunden, aber für heute sind noch keine Schrittdaten vorhanden. Prüfe in Health Connect, ob dein Smartphone oder eine Fitness-App Schritte bereitstellt.",
+  "healthConnectDenied": "Der Zugriff auf Schritte wurde nicht erlaubt oder entzogen. Erlaube ihn erneut oder öffne die Berechtigungen in Health Connect.",
+  "healthConnectUpdateRequired": "Health Connect muss installiert oder aktualisiert werden, bevor du Schritte verbinden kannst.",
+  "healthConnectUnavailable": "Health Connect ist auf diesem Gerät nicht verfügbar.",
+  "healthConnectError": "Health Connect konnte nicht geprüft werden. Versuche es erneut oder prüfe die Einstellungen.",
+  "healthConnectStepsOnly": "Nur Schritte lesen. Gewicht trägst du hier weiterhin selbst ein.",
+  "healthConnectConnect": "Schritte verbinden",
+  "healthConnectRefresh": "Aktualisieren",
+  "healthConnectInstall": "Installieren / Aktualisieren",
+  "healthConnectSettings": "Health Connect öffnen",
+  "healthConnectLoading": "Health Connect wird geprüft",
+  "healthConnectMissingTitle": "Noch keine Schrittdaten",
+  "healthConnectMissingHint": "Für diesen Tag liegen keine Schritte vor. Prüfe die Verbindung und Datenquellen in deinem Profil.",
+  "healthConnectReview": "Verbindung prüfen",
+  "trainingHistoryTitle": "Trainingsverlauf",
+  "trainingHistorySubtitle": "Deine abgeschlossenen Trainings.",
+  "trainingHistoryEmpty": "Hier erscheinen deine bestätigten Trainingsabschlüsse. Starte ein Training und speichere es am Ende.",
+  "trainingHistoryLoadError": "Der Verlauf konnte nicht geladen werden. Gespeicherte Trainings bleiben verfügbar. Versuche es erneut.",
+  "trainingHistoryLastTime": "Letztes Mal",
+  "trainingHistoryNote": "Notiz zum Training",
+  "trainingHistoryDeleteTitle": "Training löschen?",
+  "trainingHistoryDeleteBody": "Dieser Abschluss und seine Satzwerte werden aus deinem Verlauf entfernt. Dein Trainingsplan bleibt erhalten.",
+  "trainingHistoryDeleted": "Training aus dem Verlauf gelöscht",
+  "trainingHistoryDeleteError": "Das Training konnte nicht gelöscht werden. Versuche es erneut.",
+  "trainingHistoryTimed": "Zeitintervall abgeschlossen",
+  "trainingHistorySetValue": "Satz {set}: {reps} · {weight}",
+  "@trainingHistorySetValue": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      },
+      "reps": {
+        "type": "String"
+      },
+      "weight": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingHistorySkippedSet": "Satz {set}: übersprungen",
+  "@trainingHistorySkippedSet": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingHistoryRepsValue": "{reps} Wiederholungen",
+  "@trainingHistoryRepsValue": {
+    "placeholders": {
+      "reps": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingHistoryWeightValue": "{weight} kg",
+  "@trainingHistoryWeightValue": {
+    "placeholders": {
+      "weight": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingHistoryStarted": "Aufzeichnung ab: {date}",
+  "@trainingHistoryStarted": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingHistoryFinished": "Beendet: {date}",
+  "@trainingHistoryFinished": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingActualReps": "Geschaffte Wiederholungen",
+  "trainingActualWeight": "Gewicht (kg, optional)",
+  "trainingActualOptional": "Optional",
+  "trainingActualNoWeight": "Gewicht nicht erfasst",
+  "trainingActualInvalid": "Wiederholungen: 0–1000. Gewicht: 0–2000 kg oder leer.",
+  "trainingActualReview": "Deine Satzwerte",
+  "trainingActualMissing": "Ergänze die Wiederholungen der erledigten Sätze, bevor du das Training speicherst.",
+  "trainingHistorySourceChanged": "Dein Plan wurde geändert. Dieses Training wurde nicht gespeichert.",
+  "trainingActualConfirmLegacyTimed": "Abgeschlossenes Intervall bestätigen",
+  "trainingHistoryDeleteAction": "Training löschen",
+  "trainingHistoryAlreadyDeleted": "Dieses Training wurde auf einem anderen Gerät gelöscht."
 }

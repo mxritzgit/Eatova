@@ -605,7 +605,7 @@ void main() {
   });
 
   group('Das Sheet bleibt heil', () {
-    testWidgets('es hat weiterhin genau acht Textfelder', (tester) async {
+    testWidgets('es hat neun Textfelder inklusive Zubereitung', (tester) async {
       pinPhoneViewport(tester);
       await tester.pumpWidget(
         _app(Brightness.dark, photoInput: _FakeFotoquelle(bytes: _jpeg())),
@@ -618,7 +618,7 @@ void main() {
           of: find.byKey(const ValueKey('recipe-create-sheet')),
           matching: find.byType(TextField),
         ),
-        findsNWidgets(8),
+        findsNWidgets(9),
       );
     });
 

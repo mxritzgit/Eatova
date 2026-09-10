@@ -268,6 +268,85 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     );
   }
 
+  /// Confirms a mutation only after server delivery or a durable outbox receipt.
+  /// Callers publish their entity state after this resolves and retain their
+  /// own per-entity ordering. The existing confirmation registry also protects
+  /// these operations from coalescing, replay and premature capacity trimming.
+  Future<SyncDelivery> _confirmMutation(
+    String operation,
+    SyncOp op,
+    Future<void> Function() send, {
+    VoidCallback? onDelivered,
+  }) async {
+    void ensureActive() {
+      if (_disposed || _trainingSessionEnded || (_cache?.isClosed ?? false)) {
+        throw StateError('Account session ended');
+      }
+      final currentUser = sync?.client.auth.currentUser;
+      if (currentUser != null && currentUser.id != sync?.userId) {
+        throw StateError('Account session ended');
+      }
+    }
+
+    ensureActive();
+    _unconfirmedTrainingOps.add(op);
+    try {
+      final delivery = await _syncOrQueue(
+        operation,
+        send,
+        () => op,
+        onDelivered: () {
+          if (_unconfirmedTrainingOps.contains(op)) {
+            _deliveredTrainingOps.add(op);
+          }
+          onDelivered?.call();
+        },
+        aufruferMeldetAusgang: true,
+      );
+      ensureActive();
+      if (delivery == SyncDelivery.delivered ||
+          _deliveredTrainingOps.contains(op)) {
+        return SyncDelivery.delivered;
+      }
+      if (_cache == null ||
+          _outboxHydrationFailed ||
+          !_outbox.any((entry) => identical(entry, op))) {
+        throw StateError('Change could not be saved');
+      }
+      await _writeOutboxWithReceipt(_outbox);
+      await _settleTrainingOutboxReceipts(op);
+      ensureActive();
+      if (_deliveredTrainingOps.contains(op)) return SyncDelivery.delivered;
+      if (!_outbox.any((entry) => identical(entry, op)) ||
+          !_durableOutboxSnapshot.any((entry) => identical(entry, op))) {
+        throw StateError('Change could not be saved');
+      }
+      return delivery;
+    } catch (_) {
+      // Retirement may reject the UI result while disk writes are settling.
+      // Remove only a draft that was never acknowledged by either destination.
+      await _settleTrainingOutboxReceipts(op);
+      final acknowledged =
+          _deliveredTrainingOps.contains(op) ||
+          _durableOutboxSnapshot.any((entry) => identical(entry, op));
+      if (!_disposed && !acknowledged) {
+        final remaining = _outbox
+            .where((entry) => !identical(entry, op))
+            .toList();
+        if (remaining.length != _outbox.length) {
+          _outbox = remaining;
+          if (!(_cache?.isClosed ?? true)) _persistOutbox();
+        }
+      }
+      rethrow;
+    } finally {
+      _unconfirmedTrainingOps.remove(op);
+      _deliveredTrainingOps.remove(op);
+      _trainingOutboxReceipts.remove(op);
+      _settleTrainingOutboxCapacity();
+    }
+  }
+
   /// Fire-and-forget sync write WITHOUT rollback (DATA-7): optimistic local
   /// state stands, and the operation sits as a persisted outbox entry in the
   /// retry queue until the server acknowledges it.
@@ -622,6 +701,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     if (s == null || _disposed) return;
     final mealIds = <String>{}, favoriteIds = <String>{}, recipeSlugs = <String>{};
     final trainingPlanIds = <String>{};
+    final trainingHistoryIds = <String>{};
     for (final op in ops) {
       switch (op.kind) {
         case SyncOpKind.mealDelete:
@@ -630,6 +710,8 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           favoriteIds.add(op.entityId);
         case SyncOpKind.recipeDelete:
           recipeSlugs.add(op.entityId);
+        case SyncOpKind.trainingHistoryDelete:
+          trainingHistoryIds.add(op.entityId);
         case SyncOpKind.trainingPlanDelete:
           trainingPlanIds.add(op.entityId);
         default:
@@ -696,6 +778,18 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       } catch (e, st) {
         _reportRestoreFailure('recipes', e, st);
       }
+    }
+    if (trainingHistoryIds.isNotEmpty) {
+      try {
+        final rows = await s.trainingHistory.load();
+        if (_disposed || _trainingSessionEnded) return;
+        final pending = _outbox.where((op) => op.kind == SyncOpKind.trainingHistoryDelete).map((op) => op.entityId).toSet();
+        _mutate(() {
+          final known = _trainingHistoryState.map((entry) => entry.id).toSet();
+          _trainingHistory = [..._trainingHistoryState, ...rows.where((entry) => trainingHistoryIds.contains(entry.id) && !known.contains(entry.id) && !pending.contains(entry.id))];
+        });
+        _cacheTrainingHistory();
+      } catch (e, st) { _reportRestoreFailure('training-history', e, st); }
     }
     if (trainingPlanIds.isNotEmpty) {
       try {
@@ -1122,6 +1216,10 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// a backwards system-time jump cannot make an op undroppable.
   OutboxVerdict _verdictFor(Object error, SyncOp op) {
     if (error is _CorruptOpPayload) return OutboxVerdict.drop;
+    if (op.isMealPlanIntent || op.isTrainingHistoryIntent) {
+      final verdict = classifyOutboxFailure(error, 0, kind: op.kind);
+      return verdict == OutboxVerdict.drop ? OutboxVerdict.retryCounted : verdict;
+    }
     final verdict = classifyOutboxFailure(error, op.attempts, kind: op.kind);
     if (verdict != OutboxVerdict.drop) return verdict;
     if (op.isDelete) {
@@ -1161,6 +1259,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   ///
   /// Weight and steps are absent on purpose: the projection is kcal + macros.
   static bool _opTouchesTrendWindow(SyncOp op) =>
+      op.kind == SyncOpKind.mealPlanConvert ||
       op.kind == SyncOpKind.mealInsert ||
       op.kind == SyncOpKind.mealUpsert ||
       op.kind == SyncOpKind.mealDelete;
@@ -1173,6 +1272,23 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       _invalidateTrendWindow();
     }
     switch (op.kind) {
+      case SyncOpKind.mealPlanUpsert:
+        final plan = op.plannedMeal;
+        if (plan == null) throw _CorruptOpPayload(op.kind);
+        await s.mealPlans.save(plan);
+        if (_unconfirmedTrainingOps.contains(op)) _deliveredTrainingOps.add(op);
+      case SyncOpKind.mealPlanConvert:
+        final plan = op.plannedMeal;
+        final meal = op.meal;
+        if (plan == null || meal == null) throw _CorruptOpPayload(op.kind);
+        final receipt = await s.mealPlans.convert(plan, meal, trackDay: op.trackDay);
+        _reconcileMealPlanConversion(receipt, op);
+        if (_unconfirmedTrainingOps.contains(op)) _deliveredTrainingOps.add(op);
+      case SyncOpKind.shoppingCheck:
+        final check = op.shoppingCheckValue;
+        if (check == null) throw _CorruptOpPayload(op.kind);
+        await s.mealPlans.check(check);
+        if (_unconfirmedTrainingOps.contains(op)) _deliveredTrainingOps.add(op);
       case SyncOpKind.mealInsert:
         final meal = op.meal;
         if (meal == null) throw _CorruptOpPayload(op.kind);
@@ -1206,6 +1322,16 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         await s.userRecipes.upsert(recipe);
       case SyncOpKind.recipeDelete:
         await s.userRecipes.delete(op.entityId);
+      case SyncOpKind.trainingHistoryInsert:
+        final entry = op.trainingHistory;
+        if (entry == null) throw _CorruptOpPayload(op.kind);
+        if (!await s.trainingHistory.insert(entry)) await _rememberTrainingHistoryDeletion(entry.id);
+        if (_unconfirmedTrainingOps.contains(op)) _deliveredTrainingOps.add(op);
+      case SyncOpKind.trainingHistoryDelete:
+        if (!isUuidShape(op.entityId)) throw _CorruptOpPayload(op.kind);
+        await s.trainingHistory.delete(op.entityId);
+        await _rememberTrainingHistoryDeletion(op.entityId);
+        if (_unconfirmedTrainingOps.contains(op)) _deliveredTrainingOps.add(op);
       case SyncOpKind.trainingPlanUpsert:
         final plan = op.trainingPlan;
         if (plan == null) throw _CorruptOpPayload(op.kind);
@@ -1294,6 +1420,23 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     for (final op in _outbox) {
       if (_unconfirmedTrainingOps.contains(op)) continue;
       switch (op.kind) {
+        case SyncOpKind.mealPlanUpsert:
+          final plan = op.plannedMeal;
+          if (plan != null) _putPlannedMeal(plan);
+        case SyncOpKind.shoppingCheck:
+          final check = op.shoppingCheckValue;
+          if (check != null) {
+            _shoppingChecks = {..._shoppingChecks, check.id: check.checked};
+            _mealPlansVersion++;
+          }
+        case SyncOpKind.mealPlanConvert:
+          final plan = op.plannedMeal;
+          final meal = op.meal;
+          if (plan == null || meal == null) break;
+          _putPlannedMeal(plan);
+          loggedMeals = [meal, ...loggedMeals.where((m) => m.id != meal.id)];
+          if (op.trackDay) lifetimeStats = lifetimeStats.recordTrackedDay(meal.loggedAt);
+          mealsTouched = true;
         case SyncOpKind.mealInsert:
         case SyncOpKind.mealUpsert:
           final meal = op.meal;
@@ -1337,6 +1480,11 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         case SyncOpKind.recipeDelete:
           _userRecipes =
               _userRecipes.where((r) => r.slug != op.entityId).toList();
+        case SyncOpKind.trainingHistoryInsert:
+          final entry = op.trainingHistory;
+          if (entry != null) _trainingHistory = [entry, ..._trainingHistoryState.where((item) => item.id != entry.id)];
+        case SyncOpKind.trainingHistoryDelete:
+          _trainingHistory = _trainingHistoryState.where((entry) => entry.id != op.entityId).toList();
         case SyncOpKind.trainingPlanUpsert:
           final plan = op.trainingPlan;
           if (plan == null) break;
@@ -1500,8 +1648,11 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   /// `health.reset()` clears verifier and cached `authState`;
   /// `healthAuthState` is the copy the profile card renders.
   void _resetHealthConnection() {
+    _healthGeneration++;
+    _healthSessionEnded = true;
     health.reset();
     healthAuthState = health.authState;
+    dailySteps = 0;
   }
 
   /// Clears the local cache. Prefers the booted [_cache], the injected
@@ -1583,6 +1734,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     // showed an empty own-recipe list.
     await cache.writeUserRecipes(_userRecipes);
     if (_disposed) return;
+    if (_trainingHistoryKnown && !_trainingHistoryDeletionReadFailed) {
+      await cache.writeTrainingHistory(trainingHistory);
+    }
     if (_trainingPlansKnown) await cache.writeTrainingPlans(trainingPlans);
   }
 
@@ -1630,6 +1784,95 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
 
   void _cacheUserRecipes() {
     _cache?.writeUserRecipesDebounced(_userRecipes);
+  }
+
+  void _reconcileMealPlanConversion(MealPlanConversion receipt, SyncOp op) {
+    if (_disposed || _trainingSessionEnded) return;
+    _mutate(() {
+      _putPlannedMeal(receipt.plan);
+      loggedMeals = [
+        if (receipt.meal != null) receipt.meal!,
+        ...loggedMeals.where((m) => m.id != receipt.plan.id),
+      ];
+      final index = _outbox.indexWhere((candidate) => identical(candidate, op));
+      if (index >= 0) {
+        for (final later in _outbox.skip(index + 1).where(
+          (candidate) => candidate.entityId == op.entityId,
+        )) {
+          if (later.kind == SyncOpKind.mealDelete) {
+            loggedMeals = loggedMeals.where((m) => m.id != op.entityId).toList();
+          } else if (later.kind == SyncOpKind.mealUpsert && later.meal != null) {
+            loggedMeals = [
+              later.meal!,
+              ...loggedMeals.where((m) => m.id != op.entityId),
+            ];
+          }
+        }
+      }
+      lifetimeStats = receipt.stats;
+      _overlayPendingTrackingDays(excluding: op);
+      dailyConsumedKcal = consumedKcalForFoodDate(clock.now());
+      macroProgress = macroProgressForFoodDate(clock.now());
+      _invalidateTrendWindow();
+    });
+    _cacheMealPlans();
+    _cacheLoggedMeals();
+    _cacheLifetimeStats();
+  }
+
+  void _cacheMealPlans() {
+    if (_disposed || _trainingSessionEnded) return;
+    unawaited(_cache?.writeMealPlans(_plannedMeals, _shoppingChecks) ?? Future<void>.value());
+  }
+
+  void _ensureTrainingHistoryOwner() {
+    final owner = sync?.client.auth.currentUser;
+    if (_disposed || _trainingSessionEnded || (_cache?.isClosed ?? false) ||
+        (owner != null && owner.id != sync?.userId)) {
+      throw StateError('Training storage unavailable');
+    }
+  }
+
+  Future<void> _repairTrainingHistoryDeletions() async {
+    _ensureTrainingHistoryOwner();
+    if (_trainingHistoryDeletionsHydrated && !_trainingHistoryDeletionReadFailed) return;
+    final cache = _cache;
+    if (cache == null) throw StateError('Training storage unavailable');
+    Set<String> ids;
+    try {
+      ids = await cache.readTrainingHistoryDeletions();
+    } catch (_) {
+      _ensureTrainingHistoryOwner();
+      _mutate(() => _trainingHistoryDeletionReadFailed = true);
+      throw StateError('Training storage unavailable');
+    }
+    _ensureTrainingHistoryOwner();
+    _mutate(() {
+      if (_trainingHistoryDeletionReadFailed) {
+        _protectedTrainingRecoveryId = _trainingSession?.sessionId;
+      }
+      _trainingHistoryDeletedIds.addAll(ids);
+      _trainingHistoryDeletionReadFailed = false;
+      _trainingHistoryDeletionsHydrated = true;
+      _trainingHistory = _trainingHistoryState;
+    });
+  }
+
+  Future<void> _rememberTrainingHistoryDeletion(String id) async {
+    _ensureTrainingHistoryOwner();
+    // This receipt must precede consuming the server's false response. The
+    // history mirror and recovery cleanup are best effort and can both fail.
+    if (!await (_cache?.rememberTrainingHistoryDeletion(id) ?? Future.value(false))) {
+      throw StateError('Training deletion could not be saved');
+    }
+    _ensureTrainingHistoryOwner();
+    _trainingHistoryDeletedIds.add(id);
+    _mutate(() => _trainingHistory = _trainingHistoryState.where((entry) => entry.id != id).toList());
+    _cacheTrainingHistory();
+  }
+
+  void _cacheTrainingHistory() {
+    if (_trainingHistoryKnown && !_trainingHistoryDeletionReadFailed) unawaited(_cache?.writeTrainingHistory(trainingHistory) ?? Future<void>.value());
   }
 
   void _cacheTrainingPlans() {
@@ -1967,8 +2210,14 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   ///
   /// [LifetimeStats.recordTrackedDay] is idempotent per day and a no-op for
   /// days before the last counted one, so FIFO order carries itself.
-  void _overlayPendingTrackingDays() {
+  void _overlayPendingTrackingDays({SyncOp? excluding}) {
     for (final op in _outbox) {
+      if (identical(op, excluding)) continue;
+      if (op.kind == SyncOpKind.mealPlanConvert && op.trackDay &&
+          !_unconfirmedTrainingOps.contains(op)) {
+        final meal = op.meal;
+        if (meal != null) lifetimeStats = lifetimeStats.recordTrackedDay(meal.loggedAt);
+      }
       if (op.kind != SyncOpKind.trackingDay) continue;
       final tag = DateTime.tryParse(op.entityId);
       if (tag != null) lifetimeStats = lifetimeStats.recordTrackedDay(tag);

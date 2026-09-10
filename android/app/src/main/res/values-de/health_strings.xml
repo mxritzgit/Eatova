@@ -1,0 +1,6 @@
+<resources>
+    <string name="health_connect_title">Health Connect</string>
+    <string name="health_connect_rationale">Eatova liest deine Schritte aus Health Connect, um deine tägliche Aktivität anzuzeigen und den Kalorienverbrauch zu schätzen. Tagessummen bleiben im verschlüsselten App-Cache. Eatova liest oder schreibt kein Gewicht über Health Connect. Du kannst den Zugriff auf Schritte jederzeit in den Einstellungen von Health Connect widerrufen.</string>
+    <string name="health_connect_privacy">Datenschutzerklärung</string>
+    <string name="health_connect_close">Schließen</string>
+</resources>

@@ -13,11 +13,13 @@ import '../models/favorite_meal.dart';
 import '../models/fitness_recipe.dart';
 import '../models/lifetime_stats.dart';
 import '../models/logged_meal.dart';
+import '../models/planned_meal.dart';
 import '../models/macro_progress.dart';
 import '../models/meal_analysis_result.dart';
 import '../models/model_limits.dart' show isValidWeightLogKg;
 import '../models/training_plan.dart';
 import '../models/training_session.dart';
+import '../models/training_history.dart';
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
 import '../services/crash_reporter.dart';
@@ -29,6 +31,7 @@ import '../services/local_cache.dart';
 import '../services/local_day.dart';
 import '../services/meal_totals.dart' as totals;
 import '../services/meals_sync.dart' show MealsSync;
+import '../services/meal_plans_sync.dart';
 import '../services/notification_service.dart';
 import '../services/recipe_image_store.dart';
 import '../services/search_credentials.dart';
@@ -39,6 +42,7 @@ import '../services/sync_error_messages.dart';
 import '../services/sync_outbox.dart';
 import '../services/trend_service.dart' show TrendTotalsCache;
 import '../services/training_plans_sync.dart';
+import '../services/training_history_sync.dart';
 import '../services/user_recipes_sync.dart' show UserRecipesSync;
 import '../services/uuid.dart';
 import '../widgets/common/app_snack.dart';
@@ -47,10 +51,12 @@ import '../widgets/common/app_snack.dart';
 import 'auth_gate.dart' show IntentionalSignOut;
 
 part 'home_store_meals.dart';
+part 'home_store_meal_plan.dart';
 part 'home_store_profile.dart';
 part 'home_store_sync.dart';
 part 'home_store_tracking.dart';
 part 'home_store_training.dart';
+part 'home_store_training_history.dart';
 
 /// Context-free snackbar request emitted by [HomeStore].
 ///
@@ -139,6 +145,8 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   int selectedTab = 0;
   int dailyConsumedKcal = 0;
   int dailySteps = 0;
+  int _healthGeneration = 0;
+  bool _healthSessionEnded = false;
   // Lives here, not in _HomeStoreTrackingPart: the logout path in
   // _HomeStoreSyncPart resets it on user change (B3), and tracking depends on
   // sync, not the other way round.
@@ -156,6 +164,36 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   List<FavoriteMeal> _favoritesState = <FavoriteMeal>[];
   List<LoggedMeal> _loggedMealsState = <LoggedMeal>[];
   List<FitnessRecipe> _userRecipesState = const <FitnessRecipe>[];
+  List<PlannedMeal> _plannedMeals = const [];
+  Map<String, bool> _shoppingChecks = const {};
+  int _mealPlansVersion = 0;
+  bool mealPlansLoading = false;
+  bool mealPlansLoadFailed = false;
+  List<PlannedMeal> get plannedMeals => List.unmodifiable(
+    _plannedMeals.where((p) => !p.removed));
+  Map<String, bool> get shoppingChecks => Map.unmodifiable(_shoppingChecks);
+  void _putPlannedMeal(PlannedMeal plan) {
+    final existing = _plannedMeals.where((p) => p.id == plan.id).firstOrNull;
+    if (existing?.isEaten == true && !plan.isEaten) return;
+    _plannedMeals = [plan, ..._plannedMeals.where((p) => p.id != plan.id)];
+    _mealPlansVersion++;
+  }
+  List<TrainingHistoryEntry> _trainingHistoryState = const [];
+  int _trainingHistoryVersion = 0;
+  final Set<String> _trainingHistoryDeletedIds = {};
+  bool _trainingHistoryDeletionsHydrated = false;
+  bool _trainingHistoryDeletionReadFailed = false;
+  bool _trainingHistoryKnown = false;
+  List<TrainingHistoryEntry> get trainingHistory => _trainingHistoryDeletionReadFailed ? const [] : _trainingHistoryState;
+  set _trainingHistory(List<TrainingHistoryEntry> value) {
+    _trainingHistoryState = List.unmodifiable([...value.where((entry) => !_trainingHistoryDeletedIds.contains(entry.id))]..sort((a, b) => b.finishedAt.compareTo(a.finishedAt)));
+    _trainingHistoryKnown = true;
+    _trainingHistoryVersion++;
+  }
+  bool _trainingHistoryLoadFailed = false;
+  bool get trainingHistoryLoadFailed => _trainingHistoryLoadFailed || _trainingHistoryDeletionReadFailed;
+
+
   List<TrainingPlan> _trainingPlansState = const <TrainingPlan>[];
   bool _trainingPlansKnown = false;
   bool _trainingPlansAuthoritative = false;
@@ -164,13 +202,15 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   TrainingSessionSnapshot? _trainingSession;
   bool _trainingSessionRetired = false;
   bool _trainingSessionHydrationFailed = false;
+  String? _protectedTrainingRecoveryId;
   TrainingSessionSnapshot? get trainingSession {
     final snapshot = _trainingSession;
-    if (snapshot == null || _trainingSessionRetired) return null;
+    if (_trainingHistoryDeletionReadFailed || snapshot == null || _trainingSessionRetired || _trainingHistoryDeletedIds.contains(snapshot.sessionId) || trainingHistory.any((entry) => entry.id == snapshot.sessionId)) return null;
     return _trainingSourceAllows(snapshot) ? snapshot : null;
   }
 
   bool _trainingSourceAllows(TrainingSessionSnapshot snapshot) {
+    if (snapshot.pendingCompletionAt != null) return true;
     // Best-effort mirrors can lag a durable full checkpoint. Only server data
     // or an observed source change can invalidate its embedded workout.
     if (!_trainingPlansAuthoritative &&
@@ -460,7 +500,9 @@ class HomeStore extends _HomeStoreBase
         _HomeStoreTrackingPart,
         _HomeStoreProfilePart,
         _HomeStoreMealsPart,
-        _HomeStoreTrainingPart {
+        _HomeStoreTrainingPart,
+        _HomeStoreMealPlanPart,
+        _HomeStoreTrainingHistoryPart {
   HomeStore({
     required super.sync,
     required super.health,
@@ -592,6 +634,8 @@ class HomeStore extends _HomeStoreBase
 
   bool get bootLoadInFlight => _bootLoadInFlight || _bootChainInFlight;
 
+  bool get trainingHistoryLoading => bootLoadInFlight;
+  Future<void> retryTrainingHistory() => retryBoot();
   bool get trainingPlansLoading => bootLoadInFlight;
   bool trainingPlansLoadFailed = false;
   Future<void> retryTrainingPlans() => retryBoot();
@@ -656,8 +700,8 @@ class HomeStore extends _HomeStoreBase
     if (debugCache != null) {
       _cache = debugCache;
     } else {
-      final userId = s.client.auth.currentUser?.id;
-      if (userId != null && userId.isNotEmpty) {
+      final userId = s.userId;
+      if (userId.isNotEmpty) {
         _cache = await LocalCache.create(userId);
       }
     }
@@ -668,6 +712,7 @@ class HomeStore extends _HomeStoreBase
       // would have to preserve — the A2 window does not exist here.
       _syncStateHydrated = true;
     }
+    unawaited(restoreHealthConnection());
     _outboxInitialHydrationComplete = true;
     // A real cached profile makes the state displayable, so the server load
     // becomes a correction rather than a start step and may finish in the
@@ -696,6 +741,7 @@ class HomeStore extends _HomeStoreBase
     // the ops stay queued and _applyPendingOpsToState layers them on top.
     await _replayOutbox();
     await _bootFromSupabase();
+    await _loadMealPlans();
     // Flush stats deltas persisted from the last run: the boot load just reset
     // lifetimeStats, and increment_lifetime_stats adds atomically on top.
     if (_pendingMealsDelta != 0 || _pendingWeightLogsDelta != 0) {
@@ -737,12 +783,16 @@ class HomeStore extends _HomeStoreBase
     final cache = _cache;
     if (cache == null) return;
     final today = clock.now();
+    final mealPlanVersion = _mealPlansVersion;
+    final historyVersion = _trainingHistoryVersion;
     final trainingVersion = _trainingPlansVersion;
     final selectionVersion = _trainingSelectionVersion;
     final sessionVersion = _trainingSessionVersion;
+    final cachedMealPlans = await _leseSlot('meal_plans', cache.readMealPlans);
     var outboxLesefehler = false;
     var deltaLesefehler = false;
     var trainingSessionReadFailed = false;
+    var trainingDeletionReadFailed = false;
     // The nine slot reads are independent, so they run concurrently and the
     // boot gate waits for the slowest decrypt instead of the sum (perf
     // finding 4, 2026-08-31). Waves of three, not one big Future.wait: each
@@ -769,14 +819,21 @@ class HomeStore extends _HomeStoreBase
       _leseSlot('user_recipes', cache.readUserRecipes),
       _leseSlot('daily_activity', cache.readDailyActivity),
     ).wait;
-    final (cachedTrainingPlans, cachedTrainingSelection, cachedTrainingSession) = await (
+    final (cachedTrainingPlans, cachedTrainingSelection, cachedTrainingSession, cachedTrainingHistory) = await (
       _leseSlot('training_plans', cache.readTrainingPlans),
       _leseSlot('training_selection', cache.readTrainingSelection),
       _leseSlot('training_session',
           () => cache.readTrainingSession(requireReadable: true),
           onFehler: () => trainingSessionReadFailed = true),
+      _leseSlot('training_history', cache.readTrainingHistory),
     ).wait;
+    final cachedTrainingDeletions = await _leseSlot(
+      'training_history_deletions', cache.readTrainingHistoryDeletions,
+      onFehler: () => trainingDeletionReadFailed = true);
     if (_disposed) return;
+    _trainingHistoryDeletedIds.addAll(cachedTrainingDeletions ?? <String>{});
+    _trainingHistoryDeletionReadFailed = trainingDeletionReadFailed;
+    _trainingHistoryDeletionsHydrated = !trainingDeletionReadFailed;
     // Leave the persisted blob untouched while it could not be read, or the
     // next write would overwrite it.
     _outboxHydrationFailed = outboxLesefehler;
@@ -827,6 +884,8 @@ class HomeStore extends _HomeStoreBase
         cachedFavorites == null &&
         cachedWeightLog == null &&
         cachedRecipes == null &&
+        cachedMealPlans == null &&
+        cachedTrainingHistory == null &&
         cachedTrainingPlans == null &&
         cachedTrainingSession == null &&
         cachedActivity == null &&
@@ -855,6 +914,14 @@ class HomeStore extends _HomeStoreBase
       // server answer makes it, and [userRecipesAuthoritative] carries it to
       // the one consumer that draws conclusions from a missing entry.
       if (cachedRecipes != null) _userRecipes = cachedRecipes;
+      if (cachedMealPlans != null && mealPlanVersion == _mealPlansVersion) {
+        _plannedMeals = List.unmodifiable(cachedMealPlans.plans);
+        _shoppingChecks = Map.of(cachedMealPlans.checks);
+        _mealPlansVersion++;
+      }
+      if (cachedTrainingHistory != null && historyVersion == _trainingHistoryVersion) {
+        _trainingHistory = cachedTrainingHistory;
+      }
       if (cachedTrainingPlans != null && trainingVersion == _trainingPlansVersion) {
         _trainingPlans = cachedTrainingPlans;
         _trainingPlansKnown = true;
@@ -864,6 +931,9 @@ class HomeStore extends _HomeStoreBase
       }
       if (sessionVersion == _trainingSessionVersion && !_trainingSessionEnded) {
         _trainingSession = cachedTrainingSession;
+        if (trainingDeletionReadFailed || trainingSessionReadFailed) {
+          _protectedTrainingRecoveryId = cachedTrainingSession?.sessionId;
+        }
       }
       // Merge, not assign: an early health refresh may already have written
       // today before hydration finished — the newer in-memory value wins for
@@ -918,6 +988,19 @@ class HomeStore extends _HomeStoreBase
     final s = sync!;
     final today = clock.now();
     _mutate(() => _bootLoadInFlight = true);
+    // Retry local privacy reads as well as the server. Offline repair can
+    // restore the preserved history and unfinished checkpoint independently.
+    if (_trainingHistoryDeletionReadFailed || _trainingSessionHydrationFailed) {
+      try {
+        await prepareTrainingSessionRecovery();
+      } catch (_) {
+        // Keep this collection hidden; unrelated server loads remain useful.
+      }
+      if (_disposed || _trainingSessionEnded) {
+        _bootLoadInFlight = false;
+        return;
+      }
+    }
     // F1-01: the gate is open on the cached profile while these loads run, so
     // a live write can land in the window. Remember each collection's version
     // and content BEFORE the requests go out: unchanged afterwards means the
@@ -944,6 +1027,7 @@ class HomeStore extends _HomeStoreBase
       _safeLoad('boot-lifetime-stats', () => auth.run(s.lifetimeStats.load)),
       _safeLoad('boot-user-recipes', () => auth.run(s.userRecipes.load)),
       _safeLoad('boot-training-plans', () => auth.run(s.trainingPlans.load)),
+      _safeLoad('boot-training-history', () => auth.run(s.trainingHistory.load)),
     ]);
     if (_disposed) {
       _bootLoadInFlight = false;
@@ -1045,6 +1129,14 @@ class HomeStore extends _HomeStoreBase
               );
       }
 
+      final loadedTrainingHistory = results[7] as List<TrainingHistoryEntry>?;
+      _trainingHistoryLoadFailed = loadedTrainingHistory == null;
+      if (loadedTrainingHistory != null) {
+        _trainingHistory = vorher.trainingHistoryVersion == _trainingHistoryVersion
+            ? loadedTrainingHistory
+            : _mergeRacedLoad(local: _trainingHistoryState, server: loadedTrainingHistory,
+                baseline: vorher.trainingHistory, keyOf: (entry) => entry.id);
+      }
       final loadedTrainingPlans = results[6] as List<TrainingPlan>?;
       trainingPlansLoadFailed = loadedTrainingPlans == null;
       if (loadedTrainingPlans != null) {
@@ -1075,6 +1167,7 @@ class HomeStore extends _HomeStoreBase
     }
     if (healSave) _queueHealedProfileSave();
     // Valid training data remains cacheable even if the profile did not load.
+    if (results[7] != null) _cacheTrainingHistory();
     if (results[6] != null) _cacheTrainingPlans();
     if (results[6] != null && !_outboxHydrationFailed) {
       await _discardInvalidTrainingRecovery();
@@ -1289,6 +1382,9 @@ class HomeStore extends _HomeStoreBase
   @override
   void dispose() {
     _disposed = true;
+    _healthGeneration++;
+    if (!_healthSessionEnded) health.reset();
+    _healthSessionEnded = true;
     _statsSaveDebounce?.cancel();
     _outboxRetryTimer?.cancel();
     _outboxRetryTimer = null;
@@ -1317,11 +1413,13 @@ class _BootBaseline {
     required this.lifetimeStatsVersion,
     required this.userRecipesVersion,
     required this.trainingPlansVersion,
+    required this.trainingHistoryVersion,
     required this.loggedMeals,
     required this.favorites,
     required this.weightLog,
     required this.userRecipes,
     required this.trainingPlans,
+    required this.trainingHistory,
   });
 
   factory _BootBaseline.of(_HomeStoreBase store) => _BootBaseline(
@@ -1332,11 +1430,13 @@ class _BootBaseline {
         lifetimeStatsVersion: store._lifetimeStatsVersion,
         userRecipesVersion: store._userRecipesVersion,
         trainingPlansVersion: store._trainingPlansVersion,
+        trainingHistoryVersion: store._trainingHistoryVersion,
         loggedMeals: store.loggedMeals,
         favorites: store.favorites,
         weightLog: store.weightLog,
         userRecipes: store._userRecipes,
         trainingPlans: store.trainingPlans,
+        trainingHistory: store._trainingHistoryState,
       );
 
   final int profileVersion;
@@ -1346,9 +1446,11 @@ class _BootBaseline {
   final int lifetimeStatsVersion;
   final int userRecipesVersion;
   final int trainingPlansVersion;
+  final int trainingHistoryVersion;
   final List<LoggedMeal> loggedMeals;
   final List<FavoriteMeal> favorites;
   final WeightLog weightLog;
   final List<FitnessRecipe> userRecipes;
   final List<TrainingPlan> trainingPlans;
+  final List<TrainingHistoryEntry> trainingHistory;
 }

@@ -12,7 +12,13 @@ bool _trainingSessionMatchesPlan(
   int matches(TrainingPlan value) => value.workouts
       .where((workout) => jsonEncode(workout.toJson()) == source)
       .length;
-  return matches(plan) >= matches(snapshot.plan);
+  final identities = jsonEncode(
+    snapshot.workout.exercises.map((e) => e.id).toList(),
+  );
+  return matches(plan) >= matches(snapshot.plan) &&
+      plan.workouts.any((workout) =>
+          jsonEncode(workout.toJson()) == source &&
+          jsonEncode(workout.exercises.map((e) => e.id).toList()) == identities);
 }
 
 mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
@@ -33,6 +39,7 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
   }
 
   bool _sourceChangeInvalidates(SyncOp op, TrainingSessionSnapshot snapshot) =>
+      snapshot.pendingCompletionAt == null &&
       (op.kind == SyncOpKind.trainingPlanUpsert ||
           op.kind == SyncOpKind.trainingPlanDelete) &&
       op.entityId == snapshot.plan.id &&
@@ -73,6 +80,7 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
     _ensureTrainingSessionActive();
     _mutate(() {
       _trainingSession = recovered;
+      _protectedTrainingRecoveryId = recovered?.sessionId;
       _trainingSessionRetired =
           recovered != null &&
           !_trainingSourceAllows(recovered) &&
@@ -82,6 +90,21 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
       _trainingSessionVersion++;
     });
   }
+
+  /// Resolve storage before deciding whether to resume or start a workout.
+  Future<TrainingSessionSnapshot?> prepareTrainingSessionRecovery() =>
+      _serializeTrainingSession(() async {
+        _ensureTrainingSessionActive();
+        if (sync != null && !_outboxInitialHydrationComplete) {
+          throw StateError('Training storage is still loading');
+        }
+        await _repairTrainingHistoryDeletions();
+        await _repairTrainingSessionRead();
+        _ensureTrainingSessionActive();
+        final recovery = trainingSession;
+        _protectedTrainingRecoveryId = recovery?.sessionId;
+        return recovery;
+      });
 
   /// A retired route may leave without writing over a replacement checkpoint.
   bool isTrainingSessionRetired({
@@ -104,8 +127,25 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
         : TrainingSessionSnapshot.fromJson(snapshot.toJson());
     return _serializeTrainingSession(() async {
       _ensureTrainingSessionActive();
+      if (validated != null) {
+        await _repairTrainingHistoryDeletions();
+        if (_trainingHistoryDeletedIds.contains(validated.sessionId)) {
+          throw const TrainingCompletionDeleted();
+        }
+      }
       await _repairTrainingSessionRead();
+      if (_trainingSession?.pendingCompletionAt != null &&
+          !_trainingHistoryDeletedIds.contains(_trainingSession!.sessionId) &&
+          !trainingHistory.any((entry) => entry.id == _trainingSession!.sessionId) &&
+          jsonEncode(validated?.toJson()) != jsonEncode(_trainingSession?.toJson())) {
+        throw StateError('Pending training completion must be retried');
+      }
       final active = trainingSession;
+      if (validated != null && active != null &&
+          active.sessionId == _protectedTrainingRecoveryId &&
+          validated.sessionId != active.sessionId) {
+        throw StateError('Existing training recovery must be resolved');
+      }
       final sourceId =
           sourcePlanId ?? validated?.plan.id ?? _trainingSession?.plan.id;
       if ((sourcePlanId != null &&
@@ -127,6 +167,7 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
       _ensureTrainingSessionActive();
       _mutate(() {
         _trainingSession = validated;
+        if (validated == null) _protectedTrainingRecoveryId = null;
         _trainingSessionRetired = false;
         _trainingSessionVersion++;
       });
@@ -135,7 +176,7 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
 
   Future<void> _discardInvalidTrainingRecovery() =>
       _serializeTrainingSession(() async {
-        if (_disposed || _trainingSessionEnded) return;
+        if (_disposed || _trainingSessionEnded || _trainingHistoryDeletionReadFailed) return;
         final snapshot = _trainingSession;
         if (snapshot == null || trainingSession != null) return;
         _mutate(() {

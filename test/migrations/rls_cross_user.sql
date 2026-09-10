@@ -867,5 +867,8 @@ select rlstest.erwarte_ablehnung(
 rollback;
 
 \ir training_plans_rls.sql
+\ir recipe_ingredients_rls.sql
+\ir training_history_rls.sql
+\ir meal_plans_rls.sql
 
 select 'RLS-Kreuzzugriffe: alle Erwartungen erfuellt' as ergebnis;

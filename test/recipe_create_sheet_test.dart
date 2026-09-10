@@ -40,6 +40,7 @@ const List<String> alleFeldKeys = <String>[
   'recipe-create-carbs',
   'recipe-create-fat',
   'recipe-create-ingredients',
+  'recipe-create-preparation',
 ];
 
 /// Viewport pinning + overflow tolerance, as in edit_meal_sheet_test.dart.

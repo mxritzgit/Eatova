@@ -15,6 +15,7 @@ import '../models/chat_message.dart';
 import '../models/chat_session.dart';
 import '../models/coach_recipe_proposal.dart';
 import '../models/coach_training_proposal.dart';
+import '../models/coach_training_context.dart';
 import 'crash_reporter.dart';
 import 'sync_error_messages.dart';
 import 'user_rpc.dart';
@@ -866,7 +867,28 @@ class CoachChatService {
     String wish, {
     required String sessionId,
     required String locale,
+  }) => _requestPlan(wish, sessionId: sessionId, locale: locale);
+
+  /// Uses only the brief and selected snapshot explicitly approved for this send.
+  Future<CoachPlanReply> requestPlanWithContext(
+    String wish, {
+    required String sessionId,
+    required String locale,
+    required CoachTrainingContext trainingContext,
+  }) => _requestPlan(
+    wish,
+    sessionId: sessionId,
+    locale: locale,
+    trainingContext: trainingContext,
+  );
+
+  Future<CoachPlanReply> _requestPlan(
+    String wish, {
+    required String sessionId,
+    required String locale,
+    CoachTrainingContext? trainingContext,
   }) async {
+    final discussion = trainingContext?.intent == CoachTrainingIntent.discuss;
     final startedAt = clock.now();
     final identity = _PlanRequestIdentity(_client);
     String? authorization;
@@ -884,9 +906,11 @@ class CoachChatService {
           headers: {'Authorization': authorization!},
           body: {
             'message': wish,
-            'mode': 'plan',
+            'mode': discussion ? 'chat' : 'plan',
             'locale': locale.toLowerCase().startsWith('en') ? 'en' : 'de',
             'session_id': sessionId,
+            if (trainingContext != null)
+              'training_context': trainingContext.toJson(),
           },
           abortSignal: abort,
         );
@@ -900,11 +924,12 @@ class CoachChatService {
           if (done == null) {
             throw CoachChatException(_unreachableMessage);
           }
-          return _planFromPayload(done, sessionId);
+          return _planFromPayload(done, sessionId, discussion: discussion);
         }
         return _planFromPayload(
           data is Map ? data : const <dynamic, dynamic>{},
           sessionId,
+          discussion: discussion,
         );
       });
       verifyIdentity();
@@ -923,6 +948,7 @@ class CoachChatService {
       }
       return await _planAfterDeadline(
         sessionId, wish, startedAt, authorization, verifyIdentity,
+        discussion: discussion,
       );
     } on RequestAbortedException catch (e, stack) {
       verifyIdentity();
@@ -932,6 +958,7 @@ class CoachChatService {
       }
       return await _planAfterDeadline(
         sessionId, wish, startedAt, authorization, verifyIdentity,
+        discussion: discussion,
       );
     } on AuthException {
       throw CoachChatException(_l10n.coachErrorSessionExpired);
@@ -982,8 +1009,9 @@ class CoachChatService {
 
   CoachPlanReply _planFromPayload(
     Map<dynamic, dynamic> payload,
-    String sessionId,
-  ) {
+    String sessionId, {
+    bool discussion = false,
+  }) {
     final reply = payload['reply'] is String
         ? (payload['reply'] as String).trim()
         : '';
@@ -995,7 +1023,8 @@ class CoachChatService {
         : null;
     if (reply.isEmpty ||
         (payload['refusal'] != null && payload['refusal'] is! bool) ||
-        (!refusal && proposal == null) ||
+        (!refusal && !discussion && proposal == null) ||
+        (discussion && (rawPlan != null || payload['recipe'] != null)) ||
         (rawPlan != null && payload['recipe'] != null) ||
         (returnedSession != null &&
             (returnedSession is! String ||
@@ -1044,8 +1073,9 @@ class CoachChatService {
     String wish,
     DateTime startedAt,
     String authorization,
-    void Function() verifyIdentity,
-  ) async {
+    void Function() verifyIdentity, {
+    bool discussion = false,
+  }) async {
     verifyIdentity();
     final message = await _nachzuegler(
       sessionId: sessionId,
@@ -1057,7 +1087,9 @@ class CoachChatService {
     );
     verifyIdentity();
     final proposal = message?.trainingPlanProposal;
-    if (message == null || (proposal == null && !message.refusal)) {
+    if (message == null ||
+        (!discussion && proposal == null && !message.refusal) ||
+        (discussion && (proposal != null || message.recipeProposal != null))) {
       throw CoachChatException(_l10n.coachErrorTimeout);
     }
     return CoachPlanReply(

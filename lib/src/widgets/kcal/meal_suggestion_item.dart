@@ -165,7 +165,8 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
   /// An unchanged portion keeps the original: the invariant
   /// `adjustedToGrams(estimatedGrams).caloriesKcal == caloriesKcal` makes that
   /// the same number, without `isAdjusted` or rewritten `portionNotes`.
-  MealAnalysisResult get _adjusted => _grams == widget.result.estimatedGrams
+  MealAnalysisResult get _adjusted => widget.result.isRecipeWithoutCookedWeight ||
+      _grams == widget.result.estimatedGrams
       ? widget.result
       : widget.result.adjustedToGrams(_grams);
 
@@ -269,8 +270,11 @@ class _Header extends StatelessWidget {
     // density that follows from caloriesKcal and estimatedGrams — the same
     // maths that gets logged, not the raw `kcalPer100G` side field.
     final t = context.t;
-    final per100 = result.adjustedToGrams(100).caloriesKcal;
-    final subtitle = per100 > 0
+    final per100 = result.isRecipeWithoutCookedWeight
+        ? 0 : result.adjustedToGrams(100).caloriesKcal;
+    final subtitle = result.isRecipeWithoutCookedWeight
+        ? '${result.caloriesKcal} kcal · ${context.l10n.recipeCalcSavedPortion}'
+        : per100 > 0
         ? '$per100 kcal / 100 g'
         : '${result.caloriesKcal} kcal · ${result.estimatedGrams} g';
 
@@ -483,6 +487,10 @@ class _ExpandedBody extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SizedBox(height: 4),
+          if (preview.isRecipeWithoutCookedWeight)
+            Text(l10n.recipeCalcNoCookedWeight,
+              style: AppType.ui(13, color: t.ink2, height: 1.4))
+          else ...[
           Row(
             children: [
               _StepperButton(
@@ -543,6 +551,7 @@ class _ExpandedBody extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
+          ],
           _LivePreview(
             kcal: preview.caloriesKcal,
             protein: preview.protein,

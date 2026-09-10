@@ -138,6 +138,8 @@ flutter {
 }
 
 dependencies {
+    // Match package:health 13.3.1; nullable aggregate results need a small bridge.
+    implementation("androidx.health.connect:connect-client:1.2.0-alpha02")
     // Core library desugaring for flutter_local_notifications (java.time on
     // older Android). The plugin requires >= 2.1.4.
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")

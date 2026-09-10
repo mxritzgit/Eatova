@@ -45,6 +45,13 @@ import {
   trainingPlanSummary,
   trainingPlanSystemPrompt,
 } from "./training_plan.ts";
+import {
+  parseTrainingContext,
+  type TrainingContext,
+  TRAINING_CONTEXT_RULES,
+  trainingContextMessage,
+  trainingContextRefusal,
+} from "./training_context.ts";
 
 // Models and daily limit are overridable via function secrets. Keep the
 // answer and classifier on the same low-latency multimodal Gemini model: it
@@ -583,6 +590,7 @@ function answerPayload(
   image?: { base64: string; mimeType: string },
   userContext?: string,
   stream = false,
+  trainingContext?: TrainingContext,
 ): Record<string, unknown> {
   const userContent: string | UserContentPart[] = image
     ? [
@@ -613,9 +621,10 @@ function answerPayload(
     // Context sits right before the current question, AFTER the history:
     // up to 10 turns earlier it lost its weight (F5-07).
     messages: [
-      { role: "system", content: ANSWER_SYSTEM_PROMPT },
+      { role: "system", content: ANSWER_SYSTEM_PROMPT + (trainingContext ? "\n" + TRAINING_CONTEXT_RULES : "") },
       ...history,
       ...contextMessages,
+      ...(trainingContext ? [trainingContextMessage(trainingContext)] : []),
       { role: "user", content: userContent },
     ],
     temperature: 0.5,
@@ -684,6 +693,7 @@ async function answer(
   image?: { base64: string; mimeType: string },
   userContext?: string,
   locale: CoachLocale = "de",
+  trainingContext?: TrainingContext,
 ): Promise<{ reply: string; refusal: boolean }> {
   const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
@@ -696,7 +706,7 @@ async function answer(
     // Deadline for fetch AND the resp.json()/text() below (finding 6); the
     // timeout throws into the existing answer refund paths (refund + 504).
     signal: AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer),
-    body: JSON.stringify(answerPayload(history, userMessage, image, userContext)),
+    body: JSON.stringify(answerPayload(history, userMessage, image, userContext, false, trainingContext)),
   });
   if (!resp.ok) {
     const text = await resp.text();
@@ -862,6 +872,7 @@ async function openAnswerStream(
   userMessage: string,
   image?: { base64: string; mimeType: string },
   userContext?: string,
+  trainingContext?: TrainingContext,
 ): Promise<AnswerStreamState> {
   const abort = new AbortController();
   const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -877,7 +888,7 @@ async function openAnswerStream(
     // PROVIDER_TIMEOUTS_MS.answer instead of hanging until the platform limit
     // (finding 6, now for the streamed shape).
     signal: AbortSignal.any([abort.signal, AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer)]),
-    body: JSON.stringify(answerPayload(history, userMessage, image, userContext, true)),
+    body: JSON.stringify(answerPayload(history, userMessage, image, userContext, true, trainingContext)),
   });
   if (!resp.ok) {
     const text = await resp.text();
@@ -1417,7 +1428,7 @@ async function handleRecipeMode(params: {
 
 // Training proposals are buffered like recipes. Cancelling the client does not
 // refund a paid generation; a completed proposal remains in the chat history.
-async function draftTrainingPlan(apiKey: string, wish: string, locale: CoachLocale): Promise<string> {
+async function draftTrainingPlan(apiKey: string, wish: string, locale: CoachLocale, trainingContext?: TrainingContext): Promise<string> {
   const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -1430,7 +1441,8 @@ async function draftTrainingPlan(apiKey: string, wish: string, locale: CoachLoca
     body: JSON.stringify({
       model: MODEL_ANSWER,
       messages: [
-        { role: "system", content: trainingPlanSystemPrompt(locale) },
+        { role: "system", content: trainingPlanSystemPrompt(locale) + (trainingContext ? "\n" + TRAINING_CONTEXT_RULES : "") },
+        ...(trainingContext ? [trainingContextMessage(trainingContext)] : []),
         { role: "user", content: wish },
       ],
       response_format: { type: "json_object" },
@@ -1486,6 +1498,7 @@ async function handlePlanMode(params: {
   serviceKey: string; supabaseUrl: string; openRouterKey: string;
   userId: string; sessionId: string; message: string; locale: CoachLocale;
   remaining: number | null; quotaDay: string | null;
+  trainingContext?: TrainingContext;
 }): Promise<Response> {
   const { serviceKey, supabaseUrl, openRouterKey, userId, sessionId, message, locale, remaining, quotaDay } = params;
   const userStored = await storeMessage(serviceKey, supabaseUrl, {
@@ -1500,7 +1513,7 @@ async function handlePlanMode(params: {
 
   let raw: string;
   try {
-    raw = await draftTrainingPlan(openRouterKey, message, locale);
+    raw = await draftTrainingPlan(openRouterKey, message, locale, params.trainingContext);
   } catch (e) {
     // JSON/transport errors can contain private prompt or provider response
     // text. Only the stable class/status crosses the diagnostic boundary.
@@ -2374,6 +2387,14 @@ export async function handleRequest(req: Request): Promise<Response> {
   const commandWish = parsePlanCommand(rawMessage);
   const isPlanMode = body?.mode === "plan" || (!isRecipeMode && commandWish !== null);
   const message = isPlanMode && commandWish !== null ? commandWish : rawMessage;
+  // Validate before session writes, quota or providers. No database ID lookup:
+  // the caller explicitly supplies one snapshot, never an owner or plan ID.
+  const trainingContext = body?.training_context === undefined
+    ? undefined : parseTrainingContext(body.training_context);
+  if (trainingContext === null || (trainingContext && (
+    isRecipeMode || hasImage ||
+    (trainingContext.intent === "discuss" ? isPlanMode : !isPlanMode)
+  ))) return json({ error: "invalid_training_context" }, 400);
   // Plans are text-only. Silently dropping a photo could bypass its safety
   // context, so an explicit plan request with an attachment is invalid.
   if (isPlanMode && hasImage) return json({ error: "plan_image_not_supported" }, 400);
@@ -2392,7 +2413,7 @@ export async function handleRequest(req: Request): Promise<Response> {
     // Reason only, never the content: the context carries health data.
     console.error(`user_context verworfen (${contextCheck.dropped})`);
   }
-  const userContext = contextCheck.context;
+  const userContext = trainingContext ? undefined : contextCheck.context;
 
   // A size violation is a PROTOCOL ERROR, not a conversation (CWE-400): as a
   // Layer 1 "too_long" refusal it persisted the FULL message, which later
@@ -2447,7 +2468,8 @@ export async function handleRequest(req: Request): Promise<Response> {
   // Prefilter -> no quota spend, no LLM call. The attempt is logged in
   // chat_messages, but the quota is untouched, and the response omits
   // `remaining` so the client leaves its counter alone.
-  const pre = preFilter(message, hasImage);
+  const contextRefusal = trainingContext ? trainingContextRefusal(trainingContext) : null;
+  const pre = contextRefusal ? { ok: false as const, reason: contextRefusal } : preFilter(message, hasImage);
   if (!pre.ok) {
     const reply = refusalForReason(pre.reason, locale);
     await storeMessage(serviceKey, supabaseUrl, {
@@ -2466,7 +2488,7 @@ export async function handleRequest(req: Request): Promise<Response> {
   // here, before a slot is burned, instead of silently answering without
   // context. Structured proposals need no history and skip the roundtrip.
   let history: HistoryMessage[] = [];
-  if (!isRecipeMode && !isPlanMode) {
+  if (!isRecipeMode && !isPlanMode && !trainingContext) {
     const loaded = await loadHistory(serviceKey, supabaseUrl, userId, sessionId);
     if (loaded === null) {
       return json({ error: "history_unavailable" }, 500);
@@ -2506,17 +2528,19 @@ export async function handleRequest(req: Request): Promise<Response> {
   // it — `if (!hasImage)`, and the recipe branch sitting before this block —
   // and both silently disabled the crisis categories. Both structured proposal
   // modes must run this guard before reaching their dedicated draft prompts.
-  if (shouldRunClassifier(message)) {
+  const classificationInput = trainingContext
+    ? message + "\n" + trainingContextMessage(trainingContext).content : message;
+  if (shouldRunClassifier(classificationInput)) {
     const activeRefusalCategories = isRecipeMode
       ? RECIPE_REFUSAL_CATEGORIES
-      : isPlanMode ? PLAN_REFUSAL_CATEGORIES : refusalCategoriesFor(hasImage);
+      : isPlanMode || trainingContext ? PLAN_REFUSAL_CATEGORIES : refusalCategoriesFor(hasImage);
     let cls: ClassifierResult;
     try {
-      cls = await classify(openRouterKey, message);
+      cls = await classify(openRouterKey, classificationInput);
       // A provider formatting failure says nothing about the user's topic.
       // Stop before answering/persisting and reuse the outage refund path.
       // Image and structured proposal modes keep their dedicated fallback rules.
-      if (cls.parseFailed && !hasImage && !isRecipeMode && !isPlanMode) {
+      if (cls.parseFailed && !hasImage && !isRecipeMode && !isPlanMode && !trainingContext) {
         throw new ProviderError(502, "classifier output unusable");
       }
     } catch (e) {
@@ -2544,7 +2568,7 @@ export async function handleRequest(req: Request): Promise<Response> {
     const refusalReason = layer2RefusalReason({
       result: cls,
       categories: activeRefusalCategories,
-      refuseOnUnusableOutput: isRecipeMode || isPlanMode,
+      refuseOnUnusableOutput: isRecipeMode || isPlanMode || trainingContext !== undefined,
     });
     if (refusalReason !== null) {
       const reply = refusalForReason(refusalReason, locale);
@@ -2578,6 +2602,7 @@ export async function handleRequest(req: Request): Promise<Response> {
     return await handlePlanMode({
       serviceKey, supabaseUrl, openRouterKey, userId, sessionId, message, locale,
       remaining: claim.remaining, quotaDay,
+      trainingContext,
     });
   }
 
@@ -2643,7 +2668,8 @@ export async function handleRequest(req: Request): Promise<Response> {
   // daily slot. A3: a stream that fails BEFORE its first delta ends up here
   // too — SSE would lock the status at 200, so it must stay pre-header.
   const answerFailed = async (e: unknown): Promise<Response> => {
-    console.error(`answer failed: ${e instanceof Error ? e.message : String(e)}`);
+    console.error(trainingContext ? "training discussion provider unavailable" :
+      `answer failed: ${e instanceof Error ? e.message : String(e)}`);
     // Only for an OUTAGE: a client-caused 4xx is paid work, and refunding it
     // would leave only the IP gate capping paid vision calls.
     if (!isClientFaultFailure(e)) {
@@ -2675,6 +2701,7 @@ export async function handleRequest(req: Request): Promise<Response> {
         message,
         hasImage ? { base64: imageBase64, mimeType: imageMimeType } : undefined,
         userContext,
+        trainingContext,
       );
     } catch (e) {
       // Nothing to release: openAnswerStream throws before it hands out a
@@ -2726,6 +2753,7 @@ export async function handleRequest(req: Request): Promise<Response> {
       hasImage ? { base64: imageBase64, mimeType: imageMimeType } : undefined,
       userContext,
       locale,
+      trainingContext,
     );
     reply = out.reply;
     refusal = out.refusal;

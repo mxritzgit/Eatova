@@ -10,6 +10,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   // here.
   DateTime? healthLastFetch;
   bool healthSyncing = false;
+  bool _healthConnectedByUser = false;
 
   /// Daily activity: steps plus estimated burned kcal per local calendar day
   /// (key: [localDayKey]).
@@ -39,24 +40,63 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
 
   // --- Health ---------------------------------------------------------------
 
+  /// Called once the account's encrypted cache has been resolved at boot.
+  Future<void> restoreHealthConnection() async {
+    final service = health;
+    if (_disposed || _healthSessionEnded || service is! HealthConnectAccess) {
+      return;
+    }
+    final generation = _healthGeneration;
+    final cache = _cache ?? debugCache;
+    if (cache != null) {
+      if (_healthConnectedByUser) {
+        await cache.writeHealthConnectEnabled(true);
+      } else {
+        final enabled = await cache.readHealthConnectEnabled();
+        if (_disposed || generation != _healthGeneration) return;
+        if (enabled) {
+          (service as HealthConnectAccess).restoreConnection();
+          _healthConnectedByUser = true;
+        }
+      }
+    }
+    if (_disposed || generation != _healthGeneration) return;
+    await refreshHealthSteps();
+  }
+
   Future<void> connectHealth() async {
-    if (_disposed) return;
+    if (_disposed || _healthSessionEnded || healthSyncing) return;
+    final generation = _healthGeneration;
     _mutate(() => healthSyncing = true);
     final state = await health.requestAuthorization();
-    if (_disposed) return;
+    if (_disposed || generation != _healthGeneration) return;
     _mutate(() => healthAuthState = state);
     if (state == HealthAuthState.granted) {
+      if (health is HealthConnectAccess) {
+        _healthConnectedByUser = true;
+        await (_cache ?? debugCache)?.writeHealthConnectEnabled(true);
+        if (_disposed || generation != _healthGeneration) return;
+      }
+      _dailyActivityBackfillAttempted.clear();
+      healthSyncing = false;
       await refreshHealthSteps();
     } else {
-      _mutate(() => healthSyncing = false);
+      _mutate(() {
+        healthSyncing = false;
+        if (health is HealthConnectAccess) {
+          dailySteps = 0;
+          healthLastFetch = null;
+        }
+      });
     }
   }
 
   Future<void> refreshHealthSteps() async {
-    if (_disposed) return;
+    if (_disposed || _healthSessionEnded || healthSyncing) return;
+    final generation = _healthGeneration;
     _mutate(() => healthSyncing = true);
     final snapshot = await health.readSnapshot();
-    if (_disposed) return;
+    if (_disposed || generation != _healthGeneration) return;
     _mutate(() {
       healthSyncing = false;
       // B3: the service re-verifies the permission on every refresh and can
@@ -69,14 +109,34 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
         // Pin to the SNAPSHOT's day, not "today": a refresh at the midnight
         // second still belongs to the query time.
         _recordDailyActivity(snapshot.fetchedAt, snapshot.stepsToday);
+      } else if (health is HealthConnectAccess) {
+        dailySteps = 0;
+        healthLastFetch = null;
       }
-      // No `else { dailySteps = 0; }`: an unverified state yields null, and
-      // the last measured value beats an invented zero.
+      // iOS retains its last measured value when read access is unverified.
     });
     // Offer the snapshot weight for import (deduped) instead of discarding it.
     if (snapshot != null) {
       _maybeOfferHealthWeight(snapshot.latestWeightKg);
     }
+  }
+
+  Future<void> openHealthSettings() async {
+    final service = health;
+    if (_disposed ||
+        _healthSessionEnded ||
+        healthSyncing ||
+        service is! HealthConnectAccess) {
+      return;
+    }
+    final generation = _healthGeneration;
+    _mutate(() => healthSyncing = true);
+    await (service as HealthConnectAccess).openSettings();
+    if (_disposed || generation != _healthGeneration) return;
+    _mutate(() {
+      healthSyncing = false;
+      healthAuthState = health.authState;
+    });
   }
 
   /// Burned kcal for [date]: live from [dailySteps] today, the pinned value
@@ -87,6 +147,9 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// is not double counting.
   int burnedKcalForFoodDate(DateTime date) {
     if (_isSameFoodDate(date, clock.now())) {
+      if (health is HealthConnectAccess && stepsForFoodDate(date) == null) {
+        return 0;
+      }
       return estimateKcalBurnedFromSteps(
         steps: dailySteps,
         weightKg: profile.weightKg,
@@ -104,6 +167,12 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// step count already arrived, so an early morning 0 is a real 0.
   int? stepsForFoodDate(DateTime date) {
     if (_isSameFoodDate(date, clock.now())) {
+      if (health is HealthConnectAccess) {
+        final fetched = healthLastFetch;
+        return fetched != null && _isSameFoodDate(fetched, date)
+            ? dailySteps
+            : null;
+      }
       if (healthAuthState == HealthAuthState.granted || dailySteps > 0) {
         return dailySteps;
       }
@@ -116,7 +185,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// the CURRENT profile (the estimate is coarser than the weight drift).
   /// Must run inside a _mutate block; the cache write is fire-and-forget.
   void _recordDailyActivity(DateTime day, int steps) {
-    if (steps <= 0) return;
+    if (steps < 0) return;
     final key = localDayKey(day);
     final kcal = estimateKcalBurnedFromSteps(
       steps: steps,
@@ -136,7 +205,9 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
         if (e.key.compareTo(cutoff) >= 0) e.key: e.value,
       key: (steps: steps, kcal: kcal),
     };
-    unawaited(_cache?.writeDailyActivity(dailyActivity) ?? Future<void>.value());
+    unawaited(
+      _cache?.writeDailyActivity(dailyActivity) ?? Future<void>.value(),
+    );
   }
 
   /// Backfills the full day total for a PAST day from the health store, once
@@ -144,11 +215,19 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// from a refresh before day end, while the history knows the full sum. If
   /// the service returns nothing, the stored value stays untouched.
   Future<void> _maybeBackfillDailyActivity(DateTime day) async {
-    if (_disposed || _isSameFoodDate(day, clock.now())) return;
+    if (_disposed || _healthSessionEnded || _isSameFoodDate(day, clock.now())) {
+      return;
+    }
+    final generation = _healthGeneration;
     final key = localDayKey(day);
     if (!_dailyActivityBackfillAttempted.add(key)) return;
     final steps = await health.readStepsOnDay(day);
-    if (_disposed || steps == null || steps <= 0) return;
+    if (_disposed ||
+        generation != _healthGeneration ||
+        steps == null ||
+        steps < 0) {
+      return;
+    }
     _mutate(() => _recordDailyActivity(day, steps));
   }
 

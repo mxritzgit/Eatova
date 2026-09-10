@@ -5,24 +5,37 @@ part of 'recipes_screen.dart';
 // horizontal category filter bar.
 // ---------------------------------------------------------------------------
 class _RecipesHeader extends StatelessWidget {
-  const _RecipesHeader({this.onCreate});
+  const _RecipesHeader({this.onCreate, this.onOpenMealPlan});
 
   final VoidCallback? onCreate;
+  final VoidCallback? onOpenMealPlan;
 
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    return ScreenTitle(
-      title: l10n.navRecipes,
-      subtitle: l10n.recipesSubtitle,
-      trailing: onCreate == null
-          ? null
-          : SquareIconButton(
-              key: const ValueKey('recipe-create-button'),
-              icon: Icons.add_rounded,
-              onTap: onCreate,
-              semanticLabel: l10n.recipesCreateSemantics,
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ScreenTitle(
+          title: l10n.navRecipes,
+          subtitle: l10n.recipesSubtitle,
+          trailing: onCreate == null
+              ? null
+              : SquareIconButton(
+                  key: const ValueKey('recipe-create-button'),
+                  icon: Icons.add_rounded,
+                  onTap: onCreate,
+                  semanticLabel: l10n.recipesCreateSemantics,
+                ),
+        ),
+        if (onOpenMealPlan != null)
+          TextButton.icon(
+            key: const ValueKey('recipe-meal-plan-button'),
+            onPressed: onOpenMealPlan,
+            icon: const Icon(Icons.calendar_month_outlined),
+            label: Text(l10n.recipeEditMealPlan),
+          ),
+      ],
     );
   }
 }
@@ -76,10 +89,11 @@ class _RecipeSearchField extends StatelessWidget {
                 focusedBorder: InputBorder.none,
                 // Horizontal part taken from the template; without it the
                 // text sticks to the magnifier and to the clear button.
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 15, vertical: 14),
-                prefixIcon:
-                    Icon(Icons.search_rounded, size: 18, color: t.ink2),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 15,
+                  vertical: 14,
+                ),
+                prefixIcon: Icon(Icons.search_rounded, size: 18, color: t.ink2),
                 prefixIconConstraints: const BoxConstraints(minWidth: 44),
                 hintText: context.l10n.recipesSearchHint,
                 hintStyle: AppType.ui(14, color: t.ink2),

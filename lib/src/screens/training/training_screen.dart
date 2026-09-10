@@ -27,6 +27,9 @@ class TrainingScreen extends StatefulWidget {
     this.onRetry,
     this.hasActiveSession = false,
     this.onResumeWorkout,
+    this.onOpenHistory,
+    this.onDiscussPlan,
+    this.discussPlanLabel,
   });
 
   final List<TrainingPlan> plans;
@@ -43,6 +46,9 @@ class TrainingScreen extends StatefulWidget {
   final VoidCallback? onRetry;
   final bool hasActiveSession;
   final VoidCallback? onResumeWorkout;
+  final VoidCallback? onOpenHistory;
+  final ValueChanged<TrainingPlan>? onDiscussPlan;
+  final String? discussPlanLabel;
 
   @override
   State<TrainingScreen> createState() => _TrainingScreenState();
@@ -182,6 +188,12 @@ class _TrainingScreenState extends State<TrainingScreen> {
       padding: const EdgeInsets.fromLTRB(20, 22, 20, 28),
       children: [
         _header(context),
+        if (widget.onOpenHistory != null) ...[
+          const SizedBox(height: 12),
+          Align(alignment: Alignment.centerLeft, child: TextButton.icon(
+            key: const ValueKey('training-open-history'), onPressed: widget.onOpenHistory,
+            icon: const Icon(Icons.history_rounded), label: Text(l10n.trainingHistoryTitle))),
+        ],
         const SizedBox(height: 24),
         if (widget.hasActiveSession) ...[
           AppCard(
@@ -384,6 +396,11 @@ class _TrainingScreenState extends State<TrainingScreen> {
           const SizedBox(height: 12),
           TrainingExerciseList(exercises: workout.exercises),
           const SizedBox(height: 16),
+          if (widget.onDiscussPlan != null)
+            TextButton.icon(key: const ValueKey('training-discuss-plan'),
+              onPressed: () => widget.onDiscussPlan!(plan),
+              icon: const Icon(Icons.chat_bubble_outline_rounded),
+              label: Text(widget.discussPlanLabel ?? l10n.trainingPageCoach)),
           TextButton.icon(
             onPressed: widget.onOpenCoach,
             icon: const Icon(Icons.forum_outlined),

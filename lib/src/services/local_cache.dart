@@ -8,13 +8,16 @@ import '../models/favorite_meal.dart';
 import '../models/fitness_recipe.dart';
 import '../models/lifetime_stats.dart';
 import '../models/logged_meal.dart';
+import '../models/planned_meal.dart';
 import '../models/training_plan.dart';
+import '../models/training_history.dart';
 import '../models/training_session.dart';
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
 import 'crash_reporter.dart';
 import 'secure_cache_store.dart';
 import 'sync_outbox.dart';
+import 'uuid.dart';
 
 /// Minimal async key-value store behind [LocalCache]. Abstracts
 /// SharedPreferences so the cache is unit-testable without a plugin channel
@@ -81,11 +84,18 @@ class SharedPreferencesStore implements KeyValueStore {
   Future<String?> getString(String key) async => _prefs.getString(key);
 
   @override
-  Future<void> setString(String key, String value) =>
-      _prefs.setString(key, value);
+  Future<void> setString(String key, String value) async {
+    if (!await _prefs.setString(key, value)) {
+      throw StateError('Preferences write was not acknowledged');
+    }
+  }
 
   @override
-  Future<void> remove(String key) => _prefs.remove(key);
+  Future<void> remove(String key) async {
+    if (!await _prefs.remove(key)) {
+      throw StateError('Preferences removal was not acknowledged');
+    }
+  }
 }
 
 /// In-memory store for tests (no plugin channel needed).
@@ -266,6 +276,14 @@ class LocalCache {
   String get _legacyDailyKey => 'eatova.v1.daily.$_userId';
   String get _statsKey => 'eatova.v1.stats.$_userId';
   String get _notificationsKey => 'eatova.v1.notifications_enabled.$_userId';
+  String get _healthConnectKey => 'eatova.v1.health_connect_enabled.$_userId';
+
+  Future<void> writeHealthConnectEnabled(bool enabled) =>
+      _writeJson(_healthConnectKey, {'enabled': enabled});
+
+  /// Only an intact boolean opt-in permits a silent Android reconnect.
+  Future<bool> readHealthConnectEnabled() async =>
+      (await _readJson(_healthConnectKey))?['enabled'] == true;
 
   // DATA-7 offline persistence: diary, favorites and weight log are mirrored
   // so an offline cold start does not begin with an empty diary. Plus the
@@ -281,6 +299,10 @@ class LocalCache {
   /// single safety net (the outbox). Now the same write-through as diary and
   /// favorites. PII (ingredients, amounts) -> cleared in [clear].
   String get _userRecipesKey => 'eatova.v1.user_recipes.$_userId';
+  String get _mealPlansKey => 'eatova.v1.meal_plans.$_userId';
+
+  String get _trainingHistoryKey => 'eatova.v1.training_history.$_userId';
+  String get _trainingHistoryDeletionsKey => 'eatova.v1.training_history_deletions.$_userId';
   String get _trainingPlansKey => 'eatova.v1.training_plans.$_userId';
   String get _trainingSelectionKey => 'eatova.v1.training_selection.$_userId';
   String get _trainingSessionKey => 'eatova.v1.training_session.$_userId';
@@ -420,8 +442,123 @@ class LocalCache {
     }
   }
 
+  Future<void> writeMealPlans(List<PlannedMeal> plans,
+      Map<String, bool> checks) => _writeJson(_mealPlansKey, {
+    'plans': plans.map((plan) => plan.toJson()).toList(),
+    'checks': checks.entries.map((e) =>
+      ShoppingCheck(id: e.key, checked: e.value).toJson()).toList(),
+  });
+
+  Future<({List<PlannedMeal> plans, Map<String, bool> checks})?> readMealPlans() async {
+    final json = await _readJson(_mealPlansKey);
+    try {
+      final plans = (json?['plans'] as List).map((row) =>
+        PlannedMeal.fromJson((row as Map).cast<String, dynamic>())).toList();
+      final checks = (json?['checks'] as List).map((row) =>
+        ShoppingCheck.fromJson((row as Map).cast<String, dynamic>())).toList();
+      if (plans.length > 10000 || checks.length > 2000 ||
+          plans.map((p) => p.id).toSet().length != plans.length) { return null; }
+      return (plans: plans, checks: {for (final c in checks) c.id: c.checked});
+    } catch (_) { return null; }
+  }
+
+  Future<void> writeTrainingHistory(List<TrainingHistoryEntry> entries) =>
+      _writeJson(_trainingHistoryKey, {'items': entries.map((e) => e.toRow()).toList()});
+
+  Future<List<TrainingHistoryEntry>?> readTrainingHistory() async {
+    final items = (await _readJson(_trainingHistoryKey))?['items'];
+    if (items is! List || items.length > 2000) return null;
+    try {
+      final entries = items.map((row) => TrainingHistoryEntry.fromRow(row as Map)).toList();
+      if (entries.map((e) => e.id).toSet().length != entries.length) return null;
+      return List.unmodifiable(entries);
+    } catch (_) { return null; }
+  }
+
   Future<void> writeTrainingPlans(List<TrainingPlan> plans) =>
       _writeJson(_trainingPlansKey, _trainingPlansToJson(plans));
+
+  /// UUID-only receipts fence stale history and recovery even when mirror
+  /// cleanup fails. Never replace unreadable receipts with an empty set.
+  Future<Set<String>> readTrainingHistoryDeletions() =>
+      _queueTrainingDeletion(_readTrainingHistoryDeletionsNow).timeout(
+        settleBudget,
+        onTimeout: () => throw const UnreadableCacheSlot(
+          'training_history_deletions', 'Pending cache operation',
+        ),
+      );
+
+  Future<Set<String>> _readTrainingHistoryDeletionsNow() async {
+    // Unlike mirrors, even an empty string or invalid JSON is an occupied,
+    // unreadable fence. Only an absent slot establishes no prior deletions.
+    final String? raw;
+    try {
+      raw = await _store.getString(_trainingHistoryDeletionsKey);
+    } catch (error) {
+      throw UnreadableCacheSlot(
+          'training_history_deletions', error.runtimeType.toString());
+    }
+    if (raw == null) {
+      await _assertSlotEmpty(_trainingHistoryDeletionsKey, 'training_history_deletions');
+      return {};
+    }
+    final dynamic json;
+    try {
+      json = jsonDecode(raw);
+    } catch (_) {
+      throw const FormatException('Invalid training deletion receipts');
+    }
+    if (json is! Map<String, dynamic>) {
+      throw const FormatException('Invalid training deletion receipts');
+    }
+    final ids = json['ids'];
+    if (json.length != 1 || ids is! List || ids.length > 100000 ||
+        ids.any((id) => id is! String || !isUuidShape(id)) ||
+        ids.toSet().length != ids.length) {
+      throw const FormatException('Invalid training deletion receipts');
+    }
+    return ids.cast<String>().toSet();
+  }
+
+  // SharedPreferences is global. Keep the whole read/modify/write ordered
+  // across cache instances, even after logout's bounded settle expires.
+  // Reads and account-deletion purges use the same namespace queue.
+  static final Map<String, Future<void>> _trainingDeletionTails = {};
+
+  Future<T> _queueTrainingDeletion<T>(Future<T> Function() operation) {
+    final key = _trainingHistoryDeletionsKey;
+    final prior = _trainingDeletionTails[key] ?? Future<void>.value();
+    final result = prior.then((_) => operation());
+    final tail = result.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    _trainingDeletionTails[key] = tail;
+    unawaited(tail.then((_) {
+      if (identical(_trainingDeletionTails[key], tail)) {
+        _trainingDeletionTails.remove(key);
+      }
+    }));
+    return result;
+  }
+
+  Future<bool> rememberTrainingHistoryDeletion(String id) {
+    if (!isUuidShape(id)) throw const FormatException('Invalid training history ID');
+    final write = _queueTrainingDeletion(() async {
+      if (_closed) return false;
+      final ids = await _readTrainingHistoryDeletionsNow();
+      if (_closed) return false;
+      if (!ids.contains(id) && ids.length >= 100000) {
+        throw StateError('Training deletion receipt limit reached');
+      }
+      ids.add(id);
+      // A failed SharedPreferences write may already be visible in its
+      // optimistic memory cache. Even an existing ID needs a confirmed write
+      // before the caller may consume the corresponding outbox operation.
+      return _writeDurableNow(_trainingHistoryDeletionsKey,
+          'training_history_deletions', {'ids': ids.toList()});
+    });
+    // Timeout releases the caller, never the namespace lock. A later retry
+    // must still wait behind the unfinished write and merge its final state.
+    return _trackWrite(write).timeout(settleBudget, onTimeout: () => false);
+  }
 
   static Map<String, dynamic> _trainingPlansToJson(List<TrainingPlan> plans) =>
       {'items': plans.map((plan) => plan.toRow()).toList()};
@@ -672,11 +809,10 @@ class LocalCache {
 
   /// Clears the user slots.
   ///
-  /// [preserveOutbox] `true` keeps exactly [_outboxKey] and [_pendingStatsKey]
-  /// and deletes everything else (A2): sign-out must not destroy unsynced
-  /// meals — they replay on the same user's next login. Both slots are
-  /// encrypted and namespaced by user id, so the M-1 PII argument no longer
-  /// applies to them.
+  /// [preserveOutbox] `true` keeps outbox, pending stats and UUID-only training
+  /// deletion receipts. Receipts prevent retained inserts from resurfacing.
+  /// All other slots are deleted; unsynced meals replay on the same user's
+  /// next login. This retained sync state is encrypted and namespaced by user.
   ///
   /// Default `false` = account deletion clears everything.
   Future<void> clear({bool preserveOutbox = false}) async {
@@ -685,24 +821,54 @@ class LocalCache {
     // write the just-deleted PII straight back (F1-02).
     close();
 
-    await _store.remove(_profileKey);
-    await _store.remove(_legacyDailyKey);
-    await _store.remove(_statsKey);
-    await _store.remove(_notificationsKey);
-    await _store.remove(_loggedMealsKey);
-    await _store.remove(_favoritesKey);
-    await _store.remove(_weightLogKey);
-    // User recipes are user content (ingredients, amounts): same M-1 reason
-    // as the diary, even with [preserveOutbox].
-    await _store.remove(_userRecipesKey);
-    await _store.remove(_trainingPlansKey);
-    await _store.remove(_trainingSelectionKey);
-    await _store.remove(_trainingSessionKey);
-    // Steps/burned kcal are health data — same M-1 reason.
-    await _store.remove(_dailyActivityKey);
+    // Reserve the namespace now, but retain its authoritative receipt until
+    // every dependent slot is gone. A failed cleanup must release the barrier
+    // without turning leftover history/recovery into an undeleted workout.
+    final cleanupSucceeded = preserveOutbox ? null : Completer<bool>();
+    final receiptPurge = preserveOutbox ? null : _trackWrite(
+      _queueTrainingDeletion(() async {
+        if (!await cleanupSucceeded!.future) return;
+        try {
+          await _store.remove(_trainingHistoryDeletionsKey);
+        } catch (error) {
+          throw UnwritableCacheSlot(
+              'training_history_deletions', error.runtimeType.toString());
+        }
+      }),
+    );
+
+    try {
+      await _store.remove(_profileKey);
+      await _store.remove(_legacyDailyKey);
+      await _store.remove(_statsKey);
+      await _store.remove(_notificationsKey);
+      await _store.remove(_healthConnectKey);
+      await _store.remove(_loggedMealsKey);
+      await _store.remove(_favoritesKey);
+      await _store.remove(_weightLogKey);
+      // User recipes are user content (ingredients, amounts): same M-1 reason
+      // as the diary, even with [preserveOutbox].
+      await _store.remove(_userRecipesKey);
+      await _store.remove(_mealPlansKey);
+      await _store.remove(_trainingHistoryKey);
+      await _store.remove(_trainingPlansKey);
+      await _store.remove(_trainingSelectionKey);
+      await _store.remove(_trainingSessionKey);
+      // Steps/burned kcal are health data — same M-1 reason.
+      await _store.remove(_dailyActivityKey);
+      if (!preserveOutbox) {
+        await _store.remove(_outboxKey);
+        await _store.remove(_pendingStatsKey);
+        cleanupSucceeded!.complete(true);
+      }
+    } catch (error) {
+      cleanupSucceeded?.complete(false);
+      throw UnwritableCacheSlot('account_cache', error.runtimeType.toString());
+    }
     if (preserveOutbox) return;
-    await _store.remove(_outboxKey);
-    await _store.remove(_pendingStatsKey);
+    // A timed-out old encryption may still land. Its ordered purge remains
+    // queued even if this await times out; subsequent reads cannot bypass it.
+    await receiptPurge!.timeout(settleBudget);
   }
 
   // ---- Debounced blob writes (G9b) ----------------------------------------
@@ -814,7 +980,7 @@ class LocalCache {
       // path is cleared unconditionally (see [clear]), so take the blob back
       // out. The `remove` rides the store's OWN per-key queue and therefore
       // lands after this write. Deliberately not in [_writeDurable]: a purge
-      // with `preserveOutbox` keeps exactly those two slots.
+      // with `preserveOutbox` keeps durable sync state.
       if (_closed) await _store.remove(key);
     } catch (e) {
       // A cache write must never kill the UI path — it is pure speed-up for
@@ -921,9 +1087,9 @@ class LocalCache {
   /// through the decorator would return `null` once more and this check would
   /// wave the loss through. The raw look needs no cipher and cannot.
   ///
-  /// A provably broken ciphertext stays "empty": the decorator PURGES such a
-  /// slot on read, so the raw look finds nothing — correct, since nothing is
-  /// left that overwriting could lose.
+  /// Broken mirror ciphertext is purged and counts as empty. Authoritative
+  /// training-deletion receipts stay occupied even when their bytes are
+  /// irreparable: they fence stale data held in other slots.
   ///
   /// P3-02c: the throw carries [UnreadableCacheSlot.transient], so the caller
   /// can tell a slot that is merely unreadable RIGHT NOW from one whose

@@ -627,3 +627,46 @@ Only `coach-chat` needs deployment; no migration or new app build is required.
 Deployed authenticated streaming, stored-answer parity and disposable-account
 cleanup are verified separately after deployment. Consult the PR for final
 delivery status; ignored evidence is in `.agents/coach-completion-2026-09-10/`.
+
+## Feature-gap review, 2026-09-10
+
+The user requested a product-completeness review with three subagents. See
+[FEATURE-REVIEW-2026-09-10.md](FEATURE-REVIEW-2026-09-10.md), based on clean local
+main `1b03c18`. Strong candidates are saved-recipe editing/preparation, persistent
+workout completions and actual set values, Android Health Connect, and ingredient-
+based recipe calculations. Smaller gaps include changing diet after onboarding
+and exposing the already-prepared JSON file-share action. Existing trends, manual
+macro goals, localized auth, reminders and data export are not missing features.
+
+This is a source-based product recommendation, not an approved implementation
+roadmap or runtime/security clearance. Removed water/sleep/habit features should
+not be restored merely because old documents or fields still mention them.
+Only review documentation changed; no tests, production changes or deployment.
+
+## Six core features, 2026-09-10
+
+The user subsequently authorized implementation with six isolated feature agents
+and coordinator review, followed by a PR and protected-main merge after green CI.
+The earlier gap review describes the baseline, not the resulting feature state.
+See [CORE-FEATURES-IMPLEMENTATION-2026-09-10.md](CORE-FEATURES-IMPLEMENTATION-2026-09-10.md)
+for acceptance criteria, validation evidence and release boundaries.
+
+The implementation adds recipe editing/preparation, structured ingredient and
+portion calculation, persistent workout actuals/history/previous performance,
+Android Health Connect steps, explicit Coach training briefs and selected-plan
+context, and a weekly meal planner with persistent aggregated shopping checks.
+The five existing tabs, localization/theme conventions, explicit Coach adoption,
+local recipe images, account isolation and calorie model are preserved.
+
+Review corrections address durable save/retry identities, unknown cooked weight,
+stale set validation, pending completion notes, deleted workout resurrection and
+additional free-text shopping items. Workout deletion keeps only account-scoped
+UUID receipts; performance payloads and notes are removed. New tables/RPCs and
+export expectations are documented by migration replay in
+[SCHEMA_STATE.md](../supabase/SCHEMA_STATE.md).
+
+Delivery is tracked on `feat/complete-core-features` and its PR. Three new
+migrations and the updated `coach-chat` function require a separate backend
+rollout before releasing the new client. Code merge, deployed backend, installed
+app and physical-device Health Connect data are separate facts. No backend or
+store deployment is established by this implementation review.

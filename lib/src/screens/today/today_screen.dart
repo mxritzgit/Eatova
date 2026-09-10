@@ -32,6 +32,7 @@ class TodayScreen extends StatelessWidget {
     required this.selectedDate,
     required this.streak,
     this.steps,
+    this.healthConnect = false,
     this.profileInitial,
     this.dayLoading = false,
     this.onDateSelected,
@@ -55,6 +56,7 @@ class TodayScreen extends StatelessWidget {
   /// Step count for [selectedDate]; `null` means no step source, and the
   /// steps card is dropped rather than claiming zero. Goal comes from profile.
   final int? steps;
+  final bool healthConnect;
 
   /// Only the meals of [selectedDate].
   final List<LoggedMeal> meals;
@@ -86,8 +88,9 @@ class TodayScreen extends StatelessWidget {
     final heute = startOfDay(jetzt);
     final istHeute = daysBetween(heute, selectedDate) == 0;
 
-    final restProtein =
-        (profile.proteinGoalG - macroProgress.proteinG).round().clamp(0, 99999);
+    final restProtein = (profile.proteinGoalG - macroProgress.proteinG)
+        .round()
+        .clamp(0, 99999);
     final schritte = steps;
 
     // No SafeArea and no horizontal padding here: the shell supplies both,
@@ -132,6 +135,34 @@ class TodayScreen extends StatelessWidget {
               steps: schritte,
               goal: profile.dailyStepsGoal,
               burnedKcal: burnedKcal,
+            ),
+          ] else if (healthConnect) ...<Widget>[
+            const SizedBox(height: 14),
+            AppCard(
+              key: const ValueKey('today-health-connect-missing'),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    l10n.healthConnectMissingTitle,
+                    style: AppType.display(
+                      17,
+                      weight: FontWeight.w700,
+                      color: t.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    l10n.healthConnectMissingHint,
+                    style: AppType.ui(12, color: t.ink2, height: 1.4),
+                  ),
+                  if (onOpenProfile != null)
+                    TextButton(
+                      onPressed: onOpenProfile,
+                      child: Text(l10n.healthConnectReview),
+                    ),
+                ],
+              ),
             ),
           ],
           const SizedBox(height: 14),

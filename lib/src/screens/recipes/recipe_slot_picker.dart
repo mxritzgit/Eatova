@@ -6,15 +6,33 @@ part of 'recipes_screen.dart';
 // Runs through `showEatovaSheet`. Unlike the create sheet there is nothing to
 // lose here — no form, so a drag dismiss is harmless.
 // ---------------------------------------------------------------------------
-class _MealSlotPickerSheet extends StatelessWidget {
+class _MealSlotPickerSheet extends StatefulWidget {
   const _MealSlotPickerSheet({required this.recipe});
 
   final FitnessRecipe recipe;
 
   @override
+  State<_MealSlotPickerSheet> createState() => _MealSlotPickerSheetState();
+}
+
+class _MealSlotPickerSheetState extends State<_MealSlotPickerSheet> {
+  double? _servings = 1;
+  FitnessRecipe get recipe => widget.recipe;
+
+  MealAnalysisResult? _selectedResult(AppLocalizations l10n) {
+    if (_servings == null || !recipe.canLogServings(_servings!)) return null;
+    try {
+      return recipe.toMealResultForServings(_servings!, l10n);
+    } on FormatException {
+      return null;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
+    final result = _selectedResult(l10n);
     const slots = <MealSlot>[
       MealSlot.breakfast,
       MealSlot.lunch,
@@ -53,14 +71,17 @@ class _MealSlotPickerSheet extends StatelessWidget {
                       children: [
                         Text(
                           l10n.recipesWhenToLogTitle,
-                          style: AppType.display(24, color: t.ink, height: 1.15),
+                          style: AppType.display(
+                            24,
+                            color: t.ink,
+                            height: 1.15,
+                          ),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          l10n.recipesKcalProteinSummary(
-                            recipe.caloriesKcal,
-                            recipe.proteinG,
-                          ),
+                          result == null
+                              ? l10n.recipeEditCannotLog
+                              : '${result.caloriesKcal} kcal · ${result.protein} ${l10n.todayMacroProtein}',
                           style: AppType.ui(
                             12.5,
                             weight: FontWeight.w500,
@@ -73,10 +94,26 @@ class _MealSlotPickerSheet extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 18),
+              RecipePortionSelector(
+                onChanged: (value) => setState(() => _servings = value),
+              ),
+              if (result == null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  l10n.recipeEditCannotLog,
+                  key: const ValueKey('recipe-log-unavailable'),
+                  style: AppType.ui(14, color: t.ink2, height: 1.4),
+                ),
+              ],
+              const SizedBox(height: 18),
               for (var i = 0; i < slots.length; i++) ...[
                 _MealSlotButton(
                   slot: slots[i],
-                  onTap: () => Navigator.of(context).pop(slots[i]),
+                  onTap: result == null
+                      ? null
+                      : () => Navigator.of(
+                          context,
+                        ).pop((slot: slots[i], servings: _servings!)),
                 ),
                 if (i != slots.length - 1) const SizedBox(height: 9),
               ],
@@ -109,7 +146,7 @@ class _MealSlotButton extends StatelessWidget {
   const _MealSlotButton({required this.slot, required this.onTap});
 
   final MealSlot slot;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {

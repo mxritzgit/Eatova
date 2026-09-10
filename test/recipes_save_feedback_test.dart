@@ -100,7 +100,7 @@ void testWidgetsRobust(String description, WidgetTesterCallback callback) {
 }
 
 /// Creates a recipe named [name] through the sheet.
-Future<void> _legeRezeptAn(WidgetTester tester, {String name = 'Protein-Bowl'}) async {
+Future<void> _legeRezeptAn(WidgetTester tester, {String name = 'Protein-Bowl', bool settle = true}) async {
   await tester.tap(find.byKey(const ValueKey('recipe-create-button')));
   await tester.pumpAndSettle();
   await tester.enterText(find.byKey(const ValueKey('recipe-create-name')), name);
@@ -108,7 +108,11 @@ Future<void> _legeRezeptAn(WidgetTester tester, {String name = 'Protein-Bowl'}) 
   await tester.enterText(find.byKey(const ValueKey('recipe-create-kcal')), '520');
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(const ValueKey('recipe-create-save')));
-  await tester.pumpAndSettle();
+  if (settle) {
+    await tester.pumpAndSettle();
+  } else {
+    await tester.pump();
+  }
 }
 
 /// Lets the delete's undo window pass in 100 ms frames (a single big pump
@@ -182,7 +186,8 @@ void main() {
         (tester) async {
       final ausgang = Completer<SyncDelivery>();
       await _pumpHost(tester, _Host(onCreate: (_) => ausgang.future));
-      await _legeRezeptAn(tester);
+      await _legeRezeptAn(tester, settle: false);
+      expect(find.byKey(const ValueKey('recipe-create-sheet')), findsOneWidget);
 
       // Nothing to report until the store answers.
       expect(_snackTexte(tester), isEmpty);
