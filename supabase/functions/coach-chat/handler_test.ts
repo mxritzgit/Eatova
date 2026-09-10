@@ -283,7 +283,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
       const parsed = JSON.parse(body) as JsonRecord;
       openRouterBodies.push(parsed);
       // Classifier and answer call differ unambiguously in token budget
-      // (256 vs. 800).
+      // (256 vs. 3072).
       if (parsed.max_tokens === 256) {
         if (options.classifierHangs) return hangUntilAbort(signal);
         if (options.classifierStatus !== undefined) {
@@ -353,7 +353,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
     openRouterBodies,
     callsTo: (fragment: string) => calls.filter((call) => call.url.includes(fragment)),
     classifierBodies: () => openRouterBodies.filter((b) => b.max_tokens === 256),
-    answerBodies: () => openRouterBodies.filter((b) => b.max_tokens === 800),
+    answerBodies: () => openRouterBodies.filter((b) => b.max_tokens === 3072),
     gateBatches: () =>
       calls
         .filter((call) => call.url.includes("/rpc/consume_edge_rate_limits"))
@@ -2224,7 +2224,7 @@ Deno.test("F5-02: Layer-3-Refusal mit Text -> 200, refusal:true, Slot bleibt ver
   }
 });
 
-Deno.test("F5-03: finish_reason=length -> Antwort mit Auslassungszeichen, max_tokens 800", async () => {
+Deno.test("F5-03: finish_reason=length -> Antwort mit Auslassungszeichen, max_tokens 3072", async () => {
   const stub = installFetch({
     classifierCategory: "fitness",
     answerContent: "Iss nach dem Training etwa 30 g Protein, zum Beispiel",
@@ -2239,7 +2239,7 @@ Deno.test("F5-03: finish_reason=length -> Antwort mit Auslassungszeichen, max_to
     assert(String(body.reply).startsWith("Iss nach dem Training"), "Modelltext bleibt erhalten");
     const answers = stub.answerBodies();
     assertEquals(answers.length, 1, "Answer-Call");
-    assertEquals(answers[0].max_tokens, 800, "max_tokens");
+    assertEquals(answers[0].max_tokens, 3072, "max_tokens");
     // The persisted row carries the same marker as the response.
     const stored = stub.callsTo("/rest/v1/chat_messages")
       .filter((c) => c.method === "POST")

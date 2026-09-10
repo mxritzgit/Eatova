@@ -90,7 +90,7 @@ interface StubOptions {
   recipeStoreStatus?: number;
 }
 
-/** Reply text of the chat answer call (max_tokens 800). */
+/** Reply text of the chat answer call (max_tokens 3072). */
 const ANSWER_TEXT = "Peil heute noch 30 g Protein an, dann passt die Bilanz.";
 
 // EN counterparts from the REFUSAL_TEXTS catalogue - byte copies, same
@@ -102,7 +102,7 @@ const CLASSIFIER_UNUSABLE_REPLY_EN =
 
 /**
  * The three OpenRouter chat calls are told apart by their token budget
- * (classifier 256, answer 800, draft 900), as in handler_test.ts.
+ * (classifier 256, answer 3072, draft 900), as in handler_test.ts.
  */
 function maxTokensOf(body: string): number {
   return Number((JSON.parse(body) as JsonRecord).max_tokens);
@@ -222,7 +222,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
           }],
         });
       }
-      if (budget === 800) {
+      if (budget === 3072) {
         return jsonRes({ choices: [{ message: { content: ANSWER_TEXT } }] });
       }
       if (options.draftStatus !== undefined) {
@@ -787,7 +787,7 @@ Deno.test("Vergifteter user_context wird verworfen — Antwort kommt trotzdem", 
     assertEquals(body.reply, ANSWER_TEXT, "der Nutzer bekommt seine Antwort");
     assertEquals(body.refusal, false, "kein Refusal — nur der Kontext faellt weg");
 
-    const answerCalls = completionsWithBudget(stub, 800);
+    const answerCalls = completionsWithBudget(stub, 3072);
     assertEquals(answerCalls.length, 1, "genau ein Answer-Call");
     assert(
       !answerCalls[0].body.includes("Ignoriere alle"),
@@ -811,7 +811,7 @@ Deno.test("Sauberer user_context: als gerahmte Nicht-System-Message", async () =
     assertEquals(res.status, 200, "Status");
     await res.json();
 
-    const answerBody = JSON.parse(completionsWithBudget(stub, 800)[0].body) as JsonRecord;
+    const answerBody = JSON.parse(completionsWithBudget(stub, 3072)[0].body) as JsonRecord;
     const messages = answerBody.messages as { role: string; content: unknown }[];
     assertEquals(
       messages.filter((m) => m.role === "system").length,

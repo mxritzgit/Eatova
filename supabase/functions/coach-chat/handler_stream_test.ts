@@ -204,6 +204,8 @@ interface StubOptions {
   answerStatus?: number;
   /** Inhalt des GEPUFFERTEN Antwort-Calls (Pfad ohne Opt-in). */
   answerContent?: string;
+  /** Simulate a provider whose completion (including reasoning) exceeds 800 tokens. */
+  answerNeedsHeadroom?: boolean;
   /** Inhalt des Rezept-Entwurfs (max_tokens 900). */
   draftContent?: string;
 }
@@ -295,7 +297,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
     }
     if (url.includes("openrouter.ai")) {
       const parsed = JSON.parse(body) as JsonRecord;
-      // Die drei Chat-Calls trennen sich am Token-Budget (256/800/900).
+      // Die drei Chat-Calls trennen sich am Token-Budget (256/3072/900).
       if (parsed.max_tokens === 256) {
         return jsonRes({
           choices: [{
@@ -313,6 +315,25 @@ function installFetch(options: StubOptions = {}): FetchStub {
       }
       if (options.answerStatus !== undefined) {
         return new Response("upstream unavailable", { status: options.answerStatus });
+      }
+      if (options.answerNeedsHeadroom) {
+        // Live reproduction: 528 reasoning tokens left only ~270 visible
+        // tokens in the old 800-token cap. This fixture needs 700 visible.
+        const reasoning = parsed.reasoning as JsonRecord | undefined;
+        const thinkingTokens = reasoning?.effort === "low" ? 128 : 528;
+        const truncated = Number(parsed.max_tokens) < thinkingTokens + 700;
+        const content = truncated ? COMPLETE_RECIPE.slice(0, 526) : COMPLETE_RECIPE;
+        const finishReason = truncated ? "length" : "stop";
+        if (parsed.stream === true) {
+          return new Response(providerBody([
+            deltaFrame(content.slice(0, 400), null),
+            deltaFrame(content.slice(400), finishReason),
+            DONE_FRAME,
+          ], "close", signal, () => { providerCancelled = true; }), {
+            headers: { "content-type": "text/event-stream" },
+          });
+        }
+        return jsonRes({ choices: [{ message: { content }, finish_reason: finishReason }] });
       }
       if (parsed.stream === true) return streamedAnswer(signal);
       return jsonRes({
@@ -355,7 +376,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
       calls
         .filter((call) => call.url.includes("openrouter.ai/api/v1/chat/completions"))
         .map((call) => JSON.parse(call.body) as JsonRecord)
-        .filter((parsed) => parsed.max_tokens === 800),
+        .filter((parsed) => parsed.max_tokens === 3072),
     assistantRows: () =>
       calls
         .filter((call) => call.url.includes("/rest/v1/chat_messages") && call.method === "POST")
@@ -409,6 +430,51 @@ const LANGER_TEXT_A =
   "Nach dem Training sind 25 bis 30 g Protein ein guter Richtwert, damit die Muskulatur ";
 const LANGER_TEXT_B =
   "gut versorgt ist und du deine Tagesbilanz nicht sprengst. Quark oder Huehnchen passen.";
+
+const COMPLETE_RECIPE =
+  "Fuer eine leichte Sauce im Cane's-Stil verruehrst du 100 g Naturjoghurt, " +
+  "20 g leichte Mayonnaise und 20 g Ketchup. Gib etwas Worcestershire-Sauce, " +
+  "Knoblauchpulver und schwarzen Pfeffer dazu. Schmecke erst danach mit Salz ab.\n\n" +
+  "Verruehre alles mit einer Gabel, bis die Sauce glatt ist. Lass sie eine halbe " +
+  "Stunde abgedeckt im Kuehlschrank ziehen. Die Gewuerze entwickeln ihren " +
+  "Geschmack dabei noch weiter. Probiere deshalb vor dem Nachwuerzen erneut.\n\n" +
+  "Fuer eine duennere Konsistenz gibst du teeloeffelweise Wasser dazu. Ist sie " +
+  "zu fluessig, hilft etwas mehr Joghurt. Die Naehrwerte haengen von deinen " +
+  "Produkten ab; teile die Summe der Zutaten durch die Anzahl der Portionen. " +
+  "Die fertige Sauce passt zu Ofenkartoffeln und gebratenem Haehnchen.";
+
+for (const streaming of [false, true]) {
+  Deno.test(`completion headroom: Rezept kommt vollstaendig an (${streaming ? "SSE" : "JSON"})`, async () => {
+    const stub = installFetch({ classifierCategory: "nutrition", answerNeedsHeadroom: true });
+    try {
+      const res = await handleRequest(makeRequest({
+        message: "Eine leichte Raising Canes Sauce mit Zutaten, Zubereitung und Konsistenz-Tipps bitte.",
+      }, streaming));
+      assertEquals(res.status, 200, "Status");
+      let body: JsonRecord;
+      if (streaming) {
+        const events = parseSse(await res.text());
+        assertEquals(events.at(-1)?.event, "done", "sauberer Streamabschluss");
+        body = events.at(-1)!.data;
+        assertEquals(deltaTexte(events).join(""), COMPLETE_RECIPE, "vollstaendige Deltas");
+      } else {
+        body = await res.json();
+      }
+      assertEquals(body.reply, COMPLETE_RECIPE, "auch das Ende muss ankommen");
+      assertEquals(body.refusal, false, "keine Ablehnung");
+      assertEquals(stub.assistantRows().length, 1, "eine gespeicherte Antwort");
+      assertEquals(stub.assistantRows()[0].content, COMPLETE_RECIPE, "vollstaendig gespeichert");
+      assertEquals(stub.quotaUsed(), 1, "ein Quota-Slot");
+      const answers = stub.answerBodies();
+      assertEquals(answers.length, 1, "keine weiteren bezahlten Antwortaufrufe");
+      const reasoning = answers[0].reasoning as JsonRecord;
+      assertEquals(reasoning.effort, "low", "vom Modell unterstuetzte niedrige Denkstufe");
+      assertEquals(reasoning.exclude, true, "interne Verarbeitung bleibt beim Anbieter");
+    } finally {
+      stub.restore();
+    }
+  });
+}
 
 // ---------------------------------------------------------------------------
 // 1) Opt-in

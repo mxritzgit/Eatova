@@ -593,3 +593,37 @@ raise that cap. Final review, CI, merge and deployed verification are recorded i
 the PR for `fix/coach-guardrail-false-refusals`. Only `coach-chat` needs deployment;
 no schema or app-build change is needed. Ignored evidence is in
 `.agents/coach-guardrails-2026-09-10/`.
+
+## Coach answer completion, 2026-09-10
+
+The false-refusal fix above is merged in [PR #75](https://github.com/mxritzgit/Eatova/pull/75)
+(`5f1ac3d`), with successful PR/main CI and authenticated streaming checks on
+`coach-chat` v43. The subsequent mid-answer ellipsis is a separate, confirmed
+output-budget problem: production logged `finish_reason=length` at 16:17 UTC,
+with 526 visible characters, and the stored answer contains the server's suffix.
+No user message content was needed to establish this.
+
+A synthetic recipe request reproduced the cutoff through the production handler
+and real OpenRouter: 528 reasoning tokens consumed most of the old 800-token
+completion budget. Ordinary JSON and SSE answers now share a 3,072-token cap
+and `reasoning: { effort: "low", exclude: true }`. Low is the lowest effort
+advertised for Gemini 3.8 Flash in the model catalog checked on this date.
+[OpenRouter's reasoning contract](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)
+counts reasoning as output; exclusion alone does not free this budget.
+The concise-answer prompt, three guardrails, deadlines and quota rules remain.
+The existing ellipsis still identifies an exceptional provider length limit;
+the fix does not hide that signal or add paid continuation loops.
+
+Both new regression cases fail on the former implementation and pass with the
+fix, checking complete JSON/SSE output, persistence and a single quota claim.
+Verification: 4,134 Flutter tests, strict analysis, 496 Deno tests, lint and all
+entrypoint checks passed. General and security reviews found no introduced
+issues. The same live synthetic request finished normally with 1,650 visible
+characters in 5.4 seconds (previous truncated response: 7.4 seconds); these are
+individual observations, not a latency benchmark.
+
+Delivery uses the PR from `fix/coach-complete-responses`, after successful CI.
+Only `coach-chat` needs deployment; no migration or new app build is required.
+Deployed authenticated streaming, stored-answer parity and disposable-account
+cleanup are verified separately after deployment. Consult the PR for final
+delivery status; ignored evidence is in `.agents/coach-completion-2026-09-10/`.
