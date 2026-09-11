@@ -1639,7 +1639,7 @@
       "count": { "type": "int" }
     }
   },
-  "foodFavoritesSheetSubtitle": "Tap to expand. \"Add\" logs into the selected meal, the heart removes the favorite.",
+  "foodFavoritesSheetSubtitle": "Your go-to meals, ready for another day.",
   "foodFavoritesSearchHint": "Search favorites",
   "foodFavoritesEmptyHint": "No favorites yet. Tap the heart on a search or scan result and the meal shows up here.",
   "foodFavoritesNoMatchHint": "No favorite matches your search.",
@@ -2196,5 +2196,16 @@
   "foodPhotoEntryHint": "AI estimates your portion and nutrition. You review the result.",
   "foodSearchClear": "Clear search",
   "foodEntryEmptyTitle": "Quicker next time",
-  "foodEntryEmptyHint": "Meals you log will appear here, ready to use again."
+  "foodEntryEmptyHint": "Meals you log will appear here, ready to use again.",
+  "foodFavoriteSavedPortion": "Saved portion",
+  "foodFavoritePortionAction": "Adjust portion",
+  "foodFavoriteAdded": "Added",
+  "foodFavoritesForSlot": "For {slot}",
+  "@foodFavoritesForSlot": {
+    "placeholders": {
+      "slot": {
+        "type": "String"
+      }
+    }
+  }
 }

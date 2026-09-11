@@ -31,6 +31,7 @@ import 'meal_analysis_sheet.dart';
 import 'meal_entry_methods.dart';
 import 'meal_scan_preview_sheet.dart';
 import 'meal_suggestion_item.dart';
+import 'saved_meal_presentation.dart';
 import 'slot_selector.dart';
 
 /// Message when a search/favorite/recent row without calories is logged —
@@ -1229,11 +1230,13 @@ class _AddMealSheetState extends State<AddMealSheet> {
               ),
             ],
           ),
-          const SizedBox(height: 2),
-          for (var i = 0; i < inline.length; i++) ...[
-            _favoriteItem(inline[i], i, pinned: true),
-            if (i != inline.length - 1) const SizedBox(height: 8),
-          ],
+          const SizedBox(height: 8),
+          SavedMealCollection(
+            children: [
+              for (var i = 0; i < inline.length; i++)
+                _favoriteItem(inline[i], i, pinned: true),
+            ],
+          ),
           if (recents.isNotEmpty) const SizedBox(height: 18),
         ],
         if (recents.isNotEmpty) ...[
@@ -1262,6 +1265,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
         : 'favorite-tile-add-$index';
     return MealSuggestionItem(
       key: ValueKey(tileKey),
+      savedPresentation: pinned,
       result: favorite.result,
       fallbackIcon: pinned ? Icons.favorite_rounded : Icons.history_rounded,
       expanded: _expandedItemKey == key,

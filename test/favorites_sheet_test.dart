@@ -199,7 +199,7 @@ void main() {
     expect(
       find.descendant(
         of: _zeile(1),
-        matching: find.byIcon(Icons.check_circle_rounded),
+        matching: find.byIcon(Icons.check_rounded),
       ),
       findsOneWidget,
     );
@@ -210,7 +210,7 @@ void main() {
     expect(
       find.descendant(
         of: _zeile(1),
-        matching: find.byIcon(Icons.check_circle_rounded),
+        matching: find.byIcon(Icons.check_rounded),
       ),
       findsNothing,
       reason: 'der Haken verblasst wieder',
@@ -284,7 +284,7 @@ void main() {
 
     expect(geloggt, isEmpty, reason: '0 kcal dürfen nicht geloggt werden');
     expect(find.textContaining('Kalorienangabe'), findsOneWidget);
-    expect(find.byIcon(Icons.check_circle_rounded), findsNothing);
+    expect(find.byIcon(Icons.check_rounded), findsNothing);
 
     await _timerAblaufen(tester);
   });

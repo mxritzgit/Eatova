@@ -13,6 +13,7 @@ import '../common/app_snack.dart';
 import '../common/motion.dart';
 import '../design/design.dart';
 import 'meal_suggestion_item.dart';
+import 'saved_meal_presentation.dart';
 
 // Favorites sheet (feature 2026-08-27): every pinned favorite, searchable,
 // stacked above the add-meal sheet.
@@ -94,9 +95,9 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
     super.dispose();
   }
 
-  List<FavoriteMeal> get _pinned => pinnedFavoritesByRecency(widget.favorites)
-      .where((f) => !_unpinnedIds.contains(f.id))
-      .toList(growable: false);
+  List<FavoriteMeal> get _pinned => pinnedFavoritesByRecency(
+    widget.favorites,
+  ).where((f) => !_unpinnedIds.contains(f.id)).toList(growable: false);
 
   static String _itemKey(FavoriteMeal favorite) => 'favorite:${favorite.id}';
 
@@ -170,7 +171,7 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
     final l10n = context.l10n;
     final pinned = _pinned;
     final visible = filterFavoritesByQuery(pinned, _query);
-    final bottomInset = MediaQuery.of(context).viewPadding.bottom;
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
 
     // showEatovaSheet supplies handle, keyboard inset and the height cap; this
     // is only the inside: header, search, capped scroll area, no footer.
@@ -181,24 +182,26 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
-          child: Column(
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Sheet title, so rank 1 (P9-06b): the shared widget adds the
-              // `header` trait AND the rank the hand-written Semantics here
-              // never carried. Type stays display-24 — a11y fix, no redesign.
-              HeadingSemantics(
-                level: 1,
-                child: Text(
-                  l10n.foodFavoritesSheetTitle(pinned.length),
-                  key: const ValueKey('favorites-sheet-title'),
-                  style: AppType.display(24, color: t.ink, height: 1.15),
+              Expanded(
+                child: HeadingSemantics(
+                  level: 1,
+                  child: Text(
+                    l10n.foodFavoritesSheetTitle(pinned.length),
+                    key: const ValueKey('favorites-sheet-title'),
+                    style: AppType.display(24, color: t.ink, height: 1.15),
+                  ),
                 ),
               ),
-              const SizedBox(height: 6),
-              Text(
-                l10n.foodFavoritesSheetSubtitle,
-                style: AppType.ui(12.5, color: t.ink2, height: 1.45),
+              const SizedBox(width: 8),
+              IconButton(
+                key: const ValueKey('favorites-sheet-close'),
+                onPressed: () => Navigator.of(context).maybePop(),
+                tooltip: l10n.commonClose,
+                style: IconButton.styleFrom(backgroundColor: t.surf2),
+                icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
               ),
             ],
           ),
@@ -219,13 +222,40 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
         Flexible(
           child: SingleChildScrollView(
             key: const ValueKey('favorites-sheet-scroll'),
-            padding: EdgeInsets.fromLTRB(20, 12, 20, 28 + bottomInset),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
             child: maybeAnimatedSize(
               context,
               duration: const Duration(milliseconds: 220),
               curve: Curves.easeInOut,
               alignment: Alignment.topCenter,
-              child: _buildList(pinned, visible),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          l10n.foodFavoritesForSlot(widget.slot.label(l10n)),
+                          key: const ValueKey('favorites-sheet-slot-context'),
+                          style: AppType.ui(
+                            13,
+                            weight: FontWeight.w600,
+                            color: t.accent,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          l10n.foodFavoritesSheetSubtitle,
+                          style: AppType.ui(13, color: t.ink2, height: 1.4),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _buildList(pinned, visible),
+                ],
+              ),
             ),
           ),
         ),
@@ -233,7 +263,16 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
     );
     // SnackHost: adds and unpins keep the sheet open, so their toasts must
     // land inside it, above the scrim (review F3-02).
-    return SnackHost(child: body);
+    // Protect the whole sheet, including its toast strip, from the home
+    // indicator. The strip must not count this inset a second time.
+    return Padding(
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: MediaQuery.removeViewPadding(
+        context: context,
+        removeBottom: true,
+        child: SnackHost(child: body),
+      ),
+    );
   }
 
   Widget _buildList(List<FavoriteMeal> pinned, List<FavoriteMeal> visible) {
@@ -242,22 +281,22 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
       return _Hint(
         key: const ValueKey('favorites-sheet-empty'),
         text: l10n.foodFavoritesEmptyHint,
+        icon: Icons.favorite_outline_rounded,
+        actionLabel: l10n.commonClose,
+        onAction: () => Navigator.of(context).maybePop(),
       );
     }
     if (visible.isEmpty) {
       return _Hint(
         key: const ValueKey('favorites-sheet-no-match'),
         text: l10n.foodFavoritesNoMatchHint,
+        icon: Icons.search_rounded,
+        actionLabel: l10n.recipesSearchClearTooltip,
+        onAction: _clearQuery,
       );
     }
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (var i = 0; i < visible.length; i++) ...[
-          _item(visible[i], i),
-          if (i != visible.length - 1) const SizedBox(height: 8),
-        ],
-      ],
+    return SavedMealCollection(
+      children: [for (var i = 0; i < visible.length; i++) _item(visible[i], i)],
     );
   }
 
@@ -265,6 +304,7 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
     final key = _itemKey(favorite);
     return MealSuggestionItem(
       key: ValueKey('favorites-sheet-item-$index'),
+      savedPresentation: true,
       result: favorite.result,
       fallbackIcon: Icons.favorite_rounded,
       expanded: _expandedItemKey == key,
@@ -375,26 +415,38 @@ class _SearchFieldState extends State<_SearchField> {
   }
 }
 
-/// Quiet centered hint for the two empty states (copy of the add-meal
-/// sheet's private `_HintBlock`).
+/// Empty and filtered collections retain an obvious way back.
 class _Hint extends StatelessWidget {
-  const _Hint({super.key, required this.text});
+  const _Hint({
+    super.key,
+    required this.text,
+    required this.icon,
+    required this.actionLabel,
+    required this.onAction,
+  });
 
-  final String text;
+  final String text, actionLabel;
+  final IconData icon;
+  final VoidCallback onAction;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 18),
-      child: Text(
-        text,
-        textAlign: TextAlign.center,
-        style: AppType.ui(
-          13,
-          weight: FontWeight.w500,
-          color: context.t.ink2,
-          height: 1.4,
-        ),
+    final t = context.t;
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: t.brandSurface,
+        borderRadius: BorderRadius.circular(rCard),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 28, color: t.accent),
+          const SizedBox(height: 16),
+          Text(text, style: AppType.ui(14, color: t.ink2, height: 1.4)),
+          const SizedBox(height: 12),
+          TextButton(onPressed: onAction, child: Text(actionLabel)),
+        ],
       ),
     );
   }
