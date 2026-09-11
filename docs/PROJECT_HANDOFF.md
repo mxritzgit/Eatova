@@ -709,3 +709,22 @@ general/security review and real-font modal/flow checks.
 The user authorized push and protected-main merge after green CI; the PR records
 delivery status. This client change requires a new installed app build to appear
 on a device. No backend, schema or dependency changes are needed.
+
+## Favorites library design, 2026-09-11
+
+The user requested a less generic presentation for inline favorites and their
+full menu. Both now share an open collection surface, saved-portion calorie
+hierarchy, a visible portion control and a lavender expanded state with Today's
+nutrient colors. Search, close, meal context and empty-state actions clarify the
+full library. Existing portion arithmetic, pin/unpin identity, deletion,
+filtering, selected day/slot and account boundaries are preserved.
+
+See [FAVORITES-DESIGN.md](FAVORITES-DESIGN.md) for acceptance and verification:
+4,344 passing tests, 95.12% coverage, strict analysis, independent general and
+security reviews, and real-font modal/app-shell checks. The toast host no longer
+counts the library's consumed bottom safe-area inset twice.
+
+The topic branch is `design/favorites-library`, based on main `9467a29` (meal
+entry PR #79). The user authorized push and protected-main merge after green CI;
+the PR records delivery status. This is a client-only change; an installed app
+build or store release remains a separate step.

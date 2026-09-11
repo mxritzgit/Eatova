@@ -7,6 +7,7 @@ import '../../models/model_limits.dart';
 import '../../theme/app_tokens.dart';
 import '../common/motion.dart';
 import '../design/sheets.dart';
+import 'saved_meal_presentation.dart';
 
 /// Shared item widget for search hits, favorites and recent meals in the
 /// AddMealSheet.
@@ -30,6 +31,7 @@ class MealSuggestionItem extends StatefulWidget {
     this.isFavorite = false,
     this.onToggleFavorite,
     this.favoriteButtonKey,
+    this.savedPresentation = false,
   });
 
   final MealAnalysisResult result;
@@ -53,6 +55,9 @@ class MealSuggestionItem extends StatefulWidget {
   /// Optional favorite toggle in the header; null means no heart button.
   final ValueChanged<MealAnalysisResult>? onToggleFavorite;
   final Key? favoriteButtonKey;
+
+  /// Saved meals show the reusable portion instead of a product density.
+  final bool savedPresentation;
 
   @override
   State<MealSuggestionItem> createState() => _MealSuggestionItemState();
@@ -185,26 +190,43 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
       duration: motionDuration(context, const Duration(milliseconds: 180)),
       curve: Curves.easeOutCubic,
       decoration: BoxDecoration(
-        color: widget.expanded ? t.surf : t.surf2,
+        color: widget.savedPresentation
+            ? (widget.expanded ? t.brandSurface : Colors.transparent)
+            : (widget.expanded ? t.surf : t.surf2),
         borderRadius: BorderRadius.circular(rCard),
-        border: Border.all(color: widget.expanded ? accent : t.line),
+        border: widget.savedPresentation
+            ? null
+            : Border.all(color: widget.expanded ? accent : t.line),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _Header(
-            result: widget.result,
-            imageUrl: widget.imageUrl,
-            fallbackIcon: widget.fallbackIcon,
-            accent: accent,
-            expanded: widget.expanded,
-            justAdded: widget.justAdded,
-            onTap: widget.onTap,
-            onRemove: widget.onRemove,
-            isFavorite: widget.isFavorite,
-            onToggleFavorite: widget.onToggleFavorite,
-            favoriteButtonKey: widget.favoriteButtonKey,
-          ),
+          if (widget.savedPresentation)
+            SavedMealHeader(
+              result: widget.expanded ? angepasst : widget.result,
+              expanded: widget.expanded,
+              justAdded: widget.justAdded,
+              onTap: widget.onTap,
+              isFavorite: widget.isFavorite,
+              onToggleFavorite: widget.onToggleFavorite == null
+                  ? null
+                  : () => widget.onToggleFavorite!(widget.result),
+              favoriteButtonKey: widget.favoriteButtonKey,
+            )
+          else
+            _Header(
+              result: widget.result,
+              imageUrl: widget.imageUrl,
+              fallbackIcon: widget.fallbackIcon,
+              accent: accent,
+              expanded: widget.expanded,
+              justAdded: widget.justAdded,
+              onTap: widget.onTap,
+              onRemove: widget.onRemove,
+              isFavorite: widget.isFavorite,
+              onToggleFavorite: widget.onToggleFavorite,
+              favoriteButtonKey: widget.favoriteButtonKey,
+            ),
           maybeAnimatedSize(
             context,
             duration: const Duration(milliseconds: 180),
@@ -212,6 +234,7 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
             alignment: Alignment.topCenter,
             child: widget.expanded
                 ? _ExpandedBody(
+                    savedPresentation: widget.savedPresentation,
                     accent: accent,
                     grams: _grams,
                     gramsController: _gramsController,
@@ -230,6 +253,17 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
                   )
                 : const SizedBox.shrink(),
           ),
+          if (widget.savedPresentation &&
+              widget.expanded &&
+              widget.onRemove != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+              child: TextButton.icon(
+                onPressed: widget.onRemove,
+                icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                label: Text(context.l10n.foodRemoveTooltip),
+              ),
+            ),
         ],
       ),
     );
@@ -442,6 +476,7 @@ class _Trailing extends StatelessWidget {
 
 class _ExpandedBody extends StatelessWidget {
   const _ExpandedBody({
+    required this.savedPresentation,
     required this.accent,
     required this.grams,
     required this.gramsController,
@@ -460,6 +495,8 @@ class _ExpandedBody extends StatelessWidget {
   final Color accent;
   final int grams;
   final TextEditingController gramsController;
+
+  final bool savedPresentation;
 
   /// Exactly the instance [onAdd] passes on; the preview's kcal and macros
   /// come from it, not from a second calculation.
@@ -552,12 +589,15 @@ class _ExpandedBody extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           ],
-          _LivePreview(
-            kcal: preview.caloriesKcal,
-            protein: preview.protein,
-            carbs: preview.carbs,
-            fat: preview.fat,
-          ),
+          if (savedPresentation)
+            SavedMealNutrients(result: preview)
+          else
+            _LivePreview(
+              kcal: preview.caloriesKcal,
+              protein: preview.protein,
+              carbs: preview.carbs,
+              fat: preview.fat,
+            ),
           const SizedBox(height: 12),
           SizedBox(
             width: double.infinity,

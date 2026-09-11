@@ -101,11 +101,9 @@ Future<void> _openFavoritesMenu(WidgetTester tester) async {
   expect(find.byKey(const ValueKey('favorites-sheet')), findsOneWidget);
 }
 
-/// The favorites sheet has no close button: a tap on the modal barrier above
-/// it (the sheet never reaches the top edge) dismisses it like a user would.
+/// Use the visible close action; a tall collection can fill the modal cap.
 Future<void> _dismissFavoritesMenu(WidgetTester tester) async {
-  final width = tester.view.physicalSize.width / tester.view.devicePixelRatio;
-  await tester.tapAt(Offset(width / 2, 24));
+  await tester.tap(find.byKey(const ValueKey('favorites-sheet-close')));
   await tester.pumpAndSettle();
   expect(find.byKey(const ValueKey('favorites-sheet')), findsNothing);
 }

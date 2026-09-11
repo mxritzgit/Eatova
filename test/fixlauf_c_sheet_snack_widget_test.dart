@@ -137,6 +137,8 @@ Future<void> _pumpHome(WidgetTester tester) async {
 }
 
 Future<void> _addApfel(WidgetTester tester) async {
+  await tester.ensureVisible(find.byKey(const ValueKey('favorite-tile-0')));
+  await tester.pumpAndSettle();
   await tester.tap(find.byKey(const ValueKey('favorite-tile-0')));
   await tester.pumpAndSettle();
   final add = find.byKey(const ValueKey('favorite-tile-add-0'));
@@ -197,6 +199,8 @@ void main() {
     await _pumpHome(tester);
 
     // Tapping a tile expands it — through the transparent host overlay.
+    await tester.ensureVisible(find.byKey(const ValueKey('favorite-tile-0')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('favorite-tile-0')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('favorite-tile-add-0')), findsOneWidget);

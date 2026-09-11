@@ -1667,7 +1667,7 @@
       "count": { "type": "int" }
     }
   },
-  "foodFavoritesSheetSubtitle": "Antippen zum Aufklappen. „Hinzufügen\" loggt in die gewählte Mahlzeit, das Herz entfernt den Favoriten.",
+  "foodFavoritesSheetSubtitle": "Deine Mahlzeiten, bereit für die nächste Runde.",
   "foodFavoritesSearchHint": "Favoriten durchsuchen",
   "foodFavoritesEmptyHint": "Noch keine Favoriten. Tippe bei einem Suchtreffer oder Scan-Ergebnis auf das Herz, dann landet die Mahlzeit hier.",
   "foodFavoritesNoMatchHint": "Kein Favorit passt zu deiner Suche.",
@@ -2224,5 +2224,16 @@
   "foodPhotoEntryHint": "KI schätzt Portion und Nährwerte. Du prüfst das Ergebnis.",
   "foodSearchClear": "Suche löschen",
   "foodEntryEmptyTitle": "Beim nächsten Mal schneller",
-  "foodEntryEmptyHint": "Erfasste Mahlzeiten findest du hier zum Wiederverwenden."
+  "foodEntryEmptyHint": "Erfasste Mahlzeiten findest du hier zum Wiederverwenden.",
+  "foodFavoriteSavedPortion": "Gespeicherte Portion",
+  "foodFavoritePortionAction": "Portion anpassen",
+  "foodFavoriteAdded": "Hinzugefügt",
+  "foodFavoritesForSlot": "Für {slot}",
+  "@foodFavoritesForSlot": {
+    "placeholders": {
+      "slot": {
+        "type": "String"
+      }
+    }
+  }
 }
