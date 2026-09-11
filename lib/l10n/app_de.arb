@@ -2220,5 +2220,9 @@
         "type": "int"
       }
     }
-  }
+  },
+  "foodPhotoEntryHint": "KI schätzt Portion und Nährwerte. Du prüfst das Ergebnis.",
+  "foodSearchClear": "Suche löschen",
+  "foodEntryEmptyTitle": "Beim nächsten Mal schneller",
+  "foodEntryEmptyHint": "Erfasste Mahlzeiten findest du hier zum Wiederverwenden."
 }

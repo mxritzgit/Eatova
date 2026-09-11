@@ -196,7 +196,7 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('food-search')));
     await tester.pumpAndSettle();
-    expect(find.text('FAVORITEN'), findsOneWidget);
+    expect(find.text('Favoriten'), findsOneWidget);
     expect(find.byKey(const ValueKey('favorite-pinned-0')), findsOneWidget);
   });
 }

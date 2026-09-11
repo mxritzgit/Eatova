@@ -2192,5 +2192,9 @@
         "type": "int"
       }
     }
-  }
+  },
+  "foodPhotoEntryHint": "AI estimates your portion and nutrition. You review the result.",
+  "foodSearchClear": "Clear search",
+  "foodEntryEmptyTitle": "Quicker next time",
+  "foodEntryEmptyHint": "Meals you log will appear here, ready to use again."
 }

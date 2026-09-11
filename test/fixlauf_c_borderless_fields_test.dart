@@ -92,10 +92,14 @@ void main() {
       final input = find.byKey(const ValueKey('kcal-product-search-input'));
       final t = _tokens(tester, input);
 
-      // autofocus: the field starts focused -> lifted surface.
-      expect(tester.widget<TextField>(input).focusNode?.hasFocus, isTrue);
+      // Normal entry starts at rest; a deliberate tap lifts the field.
+      expect(tester.widget<TextField>(input).focusNode?.hasFocus, isFalse);
       var capsule = _capsuleOf(tester, input);
       expect(capsule.border, isNull, reason: 'Hairline an der Suchleiste');
+      expect(capsule.color, t.field);
+      await tester.tap(input);
+      await tester.pumpAndSettle();
+      capsule = _capsuleOf(tester, input);
       expect(capsule.color, t.fieldFocus);
 
       FocusManager.instance.primaryFocus?.unfocus();

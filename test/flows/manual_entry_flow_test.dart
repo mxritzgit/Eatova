@@ -73,17 +73,14 @@ void main() {
     // The row stays available in search mode until a query runs.
     expect(find.byKey(const ValueKey('manual-entry-button')), findsOneWidget);
 
-    // The empty state sits CENTRED against the search bar's full width. The
-    // test environment cannot reproduce the device constraint case, so this
-    // pins the invariant, not the repro.
-    final leerTitel = find.text('Search above or scan a barcode');
+    // The quiet reuse hint stays within the same content margins as search.
+    final leerTitel = find.text('Quicker next time');
     expect(leerTitel, findsOneWidget);
     final suchleiste = find.byKey(const ValueKey('kcal-product-search-card'));
-    expect(
-      (tester.getCenter(leerTitel).dx - tester.getCenter(suchleiste).dx).abs(),
-      lessThan(1.0),
-      reason: 'Leerzustand muss horizontal mittig sitzen',
-    );
+    expect(tester.getRect(leerTitel).left,
+        greaterThanOrEqualTo(tester.getRect(suchleiste).left));
+    expect(tester.getRect(leerTitel).right,
+        lessThanOrEqualTo(tester.getRect(suchleiste).right));
 
     // Once a search runs the results area takes over, so the two entry
     // points cannot compete.

@@ -28,6 +28,7 @@ import 'existing_meals_list.dart';
 import 'favorites_sheet.dart';
 import 'manual_meal_sheet.dart';
 import 'meal_analysis_sheet.dart';
+import 'meal_entry_methods.dart';
 import 'meal_scan_preview_sheet.dart';
 import 'meal_suggestion_item.dart';
 import 'slot_selector.dart';
@@ -283,6 +284,7 @@ class AddMealSheet extends StatefulWidget {
 /// close and be dismissed reflexively — losing its effect where it counts.
 class _AddMealSheetState extends State<AddMealSheet> {
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
   Timer? _productSearchDebounce;
   int _productSearchRequestId = 0;
   final Map<String, List<ProductSearchResult>> _productSearchCache =
@@ -437,6 +439,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
     }
     _justAddedTimers.clear();
     _searchController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -993,40 +996,44 @@ class _AddMealSheetState extends State<AddMealSheet> {
     // Record what this frame shows, so the keystroke path can tell a real zone
     // flip from a no-op (B3, see [_renderedSearchActive]).
     final searchActive = _searchActive;
+    if (searchActive != _renderedSearchActive) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _scrollController.hasClients) {
+          _scrollController.jumpTo(0);
+        }
+      });
+    }
     _renderedSearchActive = searchActive;
 
-    // No SheetScaffold: three fixed zones (header, search bar, slot picker)
-    // over a capped scroll area, and no footer action — every row logs itself.
+    // Keep close/search reachable above the keyboard. Everything else can
+    // scroll, including entry choices and the slot picker at large text sizes.
     final body = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         const _SheetHandle(),
         _SheetHeader(
           slot: _selectedSlot,
+          foodDate: widget.foodDate ?? clock.now(),
+          compact: keyboardInset > 0,
           searchMode: widget.searchMode,
           onClose: () => Navigator.of(context).pop(),
-          onCamera: () => _pickAndAnalyze(ImageSource.camera),
-          onGallery: () => _pickAndAnalyze(ImageSource.gallery),
-          onBarcode: _scanBarcode,
         ),
         _SearchBar(
           controller: _searchController,
+          autofocus: widget.searchMode,
           isSearching: _isSearchingProducts,
           onChanged: _scheduleProductSearch,
           onSubmitted: (_) => _searchProducts(),
           onSearchPressed: _searchProducts,
-        ),
-        Padding(
-          key: const ValueKey('add-meal-slot-select'),
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 4),
-          child: SlotSelector(
-            selected: _selectedSlot,
-            onSelected: _selectSlot,
-          ),
+          onClear: () {
+            _searchController.clear();
+            _scheduleProductSearch('');
+          },
         ),
         Flexible(
           child: SingleChildScrollView(
             key: const ValueKey('add-meal-sheet-scroll'),
+            controller: _scrollController,
             padding: EdgeInsets.fromLTRB(
               20,
               12,
@@ -1036,10 +1043,27 @@ class _AddMealSheetState extends State<AddMealSheet> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                Padding(
+                  key: const ValueKey('add-meal-slot-select'),
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: SlotSelector(
+                    selected: _selectedSlot,
+                    onSelected: _selectSlot,
+                    wrapAtLargeText: true,
+                  ),
+                ),
                 // Standing entry point for manual entry while no search is
                 // active; after that the contextual CTA under "nothing
                 // found" takes over (_buildSearchResults).
                 if (!searchActive) ...[
+                  if (!widget.searchMode) ...[
+                    MealEntryMethods(
+                      onCamera: () => _pickAndAnalyze(ImageSource.camera),
+                      onGallery: () => _pickAndAnalyze(ImageSource.gallery),
+                      onBarcode: _scanBarcode,
+                    ),
+                    const SizedBox(height: 10),
+                  ],
                   _ManualEntryRow(onTap: () => _openManualEntry()),
                   const SizedBox(height: 16),
                 ],
@@ -1198,9 +1222,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
         if (inline.isNotEmpty) ...[
           Row(
             children: [
-              Expanded(
-                child: _SectionLabel(context.l10n.foodSectionFavorites),
-              ),
+              Expanded(child: _SectionLabel(context.l10n.foodSectionFavorites)),
               _FavoritesAllButton(
                 count: pinnedCount,
                 onTap: _openFavoritesSheet,
@@ -1241,9 +1263,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
     return MealSuggestionItem(
       key: ValueKey(tileKey),
       result: favorite.result,
-      fallbackIcon: pinned
-          ? Icons.favorite_rounded
-          : Icons.history_rounded,
+      fallbackIcon: pinned ? Icons.favorite_rounded : Icons.history_rounded,
       expanded: _expandedItemKey == key,
       justAdded: _justAddedKeys.contains(key),
       onTap: () => _toggleExpanded(key),
@@ -1366,106 +1386,60 @@ class _SheetHandle extends StatelessWidget {
 class _SheetHeader extends StatelessWidget {
   const _SheetHeader({
     required this.slot,
+    required this.foodDate,
+    required this.compact,
     this.searchMode = false,
     required this.onClose,
-    required this.onCamera,
-    required this.onGallery,
-    required this.onBarcode,
   });
 
   final MealSlot slot;
+  final DateTime foodDate;
+  final bool compact;
   final bool searchMode;
   final VoidCallback onClose;
-  final VoidCallback onCamera;
-  final VoidCallback onGallery;
-  final VoidCallback onBarcode;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    final title = searchMode ? l10n.foodSearchModeTitle : slot.label(l10n);
+    final date = MaterialLocalizations.of(context).formatMediumDate(foodDate);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 6, 10),
+      padding: const EdgeInsets.fromLTRB(20, 8, 12, 16),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (searchMode)
-            IconTile(icon: Icons.search_rounded, color: t.accent, size: 36)
-          else
-            MealAvatar(
-              letter: slot.initial(l10n),
-              color: slot.accentIn(context),
-              size: 36,
-            ),
-          const SizedBox(width: 12),
           Expanded(
-            // Always single line (user feedback 2026-08-13): a fourth header
-            // icon made the slot title wrap. The title now stays on one line
-            // even with long slot names or large text.
-            child: Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppType.display(18, color: t.ink),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (!compact) ...[
+                  HeadingSemantics(
+                    level: 1,
+                    child: Text(
+                      searchMode ? l10n.foodSearchModeTitle : l10n.todayAddMeal,
+                      style: AppType.display(24, color: t.ink, height: 1.15),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                ],
+                Text(
+                  '$date · ${slot.label(l10n)}',
+                  key: const ValueKey('add-meal-date-context'),
+                  style: AppType.ui(13, color: t.ink2, height: 1.4),
+                ),
+              ],
             ),
           ),
-          // Photo/gallery/barcode only in normal add mode; search mode keeps a
-          // slim header. All three share the same muted tone because they are
-          // equal-rank entry points.
-          if (!searchMode) ...[
-            _HeaderIconButton(
-              keyValue: const ValueKey('analyse-camera-button'),
-              icon: Icons.photo_camera_rounded,
-              tooltip: l10n.foodTakePhotoTooltip,
-              onPressed: onCamera,
-            ),
-            _HeaderIconButton(
-              keyValue: const ValueKey('analyse-gallery-button'),
-              icon: Icons.photo_library_outlined,
-              tooltip: l10n.foodFromGalleryTooltip,
-              onPressed: onGallery,
-            ),
-            _HeaderIconButton(
-              keyValue: const ValueKey('analyse-barcode-button'),
-              icon: Icons.qr_code_scanner_rounded,
-              tooltip: l10n.foodScanBarcodeTooltip,
-              onPressed: onBarcode,
-            ),
-            const SizedBox(width: 2),
-          ],
+          const SizedBox(width: 8),
           IconButton(
             key: const ValueKey('add-meal-sheet-close'),
             onPressed: onClose,
             tooltip: l10n.commonClose,
-            icon: Icon(Icons.close_rounded, color: t.ink2),
+            style: IconButton.styleFrom(backgroundColor: t.surf2),
+            icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
           ),
         ],
       ),
-    );
-  }
-}
-
-class _HeaderIconButton extends StatelessWidget {
-  const _HeaderIconButton({
-    required this.keyValue,
-    required this.icon,
-    required this.tooltip,
-    required this.onPressed,
-  });
-
-  final Key keyValue;
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      key: keyValue,
-      onPressed: onPressed,
-      tooltip: tooltip,
-      visualDensity: VisualDensity.compact,
-      icon: IconTile(icon: icon),
     );
   }
 }
@@ -1477,6 +1451,8 @@ class _HeaderIconButton extends StatelessWidget {
 class _SearchBar extends StatefulWidget {
   const _SearchBar({
     required this.controller,
+    required this.autofocus,
+    required this.onClear,
     required this.isSearching,
     required this.onChanged,
     required this.onSubmitted,
@@ -1484,6 +1460,8 @@ class _SearchBar extends StatefulWidget {
   });
 
   final TextEditingController controller;
+  final bool autofocus;
+  final VoidCallback onClear;
   final bool isSearching;
   final ValueChanged<String> onChanged;
   final ValueChanged<String> onSubmitted;
@@ -1520,35 +1498,49 @@ class _SearchBarState extends State<_SearchBar> {
             Icon(Icons.search_rounded, size: 18, color: t.ink2),
             const SizedBox(width: 8),
             Expanded(
-              child: TextField(
-                key: const ValueKey('kcal-product-search-input'),
-                controller: widget.controller,
-                focusNode: _focus,
-                autofocus: true,
-                // The iOS default fades the cursor continuously, keeping the
-                // app at ~60fps while the sheet is open. Discrete blinking
-                // repaints ~2x/s (app-wide rule for all fields).
-                cursorOpacityAnimates: false,
-                cursorColor: t.accent,
-                onChanged: widget.onChanged,
-                onSubmitted: widget.onSubmitted,
-                textInputAction: TextInputAction.search,
-                style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
-                decoration: InputDecoration(
-                  hintText: context.l10n.foodSearchInputHint,
-                  hintStyle: AppType.ui(
-                    14,
-                    weight: FontWeight.w500,
-                    color: t.ink2,
+              child: Semantics(
+                label: context.l10n.foodSearchModeTitle,
+                child: TextField(
+                  key: const ValueKey('kcal-product-search-input'),
+                  controller: widget.controller,
+                  focusNode: _focus,
+                  autofocus: widget.autofocus,
+                  // The iOS default fades the cursor continuously, keeping the
+                  // app at ~60fps while the sheet is open. Discrete blinking
+                  // repaints ~2x/s (app-wide rule for all fields).
+                  cursorOpacityAnimates: false,
+                  cursorColor: t.accent,
+                  onChanged: widget.onChanged,
+                  onSubmitted: widget.onSubmitted,
+                  textInputAction: TextInputAction.search,
+                  style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
+                  decoration: InputDecoration(
+                    hintText: context.l10n.foodSearchInputHint,
+                    hintStyle: AppType.ui(
+                      14,
+                      weight: FontWeight.w500,
+                      color: t.ink2,
+                    ),
+                    isCollapsed: true,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    filled: false,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 14),
                   ),
-                  isCollapsed: true,
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  filled: false,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 14),
                 ),
               ),
+            ),
+            ValueListenableBuilder<TextEditingValue>(
+              valueListenable: widget.controller,
+              builder: (context, value, _) => value.text.isEmpty
+                  ? const SizedBox.shrink()
+                  : IconButton(
+                      key: const ValueKey('kcal-product-search-clear'),
+                      tooltip: context.l10n.foodSearchClear,
+                      onPressed: widget.onClear,
+                      icon: Icon(Icons.close_rounded, color: t.ink2, size: 19),
+                    ),
             ),
             IconButton(
               key: const ValueKey('kcal-product-search-button'),
@@ -1585,9 +1577,9 @@ class _SectionLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      text.toUpperCase(),
-      style: AppType.eyebrow(context.t.ink2, size: 11),
+    return HeadingSemantics(
+      level: 2,
+      child: Text(text, style: AppType.display(17, color: context.t.ink)),
     );
   }
 }
@@ -1641,10 +1633,7 @@ class _FavoritesAllButton extends StatelessWidget {
   }
 }
 
-/// Standing entry point for manual entry (user feedback 2026-08-13): a bare
-/// pencil icon in the header was hard to find and wrapped the slot title. Now
-/// a labeled full-width row below the slot picker, styled like the search bar
-/// capsule (borderless, same radius) so both entry points share one shape.
+/// A quiet, labeled alternative to photo and product lookup.
 class _ManualEntryRow extends StatelessWidget {
   const _ManualEntryRow({required this.onTap});
 
@@ -1654,8 +1643,7 @@ class _ManualEntryRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     return Material(
-      // Same fill as the search capsule at rest (`field`), not a card.
-      color: t.field,
+      color: Colors.transparent,
       borderRadius: BorderRadius.circular(rControl),
       child: InkWell(
         key: const ValueKey('manual-entry-button'),
@@ -1667,13 +1655,11 @@ class _ManualEntryRow extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 6),
           child: Row(
             children: [
-              Icon(Icons.edit_rounded, size: 18, color: t.accent),
+              Icon(Icons.edit_outlined, size: 18, color: t.accent),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   context.l10n.foodManualEntryCta,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                   style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
                 ),
               ),
@@ -1752,34 +1738,30 @@ class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    // Force full width: the sheet's content column aligns children left, so
-    // without an own width this block hugged the left edge instead of
-    // centering (user finding 2026-08-14).
-    return SizedBox(
-      width: double.infinity,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 32),
-        child: Column(
-          children: [
-            IconTile(
-              icon: Icons.restaurant_outlined,
-              color: t.accent,
-              size: 56,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.history_rounded, color: t.ink2, size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  context.l10n.foodEntryEmptyTitle,
+                  style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  context.l10n.foodEntryEmptyHint,
+                  style: AppType.ui(13, color: t.ink2, height: 1.4),
+                ),
+              ],
             ),
-            const SizedBox(height: 14),
-            Text(
-              context.l10n.foodEmptyStateTitle,
-              textAlign: TextAlign.center,
-              style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              context.l10n.foodEmptyStateSubtitle,
-              textAlign: TextAlign.center,
-              style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

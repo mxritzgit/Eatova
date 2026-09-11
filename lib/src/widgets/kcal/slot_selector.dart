@@ -16,11 +16,13 @@ class SlotSelector extends StatelessWidget {
     required this.selected,
     required this.onSelected,
     this.keyPrefix = 'slot-select-',
+    this.wrapAtLargeText = false,
   });
 
   final MealSlot selected;
   final ValueChanged<MealSlot> onSelected;
   final String keyPrefix;
+  final bool wrapAtLargeText;
 
   static const List<MealSlot> _slots = <MealSlot>[
     MealSlot.breakfast,
@@ -31,6 +33,27 @@ class SlotSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (wrapAtLargeText && MediaQuery.textScalerOf(context).scale(11) > 14.3) {
+      return LayoutBuilder(
+        builder: (context, constraints) => Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final slot in _slots)
+              SizedBox(
+                width: (constraints.maxWidth - 8) / 2,
+                child: _SlotSegment(
+                  keyValue: ValueKey('$keyPrefix${slot.name}'),
+                  slot: slot,
+                  selected: slot == selected,
+                  onTap: () => onSelected(slot),
+                  wrapLabel: true,
+                ),
+              ),
+          ],
+        ),
+      );
+    }
     return Row(
       children: [
         for (var i = 0; i < _slots.length; i++) ...[
@@ -55,12 +78,14 @@ class _SlotSegment extends StatelessWidget {
     required this.slot,
     required this.selected,
     required this.onTap,
+    this.wrapLabel = false,
   });
 
   final Key keyValue;
   final MealSlot slot;
   final bool selected;
   final VoidCallback onTap;
+  final bool wrapLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -104,8 +129,10 @@ class _SlotSegment extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 slot.shortLabel(l10n),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+                maxLines: wrapLabel ? null : 1,
+                overflow: wrapLabel
+                    ? TextOverflow.visible
+                    : TextOverflow.ellipsis,
                 style: AppType.ui(
                   11,
                   weight: FontWeight.w700,

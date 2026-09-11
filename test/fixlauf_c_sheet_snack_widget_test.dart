@@ -211,6 +211,11 @@ void main() {
     await _pumpHome(tester);
     await _addApfel(tester);
 
+    // The expanded entry chooser makes this a scrollable surface. Bring the
+    // last row into view after the added-meal summary changes its position.
+    await tester.ensureVisible(find.byKey(const ValueKey('favorite-tile-0')));
+    await tester.pump();
+
     final toast = tester.getRect(find.byType(SnackBar));
     final tile = tester.getRect(find.byKey(const ValueKey('favorite-tile-0')));
     expect(toast.top, greaterThanOrEqualTo(tile.bottom - 0.5),
