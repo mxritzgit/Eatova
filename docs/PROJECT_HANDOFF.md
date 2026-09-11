@@ -670,3 +670,22 @@ migrations and the updated `coach-chat` function require a separate backend
 rollout before releasing the new client. Code merge, deployed backend, installed
 app and physical-device Health Connect data are separate facts. No backend or
 store deployment is established by this implementation review.
+
+
+## Today Balance Duo design, 2026-09-11
+
+The user selected the pastel Balance Duo mockup and authorized a Today redesign
+with matching app-wide colors, while preserving the other tabs' layouts and
+features. See [TODAY-DESIGN.md](TODAY-DESIGN.md) for the design contract and
+verification record. This supersedes earlier unselected Today design concepts.
+
+The topic branch is `design/today-balance-duo`, based on main `9e103ac`.
+It introduces the split lavender calorie hero, nutrient-colored rows, compact
+steps, meal rows and fixed add-meal action. Existing date/slot/calorie rules,
+Health Connect recovery, localization and dark mode remain. Legacy token names
+are compatibility fields; photograph/camera foregrounds have separate tokens.
+
+The user authorized push and protected-main merge after green CI. Delivery is
+tracked by the PR from this topic branch. No backend or schema rollout is needed;
+an installed device build or store release remains a separate step. Final checks
+and known verification limits are recorded in the linked document.

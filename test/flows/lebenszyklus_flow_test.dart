@@ -239,19 +239,12 @@ void main() {
     // The Heute tab carries the same day total …
     await tester.tap(find.byKey(const ValueKey('nav-Heute')));
     await settleFrames(tester);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('today-stat-eaten')),
-        matching: find.text('252'),
-      ),
-      findsOneWidget,
-      reason: 'der Heute-Hero nennt nicht 252 gegessene kcal',
-    );
+    expectTodayEaten(tester, '252');
     // … and the breakfast row its slot total.
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('today-meal-row-breakfast')),
-        matching: find.text('252'),
+        matching: find.text('252 kcal'),
       ),
       findsOneWidget,
       reason: 'die Frühstückszeile im Heute-Tab trägt die Slot-Summe nicht',
@@ -303,13 +296,6 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('nav-Heute')));
     await settleFrames(tester);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('today-stat-eaten')),
-        matching: find.text('252'),
-      ),
-      findsOneWidget,
-      reason: 'nach dem Undo fehlen die 252 kcal in der Tagessumme',
-    );
+    expectTodayEaten(tester, '252');
   });
 }

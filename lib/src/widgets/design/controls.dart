@@ -582,13 +582,13 @@ class AppNavBar extends StatelessWidget {
                           vertical: 3,
                         ),
                         decoration: BoxDecoration(
-                          color: active ? t.lime : Colors.transparent,
+                          color: active ? t.brandSurface : Colors.transparent,
                           borderRadius: BorderRadius.circular(rChip),
                         ),
                         child: Icon(
                           active ? item.activeIcon : item.icon,
                           size: 19,
-                          color: active ? t.onLime : t.ink2,
+                          color: active ? t.onBrandSurface : t.ink2,
                         ),
                       ),
                       const SizedBox(height: 3),

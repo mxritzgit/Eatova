@@ -61,7 +61,7 @@ void testWidgetsRobust(
 /// `selectedFoodDate`, archive days included.
 ///
 /// [kcal] is the bare number with thousands separator ("252", "1.234"): the
-/// hero renders number and label as separate texts.
+/// the hero renders it in a localized sentence.
 Future<void> expectTagestotalAufHeute(WidgetTester tester, String kcal) async {
   // An open confirmation snackbar covers the nav bar and would otherwise
   // catch the tap on `nav-Heute`.
@@ -71,14 +71,7 @@ Future<void> expectTagestotalAufHeute(WidgetTester tester, String kcal) async {
   await tester.tap(find.byKey(const ValueKey('nav-Heute')));
   await tester.pumpAndSettle();
 
-  expect(
-    find.descendant(
-      of: find.byKey(const ValueKey('today-stat-eaten')),
-      matching: find.text(kcal),
-    ),
-    findsOneWidget,
-    reason: 'der Heute-Hero nennt nicht „$kcal" gegessene kcal',
-  );
+  expectTodayEaten(tester, kcal);
 }
 
 // --- SHELL HELPERS ----------------------------------------------------------
@@ -366,4 +359,12 @@ class AlwaysFailingProductLookupService implements ProductLookupService {
   Future<List<ProductSearchResult>> searchProducts(String query) async {
     throw Exception('OpenFoodFacts down');
   }
+}
+
+
+// Checks the displayed total, including locale, without pinning its layout.
+void expectTodayEaten(WidgetTester tester, String kcal) {
+  final finder = find.byKey(const ValueKey('today-stat-eaten'));
+  expect(tester.widget<Text>(finder).data,
+      tester.element(finder).l10n.todayBalanceEaten(kcal));
 }

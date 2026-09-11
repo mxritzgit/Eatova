@@ -75,7 +75,7 @@ class _RecipeHeroCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: AppType.display(
                           19,
-                          color: t.onForest,
+                          color: t.onImage,
                           height: 1.15,
                         ),
                       ),

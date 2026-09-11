@@ -156,7 +156,7 @@ void main() {
       final hell = buildEatovaTheme(Brightness.light);
       expect(hell.scaffoldBackgroundColor, AppTokens.light.bg);
       expect(hell.colorScheme.brightness, Brightness.light);
-      expect(hell.colorScheme.primary, AppTokens.light.forest);
+      expect(hell.colorScheme.primary, AppTokens.light.accent);
 
       final dunkel = buildEatovaTheme(Brightness.dark);
       expect(dunkel.scaffoldBackgroundColor, AppTokens.dark.bg);

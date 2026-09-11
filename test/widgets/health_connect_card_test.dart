@@ -132,6 +132,7 @@ void main() {
     final context = await pumpLocalizedContext(tester, today(null));
     expect(find.byKey(const ValueKey('today-steps-card')), findsNothing);
     await tester.ensureVisible(find.text(context.l10n.healthConnectReview));
+    await tester.pumpAndSettle();
     await tester.tap(find.text(context.l10n.healthConnectReview));
     expect(opened, 1);
     await tester.pumpWidget(const SizedBox.shrink());

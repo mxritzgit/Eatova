@@ -11,6 +11,7 @@ import '../../theme/app_tokens.dart';
 import '../../widgets/design/design.dart';
 import 'today_day_strip.dart';
 import 'today_hero.dart';
+import 'today_macros.dart';
 import 'today_sections.dart';
 import 'today_texts.dart';
 
@@ -47,8 +48,7 @@ class TodayScreen extends StatelessWidget {
   /// Calories eaten on [selectedDate].
   final int consumedKcal;
 
-  /// Estimated from steps. The shell passes 0 for past days, and the tile
-  /// then shows a dash instead of claiming zero.
+  /// Estimated from steps. No activity line is shown for an absent credit.
   final int burnedKcal;
 
   final MacroProgress macroProgress;
@@ -74,7 +74,7 @@ class TodayScreen extends StatelessWidget {
   final VoidCallback? onOpenCoach;
   final VoidCallback? onOpenProfile;
 
-  /// The only way to log: a slot row leads into the food tab.
+  /// Slot rows and the fixed add action lead into the food tab.
   final ValueChanged<MealSlot>? onOpenMealSlot;
 
   @override
@@ -82,7 +82,7 @@ class TodayScreen extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
 
-    // Exactly one clock read per build, or greeting and day strip could land
+    // Exactly one clock read per build, or heading and day strip could land
     // on opposite sides of midnight.
     final jetzt = clock.now();
     final heute = startOfDay(jetzt);
@@ -96,19 +96,16 @@ class TodayScreen extends StatelessWidget {
     // No SafeArea and no horizontal padding here: the shell supplies both,
     // a second padding would double the margin. The bottom 12 only keeps the
     // last card off the navigation bar.
-    return ListView(
+    final content = ListView(
       key: const ValueKey('screen-today'),
       padding: const EdgeInsets.fromLTRB(0, 0, 0, 12),
       children: <Widget>[
         _Kopfzeile(
-          // Eyebrow follows the selected day (else it contradicts the day
-          // strip below); the greeting follows the wall clock.
-          eyebrow: todayEyebrow(selectedDate, l10n),
-          greeting: todayGreeting(l10n, jetzt),
+          title: l10n.navToday,
           initial: profileInitial ?? todayInitial(userName),
           onOpenProfile: onOpenProfile,
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 2),
         TodayDayStrip(
           selectedDate: selectedDate,
           today: heute,
@@ -125,10 +122,10 @@ class TodayScreen extends StatelessWidget {
             burnedKcal: burnedKcal,
             kcalGoal: profile.dailyKcalGoal,
             streak: streak,
+            isToday: istHeute,
           ),
-          // Steps sit right under the hero: they are the math behind the
-          // burned tile. Without a step source the card is dropped, see
-          // [steps].
+          const SizedBox(height: 10),
+          TodayMacros(progress: macroProgress, profile: profile),
           if (schritte != null) ...<Widget>[
             const SizedBox(height: 14),
             TodayStepsCard(
@@ -166,42 +163,6 @@ class TodayScreen extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 14),
-          AppCard(
-            key: const ValueKey('today-macros-card'),
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 5),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                SectionHeading(
-                  title: l10n.todayMacrosTitle,
-                  trailing: l10n.todayMacrosTrailing,
-                ),
-                const SizedBox(height: 14),
-                MacroBar(
-                  label: l10n.todayMacroProtein,
-                  value: macroProgress.proteinG.round(),
-                  goal: profile.proteinGoalG,
-                  unit: 'g',
-                  color: t.protein,
-                ),
-                MacroBar(
-                  label: l10n.todayMacroCarbs,
-                  value: macroProgress.carbsG.round(),
-                  goal: profile.carbsGoalG,
-                  unit: 'g',
-                  color: t.carbs,
-                ),
-                MacroBar(
-                  label: l10n.todayMacroFat,
-                  value: macroProgress.fatG.round(),
-                  goal: profile.fatGoalG,
-                  unit: 'g',
-                  color: t.fat,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
         ],
         // Archive days need a different title. No `trailing`: it would look
         // like a link but be dead, and the slot rows already lead to the
@@ -211,7 +172,7 @@ class TodayScreen extends StatelessWidget {
               ? l10n.todayMealsTitleToday
               : l10n.todayMealsTitleArchive,
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         if (dayLoading)
           const TodayDayLoadingCard()
         else
@@ -230,19 +191,42 @@ class TodayScreen extends StatelessWidget {
         ),
       ],
     );
+    return Column(
+      children: [
+        Expanded(child: content),
+        if (onOpenMealSlot != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: FilledButton.icon(
+              key: const ValueKey('today-add-meal'),
+              onPressed: dayLoading
+                  ? null
+                  : () => onOpenMealSlot!(currentMealSlot()),
+              style: FilledButton.styleFrom(
+                backgroundColor: t.brandSurface,
+                foregroundColor: t.onBrandSurface,
+                minimumSize: const Size(double.infinity, kPrimaryButtonHeight),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(rPill),
+                ),
+              ),
+              icon: const Icon(Icons.add_circle_rounded, size: 23),
+              label: Text(l10n.todayAddMeal),
+            ),
+          ),
+      ],
+    );
   }
 }
 
 class _Kopfzeile extends StatelessWidget {
   const _Kopfzeile({
-    required this.eyebrow,
-    required this.greeting,
+    required this.title,
     required this.initial,
     this.onOpenProfile,
   });
 
-  final String eyebrow;
-  final String greeting;
+  final String title;
   final String initial;
   final VoidCallback? onOpenProfile;
 
@@ -255,22 +239,10 @@ class _Kopfzeile extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Text(
-                eyebrow,
-                key: const ValueKey('today-eyebrow'),
-                style: AppType.eyebrow(t.ink2, size: 10.5),
-              ),
-              const SizedBox(height: 3),
-              // The tab's only rank-1 mark (P9-06c); the two SectionHeadings
-              // below are rank 2. The annotation sits on the greeting alone:
-              // this row is the first child of a ListView, whose
-              // IndexedSemantics merges compatible siblings into ONE node —
-              // without a node of its own the mark would read the eyebrow
-              // ("SUNDAY, 9 AUGUST 2026") and the profile tile too.
               HeadingSemantics(
                 level: 1,
                 child: Text(
-                  greeting,
+                  title,
                   style: AppType.display(30, color: t.ink, height: 1.1),
                 ),
               ),
@@ -281,14 +253,12 @@ class _Kopfzeile extends StatelessWidget {
         Semantics(
           button: true,
           label: context.l10n.todaySemanticsOpenProfile,
-          // 14 instead of rControl (15): the design spec names 14 for this
-          // 44 px tile, and the spec wins per contract §3.
           child: Material(
-            color: t.forest,
-            borderRadius: BorderRadius.circular(14),
+            color: t.brandSurface,
+            borderRadius: BorderRadius.circular(rPill),
             child: InkWell(
               key: const ValueKey('today-profile'),
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(rPill),
               onTap: onOpenProfile,
               child: SizedBox(
                 width: 44,
@@ -303,7 +273,7 @@ class _Kopfzeile extends StatelessWidget {
                       style: AppType.ui(
                         14,
                         weight: FontWeight.w700,
-                        color: t.lime,
+                        color: t.onBrandSurface,
                       ),
                     ),
                   ),

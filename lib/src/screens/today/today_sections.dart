@@ -8,45 +8,33 @@ import '../../theme/meal_slot_style.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
 import 'today_texts.dart';
+import 'today_progress.dart';
 
-/// The meals card: four fixed slot rows instead of a list of logged entries.
-///
-/// Unlike the food tab history, this answers "which part of my day is still
-/// open?", so an empty slot is a ROW, not a gap.
+/// Every slot remains reachable, including empty and explicitly assigned slots.
 class TodayMealsCard extends StatelessWidget {
   const TodayMealsCard({super.key, required this.meals, this.onOpenSlot});
-
-  /// Only the meals of the selected day.
   final List<LoggedMeal> meals;
-
   final ValueChanged<MealSlot>? onOpenSlot;
 
   @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      key: const ValueKey('today-meals-card'),
-      clip: true,
-      child: Column(
-        children: <Widget>[
-          for (final slot in MealSlot.values)
-            TodayMealRow(
-              slot: slot,
-              // Bucketed via LoggedMeal.slot (logged_meal.dart:60-65), where a
-              // `forcedSlot` beats the time-of-day heuristic. Bucketing by
-              // time here would silently override the user's slot choice.
-              meals: meals
-                  .where((meal) => meal.slot == slot)
-                  .toList(growable: false),
-              last: slot == MealSlot.values.last,
-              onTap: onOpenSlot == null ? null : () => onOpenSlot!(slot),
-            ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Column(
+    key: const ValueKey('today-meals-card'),
+    children: [
+      for (final slot in MealSlot.values) ...[
+        TodayMealRow(
+          slot: slot,
+          meals: meals
+              .where((meal) => meal.slot == slot)
+              .toList(growable: false),
+          last: slot == MealSlot.values.last,
+          onTap: onOpenSlot == null ? null : () => onOpenSlot!(slot),
+        ),
+        if (slot != MealSlot.values.last) const SizedBox(height: 8),
+      ],
+    ],
+  );
 }
 
-/// One slot row: avatar, name, subtitle, kcal sum.
 class TodayMealRow extends StatelessWidget {
   const TodayMealRow({
     super.key,
@@ -55,7 +43,6 @@ class TodayMealRow extends StatelessWidget {
     this.last = false,
     this.onTap,
   });
-
   final MealSlot slot;
   final List<LoggedMeal> meals;
   final bool last;
@@ -67,73 +54,80 @@ class TodayMealRow extends StatelessWidget {
     final l10n = context.l10n;
     final kcal = meals.fold<int>(
       0,
-      (summe, meal) => summe + meal.result.caloriesKcal,
+      (sum, meal) => sum + meal.result.caloriesKcal,
     );
-
-    // Material(transparent) under the InkWell: placed directly in the card,
-    // the ripple would sit below the card surface and the tap would look dead.
+    final empty = meals.isEmpty;
+    final icon = switch (slot) {
+      MealSlot.breakfast => Icons.breakfast_dining_outlined,
+      MealSlot.lunch => Icons.lunch_dining_outlined,
+      MealSlot.dinner => Icons.dinner_dining_outlined,
+      MealSlot.snack => Icons.cookie_outlined,
+    };
     return Material(
-      color: Colors.transparent,
+      color: t.surf,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(rCard),
+        side: BorderSide(color: t.line),
+      ),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
         key: ValueKey<String>('today-meal-row-${slot.name}'),
         onTap: onTap,
-        child: Container(
-          decoration: BoxDecoration(
-            border: last ? null : Border(bottom: BorderSide(color: t.line)),
-          ),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
           child: Row(
-            children: <Widget>[
-              MealAvatar(letter: slot.initial(l10n), color: slot.accentOn(t)),
-              const SizedBox(width: 13),
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: empty ? t.surf2 : t.brandSurface,
+                  borderRadius: BorderRadius.circular(rControl),
+                ),
+                child: Icon(
+                  icon,
+                  color: empty ? t.ink2 : t.onBrandSurface,
+                  size: 26,
+                ),
+              ),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
+                  children: [
                     Text(
                       slot.label(l10n),
+                      style: AppType.ui(11.5, color: t.ink2),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      empty
+                          ? l10n.todayMealOpen
+                          : mealSlotSubtitle(meals, l10n),
                       style: AppType.ui(
                         14,
                         weight: FontWeight.w600,
                         color: t.ink,
+                        height: 1.25,
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      mealSlotSubtitle(meals, l10n),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppType.ui(11.5, color: t.ink2),
-                    ),
+                    if (!empty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        '${kcalThousands(kcal, l10n)} kcal',
+                        style: AppType.ui(12, color: t.ink2),
+                      ),
+                    ],
                   ],
                 ),
               ),
-              const SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: <Widget>[
-                  Text(
-                    kcalThousands(kcal, l10n),
-                    style: AppType.display(
-                      16,
-                      weight: FontWeight.w700,
-                      color: t.ink,
-                    ),
-                  ),
-                  Text(
-                    l10n.todayMealKcalLabel,
-                    style: AppType.ui(
-                      9.5,
-                      weight: FontWeight.w500,
-                      color: t.ink2,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ],
-              ),
-              if (onTap != null) ...<Widget>[
+              if (onTap != null) ...[
                 const SizedBox(width: 8),
-                Icon(Icons.chevron_right_rounded, size: 16, color: t.ink2),
+                Icon(
+                  empty ? Icons.add_rounded : Icons.chevron_right_rounded,
+                  size: 21,
+                  color: t.ink2,
+                ),
               ],
             ],
           ),
@@ -143,15 +137,7 @@ class TodayMealRow extends StatelessWidget {
   }
 }
 
-/// The steps card under the calorie hero: daily count, progress towards the
-/// step goal and the kcal estimated from it — the maths behind the burned
-/// tile, made visible in one place.
-///
-/// Same anatomy as a [TodayMealRow] plus a [MacroBar]-style bar, so the card
-/// reads as part of the same family.
-///
-/// The shell omits the card entirely without a step source
-/// (`TodayScreen.steps == null`), rather than claiming "0 / 8,000" every day.
+/// Daily steps and the activity credit behind the calorie budget.
 class TodayStepsCard extends StatelessWidget {
   const TodayStepsCard({
     super.key,
@@ -159,187 +145,125 @@ class TodayStepsCard extends StatelessWidget {
     required this.goal,
     required this.burnedKcal,
   });
-
-  final int steps;
-
-  /// `UserProfile.dailyStepsGoal` (goals page, min. 1000).
-  final int goal;
-
-  /// The kcal estimated from [steps] (HomeStore.burnedKcalForFoodDate).
-  /// 0 means "no statement" and drops that part of the subtitle.
-  final int burnedKcal;
+  final int steps, goal, burnedKcal;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    final locale = l10n.localeName;
-
-    final schritte = steps.clamp(0, 9999999).toInt();
-    final ziel = goal.clamp(0, 9999999).toInt();
-    final pct = ziel <= 0 ? 0.0 : (schritte / ziel).clamp(0.0, 1.0);
-    final erreicht = ziel > 0 && schritte >= ziel;
-
-    // "~261 kcal burned · goal 8,000" or "… · goal reached".
-    final untertitel = <String>[
+    final count = steps.clamp(0, 9999999);
+    final target = goal.clamp(0, 9999999);
+    final progress = target <= 0 ? 0.0 : (count / target).clamp(0.0, 1.0);
+    final subtitle = <String>[
       if (burnedKcal > 0)
-        l10n.todayStepsBurned(formatThousands(burnedKcal, locale)),
-      if (erreicht)
-        l10n.todayStepsGoalReached
-      else if (ziel > 0)
-        l10n.todayStepsGoal(formatThousands(ziel, locale)),
+        l10n.todayStepsBurned(formatThousands(burnedKcal, l10n.localeName)),
+      if (target > 0 && count >= target) l10n.todayStepsGoalReached,
     ].join(' · ');
-
-    final title = Text(
-      l10n.todayStepsTitle,
-      style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
-    );
-    final count = Text(
-      formatThousands(schritte, locale),
-      key: const ValueKey('today-steps-value'),
-      style: AppType.display(16, weight: FontWeight.w700, color: t.ink),
-    );
-    final unit = Text(
-      l10n.todayStepsUnit,
-      style: AppType.ui(
-        9.5,
-        weight: FontWeight.w500,
-        color: t.ink2,
-        letterSpacing: 0.5,
-      ),
-    );
-    final subtitle = Text(
-      untertitel,
-      key: const ValueKey('today-steps-subtitle'),
-      style: AppType.ui(12, color: t.ink2, height: 1.4),
-    );
-    final icon = Container(
-      width: 40,
-      height: 40,
-      decoration: BoxDecoration(
-        color: t.lime.withValues(alpha: 0.28),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Center(child: StepsIcon(size: 22, color: t.accent)),
-    );
-    final value = Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [count, unit],
-    );
-
-    double textWidth(Text text) {
-      final style = DefaultTextStyle.of(context).style.merge(text.style);
-      final painter = TextPainter(
-        text: TextSpan(
-          text: text.data,
-          style: MediaQuery.boldTextOf(context)
-              ? style.copyWith(fontWeight: FontWeight.bold)
-              : style,
-        ),
-        textDirection: Directionality.of(context),
-        textScaler: MediaQuery.textScalerOf(context),
-        locale: Localizations.maybeLocaleOf(context),
-      )..layout();
-      final width = painter.width.ceilToDouble();
-      painter.dispose();
-      return width;
-    }
-
-    final countWidth = textWidth(count);
-    final unitWidth = textWidth(unit);
-    final valueWidth = countWidth > unitWidth ? countWidth : unitWidth;
-    final headerWidth = 40 + 13 + textWidth(title) + 10 + valueWidth;
-
-    return AppCard(
+    return Container(
       key: const ValueKey('today-steps-card'),
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          LayoutBuilder(
-            builder: (context, constraints) {
-              // Keep the explanation beside the icon unless larger text needs
-              // separate rows for the title/count and the full explanation.
-              if (headerWidth <= constraints.maxWidth) {
-                return Row(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: t.surf2,
+        borderRadius: BorderRadius.circular(rCard),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact =
+              constraints.maxWidth >= 285 &&
+              MediaQuery.textScalerOf(context).scale(14) <= 18;
+          return Row(
+            children: [
+              StepsIcon(size: 28, color: t.ink),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    icon,
-                    const SizedBox(width: 13),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          title,
-                          if (untertitel.isNotEmpty) ...[
-                            const SizedBox(height: 2),
-                            subtitle,
-                          ],
-                        ],
+                    Wrap(
+                      spacing: 5,
+                      runSpacing: 3,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Text(
+                          formatThousands(count, l10n.localeName),
+                          key: const ValueKey('today-steps-value'),
+                          style: AppType.display(21, color: t.ink),
+                        ),
+                        if (target > 0)
+                          Text(
+                            '/ ${formatThousands(target, l10n.localeName)}',
+                            key: const ValueKey('today-steps-goal'),
+                            style: AppType.ui(13, color: t.ink),
+                          ),
+                        Text(
+                          l10n.todayStepsTitle,
+                          style: AppType.ui(13, color: t.ink),
+                        ),
+                      ],
+                    ),
+                    if (subtitle.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        key: const ValueKey('today-steps-subtitle'),
+                        style: AppType.ui(11.5, color: t.ink2, height: 1.4),
+                      ),
+                    ],
+                    const SizedBox(height: 9),
+                    Semantics(
+                      label: l10n.todaySemanticsStepsProgress,
+                      value: l10n.todaySemanticsStepsProgressValue(
+                        formatThousands(count, l10n.localeName),
+                        formatThousands(target, l10n.localeName),
+                      ),
+                      child: ExcludeSemantics(
+                        child: TweenAnimationBuilder<double>(
+                          tween: Tween(begin: 0, end: progress),
+                          duration: motionDuration(
+                            context,
+                            const Duration(milliseconds: 320),
+                          ),
+                          curve: Curves.easeOutCubic,
+                          builder: (context, value, _) => ClipRRect(
+                            borderRadius: BorderRadius.circular(rPill),
+                            child: LinearProgressIndicator(
+                              key: const ValueKey('today-steps-bar'),
+                              borderRadius: BorderRadius.circular(rPill),
+                              value: value,
+                              minHeight: 8,
+                              backgroundColor: t.surf,
+                              valueColor: AlwaysStoppedAnimation(
+                                t.progressAccent,
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    value,
                   ],
-                );
-              }
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    alignment: WrapAlignment.spaceBetween,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          icon,
-                          const SizedBox(width: 13),
-                          Flexible(child: title),
-                        ],
-                      ),
-                      value,
-                    ],
-                  ),
-                  if (untertitel.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    subtitle,
-                  ],
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 12),
-          // Same bar as [MacroBar] (height, radius, animation) without the
-          // label/value columns — those are already above.
-          Semantics(
-            label: l10n.todaySemanticsStepsProgress,
-            value: l10n.todaySemanticsStepsProgressValue(
-              formatThousands(schritte, locale),
-              formatThousands(ziel, locale),
-            ),
-            child: TweenAnimationBuilder<double>(
-              tween: Tween<double>(begin: 0, end: pct),
-              duration: motionDuration(
-                context,
-                const Duration(milliseconds: 500),
-              ),
-              curve: Curves.easeOutCubic,
-              builder: (context, v, _) => ClipRRect(
-                borderRadius: BorderRadius.circular(5),
-                child: LinearProgressIndicator(
-                  key: const ValueKey('today-steps-bar'),
-                  value: v,
-                  minHeight: 9,
-                  backgroundColor: t.tile,
-                  valueColor: AlwaysStoppedAnimation<Color>(t.accent),
                 ),
               ),
-            ),
-          ),
-        ],
+              if (compact && target > 0) ...[
+                const SizedBox(width: 12),
+                ExcludeSemantics(
+                  child: TodayProgressRing(
+                    key: const ValueKey('today-steps-ring'),
+                    progress: progress,
+                    size: 52,
+                    child: Text(
+                      '${(progress * 100).round()}%',
+                      style: AppType.ui(
+                        12,
+                        weight: FontWeight.w700,
+                        color: t.ink,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          );
+        },
       ),
     );
   }

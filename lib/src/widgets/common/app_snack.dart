@@ -45,19 +45,9 @@ double _contrast(Color a, Color b) {
 
 /// A [tone] that stays legible on the toast.
 ///
-/// The toast is [AppTokens.forest] in BOTH modes, so in the LIGHT palette the
-/// signal tones sit dark on dark: neutral 2.05:1, warning 2.20:1, error
-/// 2.15:1 on their own disc. The tone channel goes silent — error, warning and
-/// a neutral notice look alike. (The message text is unaffected, it runs in
-/// `onForest` at 12.28:1.)
-///
-/// [AppTokens.readableOnTint] is NOT the tool here: it mixes towards
-/// [AppTokens.ink], right for a faint tint on a light card but the wrong
-/// direction on this surface — in light mode it drives the same three tones
-/// down to 1.31…1.38:1. So mix towards the toast's OWN text color instead,
-/// and only as far as the floor needs: dark mode already passes and stays
-/// untouched, light mode keeps as much hue as the floor allows (the four tones
-/// stay ≥ 31 dE76 apart).
+/// Correct against the actual toast surface and its own foreground. This
+/// works with both pale lavender and dark/custom surfaces; assuming the page
+/// background or mixing towards page ink can reverse the correction.
 Color _legibleOnSnack(Color tone, Color ground, Color onGround) {
   bool holds(Color c) =>
       _contrast(

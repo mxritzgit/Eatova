@@ -2181,5 +2181,44 @@
   "trainingHistorySourceChanged": "Dein Plan wurde geändert. Dieses Training wurde nicht gespeichert.",
   "trainingActualConfirmLegacyTimed": "Abgeschlossenes Intervall bestätigen",
   "trainingHistoryDeleteAction": "Training löschen",
-  "trainingHistoryAlreadyDeleted": "Dieses Training wurde auf einem anderen Gerät gelöscht."
+  "trainingHistoryAlreadyDeleted": "Dieses Training wurde auf einem anderen Gerät gelöscht.",
+  "todayBalanceRemaining": "Noch für heute",
+  "todayBalanceArchive": "Deine Tagesbilanz",
+  "todayBalanceEaten": "{kcal} kcal gegessen",
+  "todayBalanceActivity": "+ {kcal} kcal Aktivität",
+  "todayBalanceStreak": "{count, plural, =1{1 Tag in Folge} other{{count} Tage in Folge}}",
+  "todayMacroProgressValue": "{value} von {goal} Gramm",
+  "todayMealOpen": "Noch offen",
+  "todayAddMeal": "Mahlzeit erfassen",
+  "@todayBalanceEaten": {
+    "placeholders": {
+      "kcal": {
+        "type": "String"
+      }
+    }
+  },
+  "@todayBalanceActivity": {
+    "placeholders": {
+      "kcal": {
+        "type": "String"
+      }
+    }
+  },
+  "@todayBalanceStreak": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@todayMacroProgressValue": {
+    "placeholders": {
+      "value": {
+        "type": "int"
+      },
+      "goal": {
+        "type": "int"
+      }
+    }
+  }
 }

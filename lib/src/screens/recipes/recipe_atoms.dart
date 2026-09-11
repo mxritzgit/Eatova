@@ -319,8 +319,8 @@ class _RecipeMetrics extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     final n = _recipeNutrition(recipe);
-    final stark = onImage ? t.onForest : t.ink;
-    final leise = onImage ? t.onForest.withValues(alpha: 0.78) : t.ink2;
+    final stark = onImage ? t.onImage : t.ink;
+    final leise = onImage ? t.onImage.withValues(alpha: 0.78) : t.ink2;
     // No macro tones here: the value is already in the text and three colors
     // next to the photo would be noise. The detail grid carries the coding.
     TextStyle stil(Color color) =>

@@ -108,8 +108,8 @@ void main() {
       ),
     );
 
-    // Before logging: protein 0 / 130g (cold start lands on the today tab).
-    expect(find.text('0 / 130g'), findsOneWidget);
+    // Before logging: protein 0 / 130 g (cold start lands on the today tab).
+    expect(find.text('0 / 130 g'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
@@ -150,8 +150,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-Heute')));
     await tester.pumpAndSettle();
 
-    expect(find.text('40 / 130g'), findsOneWidget);
-    expect(find.text('30 / 130g'), findsNothing);
+    expect(find.text('40 / 130 g'), findsOneWidget);
+    expect(find.text('30 / 130 g'), findsNothing);
   });
 
   // PROD-4: the favorite heart renders on the analysis result and tapping it

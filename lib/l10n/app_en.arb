@@ -2153,5 +2153,44 @@
   "trainingHistorySourceChanged": "Your plan changed. This workout was not saved.",
   "trainingActualConfirmLegacyTimed": "Confirm completed interval",
   "trainingHistoryDeleteAction": "Delete workout",
-  "trainingHistoryAlreadyDeleted": "This workout was deleted on another device."
+  "trainingHistoryAlreadyDeleted": "This workout was deleted on another device.",
+  "todayBalanceRemaining": "Left for today",
+  "todayBalanceArchive": "Your daily balance",
+  "todayBalanceEaten": "{kcal} kcal eaten",
+  "todayBalanceActivity": "+ {kcal} kcal activity",
+  "todayBalanceStreak": "{count, plural, =1{1 day in a row} other{{count} days in a row}}",
+  "todayMacroProgressValue": "{value} of {goal} grams",
+  "todayMealOpen": "Not logged yet",
+  "todayAddMeal": "Log a meal",
+  "@todayBalanceEaten": {
+    "placeholders": {
+      "kcal": {
+        "type": "String"
+      }
+    }
+  },
+  "@todayBalanceActivity": {
+    "placeholders": {
+      "kcal": {
+        "type": "String"
+      }
+    }
+  },
+  "@todayBalanceStreak": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "@todayMacroProgressValue": {
+    "placeholders": {
+      "value": {
+        "type": "int"
+      },
+      "goal": {
+        "type": "int"
+      }
+    }
+  }
 }

@@ -139,10 +139,6 @@ const Map<String, String> _bedingtesForestErlaubt = <String, String>{
       '_RecipeBadge(filled:) and the onImage flag are STYLE variants fixed at '
           'the call site (marker on a photo vs. hint on a card), never a state '
           'the same widget switches between',
-  'lib/src/screens/today/today_hero.dart':
-      'over/under budget: both branches are text ON the forest hero, so '
-          'neither is a fill — the signal is carried by lime plus the changed '
-          'wording, and `danger` is illegible on forest in light mode',
   'lib/src/widgets/profile/profile_widgets_hero.dart':
       'solid vs. soft pill: a STYLE variant of the hero chips fixed at the '
           'call site, not a state the widget toggles',

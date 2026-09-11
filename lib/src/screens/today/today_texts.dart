@@ -47,6 +47,12 @@ String todayEyebrow(DateTime date, AppLocalizations l10n) {
   return DateFormat.MMMMEEEEd(l10n.localeName).format(date).toUpperCase();
 }
 
+/// Full localized date for the compact Today header.
+String todayCalendarDate(DateTime date, AppLocalizations l10n) {
+  _ensureDateSymbols();
+  return DateFormat.MMMEd(l10n.localeName).format(date);
+}
+
 /// kcal with the active locale's thousands separator, via the shared
 /// `services/kcal_format.dart`.
 String kcalThousands(int n, AppLocalizations l10n) =>

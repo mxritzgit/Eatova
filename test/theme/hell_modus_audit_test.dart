@@ -624,10 +624,10 @@ void main() {
         }
       }
       // Counter-check: the raw slot color is what used to stand there, and
-      // the carb tone still would not carry the letter (2.86:1).
+      // the raw carb tone still does not meet body-text contrast.
       const hell = AppTokens.light;
       final tint = _ueber(hell.carbs.withValues(alpha: 0.16), hell.surf);
-      expect(_contrast(hell.carbs, tint), lessThan(3.0));
+      expect(_contrast(hell.carbs, tint), lessThan(4.5));
     });
 
     test('die MacroBar-Fuellung erreicht 3:1 gegen ihre Spur', () {

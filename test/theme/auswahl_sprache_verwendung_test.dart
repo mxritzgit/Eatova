@@ -515,44 +515,18 @@ void main() {
   // =========================================================================
   // The numbers — vorher/nachher, so a revert has to walk past them
   // =========================================================================
-  group('Die Messwerte der vier Stellen', () {
-    test('dunkel: was forest/onForest an diesen Stellen wirklich war', () {
-      const d = AppTokens.dark;
-      // Fill of the selected chip on the card ground.
-      expect(_kontrast(d.forest, d.surf), closeTo(1.3349, 0.001));
-      // Weekday / icon: lime (selected) vs ink2 (unselected).
-      expect(_kontrast(d.lime, d.ink2), closeTo(2.3270, 0.001));
-      // The date number: onForest (selected) vs ink (unselected).
-      expect(_kontrast(d.onForest, d.ink), closeTo(1.0440, 0.001));
-      // …and `lime` ON the new fill, the reason weekday, icon, trailing and
-      // tick all had to move too.
-      expect(_kontrast(d.lime, d.ink), closeTo(1.0661, 0.001));
-    });
-
-    test('was SelectionTone an denselben Stellen liefert', () {
-      for (final fall in <({String name, AppTokens t, double flaeche})>[
-        (name: 'hell', t: AppTokens.light, flaeche: 16.7841),
-        (name: 'dunkel', t: AppTokens.dark, flaeche: 14.9247),
-      ]) {
-        final t = fall.t;
-        expect(_kontrast(t.ink, t.surf), closeTo(fall.flaeche, 0.001));
-        // Label on the fill, and selected vs. unselected label.
+  group('Auswahl bleibt nach einem Palettenwechsel erkennbar', () {
+    for (final mode in Brightness.values) {
+      final t = _tokens(mode);
+      test('Kontrastvertrag $mode', () {
+        expect(_kontrast(t.ink, t.surf), greaterThanOrEqualTo(_zustand));
         expect(_kontrast(t.bg, t.ink), greaterThanOrEqualTo(_text));
         expect(_kontrast(t.bg, t.ink2), greaterThanOrEqualTo(_zustand));
-        // The 78 % channel (weekday, subtitle) on the fill and against ink2.
-        final leise = _ueber(t.bg.withValues(alpha: 0.78), t.ink);
-        expect(_kontrast(leise, t.ink), greaterThanOrEqualTo(_text));
-        expect(_kontrast(leise, t.ink2), greaterThanOrEqualTo(_zustand));
-      }
-    });
-
-    test('hell allein haette den Fehler nie gezeigt', () {
-      // Why every case above runs in BOTH palettes: in light mode the old
-      // pairing cleared every threshold, which is exactly how it survived.
-      const h = AppTokens.light;
-      expect(_kontrast(h.forest, h.surf), greaterThan(13.0));
-      expect(_kontrast(h.onForest, h.forest), greaterThan(_text));
-      expect(_kontrast(h.lime, h.ink2), greaterThan(_text));
-    });
+        final quiet = _ueber(t.bg.withValues(alpha: 0.78), t.ink);
+        expect(_kontrast(quiet, t.ink), greaterThanOrEqualTo(_text));
+        expect(_kontrast(quiet, t.ink2), greaterThanOrEqualTo(_zustand));
+        expect(_kontrast(t.brandSurface, t.surf), lessThan(_zustand));
+      });
+    }
   });
 }

@@ -1,175 +1,66 @@
-// Fix run for review 2026-08-27, F8-09 (Today part): the hero's metric tiles
-// wrapped value and label in FittedBox.scaleDown, which silently undid the
-// system text scale (a 10.5 px label stayed 10.5 px at 1.3x). Now the tiles
-// keep their real size: side by side up to 1.3x, stacked above that. Only
-// the 66 px hero number keeps its FittedBox.
-
+// Regression for system text scaling: detail text must never be shrunk.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
 import 'package:eatova/src/screens/today/today_hero.dart';
-
 import 'support/harness.dart';
 
-const List<String> _tiles = <String>[
-  'today-stat-eaten',
-  'today-stat-burned',
-  'today-stat-streak',
-];
-
-Future<List<String>> _pumpHero(
-  WidgetTester tester, {
-  required double scale,
-  int consumed = 1234,
-  int burned = 321,
-  int streak = 12,
-  Brightness brightness = Brightness.dark,
-}) async {
-  tester.view.physicalSize = const Size(1179, 2556);
-  tester.view.devicePixelRatio = 3.0;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-
-  final overflows = <String>[];
-  final prior = FlutterError.onError;
-  FlutterError.onError = (details) {
-    if (details.exception.toString().contains('overflowed')) {
-      overflows.add(details.summary.toString());
-      return;
-    }
-    prior?.call(details);
-  };
-  addTearDown(() => FlutterError.onError = prior);
-
-  await pumpLocalized(
-    tester,
-    TodayCalorieHero(
-      consumedKcal: consumed,
-      burnedKcal: burned,
-      kcalGoal: 2000,
-      streak: streak,
-    ),
-    reducedMotion: false,
-    brightness: brightness,
-    textScale: scale,
-    // The shell's 20 px side margin.
-    padding: const EdgeInsets.symmetric(horizontal: 20),
-    safeArea: false,
-  );
-  await tester.pumpAndSettle();
-  return overflows;
-}
-
-/// Font size the text actually renders with (style x scaler).
-double _renderedFontSize(WidgetTester tester, Finder text) {
-  final element = tester.element(text);
-  final style = tester.widget<Text>(text).style!;
-  return MediaQuery.textScalerOf(element).scale(style.fontSize!);
-}
-
 void main() {
-  testWidgets('Kacheln tragen keine FittedBox mehr, die Hero-Zahl schon',
-      (tester) async {
-    await _pumpHero(tester, scale: 1.0);
-    for (final tile in _tiles) {
-      expect(
-        find.descendant(
-          of: find.byKey(ValueKey<String>(tile)),
-          matching: find.byType(FittedBox),
-        ),
-        findsNothing,
-        reason: '$tile schrumpft Text statt ihn zu skalieren',
-      );
-    }
-    expect(
-      find.ancestor(
-        of: find.byKey(const ValueKey('today-kcal-remaining')),
-        matching: find.byType(FittedBox),
-      ),
-      findsOneWidget,
-    );
-  });
-
-  testWidgets('bei 1.3 stehen die Kacheln nebeneinander, Labels skalieren mit',
-      (tester) async {
-    final overflows = await _pumpHero(tester, scale: 1.3);
-    expect(overflows, isEmpty, reason: overflows.join('\n'));
-
-    final tops = _tiles
-        .map((k) => tester.getTopLeft(find.byKey(ValueKey<String>(k))).dy)
-        .toList();
-    expect(tops[1], moreOrLessEquals(tops[0], epsilon: 0.5));
-    expect(tops[2], moreOrLessEquals(tops[0], epsilon: 0.5));
-
-    final label = find.descendant(
-      of: find.byKey(const ValueKey('today-stat-streak')),
-      matching: find.text('TAGE-STREAK'),
-    );
-    expect(label, findsOneWidget);
-    expect(_renderedFontSize(tester, label), moreOrLessEquals(10.5 * 1.3));
-  });
-
-  testWidgets('bei 2.0 stapeln sich die Kacheln statt zu schrumpfen',
-      (tester) async {
-    final overflows = await _pumpHero(
-      tester,
-      scale: 2.0,
-      consumed: 12345,
-      burned: 1234,
-      streak: 365,
-    );
-    expect(overflows, isEmpty, reason: overflows.join('\n'));
-
-    final tops = _tiles
-        .map((k) => tester.getTopLeft(find.byKey(ValueKey<String>(k))).dy)
-        .toList();
-    expect(tops[1], greaterThan(tops[0]));
-    expect(tops[2], greaterThan(tops[1]));
-
-    // No mid-word wrap: each text stays on one line at its real size.
-    for (final fall in const <List<String>>[
-      <String>['today-stat-eaten', '12.345', 'GEGESSEN'],
-      <String>['today-stat-burned', '1.234', 'VERBRANNT'],
-      <String>['today-stat-streak', '365', 'TAGE-STREAK'],
-    ]) {
-      for (final text in <String>[fall[1], fall[2]]) {
-        final zeile = find.descendant(
-          of: find.byKey(ValueKey<String>(fall[0])),
-          matching: find.text(text),
-        );
-        expect(zeile, findsOneWidget);
-        expect(
-          tester.getSize(zeile).height,
-          lessThan(_renderedFontSize(tester, zeile) * 1.6),
-          reason: '„$text" ist in ${fall[0]} umgebrochen',
-        );
-      }
-    }
-  });
-
   for (final brightness in Brightness.values) {
-    testWidgets('die Restzahl schrumpft in $brightness weiterhin per FittedBox',
-        (tester) async {
-      final overflows = await _pumpHero(
+    for (final scale in [1.0, 1.3, 2.0]) {
+      testWidgets('hero remains readable at $scale / $brightness', (
         tester,
-        scale: 2.0,
-        consumed: 12345,
-        burned: 1234,
-        brightness: brightness,
-      );
-      expect(overflows, isEmpty, reason: overflows.join('\n'));
-      final hero = find.byKey(const ValueKey('today-kcal-hero'));
-      final kasten = find
-          .ancestor(
-            of: find.byKey(const ValueKey('today-kcal-remaining')),
-            matching: find.byType(FittedBox),
-          )
-          .first;
-      expect(tester.widget<FittedBox>(kasten).fit, BoxFit.scaleDown);
-      expect(
-        tester.getSize(kasten).width,
-        lessThanOrEqualTo(tester.getSize(hero).width),
-      );
-    });
+      ) async {
+        await pumpLocalized(
+          tester,
+          const SingleChildScrollView(
+            child: TodayCalorieHero(
+              consumedKcal: 12345,
+              burnedKcal: 1234,
+              kcalGoal: 2000,
+              streak: 365,
+            ),
+          ),
+          surfaceSize: const Size(320, 852),
+          padding: const EdgeInsets.all(20),
+          brightness: brightness,
+          textScale: scale,
+          settle: true,
+        );
+        expect(tester.takeException(), isNull);
+        for (final key in [
+          'today-stat-eaten',
+          'today-stat-burned',
+          'today-stat-streak',
+        ]) {
+          final text = find.byKey(ValueKey(key));
+          expect(
+            find.ancestor(of: text, matching: find.byType(FittedBox)),
+            findsNothing,
+          );
+          final style = tester.widget<Text>(text).style!;
+          expect(
+            MediaQuery.textScalerOf(
+              tester.element(text),
+            ).scale(style.fontSize!),
+            style.fontSize! * scale,
+          );
+        }
+        final number = find.byKey(const ValueKey('today-kcal-remaining'));
+        final fitted = find.ancestor(
+          of: number,
+          matching: find.byType(FittedBox),
+        );
+        expect(tester.widget<FittedBox>(fitted).fit, BoxFit.scaleDown);
+        final ring = tester.getRect(
+          find.byKey(const ValueKey('today-kcal-ring')),
+        );
+        final activity = tester.getRect(
+          find.byKey(const ValueKey('today-stat-burned')),
+        );
+        expect(ring.top, greaterThan(activity.bottom));
+        expect(find.text('100%'), findsOneWidget);
+        expect(tester.getSize(find.text('100%')).width, lessThan(ring.width));
+      });
+    }
   }
 }

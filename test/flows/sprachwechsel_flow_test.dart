@@ -52,8 +52,8 @@ const List<_Kernscreen> _tour = <_Kernscreen>[
 ];
 
 // Tear-offs instead of closures: a const list may hold no lambdas.
-String _budgetEyebrow(AppLocalizations l) => l.todayKcalBudgetEyebrow;
-String _makros(AppLocalizations l) => l.todayMacrosTitle;
+String _budgetEyebrow(AppLocalizations l) => l.todayBalanceRemaining;
+String _makros(AppLocalizations l) => l.todayMacroCarbs;
 String _empfehlungen(AppLocalizations l) => l.recipesRecommendedTitle;
 String _alleRezepte(AppLocalizations l) => l.recipesAllTitle;
 String _coachTitel(AppLocalizations l) => l.coachTitle;

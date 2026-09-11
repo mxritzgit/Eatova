@@ -401,7 +401,7 @@ void main() {
       );
     });
 
-    testWidgets('Heute: die Begruessung ist die Ebene-1-Marke ueber den '
+    testWidgets('Heute: der Titel ist die Ebene-1-Marke ueber den '
         'beiden Abschnitten', (tester) async {
       final l10n = _de;
       final handle = tester.ensureSemantics();
@@ -422,7 +422,7 @@ void main() {
       expect(
         marken,
         <Sprungmarke>[
-          (label: todayGreeting(l10n, _jetzt), level: 1),
+          (label: l10n.navToday, level: 1),
           (label: l10n.todayMacrosTitle, level: 2),
           (label: l10n.todayMealsTitleToday, level: 2),
         ],

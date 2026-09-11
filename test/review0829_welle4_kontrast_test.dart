@@ -155,20 +155,11 @@ void main() {
   // P9-01b — die Makro-Kachel des KI-Ergebnisses
   // =========================================================================
   group('P9-01b: die Makro-Kachel im Scan-Ergebnis', () {
-    test('der rohe Ton traegt auf surf2 weder Text noch Punkt', () {
-      // The reason this instance is worse than the three fixed in wave 2: they
-      // sit on `surf`, this one on `surf2`. In the LIGHT palette that costs
-      // roughly half a point and drops carbs and fat under the 3:1 a graphical
-      // object needs — so even the dot may not take the raw tone here.
-      const hell = AppTokens.light;
-      expect(_kontrast(hell.carbs, hell.surf2), lessThan(3.0),
-          reason: 'carbs auf surf2 (2,77:1) — unter der Grafik-Schwelle');
-      expect(_kontrast(hell.fat, hell.surf2), lessThan(4.5),
-          reason: 'fat auf surf2 (3,04:1) — unter der Text-Schwelle');
-      expect(_kontrast(hell.protein, hell.surf2), lessThan(5.0));
-      // Counter-check: on `surf` the same tones would still make the 3:1 the
-      // wave-2 tiles rely on. The ground is the whole finding.
-      expect(_kontrast(hell.carbs, hell.surf), greaterThanOrEqualTo(3.0));
+    test('rohe Makro-Toene sind keine Schriftfarben auf surf2', () {
+      const t = AppTokens.light;
+      expect(_kontrast(t.carbs, t.surf2), lessThan(4.5));
+      expect(_kontrast(t.fat, t.surf2), lessThan(4.5));
+      expect(_kontrast(t.carbs, t.surf), greaterThanOrEqualTo(3.0));
     });
 
     test('readableOnTint traegt den Punkt auf surf2 in beiden Modi', () {
@@ -256,10 +247,9 @@ void main() {
       // — but 1.34:1 simply is not visible.
       expect(_kontrast(AppTokens.dark.forest, AppTokens.dark.surf),
           lessThan(1.5));
-      // In light mode the same pair carries 13.57:1 — mode-asymmetric, exactly
-      // the bug SelectionTone was introduced for in wave 3.
+      // The pastel surface is also too subtle to carry emphasis by itself.
       expect(_kontrast(AppTokens.light.forest, AppTokens.light.surf),
-          greaterThan(10.0));
+          lessThan(3.0));
     });
 
     for (final helligkeit in Brightness.values) {

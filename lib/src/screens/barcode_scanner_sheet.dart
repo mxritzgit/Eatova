@@ -412,7 +412,7 @@ class _ScanFrame extends StatelessWidget {
         // The frame sits ON the camera image: `lime` carries in both modes,
         // `accent` would be dark green on a dark image in light mode.
         border: Border.all(
-          color: context.t.lime.withValues(alpha: 0.9),
+          color: context.t.imageAccent.withValues(alpha: 0.9),
           width: 2,
         ),
       ),
@@ -437,7 +437,7 @@ class _TorchButton extends StatelessWidget {
         return Material(
           key: const ValueKey('barcode-torch'),
           color: on
-              ? context.t.lime.withValues(alpha: 0.92)
+              ? context.t.imageAccent.withValues(alpha: 0.92)
               : Colors.black.withValues(alpha: 0.45),
           shape: const CircleBorder(),
           child: InkWell(
