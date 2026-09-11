@@ -655,7 +655,7 @@ class _Shutter extends StatelessWidget {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: enabled
-                ? context.t.lime
+                ? context.t.imageAccent
                 : Colors.white.withValues(alpha: 0.4),
             ),
             child: busy

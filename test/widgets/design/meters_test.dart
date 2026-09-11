@@ -171,7 +171,7 @@ void main() {
         decorationOf(tester, find.byType(MealAvatar)).color!,
         groundBehind(tester.element(find.byType(MealAvatar))),
       );
-      expect(contrastRatio(t.carbs, tint), lessThan(3.0));
+      expect(contrastRatio(t.carbs, tint), lessThan(4.5));
     });
 
     testWidgets('size skaliert die Kachel', (tester) async {

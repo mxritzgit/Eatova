@@ -230,10 +230,7 @@ void main() {
       expect(find.textContaining('2.300'), findsNothing);
       // The burned tile keeps the arithmetic traceable.
       expect(
-        find.descendant(
-          of: find.byKey(const ValueKey('today-stat-burned')),
-          matching: find.text('300'),
-        ),
+        find.text('+ 300 kcal Aktivität'),
         findsOneWidget,
       );
     });

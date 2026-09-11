@@ -70,12 +70,12 @@ void main() {
           final icon = tester.getRect(find.byType(StepsIcon));
           expect(
             subtitle.left,
-            closeTo(title.left, 0.5),
-            reason: 'Calories belong under the title, not under the icon.',
+            closeTo(value.left, 0.5),
+            reason: 'Calories stay under the value, beside the icon.',
           );
-          expect(subtitle.top - title.bottom, closeTo(2, 0.5));
+          expect(subtitle.top, greaterThanOrEqualTo(title.bottom));
           expect(subtitle.left, greaterThan(icon.right));
-          expect(value.left, greaterThan(subtitle.right));
+          expect(value.left, greaterThan(icon.right));
           expect(
             subtitle.height,
             lessThan(19),
@@ -90,11 +90,11 @@ void main() {
             ),
           );
           expect(
-            tester.getRect(find.byKey(_card)).bottom,
-            lessThan(
+            tester.getRect(find.byKey(_card)).top,
+            greaterThan(
               tester
                   .getRect(find.byKey(const ValueKey('today-macros-card')))
-                  .top,
+                  .bottom,
             ),
           );
           expect(tester.takeException(), isNull);

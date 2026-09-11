@@ -127,13 +127,13 @@ void main() {
       expect(find.byKey(_karte), findsOneWidget);
       expect(find.text('Schritte'), findsOneWidget);
       expect(_text(tester, _wert), '7.000');
-      expect(find.text('SCHRITTE'), findsOneWidget);
-      expect(_text(tester, _untertitel), '≈ 261 kcal verbrannt · Ziel 8.000');
+      expect(_text(tester, const ValueKey('today-steps-goal')), '/ 8.000');
+      expect(_text(tester, _untertitel), '≈ 261 kcal verbrannt');
       // 7000 / 8000 after the animation settles.
       expect(_balkenWert(tester), closeTo(0.875, 0.001));
     });
 
-    testWidgets('die Karte steht zwischen Hero und Makros', (tester) async {
+    testWidgets('die Karte folgt auf Hero und Makros', (tester) async {
       await _pump(tester, steps: 7000, burnedKcal: 261);
 
       final hero = tester.getRect(
@@ -143,8 +143,8 @@ void main() {
       final makros = tester.getRect(
         find.byKey(const ValueKey('today-macros-card')),
       );
-      expect(karte.top, greaterThanOrEqualTo(hero.bottom));
-      expect(makros.top, greaterThanOrEqualTo(karte.bottom));
+      expect(makros.top, greaterThanOrEqualTo(hero.bottom));
+      expect(karte.top, greaterThanOrEqualTo(makros.bottom));
       // Same column as its neighbours - no second side margin.
       expect(karte.left, hero.left);
       expect(karte.right, hero.right);
@@ -153,7 +153,8 @@ void main() {
     testWidgets('ohne Verbranntes steht nur das Ziel', (tester) async {
       await _pump(tester, steps: 7000, burnedKcal: 0);
 
-      expect(_text(tester, _untertitel), 'Ziel 8.000');
+      expect(find.byKey(_untertitel), findsNothing);
+      expect(_text(tester, const ValueKey('today-steps-goal')), '/ 8.000');
     });
 
     testWidgets('Ziel erreicht: der Untertitel sagt es, der Balken ist voll', (
@@ -176,7 +177,8 @@ void main() {
 
       expect(find.byKey(_karte), findsOneWidget);
       expect(_text(tester, _wert), '0');
-      expect(_text(tester, _untertitel), 'Ziel 8.000');
+      expect(find.byKey(_untertitel), findsNothing);
+      expect(_text(tester, const ValueKey('today-steps-goal')), '/ 8.000');
       expect(_balkenWert(tester), 0.0);
     });
 
@@ -190,8 +192,8 @@ void main() {
 
       expect(find.text('Steps'), findsOneWidget);
       expect(_text(tester, _wert), '7,000');
-      expect(find.text('STEPS'), findsOneWidget);
-      expect(_text(tester, _untertitel), '≈ 261 kcal burned · Goal 8,000');
+      expect(_text(tester, const ValueKey('today-steps-goal')), '/ 8,000');
+      expect(_text(tester, _untertitel), '≈ 261 kcal burned');
     });
 
     testWidgets('waehrend der Tag laedt, fehlt auch die Schritte-Karte', (

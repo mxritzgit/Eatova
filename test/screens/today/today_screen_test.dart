@@ -13,8 +13,8 @@ import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/today/today_screen.dart';
+import 'package:eatova/src/screens/today/today_macros.dart';
 import 'package:eatova/src/services/day_math.dart';
-import 'package:eatova/src/widgets/design/design.dart';
 
 import '../../support/harness.dart';
 
@@ -182,8 +182,8 @@ void main() {
       // The remainder still counts against goal + burned: 2000+300-500.
       expect(_textOf(tester, 'today-kcal-remaining'), '1.800');
       expect(find.text('kcal übrig'), findsOneWidget);
-      // Burned keeps its own tile, so the arithmetic stays traceable.
-      expect(_in('today-stat-burned', '300'), findsOneWidget);
+      // Activity stays explicit so the arithmetic remains traceable.
+      expect(_textOf(tester, 'today-stat-burned'), '+ 300 kcal Aktivität');
     });
 
     testWidgets('eine Ueberschreitung zeigt den Betrag und wechselt die Einheit',
@@ -201,13 +201,13 @@ void main() {
       expect(find.text('kcal übrig'), findsNothing);
     });
 
-    testWidgets('ohne Verbranntes steht der Gedankenstrich', (tester) async {
+    testWidgets('ohne Aktivitaetsgutschrift bleibt die Zusatzzeile verborgen', (tester) async {
       await withClock(Clock.fixed(_jetzt), () async {
         await _pumpToday(tester, consumedKcal: 800);
       });
 
-      expect(_in('today-stat-burned', '—'), findsOneWidget);
-      expect(_in('today-stat-eaten', '800'), findsOneWidget);
+      expect(find.byKey(const ValueKey('today-stat-burned')), findsNothing);
+      expect(_textOf(tester, 'today-stat-eaten'), '800 kcal gegessen');
     });
 
     testWidgets('der Streak kommt fertig herein und wird nur angezeigt',
@@ -216,7 +216,7 @@ void main() {
         await _pumpToday(tester, streak: 12);
       });
 
-      expect(_in('today-stat-streak', '12'), findsOneWidget);
+      expect(_textOf(tester, 'today-stat-streak'), '12 Tage in Folge');
     });
 
     testWidgets('ein Tagesziel von 0 stuerzt nicht ab', (tester) async {
@@ -279,7 +279,7 @@ void main() {
 
       await _scrollTo(tester, find.byKey(const ValueKey('today-macros-card')));
       final balken = tester
-          .widgetList<MacroBar>(find.byType(MacroBar))
+          .widgetList<TodayMacroRow>(find.byType(TodayMacroRow))
           .toList(growable: false);
       expect(balken.length, 3);
       expect(balken[0].label, 'Protein');
@@ -311,13 +311,13 @@ void main() {
       expect(_in('today-meal-row-breakfast', 'Frühstück'), findsOneWidget);
       expect(_in('today-meal-row-breakfast', 'Haferbrei · Kaffee'),
           findsOneWidget);
-      expect(_in('today-meal-row-breakfast', '340'), findsOneWidget);
+      expect(_in('today-meal-row-breakfast', '340 kcal'), findsOneWidget);
 
       expect(_in('today-meal-row-lunch', 'Mittagessen'), findsOneWidget);
-      expect(_in('today-meal-row-lunch', 'Noch nichts geloggt'), findsOneWidget);
+      expect(_in('today-meal-row-lunch', 'Noch offen'), findsOneWidget);
 
       expect(_in('today-meal-row-dinner', 'Abendessen'), findsOneWidget);
-      expect(_in('today-meal-row-dinner', '610'), findsOneWidget);
+      expect(_in('today-meal-row-dinner', '610 kcal'), findsOneWidget);
 
       expect(_in('today-meal-row-snack', 'Snacks'), findsOneWidget);
     });
@@ -361,7 +361,7 @@ void main() {
         await _pumpToday(tester, onDateSelected: (d) => gewaehlt = d);
       });
 
-      expect(_textOf(tester, 'today-date-selected-label'), 'Heute');
+      expect(_textOf(tester, 'today-date-selected-label'), 'So., 9. Aug.');
 
       await tester.tap(find.byKey(const ValueKey('today-date-next')));
       await tester.pumpAndSettle();
@@ -383,7 +383,7 @@ void main() {
         );
       });
 
-      expect(_textOf(tester, 'today-date-selected-label'), 'Gestern');
+      expect(_textOf(tester, 'today-date-selected-label'), 'Sa., 8. Aug.');
 
       await tester.tap(find.byKey(const ValueKey('today-date-next')));
       await tester.pumpAndSettle();
@@ -415,12 +415,10 @@ void main() {
         );
       });
 
-      expect(_textOf(tester, 'today-date-selected-label'), 'Vor 5 Tagen');
+      expect(_textOf(tester, 'today-date-selected-label'), 'Di., 4. Aug.');
       expect(find.text('Mahlzeiten'), findsOneWidget);
       expect(find.text('Heutige Mahlzeiten'), findsNothing);
-      // The eyebrow follows the SELECTED day, not the wall clock, or it would
-      // contradict the strip right below it.
-      expect(_textOf(tester, 'today-eyebrow'), 'DIENSTAG, 4. AUGUST');
+      expect(find.text('Deine Tagesbilanz'), findsOneWidget);
     });
 
     testWidgets('auf einem Archivtag lockt der Coach nicht ins Nachtragen',
@@ -455,7 +453,6 @@ void main() {
   });
 
   group('Aktionen', () {
-    // The log-food button is gone, so this no longer taps it.
     testWidgets('Profil, Slot und Coach melden sich zurueck', (tester) async {
       var profil = 0;
       var coach = 0;
@@ -506,49 +503,33 @@ void main() {
     });
   });
 
-  group('Der schwebende „Essen loggen"-Knopf ist fort', () {
-    // The button was dropped without replacement; the meal rows lead into the
-    // food tab. These tests stay as sentries so it cannot return unnoticed.
-    testWidgets('weder Key noch Beschriftung sind noch im Baum',
-        (tester) async {
+  group('Mahlzeit erfassen', () {
+    testWidgets('bleibt sichtbar und liest den Slot erst beim Antippen', (tester) async {
+      MealSlot? opened;
       await withClock(Clock.fixed(_jetzt), () async {
-        await _pumpToday(tester);
+        await _pumpToday(tester, onOpenMealSlot: (slot) => opened = slot);
       });
-
-      expect(
-        find.byKey(const ValueKey('today-log-food'), skipOffstage: false),
-        findsNothing,
-      );
-      expect(find.text('Essen loggen', skipOffstage: false), findsNothing);
-      expect(
-        find.byType(PrimaryActionButton, skipOffstage: false),
-        findsNothing,
-      );
+      final action = find.byKey(const ValueKey('today-add-meal'));
+      expect(action.hitTestable(), findsOneWidget);
+      expect(tester.getSize(action).height, greaterThanOrEqualTo(44));
+      await withClock(Clock.fixed(DateTime(2026, 8, 9, 19)), () async {
+        await tester.tap(action);
+        await tester.pumpAndSettle();
+      });
+      expect(opened, MealSlot.dinner);
+      await _scrollTo(tester, find.byKey(const ValueKey('today-coach-banner')));
+      expect(action.hitTestable(), findsOneWidget);
     });
-
-    renderMatrix(
-      'die Wurzel ist eine reine Liste ohne Knopf-Reserve',
-      (tester, c) async {
-        // The bottom reserve used to grow with the system font to clear the
-        // button height. Without the button it is a flat 12 at any text size.
-        await withClock(Clock.fixed(_jetzt), () async {
-          await _pumpToday(
-            tester,
-            brightness: c.brightness,
-            textScale: c.textScale,
-          );
-        });
-
-        // The cast is the actual assertion: the root is a ListView again, not
-        // a Stack. `findsNothing` on Stack would not work — the coach banner
-        // brings its own.
-        final liste =
-            tester.widget<ListView>(find.byKey(const ValueKey('screen-today')));
-        expect(liste.padding, const EdgeInsets.fromLTRB(0, 0, 0, 12),
-            reason: 'Reserve bei ${c.label}');
-      },
-      textScales: const <double>[1.0, 2.0],
-    );
+    testWidgets('ist beim Laden deaktiviert und ohne Callback verborgen', (tester) async {
+      var calls = 0;
+      await _pumpToday(tester, dayLoading: true, settle: false, onOpenMealSlot: (_) => calls++);
+      final action = find.byKey(const ValueKey('today-add-meal'));
+      expect(tester.widget<FilledButton>(action).onPressed, isNull);
+      await tester.tap(action);
+      expect(calls, 0);
+      await _pumpToday(tester);
+      expect(action, findsNothing);
+    });
   });
 
   group('Robustheit', () {
@@ -626,7 +607,7 @@ void main() {
             reason: 'Rendering unter ${c.label} ist fehlgeschlagen');
 
         // Visible without scrolling, and translated.
-        expect(find.text(c.l10n.todayKcalBudgetEyebrow), findsOneWidget);
+        expect(find.text(c.l10n.todayBalanceRemaining), findsOneWidget);
 
         await _scrollTo(
             tester, find.byKey(const ValueKey('today-coach-banner')));
@@ -678,44 +659,16 @@ void main() {
       });
       expect(tester.takeException(), isNull);
 
-      const faelle = <List<String>>[
-        <String>['today-stat-eaten', '12.345', 'GEGESSEN'],
-        <String>['today-stat-burned', '1.234', 'VERBRANNT'],
-        <String>['today-stat-streak', '365', 'TAGE-STREAK'],
-      ];
-      double? vorherigeOberkante;
-      for (final fall in faelle) {
-        final kachel = find.byKey(ValueKey<String>(fall[0]));
-        final hero = find.byKey(const ValueKey('today-kcal-hero'));
-
-        // Stacked: each tile starts below the previous one and spans the card.
-        final oberkante = tester.getTopLeft(kachel).dy;
-        if (vorherigeOberkante != null) {
-          expect(oberkante, greaterThan(vorherigeOberkante));
-        }
-        vorherigeOberkante = oberkante;
-        expect(
-          tester.getSize(kachel).width,
-          greaterThan(tester.getSize(hero).width / 2),
-        );
-
-        for (final text in <String>[fall[1], fall[2]]) {
-          final zeile = find.descendant(of: kachel, matching: find.text(text));
-          expect(zeile, findsOneWidget);
-          // Single line at the REAL size: 20 / 10.5 px base type at 2.0 gives
-          // at most ~48 px line height; anything above that is a wrap.
-          expect(
-            tester.getSize(zeile).height,
-            lessThan(80),
-            reason: '„$text" ist in ${fall[0]} umgebrochen',
-          );
-        }
-
-        // No FittedBox left in the tiles: the text is not shrunk.
-        expect(
-          find.descendant(of: kachel, matching: find.byType(FittedBox)),
-          findsNothing,
-        );
+      final eaten = find.byKey(const ValueKey('today-stat-eaten'));
+      final activity = find.byKey(const ValueKey('today-stat-burned'));
+      final ring = find.byKey(const ValueKey('today-kcal-ring'));
+      expect(tester.getRect(activity).top, greaterThanOrEqualTo(tester.getRect(eaten).bottom));
+      expect(tester.getRect(ring).top, greaterThan(tester.getRect(activity).bottom));
+      for (final key in ['today-stat-eaten', 'today-stat-burned', 'today-stat-streak']) {
+        final text = find.byKey(ValueKey(key));
+        expect(find.ancestor(of: text, matching: find.byType(FittedBox)), findsNothing);
+        final style = tester.widget<Text>(text).style!;
+        expect(MediaQuery.textScalerOf(tester.element(text)).scale(style.fontSize!), style.fontSize! * 2);
       }
     });
 
@@ -759,14 +712,14 @@ void main() {
       // read out as written.
       final handle = tester.ensureSemantics();
       await withClock(Clock.fixed(_jetzt), () async {
-        await _pumpToday(tester, selectedDate: DateTime(2026, 8, 8));
+        await _pumpToday(tester, selectedDate: DateTime(2026, 8, 8), onDateSelected: (_) {});
       });
 
       // RegExp instead of equality: the profile badge merges its label with
       // the initial below it.
       expect(find.bySemanticsLabel(RegExp('Profil öffnen')), findsOneWidget);
-      expect(find.bySemanticsLabel(RegExp('Tag zurück')), findsOneWidget);
-      expect(find.bySemanticsLabel(RegExp('Tag vor')), findsOneWidget);
+      expect(tester.getSemantics(find.byKey(const ValueKey('today-date-prev'))).tooltip, 'Tag zurück');
+      expect(tester.getSemantics(find.byKey(const ValueKey('today-date-next'))).tooltip, 'Tag vor');
       // The CustomPaint gauge is only reachable through this annotation.
       expect(find.bySemanticsLabel(RegExp('Kalorienfortschritt')),
           findsOneWidget);
@@ -808,8 +761,8 @@ void main() {
       );
     });
 
-    expect(find.text('CALORIE BUDGET'), findsOneWidget);
-    expect(find.text('KALORIENBUDGET'), findsNothing);
+    expect(find.text('Left for today'), findsOneWidget);
+    expect(find.text('Noch für heute'), findsNothing);
 
     await _scrollTo(tester, find.byKey(const ValueKey('today-coach-banner')));
     expect(find.text('Go to coach'), findsOneWidget);

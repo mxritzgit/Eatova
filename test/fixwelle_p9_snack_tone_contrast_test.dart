@@ -260,17 +260,18 @@ void main() {
     });
   });
 
-  test('readableOnTint waere hier der falsche Weg', () {
+  test('readableOnTint traegt nicht auf einer historischen dunklen Toast-Flaeche', () {
     // Documents why the app-wide helper is NOT used on the toast: it mixes
     // towards `ink`, which is near-black in the light palette, so on the dark
     // green toast it pushes the signal tones further down instead of up.
     // Without this case someone "simplifies" the lift back to readableOnTint.
     const t = AppTokens.light;
+    const legacyDarkSurface = Color(0xFF123322);
     for (final ton in <Color>[t.danger, t.warning, t.ink2]) {
       final korrigiert = t.readableOnTint(ton);
       final scheibe = Color.alphaBlend(
         korrigiert.withValues(alpha: 0.18),
-        t.forest,
+        legacyDarkSurface,
       );
       expect(
         _kontrast(korrigiert, scheibe),

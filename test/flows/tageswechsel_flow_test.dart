@@ -39,14 +39,7 @@ String _selectedDayLabel(WidgetTester tester) => tester
 Future<void> _expectDayTotal(WidgetTester tester, String kcal) async {
   await tester.tap(find.byKey(const ValueKey('nav-Heute')));
   await settleFrames(tester);
-  expect(
-    find.descendant(
-      of: find.byKey(const ValueKey('today-stat-eaten')),
-      matching: find.text(kcal),
-    ),
-    findsOneWidget,
-    reason: 'der Heute-Hero nennt nicht $kcal gegessene kcal',
-  );
+  expectTodayEaten(tester, kcal);
   await tester.tap(find.byKey(const ValueKey('nav-Food')));
   await settleFrames(tester);
 }

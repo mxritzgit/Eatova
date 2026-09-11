@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 // ---------------------------------------------------------------------------
-// Eatova design tokens (design refactor 2026-08-09)
+// Eatova design tokens (Balance Duo, 2026-09-11)
 //
 // Colors live as a ThemeExtension read via `context.t`; top-level `const`
 // colors could not carry a light mode.
@@ -30,9 +30,13 @@ class AppTokens extends ThemeExtension<AppTokens> {
     required this.lime,
     required this.onLime,
     required this.accent,
+    required this.progressAccent,
     required this.protein,
     required this.carbs,
     required this.fat,
+    required this.proteinSurface,
+    required this.carbsSurface,
+    required this.fatSurface,
     required this.snack,
     required this.danger,
     required this.warning,
@@ -64,16 +68,16 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// Secondary text, icons, labels.
   final Color ink2;
 
-  /// The dark-green brand surface (hero cards, primary buttons).
+  /// Soft lavender brand surface. Legacy name retained for existing screens.
   final Color forest;
 
   /// Text/icon on [forest].
   final Color onForest;
 
-  /// The brand accent.
+  /// Contrasting violet accent, paired with [onLime]. Legacy token name.
   final Color lime;
 
-  /// Text/icon on [lime] — always dark, in both modes.
+  /// Text/icon on the contrasting accent.
   final Color onLime;
 
   /// Stroke/fill for graphics sitting ON a light card. In dark mode [forest]
@@ -81,8 +85,24 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// brightness branch.
   final Color accent;
 
+  /// Softer progress ink, readable against an unfilled surface track.
+  final Color progressAccent;
+  Color get proteinProgress => Color.lerp(protein, surf, 0.12)!;
+  Color get carbsProgress => Color.lerp(carbs, surf, 0.12)!;
+  Color get fatProgress => Color.lerp(fat, surf, 0.12)!;
+
   /// Macro encoding. Never an interaction color, never decoration.
   final Color protein, carbs, fat;
+
+  /// Nutrient-specific pastel surfaces; use the matching stroke for progress.
+  final Color proteinSurface, carbsSurface, fatSurface;
+
+  Color get brandSurface => forest;
+  Color get onBrandSurface => onForest;
+
+  /// Photography and camera overlays must stay light in either theme.
+  Color get onImage => const Color(0xFFFFFFFF);
+  Color get imageAccent => const Color(0xFFD2C6FF);
 
   /// Fourth categorical color for the snack slot (the macro tones are reserved
   /// for nutrients, and a grey snack would read as disabled).
@@ -122,66 +142,63 @@ class AppTokens extends ThemeExtension<AppTokens> {
   final Color scrim;
 
   static const AppTokens light = AppTokens(
-    bg: Color(0xFFF2EFE6),
-    surf: Color(0xFFFFFDF8),
-    surf2: Color(0xFFEAE6DA),
-    tile: Color(0x0D151E18),
-    line: Color(0x1A151E18),
-    ink: Color(0xFF151E18),
-    // Darker than the draft (#6E7C73, only 4.31:1 on `surf`): `ink2` carries
-    // small text (9.5–12.5 px), i.e. WCAG body text needing 4.5:1. This tone
-    // holds 5.7 / 5.1 / 4.7 on surf / bg / surf2.
-    ink2: Color(0xFF5A6862),
-    forest: Color(0xFF123322),
-    onForest: Color(0xFFF4F2E6),
-    lime: Color(0xFFC9F26E),
-    onLime: Color(0xFF123322),
-    accent: Color(0xFF123322),
-    protein: Color(0xFF3C5CCC),
-    // Darker than the draft (#DE9426, 2.47:1 on `surf`): the carb tone is a
-    // 9 px bar, i.e. a graphical object needing 3:1 (WCAG 1.4.11).
-    carbs: Color(0xFFC27A10),
-    fat: Color(0xFFCE6448),
-    snack: Color(0xFF3F7D68),
+    bg: Color(0xFFF8F8FC),
+    surf: Color(0xFFFFFFFF),
+    surf2: Color(0xFFF0EEF6),
+    tile: Color(0x0D16151F),
+    line: Color(0x1816151F),
+    ink: Color(0xFF16151F),
+    ink2: Color(0xFF625F6D),
+    forest: Color(0xFFEAE5FF),
+    onForest: Color(0xFF090812),
+    lime: Color(0xFF6550A8),
+    onLime: Color(0xFFFFFFFF),
+    accent: Color(0xFF6550A8),
+    progressAccent: Color(0xFF9782DC),
+    protein: Color(0xFF31845A),
+    carbs: Color(0xFF2887A0),
+    fat: Color(0xFFA97917),
+    proteinSurface: Color(0xFFDDF5E4),
+    carbsSurface: Color(0xFFDDF3FC),
+    fatSurface: Color(0xFFFFEFC1),
+    snack: Color(0xFF99718F),
     danger: Color(0xFFB23A28),
     warning: Color(0xFF8A6212),
-    shadowTint: Color(0x1A151E18),
-    // Rest: 1.26:1 to surf, 1.11:1 to bg, ink2 4.56:1 (the floor).
-    field: Color(0xFFE8E3D6),
-    // Focus: +20 % over field, 1.05:1 to surf, 1.08:1 to bg, ink2 5.5:1.
-    fieldFocus: Color(0xFFFAF7EE),
-    // danger @ 8 % over surf; ink2 holds 5.1:1.
+    shadowTint: Color(0x1416151F),
+    field: Color(0xFFEAE7F0),
+    fieldFocus: Color(0xFFF2EFF8),
     fieldError: Color(0xFFF9EDE7),
-    scrim: Color(0x8C151E18),
+    scrim: Color(0x8C16151F),
   );
 
   static const AppTokens dark = AppTokens(
-    bg: Color(0xFF0B100D),
-    surf: Color(0xFF141B17),
-    surf2: Color(0xFF1F2823),
+    bg: Color(0xFF111016),
+    surf: Color(0xFF1B1922),
+    surf2: Color(0xFF25222F),
     tile: Color(0x12FFFFFF),
     line: Color(0x1AFFFFFF),
-    ink: Color(0xFFEFEDE3),
-    ink2: Color(0xFF8C9B91),
-    forest: Color(0xFF16371F),
-    onForest: Color(0xFFF1F3E4),
-    lime: Color(0xFFCDF473),
-    onLime: Color(0xFF123322),
-    accent: Color(0xFFCDF473),
-    protein: Color(0xFF7C95F5),
-    carbs: Color(0xFFF0B458),
-    fat: Color(0xFFE58366),
-    snack: Color(0xFF6FC2A4),
+    ink: Color(0xFFF3F0FA),
+    ink2: Color(0xFFADA7BC),
+    forest: Color(0xFF302744),
+    onForest: Color(0xFFFCFAFF),
+    lime: Color(0xFFCAB8FF),
+    onLime: Color(0xFF241B39),
+    accent: Color(0xFFCAB8FF),
+    progressAccent: Color(0xFFCAB8FF),
+    protein: Color(0xFF8ED6AB),
+    carbs: Color(0xFF8DD4EC),
+    fat: Color(0xFFE7C56C),
+    proteinSurface: Color(0xFF213C2C),
+    carbsSurface: Color(0xFF203741),
+    fatSurface: Color(0xFF3C3321),
+    snack: Color(0xFFD4A5C8),
     danger: Color(0xFFF08A72),
     warning: Color(0xFFF0B458),
-    shadowTint: Color(0x59060810),
-    // Rest: 1.21:1 to surf, 1.34:1 to bg, ink2 4.9:1.
-    field: Color(0xFF232D27),
-    // Focus: 1.28:1 to surf, 1.42:1 to bg, ink2 4.6:1 (the ceiling).
-    fieldFocus: Color(0xFF28312B),
-    // danger @ 4 % over field; ink2 holds 4.6:1 — the error line carries.
-    fieldError: Color(0xFF2B312A),
-    scrim: Color(0xA6060810),
+    shadowTint: Color(0x590C0914),
+    field: Color(0xFF302B3B),
+    fieldFocus: Color(0xFF383143),
+    fieldError: Color(0xFF382A36),
+    scrim: Color(0xA60C0914),
   );
 
   /// Tokens of the nearest theme. Throws deliberately when the extension is
@@ -213,9 +230,13 @@ class AppTokens extends ThemeExtension<AppTokens> {
     Color? lime,
     Color? onLime,
     Color? accent,
+    Color? progressAccent,
     Color? protein,
     Color? carbs,
     Color? fat,
+    Color? proteinSurface,
+    Color? carbsSurface,
+    Color? fatSurface,
     Color? snack,
     Color? danger,
     Color? warning,
@@ -238,9 +259,13 @@ class AppTokens extends ThemeExtension<AppTokens> {
       lime: lime ?? this.lime,
       onLime: onLime ?? this.onLime,
       accent: accent ?? this.accent,
+      progressAccent: progressAccent ?? this.progressAccent,
       protein: protein ?? this.protein,
       carbs: carbs ?? this.carbs,
       fat: fat ?? this.fat,
+      proteinSurface: proteinSurface ?? this.proteinSurface,
+      carbsSurface: carbsSurface ?? this.carbsSurface,
+      fatSurface: fatSurface ?? this.fatSurface,
       snack: snack ?? this.snack,
       danger: danger ?? this.danger,
       warning: warning ?? this.warning,
@@ -269,9 +294,13 @@ class AppTokens extends ThemeExtension<AppTokens> {
       lime: c(lime, other.lime),
       onLime: c(onLime, other.onLime),
       accent: c(accent, other.accent),
+      progressAccent: c(progressAccent, other.progressAccent),
       protein: c(protein, other.protein),
       carbs: c(carbs, other.carbs),
       fat: c(fat, other.fat),
+      proteinSurface: c(proteinSurface, other.proteinSurface),
+      carbsSurface: c(carbsSurface, other.carbsSurface),
+      fatSurface: c(fatSurface, other.fatSurface),
       snack: c(snack, other.snack),
       danger: c(danger, other.danger),
       warning: c(warning, other.warning),
@@ -319,13 +348,13 @@ const double kButtonMinHeight = 48;
 /// comes from [AppTokens.line]; shadows stay the exception for things that
 /// really sit above the content.
 List<BoxShadow> softShadow(AppTokens t) => <BoxShadow>[
-      BoxShadow(
-        color: t.shadowTint,
-        blurRadius: 28,
-        offset: const Offset(0, 14),
-        spreadRadius: -10,
-      ),
-    ];
+  BoxShadow(
+    color: t.shadowTint,
+    blurRadius: 28,
+    offset: const Offset(0, 14),
+    spreadRadius: -10,
+  ),
+];
 
 // --- TYPE --------------------------------------------------------------------
 // Two bundled families (assets/fonts, NO google_fonts):
@@ -379,10 +408,10 @@ class AppType {
 
   /// Small all-caps caption above sections.
   static TextStyle eyebrow(Color color, {double size = 10}) => TextStyle(
-        fontFamily: uiFamily,
-        fontSize: size,
-        fontWeight: FontWeight.w600,
-        color: color,
-        letterSpacing: 1.5,
-      );
+    fontFamily: uiFamily,
+    fontSize: size,
+    fontWeight: FontWeight.w600,
+    color: color,
+    letterSpacing: 1.5,
+  );
 }

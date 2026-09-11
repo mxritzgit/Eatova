@@ -19,11 +19,13 @@ ThemeData buildEatovaTheme(Brightness brightness) {
   final t = brightness == Brightness.light ? AppTokens.light : AppTokens.dark;
 
   final scheme = ColorScheme.fromSeed(
-    seedColor: t.forest,
+    seedColor: t.accent,
     brightness: brightness,
   ).copyWith(
-    primary: t.forest,
-    onPrimary: t.onForest,
+    primary: t.accent,
+    onPrimary: t.onLime,
+    primaryContainer: t.brandSurface,
+    onPrimaryContainer: t.onBrandSurface,
     secondary: t.lime,
     onSecondary: t.onLime,
     surface: t.bg,

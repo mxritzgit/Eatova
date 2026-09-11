@@ -13,7 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/today/today_screen.dart';
-import 'package:eatova/src/widgets/design/design.dart';
+import 'package:eatova/src/screens/today/today_macros.dart';
 
 import '../../support/harness.dart';
 
@@ -91,7 +91,7 @@ void main() {
       });
 
       expect(_key('today-macros-card'), findsNothing);
-      expect(find.byType(MacroBar, skipOffstage: false), findsNothing);
+      expect(find.byType(TodayMacroRow, skipOffstage: false), findsNothing);
     });
 
     testWidgets('die Ladekarte bleibt die EINZIGE Lade-Aussage',
@@ -141,7 +141,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(_key('today-macros-card'), findsOneWidget);
-      expect(find.byType(MacroBar, skipOffstage: false), findsNWidgets(3));
+      expect(find.byType(TodayMacroRow, skipOffstage: false), findsNWidgets(3));
     });
   });
 }
