@@ -420,13 +420,16 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         }
 
         final tab = _store.selectedTab;
+        final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
 
         // D7: back used to close the app from any tab. The shell now switches
         // to tab 0 first and only there releases the pop.
         return PopScope<Object?>(
-          canPop: tab == 0,
+          canPop: tab == 0 && !keyboardOpen,
           onPopInvokedWithResult: (didPop, _) {
             if (didPop) return;
+            FocusManager.instance.primaryFocus?.unfocus();
+            if (keyboardOpen) return;
             _store.setTab(0);
           },
           child: Scaffold(
@@ -436,7 +439,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             resizeToAvoidBottomInset: tab != _tabFood,
             bottomNavigationBar: AppNavBar(
               index: tab,
-              onChanged: (index) => _store.setTab(index),
+              onChanged: (index) {
+                FocusManager.instance.primaryFocus?.unfocus();
+                _store.setTab(index);
+              },
               items: _navItems(context),
             ),
             // Tabs scroll internally, so no outer SingleChildScrollView.
@@ -529,7 +535,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       children: <Widget>[
         for (var i = 0; i < _tabCount; i++)
           if (_mountedTabs.contains(i))
-            TickerMode(enabled: i == tab, child: _tabAt(i))
+            ExcludeFocus(
+              excluding: i != tab,
+              child: TickerMode(enabled: i == tab, child: _tabAt(i)),
+            )
           else
             const SizedBox.shrink(),
       ],

@@ -446,17 +446,27 @@ class SheetDismissGuard extends StatefulWidget {
     required this.active,
     required this.onDismissAttempt,
     required this.child,
+    this.followDrag = false,
   });
 
   final bool active;
   final VoidCallback onDismissAttempt;
   final Widget child;
 
+  /// Small finger-following feedback for sheets that guard every drag.
+  final bool followDrag;
+
   @override
   State<SheetDismissGuard> createState() => _SheetDismissGuardState();
 }
 
-class _SheetDismissGuardState extends State<SheetDismissGuard> {
+class _SheetDismissGuardState extends State<SheetDismissGuard>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _feedback = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 180),
+  );
+
   /// Minimum downward distance counted as "close". Deliberately small: the
   /// guard swallows the gesture either way, the only question is whether the
   /// user gets an answer.
@@ -466,28 +476,77 @@ class _SheetDismissGuardState extends State<SheetDismissGuard> {
   static const double _flingVelocity = 700;
 
   double _dy = 0;
+  bool _canceled = false;
+  int _gesture = 0;
 
-  void _onStart(DragStartDetails details) => _dy = 0;
+  void _onStart(DragStartDetails details) {
+    _gesture++;
+    _feedback.stop();
+    _dy = 0;
+    _canceled = false;
+  }
 
-  void _onUpdate(DragUpdateDetails details) => _dy += details.primaryDelta ?? 0;
+  void _onUpdate(DragUpdateDetails details) {
+    _dy += details.primaryDelta ?? 0;
+    if (widget.followDrag) _feedback.value = (_dy / 72).clamp(0, 1);
+  }
 
   void _onEnd(DragEndDetails details) {
     final velocity = details.primaryVelocity ?? 0;
-    if (_dy > _closeIntentPx || velocity > _flingVelocity) {
+    final commit = velocity.abs() >= _flingVelocity
+        ? velocity > 0 && _dy > 0
+        : _dy > _closeIntentPx;
+    _finish(!_canceled && commit);
+  }
+
+  Future<void> _finish(bool dismiss) async {
+    final gesture = _gesture;
+    final route = ModalRoute.of(context);
+    if (widget.followDrag && !MediaQuery.disableAnimationsOf(context)) {
+      try {
+        await _feedback.animateBack(0, curve: Curves.easeOut).orCancel;
+      } on TickerCanceled {
+        return;
+      }
+    } else {
+      _feedback.value = 0;
+    }
+    if (mounted && gesture == _gesture && route?.isCurrent != false && dismiss) {
       widget.onDismissAttempt();
     }
   }
 
   @override
+  void dispose() {
+    _feedback.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (!widget.active) return widget.child;
-    return GestureDetector(
-      // Without translucent, gaps between children stay uncovered.
-      behavior: HitTestBehavior.translucent,
-      onVerticalDragStart: _onStart,
-      onVerticalDragUpdate: _onUpdate,
-      onVerticalDragEnd: _onEnd,
-      child: widget.child,
+    return Listener(
+      // Accepted Flutter drags report pointer cancellation through onEnd.
+      onPointerCancel: (_) => _canceled = true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onVerticalDragStart: widget.active ? _onStart : null,
+        onVerticalDragUpdate: widget.active ? _onUpdate : null,
+        onVerticalDragEnd: widget.active ? _onEnd : null,
+        onVerticalDragCancel: widget.active ? () => _finish(false) : null,
+        child: AnimatedBuilder(
+          animation: _feedback,
+          child: widget.child,
+          builder: (context, child) => Transform.translate(
+            offset: Offset(
+              0,
+              widget.followDrag && !MediaQuery.disableAnimationsOf(context)
+                  ? _feedback.value * 24
+                  : 0,
+            ),
+            child: child,
+          ),
+        ),
+      ),
     );
   }
 }
