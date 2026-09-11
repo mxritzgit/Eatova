@@ -689,3 +689,23 @@ The user authorized push and protected-main merge after green CI. Delivery is
 tracked by the PR from this topic branch. No backend or schema rollout is needed;
 an installed device build or store release remains a separate step. Final checks
 and known verification limits are recorded in the linked document.
+
+## Meal entry design, 2026-09-11
+
+The add-meal sheet now continues Today's Balance Duo design: lavender photo
+action, labeled gallery/barcode alternatives, quiet manual entry and sentence-case
+favorites. Normal entry keeps the keyboard closed until search is chosen; the
+explicit search entry still focuses it. Date/slot context and a clear-search
+action preserve orientation. Large text reflows the methods and slot selector;
+the header compacts above the keyboard and the remaining content scrolls.
+
+The topic branch is `design/meal-entry`, based on main `3395a1a`. Existing
+service/store boundaries, photo confirmation, account isolation, search budgets,
+meal arithmetic, portions and undo remain. See
+[MEAL-ENTRY-DESIGN.md](MEAL-ENTRY-DESIGN.md) for acceptance and evidence: 4,339
+passing Flutter tests, 95.13% coverage, strict analysis, debug APK, independent
+general/security review and real-font modal/flow checks.
+
+The user authorized push and protected-main merge after green CI; the PR records
+delivery status. This client change requires a new installed app build to appear
+on a device. No backend, schema or dependency changes are needed.

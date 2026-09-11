@@ -116,7 +116,10 @@ void main() {
       // Slot header and the already-added list show in every combination — the
       // card takes its surface from the tokens, not from a constant, and its
       // heading from the ARB, not from a German literal.
-      expect(find.text(MealSlot.lunch.label(c.l10n)), findsWidgets);
+      expect(
+        tester.widget<Text>(find.byKey(const ValueKey('add-meal-date-context'))).data,
+        contains(MealSlot.lunch.label(c.l10n)),
+      );
       expect(
         find.byKey(const ValueKey('analyse-existing-meals')),
         findsOneWidget,
