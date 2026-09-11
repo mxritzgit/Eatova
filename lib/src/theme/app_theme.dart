@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/common/guarded_page_transitions.dart';
+
 import 'app_tokens.dart';
 
 /// The capsule outline of every input state: rounded, no visible side.
@@ -50,6 +52,12 @@ ThemeData buildEatovaTheme(Brightness brightness) {
       );
 
   return base.copyWith(
+    pageTransitionsTheme: PageTransitionsTheme(
+      builders: {
+        ...base.pageTransitionsTheme.builders,
+        TargetPlatform.iOS: const EatovaCupertinoPageTransitionsBuilder(),
+      },
+    ),
     scaffoldBackgroundColor: t.bg,
     canvasColor: t.bg,
     extensions: <ThemeExtension<dynamic>>[t],

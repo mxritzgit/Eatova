@@ -728,3 +728,22 @@ The topic branch is `design/favorites-library`, based on main `9467a29` (meal
 entry PR #79). The user authorized push and protected-main merge after green CI;
 the PR records delivery status. This is a client-only change; an installed app
 build or store release remains a separate step.
+
+## Keyboard and gesture navigation, 2026-09-12
+
+Coach and other input surfaces now share outside-release and scroll-drag
+keyboard dismissal. Tab changes release focus while preserving local drafts.
+iOS retains native interactive page-back gestures and adds a narrow edge-pull
+fallback for root tabs and guarded routes. Training sheets now support guarded
+pull-down and backdrop dismissal, including dirty/busy changes during a drag.
+Canceled/reversed gestures, delayed callbacks and focus-transfer races are
+covered by regressions. Existing unsaved-work and save protections remain.
+
+See [GESTURE-NAVIGATION.md](GESTURE-NAVIGATION.md) for the contract and evidence:
+4,358 passing tests, 95.12% coverage, strict analysis, Android debug APK and clean
+independent follow-up review. The local Android emulator repeatedly terminated;
+native keyboard and physical iOS verification are explicitly not established.
+
+The branch is `fix/gesture-navigation`, based on main `198b74b` (favorites PR #80).
+The user authorized push and protected-main merge after green CI. This change
+requires a new client build, with no backend, schema or dependency rollout.

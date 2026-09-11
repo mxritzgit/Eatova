@@ -29,7 +29,6 @@ Future<bool> showTrainingPlanEditor(
       ),
       dragHandle: false,
       enableDrag: false,
-      isDismissible: false,
     ) ??
     false;
 
@@ -195,82 +194,89 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
           onPopInvokedWithResult: (didPop, _) {
             if (!didPop) _close();
           },
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 18, 12, 12),
-                child: _header(context, title, compact: compact),
-              ),
-              Flexible(
-                child: SingleChildScrollView(
-                  key: const ValueKey('training-editor-scroll'),
-                  controller: _scroll,
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (compact) ...[
-                        HeadingSemantics(
-                          level: 1,
-                          child: Text(
-                            title,
-                            style: AppType.display(
-                              24,
-                              color: t.ink,
-                              height: 1.15,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-                      if (_editing)
-                        ..._editFields(context)
-                      else
-                        ..._review(context),
-                    ],
-                  ),
+          child: SheetDismissGuard(
+            // Own the gesture from pointer-down; dirty/busy may change mid-drag.
+            active: true,
+            followDrag: true,
+            onDismissAttempt: _close,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SheetHandle(),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 12, 12),
+                  child: _header(context, title, compact: compact),
                 ),
-              ),
-              SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (_error != null)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: Semantics(
-                            liveRegion: true,
+                Flexible(
+                  child: SingleChildScrollView(
+                    key: const ValueKey('training-editor-scroll'),
+                    controller: _scroll,
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (compact) ...[
+                          HeadingSemantics(
+                            level: 1,
                             child: Text(
-                              _error!,
-                              style: AppType.ui(
-                                14,
-                                color: t.danger,
-                                height: 1.4,
+                              title,
+                              style: AppType.display(
+                                24,
+                                color: t.ink,
+                                height: 1.15,
                               ),
                             ),
                           ),
-                        ),
-                      if (_busy)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: LinearProgressIndicator(color: t.accent),
-                        ),
-                      PrimaryActionButton(
-                        key: const ValueKey('training-editor-save'),
-                        label: _busy
-                            ? l10n.trainingPageSaving
-                            : widget.submitLabel ?? l10n.trainingPageSave,
-                        onTap: _busy ? null : _save,
-                      ),
-                    ],
+                          const SizedBox(height: 16),
+                        ],
+                        if (_editing)
+                          ..._editFields(context)
+                        else
+                          ..._review(context),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ],
+                SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (_error != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: Semantics(
+                              liveRegion: true,
+                              child: Text(
+                                _error!,
+                                style: AppType.ui(
+                                  14,
+                                  color: t.danger,
+                                  height: 1.4,
+                                ),
+                              ),
+                            ),
+                          ),
+                        if (_busy)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: LinearProgressIndicator(color: t.accent),
+                          ),
+                        PrimaryActionButton(
+                          key: const ValueKey('training-editor-save'),
+                          label: _busy
+                              ? l10n.trainingPageSaving
+                              : widget.submitLabel ?? l10n.trainingPageSave,
+                          onTap: _busy ? null : _save,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },

@@ -6,6 +6,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../auth/auth_repository.dart';
+import '../widgets/common/app_interactions.dart';
 import '../l10n/l10n.dart';
 import '../services/crash_reporter.dart';
 import '../services/eatova_sync.dart';
@@ -164,7 +165,7 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
           data: mq.copyWith(
             textScaler: mq.textScaler.clamp(maxScaleFactor: 2.0),
           ),
-          child: child ?? const SizedBox.shrink(),
+          child: AppInteractions(child: child ?? const SizedBox.shrink()),
         );
       },
       home: AuthGate(
