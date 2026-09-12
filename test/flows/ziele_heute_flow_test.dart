@@ -14,6 +14,8 @@
 // assertions resolve their texts through `enL10n`, never through hard-coded
 // sentences.
 
+import '../support/food_navigation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -97,7 +99,7 @@ Future<void> _warteAuf(
 /// target, `findsOneWidget` does not.
 Future<void> _oeffneZiele(WidgetTester tester) async {
   await _tippe(tester, find.byKey(const ValueKey('nav-Food')));
-  await _tippe(tester, find.byKey(const ValueKey('topbar-settings')));
+  await tapFoodHeaderAction(tester, 'topbar-settings');
   expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
 
   final zeile = find.byKey(const ValueKey('settings-open-goals'));

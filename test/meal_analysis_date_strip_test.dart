@@ -211,37 +211,18 @@ void main() {
 
   group('Die gerenderte Leiste', () {
     testWidgetsRobust(
-      'zeigt genau die Tage, die dayStrip liefert, und traegt sie beim Tap weiter',
+      'zeigt den Tag einmal und navigiert einen Kalendertag zurueck',
       (tester) async {
         DateTime? gewaehlt;
         await _pumpFoodTab(tester, onDateSelected: (d) => gewaehlt = d);
 
         final heute = startOfDay(DateTime.now());
-        // The 30-day strip runs descending (today first), so the chip index IS
-        // the day offset. Only the first five are checked — the test viewport
-        // does not build more of a horizontal ListView.
-        for (var i = 0; i < 5; i++) {
-          final tag = heute.subtract(Duration(days: i));
-          expect(
-            find.descendant(
-              of: find.byKey(ValueKey('food-date-chip-$i')),
-              matching: find.text('${tag.day}.${tag.month}.'),
-            ),
-            findsOneWidget,
-            reason: 'Chip $i zeigt nicht ${ymd(tag)}',
-          );
-        }
-
-        // The chip after today is yesterday, and a tap yields a day exactly
-        // one calendar day back.
-        expect(
-          find.descendant(
-            of: find.byKey(const ValueKey('food-date-chip-1')),
-            matching: find.text('Gestern'),
-          ),
-          findsOneWidget,
+        expect(find.text(foodHeaderDateLabel(heute, _de)), findsOneWidget);
+        final next = tester.widget<IconButton>(
+          find.byKey(const ValueKey('food-date-next')),
         );
-        await tester.tap(find.byKey(const ValueKey('food-date-chip-1')));
+        expect(next.onPressed, isNull);
+        await tester.tap(find.byKey(const ValueKey('food-date-previous')));
         await tester.pumpAndSettle();
         expect(gewaehlt, isNotNull);
         expect(daysBetween(heute, gewaehlt!), 1);

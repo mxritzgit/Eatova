@@ -268,98 +268,25 @@ Future<void> _zumSchritt(
 }
 
 void main() {
-  // =========================================================================
-  // 1. _FoodDateChip — the food tab's date strip
-  // =========================================================================
-  group('Food-Datumsstreifen: der gewaehlte Tag traegt SelectionTone', () {
+  group('Food-Datum bleibt auf dem offenen Hintergrund lesbar', () {
     _modi.forEach((modus, brightness) {
       final t = _tokens(brightness);
-
-      testWidgets('$modus: Flaeche, Wochentag und Datumszahl', (tester) async {
-        await _pumpFoodTab(tester, brightness: brightness);
-
-        const gewaehlt = ValueKey<String>('food-date-chip-0'); // heute
-        const ungewaehlt = ValueKey<String>('food-date-chip-1'); // gestern
-
-        final flaeche = _fuellung(tester, gewaehlt);
-        final andere = _fuellung(tester, ungewaehlt);
-        // Text 0 = weekday (onSelected @ 78 %), text 1 = the date.
-        final wochentag = _ueber(_textFarbe(tester, gewaehlt, 0), flaeche);
-        final datum = _textFarbe(tester, gewaehlt, 1);
-
-        // Measured first, so a revert fails on the RATIO in dark mode…
-        _erwarteAuswahlsprache(
-          modus: modus,
-          t: t,
-          was: 'Datums-Chip',
-          gewaehlteFlaeche: flaeche,
-          ungewaehlteFlaeche: andere,
-          aufDerFlaeche: <Color>[wochentag, datum],
-          gegenueber: <Color>[
-            _textFarbe(tester, ungewaehlt, 0),
-            _textFarbe(tester, ungewaehlt, 1),
-          ],
-        );
-
-        // …and on the TOKEN in light mode, where `forest` would still clear
-        // every threshold above (13.57:1). Both halves are needed.
-        expect(flaeche, t.ink, reason: '$modus: Fuellung ist selectedFill');
-        expect(andere, t.surf);
-        expect(datum, t.bg, reason: '$modus: Datumszahl ist onSelected');
-        // Ring in the fill colour, so the geometry does not depend on the
-        // state (it used to drop to `Colors.transparent`).
-        expect(_rand(tester, gewaehlt), t.ink);
-        expect(_rand(tester, ungewaehlt), t.line);
-      });
-    });
-  });
-
-  // =========================================================================
-  // 2. _CalendarDayButton — square button at the end of the strip
-  // =========================================================================
-  group('Food-Kalenderknopf: gefuellt wie ein aktiver Chip', () {
-    _modi.forEach((modus, brightness) {
-      final t = _tokens(brightness);
-
-      testWidgets('$modus: Flaeche und Glyphe', (tester) async {
-        const knopf = ValueKey<String>('food-date-calendar');
-
-        // Selection inside the strip -> the button rests.
-        await _pumpFoodTab(tester, brightness: brightness);
-        final ruht = _fuellung(tester, knopf);
-        final ruhendeGlyphe = _iconFarbe(tester, knopf);
-        expect(ruht, t.surf);
-        expect(_rand(tester, knopf), t.line);
-
-        // A day beyond the 30 chips -> the button carries the selection.
-        await _pumpFoodTab(
-          tester,
-          brightness: brightness,
-          selectedDate: DateUtils.dateOnly(DateTime.now())
-              .subtract(const Duration(days: 90)),
-        );
-        final aktiv = _fuellung(tester, knopf);
-        final glyphe = _iconFarbe(tester, knopf);
-
-        _erwarteAuswahlsprache(
-          modus: modus,
-          t: t,
-          was: 'Kalenderknopf',
-          gewaehlteFlaeche: aktiv,
-          ungewaehlteFlaeche: ruht,
-          aufDerFlaeche: <Color>[glyphe],
-          gegenueber: <Color>[ruhendeGlyphe],
-        );
-
-        expect(aktiv, t.ink, reason: '$modus: Fuellung ist selectedFill');
-        expect(glyphe, t.bg, reason: '$modus: Glyphe ist onSelected');
-        expect(_rand(tester, knopf), t.ink);
-
-        // The archive chip that appears with it carries the same language.
-        const archiv = ValueKey<String>('food-date-chip-archive');
-        expect(_fuellung(tester, archiv), t.ink);
-        expect(_textFarbe(tester, archiv, 1), t.bg);
-      });
+      for (final archived in [false, true]) {
+        testWidgets('$modus: Datum und Kalender, Archiv=$archived', (tester) async {
+          await _pumpFoodTab(tester, brightness: brightness,
+            selectedDate: archived ? DateTime(2025, 9, 1) : null);
+          final label = tester.widget<Text>(
+            find.byKey(const ValueKey('food-date-selected-label')),
+          );
+          final glyph = _iconFarbe(tester, const ValueKey('food-date-calendar'));
+          expect(label.style!.color, t.ink);
+          expect(_kontrast(label.style!.color!, t.bg), greaterThanOrEqualTo(_text));
+          expect(_kontrast(glyph, t.bg), greaterThanOrEqualTo(_zustand));
+          expect(tester.getSize(find.byKey(const ValueKey('food-date-calendar'))).height,
+            greaterThanOrEqualTo(44));
+          if (archived) expect(label.data, contains('2025'));
+        });
+      }
     });
   });
 

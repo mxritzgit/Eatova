@@ -2235,5 +2235,17 @@
         "type": "String"
       }
     }
+  },
+  "foodOptions": "Weitere Optionen",
+  "foodKcalLoggedLabel": "KCAL ERFASST",
+  "foodDiaryEntryCount": "{count, plural, one{1 Eintrag} other{{count} Einträge}}",
+  "foodDiaryExpand": "Alle Einträge anzeigen",
+  "foodDiaryCollapse": "Einträge zuklappen",
+  "@foodDiaryEntryCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   }
 }

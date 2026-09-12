@@ -6,7 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
-import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
 
 import 'support/harness.dart';
@@ -111,20 +110,6 @@ Future<BuildContext> _pumpFoodTab(
     reducedMotion: false,
     settle: true,
   );
-}
-
-/// [Material] fill of the chip carrying [schluessel].
-Color _chipFlaeche(WidgetTester tester, String schluessel) {
-  return tester
-      .widget<Material>(
-        find
-            .descendant(
-              of: find.byKey(ValueKey<String>(schluessel)),
-              matching: find.byType(Material),
-            )
-            .first,
-      )
-      .color!;
 }
 
 Color _chipTextFarbe(WidgetTester tester, String schluessel) {
@@ -255,39 +240,17 @@ void main() {
     for (final helligkeit in Brightness.values) {
       final modus = helligkeit == Brightness.light ? 'HELL' : 'DUNKEL';
 
-      testWidgets('$modus: der KI-Chip spricht die Auswahl-Sprache der App',
-          (tester) async {
+      testWidgets('$modus: alle Erfassungswege bleiben auf Lavendel lesbar', (tester) async {
         final c = await _pumpFoodTab(tester, helligkeit);
         final t = c.t;
-
-        final betont = _chipFlaeche(tester, 'food-action-ai');
-        final schlicht = _chipFlaeche(tester, 'food-action-barcode');
-
-        expect(betont, t.selectedFill,
-            reason: '$modus: gefuellt = selectedFill, wie Pille und Filter-Chip');
-        expect(schlicht, t.surf, reason: '$modus: ungefuellt bleibt surf');
-        expect(_chipTextFarbe(tester, 'food-action-ai'), t.onSelected);
-        expect(_chipIkonFarbe(tester, 'food-action-ai'), t.onSelected,
-            reason: '$modus: lime auf ink waere im Dunkelmodus unlesbar');
-        expect(_chipTextFarbe(tester, 'food-action-barcode'), t.ink2);
-
-        // The emphasis is a boundary between two adjacent controls, i.e. a
-        // graphical object: 3:1.
-        expect(_kontrast(betont, schlicht), greaterThanOrEqualTo(3.0),
-            reason: '$modus: betonter Chip gegen seinen Nachbarn');
-        expect(_kontrast(betont, t.bg), greaterThanOrEqualTo(3.0),
-            reason: '$modus: betonter Chip gegen den Seitengrund');
-        // And the label on it stays normal text.
-        expect(
-          _kontrast(_chipTextFarbe(tester, 'food-action-ai'), betont),
-          greaterThanOrEqualTo(4.5),
-          reason: '$modus: 13-px-Label auf der Fuellung',
-        );
-        expect(
-          _kontrast(_chipTextFarbe(tester, 'food-action-barcode'), schlicht),
-          greaterThanOrEqualTo(4.5),
-          reason: '$modus: 13-px-Label des schlichten Chips',
-        );
+        final surface = tester.widget<Material>(
+          find.byKey(const ValueKey('food-entry-dock')),
+        ).color!;
+        expect(surface, t.brandSurface);
+        for (final key in ['food-action-ai', 'food-action-barcode', 'food-action-manual']) {
+          expect(_kontrast(_chipTextFarbe(tester, key), surface), greaterThanOrEqualTo(4.5));
+          expect(_kontrast(_chipIkonFarbe(tester, key), surface), greaterThanOrEqualTo(3.0));
+        }
       });
     }
   });

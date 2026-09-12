@@ -1,3 +1,5 @@
+import '../support/food_navigation.dart';
+
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -406,7 +408,7 @@ void main() {
       await _ohneFehler('Einstellungen', brightness, () async {
         await _boot(tester);
         await _tab(tester, 'Food');
-        await tester.tap(find.byKey(const ValueKey('topbar-settings')));
+        await tapFoodHeaderAction(tester, 'topbar-settings');
         await tester.pumpAndSettle();
         _erwartePalette(tester, 'screen-settings', brightness);
         await _scroll(

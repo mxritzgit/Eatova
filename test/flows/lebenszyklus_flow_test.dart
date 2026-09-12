@@ -9,6 +9,8 @@
 // pumping EatovaApp lands in preview mode where `needsOnboarding` never opens
 // and no write ever reaches a server. Runs in English.
 
+import '../support/food_navigation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -227,8 +229,9 @@ void main() {
     await settleFrames(tester);
 
     // ---- 4. Diary shows it, slot total and day total agree -----------------
+    await expandFoodEntries(tester);
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget);
-    expect(find.text('252 kcal · 1 entry'), findsOneWidget,
+    expect(find.text('252'), findsNWidgets(2),
         reason: 'die Slot-Summe der Frühstückskarte fehlt');
     expect(store.loggedMeals.single.slot, MealSlot.breakfast);
     // The write reached the fake server as ONE row.
@@ -287,9 +290,11 @@ void main() {
     await tester.tap(undo);
     await settleFrames(tester);
 
+    await expandFoodEntries(tester);
+
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget);
     expect(store.loggedMeals.single.slot, MealSlot.breakfast);
-    expect(find.text('252 kcal · 1 entry'), findsOneWidget,
+    expect(find.text('252'), findsNWidgets(2),
         reason: 'nach dem Undo stimmt die Slot-Summe nicht mehr');
     // Restored server-side too — and as the SAME row, not a second one.
     expect(server.mealRows.length, 1);

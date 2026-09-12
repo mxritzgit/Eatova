@@ -50,7 +50,7 @@ void main() {
     // value. It renders the number only, with the unit as a separate label.
     expect(
       find.descendant(
-        of: find.byKey(const ValueKey('screen-kcal-tracker')),
+        of: find.byKey(const ValueKey('topbar-trends')),
         matching: find.text('855'),
       ),
       findsOneWidget,
@@ -81,7 +81,7 @@ void main() {
     expect(find.text('Zu heute hinzugefügt'), findsOneWidget);
     expect(
       find.descendant(
-        of: find.byKey(const ValueKey('screen-kcal-tracker')),
+        of: find.byKey(const ValueKey('topbar-trends')),
         matching: find.text('815'),
       ),
       findsOneWidget,

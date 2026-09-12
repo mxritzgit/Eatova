@@ -14,6 +14,8 @@
 //    the OTHER bundle's string must be gone. Hard-coded sentences would rot
 //    with the next ARB edit.
 
+import '../support/food_navigation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -139,7 +141,7 @@ Future<void> _rundgang(
 Future<void> _oeffneEinstellungen(WidgetTester tester) async {
   await tester.tap(find.byKey(const ValueKey('nav-Food')));
   await tester.pumpAndSettle();
-  await tester.tap(find.byKey(const ValueKey('topbar-settings')));
+  await tapFoodHeaderAction(tester, 'topbar-settings');
   await tester.pumpAndSettle();
   expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
 }

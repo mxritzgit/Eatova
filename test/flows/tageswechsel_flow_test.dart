@@ -9,11 +9,14 @@
 // The shell is composed here because EatovaApp builds its sync from
 // `Supabase.instance` and would run without a server. Runs in English.
 
+import '../support/food_navigation.dart';
+
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/l10n/l10n.dart';
+import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 
 import '../fixlauf_a_helpers.dart';
@@ -26,7 +29,7 @@ final DateTime _gestern = DateTime(2026, 8, 19);
 
 /// Selects a day via the date strip; the chip index IS the day offset.
 Future<void> _pickDay(WidgetTester tester, int offset) async {
-  await tester.tap(find.byKey(ValueKey('food-date-chip-$offset')));
+  await selectFoodDayOffset(tester, offset);
   await settleFrames(tester);
 }
 
@@ -57,18 +60,20 @@ void main() {
       await settleFrames(tester);
       // Through the ARB bundle, not hard-coded: the suite runs in English, so
       // a renamed label must fail here rather than pass on a stale sentence.
-      expect(_selectedDayLabel(tester), enL10n.todayDateToday);
+      expect(_selectedDayLabel(tester), foodHeaderDateLabel(_heute, enL10n));
 
       // ---- 1. Book onto yesterday ------------------------------------------
       await _pickDay(tester, 1);
-      expect(_selectedDayLabel(tester), enL10n.todayDateYesterday);
+      expect(_selectedDayLabel(tester), foodHeaderDateLabel(_gestern, enL10n));
       expect(store.selectedFoodDate, _gestern);
 
       await logSalami(tester, 'dinner');
 
+      await expandFoodEntries(tester);
+
       expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget,
           reason: 'das Tagebuch des Zieltags zeigt die Mahlzeit nicht');
-      expect(find.text('252 kcal · 1 entry'), findsOneWidget,
+      expect(find.text('252'), findsNWidgets(2),
           reason: 'die Slot-Summe der Abendkarte fehlt');
       expect(store.loggedMeals.single.slot, MealSlot.dinner);
       // The entry carries yesterday's wall clock, not today's.
@@ -78,14 +83,15 @@ void main() {
 
       // ---- 2. Back to today: untouched ---------------------------------
       await _pickDay(tester, 0);
-      expect(_selectedDayLabel(tester), enL10n.todayDateToday);
+      expect(_selectedDayLabel(tester), foodHeaderDateLabel(_heute, enL10n));
       expect(find.byKey(const ValueKey('food-history-entry-0')), findsNothing,
           reason: 'die Buchung von gestern ist auf heute durchgeschlagen');
-      expect(find.text('252 kcal · 1 entry'), findsNothing);
+      expect(find.text('252'), findsNothing);
       await _expectDayTotal(tester, '0');
 
       // ---- 3. A second meal on today -----------------------------------
       await logSalami(tester, 'breakfast');
+      await expandFoodEntries(tester);
       expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget);
       expect(find.byKey(const ValueKey('food-history-entry-1')), findsNothing,
           reason: 'der Tag von gestern lief in das heutige Tagebuch mit');
@@ -98,7 +104,8 @@ void main() {
 
       // Back on yesterday the diary still shows exactly its own entry.
       await _pickDay(tester, 1);
-      expect(_selectedDayLabel(tester), enL10n.todayDateYesterday);
+      expect(_selectedDayLabel(tester), foodHeaderDateLabel(_gestern, enL10n));
+      await expandFoodEntries(tester);
       expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget);
       expect(find.byKey(const ValueKey('food-history-entry-1')), findsNothing);
       await _expectDayTotal(tester, '252');

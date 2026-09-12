@@ -1,3 +1,5 @@
+import 'support/food_navigation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -481,6 +483,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('add-meal-sheet-close')));
     await tester.pumpAndSettle();
 
+    await expandFoodEntries(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('food-history-entry-0')));
     await tester.tap(find.byKey(const ValueKey('food-history-entry-0')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('edit-meal-sheet')), findsOneWidget);
@@ -493,6 +497,7 @@ void main() {
 
     expect(find.byKey(const ValueKey('edit-meal-sheet')), findsNothing);
     expect(find.text('Mahlzeit aktualisiert.'), findsOneWidget);
+    await expandFoodEntries(tester);
     // The history row now carries the new slot.
     expect(find.textContaining('Snacks ·'), findsOneWidget);
   });
@@ -542,8 +547,9 @@ void main() {
     // Today: no history entry left. Yesterday (chip-1; the strip runs
     // descending, index = day offset): entry present.
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('food-date-chip-1')));
+    await selectFoodDayOffset(tester, 1);
     await tester.pumpAndSettle();
+    await expandFoodEntries(tester);
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget);
   });
 }

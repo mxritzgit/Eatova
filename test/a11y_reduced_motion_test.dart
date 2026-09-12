@@ -214,43 +214,18 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('die Chip-Leiste SPRINGT zur Auswahl statt zu gleiten',
+    testWidgets('ein Archivtag steht ohne horizontalen Scroll im Datum',
         (tester) async {
-      // A day far back in the strip, so it must scroll for the chosen chip to
-      // become visible — the trap: `motionDuration` alone would have made this
-      // `animateTo(..., Duration.zero)` and thrown.
-      await _pump(
-        tester,
-        MealAnalysisScreen(
-          dailyConsumedKcal: 0,
-          selectedDate: DateTime.now().subtract(const Duration(days: 20)),
-        ),
-      );
-      // The jump happens in the first frame's post-frame callback.
+      await _pump(tester, MealAnalysisScreen(
+        dailyConsumedKcal: 0,
+        selectedDate: DateTime(2026, 8, 1),
+      ));
       await tester.pump();
+      final date = find.byKey(const ValueKey('food-date-selected-label'));
+      expect(date.hitTestable(), findsOneWidget);
+      expect(_offeneAnimationen(tester, find.byType(MealAnalysisScreen)),
+          _keineBewegung);
       expect(tester.takeException(), isNull);
-
-      final position = tester
-          .state<ScrollableState>(
-            find
-                .descendant(
-                  of: find.byKey(const ValueKey('food-date-strip')),
-                  matching: find.byType(Scrollable),
-                )
-                .first,
-          )
-          .position;
-      final sofort = position.pixels;
-      expect(
-        sofort,
-        greaterThan(0),
-        reason: 'ohne Zeitvorschub muss die Leiste bereits am Ziel stehen',
-      );
-
-      // And it does not glide on: a running scroll animation would have moved
-      // further in the next frame.
-      await tester.pump(const Duration(milliseconds: 130));
-      expect(position.pixels, sofort);
     });
   });
 
@@ -288,25 +263,13 @@ void main() {
           ],
         ),
       );
-      // ONE frame without advancing time. There used to be a 40 ms stagger per
-      // row plus a 280 ms fade, so row three appeared only after 400 ms.
+      await tester.tap(find.byKey(const ValueKey('food-slot-toggle-breakfast')));
       await tester.pump();
-
-      final fades = tester
-          .widgetList<FadeTransition>(
-            find.descendant(
-              of: find.byType(DiaryMealCard),
-              matching: find.byType(FadeTransition),
-            ),
-          )
-          .toList(growable: false);
-      expect(fades, isNotEmpty, reason: 'Auftritts-Fade der Zeilen erwartet');
-      expect(
-        fades.map((f) => f.opacity.value).toSet(),
-        <double>{1.0},
-        reason: 'jede Zeile muss sofort voll sichtbar sein',
-      );
-      expect(tester.binding.hasScheduledFrame, isFalse);
+      for (var i = 0; i < 3; i++) {
+        expect(find.byKey(ValueKey('food-history-entry-$i')), findsOneWidget);
+      }
+      expect(_offeneAnimationen(tester, find.byType(DiaryMealCard)), _keineBewegung);
+      expect(tester.takeException(), isNull);
     });
   });
 

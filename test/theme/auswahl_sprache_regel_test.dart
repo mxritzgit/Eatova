@@ -200,11 +200,11 @@ void main() {
       }
     });
 
-    test('die vier reparierten Stellen tragen SelectionTone', () {
+    test('die verbleibenden Auswahl-Chips tragen SelectionTone', () {
       // Positive counterpart to the ban: the rule going green because the
       // code no longer paints ANY selection would be worthless.
       const stellen = <String, int>{
-        'lib/src/screens/meal_analysis_screen.dart': 4, // Chip + Kalenderknopf
+        // Food now uses plain date navigation; its former chips no longer exist.
         'lib/src/widgets/kcal/edit_meal_sheet.dart': 1, // Tages-Chips
         'lib/src/screens/onboarding_screen.dart': 2, // _TileCard + _RowCard
       };

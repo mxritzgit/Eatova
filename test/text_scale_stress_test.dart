@@ -1,4 +1,6 @@
-﻿import 'package:flutter/material.dart';
+﻿import 'support/food_navigation.dart';
+
+import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 
@@ -224,11 +226,7 @@ void main() {
       await _goToTab(tester, 'Food');
       expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
 
-      // Switching the date chip renders both chip shapes' selected states.
-      await tester.tap(
-        find.byKey(const ValueKey('food-date-chip-3')),
-        warnIfMissed: false,
-      );
+      await selectFoodDayOffset(tester, 3);
       await tester.pumpAndSettle();
 
       // The four slot cards of the history sit below the fold.
@@ -315,7 +313,7 @@ void main() {
     await _expectNoOverflow(tester, 'Einstellungen', () async {
       await _bootApp(tester);
       await _goToTab(tester, 'Food');
-      await tester.tap(find.byKey(const ValueKey('topbar-settings')));
+      await tapFoodHeaderAction(tester, 'topbar-settings');
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
 
@@ -418,34 +416,20 @@ void main() {
     });
   });
 
-  testWidgets('die Profil-Kapsel im Food-Kopf waechst mit der Schrift',
-      (tester) async {
-    // Gegenrichtung des frueheren "BEKANNTE LUECKE"-Falls: die Kapsel war eine
-    // harte 34x34-Box und schnitt die Initiale bei 200 % ab. Jetzt skaliert
-    // sie mit, und dieser Fall haelt sie dort — er wird rot, sobald jemand
-    // wieder eine feste Groesse einsetzt.
+  testWidgets('das Food-Profilmenue bleibt bei grosser Schrift lesbar', (tester) async {
     _pinViewport(tester);
     await _bootApp(tester);
     await _goToTab(tester, 'Food');
-
-    final kapsel = tester.getSize(find.byKey(
-      const ValueKey<String>('topbar-profile'),
-      skipOffstage: false,
-    ));
-    expect(kapsel.width, greaterThan(34.0),
-        reason: 'bei 200 % muss die Kapsel ueber ihre Grundgroesse hinauswachsen');
-    expect(kapsel.width, kapsel.height, reason: 'sie bleibt quadratisch');
-
-    final absatz = tester.renderObject<RenderParagraph>(find.descendant(
-      of: find.byKey(const ValueKey<String>('topbar-profile'),
-          skipOffstage: false),
-      matching: find.byType(Text, skipOffstage: false),
-      skipOffstage: false,
-    ));
-    expect(
-      absatz.size.height,
-      greaterThanOrEqualTo(absatz.getMaxIntrinsicHeight(absatz.size.width)),
-      reason: 'die Initiale wird nicht mehr beschnitten',
+    await tester.ensureVisible(find.byKey(const ValueKey('food-options')));
+    await tester.tap(find.byKey(const ValueKey('food-options')));
+    await tester.pumpAndSettle();
+    final item = find.byKey(const ValueKey('topbar-profile'));
+    expect(item.hitTestable(), findsOneWidget);
+    expect(tester.getSize(item).height, greaterThanOrEqualTo(44));
+    final paragraph = tester.renderObject<RenderParagraph>(
+      find.descendant(of: item, matching: find.byType(Text)),
     );
+    expect(paragraph.didExceedMaxLines, isFalse);
+    expect(tester.takeException(), isNull);
   });
 }

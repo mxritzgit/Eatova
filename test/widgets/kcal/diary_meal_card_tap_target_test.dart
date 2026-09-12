@@ -7,39 +7,13 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
-import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/kcal/diary_meal_card.dart';
 
 import '../../support/harness.dart';
+import '../../support/food_navigation.dart';
 
-// ---------------------------------------------------------------------------
-// P8-04 — the tap target of the slot card's plus button.
-//
-// The button was a bare `SizedBox(32, 32)` inside a Material: no padding, no
-// constraints, no `MaterialTapTargetSize`. That clears WCAG 2.5.8 (24 pt), but
-// not the project floor of 44 that `AppToggle`, `SquareIconButton` and the
-// favorites search clear key all keep — and this is the main way to log into
-// a slot that already has entries.
-//
-// Two halves, both measured, not just tapped:
-//  1. the hit surface is 44 x 44,
-//  2. nothing drawn moved a pixel — the 6 pt of transparent margin per side
-//     come out of the header padding (15 -> 9) and the gap (8 -> 2).
-//
-// The numbers below were measured on the pre-fix build (see the golden block)
-// and must survive every text scale.
-// ---------------------------------------------------------------------------
-
-/// Logical width of an iPhone 12/13/14, like the macro suite next door.
+// The redesigned section keeps full row targets and an explicit add action.
 const double _breite = 390;
-
-/// `AppCard`'s 1 pt border plus the header's 15 pt left/right padding: the
-/// distance from the card edge to the drawn chip. Unchanged by the fix.
-const double _kartenrand = 16;
-
-/// The gap between text column and chip before the fix — 8 pt, of which 6 are
-/// now the button's own transparent margin.
-const double _spalt = 8;
 
 MealAnalysisResult _ergebnis() => const MealAnalysisResult(
   mealName: 'Haferbrei',
@@ -91,19 +65,6 @@ Future<void> _pump(
 
 final Finder _knopf = find.byKey(const ValueKey('food-slot-add-lunch'));
 
-/// The InkWell of the plus button: exactly the surface that answers a tap.
-Finder get _trefferflaeche =>
-    find.descendant(of: _knopf, matching: find.byType(InkWell));
-
-/// The drawn forest chip inside the button.
-Finder get _chip =>
-    find.descendant(of: _knopf, matching: find.byType(Container));
-
-/// The header's text column (slot name, summary, macros).
-Finder get _spalte => find
-    .descendant(of: find.byType(AppCard), matching: find.byType(Column))
-    .at(1);
-
 void main() {
   // The geometry claims are only worth something with the real app fonts: the
   // headless test font is about twice as wide (see diary_meal_card_macros).
@@ -131,128 +92,75 @@ void main() {
     await Future.wait(<Future<void>>[archivo.load(), bricolage.load()]);
   });
 
-  group('Plus-Knopf der Slot-Karte', () {
-    testWidgets('die Trefferflaeche misst 44 x 44, der Chip bleibt 32 x 32', (
+  group('Mahlzeitenbereich', () {
+    testWidgets('der ganze gefuellte Kopf klappt die Eintraege auf', (
       tester,
     ) async {
       await _pump(tester, mitEintrag: true);
-
-      expect(_trefferflaeche, findsOneWidget);
-      final ziel = tester.getSize(_trefferflaeche);
+      final toggle = find.byKey(const ValueKey('food-slot-toggle-lunch'));
+      final target = tester.getRect(toggle);
+      expect(target.width, greaterThan(300));
+      expect(target.height, greaterThanOrEqualTo(44));
+      expect(find.byKey(const ValueKey('food-history-entry-0')), findsNothing);
+      await tester.tapAt(target.topLeft + const Offset(4, 4));
+      await tester.pumpAndSettle();
       expect(
-        ziel.width,
-        greaterThanOrEqualTo(44.0),
-        reason: '32 px sind kein Fingerziel',
+        find.byKey(const ValueKey('food-history-entry-0')),
+        findsOneWidget,
       );
-      expect(ziel.height, greaterThanOrEqualTo(44.0));
-
-      // Looks unchanged: the drawn chip stays 32x32 with a 17 pt glyph, the
-      // extra area is transparent and sits outside it.
-      expect(_chip, findsOneWidget);
-      expect(tester.getSize(_chip), const Size(32, 32));
-      expect(tester.widget<Icon>(find.byIcon(Icons.add_rounded)).size, 17.0);
     });
 
-    testWidgets('ein Tap auf den durchsichtigen Saum bucht in den Slot', (
+    testWidgets('Hinzufuegen hat ein grosses Ziel und bucht genau einmal', (
       tester,
     ) async {
-      final gebucht = <MealSlot>[];
-      await _pump(tester, mitEintrag: true, onAddToSlot: gebucht.add);
-
-      // 4 pt inside the target's top-left corner — 2 pt OUTSIDE the drawn
-      // chip. Before the fix this point was not part of the button at all and
-      // landed in the dead card header.
-      final ziel = tester.getRect(_knopf);
-      expect(
-        tester.getRect(_chip).contains(ziel.topLeft + const Offset(4, 4)),
-        isFalse,
-        reason: 'der Testpunkt muss neben dem sichtbaren Chip liegen',
-      );
-
-      await tester.tapAt(ziel.topLeft + const Offset(4, 4));
+      final booked = <MealSlot>[];
+      await _pump(tester, mitEintrag: true, onAddToSlot: booked.add);
+      await expandFoodEntries(tester);
+      final target = tester.getRect(_knopf);
+      expect(target.width, greaterThanOrEqualTo(44));
+      expect(target.height, greaterThanOrEqualTo(44));
+      await tester.tap(_knopf);
       await tester.pump();
-
-      // Exactly once: the seam must not fire on top of the chip's own tap.
-      expect(gebucht, <MealSlot>[MealSlot.lunch]);
+      expect(booked, [MealSlot.lunch]);
     });
 
-    // Deliberately anchored on the ICON and the card, not on the button's own
-    // box: written that way these assertions hold on the pre-fix build too, so
-    // they prove that the 44 pt target moved nothing that is painted.
-    for (final scale in const <double>[1.0, 1.3, 2.0]) {
-      testWidgets(
-        'bei Textskalierung $scale steht im Kartenkopf alles unveraendert',
-        (tester) async {
-          await _pump(tester, mitEintrag: true, textScale: scale);
-
-          final karte = tester.getRect(find.byType(AppCard));
-          final glyph = tester.getRect(find.byIcon(Icons.add_rounded));
-          final avatar = tester.getRect(find.byType(MealAvatar));
-          final spalte = tester.getRect(_spalte);
-
-          // GOLDEN (pre-fix build, 390 pt, scale 1.0): card 20..370,
-          // avatar 36..72, text column 84..314, chip 322..354 — the chip is
-          // 32 wide, so its centre sits 16 + 16 from the card edge.
-          expect(glyph.center.dx, karte.right - _kartenrand - 16);
-          expect(spalte.right, glyph.center.dx - 16 - _spalt);
-          expect(avatar.left, karte.left + _kartenrand);
-          expect(spalte.left, avatar.right + 12);
-
-          // Vertically centred like before — and the header's height still
-          // comes from the text column, not from the button: the first history
-          // row sits exactly 14 pt (bottom padding) below the column.
-          expect(glyph.center.dy, spalte.center.dy);
-          expect(avatar.center.dy, spalte.center.dy);
-          expect(
-            tester
-                .getRect(find.byKey(const ValueKey('food-history-entry-0')))
-                .top,
-            spalte.bottom + 14,
-            reason: 'der Kopf darf durch das groessere Tippziel nicht wachsen',
-          );
-        },
-      );
+    for (final scale in [1.0, 1.3, 2.0]) {
+      testWidgets('der leere Bereich bleibt bei $scale lesbar und antippbar', (
+        tester,
+      ) async {
+        final booked = <MealSlot>[];
+        await _pump(
+          tester,
+          mitEintrag: false,
+          textScale: scale,
+          onAddToSlot: booked.add,
+        );
+        final size = tester.getSize(_knopf);
+        expect(size.width, greaterThan(300));
+        expect(size.height, greaterThanOrEqualTo(44));
+        await tester.tap(_knopf);
+        await tester.pump();
+        expect(booked, [MealSlot.lunch]);
+        expect(tester.takeException(), isNull);
+      });
     }
 
-    testWidgets('ohne Eintraege steht der Chip ebenso, nur der Kopf zahlt '
-        'den Saum', (tester) async {
-      await _pump(tester, mitEintrag: false);
-
-      final karte = tester.getRect(find.byType(AppCard));
-      final glyph = tester.getRect(find.byIcon(Icons.add_rounded));
-      final kopf = tester.getRect(
-        find
-            .descendant(of: find.byType(AppCard), matching: find.byType(Row))
-            .first,
-      );
-
-      expect(glyph.center.dx, karte.right - _kartenrand - 16);
-
-      // The one place the floor costs something: an EMPTY header row is only
-      // 40 pt tall at text scale 1.0, so it grows to the 44 of the button
-      // (the card gets 4 pt taller). From scale 1.3 on, and on every card
-      // with entries, the text column is the taller child and nothing moves.
-      expect(kopf.height, 44.0);
-    });
-
-    testWidgets('ohne Add-Callback bleibt der Kartenkopf bei 15 pt Rand', (
+    testWidgets('ohne Add-Callback bleiben vorhandene Eintraege lesbar', (
       tester,
     ) async {
-      // The compensation is tied to the button: no button, no transparent
-      // margin to give back — otherwise the header would be lopsided.
       await pumpLocalized(
         tester,
         DiaryMealCard(
           slot: MealSlot.lunch,
-          entries: <DiaryEntry>[DiaryEntry(_mahlzeit('m1'), 0)],
+          entries: [DiaryEntry(_mahlzeit('m1'), 0)],
         ),
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
       );
-      await tester.pump();
-
+      await expandFoodEntries(tester);
       expect(_knopf, findsNothing);
-      final karte = tester.getRect(find.byType(AppCard));
-      expect(tester.getRect(_spalte).right, karte.right - _kartenrand);
+      expect(
+        find.byKey(const ValueKey('food-history-entry-0')),
+        findsOneWidget,
+      );
     });
   });
 
@@ -262,6 +170,7 @@ void main() {
     ) async {
       await _pump(tester, mitEintrag: true, onRemoveMeal: (_) {});
 
+      await expandFoodEntries(tester);
       final zeile = find.byKey(const ValueKey('food-history-entry-0'));
       expect(
         tester

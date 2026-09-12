@@ -3,9 +3,11 @@ import 'package:flutter/services.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/meal_analysis_result.dart';
+import '../../models/logged_meal.dart';
 import '../../models/model_limits.dart';
 import '../../theme/app_tokens.dart';
 import '../design/sheets.dart';
+import 'slot_selector.dart';
 
 /// Form for custom nutrition values: label values PER 100 g plus the portion
 /// eaten; `MealAnalysisResult.manualEntry` computes the portion values. For
@@ -18,27 +20,45 @@ import '../design/sheets.dart';
 Future<MealAnalysisResult?> showManualMealSheet(
   BuildContext context, {
   String? initialName,
+  MealSlot? initialSlot,
+  ValueChanged<MealSlot>? onSlotChanged,
+  String? contextLabel,
 }) {
   return showModalBottomSheet<MealAnalysisResult>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     barrierColor: context.t.scrim,
-    builder: (sheetContext) => ManualMealSheet(initialName: initialName),
+    builder: (sheetContext) => ManualMealSheet(
+      initialName: initialName,
+      initialSlot: initialSlot,
+      onSlotChanged: onSlotChanged,
+      contextLabel: contextLabel,
+    ),
   );
 }
 
 class ManualMealSheet extends StatefulWidget {
-  const ManualMealSheet({super.key, this.initialName});
+  const ManualMealSheet({
+    super.key,
+    this.initialName,
+    this.initialSlot,
+    this.onSlotChanged,
+    this.contextLabel,
+  });
 
   /// Prefill from the product search (nothing found -> search term).
   final String? initialName;
+  final MealSlot? initialSlot;
+  final ValueChanged<MealSlot>? onSlotChanged;
+  final String? contextLabel;
 
   @override
   State<ManualMealSheet> createState() => _ManualMealSheetState();
 }
 
 class _ManualMealSheetState extends State<ManualMealSheet> {
+  late MealSlot? _slot = widget.initialSlot;
   late final TextEditingController _name;
   late final TextEditingController _kcal100;
   late final TextEditingController _grams;
@@ -251,6 +271,25 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
                 style: AppType.ui(12.5, color: t.ink2, height: 1.4),
               ),
               const SizedBox(height: 12),
+              if (_slot != null) ...[
+                if (widget.contextLabel != null) ...[
+                  Text(
+                    widget.contextLabel!,
+                    style: AppType.ui(12, color: t.ink2),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                SlotSelector(
+                  selected: _slot!,
+                  keyPrefix: 'manual-slot-',
+                  wrapAtLargeText: true,
+                  onSelected: (slot) {
+                    setState(() => _slot = slot);
+                    widget.onSlotChanged?.call(slot);
+                  },
+                ),
+                const SizedBox(height: 16),
+              ],
               _ManualGroup(
                 label: l10n.recipesGroupWhatIsIt,
                 child: _ManualField(

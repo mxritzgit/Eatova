@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
@@ -6,12 +7,7 @@ import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
 
-// Layout tests for the food tab.
-//
-// Deliberately no "no RenderFlex overflow" assertion: the headless renderer
-// uses a test font with different metrics, so a tree with ~56 pt of slack on
-// device reports an overflow here. Only font-metric-independent claims live in
-// this file.
+// Food owns its gutters; the capture dock sits above the app navigation.
 
 /// Usable area (screen minus safe area) — what the scaffold gets in the food
 /// tab. The test view has no view padding, so the safe area is already gone.
@@ -24,14 +20,6 @@ Future<void> _pumpFoodTab(WidgetTester tester, {double textScale = 1.0}) async {
   tester.view.physicalSize = _usableSize * 3.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
-
-  // Swallow overflow reports — see the file comment above.
-  final prior = FlutterError.onError;
-  FlutterError.onError = (details) {
-    if (details.exception.toString().contains('overflowed')) return;
-    prior?.call(details);
-  };
-  addTearDown(() => FlutterError.onError = prior);
 
   await pumpLocalized(
     tester,
@@ -65,12 +53,7 @@ Future<void> _pumpFoodTab(WidgetTester tester, {double textScale = 1.0}) async {
           ),
         ],
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-          child: MealAnalysisScreen(dailyConsumedKcal: 0),
-        ),
-      ),
+      body: SafeArea(child: MealAnalysisScreen(dailyConsumedKcal: 0)),
     ),
     // Mirrors the text scaler cap from EatovaApp.
     textScale: textScale > 2.0 ? 2.0 : textScale,
@@ -83,24 +66,21 @@ Future<void> _pumpFoodTab(WidgetTester tester, {double textScale = 1.0}) async {
 }
 
 void main() {
-  testWidgets('Food date chips do not repeat the date twice', (tester) async {
+  testWidgets('Food shows the selected date exactly once', (tester) async {
     await _pumpFoodTab(tester);
-
-    // chip-0 is today; chip-2 is the first with a weekday header line, so
-    // header = weekday, sub-line = date. The two must not be identical.
-    final texts = tester
-        .widgetList<Text>(
-          find.descendant(
-            of: find.byKey(const ValueKey('food-date-chip-2')),
-            matching: find.byType(Text),
-          ),
-        )
-        .map((t) => t.data)
-        .toList();
-
-    expect(texts, hasLength(2));
-    expect(texts.first, isNot(equals(texts.last)));
-    expect(texts.first, matches(RegExp(r'^(Mo|Di|Mi|Do|Fr|Sa|So)$')));
+    final date = tester.widget<Text>(
+      find.byKey(const ValueKey('food-date-selected-label')),
+    );
+    expect(find.text(date.data!), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('food-date-previous')).hitTestable(),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('food-date-calendar')).hitTestable(),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   // Removed: "Calories card shows the goal only once". The card is gone from
@@ -108,19 +88,24 @@ void main() {
   // covered by food_diary_screen_test.dart, the goal itself by
   // kcal_goal_consistency_test.dart.
 
-  testWidgets('Food action labels stay on one line', (tester) async {
+  testWidgets('Food action labels remain fully readable', (tester) async {
     await _pumpFoodTab(tester, textScale: 1.3);
 
     // The labels used to wrap to two lines and overflow the 64 px button.
     for (final key in const [
       ValueKey('food-action-barcode'),
       ValueKey('food-action-ai'),
+      ValueKey('food-action-manual'),
     ]) {
       final label = tester.widget<Text>(
         find.descendant(of: find.byKey(key), matching: find.byType(Text)),
       );
       expect(label.data, isNot(contains('\n')));
-      expect(label.maxLines, 1);
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.descendant(of: find.byKey(key), matching: find.byType(Text)),
+      );
+      expect(paragraph.didExceedMaxLines, isFalse);
+      expect(tester.getSize(find.byKey(key)).height, greaterThanOrEqualTo(44));
     }
   });
 }
