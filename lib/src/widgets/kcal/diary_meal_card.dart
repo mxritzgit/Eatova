@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
@@ -9,6 +7,7 @@ import '../../models/logged_meal.dart';
 import '../../models/macro_progress.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
+import '../../services/kcal_format.dart';
 import '../common/motion.dart';
 import '../design/design.dart';
 import 'edit_meal_sheet.dart';
@@ -28,9 +27,8 @@ class DiaryEntry {
   final int index;
 }
 
-/// A diary slot card: avatar, slot name, summary line, a plus button opening
-/// the add sheet for THIS slot, and the entries as swipeable rows below.
-class DiaryMealCard extends StatelessWidget {
+/// An open meal section: compact overview first, individual entries on demand.
+class DiaryMealCard extends StatefulWidget {
   const DiaryMealCard({
     super.key,
     required this.slot,
@@ -41,192 +39,197 @@ class DiaryMealCard extends StatelessWidget {
   });
 
   final MealSlot slot;
-
-  /// The entries of this slot with their day index.
   final List<DiaryEntry> entries;
-
-  /// Plus button and empty add slot: opens the add sheet in [slot].
-  final ValueChanged<MealSlot>? onAddToSlot;
-
-  /// Fallback for a row tap when no [MealEditScope] sits above the card
-  /// (preview/standalone).
-  final ValueChanged<MealSlot>? onMealTap;
-
+  final ValueChanged<MealSlot>? onAddToSlot, onMealTap;
   final ValueChanged<String>? onRemoveMeal;
+
+  @override
+  State<DiaryMealCard> createState() => _DiaryMealCardState();
+}
+
+class _DiaryMealCardState extends State<DiaryMealCard> {
+  bool _expanded = false;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    final color = slot.accentIn(context);
-    // Slot kcal AND macros from one sum — the same number base as the daily
-    // balance (MacroProgress), instead of re-parsing gram strings here.
+    final slot = widget.slot;
+    final entries = widget.entries;
+    final empty = entries.isEmpty;
     final total = entries.fold<MacroProgress>(
       MacroProgress.empty,
       (sum, e) => sum.add(e.meal.result),
     );
-
-    return AppCard(
-      radius: rCard,
-      clip: true,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Padding(
-            // The plus button wears 6 pt of transparent tap margin around its
-            // 32 pt chip. The header gives those 6 pt back on the right (and
-            // the gap before it gives back the same 6), so chip, text column
-            // and avatar keep the pixel positions they had at 15/8. Without a
-            // plus button there is no margin to compensate.
-            //
-            // Vertically the target is not free: a card WITHOUT entries has a
-            // 40 pt header row at text scale 1.0 and grows to the button's 44.
-            // Every card with entries, and every scale from 1.3 up, is taller
-            // than that anyway and does not move.
-            padding: EdgeInsets.fromLTRB(
-              15,
-              14,
-              onAddToSlot == null ? 15 : 15 - _addTapBleed,
-              14,
-            ),
-            child: Row(
-              children: <Widget>[
-                MealAvatar(letter: slot.initial(l10n), color: color, size: 36),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        slot.label(l10n),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppType.ui(
-                          14.5,
-                          weight: FontWeight.w700,
-                          color: t.ink,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        entries.isEmpty
-                            ? l10n.todayMealSlotEmpty
-                            : l10n.foodDiarySlotSummary(
-                                total.kcal,
-                                entries.length,
-                              ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppType.ui(11.5, weight: FontWeight.w500, color: t.ink2),
-                      ),
-                      // Slot macros as their own line below the summary; the
-                      // summary line itself stays unchanged (tests read it as
-                      // a whole).
-                      if (entries.isNotEmpty) ...<Widget>[
-                        const SizedBox(height: 1),
-                        Text(
-                          _macroLine(l10n, total),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppType.ui(11.5, weight: FontWeight.w500, color: t.ink2),
-                        ),
-                      ],
-                    ],
+    final title = empty
+        ? l10n.todayMealSlotEmpty
+        : entries.length == 1
+        ? entries.single.meal.result.mealName
+        : l10n.foodDiaryEntryCount(entries.length);
+    final detail = empty
+        ? l10n.foodSlotAddLabel(slot.label(l10n))
+        : entries.length == 1
+        ? formatMealTime(entries.single.meal.loggedAt)
+        : entries.take(2).map((e) => e.meal.result.mealName).join(', ');
+    final summary = LayoutBuilder(
+      builder: (context, constraints) {
+        final stacked =
+            constraints.maxWidth < 290 ||
+            MediaQuery.textScalerOf(context).scale(14) > 21;
+        final kcal = empty
+            ? null
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    formatThousands(total.kcal, l10n.localeName),
+                    style: AppType.display(22, color: t.ink, height: 1.05),
                   ),
-                ),
-                if (onAddToSlot != null) ...<Widget>[
-                  const SizedBox(width: 8 - _addTapBleed),
-                  _SlotAddButton(
-                    slot: slot,
-                    onTap: () => onAddToSlot!(slot),
-                  ),
+                  const SizedBox(height: 4),
+                  Text('kcal', style: AppType.ui(12, color: t.ink2)),
                 ],
-              ],
-            ),
-          ),
-          for (final entry in entries)
-            _SlidableEntry(
-              entry: entry,
-              accent: color,
-              onMealTap: onMealTap,
-              onRemoveMeal: onRemoveMeal,
-            ),
-          if (entries.isEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(15, 0, 15, 14),
-              child: DottedAddSlot(
-                key: ValueKey('food-slot-empty-${slot.name}'),
-                label: l10n.foodSlotAddLabel(slot.label(l10n)),
-                onTap: onAddToSlot == null ? null : () => onAddToSlot!(slot),
+              );
+        final copy = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            HeadingSemantics(
+              level: 2,
+              child: Text(
+                slot.label(l10n),
+                style: AppType.ui(
+                  11,
+                  weight: FontWeight.w600,
+                  color: t.accent,
+                  letterSpacing: 0.7,
+                ),
               ),
             ),
+            const SizedBox(height: 5),
+            Text(
+              title,
+              maxLines: empty || stacked ? null : 2,
+              overflow: empty || stacked ? null : TextOverflow.ellipsis,
+              style: AppType.ui(
+                16,
+                weight: empty ? FontWeight.w400 : FontWeight.w600,
+                color: t.ink,
+                height: 1.3,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              detail,
+              maxLines: stacked ? null : 2,
+              overflow: stacked ? null : TextOverflow.ellipsis,
+              style: AppType.ui(12, color: t.ink2, height: 1.35),
+            ),
+            if (stacked && kcal != null) ...[const SizedBox(height: 10), kcal],
+          ],
+        );
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            ExcludeSemantics(
+              child: Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: slot.diarySurface(t),
+                  borderRadius: BorderRadius.circular(rCard),
+                ),
+                child: Icon(
+                  slot.diaryIcon,
+                  color: slot == MealSlot.snack ? t.accent : slot.accentOn(t),
+                  size: 26,
+                ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(child: copy),
+            if (!stacked && kcal != null) ...[const SizedBox(width: 14), kcal],
+            const SizedBox(width: 10),
+            AnimatedRotation(
+              turns: _expanded && !empty ? 0.25 : 0,
+              duration: motionDuration(
+                context,
+                const Duration(milliseconds: 180),
+              ),
+              child: Icon(Icons.chevron_right_rounded, size: 20, color: t.ink2),
+            ),
+          ],
+        );
+      },
+    );
+    return Material(
+      color: t.surf,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Semantics(
+            button: true,
+            expanded: empty ? null : _expanded,
+            hint: empty
+                ? l10n.foodSlotAddLabel(slot.label(l10n))
+                : (_expanded ? l10n.foodDiaryCollapse : l10n.foodDiaryExpand),
+            child: InkWell(
+              key: ValueKey(
+                empty
+                    ? 'food-slot-add-${slot.name}'
+                    : 'food-slot-toggle-${slot.name}',
+              ),
+              onTap: empty
+                  ? (widget.onAddToSlot == null
+                        ? null
+                        : () => widget.onAddToSlot!(slot))
+                  : () => setState(() => _expanded = !_expanded),
+              child: Padding(
+                key: empty ? ValueKey('food-slot-empty-${slot.name}') : null,
+                padding: const EdgeInsets.symmetric(vertical: 20),
+                child: summary,
+              ),
+            ),
+          ),
+          if (_expanded && !empty) ...[
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(
+                _macroLine(l10n, total),
+                key: ValueKey('food-slot-macros-${slot.name}'),
+                style: AppType.ui(12, weight: FontWeight.w600, color: t.ink2),
+              ),
+            ),
+            for (final entry in entries)
+              _SlidableEntry(
+                key: ValueKey(entry.meal.id),
+                entry: entry,
+                accent: slot.accentOn(t),
+                onMealTap: widget.onMealTap,
+                onRemoveMeal: widget.onRemoveMeal,
+              ),
+            if (widget.onAddToSlot != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: TextButton.icon(
+                  key: ValueKey('food-slot-add-${slot.name}'),
+                  onPressed: () => widget.onAddToSlot!(slot),
+                  icon: const Icon(Icons.add_rounded, size: 20),
+                  label: Text(l10n.foodSlotAddLabel(slot.label(l10n))),
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(44, 48),
+                    foregroundColor: t.accent,
+                  ),
+                ),
+              ),
+          ],
+          if (slot != MealSlot.snack) Divider(height: 1, color: t.line),
         ],
       ),
     );
   }
 }
 
-/// Rounded grams from a [MacroProgress] sum. Used for both the slot header
-/// (all entries) and each history row (one entry) so they never drift apart.
 String _macroLine(AppLocalizations l10n, MacroProgress m) =>
     l10n.foodMacroSummary(m.proteinG.round(), m.carbsG.round(), m.fatG.round());
-
-/// Drawn size of the plus chip — what the eye sees, not what the finger hits.
-const double _addChipSize = 32;
-
-/// The project's tap-target floor (`AppToggle`, `SquareIconButton`, the
-/// favorites search clear key). WCAG 2.5.8 would already be happy at 24.
-const double _addTapTarget = 44;
-
-/// Transparent tap margin the floor adds on each side of the chip. The card
-/// header hands these pixels back so the chip does not move (see [build]).
-const double _addTapBleed = (_addTapTarget - _addChipSize) / 2;
-
-/// The forest-coloured plus button of the slot card.
-///
-/// 32 pt visible, 44 pt tappable — the extra area is transparent and sits
-/// outside the drawn chip, exactly like `SquareIconButton`.
-class _SlotAddButton extends StatelessWidget {
-  const _SlotAddButton({required this.slot, required this.onTap});
-
-  final MealSlot slot;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final l10n = context.l10n;
-    return Semantics(
-      button: true,
-      label: l10n.foodSlotAddLabel(slot.label(l10n)),
-      child: SizedBox(
-        key: ValueKey('food-slot-add-${slot.name}'),
-        width: _addTapTarget,
-        height: _addTapTarget,
-        child: Material(
-          // Transparent, so the tap area reaches the full 44 pt while the
-          // forest surface below stays 32 pt.
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(rChip),
-            child: Center(
-              child: Container(
-                width: _addChipSize,
-                height: _addChipSize,
-                decoration: BoxDecoration(
-                  color: t.forest,
-                  borderRadius: BorderRadius.circular(rChip),
-                ),
-                child: Icon(Icons.add_rounded, size: 17, color: t.lime),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 /// Share of the row width taken by the revealed delete action, and the window
 /// of the reveal animation: the controller runs from 0 to exactly this value
@@ -235,6 +238,7 @@ const double _deleteExtent = 0.26;
 
 class _SlidableEntry extends StatelessWidget {
   const _SlidableEntry({
+    super.key,
     required this.entry,
     required this.accent,
     required this.onMealTap,
@@ -256,11 +260,11 @@ class _SlidableEntry extends StatelessWidget {
     final VoidCallback? tap;
     if (editScope != null) {
       tap = () => showEditMealSheet(
-            context,
-            meal: meal,
-            onUpdateMeal: editScope.onUpdateMeal,
-            onRemoveMeal: editScope.onRemoveMeal,
-          );
+        context,
+        meal: meal,
+        onUpdateMeal: editScope.onUpdateMeal,
+        onRemoveMeal: editScope.onRemoveMeal,
+      );
     } else if (onMealTap != null) {
       tap = () => onMealTap!(meal.slot);
     } else {
@@ -376,7 +380,7 @@ class _DeleteMealAction extends StatelessWidget {
   }
 }
 
-class _HistoryEntry extends StatefulWidget {
+class _HistoryEntry extends StatelessWidget {
   const _HistoryEntry({
     super.key,
     required this.meal,
@@ -391,167 +395,95 @@ class _HistoryEntry extends StatefulWidget {
   final VoidCallback? onTap;
 
   @override
-  State<_HistoryEntry> createState() => _HistoryEntryState();
-}
-
-class _HistoryEntryState extends State<_HistoryEntry>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 280),
-  );
-  late final CurvedAnimation _in = CurvedAnimation(
-    parent: _controller,
-    curve: Curves.easeOutCubic,
-  );
-  bool _gestartet = false;
-
-  // The entrance depends on MediaQuery (reduce motion) and therefore starts
-  // here, not in initState, where no InheritedWidget may be read yet.
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (_gestartet) return;
-    _gestartet = true;
-
-    _controller.duration =
-        motionDuration(context, const Duration(milliseconds: 280));
-    // Gentle stagger while the list builds. The id keys of the Slidable
-    // wrappers keep per-meal state, so deleting one does not replay others.
-    final delay = motionDelay(
-      context,
-      Duration(milliseconds: 40 * math.min(widget.index, 5)),
-    );
-    if (delay == Duration.zero) {
-      // No timer detour: under reduced motion the row is there in the first
-      // frame, so tests need not pump for it.
-      _controller.forward();
-      return;
-    }
-    Future<void>.delayed(delay, () {
-      if (mounted) _controller.forward();
-    });
-  }
-
-  @override
-  void dispose() {
-    _in.dispose();
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    final meal = widget.meal;
     final grams = meal.result.estimatedGrams;
     final amount = grams > 0 ? '~$grams g' : l10n.foodPortionFallback;
-    // No macro line when all three are unknown (legacy rows without
-    // nutrition): all-zero grams would look like a measurement. Same rule as
-    // ExistingMealsList; the slot header always shows its sum.
-    final rowMacros = MacroProgress.empty.add(meal.result);
+    final macros = MacroProgress.empty.add(meal.result);
     final hasMacros =
-        rowMacros.proteinG > 0 || rowMacros.carbsG > 0 || rowMacros.fatG > 0;
-
-    return FadeTransition(
-      opacity: _in,
-      child: SlideTransition(
-        position: Tween<Offset>(
-          begin: const Offset(0, 0.20),
-          end: Offset.zero,
-        ).animate(_in),
-        // A11y: the row opens the edit sheet, so announce it as a button with
-        // a hint (only when a tap is wired up at all).
-        child: Semantics(
-          button: widget.onTap != null,
-          hint: widget.onTap == null ? null : l10n.foodEditMealTitle,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: t.surf,
-              border: Border(top: BorderSide(color: t.line)),
-            ),
-            child: InkWell(
-              onTap: widget.onTap,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 15,
-                  vertical: 11,
-                ),
-                child: Row(
-                  children: <Widget>[
-                    Container(
-                      width: 3,
-                      height: 26,
-                      decoration: BoxDecoration(
-                        color: widget.accent,
-                        borderRadius: BorderRadius.circular(2),
+        macros.proteinG > 0 || macros.carbsG > 0 || macros.fatG > 0;
+    return Semantics(
+      button: onTap != null,
+      hint: onTap == null ? null : l10n.foodEditMealTitle,
+      child: Material(
+        color: t.surf,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final stacked =
+                    constraints.maxWidth < 290 ||
+                    MediaQuery.textScalerOf(context).scale(14) > 21;
+                final details = Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      meal.result.mealName,
+                      style: AppType.ui(
+                        14,
+                        weight: FontWeight.w600,
+                        color: t.ink,
+                        height: 1.35,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          Text(
-                            meal.result.mealName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppType.ui(
-                              13,
-                              weight: FontWeight.w600,
-                              color: t.ink,
-                            ),
-                          ),
-                          const SizedBox(height: 1),
-                          // The slot is repeated here so the row stays
-                          // self-explanatory outside its card; a test reads
-                          // exactly this format as ONE Text widget.
-                          Text(
-                            '${meal.slot.label(l10n)} · $amount',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppType.ui(11, color: t.ink2),
-                          ),
-                          // Macros as a THIRD line, not beside slot/amount:
-                          // at 390 pt and text scale 1.3 only ~110 pt remain
-                          // next to the kcal column and the line would clip.
-                          if (hasMacros) ...<Widget>[
-                            const SizedBox(height: 2),
-                            Text(
-                              _macroLine(l10n, rowMacros),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppType.ui(11.5, weight: FontWeight.w500, color: t.ink2),
-                            ),
-                          ],
-                        ],
-                      ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${meal.slot.label(l10n)} · $amount',
+                      style: AppType.ui(12, color: t.ink2),
                     ),
-                    const SizedBox(width: 10),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Text(
-                          '${meal.result.caloriesKcal} kcal',
-                          style: AppType.display(
-                            12.5,
-                            weight: FontWeight.w700,
-                            color: t.ink,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          formatMealTime(meal.loggedAt),
-                          style: AppType.ui(11.5, weight: FontWeight.w500, color: t.ink2),
-                        ),
-                      ],
+                    if (hasMacros) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        _macroLine(l10n, macros),
+                        style: AppType.ui(12, color: t.ink2, height: 1.35),
+                      ),
+                    ],
+                  ],
+                );
+                final energy = Column(
+                  crossAxisAlignment: stacked
+                      ? CrossAxisAlignment.start
+                      : CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      '${meal.result.caloriesKcal} kcal',
+                      style: AppType.display(14, color: t.ink),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      formatMealTime(meal.loggedAt),
+                      style: AppType.ui(12, color: t.ink2),
                     ),
                   ],
-                ),
-              ),
+                );
+                return DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border(left: BorderSide(color: accent, width: 2)),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 12),
+                    child: stacked
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              details,
+                              const SizedBox(height: 8),
+                              energy,
+                            ],
+                          )
+                        : Row(
+                            children: [
+                              Expanded(child: details),
+                              const SizedBox(width: 16),
+                              energy,
+                            ],
+                          ),
+                  ),
+                );
+              },
             ),
           ),
         ),

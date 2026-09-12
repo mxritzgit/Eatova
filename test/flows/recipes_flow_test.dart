@@ -1,10 +1,15 @@
 // Recipe flows: the recipe detail adds the meal to the kcal/macro tracker, on
 // the day selected in the food tab, not blindly on today.
 
+import '../support/food_navigation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/main.dart';
+import 'package:eatova/src/screens/meal_analysis_screen.dart';
+import 'package:clock/clock.dart';
+import 'package:eatova/src/services/day_math.dart';
 
 import 'flow_test_helpers.dart';
 
@@ -60,6 +65,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
 
+    await expandFoodEntries(tester);
+
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget);
     expect(find.text('Hähnchen mit Reis & Brokkoli'), findsWidgets);
     expect(find.textContaining('590'), findsWidgets);
@@ -82,9 +89,10 @@ void main() {
     // (chip-0 = today), so chip-3 is three days ago.
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('food-date-chip-3')));
+    await selectFoodDayOffset(tester, 3);
     await tester.pumpAndSettle();
-    expect(find.text('Vor 3 Tagen'), findsOneWidget);
+    expect(tester.widget<MealAnalysisScreen>(find.byType(MealAnalysisScreen)).selectedDate,
+      DateUtils.dateOnly(addDays(clock.now(), -3)));
 
     // Add the recipe to the tracker via the detail screen.
     await tester.tap(find.byKey(const ValueKey('nav-Rezepte')));
@@ -110,7 +118,9 @@ void main() {
     // carries the history entry …
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
-    expect(find.text('Vor 3 Tagen'), findsOneWidget);
+    expect(tester.widget<MealAnalysisScreen>(find.byType(MealAnalysisScreen)).selectedDate,
+      DateUtils.dateOnly(addDays(clock.now(), -3)));
+    await expandFoodEntries(tester);
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget);
     // … and the 590 kcal in the daily total, which the today tab shows for the
     // same selected day.
@@ -119,7 +129,7 @@ void main() {
     // Another day stays empty — exactly what the bug broke.
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('food-date-chip-4')));
+    await selectFoodDayOffset(tester, 4);
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsNothing);
     await expectTagestotalAufHeute(tester, '0');

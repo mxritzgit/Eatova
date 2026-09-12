@@ -1,3 +1,5 @@
+import '../../support/food_navigation.dart';
+
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -50,6 +52,7 @@ Future<void> _pump(
     padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
   );
   await tester.pump();
+  await expandFoodEntries(tester);
 }
 
 MealAnalysisResult _ergebnis({
@@ -148,7 +151,8 @@ void main() {
       await _pump(tester, _karteMitZweiEintraegen());
 
       // The existing totals line is unchanged (other tests read it).
-      expect(find.text('530 kcal · 2 Einträge'), findsOneWidget);
+      expect(find.text('530'), findsOneWidget);
+      expect(find.text('2 Einträge'), findsOneWidget);
 
       expect(_makroZeilen(tester), <String>[
         'P 42 g · K 59 g · F 26 g', // slot header: sum 42.4 / 58.6 / 26
@@ -169,7 +173,8 @@ void main() {
         locale: const Locale('en'),
       );
 
-      expect(find.text('530 kcal · 2 entries'), findsOneWidget);
+      expect(find.text('530'), findsOneWidget);
+      expect(find.text('2 entries'), findsOneWidget);
       expect(_makroZeilen(tester), <String>[
         'P 42 g · C 59 g · F 26 g',
         'P 12 g · C 48 g · F 6 g',

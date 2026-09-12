@@ -1,3 +1,5 @@
+import 'support/food_navigation.dart';
+
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -243,7 +245,7 @@ void main() {
 
     // Open settings, set weight to 81, save. With _hydratedFromRealSource
     // true the save may run — but with the edited value, not 78.
-    await tester.tap(find.byKey(const ValueKey('topbar-settings')));
+    await tapFoodHeaderAction(tester, 'topbar-settings');
     await _drain(tester);
 
     // Body data and "save" live one level deeper, on the profile & goals

@@ -1,3 +1,5 @@
+import 'support/food_navigation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -103,7 +105,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('topbar-settings')));
+    await tapFoodHeaderAction(tester, 'topbar-settings');
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);

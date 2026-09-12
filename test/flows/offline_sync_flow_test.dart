@@ -9,6 +9,8 @@
 // EatovaApp cannot carry a sync (it builds one from `Supabase.instance`), so
 // the shell is composed here. Runs in English.
 
+import '../support/food_navigation.dart';
+
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -69,10 +71,11 @@ void main() {
     await logSalami(tester, 'lunch');
 
     // ---- 2. The UI keeps the meal although nothing reached the server ------
+    await expandFoodEntries(tester);
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget,
         reason: 'ein Serverfehler darf die optimistische Zeile nicht '
             'zurückrollen');
-    expect(find.text('252 kcal · 1 entry'), findsOneWidget);
+    expect(find.text('252'), findsNWidgets(2));
     expect(store.loggedMeals.length, 1);
     final mealId = store.loggedMeals.single.id;
     expect(server.mealRows, isEmpty);
@@ -127,6 +130,7 @@ void main() {
         reason: 'der Lifetime-Zähler hat die Mahlzeit doppelt gebucht');
 
     // ---- 5. Diary and day total are unchanged: one row, no duplicate -------
+    await expandFoodEntries(tester);
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget);
     expect(find.byKey(const ValueKey('food-history-entry-1')), findsNothing,
         reason: 'der Replay hat eine zweite Zeile in das Tagebuch gespiegelt');

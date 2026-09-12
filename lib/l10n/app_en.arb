@@ -2207,5 +2207,17 @@
         "type": "String"
       }
     }
+  },
+  "foodOptions": "More options",
+  "foodKcalLoggedLabel": "KCAL LOGGED",
+  "foodDiaryEntryCount": "{count, plural, one{1 entry} other{{count} entries}}",
+  "foodDiaryExpand": "Show all entries",
+  "foodDiaryCollapse": "Collapse entries",
+  "@foodDiaryEntryCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   }
 }

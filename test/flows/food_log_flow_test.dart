@@ -1,6 +1,8 @@
 // Food logging flows: slot picking in the add sheet, swipe-to-delete in the
 // history and day separation in the food calendar.
 
+import '../support/food_navigation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -109,6 +111,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Entry is in the history …
+    await expandFoodEntries(tester);
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget);
     // … and in the day total, which lives in the Heute tab (see
     // expectTagestotalAufHeute), not in a food-tab card.
@@ -166,12 +169,12 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('food-date-chip-0')), findsOneWidget);
-    expect(find.byKey(const ValueKey('food-date-chip-2')), findsOneWidget);
+    expect(find.byKey(const ValueKey('food-date-selected-label')), findsOneWidget);
+    expect(find.byKey(const ValueKey('food-date-calendar')), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('food-date-chip-2')));
+    await selectFoodDayOffset(tester, 2);
     await tester.pumpAndSettle();
-    expect(find.text('Vor 2 Tagen'), findsOneWidget);
+    expect(tester.widget<Text>(find.byKey(const ValueKey('food-date-selected-label'))).data, isNotEmpty);
 
     await tester.tap(find.byKey(const ValueKey('food-search')));
     await tester.pumpAndSettle();
@@ -204,7 +207,7 @@ void main() {
 
     // In the descending 30-day strip today is chip-0; the index is the day
     // offset. Switch back to today.
-    await tester.tap(find.byKey(const ValueKey('food-date-chip-0')));
+    await selectFoodDayOffset(tester, 0);
     await tester.pumpAndSettle();
     expect(find.text('Heute'), findsWidgets);
     // … and today stays untouched.

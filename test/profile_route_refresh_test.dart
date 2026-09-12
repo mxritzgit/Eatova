@@ -1,3 +1,5 @@
+import 'support/food_navigation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -105,7 +107,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Open the ProfileScreen (avatar -> _openProfile -> _profileRouteOpen).
-    await tester.tap(find.byKey(const ValueKey('topbar-profile')));
+    await tapFoodHeaderAction(tester, 'topbar-profile');
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('screen-profile')), findsOneWidget);
 
@@ -157,7 +159,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Open and close again -> _profileRouteOpen is false once more.
-    await tester.tap(find.byKey(const ValueKey('topbar-profile')));
+    await tapFoodHeaderAction(tester, 'topbar-profile');
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('screen-profile')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('profile-close')));
@@ -166,7 +168,7 @@ void main() {
 
     // A store mutation now notifies with no profile route open, so
     // _profileRefresh is not bumped; this must stay crash-free and re-render.
-    await tester.tap(find.byKey(const ValueKey('food-date-chip-0')));
+    await selectFoodDayOffset(tester, 1);
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
   });

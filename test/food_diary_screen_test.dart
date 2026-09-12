@@ -5,6 +5,8 @@
 // EN smoke) are one `renderMatrix` now: de+en x hell+dunkel x 1.0+2.0, so the
 // combinations en@2.0 and en@hell@2.0 are covered for the first time.
 
+import 'support/food_navigation.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -14,7 +16,6 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/theme/meal_slot_style.dart';
-import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/kcal/diary_meal_card.dart';
 
 import 'support/harness.dart';
@@ -46,9 +47,6 @@ LoggedMeal _mahlzeit({
       localDay: localDay,
     );
 
-/// The shell pads every tab with `EdgeInsets.fromLTRB(20, 12, 20, 12)`.
-const EdgeInsets _schalenrand = EdgeInsets.fromLTRB(20, 12, 20, 12);
-
 /// The food tab in the same shell as EatovaHomePage.
 Future<void> _pumpFoodTab(
   WidgetTester tester, {
@@ -74,7 +72,6 @@ Future<void> _pumpFoodTab(
     brightness: brightness,
     locale: locale,
     textScale: textScale,
-    padding: _schalenrand,
     settle: true,
   );
 }
@@ -93,7 +90,6 @@ Future<void> _pumpFall(
       dailyConsumedKcal: dailyConsumedKcal,
       loggedMeals: meals,
     ),
-    padding: _schalenrand,
     settle: true,
   );
 }
@@ -121,7 +117,7 @@ void main() {
       );
 
       expect(tester.takeException(), isNull);
-      expect(find.text(c.l10n.foodTitle), findsOneWidget);
+      expect(find.text(c.l10n.navFood), findsOneWidget);
       expect(_inSlotkarte(MealSlot.breakfast.label(c.l10n)), findsOneWidget);
       // Lunch and dinner stay empty — their placeholder comes from the ARB.
       expect(find.text(c.l10n.todayMealSlotEmpty), findsNWidgets(2));
@@ -138,7 +134,7 @@ void main() {
     // language, not just resolve to whatever the lookup returns.
     await _pumpFoodTab(tester, locale: const Locale('en'));
 
-    expect(find.text('Nutrition'), findsOneWidget);
+    expect(find.text('Food'), findsOneWidget);
     expect(find.text('Ernährung'), findsNothing);
     expect(_inSlotkarte('Breakfast'), findsOneWidget);
     expect(find.text('Nothing logged yet'), findsNWidgets(4));
@@ -163,10 +159,12 @@ void main() {
       (tester) async {
     await _pumpFoodTab(tester);
 
-    expect(find.byType(DottedAddSlot), findsNWidgets(4));
+    for (final slot in MealSlot.values) {
+      expect(find.byKey(ValueKey('food-slot-empty-${slot.name}')), findsOneWidget);
+    }
     expect(find.text('Noch nichts geloggt'), findsNWidgets(4));
     expect(
-      find.text('Tippe oben auf KI-Scan, Barcode oder Suche.'),
+      find.byKey(const ValueKey('food-entry-dock')),
       findsOneWidget,
     );
   });
@@ -179,7 +177,8 @@ void main() {
       dailyConsumedKcal: 320,
     );
 
-    expect(find.text('320 kcal · 1 Eintrag'), findsOneWidget);
+    expect(find.text('Haferbrei'), findsOneWidget);
+    expect(find.text('320'), findsNWidgets(2));
     expect(find.text('Noch nichts geloggt'), findsNWidgets(3));
     expect(
       find.text('Tippe oben auf KI-Scan, Barcode oder Suche.'),
@@ -219,7 +218,7 @@ void main() {
     await _pumpFoodTab(tester, dailyConsumedKcal: 1234);
 
     expect(find.text('1.234'), findsOneWidget);
-    expect(find.text('KCAL HEUTE'), findsOneWidget);
+    expect(find.text('KCAL ERFASST'), findsOneWidget);
     // The tab's ONLY kcal figure keeps number and unit separate; the flow
     // tests rely on that.
     expect(find.text('1.234 kcal'), findsNothing);
@@ -269,7 +268,7 @@ void main() {
 
       final verlauf = find.descendant(
         of: find.byKey(const ValueKey('kcal-meals-today-card')),
-        matching: find.text('Verlauf'),
+        matching: find.byKey(const ValueKey('food-slot-empty-breakfast')),
       );
       expect(verlauf, findsOneWidget);
       expect(
@@ -303,14 +302,14 @@ void main() {
     );
   });
 
-  testWidgets('Der Block traegt weiterhin die Ueberschrift „Verlauf"',
+  testWidgets('Der erste Mahlzeitenbereich bleibt direkt auffindbar',
       (tester) async {
     await _pumpFoodTab(tester);
 
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('kcal-meals-today-card')),
-        matching: find.text('Verlauf'),
+        matching: find.byKey(const ValueKey('food-slot-empty-breakfast')),
       ),
       findsOneWidget,
     );
@@ -336,7 +335,9 @@ void main() {
       dailyConsumedKcal: 320,
     );
 
-    expect(find.text('320 kcal · 1 Eintrag'), findsOneWidget);
+    expect(find.text('Haferbrei'), findsOneWidget);
+    expect(find.text('320'), findsNWidgets(2));
+    await expandFoodEntries(tester);
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget);
     expect(find.text('Noch nichts geloggt'), findsNWidgets(3));
   });
@@ -349,6 +350,8 @@ void main() {
     );
 
     expect(find.byKey(const ValueKey('topbar-trends')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('food-options')));
+    await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('topbar-settings')), findsOneWidget);
     expect(find.byKey(const ValueKey('topbar-profile')), findsOneWidget);
   });

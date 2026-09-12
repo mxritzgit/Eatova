@@ -65,8 +65,8 @@ void main() {
       expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
       expect(find.byKey(const ValueKey('kcal-page-fill')), findsOneWidget);
       expect(find.byKey(const ValueKey('food-date-strip')), findsOneWidget);
-      expect(find.byKey(const ValueKey('food-date-chip-0')), findsOneWidget);
-      expect(find.byKey(const ValueKey('food-date-chip-3')), findsOneWidget);
+      expect(find.byKey(const ValueKey('food-date-selected-label')), findsOneWidget);
+      expect(find.byKey(const ValueKey('food-date-calendar')), findsOneWidget);
       // The calorie card was removed from the Food tab; the pin now asserts its
       // ABSENCE and that the history took its place. The daily total lives in
       // the Heute tab (`today-kcal-hero`, pinned above).

@@ -13,7 +13,6 @@ import '../models/user_profile.dart';
 import '../config/search_config.dart';
 import '../services/day_math.dart';
 import '../services/fallback_product_service.dart';
-import '../services/kcal_format.dart';
 import '../services/meal_analyzer.dart';
 import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_input.dart';
@@ -25,23 +24,17 @@ import '../services/trend_service.dart';
 import '../theme/app_tokens.dart';
 import '../theme/meal_slot_style.dart';
 import '../widgets/common/app_snack.dart';
-import '../widgets/common/motion.dart';
 import '../widgets/design/design.dart';
 import '../widgets/kcal/add_meal_sheet.dart';
 import '../widgets/kcal/diary_meal_card.dart';
+import '../widgets/kcal/food_page_chrome.dart';
 import '../widgets/kcal/manual_meal_sheet.dart';
 import '../widgets/kcal/meal_analysis_sheet.dart';
 import '../widgets/kcal/meal_scan_preview_sheet.dart';
 import 'barcode_scanner_sheet.dart';
 import 'trends_screen.dart';
 
-/// The Food tab: header, date strip, search launcher with barcode/AI scan and
-/// the diary with its four slot cards.
-///
-/// No calorie card: the `DailySummaryCard` repeated what the Heute tab already
-/// shows and pushed the diary — this tab's actual job — below the fold on an
-/// 852 px screen. The consumed kcal of the shown day stay visible as a small
-/// forest tile in the header ([_KcalTile]).
+/// The Food diary: day navigation, expandable meal sections and a capture dock.
 class MealAnalysisScreen extends StatelessWidget {
   MealAnalysisScreen({
     super.key,
@@ -55,9 +48,6 @@ class MealAnalysisScreen extends StatelessWidget {
     this.loggedMeals = const <LoggedMeal>[],
     DateTime? selectedDate,
     ValueChanged<DateTime>? onDateSelected,
-    // 30 days reachable via chips, older ones via the calendar. Stays under
-    // MealsSync's 35-day boot window, so chips always hit loaded days.
-    this.visiblePastDays = 30,
     this.dayLoading = false,
     String Function(MealAnalysisResult, MealSlot)? onAddMeal,
     void Function(String id, MealAnalysisResult scaled)? onUpdateMeal,
@@ -111,7 +101,6 @@ class MealAnalysisScreen extends StatelessWidget {
   final List<FavoriteMeal> favorites;
   final List<LoggedMeal> loggedMeals;
 
-
   /// External request to open the add sheet for a slot, set by the Heute tab.
   ///
   /// A [ValueNotifier], not a plain parameter: the shell caches tab widgets by
@@ -122,7 +111,6 @@ class MealAnalysisScreen extends StatelessWidget {
 
   final DateTime selectedDate;
   final ValueChanged<DateTime> onDateSelected;
-  final int visiblePastDays;
 
   /// True while a calendar-picked day outside the 35-day window loads; the
   /// diary then shows a spinner instead of a falsely empty day.
@@ -138,8 +126,7 @@ class MealAnalysisScreen extends StatelessWidget {
   final ValueChanged<String> onRemoveFavorite;
   final ValueChanged<String> onRemoveMeal;
 
-  /// Entry to settings sheet and profile screen; the Food header is the only
-  /// way in. Null (preview/test) hides the icons.
+  /// Entries in the Food header's overflow menu; null hides the respective item.
   final VoidCallback? onSettingsPressed;
   final VoidCallback? onProfilePressed;
   final String? profileInitial;
@@ -226,12 +213,22 @@ class MealAnalysisScreen extends StatelessWidget {
     }
   }
 
-  /// "Enter manually" from a failed scan: the form builds the result, this
-  /// logs it into [slot] with the same 0-kcal guard and success toast as
-  /// `AddMealSheet._handleAdd`.
-  Future<void> _manualEntryFor(BuildContext context, MealSlot slot) async {
-    final result = await showManualMealSheet(context);
-    if (result == null || !context.mounted) return;
+  /// Manual capture or scan fallback. The dock offers a slot choice; both
+  /// paths preserve the explicit-confirmation and zero-calorie guards.
+  Future<void> _manualEntryFor(
+    BuildContext context,
+    MealSlot slot, {
+    bool chooseSlot = false,
+  }) async {
+    final identity = MealScanIdentity();
+    var selectedSlot = slot;
+    final result = await showManualMealSheet(
+      context,
+      initialSlot: chooseSlot ? slot : null,
+      onSlotChanged: (slot) => selectedSlot = slot,
+      contextLabel: foodHeaderDateLabel(selectedDate, context.l10n),
+    );
+    if (result == null || !context.mounted || !identity.isCurrent) return;
     final l10n = context.l10n;
     if (result.caloriesKcal <= 0 && !result.explicitZeroKcal) {
       showAppSnack(
@@ -243,10 +240,10 @@ class MealAnalysisScreen extends StatelessWidget {
       );
       return;
     }
-    onAddMeal(result, slot);
+    onAddMeal(result, selectedSlot);
     showAppSnack(
       context,
-      l10n.commonKcalAddedToSlot(result.caloriesKcal, slot.label(l10n)),
+      l10n.commonKcalAddedToSlot(result.caloriesKcal, selectedSlot.label(l10n)),
       icon: Icons.check_circle_rounded,
     );
   }
@@ -327,106 +324,166 @@ class MealAnalysisScreen extends StatelessWidget {
     return map;
   }
 
+  Future<void> _selectDate(BuildContext context) async {
+    // This screen context survives relocation of the visible date controls.
+    final today = DateUtils.dateOnly(clock.now());
+    final first = DateTime(today.year - 2, today.month, today.day);
+    final initial = selectedDate.isBefore(first)
+        ? first
+        : (selectedDate.isAfter(today) ? today : selectedDate);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: first,
+      lastDate: today,
+      helpText: context.l10n.foodDatePickerHelpText,
+    );
+    if (picked != null && context.mounted) onDateSelected(picked);
+  }
+
+  Future<void> _openOptions(BuildContext context, BuildContext anchor) async {
+    final box = anchor.findRenderObject()! as RenderBox;
+    final overlay =
+        Navigator.of(context).overlay!.context.findRenderObject()! as RenderBox;
+    final position = RelativeRect.fromRect(
+      Rect.fromPoints(
+        box.localToGlobal(Offset.zero, ancestor: overlay),
+        box.localToGlobal(box.size.bottomRight(Offset.zero), ancestor: overlay),
+      ),
+      Offset.zero & overlay.size,
+    );
+    final l10n = context.l10n;
+    // Complete from the screen, even if resizing relocates the menu anchor.
+    final action = await showMenu<VoidCallback>(
+      context: context,
+      position: position,
+      items: [
+        if (onProfilePressed != null)
+          PopupMenuItem(
+            key: const ValueKey('topbar-profile'),
+            value: onProfilePressed,
+            child: Text(l10n.todaySemanticsOpenProfile),
+          ),
+        if (onSettingsPressed != null)
+          PopupMenuItem(
+            key: const ValueKey('topbar-settings'),
+            value: onSettingsPressed,
+            child: Text(l10n.foodSemanticsSettings),
+          ),
+      ],
+    );
+    if (context.mounted) action?.call();
+  }
+
   @override
   Widget build(BuildContext context) {
+    final bySlot = _entriesBySlot();
+    final pageHeader = Column(
+      children: [
+        FoodPageHeader(
+          consumedKcal: dailyConsumedKcal,
+          loading: dayLoading,
+          onTrends: () => _openTrends(context),
+          onOptions: onSettingsPressed == null && onProfilePressed == null
+              ? null
+              : (anchor) => _openOptions(context, anchor),
+        ),
+        FoodDayNavigation(
+          day: selectedDate,
+          label: foodHeaderDateLabel(selectedDate, context.l10n),
+          onSelected: onDateSelected,
+          onCalendar: () => _selectDate(context),
+        ),
+      ],
+    );
+    final diary = dayLoading
+        ? const _DayLoadingCard()
+        : SlidableAutoCloseBehavior(
+            child: Column(
+              key: const ValueKey('kcal-meals-today-card'),
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Column(
+                  key: const ValueKey('food-history'),
+                  children: [
+                    for (final slot in MealSlot.values)
+                      DiaryMealCard(
+                        key: ValueKey(
+                          'food-slot-${selectedDate.toIso8601String()}-${slot.name}',
+                        ),
+                        slot: slot,
+                        entries: bySlot[slot]!,
+                        onAddToSlot: (s) => _openAddSheet(context, s),
+                        onMealTap: (s) => _openAddSheet(context, s),
+                        onRemoveMeal: onRemoveMeal,
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          );
+    final dock = FoodEntryDock(
+      enabled: !dayLoading,
+      onSearch: () =>
+          _openAddSheet(context, currentMealSlot(), searchMode: true),
+      onCamera: () => _scanWithCamera(context),
+      onBarcode: () => _scanBarcode(context),
+      onManual: () =>
+          _manualEntryFor(context, currentMealSlot(), chooseSlot: true),
+    );
     return LayoutBuilder(
       builder: (context, constraints) {
-        final l10n = context.l10n;
-        final boundedHeight = constraints.hasBoundedHeight;
-        final bySlot = _entriesBySlot();
-        final tagLeer = bySlot.values.every((e) => e.isEmpty);
-
-        final children = <Widget>[
-          _KcalHeader(
-            selectedDate: selectedDate,
-            consumedKcal: dailyConsumedKcal,
-            onTrendsPressed: () => _openTrends(context),
-            onSettingsPressed: onSettingsPressed,
-            onProfilePressed: onProfilePressed,
-            profileInitial: profileInitial,
-          ),
-          const SizedBox(height: 14),
-          _FoodDateStrip(
-            selectedDate: selectedDate,
-            pastDays: visiblePastDays,
-            onSelected: onDateSelected,
-          ),
-          const SizedBox(height: 12),
-          // Search launcher + quick chips. No entrance animation, so they stay
-          // reliably hit-testable in widget tests.
-          _FoodAddBlock(
-            onSearch: () =>
-                _openAddSheet(context, currentMealSlot(), searchMode: true),
-            onBarcode: () => _scanBarcode(context),
-            onAiScan: () => _scanWithCamera(context),
-          ),
-          // The DailySummaryCard used to sit here; the day balance now lives
-          // in the Heute tab (see class comment).
-          const SizedBox(height: 14),
-          if (dayLoading)
-            const _DayLoadingCard()
-          else
-            // Built eagerly (Column, not ListView): finders walk the element
-            // tree, and in a lazy list the lower slot cards would not exist.
-            SlidableAutoCloseBehavior(
-              child: Column(
-                key: const ValueKey('kcal-meals-today-card'),
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  // The section keeps its name: DESIGN_REFACTOR §6 pins the
-                  // wording, a redesign is not a rename.
-                  SectionHeading(title: l10n.foodSectionHistoryTitle),
-                  const SizedBox(height: 12),
-                  Column(
-                    key: const ValueKey('food-history'),
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      for (final slot in MealSlot.values) ...<Widget>[
-                        DiaryMealCard(
-                          slot: slot,
-                          entries: bySlot[slot]!,
-                          onAddToSlot: (s) => _openAddSheet(context, s),
-                          onMealTap: (s) => _openAddSheet(context, s),
-                          onRemoveMeal: onRemoveMeal,
-                        ),
-                        if (slot != MealSlot.values.last)
-                          const SizedBox(height: 12),
-                      ],
+        // Large text and short landscape windows need the whole page to scroll.
+        final pinned =
+            constraints.hasBoundedHeight &&
+            constraints.maxWidth >= 340 &&
+            constraints.maxHeight >= 560 &&
+            MediaQuery.textScalerOf(context).scale(14) <= 20;
+        final content = Padding(
+          key: const ValueKey('food-diary-content'),
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: diary,
+        );
+        // Keep the scrollable and diary at the same element paths when the
+        // keyboard or rotation changes available space, even in a hidden tab.
+        final body = Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            pinned ? pageHeader : const SizedBox.shrink(),
+            Flexible(
+              key: const ValueKey('food-scroll-region'),
+              fit: pinned ? FlexFit.tight : FlexFit.loose,
+              child: ColoredBox(
+                color: context.t.surf,
+                child: SingleChildScrollView(
+                  key: const ValueKey('food-diary-scroll'),
+                  child: Column(
+                    children: [
+                      pinned ? const SizedBox.shrink() : pageHeader,
+                      content,
+                      const SizedBox(height: 20),
+                      pinned ? const SizedBox.shrink() : dock,
                     ],
                   ),
-                  if (tagLeer) ...<Widget>[
-                    const SizedBox(height: 14),
-                    const _DiaryDayHint(),
-                  ],
-                ],
+                ),
               ),
             ),
-        ];
-
-        final column = Column(
-          key: const ValueKey('screen-kcal-tracker'),
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: children,
+            pinned ? dock : const SizedBox.shrink(),
+          ],
         );
-
         return SizedBox(
           key: const ValueKey('kcal-page-fill'),
-          height: boundedHeight ? constraints.maxHeight : null,
-          // Without a bounded height a scroll view would grow forever; the
-          // same Column then renders unscrolled.
+          height: constraints.hasBoundedHeight ? constraints.maxHeight : null,
           child: _SlotRequestListener(
             request: addSlotRequest,
             onSlot: (listenerContext, slot) =>
                 _openAddSheet(listenerContext, slot),
-            child: boundedHeight
-                ? SingleChildScrollView(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: column,
-                  )
-                : column,
+            child: KeyedSubtree(
+              key: const ValueKey('screen-kcal-tracker'),
+              // A new date starts at the first meal, not at the old scroll offset.
+              child: KeyedSubtree(key: ValueKey(selectedDate), child: body),
+            ),
           ),
         );
       },
@@ -491,203 +548,6 @@ class _SlotRequestListenerState extends State<_SlotRequestListener> {
   Widget build(BuildContext context) => widget.child;
 }
 
-/// Hint for a day without any entry, shown once below the four slot cards.
-class _DiaryDayHint extends StatelessWidget {
-  const _DiaryDayHint();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text(
-        context.l10n.foodDiaryEmptyHint,
-        textAlign: TextAlign.center,
-        style: AppType.ui(12, color: context.t.ink2, height: 1.3),
-      ),
-    );
-  }
-}
-
-/// Add block: read-only search launcher plus two quick chips. No entrance
-/// opacity/transform, so it stays hit-testable.
-class _FoodAddBlock extends StatelessWidget {
-  const _FoodAddBlock({
-    required this.onSearch,
-    required this.onBarcode,
-    required this.onAiScan,
-  });
-
-  final VoidCallback onSearch;
-  final VoidCallback onBarcode;
-  final VoidCallback onAiScan;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _FoodSearchBar(onTap: onSearch),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: _FoodQuickChip(
-                key: const ValueKey('food-action-barcode'),
-                icon: Icons.qr_code_scanner_rounded,
-                label: l10n.foodActionBarcode,
-                filled: false,
-                onTap: onBarcode,
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _FoodQuickChip(
-                key: const ValueKey('food-action-ai'),
-                icon: Icons.photo_camera_outlined,
-                label: l10n.foodActionAiScan,
-                filled: true,
-                onTap: onAiScan,
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-/// Read-only search launcher (NOT a real TextField) that opens the add sheet.
-/// A real field here would open the keyboard instead; the actual input stays
-/// `kcal-product-search-input`.
-class _FoodSearchBar extends StatelessWidget {
-  const _FoodSearchBar({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    // A11y: it looks like a text field but is a button, so mark it as one;
-    // the visible placeholder provides the label.
-    return Semantics(
-      button: true,
-      child: Material(
-        color: t.surf,
-        borderRadius: BorderRadius.circular(16),
-        child: InkWell(
-          key: const ValueKey('food-search'),
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
-          child: Container(
-            constraints: const BoxConstraints(minHeight: 48),
-            padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 12),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: t.line),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.search_rounded, size: 18, color: t.ink2),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    // Wording unchanged: search finds products AND own meals,
-                    // and a redesign is not a rename (§6).
-                    context.l10n.foodSearchPlaceholder,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppType.ui(14, color: t.ink2),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Quick chip for barcode and AI scan.
-///
-/// Deliberately not [FilterChipPill]: the shared chip sets no `maxLines`, and
-/// `food_tab_layout_test` expects exactly one text descendant with
-/// `maxLines == 1`. Its COLOURS are the shared ones all the same — see the
-/// note on [filled].
-class _FoodQuickChip extends StatelessWidget {
-  const _FoodQuickChip({
-    super.key,
-    required this.icon,
-    required this.label,
-    required this.filled,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-
-  /// Static emphasis (AI scan yes, barcode no), NOT a selection state — both
-  /// chips stay labelled, so this is no 1.4.11 case. It was painted in
-  /// `forest` on a `surf` neighbour all the same, which is mode-asymmetric:
-  /// 13.57:1 in light mode, 1.34:1 in dark, where the emphasis simply was not
-  /// there. [SelectionTone] is the app's one answer to that pairing, so the
-  /// chip speaks it too — `ink`/`bg` carry 16.78:1 (hell) / 14.93:1 (dunkel)
-  /// against the neighbour. The lime glyph goes with it: on the `ink` fill it
-  /// would be 1.31:1 in dark mode.
-  final bool filled;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final fg = filled ? t.onSelected : t.ink2;
-    return Semantics(
-      button: true,
-      child: Material(
-        color: filled ? t.selectedFill : t.surf,
-        borderRadius: BorderRadius.circular(rChip),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(rChip),
-          child: Container(
-            constraints: const BoxConstraints(minHeight: 44),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(rChip),
-              // Ring in the fill colour rather than transparent, like
-              // [FilterChipPill]: same pixels, but the geometry no longer
-              // depends on the state.
-              border: Border.all(
-                color: filled ? t.selectedFill : t.line,
-              ),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(icon, size: 17, color: fg),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppType.ui(
-                      13,
-                      weight: filled ? FontWeight.w700 : FontWeight.w600,
-                      color: fg,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// One-time init of the `intl` date symbols. The screen rebuilds on every
 /// HomeStore change, so without this guard `initializeDateFormatting()` would
 /// rebuild its large CLDR table each time.
@@ -698,196 +558,14 @@ void _ensureDateSymbols() {
   _dateSymbolsReady = true;
 }
 
-/// Spelled-out date as the page subtitle, via `intl`'s `MMMMEEEEd` skeleton.
-///
-/// Deliberately not the relative label: `food-date-selected-label` already
-/// carries that, and tests count it exactly once.
+/// The selected diary date; archived years stay unambiguous.
 @visibleForTesting
 String foodHeaderDateLabel(DateTime date, AppLocalizations l10n) {
   _ensureDateSymbols();
+  if (date.year != clock.now().year) {
+    return DateFormat.yMMMMEEEEd(l10n.localeName).format(date);
+  }
   return DateFormat.MMMMEEEEd(l10n.localeName).format(date);
-}
-
-class _KcalHeader extends StatelessWidget {
-  const _KcalHeader({
-    required this.selectedDate,
-    required this.consumedKcal,
-    required this.onTrendsPressed,
-    this.onSettingsPressed,
-    this.onProfilePressed,
-    this.profileInitial,
-  });
-
-  final DateTime selectedDate;
-  final int consumedKcal;
-
-  /// Entry to the trends view. Always visible: that page does not depend on
-  /// the store, it loads on its own.
-  final VoidCallback onTrendsPressed;
-  final VoidCallback? onSettingsPressed;
-  final VoidCallback? onProfilePressed;
-  final String? profileInitial;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            SquareIconButton(
-              key: const ValueKey('topbar-trends'),
-              icon: Icons.insights_rounded,
-              onTap: onTrendsPressed,
-              semanticLabel: l10n.foodSemanticsTrends,
-            ),
-            if (onSettingsPressed != null) ...[
-              const SizedBox(width: 8),
-              SquareIconButton(
-                key: const ValueKey('topbar-settings'),
-                // Gear, not slider: this button leads to settings (account,
-                // display, data), not to the goal input.
-                icon: Icons.settings_outlined,
-                onTap: onSettingsPressed,
-                semanticLabel: l10n.foodSemanticsSettings,
-              ),
-            ],
-            if (onProfilePressed != null) ...[
-              const SizedBox(width: 8),
-              _ProfileBadge(initial: profileInitial, onTap: onProfilePressed!),
-            ],
-          ],
-        ),
-        const SizedBox(height: 10),
-        ScreenTitle(
-          title: l10n.foodTitle,
-          subtitle: foodHeaderDateLabel(selectedDate, l10n),
-          trailing: _KcalTile(
-            kcal: consumedKcal,
-            isToday: DateUtils.isSameDay(selectedDate, clock.now()),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-/// The forest tile on the right of the header. Number and label are two
-/// separate texts, because `flows/food_scan_flow_test` counts a combined
-/// "N kcal" exactly once.
-class _KcalTile extends StatelessWidget {
-  const _KcalTile({required this.kcal, required this.isToday});
-
-  final int kcal;
-  final bool isToday;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final l10n = context.l10n;
-    return Container(
-      decoration: BoxDecoration(
-        color: t.forest,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            formatThousands(kcal, l10n.localeName),
-            style: AppType.display(
-              20,
-              weight: FontWeight.w700,
-              color: t.onForest,
-              height: 1,
-            ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            // The tab shows any of the last 30 days, so a "today" label would
-            // be wrong on an archived day.
-            isToday ? l10n.foodKcalTodayLabel : l10n.foodKcalOnDayLabel,
-            style: AppType.ui(
-              9.5,
-              weight: FontWeight.w500,
-              color: t.lime,
-              letterSpacing: 0.6,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Compact profile entry: soft brand capsule with an initial.
-class _ProfileBadge extends StatelessWidget {
-  const _ProfileBadge({required this.onTap, this.initial});
-
-  /// Side length at text scale 1.0.
-  static const double _seiteBasis = 34;
-
-  /// Upper bound: past this the badge crowds the rest of the top bar, and the
-  /// 13 pt initial already fits with room to spare.
-  static const double _seiteMax = 48;
-
-  /// 11/34 — keeps the original corner softness at every size.
-  static const double _radiusAnteil = 11 / _seiteBasis;
-
-  final VoidCallback onTap;
-  final String? initial;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final showInitial = initial != null && initial!.isNotEmpty;
-    // The capsule GROWS with the font instead of clipping the letter. At 34 px
-    // fixed, a 13 pt initial at 200 % system font needs 38 px and lost roughly
-    // two pixels of ascender and descender (found 2026-09-01 by the text-scale
-    // sweep, which had to carve out an exception for exactly this widget).
-    // Capped at 48: beyond that the top bar starts pushing its neighbours
-    // around, and the letter fits comfortably by then.
-    final skala = MediaQuery.textScalerOf(context);
-    final seite = skala.scale(_seiteBasis).clamp(_seiteBasis, _seiteMax);
-    // Keep the corner proportional, or a grown capsule reads as a square.
-    final radius = seite * _radiusAnteil;
-    // A11y: the capsule shows only an initial/icon, so it needs a label.
-    return Semantics(
-      button: true,
-      // Shares `todaySemanticsOpenProfile`: both tabs open the same profile,
-      // an own key would duplicate the string in the ARB.
-      label: context.l10n.todaySemanticsOpenProfile,
-      child: Material(
-        key: const ValueKey('topbar-profile'),
-        color: t.forest,
-        borderRadius: BorderRadius.circular(radius),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(radius),
-          child: Container(
-            width: seite,
-            height: seite,
-            alignment: Alignment.center,
-            child: showInitial
-                ? Text(
-                    initial!,
-                    style: AppType.display(
-                      13,
-                      weight: FontWeight.w700,
-                      color: t.lime,
-                    ),
-                  )
-                : Icon(Icons.person_rounded, color: t.lime, size: 17),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -948,331 +626,6 @@ String foodDateSelectedLabel(
   return l10n.todayDateDaysAgo(offset);
 }
 
-class _FoodDateStrip extends StatefulWidget {
-  const _FoodDateStrip({
-    required this.selectedDate,
-    required this.pastDays,
-    required this.onSelected,
-  });
-
-  final DateTime selectedDate;
-  final int pastDays;
-  final ValueChanged<DateTime> onSelected;
-
-  @override
-  State<_FoodDateStrip> createState() => _FoodDateStripState();
-}
-
-class _FoodDateStripState extends State<_FoodDateStrip> {
-  static const double _chipWidth = 66;
-  static const double _chipGap = 6;
-
-  final ScrollController _scroll = ScrollController();
-
-  @override
-  void initState() {
-    super.initState();
-    // Make the selection visible on build (e.g. restore on an older day).
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToSelected());
-  }
-
-  @override
-  void didUpdateWidget(covariant _FoodDateStrip oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!DateUtils.isSameDay(oldWidget.selectedDate, widget.selectedDate)) {
-      // The selected day scrolls itself into view; otherwise focus jumped
-      // back to the calendar button and the selection stayed invisible.
-      _scrollToSelected();
-    }
-  }
-
-  @override
-  void dispose() {
-    _scroll.dispose();
-    super.dispose();
-  }
-
-  void _scrollToSelected() {
-    if (!mounted || !_scroll.hasClients) return;
-    final today = DateUtils.dateOnly(clock.now());
-    final selected = DateUtils.dateOnly(widget.selectedDate);
-    final index = daysBetween(today, selected);
-    // Beyond the chips the archive chip sits at the start of the list.
-    final ziel = (index < 0 || index > widget.pastDays)
-        ? 0.0
-        : (index * (_chipWidth + _chipGap) - 2 * _chipWidth)
-            .clamp(0.0, _scroll.position.maxScrollExtent);
-    final dauer = motionDuration(context, const Duration(milliseconds: 260));
-    // No `animateTo(..., Duration.zero)`: DrivenScrollActivity asserts on it
-    // in debug builds. With reduced motion the strip jumps instead.
-    if (dauer == Duration.zero) {
-      _scroll.jumpTo(ziel);
-      return;
-    }
-    _scroll.animateTo(ziel, duration: dauer, curve: Curves.easeOutCubic);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    final today = DateUtils.dateOnly(clock.now());
-    final selected = DateUtils.dateOnly(widget.selectedDate);
-    // Descending (today first): with 31 scrollable chips the relevant edge
-    // must lead. Chip index == day offset (chip-0 = today).
-    final days = foodDateStripDays(today: today, pastDays: widget.pastDays)
-        .reversed
-        .toList(growable: false);
-    final imStreifen = days.any((d) => DateUtils.isSameDay(d, selected));
-
-    // No enclosing card: the chips carry their own shape. The headline names
-    // the selected day and the calendar button stays fixed, so the selection
-    // is always visible.
-    return Column(
-      key: const ValueKey('food-date-strip'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(2, 0, 2, 8),
-          child: Row(
-            children: [
-              Icon(
-                Icons.calendar_today_rounded,
-                size: 12,
-                color: context.t.ink2,
-              ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  foodDateSelectedLabel(today, selected, l10n),
-                  key: const ValueKey('food-date-selected-label'),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppType.ui(
-                    12,
-                    weight: FontWeight.w600,
-                    color: context.t.ink2,
-                    letterSpacing: 0.1,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        SizedBox(
-          // Grow with the system font size (a11y up to 200 %): a fixed
-          // ListView height would overflow at textScale 2.0.
-          height: 52 *
-              (MediaQuery.textScalerOf(context).scale(12) / 12)
-                  .clamp(1.0, 2.0),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(
-                child: ListView.separated(
-                  controller: _scroll,
-                  scrollDirection: Axis.horizontal,
-                  // A selection beyond the 30 days appears as a full-width
-                  // chip at the start, not as a wide pill next to the
-                  // calendar button that stole space from the other chips.
-                  itemCount: days.length + (imStreifen ? 0 : 1),
-                  separatorBuilder: (_, __) => const SizedBox(width: _chipGap),
-                  itemBuilder: (context, index) {
-                    if (!imStreifen && index == 0) {
-                      return SizedBox(
-                        width: _chipWidth,
-                        child: _FoodDateChip(
-                          key: const ValueKey('food-date-chip-archive'),
-                          date: selected,
-                          // Headline: the year if it is not the current one,
-                          // otherwise the weekday like any chip.
-                          label: selected.year == today.year
-                              ? foodDateChipLabel(today, selected, l10n)
-                              : '${selected.year}',
-                          selected: true,
-                          onTap: () => _pickFromCalendar(context),
-                        ),
-                      );
-                    }
-                    final tagIndex = imStreifen ? index : index - 1;
-                    return SizedBox(
-                      width: _chipWidth,
-                      child: _FoodDateChip(
-                        key: ValueKey('food-date-chip-$tagIndex'),
-                        date: days[tagIndex],
-                        label: foodDateChipLabel(today, days[tagIndex], l10n),
-                        selected:
-                            DateUtils.isSameDay(days[tagIndex], selected),
-                        onTap: () => widget.onSelected(days[tagIndex]),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(width: _chipGap),
-              _CalendarDayButton(
-                key: const ValueKey('food-date-calendar'),
-                selected: !imStreifen,
-                onTap: () => _pickFromCalendar(context),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// Calendar access to days beyond the chips. The dialog renders in the
-  /// active app language, and the selection runs through the same [onSelected]
-  /// path as the chips, including on-demand loading in the store.
-  Future<void> _pickFromCalendar(BuildContext context) async {
-    final today = DateUtils.dateOnly(clock.now());
-    final firstDate = DateTime(today.year - 2, today.month, today.day);
-    final selectedDay = DateUtils.dateOnly(widget.selectedDate);
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: selectedDay.isBefore(firstDate) ? firstDate : selectedDay,
-      firstDate: firstDate,
-      lastDate: today,
-      helpText: context.l10n.foodDatePickerHelpText,
-    );
-    if (picked != null) widget.onSelected(picked);
-  }
-}
-
-class _FoodDateChip extends StatelessWidget {
-  const _FoodDateChip({
-    super.key,
-    required this.date,
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final DateTime date;
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    // A11y: announce the chip as a button carrying a selection state.
-    return Semantics(
-      button: true,
-      selected: selected,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(rChip),
-        child: AnimatedContainer(
-          duration: motionDuration(context, const Duration(milliseconds: 160)),
-          curve: Curves.easeOut,
-          // Tight vertical padding: the 1 px border costs 2 px and the strip
-          // is pinned to 52 px (chip geometry 66/6 feeds _scrollToSelected).
-          padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 4),
-          // [SelectionTone], like every other chip in the app: the selected
-          // day fills with `ink` and labels in `bg`. As `forest`/`onForest`
-          // the picked day sat at 1.33:1 on `surf` in dark mode and its number
-          // at 1.04:1 against an unpicked one — the state was invisible there
-          // while looking correct in light mode (P9-02c).
-          decoration: BoxDecoration(
-            color: selected ? t.selectedFill : t.surf,
-            borderRadius: BorderRadius.circular(rChip),
-            // Ring in the fill colour instead of transparent: same pixels,
-            // but the geometry no longer depends on the state.
-            border: Border.all(color: selected ? t.selectedFill : t.line),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // The weekday recedes and the date leads. On the selected chip
-              // the hierarchy comes from OPACITY, not from a second hue:
-              // `lime` on the `ink` fill would be 1.07:1 in dark mode.
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppType.ui(
-                  10.5,
-                  weight: FontWeight.w700,
-                  color: selected
-                      ? t.onSelected.withValues(alpha: 0.78)
-                      : t.ink2,
-                  letterSpacing: 0.1,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                // Locale-aware ("27.8." / "8/27"), same as the store's snack.
-                foodDateChipDate(date: date, l10n: context.l10n),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppType.display(
-                  11.5,
-                  weight: FontWeight.w700,
-                  color: selected ? t.onSelected : t.ink,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Square calendar button at the end of the date chips: opens showDatePicker
-/// for days beyond the strip. Same shape language as the chips; [selected]
-/// fills it like an active chip.
-class _CalendarDayButton extends StatelessWidget {
-  const _CalendarDayButton({
-    super.key,
-    required this.selected,
-    required this.onTap,
-  });
-
-  /// True when the selection lies beyond the chips; the button then colors
-  /// like an active chip while the archive chip shows the date itself.
-  final bool selected;
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    // A11y: icon-only button, silent for screen readers without a label.
-    return Semantics(
-      button: true,
-      selected: selected,
-      label: context.l10n.foodCalendarButtonSemantics,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(rChip),
-        child: AnimatedContainer(
-          duration: motionDuration(context, const Duration(milliseconds: 160)),
-          curve: Curves.easeOut,
-          width: 44,
-          alignment: Alignment.center,
-          // Same [SelectionTone] as the chips it stands next to — it fills
-          // like an active chip, so it has to fill in the same language.
-          decoration: BoxDecoration(
-            color: selected ? t.selectedFill : t.surf,
-            borderRadius: BorderRadius.circular(rChip),
-            border: Border.all(color: selected ? t.selectedFill : t.line),
-          ),
-          child: Icon(
-            Icons.calendar_month_rounded,
-            size: 18,
-            // Not `lime`: on the `ink` fill that is 1.07:1 in dark mode, and
-            // the glyph is the only thing inside this button.
-            color: selected ? t.onSelected : t.ink2,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// Loading state of the diary while an older day loads on demand: exactly one
 /// spinner replacing the whole diary block, not individual cards.
 class _DayLoadingCard extends StatelessWidget {
@@ -1292,10 +645,7 @@ class _DayLoadingCard extends StatelessWidget {
           SizedBox(
             width: 22,
             height: 22,
-            child: CircularProgressIndicator(
-              strokeWidth: 2.4,
-              color: t.accent,
-            ),
+            child: CircularProgressIndicator(strokeWidth: 2.4, color: t.accent),
           ),
           const SizedBox(height: 10),
           Text(

@@ -747,3 +747,23 @@ native keyboard and physical iOS verification are explicitly not established.
 The branch is `fix/gesture-navigation`, based on main `198b74b` (favorites PR #80).
 The user authorized push and protected-main merge after green CI. This change
 requires a new client build, with no backend, schema or dependency rollout.
+
+## Food Thumb First design, 2026-09-12
+
+The user selected Food concept 09, Thumb First, and asked for an implementation
+that remains readable with ten entries in one meal. Open pastel meal sections
+now show compact summaries and expand into individual entries. A lavender dock
+provides search, camera, barcode and direct manual entry; date arrows/calendar
+replace the chip strip. Favorites retain their accepted design.
+
+See [FOOD-DESIGN.md](FOOD-DESIGN.md) for the interaction contract, review fixes
+and verification. New dates reset scroll; responsive layout changes retain the
+current date's browsing state, including when another tab's keyboard resizes
+Food. Existing editing, undo, canonical date grouping and account boundaries
+remain. Review findings were reproduced with regression tests before correction.
+
+The branch is `design/food-thumb-first`, based on main `90f4b03` (gesture PR #81).
+The user authorized push and protected-main merge after green CI. Local checks:
+4,372 passing tests, 95.12% coverage, strict analysis, Android debug APK and
+clean final reviews. Delivery is recorded in the PR. This is a client change, without
+backend, schema or dependency rollout; an installed app build is separate.

@@ -553,9 +553,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         child: LivelyEntrance(
           key: ValueKey('lively-tab-$index'),
           child: Padding(
-            // Training owns its scroll gutters; other tabs retain the shell's
+            // Food and Training own their scroll gutters; other tabs retain the shell's
             // established inset even while mounted in the hidden stack.
-            padding: index == _tabTraining
+            padding: index == _tabTraining || index == _tabFood
                 ? EdgeInsets.zero
                 : const EdgeInsets.fromLTRB(20, 12, 20, 12),
             child: switch (index) {
