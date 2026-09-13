@@ -620,6 +620,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             onDateSelected: _store.setFoodDate,
             onOpenCoach: () => _store.setTab(_tabCoach),
             onOpenProfile: _openProfile,
+            onOpenSettings: _openSettings,
             onOpenMealSlot: (slot) {
               // The food tab builds lazily: set the request before it mounts.
               _addSlotRequest.value = slot;
@@ -683,9 +684,6 @@ class _EatovaHomePageState extends State<EatovaHomePage>
                 onToggleFavorite: _store.toggleFavorite,
                 onRemoveFavorite: _store.removeFavorite,
                 onRemoveMeal: _store.removeLoggedMeal,
-                onSettingsPressed: _openSettings,
-                onProfilePressed: _openProfile,
-                profileInitial: _store.profileInitial,
                 // Trends measure "goal hit" against goal + step bonus, like
                 // the Today tab (F7-05).
                 trendBurnedKcalFor: _store.burnedKcalForFoodDate,

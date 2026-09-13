@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/main.dart';
 
 import 'flow_test_helpers.dart';
+import '../support/meal_slot_picker.dart';
 
 void main() {
   testWidgetsRobust('Food add lets the user pick the meal slot, not the clock', (
@@ -29,12 +30,10 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('food-search')));
     await tester.pumpAndSettle();
 
-    // The add sheet offers a slot selector with all four slots.
+    // All destinations are available on demand, leaving capture choices clear.
     expect(find.byKey(const ValueKey('add-meal-slot-select')), findsOneWidget);
-    expect(find.byKey(const ValueKey('slot-select-breakfast')), findsOneWidget);
-    expect(find.byKey(const ValueKey('slot-select-lunch')), findsOneWidget);
-    expect(find.byKey(const ValueKey('slot-select-dinner')), findsOneWidget);
-    expect(find.byKey(const ValueKey('slot-select-snack')), findsOneWidget);
+    expect(find.byKey(const ValueKey('slot-select-open')), findsOneWidget);
+    expect(find.byKey(const ValueKey('slot-select-breakfast')), findsNothing);
 
     await tester.enterText(
       find.byKey(const ValueKey('kcal-product-search-input')),
@@ -45,7 +44,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // 1) Pick the snack slot -> the entry lands there.
-    await tester.tap(find.byKey(const ValueKey('slot-select-snack')));
+    await chooseMealSlot(tester, 'slot-select-snack');
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('kcal-product-suggestion-0')));
     await tester.pumpAndSettle();
@@ -61,7 +60,7 @@ void main() {
 
     // 2) Pick breakfast in the same sheet. Two different slots prove the
     // selector decides, not the clock heuristic (which yields one slot).
-    await tester.tap(find.byKey(const ValueKey('slot-select-breakfast')));
+    await chooseMealSlot(tester, 'slot-select-breakfast');
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('kcal-product-suggestion-0')));
     await tester.pumpAndSettle();

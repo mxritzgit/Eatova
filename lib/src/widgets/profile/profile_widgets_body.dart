@@ -27,7 +27,12 @@ class WeightCard extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        AppCard(
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: t.surf,
+            borderRadius: BorderRadius.circular(rCard),
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
@@ -108,9 +113,7 @@ class WeightCard extends StatelessWidget {
                 child: hatVerlauf
                     ? RepaintBoundary(
                         child: Sparkline(
-                          values: <double>[
-                            for (final e in entries) e.weightKg,
-                          ],
+                          values: <double>[for (final e in entries) e.weightKg],
                         ),
                       )
                     // Below two measurements the sparkline draws nothing, and
@@ -268,7 +271,7 @@ class BmiCard extends StatelessWidget {
     final bmiLabel = BMIGaugePainter.labelFor(bmi, l10n);
     final bmiColor = BMIGaugePainter.colorFor(t, bmi);
 
-    return AppCard(
+    return _ProfileSurface(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -276,7 +279,7 @@ class BmiCard extends StatelessWidget {
             children: <Widget>[
               Expanded(
                 child: Text(
-                  l10n.profileSectionBody,
+                  l10n.profileStudioBodyDetails,
                   style: AppType.display(
                     17,
                     weight: FontWeight.w700,
@@ -290,61 +293,58 @@ class BmiCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 4),
-          Center(
-            child: SizedBox(
-              width: 190,
-              height: 108,
-              // A11y: the gauge is pure CustomPaint -> announce value + zone.
-              child: Semantics(
-                label: 'BMI',
-                value: '${formatBmiDe(bmi, l10n)} · $bmiLabel',
-                child: RepaintBoundary(
-                  child: CustomPaint(
-                    painter: BMIGaugePainter.fromTokens(
-                      t,
-                      bmi,
-                      formatBmiDe(bmi, l10n),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: bmiColor.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(rControl),
-              border: Border.all(color: bmiColor.withValues(alpha: 0.32)),
-            ),
-            child: Row(
-              children: <Widget>[
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration:
-                      BoxDecoration(color: bmiColor, shape: BoxShape.circle),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    l10n.profileBmiZoneLabel(bmiLabel),
-                    style: AppType.ui(
-                      12,
-                      weight: FontWeight.w600,
-                      color: bmiColor,
-                    ),
-                  ),
-                ),
+          const SizedBox(height: 14),
+          Semantics(
+            key: const ValueKey('profile-bmi-summary'),
+            label: 'BMI',
+            value: '${formatBmiDe(bmi, l10n)} · $bmiLabel',
+            excludeSemantics: true,
+            child: Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 18,
+              runSpacing: 8,
+              children: [
                 Text(
                   formatBmiDe(bmi, l10n),
-                  style: AppType.ui(
-                    12,
-                    weight: FontWeight.w700,
-                    color: bmiColor,
-                  ),
+                  style: AppType.display(38, color: t.ink),
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'BMI',
+                      style: AppType.ui(
+                        12,
+                        weight: FontWeight.w600,
+                        color: t.ink2,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            color: bmiColor,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: Text(
+                            bmiLabel,
+                            style: AppType.ui(
+                              14,
+                              weight: FontWeight.w600,
+                              color: t.ink,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -362,7 +362,8 @@ class BmiCard extends StatelessWidget {
               ),
               _BodyMetric(
                 icon: Icons.cake_outlined,
-                label: '${l10n.profileAgeAbbreviation(profile.ageYears)} · '
+                label:
+                    '${l10n.profileAgeAbbreviation(profile.ageYears)} · '
                     '${profile.sex.label(l10n)}',
               ),
             ],

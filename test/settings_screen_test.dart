@@ -164,7 +164,7 @@ void main() {
     await pump(tester, email: null);
 
     expect(find.byKey(const ValueKey('settings-email')), findsNothing);
-    expect(find.text('KONTO'), findsNothing);
+    expect(find.text('Konto'), findsNothing);
   });
 
   // --- PREFERENCES ----------------------------------------------------------
@@ -296,7 +296,7 @@ void main() {
     // just the missing repository.
     await pump(tester, authRepository: baueRepo());
 
-    expect(find.text('GEFAHRENZONE'), findsNothing);
+    expect(find.text('Konto verwalten'), findsNothing);
     expect(find.byKey(const ValueKey('settings-delete-account')), findsNothing);
   });
 
@@ -388,7 +388,7 @@ void main() {
       onSignOut: () async {},
     );
 
-    expect(find.text('GEFAHRENZONE'), findsOneWidget);
+    expect(find.text('Konto verwalten'), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-sign-out')), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-delete-account')), findsNothing);
     expect(find.text('Konto löschen'), findsNothing);

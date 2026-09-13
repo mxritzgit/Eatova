@@ -237,15 +237,14 @@ void main() {
     // Landing point is the Today tab (index 0), not the Food tab.
     expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
 
-    // The gear lives in the Food tab's header, and the lazy IndexedStack only
-    // builds that tab on first visit — so switch there first.
+    // First mount the diary so the account save also refreshes an existing tab.
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await _drain(tester);
     expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
 
     // Open settings, set weight to 81, save. With _hydratedFromRealSource
     // true the save may run — but with the edited value, not 78.
-    await tapFoodHeaderAction(tester, 'topbar-settings');
+    await tapHomeHeaderAction(tester, 'today-settings');
     await _drain(tester);
 
     // Body data and "save" live one level deeper, on the profile & goals

@@ -10,7 +10,8 @@ accepted presentation.
 - A Food heading and calorie tile show the selected day's total. Previous/next
   arrows and the calendar replace the scrolling date chips. Other years include
   the year; future days remain unavailable. Trends open from the calorie tile;
-  profile and settings remain reachable from the header's overflow menu.
+  profile and settings open from Today. The Food overflow menu was removed in
+  the [2026-09-13 app polish](APP-POLISH-2026-09-13.md).
 - Four meal sections use pastel icons and fine separators. Empty sections open
   meal entry for their slot. Populated sections show a meal name or entry count,
   a short preview and the slot's total calories.

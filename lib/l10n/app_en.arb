@@ -2275,5 +2275,20 @@
         "type": "int"
       }
     }
-  }
+  },
+  "mealSlotPickerTitle": "Choose a meal",
+  "mealSlotPickerContext": "Add to",
+  "mealSlotPickerBreakfastHint": "To start your day",
+  "mealSlotPickerLunchHint": "For your midday break",
+  "mealSlotPickerDinnerHint": "For the evening",
+  "mealSlotPickerSnackHint": "For the moments in between",
+  "settingsStudioIntro": "Account, appearance and privacy",
+  "settingsStudioAccount": "Account",
+  "settingsStudioPreferences": "Make Eatova yours",
+  "settingsStudioPrivacy": "Data & privacy",
+  "settingsStudioSession": "Manage account",
+  "profileStudioOverview": "Your overview",
+  "profileStudioFocus": "Your goal",
+  "profileStudioActivity": "Your routine",
+  "profileStudioBodyDetails": "Body details"
 }

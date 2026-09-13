@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/eatova_app.dart';
 import 'package:eatova/src/models/logged_meal.dart';
-import 'package:eatova/src/widgets/kcal/slot_selector.dart';
+import 'package:eatova/src/widgets/kcal/meal_slot_picker.dart';
 
 // With the floating log button gone, the meal rows are the ONLY way to add an
 // entry — and the shell used to drop the slot on the way
@@ -36,10 +36,10 @@ void main() {
     expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
     expect(find.byKey(const ValueKey('add-meal-slot-select')), findsOneWidget);
     // The key sits on the padding, the selector below it.
-    final waehler = tester.widget<SlotSelector>(
+    final waehler = tester.widget<MealSlotPicker>(
       find.descendant(
         of: find.byKey(const ValueKey('add-meal-slot-select')),
-        matching: find.byType(SlotSelector),
+        matching: find.byType(MealSlotPicker),
       ),
     );
     expect(waehler.selected, MealSlot.lunch);

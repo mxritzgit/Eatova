@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -440,9 +441,20 @@ void main() {
         locale: locale,
         scale: 2,
       );
+      expect(find.byType(PageHeader), findsOneWidget);
+      expect(
+        tester.widget<Text>(find.text(
+          tester.element(find.byType(PageHeader)).l10n.trainingHistoryTitle,
+        )).style?.fontSize,
+        24,
+      );
       expect(tester.takeException(), isNull);
       await _saveImage(tester, 'history-$locale-320');
       await _tap(tester, 'training-history-${entry.id}');
+      expect(
+        tester.widget<Text>(find.text(entry.snapshot.workout.title)).style?.fontSize,
+        24,
+      );
       expect(tester.takeException(), isNull);
       await _saveImage(tester, 'history-detail-$locale-320');
       await tester.scrollUntilVisible(
@@ -459,6 +471,34 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
   }
+
+  testWidgets(
+    'history back remains disabled until an in-flight deletion completes',
+    (tester) async {
+      final deletion = Completer<SyncDelivery>();
+      await _host(
+        tester,
+        TrainingHistoryDetail(
+          entry: _entry(),
+          onDelete: (_) => deletion.future,
+        ),
+      );
+      await _tap(tester, 'training-history-delete');
+      await tester.tap(find.text('Delete workout').last);
+      await tester.pumpAndSettle();
+      final back = find.byKey(const ValueKey('training-history-detail-back'));
+      await tester.scrollUntilVisible(back, -300);
+      await tester.pumpAndSettle();
+      expect(tester.widget<SquareIconButton>(back).onTap, isNull);
+      await tester.tap(back);
+      await tester.pump();
+      expect(find.byType(TrainingHistoryDetail), findsOneWidget);
+      deletion.complete(SyncDelivery.delivered);
+      await tester.pumpAndSettle();
+      expect(find.text('Open fixture'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'history deletion failure remains retryable; dismissal changes nothing',

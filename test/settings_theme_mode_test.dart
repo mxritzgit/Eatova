@@ -85,7 +85,7 @@ void main() {
 
     await pumpSettings(tester, controller: controller);
 
-    expect(find.text('PRÄFERENZEN'), findsOneWidget);
+    expect(find.text('So passt Eatova zu dir'), findsOneWidget);
     expect(find.text('Erscheinungsbild'), findsOneWidget);
     expect(
       tester

@@ -27,8 +27,15 @@ class _FakeScannerPlatform extends MobileScannerPlatform
 
   int startCalls = 0;
   int stopCalls = 0;
+  DetectionSpeed _speed = DetectionSpeed.normal;
+  String? _lastScanned;
 
   void emit(String rawValue) {
+    // Android keeps the last non-empty result even if Dart ignores the hit.
+    if (_speed == DetectionSpeed.noDuplicates && rawValue == _lastScanned) {
+      return;
+    }
+    if (rawValue.isNotEmpty) _lastScanned = rawValue;
     _barcodes.add(
       BarcodeCapture(
         barcodes: <Barcode>[
@@ -59,6 +66,7 @@ class _FakeScannerPlatform extends MobileScannerPlatform
   @override
   Future<MobileScannerViewAttributes> start(StartOptions startOptions) async {
     startCalls += 1;
+    _speed = startOptions.detectionSpeed;
     return const MobileScannerViewAttributes(
       cameraDirection: CameraFacing.back,
       currentTorchMode: TorchState.off,
@@ -71,6 +79,7 @@ class _FakeScannerPlatform extends MobileScannerPlatform
   @override
   Future<void> stop() async {
     stopCalls += 1;
+    _lastScanned = null;
   }
 
   @override
@@ -99,8 +108,9 @@ class _Ergebnis {
 Future<void> _oeffneScannerUeberSheet(
   WidgetTester tester,
   _FakeScannerPlatform platform,
-  _Ergebnis ergebnis,
-) async {
+  _Ergebnis ergebnis, {
+  double textScale = 1,
+}) async {
   await pumpLocalized(
     tester,
     Builder(
@@ -126,6 +136,7 @@ Future<void> _oeffneScannerUeberSheet(
         child: const Text('add-sheet'),
       ),
     ),
+    textScale: textScale,
     reducedMotion: false,
     safeArea: false,
   );
@@ -141,6 +152,19 @@ Future<void> _oeffneScannerUeberSheet(
     1,
     reason: 'ohne laufenden Analyzer prueft der Rest dieser Datei nichts',
   );
+}
+
+Future<void> _fonts() async {
+  for (final family in ['Archivo', 'BricolageGrotesque']) {
+    final loader = FontLoader(family);
+    for (final weight
+        in family == 'Archivo'
+            ? ['Regular', 'Medium', 'SemiBold', 'Bold']
+            : ['Bold', 'ExtraBold']) {
+      loader.addFont(rootBundle.load('assets/fonts/$family-$weight.ttf'));
+    }
+    await loader.load();
+  }
 }
 
 void main() {
@@ -239,29 +263,25 @@ void main() {
   );
 
   testWidgets(
-    'die Slot-Chips auf dem Kamerabild entscheiden, wohin der Treffer wandert',
+    'die Mahlzeiten-Auswahl entscheidet, wohin der Treffer wandert',
     (tester) async {
       final ergebnis = _Ergebnis();
       await _oeffneScannerUeberSheet(tester, platform, ergebnis);
-
-      // All four chips sit on top of the image (finding 2026-08-22: from the
-      // Food tab button the slot was not selectable at all), with the hint
-      // moved below them instead of colliding.
+      expect(find.byKey(const ValueKey('barcode-slot-open')), findsOneWidget);
+      expect(find.byKey(const ValueKey('barcode-slot-dinner')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('barcode-slot-open')));
+      await tester.pumpAndSettle();
       for (final slot in MealSlot.values) {
-        expect(
-          find.byKey(ValueKey('barcode-slot-${slot.name}')),
-          findsOneWidget,
-          reason: slot.name,
-        );
+        expect(find.byKey(ValueKey('barcode-slot-${slot.name}')), findsOneWidget);
       }
-      final chips =
-          tester.getRect(find.byKey(const ValueKey('barcode-slot-lunch')));
-      final hinweis =
-          tester.getRect(find.byKey(const ValueKey('barcode-scanner-hint')));
-      expect(hinweis.top, greaterThanOrEqualTo(chips.bottom));
-
+      // A live detection behind the picker must not close either route.
+      platform.emit('4001234567890');
+      await tester.pumpAndSettle();
+      expect(ergebnis.geschlossen, isFalse);
+      expect(find.byKey(const ValueKey('barcode-slot-sheet')), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('barcode-slot-dinner')));
-      await tester.pump();
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 250));
 
       platform.emit('4001234567890');
       await tester.pump();
@@ -273,4 +293,30 @@ void main() {
       expect(find.byType(BarcodeScannerSheet), findsNothing);
     },
   );
+  for (final size in [const Size(320, 568), const Size(393, 852)]) {
+    testWidgets(
+      'scan controls do not overlap at double text: $size',
+      (tester) async {
+        await _fonts();
+        tester.view.physicalSize = size;
+        tester.view.devicePixelRatio = 1;
+        tester.view.viewPadding = const FakeViewPadding(top: 44, bottom: 24);
+        addTearDown(tester.view.reset);
+        await _oeffneScannerUeberSheet(
+          tester, platform, _Ergebnis(), textScale: 2,
+        );
+        final hint = tester.getRect(
+          find.byKey(const ValueKey('barcode-scanner-hint')),
+        );
+        final frame = tester.getRect(
+          find.byKey(const ValueKey('barcode-scan-frame')),
+        );
+        expect(hint.bottom, lessThanOrEqualTo(frame.top));
+        for (final key in ['barcode-slot-open', 'barcode-close-button']) {
+          expect(find.byKey(ValueKey(key)).hitTestable(), findsOneWidget);
+        }
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
 }

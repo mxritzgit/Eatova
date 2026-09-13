@@ -55,9 +55,6 @@ class MealAnalysisScreen extends StatelessWidget {
     this.onToggleFavorite,
     ValueChanged<String>? onRemoveFavorite,
     ValueChanged<String>? onRemoveMeal,
-    this.onSettingsPressed,
-    this.onProfilePressed,
-    this.profileInitial,
     this.trendTotalsLoader,
     this.trendBurnedKcalFor,
     this.addSlotRequest,
@@ -125,11 +122,6 @@ class MealAnalysisScreen extends StatelessWidget {
   final ValueChanged<MealAnalysisResult>? onToggleFavorite;
   final ValueChanged<String> onRemoveFavorite;
   final ValueChanged<String> onRemoveMeal;
-
-  /// Entries in the Food header's overflow menu; null hides the respective item.
-  final VoidCallback? onSettingsPressed;
-  final VoidCallback? onProfilePressed;
-  final String? profileInitial;
 
   /// Data loader for the trends view (test injection). Null builds a
   /// TrendService on Supabase.instance lazily when opened; the constructor
@@ -341,52 +333,16 @@ class MealAnalysisScreen extends StatelessWidget {
     if (picked != null && context.mounted) onDateSelected(picked);
   }
 
-  Future<void> _openOptions(BuildContext context, BuildContext anchor) async {
-    final box = anchor.findRenderObject()! as RenderBox;
-    final overlay =
-        Navigator.of(context).overlay!.context.findRenderObject()! as RenderBox;
-    final position = RelativeRect.fromRect(
-      Rect.fromPoints(
-        box.localToGlobal(Offset.zero, ancestor: overlay),
-        box.localToGlobal(box.size.bottomRight(Offset.zero), ancestor: overlay),
-      ),
-      Offset.zero & overlay.size,
-    );
-    final l10n = context.l10n;
-    // Complete from the screen, even if resizing relocates the menu anchor.
-    final action = await showMenu<VoidCallback>(
-      context: context,
-      position: position,
-      items: [
-        if (onProfilePressed != null)
-          PopupMenuItem(
-            key: const ValueKey('topbar-profile'),
-            value: onProfilePressed,
-            child: Text(l10n.todaySemanticsOpenProfile),
-          ),
-        if (onSettingsPressed != null)
-          PopupMenuItem(
-            key: const ValueKey('topbar-settings'),
-            value: onSettingsPressed,
-            child: Text(l10n.foodSemanticsSettings),
-          ),
-      ],
-    );
-    if (context.mounted) action?.call();
-  }
-
   @override
   Widget build(BuildContext context) {
     final bySlot = _entriesBySlot();
     final pageHeader = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         FoodPageHeader(
           consumedKcal: dailyConsumedKcal,
           loading: dayLoading,
           onTrends: () => _openTrends(context),
-          onOptions: onSettingsPressed == null && onProfilePressed == null
-              ? null
-              : (anchor) => _openOptions(context, anchor),
         ),
         FoodDayNavigation(
           day: selectedDate,

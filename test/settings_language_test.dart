@@ -76,7 +76,7 @@ void main() {
       (tester) async {
     await _pumpSettings(tester, controller: _controller(initial: const Locale('en')));
 
-    expect(find.text('PRÄFERENZEN'), findsOneWidget);
+    expect(find.text('So passt Eatova zu dir'), findsOneWidget);
     expect(find.text('Sprache'), findsOneWidget);
     expect(
       tester

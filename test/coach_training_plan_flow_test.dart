@@ -224,6 +224,7 @@ Future<void> _review(WidgetTester tester) async {
   final action = find.byKey(const ValueKey('coach-plan-review'));
   await tester.ensureVisible(action);
   await tester.pump();
+  expect(action.hitTestable(), findsOneWidget);
   await tester.tap(action);
   await _frames(tester);
 }

@@ -18,6 +18,7 @@ import 'package:eatova/src/services/open_food_facts_product_service.dart';
 import 'package:eatova/src/widgets/kcal/add_meal_sheet.dart';
 
 import 'support/harness.dart';
+import 'support/meal_slot_picker.dart';
 
 class _StummerAnalyzer implements MealAnalyzer {
   @override
@@ -257,7 +258,7 @@ void main() {
     expect(capture.slot, MealSlot.lunch);
 
     // The row moved to lunch instead of vanishing from the sheet.
-    await tester.tap(find.byKey(const ValueKey('slot-select-lunch')));
+    await chooseMealSlot(tester, 'slot-select-lunch');
     await tester.pumpAndSettle();
     expect(_zeile('Apfel'), findsOneWidget);
     expect(localDayKey(DateTime(2026, 8, 20)), '2026-08-20');

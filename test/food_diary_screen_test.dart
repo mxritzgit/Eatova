@@ -19,6 +19,7 @@ import 'package:eatova/src/theme/meal_slot_style.dart';
 import 'package:eatova/src/widgets/kcal/diary_meal_card.dart';
 
 import 'support/harness.dart';
+import 'package:eatova/src/widgets/kcal/meal_slot_picker.dart';
 
 const _resultat = MealAnalysisResult(
   mealName: 'Haferbrei',
@@ -55,8 +56,6 @@ Future<void> _pumpFoodTab(
   List<LoggedMeal> meals = const <LoggedMeal>[],
   int dailyConsumedKcal = 0,
   UserProfile profile = const UserProfile(),
-  VoidCallback? onSettingsPressed,
-  VoidCallback? onProfilePressed,
   Locale locale = const Locale('de'),
 }) async {
   pinPhoneViewport(tester);
@@ -66,8 +65,6 @@ Future<void> _pumpFoodTab(
       dailyConsumedKcal: dailyConsumedKcal,
       profile: profile,
       loggedMeals: meals,
-      onSettingsPressed: onSettingsPressed,
-      onProfilePressed: onProfilePressed,
     ),
     brightness: brightness,
     locale: locale,
@@ -197,21 +194,9 @@ void main() {
     await tester.tap(plus);
     await tester.pumpAndSettle();
 
-    // The dinner slot leads, whatever the time-of-day heuristic says.
-    bool gewaehlt(String name) => tester
-        .widget<Semantics>(
-          find
-              .ancestor(
-                of: find.byKey(ValueKey('slot-select-$name')),
-                matching: find.byType(Semantics),
-              )
-              .first,
-        )
-        .properties
-        .selected!;
-
-    expect(gewaehlt('dinner'), isTrue);
-    expect(gewaehlt('breakfast'), isFalse);
+    // The context row preserves the destination chosen in the diary.
+    final picker = tester.widget<MealSlotPicker>(find.byType(MealSlotPicker));
+    expect(picker.selected, MealSlot.dinner);
   });
 
   testWidgets('Die Kopf-Kachel trennt Zahl und Beschriftung', (tester) async {
@@ -342,25 +327,10 @@ void main() {
     expect(find.text('Noch nichts geloggt'), findsNWidgets(3));
   });
 
-  testWidgets('Die Kopf-Icons bleiben erreichbar', (tester) async {
-    await _pumpFoodTab(
-      tester,
-      onSettingsPressed: () {},
-      onProfilePressed: () {},
-    );
-
-    expect(find.byKey(const ValueKey('topbar-trends')), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('food-options')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('topbar-settings')), findsOneWidget);
-    expect(find.byKey(const ValueKey('topbar-profile')), findsOneWidget);
-  });
-
-  testWidgets('Ohne Callbacks bleiben Einstellungen und Profil verborgen',
-      (tester) async {
+  testWidgets('Food keeps trends and has no account menu', (tester) async {
     await _pumpFoodTab(tester);
-
     expect(find.byKey(const ValueKey('topbar-trends')), findsOneWidget);
+    expect(find.byKey(const ValueKey('food-options')), findsNothing);
     expect(find.byKey(const ValueKey('topbar-settings')), findsNothing);
     expect(find.byKey(const ValueKey('topbar-profile')), findsNothing);
   });

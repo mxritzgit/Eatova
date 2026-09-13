@@ -26,7 +26,7 @@ import 'package:eatova/src/app/locale_controller.dart';
 import 'package:eatova/src/screens/settings/settings_controls.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/theme/theme_mode_controller.dart';
-import 'package:eatova/src/widgets/design/design.dart';
+import 'package:eatova/src/screens/settings/settings_studio_widgets.dart';
 
 import 'support/harness.dart';
 
@@ -192,10 +192,10 @@ void main() {
         await tester.ensureVisible(pille);
         await tester.pumpAndSettle();
 
-        final zeile = find.ancestor(of: pille, matching: find.byType(SettingsRow));
+        final zeile = find.ancestor(of: pille, matching: find.byType(SettingsStudioRow));
         expect(zeile, findsOneWidget, reason: key);
         expect(
-          tester.widget<SettingsRow>(zeile).onTap,
+          tester.widget<SettingsStudioRow>(zeile).onTap,
           isNull,
           reason: 'ein Dreier-Segment hat keinen definierten Ein-Tipp-Zustand: '
               'blindes Durchschalten der Sprache waere schlimmer als nichts',
@@ -203,7 +203,7 @@ void main() {
 
         // Tapping the label really changes nothing.
         final rect = tester.getRect(zeile);
-        await tester.tapAt(Offset(rect.left + 24, rect.center.dy));
+        await tester.tapAt(Offset(rect.left + 24, rect.top + 24));
         await tester.pumpAndSettle();
       }
 
@@ -224,9 +224,7 @@ void main() {
       await tester.pumpAndSettle();
 
       final ziel = tester.getRect(segment);
-      final kapsel = tester.getRect(_kapsel(segment));
-      expect(ziel.height, greaterThanOrEqualTo(44.0));
-      expect(ziel.top, lessThan(kapsel.top - 1));
+      expect(ziel.height, greaterThanOrEqualTo(48.0));
 
       await tester.tapAt(Offset(ziel.center.dx, ziel.top + 2));
       await tester.pumpAndSettle();

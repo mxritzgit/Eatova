@@ -99,19 +99,9 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
             key: const PageStorageKey('meal-plan-scroll'),
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
             children: [
-              Row(
-                children: [
-                  SquareIconButton(
-                    key: const ValueKey('meal-plan-back'),
-                    icon: Icons.arrow_back_rounded,
-                    semanticLabel: MaterialLocalizations.of(
-                      context,
-                    ).backButtonTooltip,
-                    onTap: () => Navigator.of(context).maybePop(),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(child: ScreenTitle(title: l.mealPlanTitle)),
-                ],
+              PageHeader(
+                backKey: const ValueKey('meal-plan-back'),
+                title: l.mealPlanTitle,
               ),
               const SizedBox(height: 22),
               RecipeNavigation(

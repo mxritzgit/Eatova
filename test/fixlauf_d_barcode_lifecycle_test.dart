@@ -10,6 +10,7 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/screens/barcode_scanner_sheet.dart';
 
 import 'support/harness.dart';
+import 'support/meal_slot_picker.dart';
 
 // Fix run 2026-08-27, F4-03 / F4-04: the barcode sheet observes the app
 // lifecycle (stop on inactive/paused, start on resumed with permission guard)
@@ -243,12 +244,20 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Bitte 8, 12 oder 13 Ziffern eingeben.'), findsNothing,
           reason: 'Tippen loescht den Fehler');
+      // The context stays reachable with denied permission and a typed draft.
+      await chooseMealSlot(tester, 'barcode-slot-dinner');
+      expect(
+        tester.widget<TextField>(
+          find.byKey(const ValueKey('barcode-manual-field')),
+        ).controller!.text,
+        '4001724012345',
+      );
       await tester.tap(find.byKey(const ValueKey('barcode-manual-submit')));
       await tester.pumpAndSettle();
 
       expect(ergebnis.geschlossen, isTrue);
       expect(ergebnis.scan?.code, '4001724012345');
-      expect(ergebnis.scan?.slot, MealSlot.lunch);
+      expect(ergebnis.scan?.slot, MealSlot.dinner);
     });
 
     testWidgets('Abbrechen im Eingabelayer fuehrt zurueck zum Fehlerlayer',

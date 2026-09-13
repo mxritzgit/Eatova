@@ -48,11 +48,17 @@ Missing steps remain distinct from measured zero.
 
 The fixed add action reuses the existing meal-slot callback into Food. It reads
 the suggested slot when tapped, preserves the selected diary day, and is
-disabled during loading. All four meal slots, Profile, Coach and day controls
+disabled during loading. All four meal slots, Profile, Settings, Coach and day controls
 remain reachable. Meals use icons because logged meals do not currently retain
 a photo; sample photos are not substituted for user data.
 
 No schema, backend, dependency, permission or cache changes are required.
+
+The [2026-09-13 app polish](APP-POLISH-2026-09-13.md) adds a direct Settings
+action alongside the profile avatar and aligns the title with the other tabs.
+Reduced spacing around the date, hero and macros keeps the complete Steps card
+above the fixed add action on a regular phone, including activity and streak
+text. Enlarged text and small screens retain scrolling.
 
 ## Verification evidence
 

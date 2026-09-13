@@ -99,7 +99,7 @@ Future<void> _warteAuf(
 /// target, `findsOneWidget` does not.
 Future<void> _oeffneZiele(WidgetTester tester) async {
   await _tippe(tester, find.byKey(const ValueKey('nav-Food')));
-  await tapFoodHeaderAction(tester, 'topbar-settings');
+  await tapHomeHeaderAction(tester, 'today-settings');
   expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
 
   final zeile = find.byKey(const ValueKey('settings-open-goals'));

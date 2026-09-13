@@ -384,10 +384,10 @@ void main() {
         marken,
         <Sprungmarke>[
           (label: l10n.settingsPageTitle, level: 1),
-          (label: l10n.settingsGroupAccount, level: 2),
-          (label: l10n.settingsGroupPreferences, level: 2),
-          (label: l10n.settingsGroupDataPrivacy, level: 2),
-          (label: l10n.settingsGroupDangerZone, level: 2),
+          (label: l10n.settingsStudioAccount, level: 2),
+          (label: l10n.settingsStudioPreferences, level: 2),
+          (label: l10n.settingsStudioPrivacy, level: 2),
+          (label: l10n.settingsStudioSession, level: 2),
         ],
         reason: 'die Seite ist eine ListView: jedes Kind wird in '
             'IndexedSemantics gewickelt, das vertraegliche Geschwister zu '

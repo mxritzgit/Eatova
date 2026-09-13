@@ -10,10 +10,9 @@ import '../services/crash_reporter.dart';
 import '../services/meal_camera_launcher.dart' show openAppSettingsForCamera;
 import '../theme/app_tokens.dart';
 import '../widgets/design/design.dart';
-import '../widgets/kcal/scan_slot_chips.dart';
+import '../widgets/kcal/meal_slot_picker.dart';
 
-/// Barcode scanner result: the trimmed code and the slot picked via the chips
-/// on the camera preview.
+/// Barcode result with the destination chosen above the camera preview.
 class BarcodeScan {
   const BarcodeScan({required this.code, required this.slot});
 
@@ -24,7 +23,7 @@ class BarcodeScan {
 /// Opens the barcode scanner as a ~60% bottom panel, same frame as the AI scan
 /// camera ([MealCameraSheet]). Returns code + slot, or null on cancel.
 ///
-/// [initialSlot] preselects the slot chips; the choice made in the scanner
+/// [initialSlot] presets the meal context; the choice made in the scanner
 /// wins.
 Future<BarcodeScan?> showBarcodeScannerSheet(
   BuildContext context, {
@@ -56,7 +55,9 @@ class BarcodeScannerSheet extends StatefulWidget {
 class _BarcodeScannerSheetState extends State<BarcodeScannerSheet>
     with WidgetsBindingObserver {
   final MobileScannerController controller = MobileScannerController(
-    detectionSpeed: DetectionSpeed.noDuplicates,
+    // A hit behind the meal picker is ignored by the route guard. Let the
+    // native scanner retry that same code once the picker closes.
+    detectionSpeed: DetectionSpeed.normal,
     formats: const [BarcodeFormat.ean8, BarcodeFormat.ean13, BarcodeFormat.upcA],
     // autoZoom pulls the barcode in instead of leaving it small in the
     // wide-angle sensor image, which makes scanning far more reliable.
@@ -234,9 +235,15 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet>
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
-    // ~60% of screen height, identical to the AI scan panel so both scan
-    // paths read as the same in-app pattern.
-    final panelHeight = mediaQuery.size.height * 0.6;
+    // Large type needs space for the meal context and an unobstructed preview.
+    final availableHeight = sheetMaxHeightOf(context);
+    final expandPanel =
+        mediaQuery.textScaler.scale(14) > 18 ||
+        mediaQuery.viewInsets.bottom > 0 ||
+        mediaQuery.size.height < 600;
+    final panelHeight = expandPanel
+        ? availableHeight
+        : (mediaQuery.size.height * 0.6).clamp(0.0, availableHeight);
 
     return PopScope<Object?>(
       // Listener only, no veto: `canPop` stays true. Swipe, barrier tap and
@@ -261,6 +268,14 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet>
               children: [
                 const _SheetHandle(),
                 _HeaderRow(onClose: _schliessen),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: MealSlotPicker(
+                    selected: _slot,
+                    onSelected: _selectSlot,
+                    keyPrefix: 'barcode-slot-',
+                  ),
+                ),
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
@@ -288,7 +303,8 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet>
                             placeholderBuilder: (_) =>
                                 const _ScannerLoadingLayer(),
                             errorBuilder: (_, error) => _ScannerFailedLayer(
-                              permissionDenied: error.errorCode ==
+                              permissionDenied:
+                                  error.errorCode ==
                                   MobileScannerErrorCode.permissionDenied,
                               onOpenSettings: _einstellungenOeffnen,
                               onTypeBarcode: _manuellEingeben,
@@ -301,66 +317,61 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet>
                             valueListenable: controller,
                             builder: (context, state, child) =>
                                 state.error == null
-                                    ? child!
-                                    : const SizedBox.shrink(),
+                                ? child!
+                                : const SizedBox.shrink(),
                             child: Stack(
                               fit: StackFit.expand,
                               children: [
                                 const _EdgeScrim(),
-                                const Center(child: _ScanFrame()),
-                                // Slot chips on the camera preview, same row
-                                // as the AI scan. Missing until 2026-08-22,
-                                // when the barcode path silently used the
-                                // time-of-day slot.
-                                Positioned(
-                                  top: 10,
-                                  left: 10,
-                                  right: 10,
-                                  child: ScanSlotChips(
-                                    selected: _slot,
-                                    onSelected: _selectSlot,
-                                    keyPrefix: 'barcode-slot',
-                                  ),
-                                ),
-                                // Hint sits below the chips; the scan frame in
-                                // the centre stays clear.
-                                Positioned(
-                                  top: 50,
-                                  left: 10,
-                                  right: 10,
-                                  child: Center(
-                                    child: Container(
-                                      key: const ValueKey(
-                                        'barcode-scanner-hint',
-                                      ),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 12,
-                                        vertical: 7,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withValues(
-                                          alpha: 0.42,
-                                        ),
-                                        borderRadius: BorderRadius.circular(
-                                          rPill,
-                                        ),
-                                        border: Border.all(
-                                          color: Colors.white.withValues(
-                                            alpha: 0.35,
+                                Column(
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.all(10),
+                                      child: Center(
+                                        child: Container(
+                                          key: const ValueKey(
+                                            'barcode-scanner-hint',
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 12,
+                                            vertical: 7,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: Colors.black.withValues(
+                                              alpha: 0.42,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              rPill,
+                                            ),
+                                            border: Border.all(
+                                              color: Colors.white.withValues(
+                                                alpha: 0.35,
+                                              ),
+                                            ),
+                                          ),
+                                          child: Text(
+                                            context.l10n.foodBarcodeHintText,
+                                            style: const TextStyle(
+                                              fontSize: 11.5,
+                                              fontWeight: FontWeight.w700,
+                                              letterSpacing: -0.1,
+                                              color: Colors.white,
+                                            ),
                                           ),
                                         ),
                                       ),
-                                      child: Text(
-                                        context.l10n.foodBarcodeHintText,
-                                        style: const TextStyle(
-                                          fontSize: 11.5,
-                                          fontWeight: FontWeight.w700,
-                                          letterSpacing: -0.1,
-                                          color: Colors.white,
+                                    ),
+                                    const Expanded(
+                                      child: Padding(
+                                        padding: EdgeInsets.symmetric(
+                                          horizontal: 16,
+                                          vertical: 8,
                                         ),
+                                        child: Center(child: _ScanFrame()),
                                       ),
                                     ),
-                                  ),
+                                    const SizedBox(height: 72),
+                                  ],
                                 ),
                                 // Torch toggle, bottom centre — often decisive
                                 // when scanning in the dark.
@@ -405,6 +416,7 @@ class _ScanFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      key: const ValueKey('barcode-scan-frame'),
       width: 220,
       height: 132,
       decoration: BoxDecoration(

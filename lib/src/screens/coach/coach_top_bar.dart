@@ -1,9 +1,7 @@
 part of 'coach_chat_screen.dart';
 
 // ---------------------------------------------------------------------------
-// Header: square forest tile with conversation icon, display title, lime dot plus
-// status line below, and the three controls on the right (streak, (i),
-// sessions). No wordmark here — the app shell shows it on every tab.
+// Header: the shared tab title, status and conversation controls.
 // ---------------------------------------------------------------------------
 class _CoachTopBar extends StatelessWidget {
   const _CoachTopBar({
@@ -18,6 +16,24 @@ class _CoachTopBar extends StatelessWidget {
   final VoidCallback onSessionsTap;
   final bool compact;
 
+  static bool needsCompactLayout(BuildContext context, BoxConstraints size) {
+    if (size.maxHeight < 360) return true;
+    if (size.maxHeight >= 560) return false;
+    final title = TextPainter(
+      text: TextSpan(
+        text: context.l10n.coachTitle,
+        style: AppType.pageTitle(context.t.ink),
+      ),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout(maxWidth: size.maxWidth);
+    final wraps = title.didExceedMaxLines;
+    title.dispose();
+    // A wrapped title plus status and controls can leave no usable chat area.
+    return wraps;
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
@@ -28,7 +44,7 @@ class _CoachTopBar extends StatelessWidget {
       ),
       // Horizontal 0: eatova_home_page.dart already adds 20 px per tab, so the
       // divider ends at that inset instead of running edge to edge (accepted).
-      padding: const EdgeInsets.fromLTRB(0, 2, 0, 14),
+      padding: const EdgeInsets.fromLTRB(0, 0, 0, 14),
       // Wrap instead of Row: at textScaler 2.0 title, streak pill and two
       // buttons no longer fit on one line; the control group moves down.
       child: compact
@@ -41,7 +57,7 @@ class _CoachTopBar extends StatelessWidget {
                     child: Text(
                       l10n.navCoach,
                       semanticsLabel: l10n.coachTitle,
-                      style: AppType.display(20, color: t.ink, height: 1.1),
+                      style: AppType.pageTitle(t.ink),
                     ),
                   ),
                 ),
@@ -64,26 +80,12 @@ class _CoachTopBar extends StatelessWidget {
               spacing: 8,
               runSpacing: 12,
               alignment: WrapAlignment.spaceBetween,
-              crossAxisAlignment: WrapCrossAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.start,
               children: <Widget>[
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: t.forest,
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: Icon(
-                        Icons.chat_bubble_outline_rounded,
-                        size: 19,
-                        color: t.lime,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
                     Flexible(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -98,11 +100,7 @@ class _CoachTopBar extends StatelessWidget {
                             level: 1,
                             child: Text(
                               l10n.coachTitle,
-                              style: AppType.display(
-                                22,
-                                color: t.ink,
-                                height: 1.1,
-                              ),
+                              style: AppType.pageTitle(t.ink),
                             ),
                           ),
                           const SizedBox(height: 3),

@@ -8,6 +8,14 @@ import 'design_harness.dart';
 
 void main() {
   group('PageHeader', () {
+    testWidgets('back can stay disabled while its owner saves', (tester) async {
+      var backs = 0;
+      await tester.pumpWidget(designHarness(
+        PageHeader(title: 'Profil', backEnabled: false, onBack: () => backs++),
+      ));
+      await tester.tap(find.byIcon(Icons.chevron_left_rounded));
+      expect(backs, 0);
+    });
     testWidgets('der Zurueck-Knopf poppt die Route', (tester) async {
       await tester.pumpWidget(
         designHarness(
@@ -65,13 +73,13 @@ void main() {
       expect(backs, 1);
     });
 
-    testWidgets('large setzt den Titel gross nach links', (tester) async {
+    testWidgets('large uses the shared subpage title scale', (tester) async {
       await tester.pumpWidget(
         designHarness(const PageHeader(large: 'Einstellungen')),
       );
 
       final title = tester.widget<Text>(find.text('Einstellungen'));
-      expect(title.style?.fontSize, 28);
+      expect(title.style?.fontSize, 24);
       expect(title.style?.color, AppTokens.light.ink);
     });
 

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/main.dart';
 import 'package:eatova/src/models/logged_meal.dart';
-import 'package:eatova/src/widgets/kcal/slot_selector.dart';
+import 'package:eatova/src/widgets/kcal/meal_slot_picker.dart';
 import '../support/harness.dart' show pinPhoneViewport;
 import 'flow_test_helpers.dart';
 
@@ -26,7 +26,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.byKey(const ValueKey('add-meal-sheet')), findsOneWidget);
         expect(
-          tester.widget<SlotSelector>(find.byType(SlotSelector)).selected,
+          tester.widget<MealSlotPicker>(find.byType(MealSlotPicker)).selected,
           MealSlot.dinner,
         );
         expect(storeOf(tester).selectedFoodDate, DateTime(2026, 9, 10));

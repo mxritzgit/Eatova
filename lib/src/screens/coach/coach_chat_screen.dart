@@ -1739,7 +1739,10 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       builder: (context, constraints) {
         // Use the shell's available space, including keyboard and navigation.
         // Secondary header details must not consume the command picker viewport.
-        final compactHeader = constraints.maxHeight < 360;
+        final compactHeader = _CoachTopBar.needsCompactLayout(
+          context,
+          constraints,
+        );
         return Column(
           key: const ValueKey('screen-coach'),
           crossAxisAlignment: CrossAxisAlignment.stretch,

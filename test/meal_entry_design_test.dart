@@ -14,8 +14,9 @@ import 'package:eatova/src/services/open_food_facts_product_service.dart';
 import 'package:eatova/src/theme/meal_slot_style.dart';
 import 'package:eatova/src/widgets/kcal/add_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/meal_entry_methods.dart';
-import 'package:eatova/src/widgets/kcal/slot_selector.dart';
+import 'package:eatova/src/widgets/kcal/meal_slot_picker.dart';
 import 'support/harness.dart';
+import 'support/meal_slot_picker.dart';
 
 class _Photos implements MealPhotoInput {
   final sources = <ImageSource>[];
@@ -165,7 +166,7 @@ void main() {
       final products = _Products()
         ..pending = Completer<List<ProductSearchResult>>();
       await _open(tester, products: products);
-      await tester.tap(_key('slot-select-dinner'));
+      await chooseMealSlot(tester, 'slot-select-dinner');
       await tester.pumpAndSettle();
       await tester.ensureVisible(_key('favorite-pinned-2'));
       await tester.pumpAndSettle();
@@ -185,7 +186,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.widget<TextField>(_input).controller!.text, isEmpty);
       expect(
-        tester.widget<SlotSelector>(find.byType(SlotSelector)).selected,
+        tester.widget<MealSlotPicker>(find.byType(MealSlotPicker)).selected,
         MealSlot.dinner,
       );
       expect(find.byType(MealEntryMethods), findsOneWidget);
@@ -223,7 +224,7 @@ void main() {
           expect(sheet.top, greaterThanOrEqualTo(44));
           expect(sheet.bottom, lessThanOrEqualTo(552));
           for (final key in [
-            'slot-select-dinner',
+            'slot-select-open',
             'analyse-camera-button',
             'analyse-gallery-button',
             'analyse-barcode-button',

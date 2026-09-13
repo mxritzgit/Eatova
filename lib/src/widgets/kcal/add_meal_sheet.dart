@@ -30,9 +30,9 @@ import 'manual_meal_sheet.dart';
 import 'meal_analysis_sheet.dart';
 import 'meal_entry_methods.dart';
 import 'meal_scan_preview_sheet.dart';
+import 'meal_slot_picker.dart';
 import 'meal_suggestion_item.dart';
 import 'saved_meal_presentation.dart';
-import 'slot_selector.dart';
 
 /// Message when a search/favorite/recent row without calories is logged —
 /// `l10n.foodSuggestionWithoutCaloriesMessage`.
@@ -890,7 +890,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
 
   Future<void> _scanBarcode() async {
     // Bottom panel like the AI scan instead of a full-screen switch. The
-    // scanner's chips start on the slot selected here.
+    // scanner's picker starts on the slot selected here.
     final scan = await showBarcodeScannerSheet(
       context,
       initialSlot: _selectedSlot,
@@ -1047,10 +1047,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
                 Padding(
                   key: const ValueKey('add-meal-slot-select'),
                   padding: const EdgeInsets.only(bottom: 16),
-                  child: SlotSelector(
+                  child: MealSlotPicker(
                     selected: _selectedSlot,
                     onSelected: _selectSlot,
-                    wrapAtLargeText: true,
                   ),
                 ),
                 // Standing entry point for manual entry while no search is

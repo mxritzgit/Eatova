@@ -45,74 +45,64 @@ class HealthConnectionCard extends StatelessWidget {
     final color = isGranted
         ? t.accent
         : needsAttention
-            ? t.warning
-            : t.ink2;
+        ? t.warning
+        : t.ink2;
     final subtitle = isGranted
         ? lastFetch != null
-            ? l10n.profileHealthSyncedAt(_formatTime(lastFetch!, l10n))
-            : l10n.profileHealthConnected
+              ? l10n.profileHealthSyncedAt(_formatTime(lastFetch!, l10n))
+              : l10n.profileHealthConnected
         : isUnverified
-            ? l10n.profileHealthUnverifiedHint
-            : isDenied
-                ? l10n.profileHealthDeniedHint
-                : isUnsupported
-                    ? l10n.profileHealthUnsupportedHint
-                    : l10n.profileHealthSetupHint;
+        ? l10n.profileHealthUnverifiedHint
+        : isDenied
+        ? l10n.profileHealthDeniedHint
+        : isUnsupported
+        ? l10n.profileHealthUnsupportedHint
+        : l10n.profileHealthSetupHint;
     // "Check" instead of "Connect" once asked: iOS never shows the sheet twice,
     // so the tap re-verifies the signals after a trip to Settings.
     final actionLabel = needsAttention
         ? l10n.profileHealthActionCheck
         : l10n.profileHealthActionConnect;
 
-    return AppCard(
-      child: Row(
-        children: <Widget>[
-          IconTile(
-            icon:
-                isGranted ? Icons.favorite_rounded : Icons.favorite_border_rounded,
-            color: color,
-            size: 44,
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
+    final action = isGranted
+        ? SquareIconButton(
+            key: const ValueKey('profile-health-refresh'),
+            icon: Icons.sync_rounded,
+            semanticLabel: l10n.profileHealthRefreshSemantics,
+            onTap: onRefresh,
+          )
+        : isUnsupported
+        ? null
+        : _CompactButton(
+            buttonKey: const ValueKey('profile-health-connect'),
+            label: actionLabel,
+            onTap: onConnect,
+          );
+    return _ProfileSurface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              IconTile(
+                icon: isGranted
+                    ? Icons.favorite_rounded
+                    : Icons.favorite_border_rounded,
+                color: color,
+                size: 44,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
                   'Apple Health',
-                  style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
+                  style: AppType.ui(16, weight: FontWeight.w600, color: t.ink),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  // 3 lines so the Settings path stays fully readable in the
-                  // unverified/denied case.
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppType.ui(
-                    12,
-                    weight: FontWeight.w500,
-                    color: color,
-                    height: 1.35,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-          const SizedBox(width: 10),
-          if (isGranted)
-            SquareIconButton(
-              key: const ValueKey('profile-health-refresh'),
-              icon: Icons.sync_rounded,
-              semanticLabel: l10n.profileHealthRefreshSemantics,
-              onTap: onRefresh,
-            )
-          else if (!isUnsupported)
-            _CompactButton(
-              buttonKey: const ValueKey('profile-health-connect'),
-              label: actionLabel,
-              onTap: onConnect,
-            ),
+          const SizedBox(height: 12),
+          Text(subtitle, style: AppType.ui(13, color: color, height: 1.45)),
+          if (action != null) ...[const SizedBox(height: 12), action],
         ],
       ),
     );
@@ -171,7 +161,7 @@ class _HealthConnectCard extends StatelessWidget {
       HealthAuthState.error => l10n.healthConnectError,
       _ => l10n.healthConnectSetup,
     };
-    return AppCard(
+    return _ProfileSurface(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -294,6 +284,6 @@ class _CompactButton extends StatelessWidget {
 // `settings-sign-out`, `settings-delete-account` and `settings-about` (the
 // about sheet moved, not deleted — it carries the ODbL attribution and the
 // GDPR Art. 13 privacy line); reset-day dropped entirely.
-// Settings are reached via `profile-open-settings` and `topbar-settings`, goals
+// Settings are reached via `profile-open-settings` and `today-settings`, goals
 // via `profile-goalplan-edit` / `profile-edit-goals`; pinned by
 // `test/settings_erreichbarkeit_test.dart`.

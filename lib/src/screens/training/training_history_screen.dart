@@ -31,19 +31,16 @@ class TrainingHistoryScreen extends StatelessWidget {
       backgroundColor: t.bg,
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
           children: [
-            Align(
-              alignment: Alignment.centerLeft,
-              child: IconButton(
-                tooltip: l.trainingTimerBack,
-                onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.arrow_back_rounded),
-              ),
-            ),
-            ScreenTitle(
+            PageHeader(
+              backKey: const ValueKey('training-history-back'),
               title: l.trainingHistoryTitle,
-              subtitle: l.trainingHistorySubtitle,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              l.trainingHistorySubtitle,
+              style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
             ),
             const SizedBox(height: 24),
             if (loading) ...[
@@ -164,19 +161,17 @@ class _TrainingHistoryDetailState extends State<TrainingHistoryDetail> {
       backgroundColor: t.bg,
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
           children: [
-            Align(
-              alignment: Alignment.centerLeft,
-              child: IconButton(
-                tooltip: l.trainingTimerBack,
-                onPressed: _busy ? null : () => Navigator.pop(context),
-                icon: const Icon(Icons.arrow_back_rounded),
-              ),
-            ),
-            ScreenTitle(
+            PageHeader(
+              backKey: const ValueKey('training-history-detail-back'),
+              backEnabled: !_busy,
               title: snapshot.workout.title,
-              subtitle: snapshot.plan.title,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              snapshot.plan.title,
+              style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
             ),
             const SizedBox(height: 16),
             Text(

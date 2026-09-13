@@ -14,6 +14,7 @@ import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
 // `testWidgetsRobust` is declared locally below; the local one shadows the
 // harness export.
 import 'support/harness.dart' hide testWidgetsRobust;
+import 'support/meal_slot_picker.dart';
 
 // Edit sheet: tapping a logged meal opens a sheet that changes portion/items,
 // slot and day and saves through the outbox-safe store path. Standalone tests
@@ -520,7 +521,7 @@ void main() {
     // Reopen the sheet (the day list is filled on open) and pick the meal slot.
     await tester.tap(find.byKey(const ValueKey('food-search')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('slot-select-breakfast')));
+    await chooseMealSlot(tester, 'slot-select-breakfast');
     await tester.pumpAndSettle();
     expect(
         find.byKey(const ValueKey('analyse-existing-meals')), findsOneWidget);
@@ -571,7 +572,7 @@ Future<void> _addSalamiViaSearch(
   await tester.tap(find.byKey(const ValueKey('kcal-product-search-button')));
   await tester.pump();
   await tester.pumpAndSettle();
-  await tester.tap(find.byKey(ValueKey(slotKey)));
+  await chooseMealSlot(tester, slotKey);
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(const ValueKey('kcal-product-suggestion-0')));
   await tester.pumpAndSettle();

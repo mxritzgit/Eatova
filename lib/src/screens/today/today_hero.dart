@@ -43,7 +43,7 @@ class TodayCalorieHero extends StatelessWidget {
             color: t.onBrandSurface,
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         FittedBox(
           fit: BoxFit.scaleDown,
           alignment: Alignment.centerLeft,
@@ -53,7 +53,7 @@ class TodayCalorieHero extends StatelessWidget {
             style: AppType.display(48, color: t.onBrandSurface, height: 1),
           ),
         ),
-        const SizedBox(height: 3),
+        const SizedBox(height: 2),
         Text(
           remaining < 0 ? l10n.todayKcalOver : l10n.todayKcalRemaining,
           style: AppType.ui(
@@ -62,7 +62,7 @@ class TodayCalorieHero extends StatelessWidget {
             color: t.onBrandSurface,
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         Text(
           l10n.todayBalanceEaten(kcalThousands(eaten, l10n)),
           key: const ValueKey('today-stat-eaten'),
@@ -118,7 +118,7 @@ class TodayCalorieHero extends StatelessWidget {
 
     return Container(
       key: const ValueKey('today-kcal-hero'),
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
       decoration: BoxDecoration(
         color: t.brandSurface,
         borderRadius: BorderRadius.circular(rHero),
@@ -145,7 +145,7 @@ class TodayCalorieHero extends StatelessWidget {
                   ],
                 ),
               if (streak > 0) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 Text(
                   l10n.todayBalanceStreak(streak),
                   key: const ValueKey('today-stat-streak'),

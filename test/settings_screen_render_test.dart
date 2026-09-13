@@ -148,7 +148,7 @@ void main() {
     });
 
     expect(overflows, isEmpty, reason: describeOverflows(overflows));
-    expect(find.text('KONTO'), findsNothing);
+    expect(find.text('Konto'), findsNothing);
     expect(find.byKey(const ValueKey('settings-theme-mode')), findsNothing);
   });
 

@@ -38,3 +38,17 @@ String formatShortDate(DateTime d, AppLocalizations l10n) {
   }
   return DateFormat.Md(l10n.localeName).format(d);
 }
+
+/// Profile sections sit on the page ground; only the identity and weight
+/// history need a distinct surface.
+class _ProfileSurface extends StatelessWidget {
+  const _ProfileSurface({required this.child, this.clip = false});
+  final Widget child;
+  final bool clip;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: clip ? EdgeInsets.zero : const EdgeInsets.symmetric(vertical: 8),
+    child: child,
+  );
+}

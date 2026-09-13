@@ -21,7 +21,7 @@ import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
 import 'package:eatova/src/widgets/kcal/add_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/manual_meal_sheet.dart';
-import 'package:eatova/src/widgets/kcal/slot_selector.dart';
+import 'package:eatova/src/widgets/kcal/meal_slot_picker.dart';
 
 import 'support/harness.dart';
 
@@ -148,24 +148,20 @@ void main() {
   );
 
   renderMatrix(
-    'Der Slot-Waehler skaliert seine Segmente mit der Systemschrift',
+    'Der Mahlzeiten-Kontext waechst mit der Systemschrift',
     (tester, c) async {
       await _pumpAddSheet(tester, c);
-
-      // 56 at normal size, growing with the text up to the 80 px cap. This
-      // covers the old "bei Normalschrift exakt 56 hoch" case at 1.0x.
-      final expected = (56 * c.textScale).clamp(56.0, 80.0);
-      final segment = find.byKey(const ValueKey('slot-select-snack'));
-      expect(tester.getSize(segment).height,
-          moreOrLessEquals(expected, epsilon: 0.5));
-      expect(find.byType(SlotSelector), findsOneWidget);
-
-      // The label stays inside its segment.
-      final text = find.descendant(of: segment, matching: find.byType(Text));
-      expect(
-        tester.getRect(text).bottom,
-        lessThanOrEqualTo(tester.getRect(segment).bottom + 0.5),
-      );
+      final trigger = find.byKey(const ValueKey('slot-select-open'));
+      expect(tester.getSize(trigger).height, greaterThanOrEqualTo(48));
+      expect(find.byType(MealSlotPicker), findsOneWidget);
+      for (final text in find
+          .descendant(of: trigger, matching: find.byType(Text))
+          .evaluate()) {
+        expect(
+          tester.getRect(find.byWidget(text.widget)).bottom,
+          lessThanOrEqualTo(tester.getRect(trigger).bottom),
+        );
+      }
     },
     textScales: _skalen,
   );

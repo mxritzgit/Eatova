@@ -48,13 +48,13 @@ Future<void> expandFoodEntries(WidgetTester tester, {MealSlot? slot}) async {
   }
 }
 
-Future<void> tapFoodHeaderAction(WidgetTester tester, String key) async {
-  final action = find.byKey(ValueKey(key));
-  if (action.evaluate().isEmpty) {
-    await tester.ensureVisible(find.byKey(const ValueKey('food-options')));
-    await tester.tap(find.byKey(const ValueKey('food-options')));
+/// Account navigation begins on Today; trends still belongs to Food.
+Future<void> tapHomeHeaderAction(WidgetTester tester, String key) async {
+  if (key == 'today-settings' || key == 'today-profile') {
+    await tester.tap(find.byKey(const ValueKey('nav-Heute')));
     await _frames(tester);
   }
+  final action = find.byKey(ValueKey(key));
   await tester.ensureVisible(action);
   await tester.tap(action);
   await _frames(tester);
