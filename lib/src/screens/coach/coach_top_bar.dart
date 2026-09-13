@@ -16,6 +16,24 @@ class _CoachTopBar extends StatelessWidget {
   final VoidCallback onSessionsTap;
   final bool compact;
 
+  static bool needsCompactLayout(BuildContext context, BoxConstraints size) {
+    if (size.maxHeight < 360) return true;
+    if (size.maxHeight >= 560) return false;
+    final title = TextPainter(
+      text: TextSpan(
+        text: context.l10n.coachTitle,
+        style: AppType.pageTitle(context.t.ink),
+      ),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout(maxWidth: size.maxWidth);
+    final wraps = title.didExceedMaxLines;
+    title.dispose();
+    // A wrapped title plus status and controls can leave no usable chat area.
+    return wraps;
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;

@@ -162,10 +162,8 @@ void main() {
         expect(find.byType(TrainingHistoryScreen), findsOneWidget);
         await _tap(tester, 'training-history-${entry.id}');
         expect(find.byType(TrainingHistoryDetail), findsOneWidget);
-        await tester.tap(find.byIcon(Icons.arrow_back_rounded));
-        await settleFrames(tester);
-        await tester.tap(find.byIcon(Icons.arrow_back_rounded));
-        await settleFrames(tester);
+        await _tap(tester, 'training-history-detail-back');
+        await _tap(tester, 'training-history-back');
         await _tap(tester, 'training-start');
         final player = tester.widget<TrainingPlayerScreen>(
           find.byType(TrainingPlayerScreen),
