@@ -13,6 +13,7 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 
 import 'flow_test_helpers.dart';
+import '../support/meal_slot_picker.dart';
 
 MealAnalysisResult _meal(
   String name, {
@@ -136,7 +137,7 @@ void main() {
     expect(find.text('Alle (4)'), findsOneWidget);
 
     // Slot is chosen in the add sheet, not in the favorites sheet.
-    await tester.tap(find.byKey(const ValueKey('slot-select-lunch')));
+    await chooseMealSlot(tester, 'slot-select-lunch');
     await tester.pumpAndSettle();
 
     await _openFavoritesMenu(tester);

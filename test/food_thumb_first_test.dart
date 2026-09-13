@@ -279,7 +279,7 @@ void main() {
         await tester.tap(find.byKey(const ValueKey('food-slot-add-breakfast')));
         await tester.pumpAndSettle();
         expect(
-          find.byKey(const ValueKey('slot-select-breakfast')),
+          find.byKey(const ValueKey('slot-select-open')),
           findsOneWidget,
         );
         expect(tester.takeException(), isNull);

@@ -2275,5 +2275,11 @@
         "type": "int"
       }
     }
-  }
+  },
+  "mealSlotPickerTitle": "Choose a meal",
+  "mealSlotPickerContext": "Add to",
+  "mealSlotPickerBreakfastHint": "To start your day",
+  "mealSlotPickerLunchHint": "For your midday break",
+  "mealSlotPickerDinnerHint": "For the evening",
+  "mealSlotPickerSnackHint": "For the moments in between"
 }

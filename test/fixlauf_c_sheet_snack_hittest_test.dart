@@ -13,6 +13,7 @@ import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 
 import 'flows/flow_test_helpers.dart';
+import 'support/meal_slot_picker.dart';
 
 HomeStore _storeOf(WidgetTester tester) =>
     (tester.state(find.byType(EatovaHomePage)) as HomePageDebugAccess)
@@ -48,7 +49,7 @@ Future<void> _bootSheet(WidgetTester tester) async {
 
 /// Searches the fake product and logs it into the snack slot.
 Future<void> _logSalami(WidgetTester tester) async {
-  await tester.tap(find.byKey(const ValueKey('slot-select-snack')));
+  await chooseMealSlot(tester, 'slot-select-snack');
   await tester.pumpAndSettle();
   await tester.enterText(
     find.byKey(const ValueKey('kcal-product-search-input')),

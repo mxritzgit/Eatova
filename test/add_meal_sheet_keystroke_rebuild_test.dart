@@ -43,6 +43,7 @@ import 'package:eatova/src/services/open_food_facts_product_service.dart';
 import 'package:eatova/src/widgets/kcal/add_meal_sheet.dart';
 
 import 'support/harness.dart';
+import 'support/meal_slot_picker.dart';
 
 class _StummerAnalyzer implements MealAnalyzer {
   @override
@@ -367,7 +368,7 @@ void main() {
     // Und er muss einen FREMDEN Neubau überleben: ohne den bliebe eine
     // stehengebliebene Freischaltung nur ungemalt liegen (Zone stumm), bis
     // irgendein anderes setState sie aufdeckt — hier der Slotwechsel.
-    await tester.tap(find.byKey(const ValueKey('slot-select-lunch')));
+    await chooseMealSlot(tester, 'slot-select-lunch');
     await tester.pumpAndSettle();
     expect(
       _manuellZeile(),

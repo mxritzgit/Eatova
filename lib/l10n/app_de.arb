@@ -2303,5 +2303,11 @@
         "type": "int"
       }
     }
-  }
+  },
+  "mealSlotPickerTitle": "Mahlzeit wählen",
+  "mealSlotPickerContext": "Eintragen als",
+  "mealSlotPickerBreakfastHint": "Zum Start in den Tag",
+  "mealSlotPickerLunchHint": "Für deine Mittagspause",
+  "mealSlotPickerDinnerHint": "Für den Abend",
+  "mealSlotPickerSnackHint": "Für zwischendurch"
 }
