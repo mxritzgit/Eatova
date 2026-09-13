@@ -206,7 +206,7 @@ interface StubOptions {
   answerContent?: string;
   /** Simulate a provider whose completion (including reasoning) exceeds 800 tokens. */
   answerNeedsHeadroom?: boolean;
-  /** Inhalt des Rezept-Entwurfs (max_tokens 900). */
+  /** Inhalt des strukturierten Rezept-Entwurfs. */
   draftContent?: string;
 }
 
@@ -297,7 +297,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
     }
     if (url.includes("openrouter.ai")) {
       const parsed = JSON.parse(body) as JsonRecord;
-      // Die drei Chat-Calls trennen sich am Token-Budget (256/3072/900).
+      // Recipe drafts are identified by format, independently of output budgets.
       if (parsed.max_tokens === 256) {
         return jsonRes({
           choices: [{
@@ -310,7 +310,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
           }],
         });
       }
-      if (parsed.max_tokens === 900) {
+      if ((parsed.response_format as JsonRecord | undefined)?.type === "json_object") {
         return jsonRes({ choices: [{ message: { content: options.draftContent ?? RECIPE_JSON } }] });
       }
       if (options.answerStatus !== undefined) {
@@ -376,7 +376,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
       calls
         .filter((call) => call.url.includes("openrouter.ai/api/v1/chat/completions"))
         .map((call) => JSON.parse(call.body) as JsonRecord)
-        .filter((parsed) => parsed.max_tokens === 3072),
+        .filter((parsed) => parsed.response_format === undefined),
     assistantRows: () =>
       calls
         .filter((call) => call.url.includes("/rest/v1/chat_messages") && call.method === "POST")
