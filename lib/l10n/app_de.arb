@@ -2287,5 +2287,21 @@
         "type": "int"
       }
     }
+  },
+  "trainingStudioPlanDescription": "Planbeschreibung",
+  "trainingStudioLibraryEmpty": "Hier beginnt dein erster Plan. Erstelle ihn selbst oder plane mit Coach.",
+  "trainingStudioPlans": "Pläne",
+  "trainingStudioLibrarySubtitle": "Deine Einheiten im Überblick.",
+  "trainingStudioSearch": "Plan oder Einheit suchen",
+  "trainingStudioSelected": "AKTIVER PLAN",
+  "trainingStudioNoPlans": "Kein passender Plan gefunden. Versuche einen anderen Suchbegriff.",
+  "trainingStudioLessExercises": "Weniger Übungen anzeigen",
+  "trainingStudioAllExercises": "Alle {count} Übungen ansehen",
+  "@trainingStudioAllExercises": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   }
 }

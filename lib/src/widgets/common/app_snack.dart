@@ -161,9 +161,20 @@ void showAppSnack(
 /// store-emitted alike — so toasts land above the scrim. Nested hosts stack;
 /// the topmost live one wins.
 class SnackHost extends StatefulWidget {
-  const SnackHost({super.key, required this.child});
+  const SnackHost({
+    super.key,
+    required this.child,
+    this.enabled = true,
+    this.currentRouteOnly = false,
+  });
 
   final Widget child;
+
+  /// Retained tabs must opt out while hidden or covered by another route.
+  final bool enabled;
+
+  /// Page hosts yield immediately when another route covers them.
+  final bool currentRouteOnly;
 
   static final List<_SnackHostState> _hosts = <_SnackHostState>[];
 
@@ -200,7 +211,11 @@ class _SnackHostState extends State<SnackHost> {
   /// Live only while the host's route is on the navigator: a popped sheet
   /// stays in the tree for its exit animation but must not catch toasts, and
   /// a host without a route is never a target.
-  bool get _isLive => mounted && (_route?.isActive ?? false);
+  bool get _isLive =>
+      mounted &&
+      widget.enabled &&
+      (_route?.isActive ?? false) &&
+      (!widget.currentRouteOnly || (_route?.isCurrent ?? false));
 
   @override
   void initState() {

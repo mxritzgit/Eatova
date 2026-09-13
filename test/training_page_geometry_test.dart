@@ -126,10 +126,71 @@ void main() {
     );
     final workout = find.byKey(const ValueKey('training-workout-0'));
     await tester.scrollUntilVisible(workout, 200);
-    expect(
-      tester.widget<ChoiceChip>(workout).checkmarkColor,
-      AppTokens.dark.onLime,
+    await tester.tap(workout);
+    await tester.pumpAndSettle();
+    expect(find.text('Kniebeugen'), findsOneWidget);
+    final selected = find.ancestor(
+      of: workout,
+      matching: find.byType(Semantics),
     );
+    expect(
+      tester
+          .widgetList<Semantics>(selected)
+          .any((node) => node.properties.selected == true),
+      isTrue,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('studio titles keep ordinary words intact at double text', (
+    tester,
+  ) async {
+    final plan = CoachTrainingProposal(
+      title: 'Kraftaufbau',
+      workouts: [
+        TrainingWorkout(
+          title: 'Oberkörper',
+          exercises: _draft().workouts.first.exercises,
+        ),
+      ],
+    ).toTrainingPlan(id: 'studio-geometry');
+    await pumpLocalized(
+      tester,
+      TrainingScreen(
+        plans: [plan],
+        onCreatePlan: (_) async => SyncDelivery.delivered,
+        onUpdatePlan: (_, _) async => SyncDelivery.delivered,
+        onDeletePlan: (_) async => SyncDelivery.delivered,
+        onSelectPlan: (_) {},
+        onStartWorkout: (_, _) {},
+        onOpenCoach: () {},
+      ),
+      textScale: 2,
+      surfaceSize: const Size(320, 568),
+    );
+    final workoutTitle = tester.renderObject<RenderParagraph>(
+      find.text('Oberkörper'),
+    );
+    expect(
+      workoutTitle.getBoxesForSelection(
+        const TextSelection(baseOffset: 0, extentOffset: 10),
+      ),
+      hasLength(1),
+    );
+    await tester.tap(find.byKey(const ValueKey('training-open-plans')));
+    await tester.pumpAndSettle();
+    final planTitle = find.descendant(
+      of: find.byType(BottomSheet),
+      matching: find.text('Kraftaufbau'),
+    );
+    final paragraph = tester.renderObject<RenderParagraph>(planTitle);
+    expect(
+      paragraph.getBoxesForSelection(
+        const TextSelection(baseOffset: 0, extentOffset: 11),
+      ),
+      hasLength(1),
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(

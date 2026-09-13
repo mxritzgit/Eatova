@@ -809,3 +809,25 @@ Android debug APK, direct diff review and 21 real-font visual cases. Delivery us
 `design/recipe-spotlight`, based on `38bd0e0` (PR #83), through protected main after
 green CI as authorized by the user. The PR records the final merge. No backend,
 schema or dependency rollout is required; device installation is separate.
+
+## Training Nachtstudio design, 2026-09-13
+
+The user selected Training concept 09 and requested a matching plan-selection
+redesign. Training now uses the existing dark Eatova theme with bundled studio
+photography, a lavender start/resume action, lettered workouts and expandable
+exercise details. The plan library shows the active plan first and supports
+search by plan, goal or workout, with descriptions accessible before selection.
+
+See [TRAINING-DESIGN.md](TRAINING-DESIGN.md) for the visual/interaction contract,
+real Flutter previews and verification. The redesign preserves the existing
+editor, confirmed deletion, history, recovery, explicit Coach adoption and
+account-bound callbacks. Hidden or covered Training pages yield their toast
+host; retry feedback cannot cover the start action. Screen-reader selection is
+verified by a regression that first reproduced the missing semantic action.
+
+Local checks: full suite 4,390 tests and 95.25% coverage; 94 focused checks after
+the final refinements; strict analysis, Android debug build and thirteen
+real-font render cases. `design/training-nightstudio` starts at main `ab7d9f3`
+(PR #84), with protected-main delivery after green CI under the user's existing
+authorization. The PR records the final merge. No backend, schema or dependency
+rollout is required; device installation remains separate.
