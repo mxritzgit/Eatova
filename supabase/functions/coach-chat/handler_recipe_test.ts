@@ -67,8 +67,12 @@ interface StubOptions {
    * the parse failure (W1): a paid, completed call with no classification.
    */
   classifierContent?: string;
-  /** Reply content of the draft call (max_tokens 900). */
+  /** Reply content of the structured recipe draft call. */
   draftContent?: string;
+  /** Simulate a recipe whose reasoning and visible JSON share the output cap. */
+  draftNeedsHeadroom?: boolean;
+  draftFinishReason?: string;
+  draftRawEnvelope?: string;
   /** HTTP status of the draft call (infra error simulation). */
   draftStatus?: number;
   /** HTTP status of the image call (/api/v1/images). */
@@ -101,8 +105,8 @@ const CLASSIFIER_UNUSABLE_REPLY_EN =
   "I couldn't safely process that just now - something went wrong on my end. Please rephrase it and I'll try again.";
 
 /**
- * The three OpenRouter chat calls are told apart by their token budget
- * (classifier 256, answer 3072, draft 900), as in handler_test.ts.
+ * Classifier calls use their small budget; recipe drafts use JSON response
+ * format so changing an output cap cannot silently reroute the test stub.
  */
 function maxTokensOf(body: string): number {
   return Number((JSON.parse(body) as JsonRecord).max_tokens);
@@ -222,14 +226,30 @@ function installFetch(options: StubOptions = {}): FetchStub {
           }],
         });
       }
-      if (budget === 3072) {
+      const payload = JSON.parse(body) as JsonRecord;
+      if ((payload.response_format as JsonRecord | undefined)?.type !== "json_object") {
         return jsonRes({ choices: [{ message: { content: ANSWER_TEXT } }] });
       }
       if (options.draftStatus !== undefined) {
         return new Response("upstream unavailable", { status: options.draftStatus });
       }
+      if (options.draftRawEnvelope !== undefined) {
+        return new Response(options.draftRawEnvelope, {
+          headers: { "content-type": "application/json" },
+        });
+      }
+      let content = options.draftContent ?? RECIPE_JSON;
+      let finishReason = options.draftFinishReason ?? "stop";
+      if (options.draftNeedsHeadroom) {
+        const reasoning = payload.reasoning as JsonRecord | undefined;
+        const thinkingTokens = reasoning?.effort === "low" ? 128 : 528;
+        if (budget < thinkingTokens + 1100) {
+          content = content.slice(0, Math.floor(content.length / 2));
+          finishReason = "length";
+        }
+      }
       return jsonRes({
-        choices: [{ message: { content: options.draftContent ?? RECIPE_JSON } }],
+        choices: [{ message: { content }, finish_reason: finishReason }],
       });
     }
     if (url.includes("/rest/v1/chat_messages")) {
@@ -321,6 +341,98 @@ function completionsWithBudget(stub: FetchStub, budget: number): RecordedCall[] 
   );
 }
 
+function recipeCompletions(stub: FetchStub): RecordedCall[] {
+  return stub.callsTo("chat/completions").filter((call) => {
+    const payload = JSON.parse(call.body) as JsonRecord;
+    return (payload.response_format as JsonRecord | undefined)?.type === "json_object";
+  });
+}
+
+Deno.test("Recipe draft preserves complete JSON after reasoning consumes output tokens", async () => {
+  const stub = installFetch({ draftNeedsHeadroom: true });
+  try {
+    const response = await handleRequest(makeRecipeRequest());
+    assertEquals(response.status, 200, "complete recipe reaches the client");
+    const body = await response.json() as JsonRecord;
+    assertEquals(JSON.stringify(body.recipe), RECIPE_JSON, "all recipe fields survive");
+    assertEquals(recipeCompletions(stub).length, 1, "one paid draft, no continuation loop");
+    assertEquals(stub.callsTo("claim_chat_quota").length, 1, "one quota claim");
+    assertEquals(stub.quotaUsed(), 1, "only the delivered recipe costs a slot");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "no failed draft refund");
+    const stores = stub.callsTo("chat_messages").filter((call) => call.method === "POST");
+    const assistant = JSON.parse(stores[1].body) as JsonRecord;
+    assertEquals(JSON.stringify(assistant.recipe), RECIPE_JSON, "history retains the full proposal");
+    assert(!("image_base64" in assistant), "generated image stays out of the database");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("Recipe length limit rejects even parseable partial JSON and refunds once", async () => {
+  const stub = installFetch({
+    draftContent: '{"title":"Auflauf","calories_kcal":520}',
+    draftFinishReason: "length",
+  });
+  try {
+    const response = await handleRequest(makeRecipeRequest());
+    assertEquals(response.status, 502, "partial recipe is not delivered");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 1, "one refund");
+    assertEquals(stub.quotaUsed(), 0, "quota restored");
+    assertEquals(stub.callsTo("api/v1/images").length, 0, "no image for incomplete recipe");
+    const stores = stub.callsTo("chat_messages").filter((call) => call.method === "POST");
+    assertEquals(stores.length, 1, "only the user message is persisted");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("Recipe refusal keeps its policy when completion metadata says length", async () => {
+  const stub = installFetch({
+    draftContent: '{"refuse":"Ich erstelle nur Essensrezepte."}',
+    draftFinishReason: "length",
+  });
+  try {
+    const response = await handleRequest(makeRecipeRequest());
+    assertEquals(response.status, 200, "explicit refusal survives");
+    const body = await response.json() as JsonRecord;
+    assertEquals(body.refusal, true, "refusal remains authoritative");
+    assertEquals(stub.quotaUsed(), 1, "paid refusal keeps its slot");
+    assertEquals(stub.callsTo("api/v1/images").length, 0, "no image");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("Recipe failure diagnostics keep completion metadata without provider text", async () => {
+  const privateText = "PRIVATE_PROVIDER_SENTINEL";
+  for (const options of [
+    { draftContent: privateText, draftFinishReason: "length" },
+    { draftContent: privateText, draftFinishReason: privateText },
+    { draftRawEnvelope: privateText },
+  ]) {
+    const stub = installFetch(options);
+    const original = console.error;
+    const errors: string[] = [];
+    console.error = (...args: unknown[]) => errors.push(args.map(String).join(" "));
+    try {
+      const response = await handleRequest(makeRecipeRequest());
+      assertEquals(response.status, 502, "invalid provider output fails");
+      assertEquals(stub.quotaUsed(), 0, "unusable output restores quota");
+      const logs = errors.join("\n");
+      assert(!logs.includes(privateText), "content and unknown metadata must stay private");
+      if (options.draftFinishReason !== undefined) {
+        const expected = options.draftFinishReason === "length" ? "length" : "other";
+        assert(logs.includes(`finish_reason=${expected}`), "allowlisted completion category remains diagnosable");
+      } else {
+        assert(logs.includes("Recipe provider response invalid"), "malformed envelope has a fixed diagnostic");
+      }
+    } finally {
+      console.error = original;
+      stub.restore();
+    }
+  }
+});
+
 // ---------------------------------------------------------------------------
 
 Deno.test("Recipe-Mode Happy Path: Rezept + Bild + Summary, 1 Slot", async () => {
@@ -353,7 +465,7 @@ Deno.test("Recipe-Mode Happy Path: Rezept + Bild + Summary, 1 Slot", async () =>
       1,
       "Layer 2 laeuft auch im Rezept-Modus",
     );
-    const draftCalls = completionsWithBudget(stub, 900);
+    const draftCalls = recipeCompletions(stub);
     assertEquals(draftCalls.length, 1, "genau ein Draft-Call");
     const draftBody = JSON.parse(draftCalls[0].body) as JsonRecord;
     assertEquals(
@@ -580,7 +692,7 @@ Deno.test("Krise im Rezept-Modus: Krisen-Antwort, KEIN Draft-Call", async () => 
       1,
       "nur der Classifier — kein Draft-Call",
     );
-    assertEquals(completionsWithBudget(stub, 900).length, 0, "kein Draft-Call");
+    assertEquals(recipeCompletions(stub).length, 0, "kein Draft-Call");
     assertEquals(stub.callsTo("api/v1/images").length, 0, "kein Bild-Call");
     // Quota rule unchanged: a refusal costs the slot.
     assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
@@ -614,7 +726,7 @@ Deno.test("Lokalisierung: EN-Krise im Rezept-Pfad", async () => {
       1,
       "nur der Classifier — kein Draft-Call",
     );
-    assertEquals(completionsWithBudget(stub, 900).length, 0, "kein Draft-Call");
+    assertEquals(recipeCompletions(stub).length, 0, "kein Draft-Call");
     assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
   } finally {
     stub.restore();
@@ -632,7 +744,7 @@ Deno.test("Essstoerung im Rezept-Modus: abgelehnt, KEIN Draft-Call", async () =>
     assertEquals(body.refusal, true, "refusal");
     assertEquals(body.refusal_reason, "eating_disorder", "Layer-2-Grund");
     assert(!("recipe" in body), "kein Rezept");
-    assertEquals(completionsWithBudget(stub, 900).length, 0, "kein Draft-Call");
+    assertEquals(recipeCompletions(stub).length, 0, "kein Draft-Call");
     assertEquals(stub.callsTo("api/v1/images").length, 0, "kein Bild-Call");
   } finally {
     stub.restore();
@@ -653,7 +765,7 @@ Deno.test("Doping-Wunsch im Rezept-Modus: abgelehnt, KEIN Draft-Call", async () 
     assertEquals(body.refusal, true, "refusal");
     assertEquals(body.refusal_reason, "medical_risk", "Layer-2-Grund");
     assert(!("recipe" in body), "kein Rezept");
-    assertEquals(completionsWithBudget(stub, 900).length, 0, "kein Draft-Call");
+    assertEquals(recipeCompletions(stub).length, 0, "kein Draft-Call");
     assertEquals(stub.callsTo("api/v1/images").length, 0, "kein Bild-Call");
     assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
   } finally {
@@ -675,7 +787,7 @@ Deno.test("Injection im Rezept-Modus: abgelehnt, KEIN Draft-Call", async () => {
     assertEquals(body.refusal, true, "refusal");
     assertEquals(body.refusal_reason, "injection", "Layer-2-Grund");
     assert(!("recipe" in body), "kein Rezept");
-    assertEquals(completionsWithBudget(stub, 900).length, 0, "kein Draft-Call");
+    assertEquals(recipeCompletions(stub).length, 0, "kein Draft-Call");
     assertEquals(stub.callsTo("api/v1/images").length, 0, "kein Bild-Call");
     assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
   } finally {
@@ -719,7 +831,7 @@ Deno.test("W1: unparsbare Classifier-Antwort im Rezept-Modus -> Refusal, KEIN Dr
         `${content}: nur der Classifier — kein Draft-Call`,
       );
       assertEquals(
-        completionsWithBudget(stub, 900).length,
+        recipeCompletions(stub).length,
         0,
         `${content}: kein Draft-Call`,
       );
@@ -746,7 +858,7 @@ Deno.test("Lokalisierung: classifier_unusable EN im Rezept-Pfad", async () => {
     assertEquals(body.refusal, true, "refusal");
     assertEquals(body.refusal_reason, "classifier_unusable", "refusal_reason");
     assertEquals(body.reply, CLASSIFIER_UNUSABLE_REPLY_EN, "EN-classifier_unusable-Text");
-    assertEquals(completionsWithBudget(stub, 900).length, 0, "kein Draft-Call");
+    assertEquals(recipeCompletions(stub).length, 0, "kein Draft-Call");
   } finally {
     stub.restore();
   }
@@ -762,7 +874,7 @@ Deno.test("off_topic blockiert kein Rezept (der Rezept-Prompt entscheidet)", asy
     assertEquals(res.status, 200, "Status");
     const body = await res.json() as JsonRecord;
     assertEquals((body.recipe as JsonRecord)?.title, "Huehnchenauflauf", "Rezept da");
-    assertEquals(completionsWithBudget(stub, 900).length, 1, "Draft-Call gelaufen");
+    assertEquals(recipeCompletions(stub).length, 1, "Draft-Call gelaufen");
   } finally {
     stub.restore();
   }
@@ -917,7 +1029,7 @@ Deno.test("P5-08: User-Zeile nicht speicherbar -> 500 store_failed, Slot zurueck
     const body = await res.json() as JsonRecord;
     assertEquals(body.error, "store_failed", "Fehlercode");
     // Nothing paid after the classifier: no draft, no image.
-    assertEquals(completionsWithBudget(stub, 900).length, 0, "kein Draft-Call");
+    assertEquals(recipeCompletions(stub).length, 0, "kein Draft-Call");
     assertEquals(stub.callsTo("api/v1/images").length, 0, "kein Bild-Call");
     const refunds = stub.callsTo("refund_chat_quota");
     assertEquals(refunds.length, 1, "genau ein Refund");

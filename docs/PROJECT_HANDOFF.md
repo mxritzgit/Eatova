@@ -767,3 +767,24 @@ The user authorized push and protected-main merge after green CI. Local checks:
 4,372 passing tests, 95.12% coverage, strict analysis, Android debug APK and
 clean final reviews. Delivery is recorded in the PR. This is a client change, without
 backend, schema or dependency rollout; an installed app build is separate.
+
+## Sentry recipe failures, 2026-09-13
+
+Sentry FLUTTER-D/E are three failed Coach recipe requests, including a retry.
+Read-only server logs on v45 confirm unusable recipe JSON. The recipe path still
+had a 900-token cap without reasoning control; completion reason was not logged,
+so the exact historical truncation cause is not proven. A local regression
+reproduces the insufficient-budget failure.
+
+`fix/coach-recipe-completion` adds output headroom, rejects explicitly truncated
+recipes, and records sanitized completion metadata. See
+[SENTRY-RECIPE-2026-09-13.md](SENTRY-RECIPE-2026-09-13.md) for evidence, verification
+and rollout limits. With the user's write authorization, `coach-chat` v46 is live
+with JWT verification enabled and downloaded source matching the tested fix.
+Two real-provider recipe checks pass (DE/EN); the disposable account and related
+data were removed and verified. All 4,372 Flutter tests (93.32% coverage), strict
+analysis and 507 Deno tests pass. No migration or client build is needed.
+
+The user authorized push and protected-main merge of `fix/coach-recipe-completion`
+after green CI. The branch's pull request records the final Git delivery. The fix
+already runs as v46; merging the same source requires no additional deployment.

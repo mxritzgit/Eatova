@@ -70,6 +70,8 @@ const DAILY_LIMIT            = positiveIntFromEnv("COACH_DAILY_LIMIT", 5);
 // 800-token budget cut off ordinary recipes mid-sentence. Leave headroom for
 // both; the prompt still asks for concise answers, not for filling this cap.
 const ANSWER_MAX_TOKENS      = 3072;
+// Structured recipe JSON needs room for reasoning as well as every field.
+const RECIPE_MAX_TOKENS      = 3072;
 const MAX_IMAGE_BASE64_CHARS = 6_000_000;
 const MAX_CONTENT_LENGTH     = 6_250_000;
 const HISTORY_LIMIT          = 10;
@@ -1137,7 +1139,7 @@ async function draftRecipe(
   apiKey: string,
   wish: string,
   locale: "de" | "en",
-): Promise<string> {
+): Promise<{ content: string; finishReason: string | undefined }> {
   const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -1155,9 +1157,8 @@ async function draftRecipe(
       ],
       response_format: { type: "json_object" },
       temperature: 0.4,
-      // Separate budget for structured recipe drafts; test stubs use it
-      // to distinguish this call from the ordinary chat answer.
-      max_tokens: 900,
+      max_tokens: RECIPE_MAX_TOKENS,
+      reasoning: { effort: "low", exclude: true },
     }),
   });
   if (!resp.ok) {
@@ -1167,8 +1168,22 @@ async function draftRecipe(
       `Rezept-Call fehlgeschlagen: ${resp.status} (${await redactedBodyMeta(text)})`,
     );
   }
-  const data = await resp.json();
-  return String(data?.choices?.[0]?.message?.content ?? "").trim();
+  let data;
+  try {
+    data = await resp.json();
+  } catch (error) {
+    // JSON parser errors can quote provider content; keep diagnostics fixed.
+    if (error instanceof SyntaxError) {
+      throw new ProviderError(502, "Recipe provider response invalid");
+    }
+    throw error;
+  }
+  const choice = data?.choices?.[0];
+  const content = choice?.message?.content;
+  return {
+    content: typeof content === "string" ? content.trim() : "",
+    finishReason: loggableFinishReason(choice?.finish_reason),
+  };
 }
 
 /// Image generation via the OpenRouter image API. TOLERANT: any error returns
@@ -1329,9 +1344,9 @@ async function handleRecipeMode(params: {
   void maybeAutoTitle(serviceKey, supabaseUrl, userId, sessionId, message)
     .catch(() => console.error("maybeAutoTitle unavailable"));
 
-  let raw: string;
+  let completion: Awaited<ReturnType<typeof draftRecipe>>;
   try {
-    raw = await draftRecipe(openRouterKey, message, locale);
+    completion = await draftRecipe(openRouterKey, message, locale);
   } catch (e) {
     // Infra error: nothing delivered -> refund + honest status, as in the
     // answer path. Client-caused 4xx keep the slot (isClientFaultFailure).
@@ -1348,6 +1363,7 @@ async function handleRecipeMode(params: {
 
   // Not a food recipe: costs the slot on purpose, like the Layer 2 refusals,
   // or provoked refusals would be free calls.
+  const raw = completion.content;
   const refusalText = parseRecipeRefusal(raw);
   if (refusalText !== null) {
     await storeMessage(serviceKey, supabaseUrl, {
@@ -1365,11 +1381,15 @@ async function handleRecipeMode(params: {
     }, 200);
   }
 
-  const draft: RecipeDraft | null = parseRecipeDraft(raw);
+  // A provider may close the JSON while omitting fields at its output cap.
+  // Preserve an explicit refusal above, but never deliver a truncated recipe.
+  const draft: RecipeDraft | null = completion.finishReason === "length"
+    ? null
+    : parseRecipeDraft(raw);
   if (draft === null) {
     // Unreadable model output = provider infra error (analyze-meal's
-    // provider_invalid_json): refund + 502. Log the LENGTH only — raw can
-    // mirror the user's wish text.
+    // provider_invalid_json): refund + 502. Log only length and allowlisted
+    // completion metadata — raw can mirror the user's wish text.
     //
     // P5-09, decided 2026-08-29 — KEEP the refund. This is the only refund
     // whose trigger sits in the model's OUTPUT instead of in infrastructure,
@@ -1388,7 +1408,7 @@ async function handleRecipeMode(params: {
     //     — which is true of every refund path here, not just this one.
     // No extra counter: it would add a DB roundtrip and a new limiter scope
     // for a path no verifier could trigger.
-    console.error(`recipe draft unlesbar (${raw.length} Zeichen)`);
+    console.error(`recipe draft unlesbar (${raw.length} Zeichen, finish_reason=${completion.finishReason ?? "missing"})`);
     await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
     await touchSession(serviceKey, supabaseUrl, sessionId);
     return json({ error: "provider_error", session_id: sessionId }, 502);
