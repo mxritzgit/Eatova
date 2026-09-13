@@ -59,7 +59,7 @@ dependencies:
   # safely under the 5 MB cap of the analyze-meal Edge Function. Pure Dart (via
   # compute() in an isolate) instead of flutter_image_compress: no extra native
   # plugin, testable in VM tests, and bakeOrientation bakes in EXIF rotation.
-  image: ^4.3.0
+  image: ^4.9.2
   # Native Google login (credential manager sheet on Android, Google SDK dialog
   # on iOS). The sheet shows the consent-screen app name instead of the Supabase
   # domain, which the web OAuth flow is forced to show. The ID token is
