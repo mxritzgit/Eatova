@@ -7,7 +7,6 @@ library;
 
 import 'dart:async';
 import 'dart:collection';
-import 'dart:io';
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
@@ -30,6 +29,8 @@ import '../../widgets/common/app_snack.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/recipes/recipe_ingredient_editor.dart';
 import '../../widgets/recipes/recipe_portion_selector.dart';
+import '../../widgets/recipes/recipe_photo.dart';
+import '../../widgets/recipes/recipe_navigation.dart';
 
 part 'recipes_header.dart';
 part 'recipe_cards.dart';
@@ -369,6 +370,7 @@ bool _sameRecipes(List<FitnessRecipe> a, List<FitnessRecipe> b) {
 
 class _RecipesScreenState extends State<RecipesScreen> {
   String selectedFilter = "Alle";
+  bool _forYou = true;
 
   /// Search text, deliberately on its own controller rather than the
   /// [TextField]'s internal state (D6, Review 2026-08-08): the screen is a
@@ -387,7 +389,8 @@ class _RecipesScreenState extends State<RecipesScreen> {
   /// Deletes still inside their undo window, by slug. The recipe stays in
   /// [_userRecipes] (so a store update cannot resurrect it out of order) and
   /// is only hidden until the timer commits or undo cancels it.
-  final Map<String, _PendingDelete> _pendingDeletes = <String, _PendingDelete>{};
+  final Map<String, _PendingDelete> _pendingDeletes =
+      <String, _PendingDelete>{};
 
   /// Set at the top of [dispose]: `mounted` is still true while disposing,
   /// but the element is already defunct, so a `setState` would assert.
@@ -427,7 +430,10 @@ class _RecipesScreenState extends State<RecipesScreen> {
   /// changes should re-filter the list.
   void _onSearchChanged() {
     if (_searchController.text == query) return;
-    setState(() => query = _searchController.text);
+    setState(() {
+      query = _searchController.text;
+      if (query.trim().isNotEmpty) _forYou = false;
+    });
   }
 
   @override
@@ -441,7 +447,6 @@ class _RecipesScreenState extends State<RecipesScreen> {
     // `_restoreDroppedDeletes` or created on a second device.
     if (!identical(oldWidget.initialUserRecipes, widget.initialUserRecipes)) {
       _userRecipes = List<FitnessRecipe>.of(widget.initialUserRecipes);
-      _dropOwnFilterIfEmpty();
     }
     for (final slug in _pendingDeletes.keys.toList(growable: false)) {
       if (widget.isDeletePending?.call(slug) == false) {
@@ -531,30 +536,27 @@ class _RecipesScreenState extends State<RecipesScreen> {
       .where((r) => !_pendingDeletes.containsKey(r.slug))
       .toList(growable: false);
 
-  /// Filter strip: "Eigene" sits right after "Alle" and only exists while
-  /// there is something to show under it. The literals are logic identity
-  /// (see [recipeCategoryLabel]), hence double-quoted.
-  List<String> get _filters => <String>[
-        recipeFilters.first,
-        if (_visibleUserRecipes.isNotEmpty) "Eigene",
-        ...recipeFilters.skip(1),
-      ];
+  List<String> get _filters => recipeFilters;
 
-  /// The "Eigene" chip disappears with its last recipe; the selection must
-  /// not point at a chip that no longer exists.
-  void _dropOwnFilterIfEmpty() {
-    if (selectedFilter == "Eigene" && _visibleUserRecipes.isEmpty) {
-      selectedFilter = "Alle";
-    }
+  void _selectSection(int section) {
+    if (section == 0) _searchController.clear();
+    setState(() {
+      _forYou = section == 0;
+      if (section == 2) {
+        selectedFilter = "Eigene";
+      } else if (selectedFilter == "Eigene" || section == 0) {
+        selectedFilter = "Alle";
+      }
+    });
   }
 
   /// Search plus category filter for the current build. Folding the query is
   /// the only work left here; the per-recipe fold and the result itself are
   /// memoised on [_RecipeIndex].
   List<FitnessRecipe> _filteredRecipes(_RecipeIndex index) => index.filtered(
-        query: foldRecipeSearchText(query.trim()),
-        filter: selectedFilter,
-      );
+    query: foldRecipeSearchText(query.trim()),
+    filter: selectedFilter,
+  );
 
   void _openRecipe(FitnessRecipe recipe) {
     Navigator.of(context).push(
@@ -574,9 +576,9 @@ class _RecipesScreenState extends State<RecipesScreen> {
               ? () {
                   if (!mounted ||
                       _disposing ||
-                    widget.isSessionCurrent?.call() == false) {
-                  return;
-                }
+                      widget.isSessionCurrent?.call() == false) {
+                    return;
+                  }
                   final current = _userRecipes
                       .where((r) => r.slug == recipe.slug)
                       .firstOrNull;
@@ -617,7 +619,6 @@ class _RecipesScreenState extends State<RecipesScreen> {
         recipe,
         Timer(kRecipeUndoWindow, () => unawaited(_commitDelete(recipe))),
       );
-      _dropOwnFilterIfEmpty();
     });
     widget.onDeletePendingChanged?.call(recipe.slug, pending: true);
     final l10n = context.l10n;
@@ -653,8 +654,9 @@ class _RecipesScreenState extends State<RecipesScreen> {
       if (mounted && !_disposing) setState(() {});
       return;
     }
-    _userRecipes =
-        _userRecipes.where((r) => r.slug != recipe.slug).toList(growable: true);
+    _userRecipes = _userRecipes
+        .where((r) => r.slug != recipe.slug)
+        .toList(growable: true);
     if (mounted && !_disposing) setState(() {});
     // Store first, window flag second: the store drops the row itself, so no
     // reader sees the recipe come back for a frame between the two calls.
@@ -716,7 +718,14 @@ class _RecipesScreenState extends State<RecipesScreen> {
     );
     if (ergebnis == null || !mounted) return;
     final recipe = ergebnis.rezept;
-    setState(() => _userRecipes = [recipe, ..._userRecipes.where((r) => r.slug != recipe.slug)]);
+    setState(
+      () => _userRecipes = [
+        recipe,
+        ..._userRecipes.where((r) => r.slug != recipe.slug),
+      ],
+    );
+    _searchController.clear();
+    _selectSection(2);
     // Gap E: the message waits for the outcome instead of asserting it. It
     // arrives after [kSyncDeliveryWindow] at the latest — the store caps the
     // wait because a Supabase write carries no timeout.
@@ -744,9 +753,6 @@ class _RecipesScreenState extends State<RecipesScreen> {
     final l10n = context.l10n;
     final index = _indexFor(l10n);
     final visibleRecipes = _filteredRecipes(index);
-    // Recommendation carousel: the diet-filtered catalog pool (PROD-6),
-    // rotated by calendar day so it is not the same four cards forever. Only
-    // the pool is memoised — the rotation has to keep turning.
     final recommended = rotatedRecommendations(
       index.catalogPool(widget.diet),
       clock.now(),
@@ -755,17 +761,9 @@ class _RecipesScreenState extends State<RecipesScreen> {
     final goalMatches = remaining == null
         ? const <FitnessRecipe>[]
         : index.goalMatches(remaining, widget.diet);
+    final own = selectedFilter == "Eigene";
+    final rows = _forYou ? index.catalogPool(widget.diet) : visibleRecipes;
 
-    // A fixed carousel height plus growing text overflows at textScaler 2.0;
-    // same technique as `MacroBar` in the design library.
-    final carouselHeight = MediaQuery.textScalerOf(
-      context,
-    ).scale(236).clamp(236.0, 430.0);
-
-    // D6: the PageStorageKey gives the list a stable identity in the route's
-    // PageStorage, so the scroll position survives a tab switch. It sits on a
-    // KeyedSubtree rather than the ListView because the latter's
-    // ValueKey('screen-recipes') is the entry point of several test suites.
     return KeyedSubtree(
       key: const PageStorageKey<String>('recipes-list'),
       child: ListView(
@@ -777,88 +775,107 @@ class _RecipesScreenState extends State<RecipesScreen> {
             onCreate: _openCreateSheet,
             onOpenMealPlan: widget.onOpenMealPlan,
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 20),
           _RecipeSearchField(
             controller: _searchController,
             onClear: _searchController.clear,
           ),
-          const SizedBox(height: 12),
-          _RecipeFilterChips(
-            filters: _filters,
-            selected: selectedFilter,
-            onSelected: (filter) => setState(() => selectedFilter = filter),
+          const SizedBox(height: 16),
+          RecipeNavigation(
+            labels: [
+              l10n.recipesForYou,
+              l10n.recipesAllTitle,
+              l10n.recipesCategoryOwn,
+            ],
+            itemKeys: const [
+              ValueKey('recipes-tab-for-you'),
+              ValueKey('recipes-tab-all'),
+              ValueKey('recipes-tab-own'),
+            ],
+            selected: _forYou
+                ? 0
+                : own
+                ? 2
+                : 1,
+            onSelected: _selectSection,
           ),
           const SizedBox(height: 18),
-          SectionHeading(
-            title: l10n.recipesRecommendedTitle,
-            trailing: l10n.recipesFitnessDishesCount(index.recipes.length),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            height: carouselHeight,
-            child: ListView.separated(
-              key: const ValueKey('recipe-recommended'),
-              scrollDirection: Axis.horizontal,
-              clipBehavior: Clip.none,
-              itemCount: recommended.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 12),
-              itemBuilder: (context, index) {
-                final recipe = recommended[index];
-                return _RecipeHeroCard(
-                  key: ValueKey('recipe-recommended-${recipe.slug}'),
-                  recipe: recipe,
-                  onTap: () => _openRecipe(recipe),
+          if (_forYou && recommended.isNotEmpty) ...[
+            _RecipeSpotlight(
+              recipes: recommended,
+              onOpen: _openRecipe,
+              carouselKey: const ValueKey('recipe-recommended'),
+              keyPrefix: 'recipe-recommended-',
+            ),
+            const SizedBox(height: 22),
+          ],
+          if (!_forYou && !own) ...[
+            _RecipeFilterChips(
+              filters: _filters,
+              selected: selectedFilter,
+              onSelected: (filter) => setState(() => selectedFilter = filter),
+            ),
+            const SizedBox(height: 18),
+          ],
+          if (_forYou)
+            Builder(
+              builder: (context) {
+                final heading = SectionHeading(
+                  title: l10n.recipesMoreRecommendations,
+                );
+                final action = TextButton(
+                  onPressed: () => _selectSection(1),
+                  child: Text(l10n.recipesSeeAll),
+                );
+                if (MediaQuery.textScalerOf(context).scale(14) > 19) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [heading, action],
+                  );
+                }
+                return Row(
+                  children: [
+                    Expanded(child: heading),
+                    action,
+                  ],
                 );
               },
+            )
+          else
+            SectionHeading(
+              title: own
+                  ? l10n.recipesOwnTitle
+                  : selectedFilter == "Alle"
+                  ? l10n.recipesAllTitle
+                  : recipeCategoryLabel(selectedFilter, l10n),
+              trailing: l10n.recipesResultsCount(rows.length),
             ),
-          ),
-          const SizedBox(height: 22),
-          SectionHeading(
-            // `selectedFilter` stays the neutral logic identity (filter
-            // comparison, chip ValueKeys); the heading shows its ARB display
-            // form, like the chip itself. The "Alle" case keeps its own,
-            // longer title.
-            title: selectedFilter == "Alle"
-                ? l10n.recipesAllTitle
-                : recipeCategoryLabel(selectedFilter, l10n),
-            trailing: l10n.recipesResultsCount(visibleRecipes.length),
-          ),
-          const SizedBox(height: 12),
-          for (var i = 0; i < visibleRecipes.length; i++) ...[
+          const SizedBox(height: 4),
+          for (var i = 0; i < rows.length; i++) ...[
             _RecipeListTile(
-              key: ValueKey('recipe-tile-${visibleRecipes[i].slug}'),
-              recipe: visibleRecipes[i],
-              onTap: () => _openRecipe(visibleRecipes[i]),
+              key: ValueKey('recipe-tile-${rows[i].slug}'),
+              recipe: rows[i],
+              onTap: () => _openRecipe(rows[i]),
             ),
-            if (i != visibleRecipes.length - 1) const SizedBox(height: 12),
+            if (i < rows.length - 1) Divider(height: 1, color: context.t.line),
           ],
-          if (visibleRecipes.isEmpty) const _RecipeEmptyState(),
-          // Deliberately after the main list, so the first recipe tile stays
-          // in the initial viewport.
-          if (goalMatches.isNotEmpty) ...[
-            const SizedBox(height: 22),
+          if (rows.isEmpty)
+            _RecipeEmptyState(
+              own: own && query.trim().isEmpty,
+              onCreate: _openCreateSheet,
+            ),
+          if (_forYou && goalMatches.isNotEmpty) ...[
+            const SizedBox(height: 24),
             SectionHeading(
               title: l10n.recipesGoalMatchTitle,
               trailing: l10n.recipesGoalMatchTrailing,
             ),
             const SizedBox(height: 12),
-            SizedBox(
-              height: carouselHeight,
-              child: ListView.separated(
-                key: const ValueKey('recipe-goal-matches'),
-                scrollDirection: Axis.horizontal,
-                clipBehavior: Clip.none,
-                itemCount: goalMatches.length,
-                separatorBuilder: (_, __) => const SizedBox(width: 12),
-                itemBuilder: (context, index) {
-                  final recipe = goalMatches[index];
-                  return _RecipeHeroCard(
-                    recipe: recipe,
-                    badgeText: l10n.recipesGoalMatchBadge,
-                    onTap: () => _openRecipe(recipe),
-                  );
-                },
-              ),
+            _RecipeSpotlight(
+              recipes: goalMatches,
+              onOpen: _openRecipe,
+              carouselKey: const ValueKey('recipe-goal-matches'),
+              badgeText: l10n.recipesGoalMatchTitle,
             ),
           ],
         ],

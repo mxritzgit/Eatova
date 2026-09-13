@@ -1,3 +1,5 @@
+import '../support/recipe_navigation.dart';
+
 // Recipe flows: the recipe detail adds the meal to the kcal/macro tracker, on
 // the day selected in the food tab, not blindly on today.
 
@@ -27,6 +29,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-Rezepte')));
     await tester.pumpAndSettle();
 
+    await selectRecipeSection(tester, 'all');
     final recipeTile = find.byKey(
       const ValueKey('recipe-tile-hahnchen_mit_reis_and_brokkoli'),
     );
@@ -97,6 +100,7 @@ void main() {
     // Add the recipe to the tracker via the detail screen.
     await tester.tap(find.byKey(const ValueKey('nav-Rezepte')));
     await tester.pumpAndSettle();
+    await selectRecipeSection(tester, 'all');
     final recipeTile = find.byKey(
       const ValueKey('recipe-tile-hahnchen_mit_reis_and_brokkoli'),
     );

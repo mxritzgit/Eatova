@@ -134,7 +134,7 @@ String _activeFilter(WidgetTester tester) {
 Future<double> _setUpState(WidgetTester tester) async {
   await tester.enterText(
     find.byKey(const ValueKey('recipes-search-input')),
-    'reis',
+    'e',
   );
   await tester.pumpAndSettle();
   // Chip 2 is the last one fully inside the viewport in the test font.
@@ -252,7 +252,7 @@ void main() {
     // 2. Search text and filter: bring the list head back into view.
     _listPosition(tester).jumpTo(0);
     await tester.pumpAndSettle();
-    expect(_searchText(tester), 'reis');
+    expect(_searchText(tester), 'e');
     expect(_activeFilter(tester), 'High Protein');
   });
 
@@ -281,6 +281,6 @@ void main() {
     _listPosition(tester).jumpTo(0);
     await tester.pumpAndSettle();
     expect(_searchText(tester), '');
-    expect(_activeFilter(tester), 'Alle');
+    expect(tester.widget<Semantics>(find.byKey(const ValueKey('recipes-tab-for-you'))).properties.selected, isTrue);
   });
 }

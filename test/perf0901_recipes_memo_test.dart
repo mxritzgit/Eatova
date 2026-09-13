@@ -305,26 +305,17 @@ void main() {
       expect(_slugs(tester), isEmpty);
     });
 
-    testWidgets('das letzte eigene Rezept faellt weg — der Chip verschwindet, '
-        'die Auswahl faellt auf "Alle" zurueck und der Cache folgt',
+    testWidgets('letztes eigenes Rezept entfernt: leerer Bereich ohne Cache-Reste',
         (tester) async {
-      // Der Pfad, der zwei Eingaenge auf einmal dreht: `_dropOwnFilterIfEmpty`
-      // schreibt `selectedFilter` um, waehrend sich der Rezeptbestand aendert.
       _grosseFlaeche(tester);
       await _pump(tester, userRecipes: _einRezept);
-      await tester.tap(find.byKey(const ValueKey('recipe-filter-Eigene')));
+      await tester.tap(find.byKey(const ValueKey('recipes-tab-own')));
       await tester.pumpAndSettle();
       expect(_slugs(tester), <String>[_eigenes.slug]);
-
       await _pump(tester);
-
-      expect(find.byKey(const ValueKey('recipe-filter-Eigene')), findsNothing);
-      expect(
-        _slugs(tester),
-        recipeCatalogForLocale('de').map((r) => r.slug).toList(growable: false),
-        reason: 'Nach dem Rueckfall auf "Alle" muss der ganze Katalog stehen, '
-            'nicht der gemerkte "Eigene"-Stand.',
-      );
+      expect(_slugs(tester), isEmpty);
+      expect(tester.widget<Semantics>(find.byKey(const ValueKey('recipes-tab-own')))
+          .properties.selected, isTrue);
     });
 
     testWidgets('die Ernaehrungsform — auch der Karussell-Pool folgt ihr',
@@ -479,7 +470,10 @@ void main() {
           final l10n =
               await AppLocalizations.delegate.load(Locale(locale));
           await _pump(tester, locale: Locale(locale), userRecipes: _einRezept);
-          if (filter != "Alle") {
+          await tester.tap(find.byKey(ValueKey(
+            filter == 'Eigene' ? 'recipes-tab-own' : 'recipes-tab-all')));
+          await tester.pumpAndSettle();
+          if (filter != 'Alle' && filter != 'Eigene') {
             await tester.tap(find.byKey(ValueKey('recipe-filter-$filter')));
             await tester.pumpAndSettle();
           }

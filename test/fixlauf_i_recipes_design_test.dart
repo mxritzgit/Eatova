@@ -3,8 +3,7 @@
 //
 //   * Suchfeld und Sheet-Felder sind RAHMENLOS: weiche Kapsel mit Schatten,
 //     Fokus = Flächen-Aufhellung, Fehler = Danger-Tönung plus Textzeile.
-//   * Der „EMPFOHLEN"-Badge ist Forest + onForest (Lime bleibt der
-//     Nav-Kapsel vorbehalten), Radius rChip.
+//   * Die Spotlight-Karte verwendet die gemeinsame Lavendelfläche.
 //   * Keine lokalen Farbkopien mehr auf Buttons (Theme entscheidet); nur das
 //     destruktive Rot bleibt.
 
@@ -124,23 +123,15 @@ void main() {
         expect(find.text('1–10000 kcal'), findsOneWidget);
       });
 
-      testWidgets('„EMPFOHLEN"-Badge ist Forest + onForest mit rChip',
+      testWidgets('Spotlight verwendet die gemeinsame Lavendelflaeche',
           (tester) async {
         _pinViewport(tester);
         await _pumpApp(tester, brightness);
         await tester.pumpAndSettle();
-
-        final badgeText = find.text('EMPFOHLEN').first;
-        final container = find
-            .ancestor(of: badgeText, matching: find.byType(Container))
-            .first;
-        final deko =
-            tester.widget<Container>(container).decoration! as BoxDecoration;
-        expect(deko.color, t.forest);
-        expect(deko.borderRadius, BorderRadius.circular(rChip));
-        expect(tester.widget<Text>(badgeText).style?.color, t.onForest);
-        expect(deko.color, isNot(t.lime),
-            reason: 'Lime ist der Nav-Kapsel vorbehalten.');
+        final label = find.text('Heute ausprobieren').first;
+        final card = find.ancestor(of: label, matching: find.byType(Material)).first;
+        expect(tester.widget<Material>(card).color, t.brandSurface);
+        expect(tester.widget<Text>(label).style?.color, t.accent);
       });
 
       testWidgets('Buttons verwenden die gemeinsame Aktionshierarchie',

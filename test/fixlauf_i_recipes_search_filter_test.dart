@@ -14,7 +14,6 @@ import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
-import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
 
@@ -241,57 +240,43 @@ void main() {
     });
   });
 
-  group('"Eigene"-Chip', () {
-    testWidgets('fehlt ohne eigene Rezepte', (tester) async {
+  group('Rezept-Bereiche', () {
+    testWidgets('Eigene bleibt leer erreichbar und bietet Erstellen an', (tester) async {
       _pinViewport(tester);
       await tester.pumpWidget(_app());
       await tester.pumpAndSettle();
-
-      expect(find.byKey(const ValueKey('recipe-filter-Alle')), findsOneWidget);
-      expect(find.byKey(const ValueKey('recipe-filter-Eigene')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('recipes-tab-own')));
+      await tester.pumpAndSettle();
+      expect(find.text('0 Treffer'), findsOneWidget);
+      expect(find.byKey(const ValueKey('recipe-create-button')), findsOneWidget);
+      expect(find.byKey(const ValueKey('recipe-recommended')), findsNothing);
     });
 
-    testWidgets('steht mit eigenem Rezept direkt nach "Alle" und filtert',
-        (tester) async {
+    testWidgets('Eigene folgt auf Alle und zeigt nur eigene Rezepte', (tester) async {
       _pinViewport(tester);
       await tester.pumpWidget(_app(userRecipes: [_eigenes]));
       await tester.pumpAndSettle();
-
-      final alle = find.byKey(const ValueKey('recipe-filter-Alle'));
-      final eigene = find.byKey(const ValueKey('recipe-filter-Eigene'));
-      final protein = find.byKey(const ValueKey('recipe-filter-High Protein'));
-      expect(eigene, findsOneWidget);
-      expect(tester.getTopLeft(eigene).dx, greaterThan(tester.getTopLeft(alle).dx));
-      expect(
-        tester.getTopLeft(eigene).dx,
-        lessThan(tester.getTopLeft(protein).dx),
-      );
-      expect(tester.widget<FilterChipPill>(eigene).label, 'Eigene');
-
-      await tester.tap(eigene);
+      final all = find.byKey(const ValueKey('recipes-tab-all'));
+      final own = find.byKey(const ValueKey('recipes-tab-own'));
+      expect(tester.getTopLeft(own).dx, greaterThan(tester.getTopLeft(all).dx));
+      await tester.tap(own);
       await tester.pumpAndSettle();
-
-      expect(tester.widget<FilterChipPill>(eigene).selected, isTrue);
+      expect(tester.widget<Semantics>(own).properties.selected, isTrue);
       expect(find.text('1 Treffer'), findsOneWidget);
-      expect(find.byKey(ValueKey('recipe-tile-${_eigenes.slug}')),
-          findsOneWidget);
-      expect(
-        find.byKey(const ValueKey('recipe-tile-hahnchen_mit_reis_and_brokkoli')),
-        findsNothing,
-      );
+      expect(find.byKey(ValueKey('recipe-tile-${_eigenes.slug}')), findsOneWidget);
+      expect(find.byKey(const ValueKey('recipe-tile-hahnchen_mit_reis_and_brokkoli')), findsNothing);
     });
 
-    testWidgets('ein Kategorie-Chip blendet eigene Rezepte weiterhin aus '
-        '(Regressionsschutz, gewollt)', (tester) async {
+    testWidgets('Kategorie-Chips filtern weiterhin nur Katalogrezepte', (tester) async {
       _pinViewport(tester);
       await tester.pumpWidget(_app(userRecipes: [_eigenes]));
       await tester.pumpAndSettle();
-
+      await tester.tap(find.byKey(const ValueKey('recipes-tab-all')));
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('recipe-filter-High Protein')));
       await tester.pumpAndSettle();
-
-      expect(find.byKey(ValueKey('recipe-tile-${_eigenes.slug}')),
-          findsNothing);
+      expect(find.byKey(ValueKey('recipe-tile-${_eigenes.slug}')), findsNothing);
+      expect(find.byKey(const ValueKey('recipe-tile-hahnchen_mit_reis_and_brokkoli')), findsOneWidget);
     });
   });
 }

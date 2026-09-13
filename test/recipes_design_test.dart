@@ -24,7 +24,7 @@ import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
-import 'package:eatova/src/theme/app_tokens.dart' show AppType;
+import 'package:eatova/src/theme/app_tokens.dart' show AppType, AppTokens;
 import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
@@ -172,7 +172,7 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.byKey(const ValueKey('screen-recipes')), findsOneWidget);
       expect(find.text(c.l10n.navRecipes), findsOneWidget);
-      expect(find.text(c.l10n.recipesRecommendedTitle), findsOneWidget);
+      expect(find.text(c.l10n.recipesTryToday), findsWidgets);
     },
     locales: const <Locale>[Locale('de'), Locale('en')],
   );
@@ -259,45 +259,23 @@ void main() {
     expect(find.text(c.l10n.recipesWhenToLogTitle), findsOneWidget);
   });
 
-  // The only place in this package where text does NOT sit on a token
-  // surface: the carousel image tile. Its scrim is dark in both modes, so
-  // `t.ink` would be black on black in light mode — an exception-free test
-  // would not catch that.
-  renderMatrix('Text auf dem Foto bleibt hell', (tester, c) async {
+  renderMatrix('Spotlight: lesbarer Titel unter dem Foto', (tester, c) async {
     await _pumpTab(tester, c);
-
-    final overlay = find
-        .ancestor(
-          of: find.text('EMPFOHLEN').first,
-          matching: find.byType(Column),
-        )
-        .first;
-    final texte = tester
-        .widgetList<Text>(
-          find.descendant(of: overlay, matching: find.byType(Text)),
-        )
-        .toList();
-
-    // The title uses the display family, the metrics row 11 pt; the badge
-    // (onForest on forest, 9.5 pt) falls through both filters.
-    final aufDemFoto = texte.where(
-      (w) =>
-          w.style?.fontFamily == AppType.displayFamily ||
-          w.style?.fontSize == 11,
-    );
-    expect(
-      aufDemFoto.length,
-      greaterThanOrEqualTo(2),
-      reason: 'Titel und Kennzahlen der Bildkachel wurden nicht gefunden.',
-    );
-    for (final w in aufDemFoto) {
-      expect(
-        w.style!.color!.computeLuminance(),
-        greaterThan(0.5),
-        reason: '„${w.data}" steht auf dem dunklen Foto-Scrim und braucht '
-            'helle Schrift.',
-      );
-    }
+    final carousel = find.byKey(const ValueKey('recipe-recommended'));
+    final title = find.descendant(
+      of: carousel,
+      matching: find.byWidgetPredicate((w) => w is Text &&
+          w.style?.fontFamily == AppType.displayFamily &&
+          w.style?.fontSize == 24),
+    ).first;
+    final photo = find.descendant(of: carousel, matching: find.byType(Image)).first;
+    expect(tester.getTopLeft(title).dy, greaterThan(tester.getBottomLeft(photo).dy));
+    final text = tester.widget<Text>(title);
+    final t = AppTokens.of(tester.element(title));
+    final a = text.style!.color!.computeLuminance();
+    final b = t.brandSurface.computeLuminance();
+    expect((a > b ? (a + .05) / (b + .05) : (b + .05) / (a + .05)),
+        greaterThanOrEqualTo(4.5));
   });
 
   renderMatrix('Das Anlege-Sheet rendert overflow-frei', (tester, c) async {
@@ -421,6 +399,8 @@ void main() {
     }
     expect(gesehen, containsAll(recipeFilters));
 
+    await tester.tap(find.byKey(const ValueKey('recipes-tab-for-you')));
+    await tester.pumpAndSettle();
     await _scrollTo(tester, find.byKey(const ValueKey('recipe-goal-matches')));
     expect(find.byKey(const ValueKey('recipe-goal-matches')), findsOneWidget);
   });
@@ -445,6 +425,8 @@ void main() {
     testWidgets('Loeschen eines Eigen-Rezepts meldet den Titel',
         (tester) async {
       await _pumpTabPlain(tester, userRecipes: [_eigenes]);
+      await tester.tap(find.byKey(const ValueKey('recipes-tab-own')));
+      await tester.pumpAndSettle();
 
       final tile = find.byKey(ValueKey('recipe-tile-${_eigenes.slug}'));
       await _scrollTo(tester, tile);
@@ -480,6 +462,9 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.text('„Protein-Bowl" gespeichert.'), findsOneWidget);
+      expect(tester.widget<Semantics>(find.byKey(const ValueKey('recipes-tab-own')))
+          .properties.selected, isTrue);
+      expect(find.text('Protein-Bowl'), findsOneWidget);
     });
   });
 
@@ -515,24 +500,21 @@ void main() {
     semantics.dispose();
   });
 
-  // The metrics row briefly showed only kcal, protein and portion weight; carbs
-  // and fat had been on every card before. This test pins the full macro trio
-  // on the list tile.
-  testWidgets('Die Listenkachel zeigt kcal und alle drei Makros',
+  testWidgets('Listen zeigen kcal und Protein; Details alle Makros',
       (tester) async {
     await _pumpTabPlain(tester, brightness: Brightness.light);
-
     final tile = find.byKey(
       const ValueKey('recipe-tile-hahnchen_mit_reis_and_brokkoli'),
     );
     await _scrollTo(tester, tile);
-
-    for (final kennzahl in <String>['590 kcal', '55g P', '62g KH', '12g F']) {
-      expect(
-        find.descendant(of: tile, matching: find.text(kennzahl)),
-        findsOneWidget,
-        reason: '„$kennzahl" fehlt auf der Rezept-Kachel',
-      );
+    expect(find.descendant(of: tile,
+        matching: find.textContaining('590 kcal')), findsOneWidget);
+    expect(find.descendant(of: tile,
+        matching: find.textContaining('55')), findsOneWidget);
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+    for (final value in ['590', '55 g', '62 g', '12 g']) {
+      expect(find.text(value), findsOneWidget, reason: value);
     }
   });
 
@@ -552,6 +534,8 @@ void main() {
     testWidgets('ein Eigen-Rezept ohne Bild bekommt den Platzhalter',
         (tester) async {
       await _pumpTabPlain(tester, userRecipes: [_eigenes]);
+      await tester.tap(find.byKey(const ValueKey('recipes-tab-own')));
+      await tester.pumpAndSettle();
 
       expect(find.byType(ImagePlaceholder), findsWidgets);
     });
@@ -578,7 +562,8 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('Recipes'), findsOneWidget);
-    expect(find.text('Recommendations'), findsOneWidget);
+    expect(find.text('Try something today'), findsWidgets);
+    await _scrollTo(tester, find.byKey(const ValueKey('recipe-tile-hahnchen_mit_reis_and_brokkoli')));
     expect(find.text('Chicken with Rice & Broccoli'), findsWidgets);
   });
 }

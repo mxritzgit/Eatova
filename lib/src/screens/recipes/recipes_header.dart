@@ -13,29 +13,45 @@ class _RecipesHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ScreenTitle(
-          title: l10n.navRecipes,
-          subtitle: l10n.recipesSubtitle,
-          trailing: onCreate == null
-              ? null
-              : SquareIconButton(
-                  key: const ValueKey('recipe-create-button'),
-                  icon: Icons.add_rounded,
-                  onTap: onCreate,
-                  semanticLabel: l10n.recipesCreateSemantics,
-                ),
-        ),
-        if (onOpenMealPlan != null)
-          TextButton.icon(
-            key: const ValueKey('recipe-meal-plan-button'),
-            onPressed: onOpenMealPlan,
-            icon: const Icon(Icons.calendar_month_outlined),
-            label: Text(l10n.recipeEditMealPlan),
-          ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final actions = Wrap(
+          spacing: 4,
+          runSpacing: 8,
+          children: [
+            if (onCreate != null)
+              RecipeHeaderAction(
+                key: const ValueKey('recipe-create-button'),
+                icon: Icons.add_rounded,
+                label: l10n.recipesCreateAction,
+                onTap: onCreate,
+              ),
+            if (onOpenMealPlan != null)
+              RecipeHeaderAction(
+                key: const ValueKey('recipe-meal-plan-button'),
+                icon: Icons.calendar_month_outlined,
+                label: l10n.recipeEditMealPlan,
+                onTap: onOpenMealPlan,
+              ),
+          ],
+        );
+        final stacked =
+            constraints.maxWidth < 340 ||
+            MediaQuery.textScalerOf(context).scale(14) > 18;
+        final title = ScreenTitle(title: l10n.navRecipes);
+        return stacked
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [title, const SizedBox(height: 12), actions],
+              )
+            : Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(child: title),
+                  actions,
+                ],
+              );
+      },
     );
   }
 }

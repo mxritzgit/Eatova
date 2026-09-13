@@ -85,13 +85,15 @@ void main() {
       // Der Katalog ist es, der empfohlen wird.
       final erste = rotatedRecommendations(recipeCatalogDe, _tag).first;
       expect(_karte(erste.slug), findsOneWidget);
-      // In der Hauptliste bleibt das eigene Rezept vorne.
+      // Eigene Rezepte bleiben im eigenen Bereich erreichbar.
+      await tester.tap(find.byKey(const ValueKey('recipes-tab-own')));
+      await tester.pumpAndSettle();
       expect(
           find.byKey(ValueKey('recipe-tile-${_eigenes.slug}')), findsOneWidget);
     });
   });
 
-  testWidgets('der Badge „EMPFOHLEN" hängt nur an Katalog-Karten',
+  testWidgets('Spotlight-Empfehlungen enthalten nur Katalog-Karten',
       (tester) async {
     _pinViewport(tester);
     await withClock(Clock.fixed(_tag), () async {
@@ -124,7 +126,7 @@ void main() {
       );
       final badges = find.descendant(
         of: _karussell(),
-        matching: find.text('EMPFOHLEN'),
+        matching: find.text('Heute ausprobieren'),
       );
       expect(karten, findsWidgets);
       expect(badges.evaluate().length, karten.evaluate().length);

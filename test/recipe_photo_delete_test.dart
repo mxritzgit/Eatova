@@ -1,3 +1,5 @@
+import 'support/recipe_navigation.dart';
+
 // Audit 2026-08-14: the recipe photo was deleted immediately, before it was
 // known whether the deletion would ever be delivered.
 //
@@ -272,6 +274,7 @@ ScrollPosition _listPosition(WidgetTester tester) {
 /// Jump to the top first: `dragUntilVisible` drags in one direction only and
 /// would never find a tile above the current position.
 Future<Finder> _holeKachelInsBild(WidgetTester tester, String slug) async {
+  await selectRecipeSection(tester, 'own');
   _listPosition(tester).jumpTo(0);
   await tester.pumpAndSettle();
   final kachel = find.byKey(ValueKey('recipe-tile-$slug'));

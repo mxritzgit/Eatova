@@ -1054,7 +1054,7 @@ class _RecipePhotoPicker extends StatelessWidget {
                                   .round(),
                         )
                       : vorhanden
-                      ? _RecipeImage(
+                      ? RecipePhoto(
                           recipe: existingRecipe!,
                           placeholderRadius: rControl,
                         )
