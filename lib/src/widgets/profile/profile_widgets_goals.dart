@@ -25,7 +25,7 @@ class GoalsCard extends StatelessWidget {
     final fat = profile.fatGoalG;
     final hatMakros = protein + carbs + fat > 0;
 
-    return AppCard(
+    return _ProfileSurface(
       clip: true,
       child: Column(
         children: <Widget>[
@@ -112,6 +112,7 @@ class _MacroSplitBlock extends StatelessWidget {
               child: SizedBox(
                 height: 9,
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
                     Expanded(
                       flex: _flex(protein),

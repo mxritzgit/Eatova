@@ -224,18 +224,82 @@ class _SettingsChoicePill<T> extends StatelessWidget {
     required this.value,
     required this.optionen,
     required this.onChanged,
+    this.expanded = false,
   });
 
   final T value;
   final List<(T, String, String)> optionen;
+  final bool expanded;
   final ValueChanged<T> onChanged;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    if (expanded) {
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final stacked =
+              MediaQuery.textScalerOf(context).scale(110) * 3 >
+              constraints.maxWidth;
+          final width = stacked
+              ? constraints.maxWidth
+              : (constraints.maxWidth - 12) / 3;
+          return Wrap(
+            spacing: 6,
+            children: [
+              for (final (option, label, optionKey) in optionen)
+                SizedBox(
+                  width: width,
+                  child: Semantics(
+                    selected: option == value,
+                    button: true,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Material(
+                        color: option == value ? t.selectedFill : t.field,
+                        animationDuration: motionDuration(
+                          context,
+                          const Duration(milliseconds: 160),
+                        ),
+                        borderRadius: BorderRadius.circular(rControl),
+                        child: InkWell(
+                          key: ValueKey(optionKey),
+                          onTap: () => onChanged(option),
+                          focusColor: t.accent.withValues(alpha: 0.20),
+                          hoverColor: t.accent.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(rControl),
+                          child: Container(
+                            constraints: const BoxConstraints(minHeight: 48),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 12,
+                            ),
+                            child: Text(
+                              label,
+                              textAlign: stacked
+                                  ? TextAlign.left
+                                  : TextAlign.center,
+                              style: AppType.ui(
+                                13,
+                                weight: FontWeight.w600,
+                                color: option == value ? t.onSelected : t.ink2,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      );
+    }
     return ConstrainedBox(
-      constraints:
-          BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width * 0.55),
+      constraints: BoxConstraints(
+        maxWidth: MediaQuery.sizeOf(context).width * 0.55,
+      ),
       // The tap floor lives in transparent margins around the segments, so
       // the pill must NOT grow with it — it is painted as a background layer
       // inset by exactly those margins and keeps its compact geometry.
@@ -322,9 +386,11 @@ class SettingsThemeModePill extends StatelessWidget {
     super.key,
     required this.mode,
     required this.onChanged,
+    this.expanded = false,
   });
 
   final ThemeMode mode;
+  final bool expanded;
   final ValueChanged<ThemeMode> onChanged;
 
   @override
@@ -332,13 +398,18 @@ class SettingsThemeModePill extends StatelessWidget {
     final l10n = context.l10n;
     final optionen = <(ThemeMode, String, String)>[
       (ThemeMode.system, l10n.languageSystem, 'settings-theme-mode-system'),
-      (ThemeMode.light, l10n.settingsThemeModeLight, 'settings-theme-mode-light'),
+      (
+        ThemeMode.light,
+        l10n.settingsThemeModeLight,
+        'settings-theme-mode-light',
+      ),
       (ThemeMode.dark, l10n.settingsThemeModeDark, 'settings-theme-mode-dark'),
     ];
     return _SettingsChoicePill<ThemeMode>(
       value: mode,
       optionen: optionen,
       onChanged: onChanged,
+      expanded: expanded,
     );
   }
 }
@@ -351,10 +422,12 @@ class SettingsLanguagePill extends StatelessWidget {
     super.key,
     required this.value,
     required this.onChanged,
+    this.expanded = false,
   });
 
   /// null = system (device language).
   final Locale? value;
+  final bool expanded;
   final ValueChanged<Locale?> onChanged;
 
   @override
@@ -369,6 +442,7 @@ class SettingsLanguagePill extends StatelessWidget {
       value: value,
       optionen: optionen,
       onChanged: onChanged,
+      expanded: expanded,
     );
   }
 }

@@ -99,7 +99,7 @@ class ProfileScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 14),
                   IdentityCard(name: name, profile: profile),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 10),
                   ProfileStatRow(
                     left: ProfileStatTile(
                       label: l10n.profileLabelStreak,
@@ -112,7 +112,6 @@ class ProfileScreen extends StatelessWidget {
                       unit: l10n.profileUnitTotal,
                     ),
                   ),
-                  const SizedBox(height: 12),
                   ProfileStatRow(
                     left: ProfileStatTile(
                       label: l10n.profileLabelRecord,
@@ -125,11 +124,11 @@ class ProfileScreen extends StatelessWidget {
                       unit: l10n.profileUnitEntries,
                     ),
                   ),
-                  const SizedBox(height: 22),
+                  const SizedBox(height: 30),
                   SectionHeading(title: l10n.profileSectionPlan),
                   const SizedBox(height: 12),
                   GoalPlanCard(profile: profile, onEdit: onEditProfile),
-                  const SizedBox(height: 22),
+                  const SizedBox(height: 30),
                   SectionHeading(title: l10n.profileSectionBody),
                   const SizedBox(height: 12),
                   WeightCard(
@@ -139,7 +138,7 @@ class ProfileScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 12),
                   BmiCard(profile: profile, log: weightLog),
-                  const SizedBox(height: 22),
+                  const SizedBox(height: 30),
                   SectionHeading(title: l10n.profileSectionDailyGoals),
                   const SizedBox(height: 12),
                   GoalsCard(
@@ -152,7 +151,7 @@ class ProfileScreen extends StatelessWidget {
                         : dailySteps,
                     onEdit: onEditProfile,
                   ),
-                  const SizedBox(height: 22),
+                  const SizedBox(height: 30),
                   SectionHeading(title: l10n.profileSectionConnections),
                   const SizedBox(height: 12),
                   HealthConnectionCard(

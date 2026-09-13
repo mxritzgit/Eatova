@@ -18,6 +18,7 @@ import '../../widgets/shared/data_export_sheet.dart';
 import 'account_change_messages.dart';
 import 'account_change_sheets.dart';
 import 'settings_controls.dart';
+import 'settings_studio_widgets.dart';
 
 /// Settings — account, appearance, data, danger zone.
 ///
@@ -133,40 +134,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Scaffold(
         body: SafeArea(
           bottom: false,
-          child: ListView(
+          child: SingleChildScrollView(
             key: const ValueKey('screen-settings'),
             padding: const EdgeInsets.fromLTRB(20, 6, 20, 32),
-            children: <Widget>[
-              PageHeader(
-                large: l10n.settingsPageTitle,
-                backKey: const ValueKey('settings-back'),
-              ),
-              const SizedBox(height: 16),
-              ..._kontoGruppe(t, l10n),
-              ..._praeferenzenGruppe(l10n),
-              ..._datenGruppe(l10n),
-              ..._gefahrenzone(t, l10n),
-            ],
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                PageHeader(
+                  large: l10n.settingsPageTitle,
+                  backKey: const ValueKey('settings-back'),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  l10n.settingsStudioIntro,
+                  style: AppType.ui(15, color: t.ink2, height: 1.5),
+                ),
+                const SizedBox(height: 30),
+                ..._kontoGruppe(t, l10n),
+                ..._praeferenzenGruppe(l10n),
+                ..._datenGruppe(l10n),
+                ..._gefahrenzone(t, l10n),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  /// Builds a [SettingsGroup] only when it has rows; otherwise an empty card
-  /// with its caption would sit on the page.
-  List<Widget> _gruppe(
-    String label,
-    List<Widget> kinder, {
-    Color? labelColor,
-    Color? borderColor,
-  }) {
+  /// Hide sections without available account actions.
+  List<Widget> _gruppe(String label, List<Widget> kinder, {Color? labelColor}) {
     if (kinder.isEmpty) return const <Widget>[];
     return <Widget>[
-      SettingsGroup(
+      SettingsStudioGroup(
         label: label,
         labelColor: labelColor,
-        borderColor: borderColor,
         children: kinder,
       ),
     ];
@@ -177,9 +179,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   List<Widget> _kontoGruppe(AppTokens t, AppLocalizations l10n) {
     final email = _adresse;
     final repo = widget.authRepository;
-    return _gruppe(l10n.settingsGroupAccount, <Widget>[
+    return _gruppe(l10n.settingsStudioAccount, <Widget>[
       if (email != null)
-        SettingsRow(
+        SettingsStudioRow(
           key: const ValueKey('settings-email'),
           // Display only, no chevron: the row below does the change, and a
           // "VERIFIED" badge cannot be substantiated. `accent` instead of a
@@ -191,7 +193,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           chevron: false,
         ),
       if (repo != null)
-        SettingsRow(
+        SettingsStudioRow(
           key: const ValueKey('settings-change-password'),
           // `accent` instead of a macro tone: macro colors encode nutrients
           // only (DESIGN_REFACTOR §3, lock 1).
@@ -203,10 +205,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // No change without a known address: the first of the two codes is
       // verified against the CURRENT address.
       if (repo != null && email != null)
-        SettingsRow(
+        SettingsStudioRow(
           key: const ValueKey('settings-change-email'),
-          leading:
-              IconTile(icon: Icons.alternate_email_rounded, color: t.accent),
+          leading: IconTile(
+            icon: Icons.alternate_email_rounded,
+            color: t.accent,
+          ),
           title: l10n.settingsChangeEmailTitle,
           subtitle: l10n.settingsChangeEmailSubtitle,
           onTap: () => _openMailAendern(repo, email),
@@ -214,10 +218,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ]);
   }
 
-  Future<void> _openPasswortAendern(
-    AuthRepository repo,
-    String? email,
-  ) async {
+  Future<void> _openPasswortAendern(AuthRepository repo, String? email) async {
     final l10n = context.l10n;
     final erfolg = await showPasswordChangeSheet(
       context,
@@ -258,9 +259,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // Same guard for the language row: without [LocaleScope] nothing could set
     // the override.
     final localeController = LocaleScope.maybeOf(context);
-    return _gruppe(l10n.settingsGroupPreferences, <Widget>[
+    return _gruppe(l10n.settingsStudioPreferences, <Widget>[
       if (widget.onOpenGoals != null)
-        SettingsRow(
+        SettingsStudioRow(
           key: const ValueKey('settings-open-goals'),
           title: l10n.goalsPageTitle,
           subtitle: l10n.settingsOpenGoalsSubtitle,
@@ -278,7 +279,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // pill fills the row's whole content height and a tap above or below a
       // segment's capsule lands ON that segment.
       if (controller != null)
-        SettingsRow(
+        SettingsStudioRow(
           // Three states, not a toggle (DESIGN_REFACTOR §2: default is
           // ThemeMode.system), so the row is named after what it sets, not
           // after one of its values.
@@ -287,18 +288,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
           chevron: false,
           trailing: SettingsThemeModePill(
             key: const ValueKey('settings-theme-mode'),
+            expanded: true,
             mode: controller.mode,
             // Device setting: persisted immediately, nothing to save or drop.
             onChanged: controller.setMode,
           ),
         ),
       if (localeController != null)
-        SettingsRow(
+        SettingsStudioRow(
           title: l10n.settingsLanguageTitle,
           subtitle: l10n.settingsLanguageSubtitle,
           chevron: false,
           trailing: SettingsLanguagePill(
             key: const ValueKey('settings-language'),
+            expanded: true,
             value: localeController.override,
             // Device setting: persisted immediately, nothing to drop.
             onChanged: localeController.setOverride,
@@ -310,9 +313,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // --- DATA & PRIVACY -------------------------------------------------------
 
   List<Widget> _datenGruppe(AppLocalizations l10n) {
-    return _gruppe(l10n.settingsGroupDataPrivacy, <Widget>[
+    return _gruppe(l10n.settingsStudioPrivacy, <Widget>[
       if (widget.onExportData != null)
-        SettingsRow(
+        SettingsStudioRow(
           key: const ValueKey('settings-export'),
           title: l10n.settingsExportDataTitle,
           subtitle: l10n.settingsExportDataSubtitle,
@@ -337,7 +340,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
       // Version, data provenance (ODbL attribution for OpenFoodFacts) and the
       // privacy link — in this group because the sheet is entirely about data.
-      SettingsRow(
+      SettingsStudioRow(
         key: const ValueKey('settings-about'),
         title: l10n.settingsAboutTitle,
         subtitle: l10n.settingsAboutSubtitle,
@@ -349,11 +352,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _openExport() async {
     final bauen = widget.onExportData;
     if (bauen == null) return;
-    await showDataExportSheet(
-      context,
-      snapshot: bauen,
-      vollstaendig: true,
-    );
+    await showDataExportSheet(context, snapshot: bauen, vollstaendig: true);
   }
 
   // --- DANGER ZONE ----------------------------------------------------------
@@ -361,29 +360,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
   List<Widget> _gefahrenzone(AppTokens t, AppLocalizations l10n) {
     final repo = widget.authRepository;
     final email = _adresse;
-    return _gruppe(
-      l10n.settingsGroupDangerZone,
-      <Widget>[
-        if (widget.onSignOut != null)
-          SettingsRow(
-            key: const ValueKey('settings-sign-out'),
-            title: l10n.settingsSignOutTitle,
-            onTap: _signOut,
-          ),
-        // Without an auth layer OR a known address there is nothing to
-        // re-authenticate against, so the row drops out rather than offering
-        // the irreversible action without a second hurdle.
-        //
-        // Verified 2026-08-18: an account without an e-mail address cannot
-        // arise here (only e-mail and Google providers, both always carry the
-        // claim). The null branch is defensive for tests/previews — deletion
-        // stays reachable for every real user, so no GDPR gap.
-        if (widget.onDeleteAccount != null && repo != null && email != null)
-          _deleteBlock(t, l10n, repo, email),
-      ],
-      labelColor: t.danger,
-      borderColor: t.danger.withValues(alpha: 0.35),
-    );
+    return _gruppe(l10n.settingsStudioSession, <Widget>[
+      if (widget.onSignOut != null)
+        SettingsStudioRow(
+          key: const ValueKey('settings-sign-out'),
+          title: l10n.settingsSignOutTitle,
+          onTap: _signOut,
+        ),
+      // Without an auth layer OR a known address there is nothing to
+      // re-authenticate against, so the row drops out rather than offering
+      // the irreversible action without a second hurdle.
+      //
+      // Verified 2026-08-18: an account without an e-mail address cannot
+      // arise here (only e-mail and Google providers, both always carry the
+      // claim). The null branch is defensive for tests/previews — deletion
+      // stays reachable for every real user, so no GDPR gap.
+      if (widget.onDeleteAccount != null && repo != null && email != null)
+        _deleteBlock(t, l10n, repo, email),
+    ], labelColor: t.danger);
   }
 
   Widget _deleteBlock(
@@ -393,7 +387,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     String email,
   ) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      padding: const EdgeInsets.symmetric(vertical: 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -432,8 +426,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onTap: () => _openDeleteSheet(repo, email),
               borderRadius: BorderRadius.circular(13),
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 13,
+                  vertical: 11,
+                ),
                 child: Text.rich(
                   TextSpan(
                     text: l10n.settingsDeleteAccountPromptPrefix,
@@ -524,12 +520,11 @@ class _LegalRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
-    return SettingsRow(
+    return SettingsStudioRow(
       key: rowKey,
       title: title,
       chevron: false,
-      trailing: Icon(Icons.open_in_new_rounded, size: 15, color: t.ink2),
+      endIcon: Icons.open_in_new_rounded,
       // [openLegalLink], not a bare `launchUrl`: a device without a browser
       // handler otherwise answers a legally required row with nothing (J2).
       onTap: () => openLegalLink(context, url),

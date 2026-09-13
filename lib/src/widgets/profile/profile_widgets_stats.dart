@@ -19,9 +19,11 @@ class ProfileStatTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return AppCard(
-      radius: 20,
-      padding: const EdgeInsets.all(15),
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 15, horizontal: 2),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: t.line)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.center,

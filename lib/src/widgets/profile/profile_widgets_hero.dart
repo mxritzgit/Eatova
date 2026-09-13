@@ -1,25 +1,18 @@
 part of 'profile_widgets.dart';
 
-/// Identity anchor of the profile: forest surface with initials tile, name and
-/// two tags from REAL profile fields.
-///
-/// The mock also shows e-mail, a premium tag and a join date; none of that
-/// exists here (`LifetimeStats.sessionStart` is this session's start, not a
-/// join date), so only the two fields that really exist are shown.
+/// Real identity and profile choices, with no synthetic membership badges.
 class IdentityCard extends StatelessWidget {
   const IdentityCard({super.key, required this.name, required this.profile});
 
   final String name;
   final UserProfile profile;
 
-  /// Initials from the display name. No placeholder letters: an empty name
-  /// yields an empty string and the tile falls back to a person glyph.
   String get _initials {
     final parts = name.trim().split(RegExp(r'\s+'))
       ..removeWhere((p) => p.isEmpty);
     if (parts.isEmpty) return '';
-    if (parts.length == 1) return parts.first.substring(0, 1).toUpperCase();
-    return (parts.first.substring(0, 1) + parts.last.substring(0, 1))
+    if (parts.length == 1) return parts.first.characters.first.toUpperCase();
+    return '${parts.first.characters.first}${parts.last.characters.first}'
         .toUpperCase();
   }
 
@@ -27,87 +20,79 @@ class IdentityCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    final initials = _initials;
-
     return Container(
-      clipBehavior: Clip.antiAlias,
+      key: const ValueKey('profile-studio-identity'),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: t.forest,
         borderRadius: BorderRadius.circular(rHero),
       ),
-      child: Stack(
-        children: <Widget>[
-          Positioned(
-            right: -40,
-            bottom: -50,
-            child: Container(
-              width: 150,
-              height: 150,
-              decoration: BoxDecoration(
-                color: t.lime.withValues(alpha: 0.16),
-                shape: BoxShape.circle,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  l10n.profileStudioOverview,
+                  style: AppType.ui(
+                    13,
+                    weight: FontWeight.w600,
+                    color: t.onForest,
+                  ),
+                ),
               ),
+              const SizedBox(width: 12),
+              ExcludeSemantics(
+                child: Container(
+                  width: 52,
+                  height: 52,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: t.lime,
+                    shape: BoxShape.circle,
+                  ),
+                  child: _initials.isEmpty
+                      ? Icon(Icons.person_outline, color: t.onLime)
+                      : Padding(
+                          padding: const EdgeInsets.all(10),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              _initials,
+                              style: AppType.display(20, color: t.onLime),
+                            ),
+                          ),
+                        ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Text(
+            name,
+            style: AppType.display(
+              MediaQuery.textScalerOf(context).scale(16) > 24 ? 20 : 30,
+              color: t.onForest,
+              height: 1.12,
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.all(22),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Row(
-                  children: <Widget>[
-                    Container(
-                      width: 64,
-                      height: 64,
-                      decoration: BoxDecoration(
-                        color: t.lime,
-                        borderRadius: BorderRadius.circular(22),
-                      ),
-                      alignment: Alignment.center,
-                      // FittedBox: the tile has a fixed edge length, the
-                      // initials grow with the system font.
-                      child: initials.isEmpty
-                          ? Icon(Icons.person_outline,
-                              size: 28, color: t.onLime)
-                          : FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Text(
-                                initials,
-                                style: AppType.display(24, color: t.onLime),
-                              ),
-                            ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Text(
-                        name,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppType.display(
-                          23,
-                          color: t.onForest,
-                          height: 1.1,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                // Wrap instead of Row: at textScaler 2.0 the two tags no longer
-                // fit side by side and should wrap, not overflow.
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: <Widget>[
-                    _IdentityTag(
-                      label: profile.weightGoal.label(l10n),
-                      solid: true,
-                    ),
-                    _IdentityTag(label: profile.activityLevel.label(l10n)),
-                  ],
-                ),
-              ],
-            ),
+          const SizedBox(height: 22),
+          Divider(height: 1, color: t.onForest.withValues(alpha: 0.18)),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 24,
+            runSpacing: 16,
+            children: [
+              _IdentityValue(
+                label: l10n.profileStudioFocus,
+                value: profile.weightGoal.label(l10n),
+              ),
+              _IdentityValue(
+                label: l10n.profileStudioActivity,
+                value: profile.activityLevel.label(l10n),
+              ),
+            ],
           ),
         ],
       ),
@@ -115,32 +100,27 @@ class IdentityCard extends StatelessWidget {
   }
 }
 
-class _IdentityTag extends StatelessWidget {
-  const _IdentityTag({required this.label, this.solid = false});
-
+class _IdentityValue extends StatelessWidget {
+  const _IdentityValue({required this.label, required this.value});
   final String label;
-  final bool solid;
+  final String value;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
-      decoration: BoxDecoration(
-        color: solid ? t.lime : t.onForest.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(9),
-      ),
-      child: Text(
-        label,
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(label, style: AppType.ui(11, color: context.t.onForest)),
+      const SizedBox(height: 5),
+      Text(
+        value,
         style: AppType.ui(
-          10.5,
-          weight: solid ? FontWeight.w700 : FontWeight.w600,
-          color: solid ? t.onLime : t.onForest,
-          letterSpacing: 0.4,
+          13,
+          weight: FontWeight.w600,
+          color: context.t.onForest,
         ),
       ),
-    );
-  }
+    ],
+  );
 }
 
 /// Goal overview: current weight → target weight, pace (kg/week), daily goal
@@ -194,7 +174,7 @@ class GoalPlanCard extends StatelessWidget {
     // A directional goal carries the brand accent, "maintain" stays quiet.
     final accent = isMaintain ? t.ink2 : t.accent;
 
-    return AppCard(
+    return _ProfileSurface(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -424,10 +404,6 @@ class _PlanChip extends StatelessWidget {
     final t = context.t;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-      decoration: BoxDecoration(
-        color: t.tile,
-        borderRadius: BorderRadius.circular(rControl),
-      ),
       child: Row(
         children: <Widget>[
           Icon(icon, color: color, size: 16),
@@ -444,8 +420,6 @@ class _PlanChip extends StatelessWidget {
                 const SizedBox(height: 1),
                 Text(
                   value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                   style: AppType.ui(13, weight: FontWeight.w700, color: color),
                 ),
               ],
