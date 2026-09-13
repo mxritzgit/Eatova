@@ -111,7 +111,7 @@ class TodayScreen extends StatelessWidget {
           today: heute,
           onSelected: onDateSelected,
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 4),
         // Hero and macros share the loading state of the meals card below:
         // while an archive day loads, both values are still zero and would
         // assert numbers that do not exist yet. The single loading card under
@@ -124,10 +124,10 @@ class TodayScreen extends StatelessWidget {
             streak: streak,
             isToday: istHeute,
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           TodayMacros(progress: macroProgress, profile: profile),
           if (schritte != null) ...<Widget>[
-            const SizedBox(height: 14),
+            const SizedBox(height: 8),
             TodayStepsCard(
               steps: schritte,
               goal: profile.dailyStepsGoal,

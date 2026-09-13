@@ -32,7 +32,7 @@ class TodayMacros extends StatelessWidget {
               color: t.proteinProgress,
               surface: t.proteinSurface,
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             TodayMacroRow(
               label: l10n.todayMacroCarbs,
               value: progress.carbsG.round(),
@@ -41,7 +41,7 @@ class TodayMacros extends StatelessWidget {
               color: t.carbsProgress,
               surface: t.carbsSurface,
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             TodayMacroRow(
               label: l10n.todayMacroFat,
               value: progress.fatG.round(),
@@ -82,7 +82,7 @@ class TodayMacroRow extends StatelessWidget {
       value: context.l10n.todayMacroProgressValue(value, goal),
       child: ExcludeSemantics(
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
             color: surface,
             borderRadius: BorderRadius.circular(rCard),
