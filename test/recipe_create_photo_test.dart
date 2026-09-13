@@ -1,3 +1,5 @@
+import 'support/recipe_navigation.dart';
+
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -495,6 +497,7 @@ void main() {
       await tester.pumpWidget(_app(Brightness.dark, userRecipes: [rezept]));
       await tester.pumpAndSettle();
 
+      await selectRecipeSection(tester, 'own');
       final kachel =
           find.byKey(const ValueKey('recipe-tile-user_mit_bild'));
       await tester.dragUntilVisible(
@@ -527,6 +530,7 @@ void main() {
       await tester.pumpWidget(_app(Brightness.light, userRecipes: [rezept]));
       await tester.pumpAndSettle();
 
+      await selectRecipeSection(tester, 'own');
       final kachel = find.byKey(const ValueKey('recipe-tile-user_fremd'));
       await tester.dragUntilVisible(
         kachel,
@@ -551,6 +555,7 @@ void main() {
       await tester.pumpWidget(_app(Brightness.dark, userRecipes: [rezept]));
       await tester.pumpAndSettle();
 
+      await selectRecipeSection(tester, 'own');
       final kachel = find.byKey(const ValueKey('recipe-tile-user_detail'));
       await tester.dragUntilVisible(
         kachel,
@@ -576,6 +581,7 @@ void main() {
     await tester.pumpWidget(_app(Brightness.dark, userRecipes: [rezept]));
     await tester.pumpAndSettle();
 
+    await selectRecipeSection(tester, 'own');
     final kachel = find.byKey(const ValueKey('recipe-tile-user_weg'));
     await tester.dragUntilVisible(
       kachel,

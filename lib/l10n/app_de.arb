@@ -2247,5 +2247,45 @@
         "type": "int"
       }
     }
+  },
+  "recipesForYou": "Für dich",
+  "recipesTryToday": "Heute ausprobieren",
+  "recipesViewRecipe": "Rezept ansehen",
+  "recipesCreateAction": "Eigenes Rezept",
+  "recipesMoreRecommendations": "Weitere Empfehlungen",
+  "recipesSeeAll": "Alle anzeigen",
+  "recipesOwnEmptyTitle": "Dein Kochbuch beginnt hier",
+  "recipesOwnEmptyBody": "Speichere deine Lieblingsgerichte als eigene Rezepte und habe die Nährwerte immer griffbereit.",
+  "mealPlanWeekHeading": "Deine Woche, gut geplant",
+  "mealPlanShoppingHeading": "Alles für deine Woche",
+  "mealPlanShoppingDone": "Alles eingekauft",
+  "mealPlanShoppingDoneBody": "Deine Liste ist abgehakt. Zeit, etwas Gutes zu kochen.",
+  "mealPlanMenuLabel": "Mahlzeit verwalten",
+  "mealPlanEditorIntro": "Wähle ein Rezept für deine Woche.",
+  "mealPlanEditorDetails": "Wann und wie viel?",
+  "mealPlanEditorChange": "Anderes Rezept wählen",
+  "mealPlanToday": "Heute",
+  "mealPlanShoppingEmptyHeading": "Deine Liste wartet auf den ersten Plan",
+  "recipeDetailIngredientsHint": "Alles, was du für dieses Gericht brauchst.",
+  "recipeDetailPreparationHint": "Schritt für Schritt auf deinen Teller.",
+  "recipePortionSheetIntro": "Wähle deine Portion und die passende Mahlzeit.",
+  "mealPlanPlannedCount": "{count, plural, =0{Noch keine Mahlzeiten} =1{1 Mahlzeit geplant} other{{count} Mahlzeiten geplant}}",
+  "@mealPlanPlannedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "mealPlanShoppingProgress": "{done} von {total} abgehakt",
+  "@mealPlanShoppingProgress": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
   }
 }

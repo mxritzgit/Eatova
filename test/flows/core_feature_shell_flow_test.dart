@@ -67,7 +67,7 @@ void main() {
         expect(identical(planner.store, store), isTrue);
         expect(store.selectedTab, 2);
         expect(store.dailyConsumedKcal, 0);
-        await tester.pageBack();
+        await _tap(tester, 'meal-plan-back');
         await settleFrames(tester);
         expect(find.byKey(const ValueKey('screen-recipes')), findsOneWidget);
         await tester.pumpWidget(const SizedBox.shrink());

@@ -379,7 +379,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('screen-recipes')), findsOneWidget);
-    final eigeneChip = find.byKey(const ValueKey('recipe-filter-Eigene'));
+    final eigeneChip = find.byKey(const ValueKey('recipes-tab-own'));
     expect(eigeneChip, findsOneWidget,
         reason: 'die „Eigene"-Kachel erscheint erst mit dem ersten Rezept');
     await tester.ensureVisible(eigeneChip);

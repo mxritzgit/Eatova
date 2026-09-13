@@ -788,3 +788,24 @@ analysis and 507 Deno tests pass. No migration or client build is needed.
 The user authorized push and protected-main merge of `fix/coach-recipe-completion`
 after green CI. The branch's pull request records the final Git delivery. The fix
 already runs as v46; merging the same source requires no additional deployment.
+
+
+## Recipe Spotlight design, 2026-09-13
+
+The user selected Recipe concept 05 and extended the redesign to recipe details,
+the portion sheet, Meal Plan, its editor and Shopping List. All now share the
+accepted Today/Food typography and pastel surfaces. Recipes has For you, All and
+persistent Own tabs; weekly planning has photo cards and compact action menus;
+shopping has stable checkable rows and weekly progress.
+
+See [RECIPES-DESIGN.md](RECIPES-DESIGN.md) for the interaction contract, rendered
+previews and verification. Photo snapshots use an exact catalog slug/path match;
+selection after scrolling resets the planner editor to its heading. Regression
+checks detect both faulty variants. Persistence, account guards, explicit diary
+confirmation and existing photo/undo rules remain unchanged.
+
+Local verification: 4,379 tests passed, 95.19% coverage, strict analysis,
+Android debug APK, direct diff review and 21 real-font visual cases. Delivery uses
+`design/recipe-spotlight`, based on `38bd0e0` (PR #83), through protected main after
+green CI as authorized by the user. The PR records the final merge. No backend,
+schema or dependency rollout is required; device installation is separate.

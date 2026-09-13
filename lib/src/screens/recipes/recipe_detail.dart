@@ -92,8 +92,23 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
+    final pinAction =
+        MediaQuery.sizeOf(context).height >= 700 &&
+        MediaQuery.textScalerOf(context).scale(14) <= 19;
     return Scaffold(
       backgroundColor: t.bg,
+      bottomNavigationBar: pinAction
+          ? SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                child: _AddToMealCard(
+                  recipe: recipe,
+                  onTap: () => _showMealPicker(context),
+                ),
+              ),
+            )
+          : null,
       body: SafeArea(
         bottom: false,
         child: SingleChildScrollView(
@@ -103,8 +118,9 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               PageHeader(
-                title:
-                    recipe.userCreated ? l10n.recipesOwnTitle : l10n.recipesBrandTitle,
+                title: recipe.userCreated
+                    ? l10n.recipesOwnTitle
+                    : l10n.recipesBrandTitle,
                 backKey: const ValueKey('recipe-detail-back'),
                 onBack: () => Navigator.of(context).pop(),
                 trailing: onDelete == null
@@ -122,56 +138,92 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                       ),
               ),
               const SizedBox(height: 16),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(rSheet),
-                child: SizedBox(
-                  height: 258,
-                  width: double.infinity,
-                  child: _RecipeImage(
-                    recipe: recipe,
-                    placeholderRadius: rSheet,
-                  ),
+              Container(
+                key: const ValueKey('recipe-detail-hero'),
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: t.brandSurface,
+                  borderRadius: BorderRadius.circular(rSheet),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    AspectRatio(
+                      aspectRatio: 1.35,
+                      child: RecipePhoto(recipe: recipe),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (recipe.categories.isNotEmpty) ...[
+                            Text(
+                              recipeCategoryLabel(
+                                recipe.categories.first,
+                                l10n,
+                              ),
+                              style: AppType.ui(
+                                13,
+                                color: t.accent,
+                                weight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+                          HeadingSemantics(
+                            level: 1,
+                            child: Text(
+                              recipe.title,
+                              key: ValueKey('recipe-detail-${recipe.slug}'),
+                              style: AppType.display(
+                                28,
+                                color: t.onBrandSurface,
+                                height: 1.12,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            recipe.displayDescription(l10n),
+                            style: AppType.ui(14, color: t.ink2, height: 1.5),
+                          ),
+                          if (recipe.slug.startsWith('user_coach_')) ...[
+                            const SizedBox(height: 12),
+                            Text(
+                              l10n.recipeEditCoachSource,
+                              style: AppType.ui(13, color: t.accent),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 22),
-              Text(
-                recipe.title,
-                key: ValueKey('recipe-detail-${recipe.slug}'),
-                style: AppType.display(28, color: t.ink, height: 1.1),
-              ),
-              const SizedBox(height: 10),
-              if (recipe.slug.startsWith('user_coach_')) ...[
-                Text(
-                  l10n.recipeEditCoachSource,
-                  style: AppType.ui(14, color: t.ink2),
-                ),
-                const SizedBox(height: 8),
-              ],
-              Text(
-                recipe.displayDescription(l10n),
-                style: AppType.ui(14, color: t.ink2, height: 1.45),
-              ),
-              if (recipe.categories.isNotEmpty) ...[
+              if (recipe.categories.length > 1) ...[
                 const SizedBox(height: 14),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    for (final category in recipe.categories)
+                    for (final category in recipe.categories.skip(1))
                       _CategoryPill(label: recipeCategoryLabel(category, l10n)),
                   ],
                 ),
               ],
-              const SizedBox(height: 18),
               if (widget.onEdit != null && recipe.userCreated) ...[
-                OutlinedButton.icon(
+                const SizedBox(height: 14),
+                TextButton.icon(
                   key: const ValueKey('recipe-detail-edit'),
                   onPressed: _edit,
                   icon: const Icon(Icons.edit_outlined),
                   label: Text(l10n.recipeEditTitle),
                 ),
-                const SizedBox(height: 18),
               ],
+              const SizedBox(height: 24),
+              SectionHeading(title: l10n.recipesPerPortion),
+              const SizedBox(height: 12),
               _NutritionGrid(recipe: recipe),
               if (recipe.hasStructuredIngredients &&
                   !recipe.calculationForServings(1).isComplete) ...[
@@ -183,10 +235,11 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                 ),
               ],
               const SizedBox(height: 18),
-              _AddToMealCard(
-                recipe: recipe,
-                onTap: () => _showMealPicker(context),
-              ),
+              if (!pinAction)
+                _AddToMealCard(
+                  recipe: recipe,
+                  onTap: () => _showMealPicker(context),
+                ),
               const SizedBox(height: 18),
               _RecipeInfoSection(
                 title: l10n.recipesSectionPortion,
@@ -196,12 +249,15 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
               ),
               _RecipeInfoSection(
                 title: l10n.recipesSectionIngredients,
+                hint: l10n.recipeDetailIngredientsHint,
                 body: recipe.hasStructuredIngredients
                     ? '${recipe.structuredIngredients.map((i) => '${_nutritionNumber(i.grams)} g ${i.name}').join('\n')}${recipe.ingredients.isEmpty ? '' : '\n\n${recipe.ingredients}'}'
                     : recipe.displayIngredients(l10n),
               ),
               _RecipeInfoSection(
                 title: l10n.recipesSectionPreparation,
+                hint: l10n.recipeDetailPreparationHint,
+                numbered: true,
                 body: recipe.displayPreparation(l10n),
               ),
               _RecipeInfoSection(
@@ -219,67 +275,51 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
 
 class _AddToMealCard extends StatelessWidget {
   const _AddToMealCard({required this.recipe, required this.onTap});
-
   final FitnessRecipe recipe;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final l10n = context.l10n;
-    return AppCard(
+    final l = context.l10n;
+    return Container(
       key: const ValueKey('recipe-add-card'),
-      radius: rSheet,
       padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: t.brandSurface,
+        borderRadius: BorderRadius.circular(rSheet),
+      ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              IconTile(icon: Icons.add_rounded, color: t.accent),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      l10n.recipesAddToTrackerTitle,
-                      style: AppType.display(
-                        15,
-                        weight: FontWeight.w700,
-                        color: t.ink,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      recipe.hasStructuredIngredients
-                          ? _recipeSummary(recipe, l10n)
-                          : l10n.recipesKcalProteinSummary(
-                              recipe.caloriesKcal,
-                              recipe.proteinG,
-                            ),
-                      style: AppType.ui(
-                        12,
-                        weight: FontWeight.w500,
-                        color: t.ink2,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+          Text(
+            _recipeSummary(recipe, l),
+            style: AppType.ui(13, color: t.ink2),
+            textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 14),
-          PrimaryActionButton(
+          const SizedBox(height: 12),
+          FilledButton.icon(
             key: const ValueKey('recipe-add-button'),
-            label: l10n.commonAdd,
-            icon: Icons.add_rounded,
-            onTap: onTap,
+            style: FilledButton.styleFrom(
+              backgroundColor: t.ink,
+              foregroundColor: t.bg,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              minimumSize: const Size(48, 52),
+            ),
+            onPressed: onTap,
+            icon: const Icon(Icons.add_rounded, size: 22),
+            label: Text(
+              l.recipesAddToTrackerTitle,
+              textAlign: TextAlign.center,
+              style: AppType.ui(15, weight: FontWeight.w700),
+            ),
           ),
           const SizedBox(height: 10),
           Text(
-            l10n.recipesAddToTrackerHint,
-            style: AppType.ui(11.5, color: t.ink2, height: 1.35),
+            l.recipesAddToTrackerHint,
+            textAlign: TextAlign.center,
+            style: AppType.ui(12, color: t.ink2, height: 1.4),
           ),
         ],
       ),
@@ -302,21 +342,25 @@ class _NutritionGrid extends StatelessWidget {
         label: l10n.recipesNutritionKcalLabel,
         value: _nutritionNumber(n.caloriesKcal),
         color: t.accent,
+        surface: t.brandSurface,
       ),
       _NutritionTile(
         label: l10n.todayMacroProtein,
         value: '${_nutritionNumber(n.proteinG)} g',
         color: t.protein,
+        surface: t.proteinSurface,
       ),
       _NutritionTile(
         label: l10n.recipesNutritionCarbsLabel,
         value: '${_nutritionNumber(n.carbsG)} g',
         color: t.carbs,
+        surface: t.carbsSurface,
       ),
       _NutritionTile(
         label: l10n.todayMacroFat,
         value: '${_nutritionNumber(n.fatG)} g',
         color: t.fat,
+        surface: t.fatSurface,
       ),
     ];
     var minimumWidth = 0.0;
@@ -368,6 +412,7 @@ class _NutritionTile extends StatelessWidget {
     required this.label,
     required this.value,
     required this.color,
+    required this.surface,
   });
 
   final String label;
@@ -379,19 +424,23 @@ class _NutritionTile extends StatelessWidget {
   /// `trends_screen`: coloured dot, text in text tokens. `accent` would carry
   /// text, but the kcal tile keeps the row's one shape.
   final Color color;
+  final Color surface;
 
   static TextStyle valueStyle(AppTokens t) =>
-      AppType.display(16, weight: FontWeight.w700, color: t.ink);
+      AppType.display(22, weight: FontWeight.w700, color: t.ink);
 
   static TextStyle labelStyle(AppTokens t) =>
-      AppType.eyebrow(t.ink2, size: 9.5);
+      AppType.eyebrow(t.ink, size: 10.5);
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return AppCard(
-      radius: rCard,
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+    return Container(
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(rCard),
+      ),
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
       child: Column(
         children: [
           // Keep nutrient color separate from the readable value.
@@ -419,45 +468,87 @@ class _RecipeInfoSection extends StatelessWidget {
     required this.title,
     required this.body,
     this.highlight = false,
+    this.numbered = false,
+    this.hint,
   });
-
-  final String title;
-  final String body;
-
-  /// Tints the dot before the heading with the accent colour.
-  final bool highlight;
+  final String title, body;
+  final String? hint;
+  final bool highlight, numbered;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final lines = body
+        .split(RegExp(r'\n+'))
+        .where((line) => line.trim().isNotEmpty)
+        .toList();
     return Padding(
-      padding: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.only(top: 8, bottom: 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 7,
-                height: 7,
-                decoration: BoxDecoration(
-                  color: highlight ? t.accent : t.ink2,
-                  shape: BoxShape.circle,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(child: SectionHeading(title: title)),
-            ],
-          ),
-          const SizedBox(height: 10),
-          AppCard(
-            radius: rSheet,
-            child: SizedBox(
-              width: double.infinity,
-              child: Text(
-                body,
-                style: AppType.ui(14, color: t.ink, height: 1.5),
-              ),
+          SectionHeading(title: title),
+          if (hint != null) ...[
+            const SizedBox(height: 6),
+            Text(hint!, style: AppType.ui(13, color: t.ink2, height: 1.4)),
+          ],
+          const SizedBox(height: 14),
+          Container(
+            width: double.infinity,
+            padding: EdgeInsets.all(highlight ? 20 : 0),
+            decoration: BoxDecoration(
+              color: highlight ? t.brandSurface : Colors.transparent,
+              borderRadius: BorderRadius.circular(rSheet),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var i = 0; i < lines.length; i++) ...[
+                  if (numbered && lines.length > 1)
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          constraints: const BoxConstraints(
+                            minWidth: 30,
+                            minHeight: 30,
+                          ),
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: t.brandSurface,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '${i + 1}',
+                            textAlign: TextAlign.center,
+                            style: AppType.ui(
+                              13,
+                              color: t.accent,
+                              weight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            lines[i].replaceFirst(RegExp(r'^\d+[.)]\s*'), ''),
+                            style: AppType.ui(15, color: t.ink, height: 1.6),
+                          ),
+                        ),
+                      ],
+                    )
+                  else
+                    Text(
+                      lines[i],
+                      style: AppType.ui(15, color: t.ink, height: 1.6),
+                    ),
+                  if (i < lines.length - 1) ...[
+                    const SizedBox(height: 12),
+                    if (!numbered) Divider(height: 1, color: t.line),
+                    const SizedBox(height: 12),
+                  ],
+                ],
+              ],
             ),
           ),
         ],

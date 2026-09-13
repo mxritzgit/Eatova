@@ -1,3 +1,5 @@
+import 'support/recipe_navigation.dart';
+
 // Gap E: the recipe tab's success toast was unbacked. `_openCreateSheet`
 // claimed "saved" synchronously, then the store's queue hint replaced it, so
 // the user saw two messages of which the first over-promised.
@@ -229,6 +231,7 @@ void main() {
         onDelete: (_) async => SyncDelivery.queuedOffline,
       ));
 
+      await selectRecipeSection(tester, 'own');
       await tester.tap(find.byKey(const ValueKey('recipe-tile-user_weg')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('recipe-detail-delete')));
@@ -265,6 +268,7 @@ void main() {
         onDelete: (_) async => SyncDelivery.delivered,
       ));
 
+      await selectRecipeSection(tester, 'own');
       await tester.tap(find.byKey(const ValueKey('recipe-tile-user_zurueck')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('recipe-detail-delete')));

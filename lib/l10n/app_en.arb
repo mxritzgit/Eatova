@@ -2219,5 +2219,45 @@
         "type": "int"
       }
     }
+  },
+  "recipesForYou": "For you",
+  "recipesTryToday": "Try something today",
+  "recipesViewRecipe": "View recipe",
+  "recipesCreateAction": "Your recipe",
+  "recipesMoreRecommendations": "More recommendations",
+  "recipesSeeAll": "See all",
+  "recipesOwnEmptyTitle": "Your cookbook starts here",
+  "recipesOwnEmptyBody": "Save your favourite dishes as your own recipes and keep their nutrition close at hand.",
+  "mealPlanWeekHeading": "Your week, thoughtfully planned",
+  "mealPlanShoppingHeading": "Everything for your week",
+  "mealPlanShoppingDone": "All shopping done",
+  "mealPlanShoppingDoneBody": "Your list is checked off. Time to cook something good.",
+  "mealPlanMenuLabel": "Manage meal",
+  "mealPlanEditorIntro": "Choose a recipe for your week.",
+  "mealPlanEditorDetails": "When and how much?",
+  "mealPlanEditorChange": "Choose a different recipe",
+  "mealPlanToday": "Today",
+  "mealPlanShoppingEmptyHeading": "Your list starts with a plan",
+  "recipeDetailIngredientsHint": "Everything you need for this dish.",
+  "recipeDetailPreparationHint": "Step by step, onto your plate.",
+  "recipePortionSheetIntro": "Choose your serving and the right meal.",
+  "mealPlanPlannedCount": "{count, plural, =0{No meals yet} =1{1 meal planned} other{{count} meals planned}}",
+  "@mealPlanPlannedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "mealPlanShoppingProgress": "{done} of {total} checked off",
+  "@mealPlanShoppingProgress": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
   }
 }

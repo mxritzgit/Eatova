@@ -73,7 +73,19 @@ class _RecipePortionSelectorState extends State<RecipePortionSelector> {
                 ChoiceChip(
                   label: Text(t.recipeCalcServingsCount(_format(amount))),
                   selected: value == amount,
-                  selectedColor: context.t.surf2,
+                  selectedColor: context.t.brandSurface,
+                  backgroundColor: context.t.surf,
+                  side: BorderSide.none,
+                  checkmarkColor: context.t.accent,
+                  labelStyle: AppType.ui(
+                    14,
+                    color: context.t.ink,
+                    weight: value == amount ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 10,
+                  ),
                   onSelected: (_) {
                     _controller.text = _format(amount);
                     _changed(_controller.text);

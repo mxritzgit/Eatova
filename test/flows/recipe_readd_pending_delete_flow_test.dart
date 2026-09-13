@@ -1,3 +1,5 @@
+import '../support/recipe_navigation.dart';
+
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -42,6 +44,7 @@ void main() {
         await settleFrames(tester);
         await tester.tap(find.byKey(const ValueKey('nav-Rezepte')));
         await settleFrames(tester);
+        await selectRecipeSection(tester, 'own');
         final tile = find.byKey(ValueKey('recipe-tile-${recipe.slug}'));
         await tester.scrollUntilVisible(
           tile,

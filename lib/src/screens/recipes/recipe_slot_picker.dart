@@ -52,48 +52,67 @@ class _MealSlotPickerSheetState extends State<_MealSlotPickerSheet> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(rControl),
-                    child: SizedBox(
-                      width: 58,
-                      height: 58,
-                      child: _RecipeImage(
-                        recipe: recipe,
-                        placeholderRadius: rControl,
+                  Expanded(
+                    child: HeadingSemantics(
+                      level: 1,
+                      child: Text(
+                        l10n.recipesWhenToLogTitle,
+                        style: AppType.display(24, color: t.ink, height: 1.15),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          l10n.recipesWhenToLogTitle,
-                          style: AppType.display(
-                            24,
-                            color: t.ink,
-                            height: 1.15,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          result == null
-                              ? l10n.recipeEditCannotLog
-                              : '${result.caloriesKcal} kcal · ${result.protein} ${l10n.todayMacroProtein}',
-                          style: AppType.ui(
-                            12.5,
-                            weight: FontWeight.w500,
-                            color: t.ink2,
-                          ),
-                        ),
-                      ],
-                    ),
+                  const SizedBox(width: 12),
+                  SquareIconButton(
+                    icon: Icons.close_rounded,
+                    semanticLabel: MaterialLocalizations.of(
+                      context,
+                    ).closeButtonTooltip,
+                    onTap: () => Navigator.of(context).pop(),
                   ),
                 ],
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 8),
+              Text(
+                l10n.recipePortionSheetIntro,
+                style: AppType.ui(14, color: t.ink2, height: 1.45),
+              ),
+              const SizedBox(height: 20),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: t.brandSurface,
+                  borderRadius: BorderRadius.circular(rCard),
+                ),
+                child: RecipePhotoRow(
+                  recipe: recipe,
+                  photoWidth: 76,
+                  photoHeight: 82,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        recipe.title,
+                        style: AppType.display(
+                          18,
+                          color: t.onBrandSurface,
+                          height: 1.2,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        result == null
+                            ? l10n.recipeEditCannotLog
+                            : '${result.caloriesKcal} kcal · ${result.protein} ${l10n.todayMacroProtein}',
+                        style: AppType.ui(13, color: t.ink2, height: 1.4),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 22),
               RecipePortionSelector(
                 onChanged: (value) => setState(() => _servings = value),
               ),
@@ -164,23 +183,27 @@ class _MealSlotButton extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(rControl),
-            border: Border.all(color: t.line),
           ),
           child: Row(
             children: [
-              IconTile(icon: slot.icon, color: accent),
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: slot.diarySurface(t),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(slot.diaryIcon, size: 24, color: accent),
+              ),
+
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   slot.label(context.l10n),
-                  style: AppType.ui(
-                    13.5,
-                    weight: FontWeight.w600,
-                    color: t.ink,
-                  ),
+                  style: AppType.ui(16, weight: FontWeight.w600, color: t.ink),
                 ),
               ),
-              Icon(Icons.chevron_right_rounded, color: t.ink2, size: 18),
+              Icon(Icons.add_rounded, color: t.accent, size: 22),
             ],
           ),
         ),

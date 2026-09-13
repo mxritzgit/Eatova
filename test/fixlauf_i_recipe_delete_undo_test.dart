@@ -105,6 +105,11 @@ void _pinViewport(WidgetTester tester) {
 
 /// Löscht über die Detailansicht — der einzige Einstieg.
 Future<void> _loesche(WidgetTester tester, String slug) async {
+  final own = find.byKey(const ValueKey('recipes-tab-own'));
+  if (tester.widget<Semantics>(own).properties.selected != true) {
+    await tester.tap(own);
+    await tester.pumpAndSettle();
+  }
   await tester.tap(find.byKey(ValueKey('recipe-tile-$slug')));
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(const ValueKey('recipe-detail-delete')));
@@ -275,8 +280,7 @@ void main() {
     expect(calls, ['user_weg']);
   });
 
-  testWidgets('„Eigene"-Filter fällt mit dem letzten eigenen Rezept auf '
-      '„Alle" zurück und kommt per Undo wieder', (tester) async {
+  testWidgets('„Eigene" bleibt nach dem letzten Löschen leer und wird per Undo wieder gefüllt', (tester) async {
     _pinViewport(tester);
     await _pumpHost(tester, _Host(
       recipes: [_rezept('user_weg')],
@@ -284,21 +288,20 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('recipe-filter-Eigene')));
+    await tester.tap(find.byKey(const ValueKey('recipes-tab-own')));
     await tester.pumpAndSettle();
     expect(find.text('1 Treffer'), findsOneWidget);
 
     await _loesche(tester, 'user_weg');
 
-    expect(find.byKey(const ValueKey('recipe-filter-Eigene')), findsNothing);
-    expect(find.text('Alle Rezepte'), findsOneWidget,
-        reason: 'Die Überschrift zeigt den aktiven Filter.');
-    expect(find.text('${fitnessRecipes.length} Treffer'), findsOneWidget);
+    expect(find.byKey(const ValueKey('recipes-tab-own')), findsOneWidget);
+    expect(tester.widget<Semantics>(find.byKey(const ValueKey('recipes-tab-own'))).properties.selected, isTrue);
+    expect(find.text('0 Treffer'), findsOneWidget);
 
     await tester.tap(find.text('Rückgängig'));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('recipe-filter-Eigene')), findsOneWidget);
+    expect(find.byKey(const ValueKey('recipes-tab-own')), findsOneWidget);
     expect(find.byKey(const ValueKey('recipe-tile-user_weg')), findsOneWidget);
   });
 

@@ -135,10 +135,6 @@ const Map<String, String> _bedingtesForestErlaubt = <String, String>{
       'chat bubble by AUTHOR, not by selection: who wrote a message is also '
           'carried by side (left/right alignment) and by the tail radius, and '
           'the two bubbles never touch',
-  'lib/src/screens/recipes/recipe_atoms.dart':
-      '_RecipeBadge(filled:) and the onImage flag are STYLE variants fixed at '
-          'the call site (marker on a photo vs. hint on a card), never a state '
-          'the same widget switches between',
   'lib/src/widgets/profile/profile_widgets_hero.dart':
       'solid vs. soft pill: a STYLE variant of the hero chips fixed at the '
           'call site, not a state the widget toggles',

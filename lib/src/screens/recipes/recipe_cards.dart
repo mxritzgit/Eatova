@@ -1,170 +1,114 @@
 part of 'recipes_screen.dart';
 
-// ---------------------------------------------------------------------------
-// Recipe cards: carousel image tile, main-list row, empty state.
-// ---------------------------------------------------------------------------
-
-/// Photo background with a bottom gradient carrying badge, title and metrics.
+/// Photo and information stay separate, so text remains legible in both themes.
 class _RecipeHeroCard extends StatelessWidget {
   const _RecipeHeroCard({
     super.key,
     required this.recipe,
     required this.onTap,
+    required this.imageHeight,
     this.badgeText,
   });
 
   final FitnessRecipe recipe;
   final VoidCallback onTap;
-
-  /// Replaces the default recommended badge label.
+  final double imageHeight;
   final String? badgeText;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(26),
-      child: SizedBox(
-        // 280 keeps the display-size title from breaking into syllables and
-        // still clips the next card on a 393 px viewport.
-        width: 280,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(26),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              _RecipeImage(recipe: recipe),
-              Align(
-                alignment: Alignment.bottomCenter,
-                child: Container(
-                  decoration: BoxDecoration(
-                    // A photo scrim must stay dark in both display modes, so
-                    // no ink token applies here.
-                    gradient: LinearGradient(
-                      begin: Alignment.bottomCenter,
-                      end: Alignment.topCenter,
-                      colors: [
-                        Colors.black.withValues(alpha: 0.92),
-                        Colors.black.withValues(alpha: 0.55),
-                        Colors.black.withValues(alpha: 0.0),
-                      ],
-                      stops: const [0, 0.55, 1],
-                    ),
-                  ),
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // The default "recommended" badge is reserved for the
-                      // catalog; an own recipe only carries an explicit badge
-                      // (goal match).
-                      if (badgeText != null || !recipe.userCreated) ...[
-                        _RecipeBadge(
-                          text:
-                              badgeText ?? context.l10n.recipesRecommendedBadge,
-                          icon: badgeText == null ? null : Icons.bolt_rounded,
-                          filled: true,
-                        ),
-                        const SizedBox(height: 9),
-                      ],
-                      Text(
-                        recipe.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppType.display(
-                          19,
-                          color: t.onImage,
-                          height: 1.15,
-                        ),
-                      ),
-                      const SizedBox(height: 9),
-                      _RecipeMetrics(recipe: recipe, onImage: true),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// List row: 96×96 image, category eyebrow, title, description, metrics.
-class _RecipeListTile extends StatelessWidget {
-  const _RecipeListTile({
-    super.key,
-    required this.recipe,
-    required this.onTap,
-  });
-
-  final FitnessRecipe recipe;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final l10n = context.l10n;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(rCard),
-      child: AppCard(
-        radius: rCard,
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
+    final l = context.l10n;
+    final n = _recipeNutrition(recipe);
+    return Material(
+      color: t.brandSurface,
+      borderRadius: BorderRadius.circular(rSheet),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             SizedBox(
-              width: 96,
-              height: 96,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(rControl),
-                child: _RecipeImage(
-                  recipe: recipe,
-                  placeholderRadius: rControl,
-                ),
-              ),
+              height: imageHeight,
+              child: RecipePhoto(recipe: recipe),
             ),
-            const SizedBox(width: 14),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (recipe.categories.isNotEmpty) ...[
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      recipeCategoryLabel(recipe.categories.first, l10n)
-                          .toUpperCase(),
-                      // Always `accent`: this row shows recipe categories, and
-                      // macro colors are reserved for nutrients by contract.
-                      style: AppType.eyebrow(t.accent, size: 9.5),
+                      badgeText ?? l.recipesTryToday,
+                      style: AppType.ui(
+                        13,
+                        color: t.accent,
+                        weight: FontWeight.w600,
+                      ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 8),
+                    Text(
+                      recipe.title,
+                      style: AppType.display(
+                        24,
+                        color: t.onBrandSurface,
+                        height: 1.12,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 18,
+                      runSpacing: 8,
+                      children: [
+                        _SpotlightMetric(
+                          value: _nutritionNumber(n.caloriesKcal),
+                          unit: 'kcal',
+                        ),
+                        _SpotlightMetric(
+                          value: _nutritionNumber(n.proteinG),
+                          unit: 'g ${l.todayMacroProtein}',
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    const SizedBox(height: 16),
+                    Container(
+                      width: double.infinity,
+                      constraints: const BoxConstraints(minHeight: 48),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: t.surf,
+                        borderRadius: BorderRadius.circular(rControl),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              l.recipesViewRecipe,
+                              textAlign: TextAlign.center,
+                              style: AppType.ui(
+                                14,
+                                color: t.accent,
+                                weight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            color: t.accent,
+                            size: 22,
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
-                  Text(
-                    recipe.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppType.display(
-                      16.5,
-                      weight: FontWeight.w700,
-                      color: t.ink,
-                      height: 1.2,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    recipe.displayDescription(l10n),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppType.ui(11.5, color: t.ink2, height: 1.4),
-                  ),
-                  const SizedBox(height: 8),
-                  _RecipeMetrics(recipe: recipe),
-                ],
+                ),
               ),
             ),
           ],
@@ -174,20 +118,172 @@ class _RecipeListTile extends StatelessWidget {
   }
 }
 
-class _RecipeEmptyState extends StatelessWidget {
-  const _RecipeEmptyState();
+class _SpotlightMetric extends StatelessWidget {
+  const _SpotlightMetric({required this.value, required this.unit});
+  final String value, unit;
+  @override
+  Widget build(BuildContext context) => Text.rich(
+    TextSpan(
+      children: [
+        TextSpan(
+          text: value,
+          style: AppType.display(22, color: context.t.onBrandSurface),
+        ),
+        TextSpan(
+          text: ' $unit',
+          style: AppType.ui(14, color: context.t.onBrandSurface),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Size to the actual text, including long recipe names and system text scaling.
+class _RecipeSpotlight extends StatelessWidget {
+  const _RecipeSpotlight({
+    required this.recipes,
+    required this.onOpen,
+    required this.carouselKey,
+    this.badgeText,
+    this.keyPrefix,
+  });
+  final List<FitnessRecipe> recipes;
+  final ValueChanged<FitnessRecipe> onOpen;
+  final Key carouselKey;
+  final String? badgeText, keyPrefix;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final width = (constraints.maxWidth - 22).clamp(220.0, 420.0);
+      final imageHeight = width * .62;
+      return SingleChildScrollView(
+        key: carouselKey,
+        scrollDirection: Axis.horizontal,
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var i = 0; i < recipes.length; i++) ...[
+                if (i > 0) const SizedBox(width: 12),
+                SizedBox(
+                  width: width,
+                  child: _RecipeHeroCard(
+                    key: keyPrefix == null
+                        ? null
+                        : ValueKey('$keyPrefix${recipes[i].slug}'),
+                    recipe: recipes[i],
+                    imageHeight: imageHeight,
+                    badgeText: badgeText,
+                    onTap: () => onOpen(recipes[i]),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+/// Open photo rows continue the Food diary's restrained list treatment.
+class _RecipeListTile extends StatelessWidget {
+  const _RecipeListTile({super.key, required this.recipe, required this.onTap});
+  final FitnessRecipe recipe;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return Padding(
-      padding: const EdgeInsets.only(top: 8),
-      child: AppCard(
-        radius: rCard,
-        child: Text(
-          context.l10n.recipesEmptyStateMessage,
-          style: AppType.ui(13, color: t.ink2, height: 1.4),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(rControl),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(rControl),
+                child: SizedBox(
+                  width: 78,
+                  height: 84,
+                  child: RecipePhoto(recipe: recipe),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      recipe.title,
+                      style: AppType.display(17, color: t.ink, height: 1.2),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _recipeSummary(recipe, context.l10n),
+                      style: AppType.ui(13, color: t.ink2, height: 1.4),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(Icons.chevron_right_rounded, size: 20, color: t.ink2),
+            ],
+          ),
         ),
+      ),
+    );
+  }
+}
+
+class _RecipeEmptyState extends StatelessWidget {
+  const _RecipeEmptyState({this.own = false, this.onCreate});
+  final bool own;
+  final VoidCallback? onCreate;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l = context.l10n;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: t.tile,
+        borderRadius: BorderRadius.circular(rSheet),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            own ? Icons.menu_book_rounded : Icons.search_rounded,
+            color: t.accent,
+            size: 30,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            own ? l.recipesOwnEmptyTitle : l.recipesEmptyStateMessage,
+            style: AppType.display(20, color: t.ink),
+          ),
+          if (own) ...[
+            const SizedBox(height: 8),
+            Text(
+              l.recipesOwnEmptyBody,
+              style: AppType.ui(14, color: t.ink2, height: 1.4),
+            ),
+            const SizedBox(height: 16),
+            TextButton.icon(
+              onPressed: onCreate,
+              icon: const Icon(Icons.add_rounded),
+              label: Text(l.recipesCreateAction),
+            ),
+          ],
+        ],
       ),
     );
   }
