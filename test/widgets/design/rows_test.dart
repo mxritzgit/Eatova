@@ -8,6 +8,14 @@ import 'design_harness.dart';
 
 void main() {
   group('PageHeader', () {
+    testWidgets('back can stay disabled while its owner saves', (tester) async {
+      var backs = 0;
+      await tester.pumpWidget(designHarness(
+        PageHeader(title: 'Profil', backEnabled: false, onBack: () => backs++),
+      ));
+      await tester.tap(find.byIcon(Icons.chevron_left_rounded));
+      expect(backs, 0);
+    });
     testWidgets('der Zurueck-Knopf poppt die Route', (tester) async {
       await tester.pumpWidget(
         designHarness(

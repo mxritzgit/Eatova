@@ -22,6 +22,7 @@ class PageHeader extends StatelessWidget {
     this.trailing,
     this.onBack,
     this.backKey,
+    this.backEnabled = true,
   });
 
   final String? title;
@@ -33,6 +34,7 @@ class PageHeader extends StatelessWidget {
 
   /// Stable key for the back action.
   final Key? backKey;
+  final bool backEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -40,7 +42,9 @@ class PageHeader extends StatelessWidget {
     final back = SquareIconButton(
       key: backKey,
       icon: Icons.chevron_left_rounded,
-      onTap: onBack ?? () => Navigator.of(context).maybePop(),
+      onTap: backEnabled
+          ? (onBack ?? () => Navigator.of(context).maybePop())
+          : null,
       semanticLabel: context.l10n.onboardingBackSemanticLabel,
     );
     final heading = label.isEmpty
