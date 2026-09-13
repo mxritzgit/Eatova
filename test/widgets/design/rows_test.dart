@@ -65,13 +65,13 @@ void main() {
       expect(backs, 1);
     });
 
-    testWidgets('large setzt den Titel gross nach links', (tester) async {
+    testWidgets('large uses the shared subpage title scale', (tester) async {
       await tester.pumpWidget(
         designHarness(const PageHeader(large: 'Einstellungen')),
       );
 
       final title = tester.widget<Text>(find.text('Einstellungen'));
-      expect(title.style?.fontSize, 28);
+      expect(title.style?.fontSize, 24);
       expect(title.style?.color, AppTokens.light.ink);
     });
 

@@ -45,7 +45,7 @@ class _RecipesHeader extends StatelessWidget {
                 children: [title, const SizedBox(height: 12), actions],
               )
             : Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(child: title),
                   actions,

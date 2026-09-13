@@ -369,6 +369,10 @@ class AppType {
   static const String displayFamily = 'BricolageGrotesque';
   static const String uiFamily = 'Archivo';
 
+  /// The shared title scale for tabs and pushed pages.
+  static TextStyle pageTitle(Color color, {bool subpage = false}) =>
+      display(subpage ? 24 : 30, color: color, height: 1.1);
+
   /// Numbers and headings.
   static TextStyle display(
     double size, {

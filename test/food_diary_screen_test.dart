@@ -55,8 +55,6 @@ Future<void> _pumpFoodTab(
   List<LoggedMeal> meals = const <LoggedMeal>[],
   int dailyConsumedKcal = 0,
   UserProfile profile = const UserProfile(),
-  VoidCallback? onSettingsPressed,
-  VoidCallback? onProfilePressed,
   Locale locale = const Locale('de'),
 }) async {
   pinPhoneViewport(tester);
@@ -66,8 +64,6 @@ Future<void> _pumpFoodTab(
       dailyConsumedKcal: dailyConsumedKcal,
       profile: profile,
       loggedMeals: meals,
-      onSettingsPressed: onSettingsPressed,
-      onProfilePressed: onProfilePressed,
     ),
     brightness: brightness,
     locale: locale,
@@ -342,25 +338,10 @@ void main() {
     expect(find.text('Noch nichts geloggt'), findsNWidgets(3));
   });
 
-  testWidgets('Die Kopf-Icons bleiben erreichbar', (tester) async {
-    await _pumpFoodTab(
-      tester,
-      onSettingsPressed: () {},
-      onProfilePressed: () {},
-    );
-
-    expect(find.byKey(const ValueKey('topbar-trends')), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('food-options')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('topbar-settings')), findsOneWidget);
-    expect(find.byKey(const ValueKey('topbar-profile')), findsOneWidget);
-  });
-
-  testWidgets('Ohne Callbacks bleiben Einstellungen und Profil verborgen',
-      (tester) async {
+  testWidgets('Food keeps trends and has no account menu', (tester) async {
     await _pumpFoodTab(tester);
-
     expect(find.byKey(const ValueKey('topbar-trends')), findsOneWidget);
+    expect(find.byKey(const ValueKey('food-options')), findsNothing);
     expect(find.byKey(const ValueKey('topbar-settings')), findsNothing);
     expect(find.byKey(const ValueKey('topbar-profile')), findsNothing);
   });

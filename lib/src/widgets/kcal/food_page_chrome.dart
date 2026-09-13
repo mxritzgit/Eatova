@@ -14,13 +14,11 @@ class FoodPageHeader extends StatelessWidget {
     required this.consumedKcal,
     required this.loading,
     required this.onTrends,
-    this.onOptions,
   });
 
   final int consumedKcal;
   final bool loading;
   final VoidCallback onTrends;
-  final ValueChanged<BuildContext>? onOptions;
 
   @override
   Widget build(BuildContext context) {
@@ -32,18 +30,9 @@ class FoodPageHeader extends StatelessWidget {
         Flexible(
           child: HeadingSemantics(
             level: 1,
-            child: Text(l10n.navFood, style: AppType.display(34, color: t.ink)),
+            child: Text(l10n.navFood, style: AppType.pageTitle(t.ink)),
           ),
         ),
-        if (onOptions != null)
-          Builder(
-            builder: (anchor) => IconButton(
-              key: const ValueKey('food-options'),
-              tooltip: l10n.foodOptions,
-              icon: Icon(Icons.more_horiz_rounded, color: t.ink2),
-              onPressed: () => onOptions!(anchor),
-            ),
-          ),
       ],
     );
     final total = Material(
@@ -90,7 +79,7 @@ class FoodPageHeader extends StatelessWidget {
       ),
     );
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
       child: LayoutBuilder(
         builder: (context, constraints) {
           if (constraints.maxWidth < 300 ||
@@ -101,6 +90,7 @@ class FoodPageHeader extends StatelessWidget {
             );
           }
           return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(child: title),
               const SizedBox(width: 12),

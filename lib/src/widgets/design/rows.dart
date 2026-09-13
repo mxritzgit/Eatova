@@ -11,10 +11,9 @@ import 'surfaces.dart' show HeadingSemantics;
 // Geometry 1:1 from the design template; colors from [AppTokens].
 // ---------------------------------------------------------------------------
 
-/// Header of a subpage: back button plus title.
+/// Shared header of a pushed page: back, title and an optional action.
 ///
-/// [title] sets a small centered title, [large] a big left-aligned one. Setting
-/// both is pointless — [large] wins.
+/// [large] is a compatible alias for [title]; both use the same page scale.
 class PageHeader extends StatelessWidget {
   const PageHeader({
     super.key,
@@ -29,76 +28,59 @@ class PageHeader extends StatelessWidget {
   final String? large;
   final Widget? trailing;
 
-  /// Defaults to [NavigatorState.maybePop]; screens with unsaved changes hook
-  /// their discard prompt in here.
+  /// Defaults to maybePop; pages with drafts can supply a discard prompt.
   final VoidCallback? onBack;
 
-  /// Goes on the back button (tests tap e.g. `profile-close`).
+  /// Stable key for the back action.
   final Key? backKey;
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
-    final centered = title ?? '';
-    return Row(
-      children: <Widget>[
-        SquareIconButton(
-          key: backKey,
-          icon: Icons.chevron_left_rounded,
-          onTap: onBack ?? () => Navigator.of(context).maybePop(),
-          // Reuses [onboardingBackSemanticLabel] instead of adding a second key
-          // with the same meaning; the onboarding back button carries identical
-          // text. A semantics label is SPOKEN text, so it must use real
-          // umlauts — TalkBack reads "Zurueck" as "zurookk".
-          semanticLabel: context.l10n.onboardingBackSemanticLabel,
-        ),
-        if (large != null) ...<Widget>[
-          const SizedBox(width: 12),
-          Expanded(
-            // Only the title is the jump mark: back button and [trailing] are
-            // siblings in this Row and keep their own nodes and tap actions.
-            child: HeadingSemantics(
-              level: 1,
-              child: Text(
-                large!,
-                style: AppType.display(28, color: t.ink, height: 1.1),
-              ),
+    final label = large ?? title ?? '';
+    final back = SquareIconButton(
+      key: backKey,
+      icon: Icons.chevron_left_rounded,
+      onTap: onBack ?? () => Navigator.of(context).maybePop(),
+      semanticLabel: context.l10n.onboardingBackSemanticLabel,
+    );
+    final heading = label.isEmpty
+        ? const SizedBox.shrink()
+        : HeadingSemantics(
+            level: 1,
+            child: Text(
+              label,
+              style: AppType.pageTitle(context.t.ink, subpage: true),
             ),
-          ),
-        ] else
-          Expanded(
-            child: Center(
-              // An unnamed header would be a jump mark with nothing to read,
-              // so the annotation only goes on real text.
-              child: _maybeHeading(
-                level: 1,
-                enabled: centered.isNotEmpty,
-                child: Text(
-                  centered,
-                  textAlign: TextAlign.center,
-                  style: AppType.ui(13, weight: FontWeight.w600, color: t.ink),
-                ),
-              ),
-            ),
-          ),
-        if (trailing != null)
-          trailing!
-        else if (large == null)
-          // Counterweight to the back button so the centered title really is
-          // centered.
-          const SizedBox(width: 34),
-      ],
+          );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Keep full titles readable when back and actions would squeeze them.
+        final stacked =
+            constraints.maxWidth < 300 ||
+            MediaQuery.textScalerOf(context).scale(24) > 32;
+        if (stacked && label.isNotEmpty) {
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [back, const Spacer(), ?trailing]),
+              const SizedBox(height: 10),
+              heading,
+            ],
+          );
+        }
+        return Row(
+          children: [
+            back,
+            const SizedBox(width: 12),
+            Expanded(child: heading),
+            if (trailing != null) ...[const SizedBox(width: 12), trailing!],
+          ],
+        );
+      },
     );
   }
 }
-
-/// [child] as a heading of [level] when [enabled], otherwise untouched.
-Widget _maybeHeading({
-  required int level,
-  required bool enabled,
-  required Widget child,
-}) =>
-    enabled ? HeadingSemantics(level: level, child: child) : child;
 
 /// Card with an all-caps label above it; children separated by 1 px lines.
 class SettingsGroup extends StatelessWidget {

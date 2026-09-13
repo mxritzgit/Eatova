@@ -313,7 +313,7 @@ void main() {
     await _expectNoOverflow(tester, 'Einstellungen', () async {
       await _bootApp(tester);
       await _goToTab(tester, 'Food');
-      await tapFoodHeaderAction(tester, 'topbar-settings');
+      await tapHomeHeaderAction(tester, 'today-settings');
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
 
@@ -416,20 +416,15 @@ void main() {
     });
   });
 
-  testWidgets('das Food-Profilmenue bleibt bei grosser Schrift lesbar', (tester) async {
+  testWidgets('Today account actions remain reachable at large text', (tester) async {
     _pinViewport(tester);
     await _bootApp(tester);
-    await _goToTab(tester, 'Food');
-    await tester.ensureVisible(find.byKey(const ValueKey('food-options')));
-    await tester.tap(find.byKey(const ValueKey('food-options')));
-    await tester.pumpAndSettle();
-    final item = find.byKey(const ValueKey('topbar-profile'));
-    expect(item.hitTestable(), findsOneWidget);
-    expect(tester.getSize(item).height, greaterThanOrEqualTo(44));
-    final paragraph = tester.renderObject<RenderParagraph>(
-      find.descendant(of: item, matching: find.byType(Text)),
-    );
-    expect(paragraph.didExceedMaxLines, isFalse);
+    for (final key in ['today-profile', 'today-settings']) {
+      final item = find.byKey(ValueKey(key));
+      expect(item.hitTestable(), findsOneWidget);
+      expect(tester.getSize(item).height, greaterThanOrEqualTo(44));
+    }
+    expect(find.byKey(const ValueKey('food-options')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

@@ -137,11 +137,11 @@ Future<void> _rundgang(
   await tester.pumpAndSettle();
 }
 
-/// Opens the settings route from the food tab.
+/// Visits Food, then opens the settings route from Today.
 Future<void> _oeffneEinstellungen(WidgetTester tester) async {
   await tester.tap(find.byKey(const ValueKey('nav-Food')));
   await tester.pumpAndSettle();
-  await tapFoodHeaderAction(tester, 'topbar-settings');
+  await tapHomeHeaderAction(tester, 'today-settings');
   await tester.pumpAndSettle();
   expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
 }

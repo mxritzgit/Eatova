@@ -99,13 +99,13 @@ void main() {
     }
   });
 
-  testWidgets('auch der Kopf des Food-Tabs fuehrt in die Einstellungen',
+  testWidgets('Einstellungen beginnen auf Today nach einem Food-Besuch',
       (tester) async {
     await boot(tester);
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
 
-    await tapFoodHeaderAction(tester, 'topbar-settings');
+    await tapHomeHeaderAction(tester, 'today-settings');
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);

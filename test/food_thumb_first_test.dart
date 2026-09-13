@@ -66,37 +66,6 @@ Future<void> _pump(
 }
 
 void main() {
-  for (final action in ['profile', 'settings']) {
-    testWidgets(
-      'The $action menu selection survives a responsive layout change',
-      (tester) async {
-        await withClock(Clock.fixed(_day), () async {
-          tester.view.devicePixelRatio = 1;
-          tester.view.physicalSize = const Size(390, 760);
-          addTearDown(tester.view.reset);
-          String? chosen;
-          await pumpLocalized(
-            tester,
-            MealAnalysisScreen(
-              dailyConsumedKcal: 0,
-              selectedDate: _day,
-              onProfilePressed: () => chosen = 'profile',
-              onSettingsPressed: () => chosen = 'settings',
-            ),
-          );
-          await tester.tap(find.byKey(const ValueKey('food-options')));
-          await tester.pumpAndSettle();
-          tester.view.physicalSize = const Size(390, 540);
-          await tester.pumpAndSettle();
-          await tester.tap(find.byKey(ValueKey('topbar-$action')));
-          await tester.pumpAndSettle();
-          expect(chosen, action);
-          expect(tester.takeException(), isNull);
-        });
-      },
-    );
-  }
-
   for (final loading in [false, true]) {
     testWidgets(
       'The capture dock touches the bottom even with spare height (loading=$loading)',

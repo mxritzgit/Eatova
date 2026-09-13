@@ -408,7 +408,7 @@ void main() {
       await _ohneFehler('Einstellungen', brightness, () async {
         await _boot(tester);
         await _tab(tester, 'Food');
-        await tapFoodHeaderAction(tester, 'topbar-settings');
+        await tapHomeHeaderAction(tester, 'today-settings');
         await tester.pumpAndSettle();
         _erwartePalette(tester, 'screen-settings', brightness);
         await _scroll(

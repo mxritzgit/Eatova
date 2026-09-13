@@ -100,14 +100,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // The shell lands on Today (tab 0); the TopBar avatar this test uses as
-    // its entry point lives on the Food tab (index 1), so switch there first.
-    // What is under test is still the _profileRefresh bridge, not the path.
+    // Visit Food, then open the account from Today; the refresh bridge must
+    // remain live independently of which tabs were previously mounted.
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
 
     // Open the ProfileScreen (avatar -> _openProfile -> _profileRouteOpen).
-    await tapFoodHeaderAction(tester, 'topbar-profile');
+    await tapHomeHeaderAction(tester, 'today-profile');
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('screen-profile')), findsOneWidget);
 
@@ -153,16 +152,17 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // To the Food tab first (index 1): both the avatar and the date chip
-    // used below live there.
+    // Mount Food first; the date controls must still work after account routes.
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
 
     // Open and close again -> _profileRouteOpen is false once more.
-    await tapFoodHeaderAction(tester, 'topbar-profile');
+    await tapHomeHeaderAction(tester, 'today-profile');
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('screen-profile')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('profile-close')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
 

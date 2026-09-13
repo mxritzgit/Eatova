@@ -39,6 +39,7 @@ class TodayScreen extends StatelessWidget {
     this.onDateSelected,
     this.onOpenCoach,
     this.onOpenProfile,
+    this.onOpenSettings,
     this.onOpenMealSlot,
   });
 
@@ -73,6 +74,7 @@ class TodayScreen extends StatelessWidget {
   final ValueChanged<DateTime>? onDateSelected;
   final VoidCallback? onOpenCoach;
   final VoidCallback? onOpenProfile;
+  final VoidCallback? onOpenSettings;
 
   /// Slot rows and the fixed add action lead into the food tab.
   final ValueChanged<MealSlot>? onOpenMealSlot;
@@ -104,6 +106,7 @@ class TodayScreen extends StatelessWidget {
           title: l10n.navToday,
           initial: profileInitial ?? todayInitial(userName),
           onOpenProfile: onOpenProfile,
+          onOpenSettings: onOpenSettings,
         ),
         const SizedBox(height: 2),
         TodayDayStrip(
@@ -224,16 +227,19 @@ class _Kopfzeile extends StatelessWidget {
     required this.title,
     required this.initial,
     this.onOpenProfile,
+    this.onOpenSettings,
   });
 
   final String title;
   final String initial;
   final VoidCallback? onOpenProfile;
+  final VoidCallback? onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Expanded(
           child: Column(
@@ -243,13 +249,22 @@ class _Kopfzeile extends StatelessWidget {
                 level: 1,
                 child: Text(
                   title,
-                  style: AppType.display(30, color: t.ink, height: 1.1),
+                  style: AppType.pageTitle(t.ink),
                 ),
               ),
             ],
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 8),
+        if (onOpenSettings != null) ...[
+          SquareIconButton(
+            key: const ValueKey('today-settings'),
+            icon: Icons.settings_outlined,
+            onTap: onOpenSettings,
+            semanticLabel: context.l10n.foodSemanticsSettings,
+          ),
+          const SizedBox(width: 8),
+        ],
         Semantics(
           button: true,
           label: context.l10n.todaySemanticsOpenProfile,

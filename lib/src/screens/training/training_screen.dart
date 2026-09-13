@@ -229,7 +229,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
                           ),
                         ),
                         Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+                          padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
@@ -518,7 +518,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
   Widget _header(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       final l10n = context.l10n;
-      final titleStyle = AppType.display(30, color: context.t.ink, height: 1.1);
+      final titleStyle = AppType.pageTitle(context.t.ink);
       double measure(String text, TextStyle style) {
         final painter = TextPainter(
           text: TextSpan(text: text, style: style),
@@ -541,7 +541,10 @@ class _TrainingScreenState extends State<TrainingScreen> {
               (widget.onOpenHistory != null ? 44 : 0) +
               16 <=
           constraints.maxWidth;
-      final title = Text(l10n.trainingPageTitle, style: titleStyle);
+      final title = HeadingSemantics(
+        level: 1,
+        child: Text(l10n.trainingPageTitle, style: titleStyle),
+      );
       final actions = Wrap(
         spacing: 2,
         crossAxisAlignment: WrapCrossAlignment.center,
@@ -575,7 +578,10 @@ class _TrainingScreenState extends State<TrainingScreen> {
         ],
       );
       return inline
-          ? Row(children: [title, const Spacer(), actions])
+          ? Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [title, const Spacer(), actions],
+            )
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [title, const SizedBox(height: 12), actions],
