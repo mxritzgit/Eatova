@@ -831,3 +831,31 @@ real-font render cases. `design/training-nightstudio` starts at main `ab7d9f3`
 (PR #84), with protected-main delivery after green CI under the user's existing
 authorization. The PR records the final merge. No backend, schema or dependency
 rollout is required; device installation remains separate.
+
+## Today, meal entry and account polish, 2026-09-13
+
+The user requested complete first-viewport Steps visibility, a cleaner meal
+selection in Add Meal and Barcode, consistent page headers, Today-only tab
+entry points for Profile/Settings, and redesigned account pages. Four agents
+implemented isolated scopes; the commander integrated and reviewed the result.
+
+See [APP-POLISH-2026-09-13.md](APP-POLISH-2026-09-13.md) for the interaction
+contract and integrated Flutter previews. Today spacing preserves type and tap
+targets. Shared root/subpage title styles also cover Meal Plan and training
+history. Profile uses a lavender identity and open statistics; Settings uses
+clear groups and full-width adaptive preferences with visible keyboard focus.
+
+Review regressions reproduce the clipped Steps card, missing picker semantic
+activation, Android duplicate suppression after a covered scan, and the
+collapsed profile macro bar. Account guards and selected date/slot/draft behavior
+remain intact. The final full-suite follow-up keeps Coach review actions visible
+with enlarged text and a keyboard, and preserves disabled history navigation
+during deletion.
+
+Local verification on Flutter 3.47.2: all 4,421 tests passed, zero skips,
+94.94% coverage, strict analysis and an Android x64 debug build. Eight integrated
+real-font captures were inspected after the individual surface reviews.
+`design/app-polish` starts at main `44db638` (PR #85) and uses protected-main
+delivery after green CI under the user's explicit authorization. The PR records
+the final merge. No backend, schema or dependency changes are included; camera
+hardware testing and device installation remain separate.
