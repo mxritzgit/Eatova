@@ -31,6 +31,7 @@ import '../screens/training/training_history_screen.dart';
 import '../screens/training/training_player_screen.dart';
 import '../l10n/l10n.dart';
 import '../theme/app_tokens.dart';
+import '../theme/training_studio_theme.dart';
 import '../widgets/auth/welcome_screen.dart';
 import '../widgets/common/app_snack.dart';
 import '../widgets/common/lively.dart';
@@ -432,22 +433,33 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             if (keyboardOpen) return;
             _store.setTab(0);
           },
-          child: Scaffold(
-            backgroundColor: context.t.bg,
-            // AddMealSheet does its own keyboard inset; a resizing scaffold
-            // would shift the background behind the translucent barrier.
-            resizeToAvoidBottomInset: tab != _tabFood,
-            bottomNavigationBar: AppNavBar(
-              index: tab,
-              onChanged: (index) {
-                FocusManager.instance.primaryFocus?.unfocus();
-                _store.setTab(index);
-              },
-              items: _navItems(context),
-            ),
-            // Tabs scroll internally, so no outer SingleChildScrollView.
-            body: SafeArea(
-              child: _buildTabStack(tab),
+          child: TrainingStudioChrome(
+            active: tab == _tabTraining,
+            child: Scaffold(
+              backgroundColor:
+                  tab == _tabTraining ? AppTokens.dark.bg : context.t.bg,
+              // AddMealSheet does its own keyboard inset; a resizing scaffold
+              // would shift the background behind the translucent barrier.
+              resizeToAvoidBottomInset: tab != _tabFood,
+              bottomNavigationBar: Builder(
+                builder: (context) {
+                  final navigation = AppNavBar(
+                    index: tab,
+                    onChanged: (index) {
+                      FocusManager.instance.primaryFocus?.unfocus();
+                      _store.setTab(index);
+                    },
+                    items: _navItems(context),
+                  );
+                  return tab == _tabTraining
+                      ? TrainingStudioTheme(child: navigation)
+                      : navigation;
+                },
+              ),
+              // Tabs scroll internally, so no outer SingleChildScrollView.
+              body: SafeArea(
+                child: _buildTabStack(tab),
+              ),
             ),
           ),
         );

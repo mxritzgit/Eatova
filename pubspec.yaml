@@ -148,6 +148,7 @@ flutter:
   # Assets bundled with the app.
   assets:
     - assets/recipes/
+    - assets/training/
 
   # Two bundled families: Bricolage Grotesque for numbers/headings, Archivo for
   # everything else. Bundled on purpose instead of via google_fonts:

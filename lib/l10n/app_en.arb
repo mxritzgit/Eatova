@@ -2259,5 +2259,21 @@
         "type": "int"
       }
     }
+  },
+  "trainingStudioPlanDescription": "Plan description",
+  "trainingStudioLibraryEmpty": "Your first plan starts here. Create it yourself or plan with Coach.",
+  "trainingStudioPlans": "Plans",
+  "trainingStudioLibrarySubtitle": "Your workouts at a glance.",
+  "trainingStudioSearch": "Search plans or workouts",
+  "trainingStudioSelected": "ACTIVE PLAN",
+  "trainingStudioNoPlans": "No matching plan. Try another search term.",
+  "trainingStudioLessExercises": "Show fewer exercises",
+  "trainingStudioAllExercises": "View all {count} exercises",
+  "@trainingStudioAllExercises": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   }
 }
