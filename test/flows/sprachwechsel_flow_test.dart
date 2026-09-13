@@ -71,7 +71,7 @@ const List<String Function(AppLocalizations)> _einstellungenTexte =
 ];
 
 String _einstellungenTitel(AppLocalizations l) => l.settingsPageTitle;
-String _praeferenzen(AppLocalizations l) => l.settingsGroupPreferences;
+String _praeferenzen(AppLocalizations l) => l.settingsStudioPreferences;
 String _sprache(AppLocalizations l) => l.settingsLanguageTitle;
 String _zieleZeile(AppLocalizations l) => l.goalsPageTitle;
 
@@ -148,9 +148,8 @@ Future<void> _oeffneEinstellungen(WidgetTester tester) async {
 
 /// Scrolls the settings list back to its header.
 ///
-/// Taking the language pill drags the lazy [ListView] far enough for the page
-/// header to leave the build range — and a title that is not built reads like
-/// a missing translation.
+/// The language choice sits below the fold; return to the visible header
+/// before checking or leaving the translated route.
 Future<void> _zumSeitenanfang(WidgetTester tester) async {
   final kopf = find.byKey(const ValueKey('settings-back'));
   if (kopf.evaluate().isEmpty) {
