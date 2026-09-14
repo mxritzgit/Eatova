@@ -68,6 +68,9 @@ interface RecordedCall {
 }
 
 interface StubOptions {
+  /** Budget RPC denial; production must stop before any further provider call. */
+  providerBudgetReason?: "budget_exhausted" | "disabled";
+  providerBudgetCalls?: number;
   /** Category the stubbed classifier returns. */
   classifierCategory?: string;
   /**
@@ -189,6 +192,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
   const openRouterBodies: JsonRecord[] = [];
   const original = globalThis.fetch;
   let authFailConsumes = 0;
+  let providerBudgetUsed = 0;
 
   function route(
     url: string,
@@ -196,6 +200,12 @@ function installFetch(options: StubOptions = {}): FetchStub {
     body: string,
     signal: AbortSignal | null | undefined,
   ): Response | Promise<Response> {
+    if (url.includes("/rest/v1/rpc/reserve_ai_provider_call")) {
+      const reason = options.providerBudgetReason ??
+        (providerBudgetUsed >= (options.providerBudgetCalls ?? Infinity) ? "budget_exhausted" : "allowed");
+      if (reason === "allowed") providerBudgetUsed++;
+      return jsonRes({ allowed: reason === "allowed", reason });
+    }
     if (url.includes("/auth/v1/user")) {
       if (options.authStatus !== undefined) {
         return jsonRes({ message: "invalid token" }, options.authStatus);
@@ -2686,4 +2696,83 @@ Deno.test("Security S02: unusable image-caption classifier stops before answerin
       assertEquals(stub.callsTo("refund_chat_quota").length, 1, "outage refunds once");
     } finally { stub.restore(); }
   }
+});
+
+Deno.test("Provider budget: global exhaustion and disable stop all paid Coach paths", async () => {
+  for (const providerBudgetReason of ["budget_exhausted", "disabled"] as const) {
+    for (const extra of [{}, { image_base64: IMAGE_BASE64 }, { mode: "recipe" }, { mode: "plan" }]) {
+      const stub = installFetch({ providerBudgetReason });
+      try {
+        const res = await handleRequest(makeRequest({ message: "Please help with dinner", ...extra }));
+        assertEquals(res.status, providerBudgetReason === "disabled" ? 503 : 429, "budget status");
+        assertEquals(stub.openRouterBodies.length, 0, "no paid call without global budget");
+        assertEquals(stub.callsTo("refund_chat_quota").length, 1, "user question refunded, not provider call budget");
+      } finally { stub.restore(); }
+    }
+  }
+});
+
+Deno.test("Provider budget: question refunds cannot reopen paid classifier allowance", async () => {
+  const stub = installFetch({ providerBudgetCalls: 3, classifierContent: "malformed" });
+  try {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const res = await handleRequest(makeRequest({ message: "Please help with dinner" }));
+      assertEquals(res.status, attempt < 3 ? 502 : 429, "refunded failures still spend call budget");
+    }
+    assertEquals(stub.openRouterBodies.length, 3, "paid classifier calls stay capped after six question refunds");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 6, "question quota is independently refunded");
+  } finally { stub.restore(); }
+});
+
+Deno.test("Provider budget: invalid Coach input spends no provider allowance", async () => {
+  for (const payload of [{ message: "x".repeat(1001) }, { image_base64: "not-base64!" }, { mode: "plan", image_base64: IMAGE_BASE64 }]) {
+    const stub = installFetch();
+    try {
+      await handleRequest(makeRequest(payload));
+      assertEquals(stub.callsTo("reserve_ai_provider_call").length, 0, "invalid input has no provider reservation");
+      assertEquals(stub.openRouterBodies.length, 0, "no paid invalid-input work");
+    } finally { stub.restore(); }
+  }
+});
+
+Deno.test("Provider budget: each answer mode needs a second reservation after classifier", async () => {
+  for (const mode of ["chat", "stream", "recipe", "plan", "image-only"]) {
+    const stub = installFetch({ providerBudgetCalls: mode === "image-only" ? 0 : 1 });
+    try {
+      const req = makeRequest(mode === "image-only" ? { image_base64: IMAGE_BASE64 } :
+        { message: "Please help with dinner", ...(mode === "recipe" || mode === "plan" ? { mode } : {}) });
+      if (mode === "stream") req.headers.set("accept", "text/event-stream");
+      const res = await handleRequest(req);
+      assertEquals(res.status, 429, "budget denial before answer headers");
+      assertEquals(stub.openRouterBodies.length, mode === "image-only" ? 0 : 1, "no answer/draft without its own reservation");
+      const operations = stub.callsTo("reserve_ai_provider_call").map((call) => JSON.parse(call.body).p_operation);
+      assertEquals(operations.at(-1), mode === "recipe" ? "coach_recipe" : mode === "plan" ? "coach_plan" : "coach_answer", "correct paid operation");
+    } finally { stub.restore(); }
+  }
+});
+
+Deno.test("Provider body: oversized paid rejection is bounded without refund", async () => {
+  const stub = installFetch();
+  const baseFetch = globalThis.fetch;
+  let pulled = 0;
+  let cancelled = false;
+  globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+    if (String(input).includes("openrouter.ai") && JSON.parse(String(init?.body)).max_tokens === 3072) {
+      return Promise.resolve(new Response(new ReadableStream({
+        pull(controller) {
+          pulled++;
+          controller.enqueue(new Uint8Array(64 * 1024).fill(88));
+          if (pulled === 20) controller.close();
+        },
+        cancel() { cancelled = true; },
+      }), { status: 400 }));
+    }
+    return baseFetch(input, init);
+  }) as typeof fetch;
+  try {
+    const res = await handleRequest(makeRequest({ message: "Please help with dinner" }));
+    assertEquals(res.status, 502, "provider rejection remains a controlled failure");
+    assert(pulled <= 10 && cancelled, "oversized error response must stop before unlimited buffering");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "known paid 4xx stays non-refundable");
+  } finally { globalThis.fetch = baseFetch; stub.restore(); }
 });

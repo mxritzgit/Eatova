@@ -182,6 +182,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
 
   function route(call: RecordedCall): Promise<Response> {
     const { url, body, signal } = call;
+    if (url.endsWith("/rest/v1/rpc/reserve_ai_provider_call")) return Promise.resolve(jsonRes({ allowed: true, reason: "allowed" }));
     if (url.includes('/auth/v1/user')) {
       if (hangOn.has('auth')) return hang(signal);
       if (options.authStatus !== undefined) {

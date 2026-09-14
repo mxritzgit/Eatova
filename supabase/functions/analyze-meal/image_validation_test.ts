@@ -23,6 +23,7 @@ async function probe(imageBase64: string) {
   const providerImages: string[] = [];
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = String(input);
+    if (url.endsWith("/rest/v1/rpc/reserve_ai_provider_call")) return Promise.resolve(json({ allowed: true, reason: "allowed" }));
     if (url.endsWith('/auth/v1/user')) {
       return Promise.resolve(json({ id: '11111111-1111-4111-8111-111111111111' }));
     }

@@ -132,6 +132,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
     ) {
       return haengtBisAbbruch(signal);
     }
+    if (url.endsWith("/rest/v1/rpc/reserve_ai_provider_call")) return jsonRes({ allowed: true, reason: "allowed" });
     if (url.includes("/auth/v1/user")) {
       if (options.authStatus !== undefined) return jsonRes({ message: "invalid token" }, options.authStatus);
       return jsonRes({ id: USER_ID });

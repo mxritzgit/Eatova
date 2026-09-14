@@ -45,6 +45,7 @@ async function run(
     calls.push({ path: url.pathname, method, body: data });
     if (url.hostname === "ci.invalid") {
       switch (url.pathname) {
+        case "/rest/v1/rpc/reserve_ai_provider_call": return json({ allowed: true, reason: "allowed" });
         case "/auth/v1/user": return json({ id: USER });
         case "/rest/v1/rpc/consume_edge_rate_limits":
           return json((data.p_gates as Row[]).map((gate) => ({

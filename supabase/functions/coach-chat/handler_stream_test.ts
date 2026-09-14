@@ -257,6 +257,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
     body: string,
     signal: AbortSignal | null | undefined,
   ): Response {
+    if (url.endsWith("/rest/v1/rpc/reserve_ai_provider_call")) return jsonRes({ allowed: true, reason: "allowed" });
     if (url.includes("/auth/v1/user")) return jsonRes({ id: USER_ID });
     // Gebuendelter Limiter (P6-02) VOR der Einzel-URL: deren Fragment ist ein
     // Praefix von dieser.

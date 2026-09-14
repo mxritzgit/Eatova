@@ -89,6 +89,7 @@ function stubNetwork(defaultDraft: string, options: Options = {}) {
     const body = typeof init?.body === "string" ? JSON.parse(init.body) as Row : {};
     const signal = init?.signal;
     calls.push({ url, method, body, signal });
+    if (url.endsWith("/rest/v1/rpc/reserve_ai_provider_call")) return Promise.resolve(response({ allowed: true, reason: "allowed" }));
     if (url.includes("/auth/v1/user")) return Promise.resolve(response({ id: USER }, options.authStatus));
     if (url.includes("/rpc/consume_edge_rate_limits")) {
       return Promise.resolve(response((body.p_gates as Row[]).map((gate) => ({

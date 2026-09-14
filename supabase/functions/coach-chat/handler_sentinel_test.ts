@@ -66,6 +66,7 @@ function installFetch(options: StubOptions = {}) {
   const original = globalThis.fetch;
 
   function route(url: string, method: string, body: string): Response {
+    if (url.endsWith("/rest/v1/rpc/reserve_ai_provider_call")) return jsonRes({ allowed: true, reason: "allowed" });
     if (url.includes("/auth/v1/user")) return jsonRes({ id: USER_ID });
     // Batched limiter (P6-02). MUST be tested before the single-gate URL: that
     // fragment is a prefix of this one.
