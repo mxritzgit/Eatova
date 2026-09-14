@@ -123,10 +123,19 @@ jobs:
         working-directory: android
         run: ./gradlew :app:writeDependencySbom -Ptarget-platform=android-arm,android-arm64,android-x64 --console=plain
 
+      - name: Fetch verified OSV CLI
+        run: |
+          curl --fail --silent --show-error --location \
+            https://github.com/google/osv-scanner/releases/download/v2.3.8/osv-scanner_linux_amd64 \
+            --output "$RUNNER_TEMP/osv-scanner"
+          echo "bc98e15319ed0d515e3f9235287ba53cdc5535d576d24fd573978ecfe9ab92dc  $RUNNER_TEMP/osv-scanner" | sha256sum --check
+          chmod +x "$RUNNER_TEMP/osv-scanner"
+
+      # Explicit lockfiles still honor .gitignore in OSV 2.3.8. This flag
+      # includes the generated inventory; it does not suppress advisories.
       - name: Scan Android release dependencies
-        uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
-        with:
-          scan-args: |-
+        run: |
+          "$RUNNER_TEMP/osv-scanner" scan source --no-ignore \
             --lockfile=build/app/reports/dependencies/android-release.cdx.json
 
       # Build-tool findings have a separate dated reachability triage. Scanner
@@ -134,14 +143,6 @@ jobs:
       - name: Inventory Android build tools (separate from app runtime)
         working-directory: android
         run: ./gradlew -I build_tool_inventory.init.gradle writeBuildToolSbom --console=plain
-
-      - name: Fetch verified OSV CLI for the build-tool report
-        run: |
-          curl --fail --silent --show-error --location \
-            https://github.com/google/osv-scanner/releases/download/v2.3.8/osv-scanner_linux_amd64 \
-            --output "$RUNNER_TEMP/osv-scanner"
-          echo "bc98e15319ed0d515e3f9235287ba53cdc5535d576d24fd573978ecfe9ab92dc  $RUNNER_TEMP/osv-scanner" | sha256sum --check
-          chmod +x "$RUNNER_TEMP/osv-scanner"
 
       - name: Report build-tool advisories and reject scanner errors
         run: |
@@ -294,16 +295,23 @@ jobs:
         run: |
           python3 test/tooling/security_inventory_test.py
           python3 tool/security_inventory.py
+      - name: Fetch verified OSV CLI
+        run: |
+          curl --fail --silent --show-error --location \
+            https://github.com/google/osv-scanner/releases/download/v2.3.8/osv-scanner_linux_amd64 \
+            --output "$RUNNER_TEMP/osv-scanner"
+          echo "bc98e15319ed0d515e3f9235287ba53cdc5535d576d24fd573978ecfe9ab92dc  $RUNNER_TEMP/osv-scanner" | sha256sum --check
+          chmod +x "$RUNNER_TEMP/osv-scanner"
+      - name: Verify scanner formats and strict failure exits
+        run: python3 test/tooling/osv_cli_test.py --scanner "$RUNNER_TEMP/osv-scanner"
       # Scans Pub plus the explicit native/tool inventory; SARIF lands in Security.
-      # No continue-on-error here: a known CVE fails the build visibly
-      # (Audit 2026-06-09, M4). --skip-git was dropped in osv-scanner v2.
-      - uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
-        with:
-          scan-args: |-
-            --recursive
-            --lockfile=osv-scanner:build/security/osv-scanner-custom.json
-            --format=sarif
-            --output=osv-results.sarif
+      # Use the verified CLI directly: the old action mapped exit128 (no
+      # packages) to success. Every nonzero exit here remains a failed check.
+      - name: Scan Pub and Swift dependencies
+        run: |
+          "$RUNNER_TEMP/osv-scanner" scan source --no-ignore --recursive \
+            --lockfile=osv-scanner:build/security/osv-scanner-custom.json \
+            --format=sarif --output-file=osv-results.sarif \
             ./
       # Needs repo-level code scanning enabled, else "Resource not accessible
       # by integration". Tolerant: the scanner step already fails on findings.

@@ -35,7 +35,7 @@ def main(scanner):
     # Do not accept a stale result if the scanner cannot start or write output.
     report_path.unlink(missing_ok=True)
     result = subprocess.run([
-        str(scanner), "scan", "source", f"--lockfile={inventory_path}",
+        str(scanner), "scan", "source", "--no-ignore", f"--lockfile={inventory_path}",
         "--all-packages", "--format=json", f"--output-file={report_path}",
     ], check=False, timeout=300)
     packages, findings = summarize(
