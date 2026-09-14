@@ -16,6 +16,7 @@ import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_input.dart';
 import '../services/notification_service.dart';
 import '../services/open_food_facts_product_service.dart';
+import '../services/secure_screen.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_mode_controller.dart';
 import 'auth_gate.dart';
@@ -165,7 +166,11 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
           data: mq.copyWith(
             textScaler: mq.textScaler.clamp(maxScaleFactor: 2.0),
           ),
-          child: AppInteractions(child: child ?? const SizedBox.shrink()),
+          // Cover the Navigator, including pushed routes and auth transitions.
+          // Login credentials need the same protection as the private tabs.
+          child: SecureScreenGuard(
+            child: AppInteractions(child: child ?? const SizedBox.shrink()),
+          ),
         );
       },
       home: AuthGate(
