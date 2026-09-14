@@ -15,7 +15,8 @@ import '../services/meal_photo_compressor.dart';
 import '../services/meal_photo_temp_file.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/common/app_snack.dart';
-import '../widgets/kcal/scan_slot_chips.dart';
+import '../widgets/design/sheets.dart';
+import '../widgets/kcal/meal_slot_picker.dart';
 
 /// In-app camera as an animated bottom panel. Pops a [MealCameraCapture], or
 /// null on cancel. Swappable via [MealCameraLauncher] for widget tests.
@@ -196,7 +197,7 @@ class _MealCameraSheetState extends State<MealCameraSheet>
   }
 
   void _selectSlot(MealSlot slot) {
-    if (slot == _slot) return;
+    if (_busy || slot == _slot) return;
     HapticFeedback.selectionClick();
     setState(() => _slot = slot);
   }
@@ -293,8 +294,8 @@ class _MealCameraSheetState extends State<MealCameraSheet>
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
-    // ~60% of screen height: a large preview that still reads as a panel.
-    final panelHeight = mediaQuery.size.height * 0.6;
+    final largeText = mediaQuery.textScaler.scale(17) > 25.5;
+    final panelHeight = sheetMaxHeightOf(context) * (largeText ? 1 : .85);
     final controller = _controller;
     final ready = controller != null && controller.value.isInitialized;
 
@@ -302,6 +303,17 @@ class _MealCameraSheetState extends State<MealCameraSheet>
       children: [
         const _SheetHandle(),
         _HeaderRow(onClose: () => Navigator.of(context).pop()),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: IgnorePointer(
+            ignoring: _busy,
+            child: MealSlotPicker(
+              selected: _slot,
+              onSelected: _selectSlot,
+              keyPrefix: 'meal-camera-slot-',
+            ),
+          ),
+        ),
         Expanded(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
@@ -313,23 +325,16 @@ class _MealCameraSheetState extends State<MealCameraSheet>
                   if (ready)
                     _CoveredCameraPreview(controller: controller)
                   else if (_failure != null)
-                    _CameraFailedLayer(
-                      failure: _failure!,
-                      onOpenSettings: _openSettings,
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 104),
+                      child: _CameraFailedLayer(
+                        failure: _failure!,
+                        onOpenSettings: _openSettings,
+                      ),
                     )
                   else
                     const _CameraLoadingLayer(),
-                  const _EdgeScrim(),
-                  Positioned(
-                    top: 10,
-                    left: 10,
-                    right: 10,
-                    child: ScanSlotChips(
-                      selected: _slot,
-                      onSelected: _selectSlot,
-                      keyPrefix: 'meal-camera-slot',
-                    ),
-                  ),
+                  if (ready) const _EdgeScrim(),
                   Positioned(
                     bottom: 14,
                     left: 20,
@@ -449,8 +454,8 @@ class _CameraFailedLayer extends StatelessWidget {
       key: const ValueKey('meal-camera-failed'),
       color: t.bg,
       child: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [

@@ -13,6 +13,7 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/screens/meal_camera_sheet.dart';
 import 'package:eatova/src/services/meal_camera_launcher.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
+import 'package:eatova/src/widgets/kcal/meal_slot_picker.dart';
 
 import 'support/harness.dart';
 
@@ -202,6 +203,78 @@ void _bringToForeground(WidgetTester tester) {
 }
 
 void main() {
+  setUpAll(() async {
+    for (final family in ['Archivo', 'BricolageGrotesque']) {
+      final loader = FontLoader(family);
+      for (final weight in family == 'Archivo'
+          ? ['Regular', 'Medium', 'SemiBold', 'Bold']
+          : ['Bold', 'ExtraBold']) {
+        loader.addFont(rootBundle.load('assets/fonts/$family-$weight.ttf'));
+      }
+      await loader.load();
+    }
+  });
+
+  for (final denied in [false, true]) {
+    testWidgets('camera controls remain reachable at 200% (denied: $denied)',
+        (tester) async {
+      final fake = _FakeCameraPlatform()..denyCamera = denied;
+      CameraPlatform.instance = fake;
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(320, 568);
+      tester.view.viewPadding = const FakeViewPadding(top: 44, bottom: 24);
+      addTearDown(tester.view.reset);
+      await pumpLocalized(
+        tester,
+        const MealCameraSheet(initialSlot: MealSlot.lunch),
+        locale: const Locale('de'),
+        textScale: 2,
+        safeArea: false,
+        settle: true,
+      );
+      for (final key in ['meal-camera-close', 'meal-camera-gallery',
+        'meal-camera-slot-open']) {
+        expect(find.byKey(ValueKey(key)).hitTestable(), findsOneWidget);
+      }
+      if (denied) {
+        final settings = find.byKey(const ValueKey('meal-camera-open-settings'));
+        await tester.ensureVisible(settings);
+        expect(settings.hitTestable(), findsOneWidget,
+            reason: 'settings ${tester.getRect(settings)}; failure '
+                '${tester.getRect(find.byKey(const ValueKey('meal-camera-failed')))}');
+      } else {
+        expect(find.byType(CameraPreview), findsOneWidget);
+        expect(find.byKey(const ValueKey('meal-camera-shutter')).hitTestable(),
+            findsOneWidget);
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('camera meal picker changes the slot without restarting preview',
+      (tester) async {
+    final fake = _FakeCameraPlatform();
+    CameraPlatform.instance = fake;
+    await _pumpSheet(tester);
+    expect(tester.widget<MealSlotPicker>(find.byType(MealSlotPicker)).selected,
+        MealSlot.lunch);
+    await tester.tap(find.byKey(const ValueKey('meal-camera-slot-open')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('meal-camera-slot-breakfast')));
+    await tester.pumpAndSettle();
+    expect(tester.widget<MealSlotPicker>(find.byType(MealSlotPicker)).selected,
+        MealSlot.breakfast);
+    expect(find.byType(CameraPreview), findsOneWidget);
+    expect(fake.createCalls, 1);
+    await tester.tap(find.byKey(const ValueKey('meal-camera-slot-open')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('meal-camera-slot-close')));
+    await tester.pumpAndSettle();
+    expect(tester.widget<MealSlotPicker>(find.byType(MealSlotPicker)).selected,
+        MealSlot.breakfast);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets(
     'KI-Scan-Kamera lockt die Capture-Orientierung auf portraitUp, '
     'damit die Vorschau bei Geraete-Rotation nicht mitdreht',

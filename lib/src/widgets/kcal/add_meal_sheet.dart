@@ -924,8 +924,20 @@ class _AddMealSheetState extends State<AddMealSheet> {
   /// 0-kcal guard (a manual 0 carries explicitZeroKcal and passes it) and the
   /// success snack. [initialName] comes from the search CTA.
   Future<void> _openManualEntry({String? initialName}) async {
-    final result = await showManualMealSheet(context, initialName: initialName);
+    var slot = _selectedSlot;
+    final result = await showManualMealSheet(
+      context,
+      initialName: initialName,
+      initialSlot: _selectedSlot,
+      onSlotChanged: (value) => slot = value,
+      contextLabel: widget.foodDate == null
+          ? null
+          : MaterialLocalizations.of(
+              context,
+            ).formatMediumDate(widget.foodDate!),
+    );
     if (result == null || !mounted) return;
+    _selectSlot(slot);
     _handleAdd('manual:${FavoriteMeal.idFor(result)}', result);
   }
 
@@ -1165,11 +1177,15 @@ class _AddMealSheetState extends State<AddMealSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _SectionLabel(context.l10n.foodSectionSearchResults),
+        Text(
+          context.l10n.foodSectionSearchResults,
+          style: AppType.display(22, color: context.t.ink),
+        ),
         const SizedBox(height: 8),
         for (var i = 0; i < _productSuggestions.length; i++) ...[
           _suggestionItem(i),
-          if (i != _productSuggestions.length - 1) const SizedBox(height: 8),
+          if (i != _productSuggestions.length - 1)
+            Divider(height: 1, indent: 8, endIndent: 8, color: context.t.line),
         ],
       ],
     );
@@ -1180,6 +1196,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
     final key = 'product:${suggestion.code}';
     return MealSuggestionItem(
       key: ValueKey('kcal-product-suggestion-$index'),
+      productPresentation: true,
       result: suggestion.result,
       imageUrl: suggestion.imageUrl,
       fallbackIcon: Icons.fastfood_outlined,
