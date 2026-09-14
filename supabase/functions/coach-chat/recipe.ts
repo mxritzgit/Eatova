@@ -143,8 +143,8 @@ export function parseRecipeDraft(raw: string): RecipeDraft | null {
   };
 }
 
-/// Prompt for the image API, built from the clamped draft rather than raw
-/// user input so it is no injection surface.
+/// Prompt for the fixed image API, built from the bounded draft. Model-produced
+/// title/description remain untrusted text; clamping is not semantic validation.
 export function recipeImagePrompt(draft: RecipeDraft): string {
   const description = draft.description.slice(0, 200);
   return `Appetizing food photography of ${draft.title}. ${description} ` +

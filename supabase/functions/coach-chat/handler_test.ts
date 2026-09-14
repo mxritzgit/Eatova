@@ -388,6 +388,34 @@ function makeRequest(payload: JsonRecord): Request {
 
 // ---------------------------------------------------------------------------
 
+for (const locale of ["de", "en"] as const) {
+  Deno.test(`Medical refusals address symptoms and injuries across modes (${locale})`, async () => {
+    for (const extra of [{}, { image_base64: IMAGE_BASE64 }, { mode: "recipe" }, { mode: "plan" }]) {
+      const stub = installFetch({ classifierCategory: "medical_risk" });
+      try {
+        const response = await handleRequest(makeRequest({
+          message: locale === "de" ? "Mein Knie schmerzt beim Training. Wie trainiere ich trotzdem weiter?" : "My knee hurts during exercise. How can I keep training through it?",
+          locale, ...extra,
+        }));
+        const body = await response.json() as JsonRecord;
+        assertEquals(response.status, 200, "safe refusal response");
+        assertEquals(body.refusal, true, "no advice or adoptable proposal");
+        const reply = String(body.reply);
+        assert(reply.includes(locale === "de" ? "Beschwerden" : "symptoms"), "Refusal must cover the actual medical category, not only doping");
+        assert(reply.includes(locale === "de" ? "aerztlich" : "medical professional"), "appropriate professional signposting");
+        assert(reply.includes("112"), "conditional emergency signposting remains present");
+        assert(!reply.includes("natuerlichem Training") && !reply.includes("natural training"), "do not redirect unresolved symptoms to further training");
+        assertEquals(body.recipe, undefined, "no recipe");
+        assertEquals(body.training_plan, undefined, "no training plan");
+        assertEquals(stub.openRouterBodies.length, 1, "classifier only");
+        assertEquals(stub.callsTo("refund_chat_quota").length, 0, "same paid refusal quota contract");
+        const assistant = stub.callsTo("/rest/v1/chat_messages").filter((call) => call.method === "POST").map((call) => JSON.parse(call.body)).find((row) => row.role === "assistant");
+        assertEquals(assistant.content, reply, "history contains only the fixed refusal");
+      } finally { stub.restore(); }
+    }
+  });
+}
+
 Deno.test("REGRESSION: Bild + Self-Harm-Text -> Krisen-Antwort statt Bypass", async () => {
   const stub = installFetch({ classifierCategory: "self_harm" });
   try {

@@ -1537,8 +1537,10 @@ type CoachLocale = "de" | "en";
 // languages, consistent with the Layer 3 CRISIS RULE.
 const REFUSAL_TEXTS: Record<string, Record<CoachLocale, string>> = {
   medical_risk: {
-    de: "Zu Steroiden, SARMs oder Performance-Enhancern gebe ich keine Empfehlungen - das ist medizinisches Gelaende und kann gefaehrlich sein. Frag deinen Arzt. Ich helfe dir gern bei natuerlichem Training und Ernaehrung.",
-    en: "I don't give recommendations on steroids, SARMs or performance enhancers - that's medical territory and can be dangerous. Please talk to your doctor. I'm happy to help you with natural training and nutrition.",
+    // General medical category, not just doping. Emergency signposting:
+    // https://gesund.bund.de/notfallnummern (reviewed 2026-09-15).
+    de: "Bei Beschwerden, Verletzungen oder Fragen zu Medikamenten und leistungssteigernden Substanzen kann ich keine sichere individuelle Empfehlung geben. Bitte lass das aerztlich abklaeren. Ich stelle keine Diagnosen und empfehle keine Behandlung oder Training trotz Schmerzen. Bei einem moeglichen medizinischen Notfall rufe den oertlichen Notruf (112 in Deutschland).",
+    en: "I cannot safely give individual advice about symptoms, injuries, medicines or performance-enhancing substances. Please seek assessment from a medical professional. I do not diagnose, prescribe treatment or recommend training through pain. If this could be a medical emergency, call your local emergency number (112 in Germany).",
   },
   eating_disorder: {
     de: "Da gehe ich nicht mit. Wenn du das Gefuehl hast, dass dein Essverhalten dich belastet, sprich bitte mit einem Arzt oder einer Beratungsstelle. Ich kann dir gern bei einer ausgewogenen, alltagstauglichen Ernaehrung helfen.",
@@ -2243,7 +2245,26 @@ const REQUEST_FIELDS = new Set([
   "user_context", "mode", "training_context",
 ]);
 
+// Keep CORS request-local for every JSON/SSE outcome, including early errors.
+// Reusing the body preserves streaming and cancellation semantics.
 export async function handleRequest(req: Request): Promise<Response> {
+  const response = await handleCoachRequest(req);
+  const headers = new Headers(response.headers);
+  const origin = req.headers.get("origin");
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    headers.set("Access-Control-Allow-Origin", origin);
+  } else {
+    headers.delete("Access-Control-Allow-Origin");
+  }
+  if (ALLOWED_ORIGINS.length > 0) {
+    const vary = (headers.get("Vary") ?? "").split(",").map((part) => part.trim()).filter(Boolean);
+    if (!vary.some((part) => part.toLowerCase() === "origin" || part === "*")) vary.push("Origin");
+    headers.set("Vary", vary.join(", "));
+  }
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+async function handleCoachRequest(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: responseHeaders(req) });
   if (req.method !== "POST") {
     return json({ error: "Only POST is allowed" }, 405);

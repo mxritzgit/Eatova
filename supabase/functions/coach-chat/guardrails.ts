@@ -119,8 +119,8 @@ export function layer2RefusalReason(options: {
 // ---------------------------------------------------------------------------
 // Layer 1 over the app context (security fix 2026-08-14)
 // ---------------------------------------------------------------------------
-// `user_context` comes from the request body yet reaches the model at the
-// prompt's highest trust level, and is reachable without a tampered client
+// `user_context` comes from the request body as untrusted user-role data and
+// is reachable without a tampered client
 // (_todaysFoodSummary feeds in user-chosen meal names). On a hit the CONTEXT
 // is dropped, not the request — the slot is claimed either way.
 
