@@ -318,9 +318,10 @@ PhotoContainer inspectPhotoContainer(Uint8List bytes) {
 }
 
 void _checkRaster(int width, int height, {int bytesPerPixel = 4}) {
-  if (width <= 0 ||
-      height <= 0 ||
-      width * height > maxPhotoRasterBytes ~/ bytesPerPixel) {
+  if (width <= 0 || height <= 0) _invalid();
+  // PNG's uint32 dimensions can overflow an int64 product on the Dart VM.
+  final maxPixels = maxPhotoRasterBytes ~/ bytesPerPixel;
+  if (width > maxPixels ~/ height) {
     _invalid();
   }
 }

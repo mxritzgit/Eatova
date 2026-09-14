@@ -21,7 +21,65 @@ Uint8List _jpegSize(int width, int height) {
   throw StateError('Fixture has no SOF');
 }
 
+// A header fixture only. The one-byte IDAT cannot start any zlib decoder;
+// CRCs are immaterial to the structural preflight being tested here.
+Uint8List _pngHeaderWithInvalidPixels(int width, int height, int depth) {
+  final bytes = Uint8List(58);
+  bytes.setRange(0, 8, [137, 80, 78, 71, 13, 10, 26, 10]);
+  final data = ByteData.sublistView(bytes);
+  data.setUint32(8, 13);
+  bytes.setRange(12, 16, ascii.encode('IHDR'));
+  data.setUint32(16, width);
+  data.setUint32(20, height);
+  bytes[24] = depth;
+  bytes[25] = 6; // RGBA, valid with either 8 or 16 bits per channel.
+  data.setUint32(33, 1);
+  bytes.setRange(37, 41, ascii.encode('IDAT'));
+  bytes.setRange(50, 54, ascii.encode('IEND'));
+  return bytes;
+}
+
 void main() {
+  for (final depth in [8, 16]) {
+    test('PNG uint32 raster overflow is rejected before zlib ($depth-bit)', () {
+      final input = _pngHeaderWithInvalidPixels(0xffffffff, 0x80000001, depth);
+      expect(
+        () => inspectPhotoContainer(input),
+        throwsA(
+          isA<FormatException>().having(
+            (error) => error.message,
+            'rejects the raster before examining compressed pixels',
+            'Unsupported or oversized photo container.',
+          ),
+        ),
+      );
+    });
+  }
+  test(
+    'PNG raster budget counts 16-bit channels twice before pixel parsing',
+    () {
+      for (final (width, depth, expected) in [
+        (4096, 16, 'Invalid or oversized compressed photo data.'),
+        (4097, 16, 'Unsupported or oversized photo container.'),
+        (4097, 8, 'Invalid or oversized compressed photo data.'),
+      ]) {
+        // At/below budget the header reaches the one-byte IDAT's safe rejection;
+        // above budget it must fail earlier. None of these fixtures is decoded.
+        expect(
+          () => inspectPhotoContainer(
+            _pngHeaderWithInvalidPixels(width, 2048, depth),
+          ),
+          throwsA(
+            isA<FormatException>().having(
+              (error) => error.message,
+              'validation stage for $width x 2048 at $depth bits',
+              expected,
+            ),
+          ),
+        );
+      }
+    },
+  );
   test('progressive JPEG and lossy/lossless/alpha WebP remain decodable', () {
     for (final encoded in _realSmallImages) {
       final bytes = base64Decode(encoded);
