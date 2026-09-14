@@ -91,8 +91,7 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
-      # Pin Temurin 21: the project's Gradle 8.14 breaks on the Java 25 that
-      # newer runner images default to.
+      # Keep the supported Java toolchain stable across runner image changes.
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
@@ -115,6 +114,49 @@ jobs:
             --dart-define=SUPABASE_URL=https://ci.invalid \
             --dart-define=SUPABASE_ANON_KEY=ci-dummy-key
 
+      # Pub's lock does not contain Android plugin transitives. Resolve the
+      # actual release graph rather than scanning Gradle's requested versions.
+      - name: Check dependency resolution and inventory guards
+        run: python3 test/tooling/android_dependencies_test.py
+
+      - name: Inventory Android release dependencies
+        working-directory: android
+        run: ./gradlew :app:writeDependencySbom -Ptarget-platform=android-arm,android-arm64,android-x64 --console=plain
+
+      - name: Scan Android release dependencies
+        uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
+        with:
+          scan-args: |-
+            --lockfile=build/app/reports/dependencies/android-release.cdx.json
+
+      # Build-tool findings have a separate dated reachability triage. Scanner
+      # errors fail this job; advisory matches remain visible in the artifact.
+      - name: Inventory Android build tools (separate from app runtime)
+        working-directory: android
+        run: ./gradlew -I build_tool_inventory.init.gradle writeBuildToolSbom --console=plain
+
+      - name: Fetch verified OSV CLI for the build-tool report
+        run: |
+          curl --fail --silent --show-error --location \
+            https://github.com/google/osv-scanner/releases/download/v2.3.8/osv-scanner_linux_amd64 \
+            --output "$RUNNER_TEMP/osv-scanner"
+          echo "bc98e15319ed0d515e3f9235287ba53cdc5535d576d24fd573978ecfe9ab92dc  $RUNNER_TEMP/osv-scanner" | sha256sum --check
+          chmod +x "$RUNNER_TEMP/osv-scanner"
+
+      - name: Report build-tool advisories and reject scanner errors
+        run: |
+          python3 test/tooling/build_tool_report_test.py
+          python3 tool/build_tool_report.py --scanner "$RUNNER_TEMP/osv-scanner"
+          cat build/security/build-tools/advisories.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain build-tool inventory and advisory triage
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: build-tool-security
+          path: build/security/build-tools/
+          if-no-files-found: error
+          retention-days: 14
+
   # --- G6 (Review 2026-08-08): CI builds the shipped artifact ----------------
   # Debug alone never exercised R8, resource shrinking or Dart AOT. The E5
   # guard aborts release tasks without android/key.properties, or the release
@@ -127,7 +169,7 @@ jobs:
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
-      # Same reason as in the debug job: Gradle 8.14 breaks on Java 25.
+      # Same pinned Java toolchain as the debug job.
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: temurin
@@ -246,13 +288,20 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      # Scans pubspec.lock and deno.lock; SARIF lands in the Security tab.
+      # OSV does not parse Swift Package.resolved or the Gradle wrapper.
+      # Export only reviewed public coordinates; no source or runtime config.
+      - name: Check and inventory Swift/build dependencies
+        run: |
+          python3 test/tooling/security_inventory_test.py
+          python3 tool/security_inventory.py
+      # Scans Pub plus the explicit native/tool inventory; SARIF lands in Security.
       # No continue-on-error here: a known CVE fails the build visibly
       # (Audit 2026-06-09, M4). --skip-git was dropped in osv-scanner v2.
       - uses: google/osv-scanner-action/osv-scanner-action@9a498708959aeaef5ef730655706c5a1df1edbc2 # v2.3.8
         with:
           scan-args: |-
             --recursive
+            --lockfile=osv-scanner:build/security/osv-scanner-custom.json
             --format=sarif
             --output=osv-results.sarif
             ./
@@ -294,6 +343,11 @@ jobs:
       - name: deno test
         working-directory: supabase/functions
         run: deno test --allow-env
+      - name: Coach evaluation harness (offline)
+        working-directory: supabase/functions
+        run: |
+          deno lint ../eval
+          deno test --allow-env ../eval/coach_eval_test.ts
       # Befund P5-08b (Review 2026-08-29): the suite runs every test file in
       # ONE isolate, so a file that forgets its own `Deno.env.set` block or
       # leaves a `globalThis.fetch` stub behind can be carried by a sibling and
@@ -358,16 +412,15 @@ jobs:
   #     agrees with the text reading — and, as a by-product, that the 35
   #     migrations still replay from scratch, which nothing checked before.
   #
-  # NOT one of the required checks: `main` is protected and a new required check
-  # has to be entered in the branch-protection settings, which only the repo
-  # owner can do. It runs and reports; making it binding is a manual step.
+  # Required on protected main. Match production's PostgreSQL major so newer
+  # privileges such as PostgreSQL 17 MAINTAIN are exercised by the same gate.
   rls-postgres:
     name: RLS gegen echtes Postgres (Kreuzzugriffe)
     runs-on: ubuntu-latest
     services:
       postgres:
-        # Digest-pinned like every action in this workflow (postgres:16).
-        image: postgres@sha256:f1c3376c26f2609ab9f29f71f824103fe2fcd8ee0346485cb6122a4f93df6f94
+        # PostgreSQL 17.6, verified against the deployed database major.
+        image: postgres@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: rls
@@ -423,6 +476,15 @@ jobs:
       # `authenticated` with the other user's JWT and as `anon`.
       - name: Kreuzzugriffe pruefen
         run: psql -v ON_ERROR_STOP=1 -f test/migrations/rls_cross_user.sql
+
+      - name: Globale Providerbudgets pruefen
+        run: psql -v ON_ERROR_STOP=1 -f test/migrations/ai_provider_budget.sql
+
+      - name: Providerbudgets unter gleichzeitiger Last pruefen
+        run: python3 test/migrations/ai_provider_budget_concurrency.py
+
+      - name: Backup und Restore mit synthetischen Daten pruefen
+        run: python3 test/operations/backup_restore.py --prove-detection
 
       - name: Zusammenfassung
         if: always()

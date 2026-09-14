@@ -1,0 +1,55 @@
+import groovy.json.JsonOutput
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.result.UnresolvedDependencyResult
+
+// The plugins DSL resolves AGP/Kotlin in Settings, not app.buildscript.classpath.
+def settingsClasspath
+gradle.settingsEvaluated { settings ->
+    settingsClasspath = settings.buildscript.configurations.getByName('classpath')
+}
+gradle.projectsEvaluated {
+    rootProject.tasks.register('writeBuildToolSbom') {
+        doLast {
+            def result = settingsClasspath.incoming.resolutionResult
+            if (result.allDependencies.any { it instanceof UnresolvedDependencyResult }) {
+                throw new GradleException('Cannot inventory unresolved Android build tools')
+            }
+            def components = [:]
+            def add = { group, name, version ->
+                def encode = { value -> URLEncoder.encode(value, 'UTF-8').replace('+', '%20') }
+                def purl = "pkg:maven/${encode(group)}/${encode(name)}@${encode(version)}"
+                components[purl] = [type: 'library', group: group, name: name, version: version, purl: purl]
+            }
+            result.allComponents.each { component ->
+                // Settings' synthetic root is itself a module with unspecified coordinates.
+                if (component.id != result.rootComponent.get().id && component.id instanceof ModuleComponentIdentifier) {
+                    add(component.id.group, component.id.module, component.id.version)
+                }
+            }
+            if (components.isEmpty()) throw new GradleException('Android build-tool inventory must not be empty')
+
+            // AGP bundles R8; it does not appear as a separate resolved module.
+            def app = rootProject.project(':app')
+            def loader = app.plugins.findPlugin('com.android.application').class.classLoader
+            def r8 = loader.loadClass('com.android.tools.r8.Version').getMethod('getVersionString').invoke(null).toString().split(' ')[0]
+            if (!(r8 ==~ /[0-9]+\.[0-9]+\.[0-9]+/)) throw new GradleException('Unknown bundled R8 version')
+            add('com.android.tools', 'r8', r8)
+            def kaptProjects = rootProject.allprojects.count { it.plugins.hasPlugin('org.jetbrains.kotlin.kapt') || it.plugins.hasPlugin('kotlin-kapt') }
+            def kaptTasks = rootProject.allprojects.sum { p -> p.tasks.names.count { it.toLowerCase().startsWith('kapt') } }
+            def jetifier = app.findProperty('android.enableJetifier')?.toString()
+            if (jetifier != null && !(jetifier in ['true', 'false'])) throw new GradleException('Unknown Jetifier setting')
+            def output = rootProject.file('../build/security/build-tools/android-build-tools.cdx.json')
+            output.parentFile.mkdirs()
+            output.setText(JsonOutput.prettyPrint(JsonOutput.toJson([
+                bomFormat: 'CycloneDX', specVersion: '1.5', version: 1,
+                metadata: [properties: [
+                    [name: 'eatova:kapt-project-count', value: kaptProjects.toString()],
+                    [name: 'eatova:kapt-task-count', value: kaptTasks.toString()],
+                    [name: 'eatova:jetifier-property', value: jetifier ?: 'unset (AGP default false)'],
+                ]],
+                components: components.sort().values().toList(),
+            ])) + '\n', 'UTF-8')
+            logger.lifecycle("Inventoried ${components.size()} Android build-tool dependencies, including R8 ${r8}")
+        }
+    }
+}
