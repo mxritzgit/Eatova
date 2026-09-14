@@ -178,7 +178,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
       // Klassifizierer und Antwort trennen sich am Token-Budget (256 vs. 3072).
       if (parsed.max_tokens === 256) {
         return jsonRes({
-          choices: [{ message: { content: JSON.stringify({ category: "fitness", confidence: "high" }) } }],
+          choices: [{ message: { content: JSON.stringify({ category: "fitness", confidence: "high" }) }, finish_reason: "stop" }],
         });
       }
       return jsonRes({

@@ -121,7 +121,7 @@ function stubNetwork(defaultDraft: string, options: Options = {}) {
         if (options.classifierBodyInvalid) return Promise.resolve(new Response("PRIVATE_REQUEST_CONTENT"));
         return Promise.resolve(response({ choices: [{ message: { content: options.classifier ?? JSON.stringify({
           category: options.category ?? "fitness", confidence: "high",
-        }) } }] }, options.classifierStatus));
+        }) }, finish_reason: "stop" }] }, options.classifierStatus));
       }
       if (body.max_tokens === 3072) return Promise.resolve(response({ choices: [{ message: { content: "Normal chat reply." }, finish_reason: "stop" }] }));
       options.draftRequested?.();

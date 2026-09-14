@@ -104,7 +104,7 @@ async function withStub(
       if (url.endsWith("/api/v1/images")) return Promise.resolve(json({ data: [] }));
       if (url.endsWith("/api/v1/chat/completions")) {
         if (body.max_tokens === 256) {
-          return Promise.resolve(json({ choices: [{ message: { content: '{"category":"nutrition","confidence":"high"}' } }] }));
+          return Promise.resolve(json({ choices: [{ message: { content: '{"category":"nutrition","confidence":"high"}' }, finish_reason: "stop" }] }));
         }
         if (options.midnightFailure) {
           clockMs = originalDate.parse("2026-09-09T00:00:01.000Z");

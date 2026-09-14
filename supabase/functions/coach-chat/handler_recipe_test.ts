@@ -217,6 +217,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
       if (budget === 256) {
         return jsonRes({
           choices: [{
+            finish_reason: "stop",
             message: {
               content: options.classifierContent ?? JSON.stringify({
                 category: options.classifierCategory ?? "nutrition",

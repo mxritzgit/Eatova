@@ -402,8 +402,9 @@ async function classify(
     if (RECIPE_REFUSAL_CATEGORIES.has(category)) {
       return { category, confidence: validConfidence ? confidence : "low", parseFailed: false };
     }
+    // A benign verdict authorizes generation only after explicit completion.
     if (!(CLASSIFIER_CATEGORIES as readonly string[]).includes(category) ||
-        !validConfidence || (finishReason !== undefined && finishReason !== "stop")) {
+        !validConfidence || finishReason !== "stop") {
       throw new Error("invalid classification");
     }
     return { category, confidence, parseFailed: false };
@@ -873,17 +874,15 @@ async function pullAnswerChunk(state: AnswerStreamState): Promise<boolean> {
 }
 
 type AnswerHead =
-  /// The whole answer is decided and NOTHING may be streamed: a refusal, a
-  /// prompt-leak hit, or an empty reply. Zero delta events, one done event.
+  /// Fully checked response delivered with zero deltas and one done event.
   | { streams: false; reply: string; refusal: boolean }
-  /// Marker ruled out — from here deltas may go out.
+  /// SSE can open; the remaining response still needs approval before deltas.
   | { streams: true };
 
-/// Contract §4: no token may leave before `__REFUSE__` is ruled out. The model
-/// may split the marker across chunks and may lead with whitespace, so the
-/// test runs on the trim-started text and only once it is long enough to be
-/// conclusive. Everything this function throws is still pre-header, i.e. a
-/// refundable JSON 502/504.
+/// Selects the SSE transport shape after a preliminary head check. Split
+/// refusal markers and leading whitespace are assembled before this decision.
+/// A normal head opens SSE metadata only; text waits for complete approval.
+/// Errors here remain pre-header JSON failures with the usual refund policy.
 async function resolveAnswerHead(
   state: AnswerStreamState,
   locale: CoachLocale,
@@ -934,7 +933,7 @@ function sseHeaders(): Headers {
   // user's health data.
   headers.set("Cache-Control", "no-cache, no-store");
   headers.set("Connection", "keep-alive");
-  // Or an intermediary buffers the whole body and undoes the point.
+  // Deliver metadata promptly, then approved deltas without proxy buffering.
   headers.set("X-Accel-Buffering", "no");
   return headers;
 }

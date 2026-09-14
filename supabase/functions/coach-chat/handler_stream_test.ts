@@ -304,6 +304,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
       if (parsed.max_tokens === 256) {
         return jsonRes({
           choices: [{
+            finish_reason: "stop",
             message: {
               content: JSON.stringify({
                 category: options.classifierCategory ?? "fitness",
