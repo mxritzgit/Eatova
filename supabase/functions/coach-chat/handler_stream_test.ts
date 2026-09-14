@@ -195,7 +195,7 @@ interface StubOptions {
   /** Bequemer: je ein Delta-Frame pro Text, mit [DONE] am Ende. */
   answerDeltas?: string[];
   /** finish_reason im letzten Delta-Frame. */
-  answerFinishReason?: string;
+  answerFinishReason?: string | null;
   /** Wie der Stream nach seinen Bloecken endet (Standard: sauber). */
   answerEnde?: StreamEnde;
   /** Tor fuer answerEnde: "tor" — der Anbieter haelt an, bis das aufloest. */
@@ -220,6 +220,7 @@ interface FetchStub {
   quotaUsed(): number;
   /** Wurde der Anbieter-Reader freigegeben? (offene Verbindung sonst blind) */
   providerCancelled(): boolean;
+  providerAborted(): boolean;
   restore(): void;
 }
 
@@ -228,8 +229,10 @@ function installFetch(options: StubOptions = {}): FetchStub {
   const original = globalThis.fetch;
   let quotaUsed = 0;
   let providerCancelled = false;
+  let providerSignal: AbortSignal | null | undefined;
 
   function streamedAnswer(signal: AbortSignal | null | undefined): Response {
+    providerSignal = signal;
     const ende = options.answerEnde ?? "close";
     const bloecke = options.answerChunks ??
       [
@@ -311,7 +314,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
         });
       }
       if ((parsed.response_format as JsonRecord | undefined)?.type === "json_object") {
-        return jsonRes({ choices: [{ message: { content: options.draftContent ?? RECIPE_JSON } }] });
+        return jsonRes({ choices: [{ message: { content: options.draftContent ?? RECIPE_JSON }, finish_reason: "stop" }] });
       }
       if (options.answerStatus !== undefined) {
         return new Response("upstream unavailable", { status: options.answerStatus });
@@ -339,7 +342,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
       return jsonRes({
         choices: [{
           message: { content: options.answerContent ?? "Klar, machen wir das." },
-          finish_reason: options.answerFinishReason ?? "stop",
+          finish_reason: options.answerFinishReason === undefined ? "stop" : options.answerFinishReason,
         }],
       });
     }
@@ -384,15 +387,17 @@ function installFetch(options: StubOptions = {}): FetchStub {
         .filter((row) => row.role === "assistant"),
     quotaUsed: () => quotaUsed,
     providerCancelled: () => providerCancelled,
+    providerAborted: () => providerSignal?.aborted === true,
     restore: () => {
       globalThis.fetch = original;
     },
   };
 }
 
-function makeRequest(payload: JsonRecord, stream = false): Request {
+function makeRequest(payload: JsonRecord, stream = false, signal?: AbortSignal): Request {
   return new Request("https://edge.test.invalid/coach-chat", {
     method: "POST",
+    signal,
     headers: {
       "authorization": "Bearer test-user-jwt",
       "content-type": "application/json",
@@ -620,8 +625,7 @@ Deno.test("A3: done traegt exakt dieselbe Nutzlast wie der gepufferte Body", asy
 });
 
 Deno.test("A3: eine lange Antwort kommt in MEHREREN deltas, nicht in einem Stueck", async () => {
-  // Der eigentliche Zweck des Umbaus: der Text laeuft ein, waehrend das Modell
-  // noch schreibt.
+  // Approved answers keep the existing chunked SSE wire contract.
   const stub = installFetch({
     answerDeltas: [LANGER_TEXT_A, LANGER_TEXT_B, LANGER_TEXT_A, LANGER_TEXT_B],
   });
@@ -793,51 +797,36 @@ Deno.test("A3: das Prompt-Leak-Netz greift auch im Stream, ohne Teilleck", async
 // 4) Die Erstattungsregel
 // ---------------------------------------------------------------------------
 
-Deno.test("A3: KEIN Refund, wenn der Anbieter NACH dem ersten delta stirbt", async () => {
-  // Die Linie, die nicht lecken darf: der Nutzer hat Inhalt bekommen. Waere
-  // hier ein Refund, waere ein abgebrochener Stream die billigste Frage.
+Deno.test("Security: provider failure after generated text releases nothing and refunds once", async () => {
   const stub = installFetch({ answerDeltas: [LANGER_TEXT_A, LANGER_TEXT_B], answerEnde: "fail" });
   try {
-    const res = await handleRequest(makeRequest({ message: FRAGE }, true));
-    assertEquals(res.status, 200, "der Status ist ab den SSE-Headern festgenagelt");
-    const events = parseSse(await res.text());
-    assert(deltaTexte(events).length > 0, "es ging Inhalt raus");
-    assertEquals(events[events.length - 1].event, "error", "letztes Event");
-    assertEquals(events[events.length - 1].data.error, "provider_error", "Fehlercode");
-    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund nach geliefertem Inhalt");
-    assertEquals(stub.quotaUsed(), 1, "der Slot bleibt verbraucht");
-    // Und was geliefert wurde, steht auch in der Historie (Vertrag §6).
-    const rows = stub.assistantRows();
-    assertEquals(rows.length, 1, "eine Assistant-Zeile");
-    assertEquals(rows[0].content, deltaTexte(events).join(""), "die gelieferte Teilantwort");
-  } finally {
-    stub.restore();
-  }
+    const response = await handleRequest(makeRequest({ message: FRAGE }, true));
+    const events = parseSse(await response.text());
+    assertEquals(deltaTexte(events).length, 0, "unapproved text is never released");
+    assertEquals(events[events.length - 1].data.error, "provider_error", "honest stream failure");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 1, "one outage refund");
+    assertEquals(stub.assistantRows().length, 0, "no unapproved history");
+  } finally { stub.restore(); }
 });
 
-Deno.test("A3: KEIN Refund, wenn der Client nach dem ersten delta abbricht", async () => {
-  const stub = installFetch({ answerDeltas: [LANGER_TEXT_A + LANGER_TEXT_B], answerEnde: "stall" });
+Deno.test("Security: cancel after approved deltas never refunds", async () => {
+  const stub = installFetch({ answerDeltas: [LANGER_TEXT_A + LANGER_TEXT_B] });
   try {
-    const res = await handleRequest(makeRequest({ message: FRAGE }, true));
-    const reader = res.body!.getReader();
+    const response = await handleRequest(makeRequest({ message: FRAGE }, true));
+    const reader = response.body!.getReader();
     const decoder = new TextDecoder();
-    let gelesen = "";
-    while (!gelesen.includes("event: delta")) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      gelesen += decoder.decode(value, { stream: true });
+    let seen = "";
+    while (!seen.includes("event: delta")) {
+      const item = await reader.read();
+      if (item.done) break;
+      seen += decoder.decode(item.value, { stream: true });
     }
-    assert(gelesen.includes("event: delta"), "es ging ein delta raus");
+    assert(seen.includes("event: delta"), "approved text was released");
     await reader.cancel();
     await warteBis(() => stub.assistantRows().length > 0);
-    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "ein Abbruch ist keine Gratisfrage");
-    assertEquals(stub.quotaUsed(), 1, "der Slot bleibt verbraucht");
-    const rows = stub.assistantRows();
-    assertEquals(rows.length, 1, "die Teilantwort wird persistiert");
-    assertEquals(rows[0].refusal, false, "nichts Neues markiert");
-  } finally {
-    stub.restore();
-  }
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "cancel is not a free question");
+    assertEquals(stub.quotaUsed(), 1, "paid slot retained");
+  } finally { stub.restore(); }
 });
 
 Deno.test("A3: Refund, wenn der Anbieter VOR dem ersten Byte scheitert — als echte 502", async () => {
@@ -915,14 +904,14 @@ Deno.test("A3: ein Stream, der MITTEN in der Antwort stockt, endet an der Frist 
     try {
       const res = await handleRequest(makeRequest({ message: FRAGE }, true));
       const events = parseSse(await res.text());
-      assert(deltaTexte(events).length > 0, "der Anfang ging raus");
+      assertEquals(deltaTexte(events).length, 0, "no unapproved prefix");
       assertEquals(events[events.length - 1].event, "error", "letztes Event");
       assertEquals(
         events[events.length - 1].data.error,
         "provider_timeout",
         "die Frist meldet sich als Zeitueberschreitung",
       );
-      assertEquals(stub.callsTo("refund_chat_quota").length, 0, "Inhalt war raus, kein Refund");
+      assertEquals(stub.callsTo("refund_chat_quota").length, 1, "unapproved content stays internal, outage refunded");
     } finally {
       stub.restore();
     }
@@ -933,11 +922,10 @@ Deno.test("A3: ein Stream, der MITTEN in der Antwort stockt, endet an der Frist 
 // 6) Robustheit des Frame-Parsers
 // ---------------------------------------------------------------------------
 
-Deno.test("A3: kaputte Frames, Keep-Alives und zerschnittene Frames werfen den Stream nicht um", async () => {
+Deno.test("A3: Keep-Alives und zerschnittene Frames erhalten die vollstaendige Antwort", async () => {
   const stub = installFetch({
     answerChunks: [
       ": OPENROUTER PROCESSING\n\n",
-      "data: {kein valides json\n\n",
       // Ein Frame ueber zwei Reads verteilt.
       `data: {"choices":[{"delta":{"content":${JSON.stringify(LANGER_TEXT_A)}`,
       `}}]}\n\n`,
@@ -955,7 +943,7 @@ Deno.test("A3: kaputte Frames, Keep-Alives und zerschnittene Frames werfen den S
     assertEquals(
       done.reply,
       `${LANGER_TEXT_A}${LANGER_TEXT_B} Viel Erfolg!`,
-      "der Text ueberlebt das kaputte Frame",
+      "der Text ueberlebt die Chunkgrenzen",
     );
     assertEquals(deltaTexte(events).join(""), String(done.reply), "Summe der deltas");
   } finally {
@@ -975,7 +963,7 @@ Deno.test("A3: ein Fehler-Frame mitten im Stream wird als Anbieterfehler behande
     const res = await handleRequest(makeRequest({ message: FRAGE }, true));
     const events = parseSse(await res.text());
     assertEquals(events[events.length - 1].event, "error", "letztes Event");
-    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "Inhalt war raus, kein Refund");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 1, "unapproved content stays internal, outage refunded");
   } finally {
     stub.restore();
   }
@@ -1131,23 +1119,7 @@ Deno.test("F1: ein Leck WORT FUER WORT trippt die Tabelle trotzdem", async () =>
   }
 });
 
-Deno.test("F1: der Riegel deckt genau das Fenster, das die Tabelle nicht sieht", () => {
-  // Die Garantie "kein Prompt-Zeichen erreicht den Client" ist eine Relation:
-  // die Tabelle feuert erst nach `words` Woertern, also muss der Riegel den
-  // laengsten Lauf aus `words - 1` Prompt-Woertern abdecken. Die Tabelle zaehlt
-  // ein Leerzeichen pro Luecke, das Modell schreibt ", " oder " - " — daher ein
-  // Zeichen Zuschlag pro Luecke.
-  const { words, tailChars, shingles } = PROMPT_LEAK_GUARD;
-  assert(shingles.size > 100, `Tabelle zu duenn: ${shingles.size}`);
-  let laengster = 0;
-  for (const shingle of shingles) {
-    laengster = Math.max(laengster, shingle.split(" ").slice(0, words - 1).join(" ").length);
-  }
-  assert(
-    laengster + (words - 2) <= tailChars,
-    `der Riegel (${tailChars}) deckt den laengsten Vorlauf (${laengster} + Satzzeichen) nicht`,
-  );
-});
+
 
 Deno.test("F1: das Netz trennt Prompt-Wortlaut von echten Coach-Antworten", () => {
   // Die Matrix, die die Ausnahmen festhaelt: was der Prompt dem Modell
@@ -1369,48 +1341,23 @@ Deno.test("A3/§5: ein Abbruch VOR dem ersten delta ist auch keine Gratisfrage",
   }
 });
 
-Deno.test("A3/§6: bricht der Client ab, wird NUR das Gelieferte persistiert", async () => {
-  // Der Zweig, den bisher kein Test erreicht hat: die Schleife endet REGULAER
-  // (der Anbieter schliesst), waehrend der Client schon weg ist. Das Tor haelt
-  // den Anbieter genau so lange an, bis der Abbruch durch ist — sonst ist der
-  // Stream fertig, bevor der Test lesen kann, und man landet im catch.
-  let torOeffnen: () => void = () => {};
-  const tor = new Promise<void>((resolve) => {
-    torOeffnen = resolve;
-  });
-  const stub = installFetch({
-    answerDeltas: [LANGER_TEXT_A + LANGER_TEXT_B],
-    answerEnde: "tor",
-    answerTor: tor,
-  });
+Deno.test("Security: cancellation during validation never persists generated text", async () => {
+  let openGate: () => void = () => {};
+  const gate = new Promise<void>(resolve => { openGate = resolve; });
+  const stub = installFetch({ answerDeltas: [LANGER_TEXT_A + LANGER_TEXT_B], answerEnde: "tor", answerTor: gate });
   try {
-    const res = await handleRequest(makeRequest({ message: FRAGE }, true));
-    const reader = res.body!.getReader();
-    const decoder = new TextDecoder();
-    let gelesen = "";
-    while (!gelesen.includes("event: delta")) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      gelesen += decoder.decode(value, { stream: true });
-    }
+    const response = await handleRequest(makeRequest({ message: FRAGE }, true));
+    const reader = response.body!.getReader();
+    const first = await reader.read();
+    const events = parseSse(new TextDecoder().decode(first.value));
+    assertEquals(events[0].event, "meta", "metadata remains available before validation");
+    assertEquals(deltaTexte(events).length, 0, "no unapproved text");
     await reader.cancel();
-    torOeffnen();
-    await warteBis(() => stub.assistantRows().length > 0);
-    const geliefert = deltaTexte(parseSse(gelesen)).join("");
-    const ganzerText = LANGER_TEXT_A + LANGER_TEXT_B;
-    assert(geliefert.length > 0, "es ging Inhalt raus");
-    assert(
-      geliefert.length < ganzerText.length,
-      "der Riegel muss noch Text zurueckhalten, sonst prueft der Test nichts",
-    );
-    const rows = stub.assistantRows();
-    assertEquals(rows.length, 1, "eine Assistant-Zeile");
-    assertEquals(rows[0].content, geliefert, "nur das GELIEFERTE, nicht der ganze Puffer");
-    assertEquals(rows[0].refusal, false, "nichts Neues markiert");
-    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
-  } finally {
-    stub.restore();
-  }
+    openGate();
+    await warteBis(() => stub.callsTo("touch_chat_session").length > 0);
+    assertEquals(stub.assistantRows().length, 0, "no generated prefix in history");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "client cancellation keeps its slot");
+  } finally { openGate(); stub.restore(); }
 });
 
 Deno.test("A3: [DONE] beendet den Stream, statt am Anbieter haengen zu bleiben", async () => {
@@ -1492,5 +1439,147 @@ Deno.test("L4: scheitert der Kopf, wird der Anbieter-Reader trotzdem freigegeben
     assertEquals(stub.quotaUsed(), 0, "Ledger");
   } finally {
     stub.restore();
+  }
+});
+
+Deno.test("Security S01: filtered answers never leave JSON or SSE and never enter accepted history", async () => {
+  for (const stream of [false, true]) {
+    for (const content of ["", "Synthetic provider-filtered audit answer. ".repeat(8)]) {
+      const stub = installFetch({ answerContent: content, answerDeltas: [content], answerFinishReason: "content_filter" });
+      try {
+        const response = await handleRequest(makeRequest({ message: FRAGE }, stream));
+        assertEquals(response.status, 200, "safe refusal response");
+        const events = stream ? parseSse(await response.text()) : [];
+        const result = stream ? events[events.length - 1].data : await response.json();
+        assertEquals(result.refusal, true, "provider safety refusal preserved");
+        assertEquals(deltaTexte(events).length, 0, "no rejected text leaves as deltas");
+        assertEquals(stub.assistantRows().filter(row => row.refusal === false).length, 0, "no accepted assistant row");
+        assertEquals(stub.callsTo("refund_chat_quota").length, 0, "paid safety refusal is not refunded");
+      } finally { stub.restore(); }
+    }
+  }
+});
+
+Deno.test("Security S06: expanded whitespace cannot leak a prompt prefix before final refusal", async () => {
+  const words = [...PROMPT_LEAK_GUARD.shingles][0].split(" ");
+  const chunks = words.map(word => deltaFrame(word + " ".repeat(100)));
+  const stub = installFetch({ answerChunks: [...chunks, deltaFrame("", "stop"), DONE_FRAME] });
+  try {
+    const response = await handleRequest(makeRequest({ message: FRAGE }, true));
+    const events = parseSse(await response.text());
+    assertEquals(deltaTexte(events).join(""), "", "no prompt prefix released");
+    assertEquals(events[events.length - 1].data.refusal, true, "safe final refusal");
+    assertEquals(stub.assistantRows()[0].refusal, true, "history keeps only refusal");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "safety refusal remains charged");
+  } finally { stub.restore(); }
+});
+
+Deno.test("Security: oversized provider stream is bounded before any text is released", async () => {
+  const chunk = "Synthetic bounded response. ".repeat(6000);
+  const stub = installFetch({ answerChunks: [deltaFrame(chunk), deltaFrame(chunk), deltaFrame(chunk), deltaFrame(chunk), DONE_FRAME] });
+  try {
+    const response = await handleRequest(makeRequest({ message: FRAGE }, true));
+    const events = parseSse(await response.text());
+    assertEquals(deltaTexte(events).length, 0, "oversized answer remains internal");
+    assertEquals(events[events.length - 1].data.error, "provider_error", "bounded failure");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 1, "one refund");
+    assertEquals(stub.assistantRows().length, 0, "no unapproved history");
+  } finally { stub.restore(); }
+});
+
+Deno.test("Security: missing completion sentinel never releases an incomplete answer", async () => {
+  const stub = installFetch({ answerChunks: [deltaFrame(LANGER_TEXT_A + LANGER_TEXT_B, "stop")] });
+  try {
+    const response = await handleRequest(makeRequest({ message: FRAGE }, true));
+    const events = parseSse(await response.text());
+    assertEquals(deltaTexte(events).length, 0, "no incomplete text");
+    assertEquals(events[events.length - 1].data.error, "provider_error", "missing completion fails closed");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 1, "outage refunded");
+  } finally { stub.restore(); }
+});
+
+Deno.test("Security: completion metadata must explicitly approve an answer", async () => {
+  for (const reason of [null, "unexpected", "tool_calls", "error"]) {
+    const stub = installFetch({ answerChunks: [deltaFrame(LANGER_TEXT_A + LANGER_TEXT_B), deltaFrame("", reason), DONE_FRAME] });
+    try {
+      const response = await handleRequest(makeRequest({ message: FRAGE }, true));
+      const events = parseSse(await response.text());
+      assertEquals(deltaTexte(events).length, 0, "unapproved completion never publishes");
+      assertEquals(events[events.length - 1].data.error, "provider_error", "unknown or failed completion is an outage");
+      assertEquals(stub.assistantRows().length, 0, "no accepted history");
+      assertEquals(stub.callsTo("refund_chat_quota").length, 1, "one outage refund");
+    } finally { stub.restore(); }
+  }
+});
+
+Deno.test("Security: malformed provider data cannot hide a safety decision", async () => {
+  const stub = installFetch({ answerChunks: [deltaFrame(LANGER_TEXT_A + LANGER_TEXT_B), "data: {invalid\n\n", deltaFrame("", "stop"), DONE_FRAME] });
+  try {
+    const response = await handleRequest(makeRequest({ message: FRAGE }, true));
+    const events = parseSse(await response.text());
+    assertEquals(deltaTexte(events).length, 0, "incomplete safety metadata fails closed");
+    assertEquals(events[events.length - 1].data.error, "provider_error", "invalid frame is an outage");
+    assertEquals(stub.assistantRows().length, 0, "no accepted history");
+  } finally { stub.restore(); }
+});
+
+Deno.test("Security: a provider safety rejection remains final before later failure", async () => {
+  const stub = installFetch({ answerChunks: [deltaFrame(LANGER_TEXT_A), deltaFrame("", "content_filter"), errorFrame(500)], answerEnde: "stall" });
+  try {
+    const response = await handleRequest(makeRequest({ message: FRAGE }, true));
+    const events = parseSse(await response.text());
+    assertEquals(deltaTexte(events).length, 0, "no rejected text");
+    assertEquals(events[events.length - 1].data.refusal, true, "safety refusal is final");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "paid rejection never becomes a free retry");
+    assert(stub.providerCancelled(), "provider reader is cancelled after rejection");
+  } finally { stub.restore(); }
+});
+
+Deno.test("Security: approved SSE chunks preserve supplementary Unicode", async () => {
+  const content = "a".repeat(63) + String.fromCodePoint(0x1f34e) + " Approved fruit suggestion.";
+  const stub = installFetch({ answerDeltas: [content] });
+  try {
+    const response = await handleRequest(makeRequest({ message: FRAGE }, true));
+    const events = parseSse(await response.text());
+    for (const chunk of deltaTexte(events)) {
+      assert(!/[\uD800-\uDBFF]$/.test(chunk), "no trailing high surrogate");
+      assert(!/^[\uDC00-\uDFFF]/.test(chunk), "no leading low surrogate");
+    }
+    assertEquals(deltaTexte(events).join(""), content, "approved text remains identical");
+  } finally { stub.restore(); }
+});
+
+Deno.test("Security completion: JSON requires valid terminal metadata", async () => {
+  for (const reason of [null, "unexpected", "tool_calls", "error"]) {
+    const stub = installFetch({ answerContent: "Synthetic valid-looking answer", answerFinishReason: reason });
+    try {
+      const response = await handleRequest(makeRequest({ message: FRAGE }, false));
+      assertEquals(response.status, 502, "invalid completion is not a successful answer");
+      assertEquals(stub.assistantRows().length, 0, "no unapproved history");
+      assertEquals(stub.callsTo("refund_chat_quota").length, 1, "outage refunded once");
+    } finally { stub.restore(); }
+  }
+});
+
+Deno.test("Security cancellation: request abort stops provider before and during approval without refund", async () => {
+  for (const prefix of ["", LANGER_TEXT_A + LANGER_TEXT_B]) {
+    await mitKurzerFrist(100, async () => {
+      const abort = new AbortController();
+      const stub = installFetch({ answerChunks: prefix ? [deltaFrame(prefix)] : [], answerEnde: "stall" });
+      const pending = handleRequest(makeRequest({ message: FRAGE }, true, abort.signal));
+      try {
+        await warteBis(() => stub.answerBodies().length > 0);
+        abort.abort();
+        assert(stub.providerAborted(), "HTTP request abort propagates immediately to provider");
+        const response = await pending;
+        const body = await response.text();
+        assertEquals(deltaTexte(parseSse(body)).length, 0, "no unapproved text");
+        assertEquals(stub.assistantRows().length, 0, "no unapproved history");
+        assertEquals(stub.callsTo("refund_chat_quota").length, 0, "abandoned request cannot reset paid quota");
+      } finally {
+        await (await pending).text().catch(() => {});
+        stub.restore();
+      }
+    });
   }
 });

@@ -70,7 +70,7 @@ async function run(
       if (data.max_tokens === 256) content = JSON.stringify({ category: "fitness", confidence: "high" });
       else if (data.response_format) content = JSON.stringify(options.providerDraft ?? draft());
       else content = "Ordinary coaching answer.";
-      return json({ choices: [{ message: { content } }] });
+      return json({ choices: [{ message: { content }, finish_reason: "stop" }] });
     }
     unexpected.push(`${method} ${url.pathname}`);
     throw new Error("Unstubbed request blocked");

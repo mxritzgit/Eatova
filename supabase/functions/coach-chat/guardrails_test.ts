@@ -215,7 +215,7 @@ Deno.test("W1: die Krisen-Kategorien bleiben ihr eigener Grund", () => {
   }
 });
 
-Deno.test("W1: Chat-Pfad unveraendert — der Aussetzer bleibt eine Off-Topic-Refusal", () => {
+Deno.test("Guard helper: text categories preserve the caller-controlled category contract", () => {
   // In chat off_topic is in the set, so the fail-closed default still catches
   // the dropout. The flag has no effect there: both ways yield the same reason.
   for (const refuseOnUnusableOutput of [false, true]) {
@@ -239,17 +239,16 @@ Deno.test("W1: Chat-Pfad unveraendert — der Aussetzer bleibt eine Off-Topic-Re
   );
 });
 
-Deno.test("W1: Bildpfad unveraendert — ein Aussetzer lehnt nicht jede Bildanfrage ab", () => {
-  // Layer 3 (CRISIS RULE in ANSWER_SYSTEM_PROMPT) is a second crisis layer that
-  // actually sees the image, so the flag is NOT set in the image path.
+Deno.test("Guard helper: image categories preserve the caller-controlled category contract", () => {
+  // The HTTP handler stops unusable image-caption classifications before
+  // this helper. This unit case covers the generic false-switch API.
   assert(
     layer2RefusalReason({
       result: UNUSABLE,
       categories: IMAGE_REFUSAL_CATEGORIES,
       refuseOnUnusableOutput: false,
     }) === null,
-    "der Bildpfad wuerde sonst bei jedem Klassifizierer-Aussetzer jede " +
-      "legitime Caption ablehnen",
+    "the helper applies the category set when its caller handles parse errors",
   );
   assert(
     layer2RefusalReason({

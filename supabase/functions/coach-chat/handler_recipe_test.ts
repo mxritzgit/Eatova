@@ -228,7 +228,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
       }
       const payload = JSON.parse(body) as JsonRecord;
       if ((payload.response_format as JsonRecord | undefined)?.type !== "json_object") {
-        return jsonRes({ choices: [{ message: { content: ANSWER_TEXT } }] });
+        return jsonRes({ choices: [{ message: { content: ANSWER_TEXT }, finish_reason: "stop" }] });
       }
       if (options.draftStatus !== undefined) {
         return new Response("upstream unavailable", { status: options.draftStatus });
@@ -424,7 +424,7 @@ Deno.test("Recipe failure diagnostics keep completion metadata without provider 
         const expected = options.draftFinishReason === "length" ? "length" : "other";
         assert(logs.includes(`finish_reason=${expected}`), "allowlisted completion category remains diagnosable");
       } else {
-        assert(logs.includes("Recipe provider response invalid"), "malformed envelope has a fixed diagnostic");
+        assert(logs.includes("Provider response invalid"), "malformed envelope has a fixed diagnostic");
       }
     } finally {
       console.error = original;
@@ -1129,5 +1129,36 @@ Deno.test("PERF: der Rezept-Store wartet nicht auf den Bildcall", async () => {
   } finally {
     globalThis.fetch = stubFetch;
     stub.restore();
+  }
+});
+
+Deno.test("Security S01: filtered recipe has no proposal or image follow-up", async () => {
+  for (const draftContent of ["", RECIPE_JSON]) {
+    const stub = installFetch({ draftFinishReason: "content_filter", draftContent });
+    try {
+      const response = await handleRequest(makeRecipeRequest());
+      const body = await response.json();
+      assertEquals(response.status, 200, "safe refusal");
+      assertEquals(body.refusal, true, "filtered draft refused");
+      assertEquals(body.recipe, undefined, "no adoptable recipe");
+      assertEquals(stub.callsTo("openrouter.ai/api/v1/images").length, 0, "no image generation after safety filter");
+      const stores = stub.callsTo("chat_messages").filter(call => call.method === "POST").map(call => JSON.parse(call.body));
+      assertEquals(stores.filter(row => row.role === "assistant" && row.refusal === false).length, 0, "no accepted history");
+      assertEquals(stub.callsTo("refund_chat_quota").length, 0, "no refund of safety refusal");
+    } finally { stub.restore(); }
+  }
+});
+
+Deno.test("Security completion: recipe requires valid terminal metadata", async () => {
+  for (const reason of [undefined, null, "unexpected", "tool_calls", "error"]) {
+    const stub = installFetch({ draftRawEnvelope: JSON.stringify({ choices: [{ message: { content: RECIPE_JSON }, finish_reason: reason }] }) });
+    try {
+      const response = await handleRequest(makeRecipeRequest());
+      assertEquals(response.status, 502, "no approved recipe without completion");
+      assertEquals(stub.callsTo("openrouter.ai/api/v1/images").length, 0, "no follow-up image");
+      const rows = stub.callsTo("chat_messages").filter(call => call.method === "POST").map(call => JSON.parse(call.body));
+      assertEquals(rows.filter(row => row.role === "assistant").length, 0, "no unapproved history");
+      assertEquals(stub.callsTo("refund_chat_quota").length, 1, "outage refund");
+    } finally { stub.restore(); }
   }
 });

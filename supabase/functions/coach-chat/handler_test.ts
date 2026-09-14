@@ -830,28 +830,7 @@ Deno.test("Review: Provider-Sicherheitsfilter bleibt in jedem Modus ohne Refund 
   }
 });
 
-Deno.test("W1: unparsbare Classifier-Antwort blockt den Bildpfad nicht", async () => {
-  // The image path deliberately ignores the parse failure: layer 3 (the
-  // CRISIS RULE in the answer prompt) is a second crisis layer that actually
-  // sees the image, and refusing would hit legitimate uploads on every glitch.
-  const stub = installFetch({
-    classifierContent: "Ich denke, das ist Fitness.",
-    answerContent: "Auf dem Teller sind etwa 600 kcal.",
-  });
-  try {
-    const res = await handleRequest(makeRequest({
-      message: "was ist das hier?",
-      image_base64: IMAGE_BASE64,
-    }));
-    assertEquals(res.status, 200, "Status");
-    const body = await res.json() as JsonRecord;
-    assertEquals(body.reply, "Auf dem Teller sind etwa 600 kcal.", "Antwort kommt vom Modell");
-    assertEquals(body.refusal, false, "keine Refusal");
-    assertEquals(stub.answerBodies().length, 1, "Answer-Call laeuft");
-  } finally {
-    stub.restore();
-  }
-});
+
 
 Deno.test("Layer 1 bleibt vor Layer 2: eindeutiger Text blockt ohne LLM-Call", async () => {
   // quota: "forbidden" — layer 1 is the only refusal path that must never
@@ -2158,14 +2137,14 @@ Deno.test("P6-04c: Vertragswert bleibt im Log lesbar", async () => {
   const stub = installFetch({
     classifierCategory: "fitness",
     answerContent: "",
-    answerFinishReason: "content_filter",
+    answerFinishReason: "error",
   });
   const logs = captureConsoleError();
   try {
     await handleRequest(makeRequest({ message: "Wie viel Protein nach dem Training?" }));
     const joined = logs.lines.join("\n");
     assert(
-      joined.includes("finish_reason=content_filter"),
+      joined.includes("Provider completion failed"),
       `Vertragswert fehlt im Log: ${joined}`,
     );
   } finally {
@@ -2677,3 +2656,16 @@ for (const authStatus of [429, 500, 503]) {
     } finally { stub.restore(); }
   });
 }
+
+Deno.test("Security S02: unusable image-caption classifier stops before answering", async () => {
+  for (const classifierContent of ["", "not-json", '{"category":"unknown","confidence":"high"}']) {
+    const stub = installFetch({ classifierContent });
+    try {
+      const response = await handleRequest(makeRequest({ message: "Please describe this meal", image_base64: IMAGE_BASE64 }));
+      assertEquals(response.status, 502, "retryable classifier failure");
+      assertEquals(stub.answerBodies().length, 0, "no answer without successful classification");
+      assertEquals(stub.callsTo("chat_messages").filter(call => call.method === "POST").length, 0, "no accepted history");
+      assertEquals(stub.callsTo("refund_chat_quota").length, 1, "outage refunds once");
+    } finally { stub.restore(); }
+  }
+});

@@ -74,6 +74,7 @@ const ANSWER_MAX_TOKENS      = 3072;
 const RECIPE_MAX_TOKENS      = 3072;
 const MAX_IMAGE_BASE64_CHARS = 6_000_000;
 const MAX_CONTENT_LENGTH     = 6_250_000;
+const MAX_PROVIDER_RESPONSE_BYTES = 512 * 1024;
 const HISTORY_LIMIT          = 10;
 const REQUEST_USER_LIMIT     = 60;
 const REQUEST_IP_LIMIT       = 120;
@@ -376,7 +377,7 @@ async function classify(
       `Classifier-Call fehlgeschlagen: ${resp.status} (${await redactedBodyMeta(text)})`,
     );
   }
-  const data = await resp.json();
+  const data = await readProviderJson(resp);
   const choice = data?.choices?.[0];
   const raw = choice?.message?.content;
   const finishReason = loggableFinishReason(choice?.finish_reason);
@@ -491,30 +492,9 @@ const REFUSAL_MARKER = "__REFUSE__";
 /// flag on purpose — a stateful lastIndex would make `.test` skip matches.
 const PROMPT_LEAK_RE = /system\s*prompt|deine\s*anweisungen\s*lauten/i;
 
-// ---------------------------------------------------------------------------
-// F1 - the half of that net that also works in a STREAM.
-//
-// PROMPT_LEAK_RE only fires once the model NAMES the prompt, which is the END
-// of a leak. Buffered that is enough (the whole reply is swapped). Streamed it
-// is not: a model that recites the prompt first and writes "das war mein
-// system prompt" last has already put the content on the wire, since only
-// LEAK_GUARD_TAIL characters are ever held back. No tail size closes that —
-// the trigger phrase can arrive arbitrarily late.
-//
-// So the net also tests the prompt's OWN WORDING: every run of SHINGLE_WORDS
-// consecutive words of ANSWER_SYSTEM_PROMPT is a tripwire, and a leak trips it
-// after its first seven words instead of after its last sentence.
-// ---------------------------------------------------------------------------
-
-/// Seven, because the two errors have very different prices. A missed run is
-/// caught a few words later (a leak reproduces whole lines, not seven words),
-/// while a FALSE hit replaces a correct answer with a refusal and costs the
-/// user one of DAILY_LIMIT slots — that looks like a bug, not like safety.
-/// Seven is also short enough that the longest SIX-word run of the prompt (57
-/// characters with its punctuation) still fits behind LEAK_GUARD_TAIL: the
-/// tail covers exactly the window the table cannot see yet, so no prompt
-/// character reaches the client before the net fires. handler_stream_test.ts
-/// pins that relation — a prompt edit with longer words must go red there.
+// Prompt wording is checked on the complete answer before any publication.
+// Seven-word shingles tolerate punctuation and whitespace without relying on
+// a fixed raw-character streaming tail.
 const SHINGLE_WORDS = 7;
 
 /// Prompt sections that stay OUT of the table. Both list what the coach may
@@ -649,6 +629,12 @@ function finalizeAnswer(
   finishReason: string,
   locale: CoachLocale,
 ): { reply: string; refusal: boolean } {
+  if (finishReason === "content_filter") {
+    return { reply: refusalForReason("fallback", locale), refusal: true };
+  }
+  if (!["stop", "length"].includes(finishReason)) {
+    throw new ProviderError(502, `Provider completion failed (finish_reason=${finishReason})`);
+  }
   let reply = raw.trim();
   let refusal = false;
   const hadRefusalMarker = reply.startsWith(REFUSAL_MARKER);
@@ -717,7 +703,7 @@ async function answer(
       `OpenRouter-Call fehlgeschlagen: ${resp.status} (${await redactedBodyMeta(text)})`,
     );
   }
-  const data = await resp.json();
+  const data = await readProviderJson(resp);
   const choice = data?.choices?.[0];
   // P6-04c: this used to cap the value at 32 characters before putting it into
   // a ProviderError message, i.e. into console.error and function_logs. A cap
@@ -729,42 +715,14 @@ async function answer(
 }
 
 // ---------------------------------------------------------------------------
-// A3 - the STREAMED answer (SSE). Perf audit 2026-08-31: the buffered call
-// holds the reply until the last of up to ANSWER_MAX_TOKENS tokens exists, so
-// the user watches an empty bubble for 5-15 s.
-//
-// Strictly OPT-IN via `Accept: text/event-stream`. Without that header not one
-// line below runs and the buffered path above answers byte-identically — old
-// device builds in the field must keep working (cf. the 8-digit-OTP incident:
-// app first, server second).
-//
-// Two invariants everything here is built around:
-//   * the STATUS is locked at 200 the moment SSE headers go out, so every
-//     decision with its own status (401/400/413, both 429s, layer 1+2, the
-//     classifier's 502/504, recipe mode) stays ahead of this block;
-//   * the REFUND line is the first `delta` on the socket, not the response
-//     status — nothing delivered means the slot goes back, one delta out means
-//     it stays spent, or an aborted stream would be a free question.
+// SSE transport with complete server-side approval before text publication.
+// Provider status can arrive last, so no prefix is released speculatively.
+// Client cancellation remains non-refundable; provider outages refund only
+// before approved text is published. Successful provider bodies are byte-bounded.
 // ---------------------------------------------------------------------------
 
-/// Characters held back behind the released text while the stream is open.
-/// The prompt-leak net replaces the WHOLE reply, and a stream cannot take
-/// bytes back; running leaksPrompt() on the assembled text before every
-/// release plus this tail means the leak itself is never delivered.
-///
-/// F1 turned the size from a guess into a bound: the shingle table needs
-/// SHINGLE_WORDS words before it can fire, so the tail has to cover the
-/// longest run of SHINGLE_WORDS-1 prompt words (57 characters today). 64 does,
-/// and it stays comfortably longer than the literal part of both regex
-/// alternatives, which is the split-literal case it was built for.
-const LEAK_GUARD_TAIL = 64;
-
-/// Test surface for the leak net (F1). The guarantee "no prompt character
-/// reaches the client" is a RELATION between the table, the run length and the
-/// tail, so it gets pinned in handler_stream_test.ts instead of described.
 export const PROMPT_LEAK_GUARD = {
   words: SHINGLE_WORDS,
-  tailChars: LEAK_GUARD_TAIL,
   shingles: PROMPT_SHINGLES as ReadonlySet<string>,
   leaks: leaksPrompt,
 };
@@ -777,35 +735,13 @@ interface AnswerStreamState {
   abort: AbortController;
   /// Provider bytes not yet split into whole SSE lines.
   raw: string;
+  receivedBytes: number;
   /// Model text assembled so far, released part included.
   text: string;
   /// How far `text` has left as deltas — the refund line (contract §5).
   released: number;
-  /// F1, prompt-leak net: `leaked` latches the hit, `leakFrom` is the first
-  /// word window of `text` not tested yet. `text` only grows, so a miss stays
-  /// a miss and a hit stays a hit — rescanning the whole answer on every chunk
-  /// would be quadratic for nothing (measured 122 ms vs 25 ms on a full
-  /// 800-token answer with token-sized frames).
-  leaked: boolean;
-  leakFrom: number;
   finishReason: string;
   ended: boolean;
-}
-
-/// The leak test for the streamed path: the SAME rule as leaksPrompt(), only
-/// it skips the windows an earlier chunk already ruled out.
-function streamLeaksPrompt(state: AnswerStreamState): boolean {
-  if (state.leaked) return true;
-  if (PROMPT_LEAK_RE.test(state.text)) {
-    state.leaked = true;
-    return true;
-  }
-  const words = leakWords(state.text);
-  state.leaked = hasPromptShingle(words, state.leakFrom);
-  // Windows touching the LAST word stay open: a chunk can cut a word in half,
-  // and "hydra" only becomes "hydration" with the next one.
-  state.leakFrom = Math.max(0, words.length - SHINGLE_WORDS);
-  return state.leaked;
 }
 
 /// Status of a mid-stream error frame. F2: this used to be a flat 502, which
@@ -845,9 +781,7 @@ function consumeProviderFrames(state: AnswerStreamState): void {
     try {
       frame = JSON.parse(payload);
     } catch {
-      // A frame that is not JSON is a provider hiccup, not a reason to kill
-      // the isolate mid-answer: skipping it costs at most one token.
-      continue;
+      throw new ProviderError(502, "Provider stream contains invalid data");
     }
     if (frame?.error) {
       // Mid-stream provider failure. No body in the message — OpenRouter
@@ -861,6 +795,16 @@ function consumeProviderFrames(state: AnswerStreamState): void {
     const piece = choice?.delta?.content;
     if (typeof piece === "string") state.text += piece;
     const reason = loggableFinishReason(choice?.finish_reason);
+    if (reason === "content_filter") {
+      // A known safety rejection is final. Stop reading and keep its paid slot,
+      // even if a later transport failure would otherwise look refundable.
+      state.finishReason = reason;
+      state.ended = true;
+      return;
+    }
+    if (reason !== undefined && !["stop", "length"].includes(reason)) {
+      throw new ProviderError(502, "Provider stream has invalid completion status");
+    }
     if (reason !== undefined) state.finishReason = reason;
   }
 }
@@ -875,6 +819,7 @@ async function openAnswerStream(
   image?: { base64: string; mimeType: string },
   userContext?: string,
   trainingContext?: TrainingContext,
+  requestSignal?: AbortSignal,
 ): Promise<AnswerStreamState> {
   const abort = new AbortController();
   const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -888,8 +833,8 @@ async function openAnswerStream(
     // The answer deadline has to survive the streamed body: an aborted signal
     // rejects the reader too, so a stream that STALLS mid-answer still ends at
     // PROVIDER_TIMEOUTS_MS.answer instead of hanging until the platform limit
-    // (finding 6, now for the streamed shape).
-    signal: AbortSignal.any([abort.signal, AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer)]),
+    // Includes all bytes held for final approval.
+    signal: AbortSignal.any([abort.signal, AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer), ...(requestSignal ? [requestSignal] : [])]),
     body: JSON.stringify(answerPayload(history, userMessage, image, userContext, true, trainingContext)),
   });
   if (!resp.ok) {
@@ -905,10 +850,9 @@ async function openAnswerStream(
     decoder: new TextDecoder(),
     abort,
     raw: "",
+    receivedBytes: 0,
     text: "",
     released: 0,
-    leaked: false,
-    leakFrom: 0,
     finishReason: "unknown",
     ended: false,
   };
@@ -918,9 +862,10 @@ async function openAnswerStream(
 async function pullAnswerChunk(state: AnswerStreamState): Promise<boolean> {
   if (state.ended) return false;
   const { value, done } = await state.reader.read();
-  if (done) {
-    state.ended = true;
-    return false;
+  if (done) throw new ProviderError(502, "Provider stream ended before completion");
+  state.receivedBytes += value.byteLength;
+  if (state.receivedBytes > MAX_PROVIDER_RESPONSE_BYTES) {
+    throw new ProviderError(502, "Provider stream exceeds response limit");
   }
   state.raw += state.decoder.decode(value, { stream: true });
   consumeProviderFrames(state);
@@ -948,7 +893,7 @@ async function resolveAnswerHead(
   }
   const head = state.text.trimStart();
   if (
-    head.startsWith(REFUSAL_MARKER) || streamLeaksPrompt(state) ||
+    head.startsWith(REFUSAL_MARKER) || leaksPrompt(state.text) ||
     head.length === 0
   ) {
     // Drain the rest into the buffer: a refusal is delivered as ONE done
@@ -959,20 +904,10 @@ async function resolveAnswerHead(
   return { streams: true };
 }
 
-/// How far the assembled text may be released as deltas right now. Updates
-/// `state` in passing: the leak scan latches and remembers its cursor.
-function releasableUpTo(state: AnswerStreamState): number {
-  // F1: this fires on the prompt's own wording too, i.e. at the START of a
-  // leak, not at the sentence that names it — by then the content would be on
-  // the wire. Once it fires nothing more is ever released, and finalizeAnswer
-  // swaps the whole reply for the catalogue text.
-  if (streamLeaksPrompt(state)) return state.released;
-  if (state.ended) return state.text.length;
-  return Math.max(state.released, state.text.length - LEAK_GUARD_TAIL);
-}
 
 interface SseAnswerOptions {
   state: AnswerStreamState;
+  requestSignal: AbortSignal;
   locale: CoachLocale;
   /// `meta` payload: session plus the quota numbers, same omit-when-unknown
   /// rule as the buffered body.
@@ -1018,11 +953,13 @@ function sseDoneOnlyResponse(
 }
 
 function sseAnswerResponse(options: SseAnswerOptions): Response {
-  const { state, locale, meta, doneBase, persist, refund } = options;
+  const { state, locale, meta, doneBase, persist, refund, requestSignal } = options;
   const encoder = new TextEncoder();
   // Set by cancel(): the client hung up. Never a refund — an aborted stream
   // must not become a cheaper way to spend nothing (contract §5).
-  let clientGone = false;
+  let clientGone = requestSignal.aborted;
+  const abandon = () => { clientGone = true; state.abort.abort(); };
+  requestSignal.addEventListener("abort", abandon, { once: true });
 
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -1042,11 +979,17 @@ function sseAnswerResponse(options: SseAnswerOptions): Response {
         // on, and send() is a no-op once the client is gone. Advancing it here
         // would persist bytes that never left the isolate.
         if (clientGone) return;
-        const upTo = releasableUpTo(state);
+        const upTo = state.text.length;
         if (upTo <= state.released) return;
-        const piece = state.text.slice(state.released, upTo);
-        state.released = upTo;
-        send("delta", { t: piece });
+        while (state.released < upTo && !clientGone) {
+          let end = Math.min(state.released + 64, upTo);
+          // JSON delta strings must not split a supplementary Unicode character.
+          const previous = state.text.charCodeAt(end - 1);
+          if (end < upTo && previous >= 0xd800 && previous <= 0xdbff) end++;
+          const piece = state.text.slice(state.released, end);
+          state.released = end;
+          send("delta", { t: piece });
+        }
       };
       // The two Supabase writes are best-effort here in every branch: this
       // runs AFTER the response headers, so nothing it could report would
@@ -1061,17 +1004,15 @@ function sseAnswerResponse(options: SseAnswerOptions): Response {
       void (async () => {
         try {
           send("meta", meta);
-          for (;;) {
-            flush();
-            if (state.ended || clientGone) break;
-            await pullAnswerChunk(state);
-          }
+          while (!state.ended && !clientGone) await pullAnswerChunk(state);
           if (clientGone) {
             // §6: persist what was actually DELIVERED, and mark nothing new.
             await persistBestEffort(state.text.slice(0, state.released), false);
             return;
           }
           const final = finalizeAnswer(state.text, state.finishReason, locale);
+          // Publish only after the final safety verdict. Refusals have no deltas.
+          if (!final.refusal) flush();
           // Before the done event on purpose: today the client sees the reply
           // only once the row exists, and streaming changes delivery, not the
           // record. Best-effort like the buffered path: the answer exists and
@@ -1102,6 +1043,7 @@ function sseAnswerResponse(options: SseAnswerOptions): Response {
         } finally {
           // Frees the provider connection whether we stopped at [DONE], at a
           // failure or because the client left.
+          requestSignal.removeEventListener("abort", abandon);
           await state.reader.cancel().catch(() => {});
           try {
             controller.close();
@@ -1112,8 +1054,7 @@ function sseAnswerResponse(options: SseAnswerOptions): Response {
       })();
     },
     cancel() {
-      clientGone = true;
-      state.abort.abort();
+      abandon();
     },
   });
 
@@ -1168,16 +1109,7 @@ async function draftRecipe(
       `Rezept-Call fehlgeschlagen: ${resp.status} (${await redactedBodyMeta(text)})`,
     );
   }
-  let data;
-  try {
-    data = await resp.json();
-  } catch (error) {
-    // JSON parser errors can quote provider content; keep diagnostics fixed.
-    if (error instanceof SyntaxError) {
-      throw new ProviderError(502, "Recipe provider response invalid");
-    }
-    throw error;
-  }
+  const data = await readProviderJson(resp);
   const choice = data?.choices?.[0];
   const content = choice?.message?.content;
   return {
@@ -1226,7 +1158,7 @@ async function generateRecipeImage(
       );
       return null;
     }
-    const data = await resp.json();
+    const data = await readProviderJson(resp, 8 * 1024 * 1024);
     const b64 = data?.data?.[0]?.b64_json;
     if (typeof b64 !== "string" || b64.length === 0) {
       console.error("recipe image: Antwort ohne b64_json");
@@ -1364,7 +1296,9 @@ async function handleRecipeMode(params: {
   // Not a food recipe: costs the slot on purpose, like the Layer 2 refusals,
   // or provoked refusals would be free calls.
   const raw = completion.content;
-  const refusalText = parseRecipeRefusal(raw);
+  const refusalText = completion.finishReason === "content_filter"
+    ? refusalForReason("fallback", locale)
+    : ["stop", "length"].includes(completion.finishReason ?? "") ? parseRecipeRefusal(raw) : null;
   if (refusalText !== null) {
     await storeMessage(serviceKey, supabaseUrl, {
       user_id: userId, session_id: sessionId, role: "assistant",
@@ -1383,9 +1317,7 @@ async function handleRecipeMode(params: {
 
   // A provider may close the JSON while omitting fields at its output cap.
   // Preserve an explicit refusal above, but never deliver a truncated recipe.
-  const draft: RecipeDraft | null = completion.finishReason === "length"
-    ? null
-    : parseRecipeDraft(raw);
+  const draft: RecipeDraft | null = completion.finishReason === "stop" ? parseRecipeDraft(raw) : null;
   if (draft === null) {
     // Unreadable model output = provider infra error (analyze-meal's
     // provider_invalid_json): refund + 502. Log only length and allowlisted
@@ -1448,7 +1380,7 @@ async function handleRecipeMode(params: {
 
 // Training proposals are buffered like recipes. Cancelling the client does not
 // refund a paid generation; a completed proposal remains in the chat history.
-async function draftTrainingPlan(apiKey: string, wish: string, locale: CoachLocale, trainingContext?: TrainingContext): Promise<string> {
+async function draftTrainingPlan(apiKey: string, wish: string, locale: CoachLocale, trainingContext?: TrainingContext): Promise<{ content: string; finishReason: string | undefined }> {
   const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -1478,11 +1410,14 @@ async function draftTrainingPlan(apiKey: string, wish: string, locale: CoachLoca
   }
   // Bound the entire provider envelope before parsing; no response or error
   // body is ever copied into diagnostics.
-  const raw = await readBodyLimited(resp, 512 * 1024);
+  const raw = await readBodyLimited(resp, MAX_PROVIDER_RESPONSE_BYTES);
   if (raw === null) throw new Error("training plan provider response too large");
   const data = JSON.parse(raw);
   const content = data?.choices?.[0]?.message?.content;
-  return typeof content === "string" ? content.trim() : "";
+  return {
+    content: typeof content === "string" ? content.trim() : "",
+    finishReason: loggableFinishReason(data?.choices?.[0]?.finish_reason),
+  };
 }
 
 async function storeTrainingPlanMessage(
@@ -1531,9 +1466,9 @@ async function handlePlanMode(params: {
   void maybeAutoTitle(serviceKey, supabaseUrl, userId, sessionId, message)
     .catch(() => console.error("maybeAutoTitle unavailable"));
 
-  let raw: string;
+  let completion: Awaited<ReturnType<typeof draftTrainingPlan>>;
   try {
-    raw = await draftTrainingPlan(openRouterKey, message, locale, params.trainingContext);
+    completion = await draftTrainingPlan(openRouterKey, message, locale, params.trainingContext);
   } catch (e) {
     // JSON/transport errors can contain private prompt or provider response
     // text. Only the stable class/status crosses the diagnostic boundary.
@@ -1544,7 +1479,10 @@ async function handlePlanMode(params: {
     return json({ error: isProviderTimeout(e) ? "provider_timeout" : "provider_error", session_id: sessionId }, isProviderTimeout(e) ? 504 : 502);
   }
 
-  const refusalText = parseTrainingPlanRefusal(raw);
+  const raw = completion.content;
+  const refusalText = completion.finishReason === "content_filter"
+    ? refusalForReason("fallback", locale)
+    : ["stop", "length"].includes(completion.finishReason ?? "") ? parseTrainingPlanRefusal(raw) : null;
   const quotaFields = { ...(remaining === null ? {} : { remaining }), daily_limit: DAILY_LIMIT, session_id: sessionId };
   if (refusalText !== null) {
     await storeMessage(serviceKey, supabaseUrl, {
@@ -1554,7 +1492,7 @@ async function handlePlanMode(params: {
     await touchSession(serviceKey, supabaseUrl, sessionId);
     return json({ reply: refusalText, refusal: true, refusal_reason: "model_refusal", ...quotaFields });
   }
-  const draft = parseTrainingPlanDraft(raw);
+  const draft = completion.finishReason === "stop" ? parseTrainingPlanDraft(raw) : null;
   if (draft === null) {
     console.error(`training plan invalid (chars=${raw.length})`);
     await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
@@ -2259,6 +2197,17 @@ async function readBodyLimited(req: Request | Response, maxBytes: number): Promi
   return new TextDecoder().decode(buf);
 }
 
+/** Bounded provider envelopes; parser diagnostics never quote model text. */
+async function readProviderJson(resp: Response, maxBytes = MAX_PROVIDER_RESPONSE_BYTES): Promise<any> {
+  const raw = await readBodyLimited(resp, maxBytes);
+  if (raw === null) throw new ProviderError(502, "Provider response exceeds limit");
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new ProviderError(502, "Provider response invalid");
+  }
+}
+
 // ---------------------------------------------------------------------------
 // HTTP handler
 // ---------------------------------------------------------------------------
@@ -2559,8 +2508,9 @@ export async function handleRequest(req: Request): Promise<Response> {
       cls = await classify(openRouterKey, classificationInput);
       // A provider formatting failure says nothing about the user's topic.
       // Stop before answering/persisting and reuse the outage refund path.
-      // Image and structured proposal modes keep their dedicated fallback rules.
-      if (cls.parseFailed && !hasImage && !isRecipeMode && !isPlanMode && !trainingContext) {
+      // Image captions share this outage handling. Structured proposals use
+      // the safe refusal path below because they have no answer-stage fallback.
+      if (cls.parseFailed && !isRecipeMode && !isPlanMode && !trainingContext) {
         throw new ProviderError(502, "classifier output unusable");
       }
     } catch (e) {
@@ -2692,7 +2642,7 @@ export async function handleRequest(req: Request): Promise<Response> {
       `answer failed: ${e instanceof Error ? e.message : String(e)}`);
     // Only for an OUTAGE: a client-caused 4xx is paid work, and refunding it
     // would leave only the IP gate capping paid vision calls.
-    if (!isClientFaultFailure(e)) {
+    if (!req.signal.aborted && !isClientFaultFailure(e)) {
       await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
     }
     await touchSession(serviceKey, supabaseUrl, sessionId);
@@ -2722,6 +2672,7 @@ export async function handleRequest(req: Request): Promise<Response> {
         hasImage ? { base64: imageBase64, mimeType: imageMimeType } : undefined,
         userContext,
         trainingContext,
+        req.signal,
       );
     } catch (e) {
       // Nothing to release: openAnswerStream throws before it hands out a
@@ -2755,6 +2706,7 @@ export async function handleRequest(req: Request): Promise<Response> {
     }
     return sseAnswerResponse({
       state,
+      requestSignal: req.signal,
       locale,
       meta: { session_id: sessionId, ...quotaFields },
       doneBase,

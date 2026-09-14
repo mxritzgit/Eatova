@@ -118,7 +118,7 @@ function installFetch(options: StubOptions = {}) {
       }
       if (options.answerFails) return jsonRes({ error: "upstream" }, 500);
       return jsonRes({
-        choices: [{ message: { content: "Klar, machen wir." } }],
+        choices: [{ message: { content: "Klar, machen wir." }, finish_reason: "stop" }],
       });
     }
     if (url.includes("/rest/v1/chat_messages")) {

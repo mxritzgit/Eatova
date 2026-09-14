@@ -25,6 +25,7 @@ type Row = Record<string, unknown>;
 type Call = { url: string; method: string; body: Row; signal: AbortSignal | null | undefined };
 type Options = {
   draft?: string;
+  draftFinishReason?: string | null;
   draftStatus?: number;
   draftCancelFails?: boolean;
   draftError?: Error;
@@ -122,7 +123,7 @@ function stubNetwork(defaultDraft: string, options: Options = {}) {
           category: options.category ?? "fitness", confidence: "high",
         }) } }] }, options.classifierStatus));
       }
-      if (body.max_tokens === 3072) return Promise.resolve(response({ choices: [{ message: { content: "Normal chat reply." } }] }));
+      if (body.max_tokens === 3072) return Promise.resolve(response({ choices: [{ message: { content: "Normal chat reply." }, finish_reason: "stop" }] }));
       options.draftRequested?.();
       if (options.draftStalls) return stall(signal);
       if (options.draftError) return Promise.reject(options.draftError);
@@ -130,7 +131,7 @@ function stubNetwork(defaultDraft: string, options: Options = {}) {
         cancel() { throw new TypeError("PRIVATE_REQUEST_CONTENT"); },
       }) : "PRIVATE_REQUEST_CONTENT", { status: options.draftStatus }));
       if (options.draftBodyInvalid) return Promise.resolve(new Response("PRIVATE_REQUEST_CONTENT"));
-      return Promise.resolve(response({ choices: [{ message: { content: options.draft ?? defaultDraft } }] }));
+      return Promise.resolve(response({ choices: [{ message: { content: options.draft ?? defaultDraft }, finish_reason: options.draftFinishReason === undefined ? "stop" : options.draftFinishReason }] }));
     }
     if (url.includes("/rest/v1/chat_messages")) {
       if (method === "GET") return Promise.resolve(response([]));
@@ -528,4 +529,31 @@ Deno.test("brief handler: nested unsafe notes reach Layer 1, semantic risks reac
     equal(classified.draftCalls().length, 0, "no draft after refusal");
     equal(classified.ledger.get(CLAIM_DAY), 1, "existing paid-refusal quota rule");
   } finally { classified.restore(); }
+});
+
+Deno.test("Security S01: filtered training plan cannot become an adoptable proposal", async () => {
+  for (const draft of ["", PLAN_JSON]) {
+    const stub = stubNetwork(PLAN_JSON, { draftFinishReason: "content_filter", draft });
+    try {
+      const result = await handleRequest(request());
+      const body = await result.json();
+      equal(result.status, 200, "safe refusal");
+      equal(body.refusal, true, "filtered plan refused");
+      equal(body.training_plan, undefined, "no adoptable plan");
+      equal(stub.callsTo("chat_messages").filter(call => call.body.training_plan !== undefined).length, 0, "no plan history");
+      equal(stub.callsTo("refund_chat_quota").length, 0, "no refund of paid safety refusal");
+    } finally { stub.restore(); }
+  }
+});
+
+Deno.test("Security completion: plan requires valid terminal metadata", async () => {
+  for (const reason of [null, "unexpected", "tool_calls", "error", "length"]) {
+    const stub = stubNetwork(PLAN_JSON, { draftFinishReason: reason });
+    try {
+      const response = await handleRequest(request());
+      equal(response.status, 502, "no approved plan without complete terminal status");
+      equal(stub.callsTo("chat_messages").filter(call => call.body.training_plan !== undefined).length, 0, "no unapproved plan");
+      equal(stub.callsTo("refund_chat_quota").length, 1, "outage refund");
+    } finally { stub.restore(); }
+  }
 });
