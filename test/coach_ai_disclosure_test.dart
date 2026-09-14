@@ -88,7 +88,11 @@ List<String> _sheetTexte(WidgetTester tester) => tester
     .map((t) => t.data ?? '')
     .toList();
 
-Future<void> _pumpCoach(WidgetTester tester, {CoachChatService? service}) async {
+Future<void> _pumpCoach(
+  WidgetTester tester, {
+  CoachChatService? service,
+  Locale locale = const Locale('de'),
+}) async {
   tester.view.devicePixelRatio = 3.0;
   tester.view.physicalSize = _usableSize * 3.0;
   addTearDown(tester.view.resetPhysicalSize);
@@ -99,12 +103,63 @@ Future<void> _pumpCoach(WidgetTester tester, {CoachChatService? service}) async 
   await pumpLocalized(
     tester,
     CoachChatScreen(service: service, userName: 'Moritz'),
+    locale: locale,
     safeArea: false,
     settle: true,
   );
 }
 
 void main() {
+  // Independent approved copy: reading the expectation from l10n would let a
+  // stale provider name pass in both the implementation and the test.
+  const providerDisclosures = <String, String>{
+    'de':
+        'Der Coach nutzt OpenRouter zur Weiterleitung an Gemini-Modelle von '
+        'Google. Je nach Anfrage werden deine Frage, die oben genannten '
+        'Angaben, bis zu zehn vorherige Chatnachrichten, ein angehängtes Foto '
+        'oder ausgewählte Trainingsplaninformationen übermittelt. Dabei '
+        'können Daten auch außerhalb der EU, einschließlich der USA, '
+        'verarbeitet werden. Mehr zu Empfängern und Datenverwendung steht '
+        'in der Datenschutzerklärung.',
+    'en':
+        'The coach uses OpenRouter to route requests to Google Gemini models. '
+        'Depending on your request, this includes your question, the details '
+        'listed above, up to ten previous chat messages, an attached photo '
+        'or selected training plan information. Data may also be processed '
+        'outside the EU, including in the USA. The privacy policy explains '
+        'the recipients and how they use the data.',
+  };
+
+  for (final entry in providerDisclosures.entries) {
+    for (final knownQuota in <bool>[false, true]) {
+      testWidgets(
+        'S07: ${entry.key} nennt im Infosheet die aktuellen Empfaenger '
+        '(Kontingent bekannt: $knownQuota)',
+        (tester) async {
+          await _pumpCoach(
+            tester,
+            locale: Locale(entry.key),
+            service: knownQuota ? _QuotaCoach.create() : null,
+          );
+          await tester.tap(find.byKey(const ValueKey('coach-info')));
+          await tester.pumpAndSettle();
+
+          final provider = find.descendant(
+            of: find.byKey(const ValueKey('coach-info-sheet')),
+            matching: find.text(entry.value),
+          );
+          expect(provider, findsOneWidget);
+          await tester.ensureVisible(provider);
+          await tester.pumpAndSettle();
+          expect(provider.hitTestable(), findsOneWidget);
+          expect(_sheetTexte(tester).join(' '), isNot(contains('Grok')));
+          expect(_sheetTexte(tester).join(' '), isNot(contains('xAI')));
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+  }
+
   testWidgets('Leerzustand nennt die KI, bevor der Nutzer tippt',
       (tester) async {
     await _pumpCoach(tester);

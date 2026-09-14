@@ -603,7 +603,7 @@
   "coachInfoBulletWeight": "Dein Gewicht und dein Zielgewicht",
   "coachInfoBulletMacros": "Deine heutigen Kalorien und die offenen Makros",
   "coachInfoBulletMeals": "Die Namen der Mahlzeiten, die du heute geloggt hast",
-  "coachInfoProvider": "Das geht zusammen mit deiner Frage an unseren KI-Anbieter (OpenRouter, Modell Grok von xAI) auf Servern in den USA — nur, um die Antwort zu erzeugen. Mehr dazu steht in der Datenschutzerklärung.",
+  "coachInfoProvider": "Der Coach nutzt OpenRouter zur Weiterleitung an Gemini-Modelle von Google. Je nach Anfrage werden deine Frage, die oben genannten Angaben, bis zu zehn vorherige Chatnachrichten, ein angehängtes Foto oder ausgewählte Trainingsplaninformationen übermittelt. Dabei können Daten auch außerhalb der EU, einschließlich der USA, verarbeitet werden. Mehr zu Empfängern und Datenverwendung steht in der Datenschutzerklärung.",
   "coachInfoLimitLabel": "Coach-Limit",
   "coachInfoLimitBody": "{remaining} von {dailyLimit} Fragen heute frei. Reset um Mitternacht (UTC).",
   "@coachInfoLimitBody": {
