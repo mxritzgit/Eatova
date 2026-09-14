@@ -123,3 +123,17 @@ for (const [name, base64] of [['lossless', WEBP_LOSSLESS_BASE64], ['alpha', WEBP
     assertEquals(result.providerImages[0], `data:image/webp;base64,${base64}`);
   });
 }
+
+// Tiny header mutations only: no raster allocations or decompression bombs.
+for (const [name, input] of [
+  ['JPEG framing without pixels', btoa('\xff\xd8\xffnot a jpeg\xff\xd9')],
+  ['PNG over raster budget', changeByte(PNG_BASE64, 16, 1)],
+  ['WebP lossy over raster budget', changeByte(changeByte(changeByte(changeByte(WEBP_BASE64, 26, 0xff), 27, 0x3f), 28, 0xff), 29, 0x3f)],
+] as const) {
+  Deno.test(`raster boundary: ${name} stops before paid quotas`, async () => {
+    const result = await probe(input);
+    assertEquals(result.status, 400);
+    assertEquals(result.gates.join(','), ATTEMPT_GATES);
+    assertEquals(result.providerImages.length, 0);
+  });
+}

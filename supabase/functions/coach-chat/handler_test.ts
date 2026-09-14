@@ -11,6 +11,7 @@ import { userToken } from "../_shared/auth_test_fixtures.ts";
 // No external test dependencies, same style as prefilter_test.ts.
 
 import { handleRequest, PROVIDER_TIMEOUTS_MS } from "./handler.ts";
+import { JPEG_BASE64, PNG_BASE64, WEBP_BASE64 } from "../analyze-meal/image_fixtures.ts";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 const SESSION_ID = "22222222-2222-4222-8222-222222222222";
@@ -1942,18 +1943,17 @@ Deno.test("Fund 1: base64 ohne Bild-Header -> 400 VOR Quota-Claim und Provider-C
   }
 });
 
-Deno.test("Fund 1: echte JPEG/PNG/WebP-Header passieren den Guard", async () => {
+Deno.test("Fund 1: echte JPEG/PNG/WebP-Dateien passieren den Guard", async () => {
   // Counter-check: the header check must not reject a legitimate upload. The
   // three containers safeImageMimeType allows, header plus padding only.
-  const headers: { name: string; bytes: number[] }[] = [
-    { name: "JPEG", bytes: [0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01] },
-    { name: "PNG", bytes: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d] },
-    { name: "WebP", bytes: [0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50] },
+  const images = [
+    { name: "JPEG", base64: JPEG_BASE64 },
+    { name: "PNG", base64: PNG_BASE64 },
+    { name: "WebP", base64: WEBP_BASE64 },
   ];
-  for (const { name, bytes } of headers) {
+  for (const { name, base64 } of images) {
     const stub = installFetch({ classifierCategory: "fitness" });
     try {
-      const base64 = btoa(String.fromCharCode(...bytes, ...new Array<number>(60).fill(0)));
       const res = await handleRequest(makeRequest({
         message: "Was siehst du auf dem Bild?",
         image_base64: base64,
@@ -1972,32 +1972,15 @@ Deno.test("Fund 1: echte JPEG/PNG/WebP-Header passieren den Guard", async () => 
 // provider mislabelled. The measurement now wins; the claim is only the
 // fallback for bytes nothing can be measured from, and those get a 400.
 Deno.test("P5-07b: die data:-URL traegt den GEMESSENEN Typ, nicht die Behauptung des Clients", async () => {
-  const fuellung = new Array<number>(60).fill(0);
-  const faelle: { name: string; bytes: number[]; behauptet: string; erwartet: string }[] = [
-    {
-      name: "PNG-Bytes als image/jpeg deklariert",
-      bytes: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d],
-      behauptet: "image/jpeg",
-      erwartet: "image/png",
-    },
-    {
-      name: "JPEG-Bytes als image/webp deklariert",
-      bytes: [0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01],
-      behauptet: "image/webp",
-      erwartet: "image/jpeg",
-    },
-    {
-      name: "WebP-Bytes ganz ohne Angabe",
-      bytes: [0x52, 0x49, 0x46, 0x46, 0x24, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50],
-      behauptet: "",
-      erwartet: "image/webp",
-    },
+  const faelle = [
+    { name: "PNG-Bytes als image/jpeg", base64: PNG_BASE64, behauptet: "image/jpeg", erwartet: "image/png" },
+    { name: "JPEG-Bytes als image/webp", base64: JPEG_BASE64, behauptet: "image/webp", erwartet: "image/jpeg" },
+    { name: "WebP ohne Angabe", base64: WEBP_BASE64, behauptet: "", erwartet: "image/webp" },
   ];
 
-  for (const { name, bytes, behauptet, erwartet } of faelle) {
+  for (const { name, base64, behauptet, erwartet } of faelle) {
     const stub = installFetch({ classifierCategory: "fitness" });
     try {
-      const base64 = btoa(String.fromCharCode(...bytes, ...fuellung));
       const res = await handleRequest(makeRequest({
         message: "Was siehst du auf dem Bild?",
         image_base64: base64,
@@ -2804,4 +2787,16 @@ Deno.test("Provider body: oversized paid rejection is bounded without refund", a
     assert(pulled <= 10 && cancelled, "oversized error response must stop before unlimited buffering");
     assertEquals(stub.callsTo("refund_chat_quota").length, 0, "known paid 4xx stays non-refundable");
   } finally { globalThis.fetch = baseFetch; stub.restore(); }
+});
+Deno.test('raster boundary: invalid photo does not create a session or spend quota', async () => {
+  for (const image of [btoa('\xff\xd8\xffnot a jpeg\xff\xd9'), 'not_base64!', 'AAAA']) {
+    const stub = installFetch();
+    try {
+      const response = await handleRequest(makeRequest({ message: 'What is in this meal?', image_base64: image }));
+      assertEquals(response.status, 400, 'invalid photo');
+      assertEquals(stub.callsTo('ensure_default_chat_session').length, 0, 'no session side effect');
+      assertEquals(stub.callsTo('claim_chat_quota').length, 0, 'no paid quota');
+      assertEquals(stub.openRouterBodies.length, 0, 'no provider');
+    } finally { stub.restore(); }
+  }
 });

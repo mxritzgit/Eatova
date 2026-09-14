@@ -26,6 +26,7 @@ import {
   sanitizeUserContext,
   shouldRunClassifier,
 } from "./guardrails.ts";
+import { imageContainerFromBase64 } from "../_shared/image_validation.ts";
 import { authFailGate } from "../_shared/auth_fail_gate.ts";
 import { hasExpectedUserTokenContext } from "../_shared/user_token_context.ts";
 import { clientIpSubject } from "../_shared/client_ip.ts";
@@ -440,53 +441,9 @@ function makeImageDataUrl(imageBase64: string, imageMimeType: string): string {
   return `data:${safeImageMimeType(imageMimeType)};base64,${clean}`;
 }
 
-/// Decodes ONLY the head of a base64 string — seeing 12 bytes must not cost
-/// the work this guard is meant to save on a 6 MB input.
-function decodeBase64Head(base64: string, bytes: number): Uint8Array | null {
-  // The charset guard allows \r\n (MIME line breaks), but atob does not.
-  const clean = base64.replace(/[\r\n]/g, "");
-  const chunk = clean.slice(0, Math.ceil(bytes / 3) * 4);
-  // atob needs whole 4-char blocks; a partial one is dropped.
-  const usable = chunk.slice(0, chunk.length - (chunk.length % 4));
-  if (usable.length === 0) return null;
-  try {
-    const binary = atob(usable);
-    const out = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
-    return out;
-  } catch {
-    return null;
-  }
-}
-
-/// Container magic of the three formats safeImageMimeType allows; null = none
-/// of them. The MEASURED type, as opposed to a mime string somebody claims.
-///
-/// Used in two directions:
-///   * incoming user photos — the charset guard only says "looks like
-///     base64", so a 6 MB "AAAA…" used to reach the quota claim and pay for
-///     two calls before the provider's 4xx;
-///   * generated recipe images — the reported image_mime_type comes from
-///     here, never from the provider's media_type field (P5-07).
-///
-/// Not full validation — a truncated JPEG still fails at the provider, which
-/// is what isClientFaultFailure is for.
+// Both incoming and generated images use measured structure and raster limits.
 function imageMimeFromMagic(base64: string): string | null {
-  const head = decodeBase64Head(base64, 12);
-  if (head === null || head.length < 12) return null;
-  // JPEG: FF D8 FF
-  if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return "image/jpeg";
-  // PNG: 89 "PNG" CR LF SUB LF
-  if (
-    head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47 &&
-    head[4] === 0x0d && head[5] === 0x0a && head[6] === 0x1a && head[7] === 0x0a
-  ) return "image/png";
-  // WebP: "RIFF" + 4-byte length + "WEBP"
-  if (
-    head[0] === 0x52 && head[1] === 0x49 && head[2] === 0x46 && head[3] === 0x46 &&
-    head[8] === 0x57 && head[9] === 0x45 && head[10] === 0x42 && head[11] === 0x50
-  ) return "image/webp";
-  return null;
+  return imageContainerFromBase64(base64.replace(/[\r\n]/g, ""))?.mime ?? null;
 }
 
 /// The literal a Layer-3 refusal starts with (see ANSWER_SYSTEM_PROMPT). Its
@@ -2393,10 +2350,7 @@ async function handleCoachRequest(req: Request): Promise<Response> {
   const imageBase64Raw = typeof body?.image_base64 === "string" ? body.image_base64.trim() : "";
   const imageBase64 = imageBase64Raw.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "");
   const hasImage = imageBase64.length > 0;
-  // Only the CLAIM so far. It is overwritten by the measured container at the
-  // magic-byte guard below (P5-07b) — measuring here would run ahead of the
-  // size cap, and decodeBase64Head scans the whole string for MIME line breaks
-  // before it looks at the head.
+  // The claim is replaced by measured structure after the encoded-size cap.
   let imageMimeType = typeof body?.image_mime_type === "string"
     ? safeImageMimeType(body.image_mime_type)
     : "image/jpeg";
@@ -2450,10 +2404,6 @@ async function handleCoachRequest(req: Request): Promise<Response> {
     }, 413);
   }
 
-  // Before the prefilter, so refusals land in the right conversation.
-  const sessionId = await ensureSession(serviceKey, supabaseUrl, userId, requestedSessionId);
-  if (!sessionId) return json({ error: "session_unavailable" }, 500);
-
   if (hasImage && imageBase64.length > MAX_IMAGE_BASE64_CHARS) {
     return json({
       error: "image_too_large",
@@ -2467,9 +2417,8 @@ async function handleCoachRequest(req: Request): Promise<Response> {
     return json({ error: "Invalid image_base64" }, 400);
   }
 
-  // Container magic BEFORE claiming a slot and paying for the first call: the
-  // charset guard above only says "looks like base64". Same answer as a
-  // charset violation — that client has a protocol problem.
+  // Reject invalid structure, padding and raster sizes before session writes
+  // or paid quota. Compressed pixels are still decoded by the provider.
   if (hasImage) {
     const measured = imageMimeFromMagic(imageBase64);
     if (measured === null) {
@@ -2482,6 +2431,10 @@ async function handleCoachRequest(req: Request): Promise<Response> {
     // imageMimeType before this point.
     imageMimeType = measured;
   }
+
+  // Before the prefilter, so refusals land in the right conversation.
+  const sessionId = await ensureSession(serviceKey, supabaseUrl, userId, requestedSessionId);
+  if (!sessionId) return json({ error: "session_unavailable" }, 500);
 
   // ---------------------------------------------------------------- LAYER 1
   // Prefilter -> no quota spend, no LLM call. The attempt is logged in
