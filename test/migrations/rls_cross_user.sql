@@ -74,7 +74,7 @@ grant execute on function
   rlstest.erwarte_zeilen(text, integer, text),
   rlstest.erwarte_ablehnung(text, text),
   rlstest.erwarte_sqlstate(text, text, text)
-  to anon, authenticated;
+  to anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
 -- Seed. As service_role (bypassrls), i.e. the way the Edge Functions write.
@@ -870,5 +870,6 @@ rollback;
 \ir recipe_ingredients_rls.sql
 \ir training_history_rls.sql
 \ir meal_plans_rls.sql
+\ir database_privilege_boundaries.sql
 
 select 'RLS-Kreuzzugriffe: alle Erwartungen erfuellt' as ergebnis;
