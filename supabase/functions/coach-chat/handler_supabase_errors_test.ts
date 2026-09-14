@@ -1,3 +1,4 @@
+import { userToken } from "../_shared/auth_test_fixtures.ts";
 // Real handler, stubbed transport: failures before and after response headers.
 import { handleRequest, SUPABASE_TIMEOUTS_MS } from "./handler.ts";
 
@@ -123,7 +124,7 @@ async function withStub(
   try {
     const response = await handleRequest(new Request("https://edge.test.invalid/coach-chat", {
       method: "POST",
-      headers: { authorization: "Bearer test-user", "cf-connecting-ip": "203.0.113.7" },
+      headers: { authorization: `Bearer ${userToken(USER_ID)}`, "cf-connecting-ip": "203.0.113.7" },
       body: JSON.stringify({
         message: "Wie viele Kalorien hat eine Banane?",
         ...(options.recipe ? { mode: "recipe" } : {}),

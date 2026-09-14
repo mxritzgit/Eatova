@@ -1,3 +1,4 @@
+import { userToken } from "../_shared/auth_test_fixtures.ts";
 import { handleRequest } from './handler.ts';
 import { JPEG_BASE64, PNG_BASE64, WEBP_ALPHA_BASE64, WEBP_BASE64, WEBP_LOSSLESS_BASE64 } from './image_fixtures.ts';
 
@@ -55,7 +56,7 @@ async function probe(imageBase64: string) {
     const response = await handleRequest(new Request('https://function.test.invalid/analyze-meal', {
       method: 'POST',
       headers: {
-        authorization: 'Bearer test-user-token', 'content-type': 'application/json',
+        authorization: `Bearer ${userToken("11111111-1111-4111-8111-111111111111")}`, 'content-type': 'application/json',
         'cf-connecting-ip': '203.0.113.7',
       },
       body: JSON.stringify({ imageBase64 }),

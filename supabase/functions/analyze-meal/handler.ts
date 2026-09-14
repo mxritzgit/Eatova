@@ -11,6 +11,7 @@
 import { readProviderBody } from '../_shared/provider_body.ts';
 import { providerCallBudget, ProviderBudgetError } from '../_shared/provider_budget.ts';
 import { authFailGate } from '../_shared/auth_fail_gate.ts';
+import { hasExpectedUserTokenContext } from '../_shared/user_token_context.ts';
 import { clientIpSubject } from '../_shared/client_ip.ts';
 import { EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS, positiveIntFromEnv } from '../_shared/env.ts';
 import { loggableFinishReason } from '../_shared/provider_log.ts';
@@ -721,7 +722,7 @@ async function authenticateUser(request: Request, secrets: Secrets, deadline: De
     }
     throw error;
   }
-  if (typeof user.id !== 'string' || user.id.length < 10) {
+  if (typeof user.id !== 'string' || !hasExpectedUserTokenContext(token, user.id)) {
     throw new HttpError(401, 'invalid_user_token', 'Bitte erneut anmelden.');
   }
   return { user: { id: user.id, email: typeof user.email === 'string' ? user.email : undefined } };
@@ -848,6 +849,8 @@ async function consumeRateLimits(
   return { allowed: results };
 }
 
+const REQUEST_FIELDS = new Set(['imageBase64', 'portionHint', 'freeTextHint', 'language']);
+
 async function parseBody(request: Request, deadline: Deadline, requestId: string): Promise<ParsedBody> {
   const contentType = request.headers.get('content-type') ?? '';
   if (!contentType.toLowerCase().includes('application/json')) {
@@ -868,7 +871,7 @@ async function parseBody(request: Request, deadline: Deadline, requestId: string
     throw new HttpError(400, 'invalid_json', 'Ungültige Anfrage.');
   }
 
-  if (!isRecord(body)) {
+  if (!isRecord(body) || Object.keys(body).some((field) => !REQUEST_FIELDS.has(field))) {
     throw new HttpError(400, 'invalid_body', 'Ungültige Anfrage.');
   }
 

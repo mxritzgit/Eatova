@@ -27,6 +27,7 @@ import {
   shouldRunClassifier,
 } from "./guardrails.ts";
 import { authFailGate } from "../_shared/auth_fail_gate.ts";
+import { hasExpectedUserTokenContext } from "../_shared/user_token_context.ts";
 import { clientIpSubject } from "../_shared/client_ip.ts";
 import { positiveIntFromEnv } from "../_shared/env.ts";
 import { loggableFinishReason } from "../_shared/provider_log.ts";
@@ -2170,7 +2171,7 @@ async function userIdFromJwt(
   if (!resp.ok) return { ok: false, reason: "lookup_failed" };
   const data = await readSupabaseBody(() => resp.json(), "auth lookup");
   if (data === undefined) return { ok: false, reason: "auth_unavailable" };
-  if (typeof data?.id !== "string" || data.id.length === 0) {
+  if (typeof data?.id !== "string" || !hasExpectedUserTokenContext(token, data.id)) {
     return { ok: false, reason: "invalid_user" };
   }
   return { ok: true, userId: data.id };
@@ -2236,6 +2237,11 @@ function json(body: unknown, status = 200, extraHeaders: Record<string, string> 
   for (const [key, value] of Object.entries(extraHeaders)) headers.set(key, value);
   return new Response(JSON.stringify(body), { status, headers });
 }
+
+const REQUEST_FIELDS = new Set([
+  "message", "session_id", "locale", "image_base64", "image_mime_type",
+  "user_context", "mode", "training_context",
+]);
 
 export async function handleRequest(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: responseHeaders(req) });
@@ -2358,6 +2364,10 @@ export async function handleRequest(req: Request): Promise<Response> {
   if (rawBody === null) return json({ error: "payload_too_large" }, 413);
   let body: any;
   try { body = JSON.parse(rawBody); } catch { return json({ error: "Invalid JSON" }, 400); }
+  if (!body || typeof body !== "object" || Array.isArray(body) ||
+      Object.keys(body).some((field) => !REQUEST_FIELDS.has(field))) {
+    return json({ error: "invalid_body" }, 400);
+  }
   const rawMessage = typeof body?.message === "string" ? body.message.trim() : "";
   const imageBase64Raw = typeof body?.image_base64 === "string" ? body.image_base64.trim() : "";
   const imageBase64 = imageBase64Raw.replace(/^data:image\/[a-zA-Z0-9.+-]+;base64,/, "");

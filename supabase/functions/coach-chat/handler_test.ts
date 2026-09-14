@@ -1,3 +1,4 @@
+import { userToken } from "../_shared/auth_test_fixtures.ts";
 // End-to-end tests for handleRequest (handler.ts) with a stubbed fetch.
 //
 // The regression test for the layer-2 bypass: the classifier block used to be
@@ -378,7 +379,7 @@ function makeRequest(payload: JsonRecord): Request {
   return new Request("https://edge.test.invalid/coach-chat", {
     method: "POST",
     headers: {
-      "authorization": "Bearer test-user-jwt",
+      "authorization": `Bearer ${userToken(USER_ID)}`,
       "content-type": "application/json",
     },
     body: JSON.stringify(payload),
@@ -885,7 +886,7 @@ Deno.test("IP-Gate nutzt das normalisierte Subject aus _shared/client_ip.ts", as
     const req = new Request("https://edge.test.invalid/coach-chat", {
       method: "POST",
       headers: {
-        "authorization": "Bearer test-user-jwt",
+        "authorization": `Bearer ${userToken(USER_ID)}`,
         "content-type": "application/json",
         // Left the client-set value, right the one Cloudflare appended. Only
         // the right one may end up in the subject.
@@ -2542,7 +2543,7 @@ Deno.test("P5-08: unglaubwuerdige Content-Length -> 413 payload_too_large vor de
         new Request("https://edge.test.invalid/coach-chat", {
           method: "POST",
           headers: {
-            "authorization": "Bearer test-user-jwt",
+            "authorization": `Bearer ${userToken(USER_ID)}`,
             "content-type": "application/json",
             "content-length": contentLength,
           },
@@ -2580,7 +2581,7 @@ Deno.test("P5-08: uebergrosser Body OHNE Content-Length -> 413 aus readBodyLimit
     const req = new Request("https://edge.test.invalid/coach-chat", {
       method: "POST",
       headers: {
-        "authorization": "Bearer test-user-jwt",
+        "authorization": `Bearer ${userToken(USER_ID)}`,
         "content-type": "application/json",
       },
       body,
@@ -2606,7 +2607,7 @@ Deno.test("P5-08: kaputtes JSON -> 400 Invalid JSON, kein Quota-Claim", async ()
         new Request("https://edge.test.invalid/coach-chat", {
           method: "POST",
           headers: {
-            "authorization": "Bearer test-user-jwt",
+            "authorization": `Bearer ${userToken(USER_ID)}`,
             "content-type": "application/json",
           },
           body: raw,

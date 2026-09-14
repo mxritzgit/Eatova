@@ -1,3 +1,4 @@
+import { userToken } from "../_shared/auth_test_fixtures.ts";
 // Wire test for the `search-key` response envelope.
 //
 // `index.ts` returns `{ mirrorBaseUrl, searchKey, ttlSeconds }`. Renaming a
@@ -44,7 +45,7 @@
 
 const BASE_URL = "https://supabase.test.invalid";
 const USER_ID = "11111111-1111-4111-8111-111111111111";
-const USER_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test.token";
+const USER_TOKEN = userToken(USER_ID);
 const MIRROR_URL = "https://eatova.test.invalid/meili";
 const MIRROR_KEY = "test-search-only-key-0123456789";
 const TTL = "43200";

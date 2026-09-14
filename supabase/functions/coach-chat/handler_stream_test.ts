@@ -1,3 +1,4 @@
+import { userToken } from "../_shared/auth_test_fixtures.ts";
 // A3 (Perf-Fixlauf 2026-09-01): die Coach-Antwort wird gestreamt, statt bis zu
 // ANSWER_MAX_TOKENS Token lang zu puffern und den Nutzer 5-15 s auf eine leere
 // Blase schauen zu lassen.
@@ -401,7 +402,7 @@ function makeRequest(payload: JsonRecord, stream = false, signal?: AbortSignal):
     method: "POST",
     signal,
     headers: {
-      "authorization": "Bearer test-user-jwt",
+      "authorization": `Bearer ${userToken(USER_ID)}`,
       "content-type": "application/json",
       ...(stream ? { "accept": "text/event-stream" } : {}),
     },

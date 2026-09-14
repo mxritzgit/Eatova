@@ -1,3 +1,4 @@
+import { userToken } from "../_shared/auth_test_fixtures.ts";
 // End-to-end tests for handleRequest's recipe mode, fetch stubbed, same style
 // as handler_test.ts (no external test dependencies). Covers the spec:
 //   * 1 quota slot per recipe, refund ONLY on infra errors
@@ -314,7 +315,7 @@ function makeRecipeRequest(payload: JsonRecord = {}): Request {
   return new Request("https://edge.test.invalid/coach-chat", {
     method: "POST",
     headers: {
-      "authorization": "Bearer test-user-jwt",
+      "authorization": `Bearer ${userToken(USER_ID)}`,
       "content-type": "application/json",
     },
     body: JSON.stringify({
@@ -330,7 +331,7 @@ function makeChatRequest(payload: JsonRecord = {}): Request {
   return new Request("https://edge.test.invalid/coach-chat", {
     method: "POST",
     headers: {
-      "authorization": "Bearer test-user-jwt",
+      "authorization": `Bearer ${userToken(USER_ID)}`,
       "content-type": "application/json",
     },
     body: JSON.stringify({

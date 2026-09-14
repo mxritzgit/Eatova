@@ -1,3 +1,4 @@
+import { userToken } from "../_shared/auth_test_fixtures.ts";
 // Sentinel tests for handleRequest: places where the handler turned "unknown"
 // (missing row, failed fetch, provider error) into a concrete value the client
 // cannot tell from real knowledge.
@@ -174,7 +175,7 @@ function makeRequest(payload: JsonRecord): Request {
   return new Request("https://edge.test.invalid/coach-chat", {
     method: "POST",
     headers: {
-      "authorization": "Bearer test-user-jwt",
+      "authorization": `Bearer ${userToken(USER_ID)}`,
       "content-type": "application/json",
     },
     body: JSON.stringify(payload),

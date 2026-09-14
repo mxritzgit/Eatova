@@ -1,3 +1,4 @@
+import { userToken } from "../_shared/auth_test_fixtures.ts";
 // P6-02 (perf audit 2026-09-01): the two application gates of `search-key`
 // travel in ONE consume_edge_rate_limits roundtrip instead of two sequential
 // consume_edge_rate_limit calls.
@@ -164,7 +165,7 @@ async function loadHandler(): Promise<Handler> {
 function request(): Request {
   return new Request(`${BASE_URL}/functions/v1/search-key`, {
     method: "GET",
-    headers: { authorization: "Bearer eyJhbGciOiJIUzI1NiJ9.test.token", "cf-connecting-ip": CLIENT_IP },
+    headers: { authorization: `Bearer ${userToken(USER_ID)}`, "cf-connecting-ip": CLIENT_IP },
   });
 }
 

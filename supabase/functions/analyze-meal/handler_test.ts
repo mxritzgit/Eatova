@@ -1,3 +1,4 @@
+import { userToken } from "../_shared/auth_test_fixtures.ts";
 // End-to-end tests for handleRequest (handler.ts) with a stubbed fetch,
 // covering the expensive paths: auth (401), both rate-limit gates (429 / 500
 // on limiter failure) and the image size/type checks (413 / 415).
@@ -14,7 +15,7 @@ import { PNG_BASE64 } from './image_fixtures.ts';
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const BASE_URL = 'https://supabase.test.invalid';
 const ANON_KEY = 'test-anon-key';
-const USER_JWT = 'test-user-jwt';
+const USER_JWT = userToken(USER_ID);
 
 // Real synthetic PNG above MIN_IMAGE_BYTES; provider requests remain stubbed.
 const IMAGE_BASE64 = PNG_BASE64;
