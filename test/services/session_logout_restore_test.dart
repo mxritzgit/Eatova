@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 const _key = 'audit-session';
@@ -91,9 +92,95 @@ class _JournalStore extends InMemoryKeyValueStore {
   }
 }
 
+class _FailingPkceStore extends GotrueAsyncStorage {
+  Completer<void>? started;
+  Completer<void>? release;
+
+  @override
+  Future<String?> getItem({required String key}) async => null;
+
+  @override
+  Future<void> setItem({required String key, required String value}) async {}
+
+  @override
+  Future<void> removeItem({required String key}) async {
+    started?.complete();
+    final gate = release;
+    if (gate != null) await gate.future;
+    throw StateError('synthetic PKCE-delete failure');
+  }
+}
+
+class _FailLegacyRemove extends InMemorySharedPreferencesStore {
+  _FailLegacyRemove(super.data, {required this.throwOnFailure})
+    : super.withData();
+  final bool throwOnFailure;
+  bool failRemove = true;
+
+  @override
+  Future<bool> remove(String key) async {
+    if (key == 'flutter.$_key' && failRemove) {
+      if (throwOnFailure) throw StateError('synthetic legacy-delete failure');
+      return false;
+    }
+    return super.remove(key);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  for (final throwsOnFailure in [false, true]) {
+    for (final logInB in [false, true]) {
+      test(
+        'native legacy-delete failure retains A despite empty preference cache '
+        '(throws=$throwsOnFailure, subsequent B=$logInB)',
+        () async {
+          final a = _session('a', 'session-a');
+          final originalPlatform = SharedPreferencesStorePlatform.instance;
+          final disk = _FailLegacyRemove({
+            'flutter.$_key': a,
+          }, throwOnFailure: throwsOnFailure);
+          SharedPreferences.resetStatic();
+          SharedPreferencesStorePlatform.instance = disk;
+          addTearDown(() {
+            SharedPreferences.resetStatic();
+            SharedPreferencesStorePlatform.instance = originalPlatform;
+          });
+          final prefs = await SharedPreferences.getInstance();
+          final raw = SharedPreferencesStore(prefs);
+          final secure = _SecureStore()..data[_key] = a;
+          SecureSessionLocalStorage fresh() => SecureSessionLocalStorage(
+            persistSessionKey: _key,
+            secureStore: secure,
+            legacyStore: raw,
+          );
+          await fresh().removePersistedSession();
+          expect((await disk.getAll())['flutter.$_key'] == a, isTrue);
+          expect(
+            prefs.getString(_key),
+            isNull,
+            reason: 'SharedPreferences clears its cache before native IO.',
+          );
+          if (logInB) {
+            // A fresh adapter sharing the optimistic cache must not mistake
+            // cached absence for acknowledged erasure during a later write.
+            final bStorage = fresh();
+            await bStorage.persistSession(_session('b', 'session-b'));
+            await bStorage.removePersistedSession();
+          }
+          // Model a process restart using the actual platform values.
+          await prefs.reload();
+          expect(
+            await fresh().accessToken() == null,
+            isTrue,
+            reason: 'Failed native deletion must never remigrate A.',
+          );
+        },
+      );
+    }
+  }
 
   test(
     'failed secure delete cannot restore A in a new SDK/storage instance',
@@ -325,7 +412,14 @@ void main() {
           client,
           sessionStorage: storage,
         );
-        await expectLater(repository.signOut(), throwsStateError);
+        var cleanups = 0;
+        await expectLater(
+          repository.signOutWithCleanup(() async {
+            cleanups++;
+          }),
+          throwsStateError,
+        );
+        expect(cleanups, 0);
         expect(
           client.auth.currentUser?.id,
           'a',
@@ -365,7 +459,10 @@ void main() {
         client,
         sessionStorage: storage,
       );
-      final logout = repository.signOut();
+      var cleanups = 0;
+      final logout = repository.signOutWithCleanup(() async {
+        cleanups++;
+      });
       final rejected = expectLater(logout, throwsA(isA<AuthException>()));
       await prefs.writeStarted!.future;
       await client.auth.setInitialSession(_session('b', 'session-b'));
@@ -373,6 +470,7 @@ void main() {
       await rejected;
       expect(client.auth.currentUser?.id, 'b');
       expect(logoutCalls, 0);
+      expect(cleanups, 0);
     },
   );
 
@@ -477,6 +575,244 @@ void main() {
       await storage.persistSession(b);
       await storage.persistSession(old);
       expect(await storage.accessToken(), b);
+    },
+  );
+
+  test(
+    'coordinated logout commits intent before cleanup and then calls SDK',
+    () async {
+      final order = <String>[];
+      final client = SupabaseClient(
+        'https://ci.invalid',
+        'ci-dummy-key',
+        authOptions: const AuthClientOptions(autoRefreshToken: false),
+        httpClient: MockClient((request) async {
+          order.add('server-logout');
+          return http.Response('{}', 200);
+        }),
+      );
+      addTearDown(client.dispose);
+      final a = _session('a', 'session-a');
+      await client.auth.setInitialSession(a);
+      final prefs = _JournalStore();
+      final storage = SecureSessionLocalStorage(
+        persistSessionKey: _key,
+        secureStore: _SecureStore(),
+        legacyStore: prefs,
+      );
+      await storage.persistSession(a);
+      final CoordinatedSignOut repository = SupabaseAuthRepository(
+        client,
+        sessionStorage: storage,
+      );
+      await repository.signOutWithCleanup(() async {
+        expect(
+          await storage.accessToken(),
+          isNull,
+          reason:
+              'The logout journal must already deny A before cleanup starts.',
+        );
+        expect(client.auth.currentUser?.id, 'a');
+        order.add('cleanup');
+      });
+      expect(order, ['cleanup', 'server-logout']);
+      expect(client.auth.currentUser, isNull);
+    },
+  );
+
+  test('a B login during coordinated cleanup is not signed out', () async {
+    var logoutCalls = 0;
+    final client = SupabaseClient(
+      'https://ci.invalid',
+      'ci-dummy-key',
+      authOptions: const AuthClientOptions(autoRefreshToken: false),
+      httpClient: MockClient((request) async {
+        logoutCalls++;
+        return http.Response('{}', 200);
+      }),
+    );
+    addTearDown(client.dispose);
+    final a = _session('a', 'session-a');
+    await client.auth.setInitialSession(a);
+    final prefs = _JournalStore();
+    final storage = SecureSessionLocalStorage(
+      persistSessionKey: _key,
+      secureStore: _SecureStore(),
+      legacyStore: prefs,
+    );
+    await storage.persistSession(a);
+    var cleanups = 0;
+    final repository = SupabaseAuthRepository(client, sessionStorage: storage);
+    await expectLater(
+      repository.signOutWithCleanup(() async {
+        cleanups++;
+        await client.auth.setInitialSession(_session('b', 'session-b'));
+      }),
+      throwsA(isA<AuthException>()),
+    );
+    expect(cleanups, 1);
+    expect(logoutCalls, 0);
+    expect(client.auth.currentUser?.id, 'b');
+  });
+
+  test(
+    'PKCE delete failure still publishes local signout and revokes A remotely',
+    () async {
+      var remoteLogouts = 0;
+      final client = SupabaseClient(
+        'https://ci.invalid',
+        'ci-dummy-key',
+        authOptions: AuthClientOptions(
+          autoRefreshToken: false,
+          pkceAsyncStorage: _FailingPkceStore(),
+        ),
+        httpClient: MockClient((request) async {
+          remoteLogouts++;
+          return http.Response('{}', 200);
+        }),
+      );
+      addTearDown(client.dispose);
+      await client.auth.setInitialSession(_session('a', 'session-a'));
+      final events = <AuthState>[];
+      final sub = client.auth.onAuthStateChange.listen(events.add);
+      addTearDown(sub.cancel);
+      final repository = SupabaseAuthRepository(client);
+      await expectLater(
+        repository.signOutWithCleanup(() async {}),
+        throwsStateError,
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(client.auth.currentUser, isNull);
+      expect(
+        events
+            .where((event) => event.event == AuthChangeEvent.signedOut)
+            .length,
+        1,
+      );
+      expect(remoteLogouts, 1);
+    },
+  );
+
+  test(
+    'PKCE failure cannot notify or remotely revoke a newer B login',
+    () async {
+      final pkce = _FailingPkceStore()
+        ..started = Completer<void>()
+        ..release = Completer<void>();
+      final refreshedA = _session('a', 'session-a', version: 2);
+      final refreshedToken = jsonDecode(refreshedA)['access_token'] as String;
+      var remoteLogouts = 0;
+      final client = SupabaseClient(
+        'https://ci.invalid',
+        'ci-dummy-key',
+        authOptions: AuthClientOptions(
+          autoRefreshToken: false,
+          pkceAsyncStorage: pkce,
+        ),
+        httpClient: MockClient((request) async {
+          remoteLogouts++;
+          expect(request.url.path, '/auth/v1/logout');
+          expect(request.url.queryParameters['scope'], 'local');
+          expect(
+            request.headers['authorization'] == 'Bearer $refreshedToken',
+            isTrue,
+            reason:
+                'Revoke only the latest A token captured before SDK logout.',
+          );
+          return http.Response('{}', 200);
+        }),
+      );
+      addTearDown(client.dispose);
+      await client.auth.setInitialSession(_session('a', 'session-a'));
+      final events = <AuthState>[];
+      final sub = client.auth.onAuthStateChange.listen(events.add);
+      addTearDown(sub.cancel);
+      final repository = SupabaseAuthRepository(client);
+      final failure = expectLater(
+        repository.signOutWithCleanup(() async {
+          await client.auth.setInitialSession(refreshedA);
+        }),
+        throwsStateError,
+      );
+      await pkce.started!.future;
+      expect(client.auth.currentUser, isNull);
+      await client.auth.setInitialSession(_session('b', 'session-b'));
+      pkce.release!.complete();
+      await failure;
+      await Future<void>.delayed(Duration.zero);
+      expect(client.auth.currentUser?.id, 'b');
+      expect(
+        events.where((event) => event.event == AuthChangeEvent.signedOut),
+        isEmpty,
+      );
+      expect(remoteLogouts, 1);
+    },
+  );
+
+  test(
+    'remote failure after SDK signout does not duplicate events or requests',
+    () async {
+      var remoteLogouts = 0;
+      final client = SupabaseClient(
+        'https://ci.invalid',
+        'ci-dummy-key',
+        authOptions: const AuthClientOptions(autoRefreshToken: false),
+        httpClient: MockClient((request) async {
+          remoteLogouts++;
+          return http.Response('{"message":"synthetic rejection"}', 400);
+        }),
+      );
+      addTearDown(client.dispose);
+      await client.auth.setInitialSession(_session('a', 'session-a'));
+      final events = <AuthState>[];
+      final sub = client.auth.onAuthStateChange.listen(events.add);
+      addTearDown(sub.cancel);
+      await expectLater(
+        SupabaseAuthRepository(client).signOut(),
+        throwsA(isA<AuthException>()),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(client.auth.currentUser, isNull);
+      expect(
+        events.where((event) => event.event == AuthChangeEvent.signedOut),
+        hasLength(1),
+      );
+      expect(remoteLogouts, 1);
+    },
+  );
+
+  test(
+    'failed fallback revocation preserves original PKCE error and local event',
+    () async {
+      var remoteLogouts = 0;
+      final client = SupabaseClient(
+        'https://ci.invalid',
+        'ci-dummy-key',
+        authOptions: AuthClientOptions(
+          autoRefreshToken: false,
+          pkceAsyncStorage: _FailingPkceStore(),
+        ),
+        httpClient: MockClient((request) async {
+          remoteLogouts++;
+          return http.Response('{"message":"synthetic rejection"}', 400);
+        }),
+      );
+      addTearDown(client.dispose);
+      await client.auth.setInitialSession(_session('a', 'session-a'));
+      final events = <AuthState>[];
+      final sub = client.auth.onAuthStateChange.listen(events.add);
+      addTearDown(sub.cancel);
+      await expectLater(
+        SupabaseAuthRepository(client).signOut(),
+        throwsStateError,
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(client.auth.currentUser, isNull);
+      expect(
+        events.where((event) => event.event == AuthChangeEvent.signedOut),
+        hasLength(1),
+      );
+      expect(remoteLogouts, 1);
     },
   );
 }

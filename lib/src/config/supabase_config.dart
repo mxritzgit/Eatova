@@ -292,11 +292,19 @@ class SecureSessionLocalStorage extends LocalStorage {
   Future<void> _retireAbsentRevocations() async {
     try {
       final secure = await _secure.read(persistSessionKey);
-      final legacy = await (await _legacyStore()).getString(persistSessionKey);
+      // SharedPreferences 2.5.5 clears its cache before native remove returns.
+      // Cached absence therefore proves nothing after an IO failure. Require
+      // acknowledged erasure of the obsolete legacy slot on EVERY retirement,
+      // including subsequent writes and fresh adapters sharing that cache.
+      try {
+        await (await _legacyStore()).remove(persistSessionKey);
+      } catch (error, stack) {
+        _meldeEinmal('session_legacy_purge', error, stack);
+        return;
+      }
       await _revocations.retireAbsent(
         [
           if (secure != null && secure.isNotEmpty) secure,
-          if (legacy != null && legacy.isNotEmpty) legacy,
         ],
         currentSessionGuarded: _currentAccessToken != null,
       );

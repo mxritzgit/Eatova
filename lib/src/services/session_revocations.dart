@@ -61,8 +61,8 @@ class SessionRevocations {
     await _write(entries);
   }
 
-  /// Call only inside the owner's serialized storage queue, after reading
-  /// BOTH locations successfully. Never prune from a guessed empty read.
+  /// Call only inside the owner's serialized storage queue, after proving
+  /// secure contents and legacy erasure. Never prune from cached absence.
   Future<void> retireAbsent(
     Iterable<String> storedSessions, {
     bool currentSessionGuarded = false,
