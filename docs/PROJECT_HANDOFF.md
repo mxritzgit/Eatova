@@ -883,3 +883,23 @@ two-digit calendar-width regression was demonstrated failing before the fix.
 a protected PR and merge after green CI, as explicitly requested. The PR
 records the final merge. The original instruction-cleanup worktree remains
 untouched. No backend deployment or device installation is included.
+
+## Today, Food and footer icon family, 2026-09-14
+
+The user requested distinctive icons for Today, Food meal slots and the five
+footer tabs. A shared set of 16 original vector pictograms now supplies these
+surfaces, including the shared meal pickers. See
+[ICON-FAMILY-2026-09-14.md](ICON-FAMILY-2026-09-14.md) for motifs, actual Flutter
+previews and the integration contract. Existing theme colors and meal selection
+behavior are retained; the footer has larger glyphs at the same overall height.
+
+Local validation on Flutter 3.47.2: 4,464 tests passed without skips, 95.01%
+coverage and strict analysis. The icon tests cover repaint/opacity, small-glyph
+clipping, all five selected tabs, semantic selection and real screens in both
+themes/languages at normal and 200% text. A badge-sizing regression was shown
+failing before the centering fix. Existing full Steps-card visibility tests pass.
+
+`design/icon-family` starts at main `767ab93` (PR #87). Delivery uses a protected
+PR and merge after green CI under the user's explicit authorization; the PR
+records the final merge. Original instruction-cleanup work remains untouched.
+Device installation and backend deployment are separate from this code change.

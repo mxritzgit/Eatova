@@ -93,28 +93,23 @@ void main() {
               onChanged: (_) {},
               items: const [
                 AppNavItem(
-                  icon: Icons.home_outlined,
-                  activeIcon: Icons.home,
+                  icon: AppSymbol.today,
                   label: 'Heute',
                 ),
                 AppNavItem(
-                  icon: Icons.restaurant,
-                  activeIcon: Icons.restaurant,
+                  icon: AppSymbol.food,
                   label: 'Food',
                 ),
                 AppNavItem(
-                  icon: Icons.menu_book,
-                  activeIcon: Icons.menu_book,
+                  icon: AppSymbol.recipes,
                   label: 'Rezepte',
                 ),
                 AppNavItem(
-                  icon: Icons.fitness_center,
-                  activeIcon: Icons.fitness_center,
+                  icon: AppSymbol.training,
                   label: 'Training',
                 ),
                 AppNavItem(
-                  icon: Icons.forum_outlined,
-                  activeIcon: Icons.forum,
+                  icon: AppSymbol.coach,
                   label: 'Coach',
                 ),
               ],

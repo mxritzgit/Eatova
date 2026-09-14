@@ -483,32 +483,27 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     final l10n = context.l10n;
     return <AppNavItem>[
       AppNavItem(
-        icon: Icons.home_outlined,
-        activeIcon: Icons.home_rounded,
+        icon: AppSymbol.today,
         label: l10n.navToday,
         keyId: 'Heute',
       ),
       AppNavItem(
-        icon: Icons.restaurant_outlined,
-        activeIcon: Icons.restaurant_rounded,
+        icon: AppSymbol.food,
         label: l10n.navFood,
         keyId: 'Food',
       ),
       AppNavItem(
-        icon: Icons.menu_book_outlined,
-        activeIcon: Icons.menu_book_rounded,
+        icon: AppSymbol.recipes,
         label: l10n.navRecipes,
         keyId: 'Rezepte',
       ),
       AppNavItem(
-        icon: Icons.fitness_center_outlined,
-        activeIcon: Icons.fitness_center_rounded,
+        icon: AppSymbol.training,
         label: l10n.navTraining,
         keyId: 'Training',
       ),
       AppNavItem(
-        icon: Icons.chat_bubble_outline_rounded,
-        activeIcon: Icons.chat_bubble_rounded,
+        icon: AppSymbol.coach,
         label: l10n.navCoach,
         keyId: 'Coach',
       ),

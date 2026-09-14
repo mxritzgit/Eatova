@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../l10n/l10n.dart';
 import '../models/logged_meal.dart';
+import 'app_symbol.dart';
 import 'app_tokens.dart';
 
 /// Single source of truth for [MealSlot] UI style (accent color, icon,
@@ -16,11 +17,11 @@ extension MealSlotStyle on MealSlot {
     MealSlot.snack => t.brandSurface,
   };
 
-  IconData get diaryIcon => switch (this) {
-    MealSlot.breakfast => Icons.wb_sunny_outlined,
-    MealSlot.lunch => Icons.ramen_dining_outlined,
-    MealSlot.dinner => Icons.room_service_outlined,
-    MealSlot.snack => Icons.apple_outlined,
+  AppSymbol get symbol => switch (this) {
+    MealSlot.breakfast => AppSymbol.breakfast,
+    MealSlot.lunch => AppSymbol.lunch,
+    MealSlot.dinner => AppSymbol.dinner,
+    MealSlot.snack => AppSymbol.snack,
   };
 
   /// The slot color from the theme tokens; works in both modes. Breakfast
@@ -38,13 +39,6 @@ extension MealSlotStyle on MealSlot {
 
   // Slot colors come exclusively from [accentOn]/[accentIn]; the old fixed
   // dark-palette `accent` getter is gone.
-
-  IconData get icon => switch (this) {
-    MealSlot.breakfast => Icons.wb_sunny_outlined,
-    MealSlot.lunch => Icons.light_mode_outlined,
-    MealSlot.dinner => Icons.nights_stay_outlined,
-    MealSlot.snack => Icons.cookie_outlined,
-  };
 
   /// The full, user-visible slot name from the ARB, in the active app
   /// language. Lives here rather than as a getter on the model because a

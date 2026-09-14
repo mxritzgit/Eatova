@@ -5,6 +5,7 @@ import '../../models/logged_meal.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
 import '../common/motion.dart';
+import '../design/app_icon.dart';
 
 /// Slot picker as a chip row over a live camera image, shared by the AI scan
 /// (`MealCameraSheet`) and the barcode scanner (`BarcodeScannerSheet`). The
@@ -94,8 +95,8 @@ class _SlotChip extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              slot.icon,
+            AppIcon(
+              slot.symbol,
               size: 13,
               color: selected ? Colors.black : Colors.white,
             ),

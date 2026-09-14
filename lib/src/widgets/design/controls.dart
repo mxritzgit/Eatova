@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../theme/app_tokens.dart';
 import '../common/motion.dart';
+import 'app_icon.dart';
 
 // ---------------------------------------------------------------------------
 // CONTROLS — icon button, icon tile, toggle, segmented pill, filter chip,
@@ -48,9 +49,18 @@ class SquareIconButton extends StatelessWidget {
     required this.icon,
     this.onTap,
     this.semanticLabel,
-  });
+  }) : _child = null;
 
-  final IconData icon;
+  const SquareIconButton.custom({
+    super.key,
+    required Widget child,
+    this.onTap,
+    this.semanticLabel,
+  }) : icon = null,
+       _child = child;
+
+  final IconData? icon;
+  final Widget? _child;
   final VoidCallback? onTap;
   final String? semanticLabel;
 
@@ -80,7 +90,12 @@ class SquareIconButton extends StatelessWidget {
                   borderRadius: BorderRadius.circular(rChip),
                   border: Border.all(color: t.line),
                 ),
-                child: Icon(icon, size: 17, color: t.ink2),
+                child: _child == null
+                    ? Icon(icon, size: 17, color: t.ink2)
+                    : IconTheme(
+                        data: IconThemeData(size: 20, color: t.ink2),
+                        child: Center(child: _child),
+                      ),
               ),
             ),
           ),
@@ -511,13 +526,11 @@ class PrimaryActionButton extends StatelessWidget {
 class AppNavItem {
   const AppNavItem({
     required this.icon,
-    required this.activeIcon,
     required this.label,
     String? keyId,
   }) : keyId = keyId ?? label;
 
-  final IconData icon;
-  final IconData activeIcon;
+  final AppSymbol icon;
 
   /// The visible label — comes from the ARB and is translated.
   final String label;
@@ -579,15 +592,16 @@ class AppNavBar extends StatelessWidget {
                         curve: Curves.easeOut,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 16,
-                          vertical: 3,
+                          vertical: 1,
                         ),
                         decoration: BoxDecoration(
                           color: active ? t.brandSurface : Colors.transparent,
                           borderRadius: BorderRadius.circular(rChip),
                         ),
-                        child: Icon(
-                          active ? item.activeIcon : item.icon,
-                          size: 19,
+                        child: AppIcon(
+                          item.icon,
+                          selected: active,
+                          size: 23,
                           color: active ? t.onBrandSurface : t.ink2,
                         ),
                       ),

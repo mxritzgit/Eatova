@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../models/logged_meal.dart';
 import '../../theme/app_tokens.dart';
-import '../common/motion.dart';
 import '../../theme/meal_slot_style.dart';
+import '../common/motion.dart';
+import '../design/app_icon.dart';
 
 /// Segmented control for picking a meal slot.
 ///
@@ -121,8 +122,8 @@ class _SlotSegment extends StatelessWidget {
             children: [
               // Not the full slot color on its own 16 % tint: that is only
               // 2.15:1 in light mode.
-              Icon(
-                slot.icon,
+              AppIcon(
+                slot.symbol,
                 size: 18,
                 color: selected ? t.readableOnTint(color) : t.ink2,
               ),

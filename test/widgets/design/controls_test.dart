@@ -3,23 +3,21 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/design/controls.dart';
+import 'package:eatova/src/widgets/design/app_icon.dart';
 
 import 'design_harness.dart';
 
 const List<AppNavItem> _navItems = <AppNavItem>[
   AppNavItem(
-    icon: Icons.restaurant_outlined,
-    activeIcon: Icons.restaurant_rounded,
+    icon: AppSymbol.food,
     label: 'Food',
   ),
   AppNavItem(
-    icon: Icons.menu_book_outlined,
-    activeIcon: Icons.menu_book_rounded,
+    icon: AppSymbol.recipes,
     label: 'Rezepte',
   ),
   AppNavItem(
-    icon: Icons.auto_awesome_outlined,
-    activeIcon: Icons.auto_awesome_rounded,
+    icon: AppSymbol.coach,
     label: 'Coach',
   ),
 ];
@@ -345,9 +343,11 @@ void main() {
         ),
       );
 
-      expect(find.byIcon(Icons.restaurant_rounded), findsOneWidget);
-      expect(find.byIcon(Icons.restaurant_outlined), findsNothing);
-      expect(find.byIcon(Icons.menu_book_outlined), findsOneWidget);
+      final icons = tester.widgetList<AppIcon>(find.byType(AppIcon));
+      expect(icons.singleWhere((icon) => icon.symbol == AppSymbol.food).selected,
+          isTrue);
+      expect(icons.singleWhere((icon) => icon.symbol == AppSymbol.recipes).selected,
+          isFalse);
     });
 
     testWidgets('englische Labels, aber die Keys bleiben deutsch',
@@ -359,8 +359,7 @@ void main() {
             onChanged: (_) {},
             items: const <AppNavItem>[
               AppNavItem(
-                icon: Icons.restaurant_outlined,
-                activeIcon: Icons.restaurant_rounded,
+                icon: AppSymbol.food,
                 label: 'Recipes',
                 keyId: 'Rezepte',
               ),

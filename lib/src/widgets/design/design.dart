@@ -7,6 +7,7 @@
 /// [AppType]; none of them knows `app_colors.dart` or a hardcoded color.
 library;
 
+export 'app_icon.dart';
 export 'controls.dart';
 export 'creation.dart';
 export 'dialogs.dart';

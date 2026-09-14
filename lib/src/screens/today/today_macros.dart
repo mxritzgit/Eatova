@@ -28,7 +28,7 @@ class TodayMacros extends StatelessWidget {
               label: l10n.todayMacroProtein,
               value: progress.proteinG.round(),
               goal: profile.proteinGoalG,
-              icon: Icons.egg_alt_outlined,
+              icon: AppSymbol.protein,
               color: t.proteinProgress,
               surface: t.proteinSurface,
             ),
@@ -37,7 +37,7 @@ class TodayMacros extends StatelessWidget {
               label: l10n.todayMacroCarbs,
               value: progress.carbsG.round(),
               goal: profile.carbsGoalG,
-              icon: Icons.grass_rounded,
+              icon: AppSymbol.carbs,
               color: t.carbsProgress,
               surface: t.carbsSurface,
             ),
@@ -46,7 +46,7 @@ class TodayMacros extends StatelessWidget {
               label: l10n.todayMacroFat,
               value: progress.fatG.round(),
               goal: profile.fatGoalG,
-              icon: Icons.water_drop_outlined,
+              icon: AppSymbol.fat,
               color: t.fatProgress,
               surface: t.fatSurface,
             ),
@@ -69,7 +69,7 @@ class TodayMacroRow extends StatelessWidget {
   });
   final String label;
   final int value, goal;
-  final IconData icon;
+  final AppSymbol icon;
   final Color color, surface;
 
   @override
@@ -89,7 +89,7 @@ class TodayMacroRow extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Icon(icon, size: 27, color: t.ink),
+              AppIcon(icon, size: 27, color: t.ink),
               const SizedBox(width: 13),
               Expanded(
                 child: Column(

@@ -57,12 +57,6 @@ class TodayMealRow extends StatelessWidget {
       (sum, meal) => sum + meal.result.caloriesKcal,
     );
     final empty = meals.isEmpty;
-    final icon = switch (slot) {
-      MealSlot.breakfast => Icons.breakfast_dining_outlined,
-      MealSlot.lunch => Icons.lunch_dining_outlined,
-      MealSlot.dinner => Icons.dinner_dining_outlined,
-      MealSlot.snack => Icons.cookie_outlined,
-    };
     return Material(
       color: t.surf,
       shape: RoundedRectangleBorder(
@@ -84,8 +78,8 @@ class TodayMealRow extends StatelessWidget {
                   color: empty ? t.surf2 : t.brandSurface,
                   borderRadius: BorderRadius.circular(rControl),
                 ),
-                child: Icon(
-                  icon,
+                child: AppIcon(
+                  slot.symbol,
                   color: empty ? t.ink2 : t.onBrandSurface,
                   size: 26,
                 ),
