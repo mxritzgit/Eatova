@@ -78,6 +78,10 @@ advisories are a separate visible report with [dated reachability triage](androi
 Scanner/inventory errors fail the job; an advisory report is not proof that the
 toolchain is free from vulnerabilities. The Gradle resolver regression fixtures
 require the normal Flutter-generated wrapper/bootstrap before execution.
+OSV uses the SHA-256-verified 2.3.8 CLI with `--no-ignore` so generated inventories
+inside ignored build directories are included. This controls file discovery,
+not advisory suppression. The scanner smoke tests use a real disposable Git
+checkout and verify clean, vulnerable, empty and malformed inventory outcomes.
 
 Live migration drift runs on `main`, including the weekly scheduled run, in the
 `supabase-drift` GitHub environment. Its deployment branch policy must allow only
