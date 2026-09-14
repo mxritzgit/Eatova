@@ -859,3 +859,27 @@ real-font captures were inspected after the individual surface reviews.
 delivery after green CI under the user's explicit authorization. The PR records
 the final merge. No backend, schema or dependency changes are included; camera
 hardware testing and device installation remain separate.
+
+
+## Food entry and calendar polish, 2026-09-14
+
+The user requested the accepted meal picker in Camera and Manual plus a
+significant redesign of manual nutrition, product search results and the
+Food date picker. See [FOOD-ENTRY-POLISH-2026-09-14.md](FOOD-ENTRY-POLISH-2026-09-14.md)
+for the interaction contract, regression evidence and real-font previews.
+
+Camera keeps selection outside the preview and preserves its lifecycle;
+manual label values and the live portion have separate visual sections.
+Product rows separate brand, name and label density, with the exact saved
+portion visible when expanded. The calendar keeps date changes local until
+confirmation and retains native navigation, date input and date bounds.
+Favorites and persistent meal/account contracts remain intact.
+
+Local validation: 4,452 tests passed without skips, 94.96% coverage and
+strict Flutter analysis on 3.47.2. Tests cover light/dark, German/English,
+200% text, keyboard access, drafts, invalid input and saved values. The
+two-digit calendar-width regression was demonstrated failing before the fix.
+`design/food-entry-polish` starts at main `78f2b44` (PR #86); delivery uses
+a protected PR and merge after green CI, as explicitly requested. The PR
+records the final merge. The original instruction-cleanup worktree remains
+untouched. No backend deployment or device installation is included.

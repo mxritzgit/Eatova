@@ -8,6 +8,7 @@ import '../../theme/app_tokens.dart';
 import '../common/motion.dart';
 import '../design/sheets.dart';
 import 'saved_meal_presentation.dart';
+import 'product_search_presentation.dart';
 
 /// Shared item widget for search hits, favorites and recent meals in the
 /// AddMealSheet.
@@ -32,6 +33,7 @@ class MealSuggestionItem extends StatefulWidget {
     this.onToggleFavorite,
     this.favoriteButtonKey,
     this.savedPresentation = false,
+    this.productPresentation = false,
   });
 
   final MealAnalysisResult result;
@@ -58,6 +60,7 @@ class MealSuggestionItem extends StatefulWidget {
 
   /// Saved meals show the reusable portion instead of a product density.
   final bool savedPresentation;
+  final bool productPresentation;
 
   @override
   State<MealSuggestionItem> createState() => _MealSuggestionItemState();
@@ -190,11 +193,11 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
       duration: motionDuration(context, const Duration(milliseconds: 180)),
       curve: Curves.easeOutCubic,
       decoration: BoxDecoration(
-        color: widget.savedPresentation
+        color: widget.savedPresentation || widget.productPresentation
             ? (widget.expanded ? t.brandSurface : Colors.transparent)
             : (widget.expanded ? t.surf : t.surf2),
         borderRadius: BorderRadius.circular(rCard),
-        border: widget.savedPresentation
+        border: widget.savedPresentation || widget.productPresentation
             ? null
             : Border.all(color: widget.expanded ? accent : t.line),
       ),
@@ -204,6 +207,19 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
           if (widget.savedPresentation)
             SavedMealHeader(
               result: widget.expanded ? angepasst : widget.result,
+              expanded: widget.expanded,
+              justAdded: widget.justAdded,
+              onTap: widget.onTap,
+              isFavorite: widget.isFavorite,
+              onToggleFavorite: widget.onToggleFavorite == null
+                  ? null
+                  : () => widget.onToggleFavorite!(widget.result),
+              favoriteButtonKey: widget.favoriteButtonKey,
+            )
+          else if (widget.productPresentation)
+            ProductSearchHeader(
+              result: widget.result,
+              imageUrl: widget.imageUrl,
               expanded: widget.expanded,
               justAdded: widget.justAdded,
               onTap: widget.onTap,
@@ -235,6 +251,7 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
             child: widget.expanded
                 ? _ExpandedBody(
                     savedPresentation: widget.savedPresentation,
+                    productPresentation: widget.productPresentation,
                     accent: accent,
                     grams: _grams,
                     gramsController: _gramsController,
@@ -477,6 +494,7 @@ class _Trailing extends StatelessWidget {
 class _ExpandedBody extends StatelessWidget {
   const _ExpandedBody({
     required this.savedPresentation,
+    required this.productPresentation,
     required this.accent,
     required this.grams,
     required this.gramsController,
@@ -497,6 +515,7 @@ class _ExpandedBody extends StatelessWidget {
   final TextEditingController gramsController;
 
   final bool savedPresentation;
+  final bool productPresentation;
 
   /// Exactly the instance [onAdd] passes on; the preview's kcal and macros
   /// come from it, not from a second calculation.
@@ -524,6 +543,15 @@ class _ExpandedBody extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SizedBox(height: 4),
+          if (productPresentation) ...[
+            Divider(height: 1, color: t.line),
+            const SizedBox(height: 16),
+            Text(
+              l10n.foodManualGroupPortion,
+              style: AppType.display(18, color: t.ink),
+            ),
+            const SizedBox(height: 14),
+          ],
           if (preview.isRecipeWithoutCookedWeight)
             Text(l10n.recipeCalcNoCookedWeight,
               style: AppType.ui(13, color: t.ink2, height: 1.4))
@@ -589,7 +617,15 @@ class _ExpandedBody extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           ],
-          if (savedPresentation)
+          if (productPresentation) ...[
+            Text(
+              '${preview.caloriesKcal} kcal',
+              key: const ValueKey('product-portion-calories'),
+              style: AppType.display(32, color: t.ink),
+            ),
+            const SizedBox(height: 12),
+          ],
+          if (savedPresentation || productPresentation)
             SavedMealNutrients(result: preview)
           else
             _LivePreview(

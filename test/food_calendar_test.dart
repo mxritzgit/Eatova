@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:clock/clock.dart';
 
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 
@@ -40,40 +41,51 @@ Future<void> _pumpFoodTab(
 
 void main() {
   testWidgetsRobust(
-      'Kalender-Knopf oeffnet deutschen DatePicker; Auswahl laeuft durch den '
-      'Chip-Callback (onDateSelected)', (WidgetTester tester) async {
-    DateTime? selected;
-    await _pumpFoodTab(tester, onDateSelected: (d) => selected = d);
+    'Kalender-Knopf oeffnet deutschen DatePicker; Auswahl laeuft durch den '
+    'Chip-Callback (onDateSelected)',
+    (WidgetTester tester) async {
+      await withClock(Clock.fixed(DateTime(2026, 9, 14)), () async {
+        DateTime? selected;
+        await _pumpFoodTab(tester, onDateSelected: (d) => selected = d);
 
-    expect(find.byKey(const ValueKey('food-date-calendar')), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('food-date-calendar')));
-    await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('food-date-calendar')),
+          findsOneWidget,
+        );
+        await tester.tap(find.byKey(const ValueKey('food-date-calendar')));
+        await tester.pumpAndSettle();
 
-    // German dialog (de delegates), custom help text.
-    expect(find.byType(DatePickerDialog), findsOneWidget);
-    expect(find.text('Tag wählen'), findsOneWidget);
-    expect(find.text('Abbrechen'), findsOneWidget);
+        // Localized calendar sheet with explicit confirmation.
+        expect(find.byKey(const ValueKey('food-date-picker')), findsOneWidget);
+        expect(find.text('Tag wählen'), findsOneWidget);
+        expect(find.byKey(const ValueKey('food-date-close')), findsOneWidget);
 
-    // Page to the PREVIOUS month and pick the 15th: it exists in every month,
-    // is always in the past (lastDate = today never bites) and never collides
-    // with the today special case.
-    await tester.tap(find.byIcon(Icons.chevron_left));
-    await tester.pumpAndSettle();
-    await tester.tap(find.descendant(
-      of: find.byType(DatePickerDialog),
-      matching: find.text('15'),
-    ));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('OK'));
-    await tester.pumpAndSettle();
+        // Page to the PREVIOUS month and pick the 15th: it exists in every month,
+        // is always in the past (lastDate = today never bites) and never collides
+        // with the today special case.
+        await tester.tap(find.byIcon(Icons.chevron_left));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.descendant(
+            of: find.byType(CalendarDatePicker),
+            matching: find.text('15'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(selected, isNull);
+        await tester.tap(find.byKey(const ValueKey('food-date-confirm')));
+        await tester.pumpAndSettle();
 
-    final today = DateUtils.dateOnly(DateTime.now());
-    expect(selected, DateTime(today.year, today.month - 1, 15));
-    expect(find.byType(DatePickerDialog), findsNothing);
-  });
+        final today = DateUtils.dateOnly(clock.now());
+        expect(selected, DateTime(today.year, today.month - 1, 15));
+        expect(find.byKey(const ValueKey('food-date-picker')), findsNothing);
+      });
+    },
+  );
 
-  testWidgetsRobust('dayLoading zeigt den Spinner statt der Verlaufskarte',
-      (WidgetTester tester) async {
+  testWidgetsRobust('dayLoading zeigt den Spinner statt der Verlaufskarte', (
+    WidgetTester tester,
+  ) async {
     await _pumpFoodTab(tester, dayLoading: true);
 
     expect(find.byKey(const ValueKey('food-day-loading')), findsOneWidget);
@@ -82,8 +94,9 @@ void main() {
     expect(find.text('Tag wird geladen…'), findsOneWidget);
   });
 
-  testWidgetsRobust('Ohne dayLoading rendert der Verlauf wie bisher',
-      (WidgetTester tester) async {
+  testWidgetsRobust('Ohne dayLoading rendert der Verlauf wie bisher', (
+    WidgetTester tester,
+  ) async {
     await _pumpFoodTab(tester);
 
     expect(find.byKey(const ValueKey('food-day-loading')), findsNothing);

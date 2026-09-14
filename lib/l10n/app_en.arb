@@ -121,6 +121,8 @@
   "foodKcalTodayLabel": "KCAL TODAY",
   "foodKcalOnDayLabel": "KCAL THAT DAY",
   "foodDatePickerHelpText": "Choose day",
+  "foodCalendarToday": "Back to today",
+  "foodCalendarOpenDay": "Open this day",
   "foodCalendarButtonSemantics": "Choose another day from the calendar",
   "foodEntryDeleteSemantics": "Delete entry",
   "foodPortionFallback": "1 portion",

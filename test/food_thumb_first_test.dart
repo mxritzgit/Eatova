@@ -109,10 +109,10 @@ void main() {
         await tester.pumpAndSettle();
         tester.view.physicalSize = const Size(390, 540);
         await tester.pumpAndSettle();
-        await tester.tap(find.text('OK'));
+        await tester.tap(find.byKey(const ValueKey('food-date-confirm')));
         await tester.pumpAndSettle();
         expect(selected, DateTime(2026, 9, 10));
-        expect(find.byType(DatePickerDialog), findsNothing);
+        expect(find.byKey(const ValueKey('food-date-picker')), findsNothing);
         expect(tester.takeException(), isNull);
       });
     },
@@ -399,7 +399,10 @@ void main() {
           ),
           findsOneWidget,
         );
+        await tester.tap(find.byKey(const ValueKey('manual-slot-open')));
+        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey('manual-slot-breakfast')));
+        await tester.pumpAndSettle();
         await tester.enterText(
           find.byKey(const ValueKey('manual-meal-name')),
           'Homemade granola',

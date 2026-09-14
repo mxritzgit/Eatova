@@ -28,6 +28,7 @@ import '../widgets/design/design.dart';
 import '../widgets/kcal/add_meal_sheet.dart';
 import '../widgets/kcal/diary_meal_card.dart';
 import '../widgets/kcal/food_page_chrome.dart';
+import '../widgets/kcal/food_date_picker.dart';
 import '../widgets/kcal/manual_meal_sheet.dart';
 import '../widgets/kcal/meal_analysis_sheet.dart';
 import '../widgets/kcal/meal_scan_preview_sheet.dart';
@@ -323,12 +324,11 @@ class MealAnalysisScreen extends StatelessWidget {
     final initial = selectedDate.isBefore(first)
         ? first
         : (selectedDate.isAfter(today) ? today : selectedDate);
-    final picked = await showDatePicker(
-      context: context,
+    final picked = await showFoodDatePicker(
+      context,
       initialDate: initial,
       firstDate: first,
-      lastDate: today,
-      helpText: context.l10n.foodDatePickerHelpText,
+      today: today,
     );
     if (picked != null && context.mounted) onDateSelected(picked);
   }

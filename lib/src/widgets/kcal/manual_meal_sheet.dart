@@ -7,7 +7,7 @@ import '../../models/logged_meal.dart';
 import '../../models/model_limits.dart';
 import '../../theme/app_tokens.dart';
 import '../design/sheets.dart';
-import 'slot_selector.dart';
+import 'meal_slot_picker.dart';
 
 /// Form for custom nutrition values: label values PER 100 g plus the portion
 /// eaten; `MealAnalysisResult.manualEntry` computes the portion values. For
@@ -245,7 +245,12 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
           ),
         ),
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
+          padding: EdgeInsets.fromLTRB(
+            24,
+            10,
+            24,
+            24 + mediaQuery.viewPadding.bottom,
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -261,9 +266,26 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
                 ),
               ),
               const SizedBox(height: 12),
-              Text(
-                l10n.foodManualEntryTitle,
-                style: AppType.display(24, color: t.ink, height: 1.15),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      l10n.foodManualEntryTitle,
+                      key: const ValueKey('manual-meal-title'),
+                      style: AppType.display(
+                        mediaQuery.textScaler.scale(24) > 36 ? 20 : 24,
+                        color: t.ink,
+                        height: 1.15,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    key: const ValueKey('manual-meal-close'),
+                    tooltip: l10n.commonClose,
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
               ),
               const SizedBox(height: 4),
               Text(
@@ -279,10 +301,9 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
                   ),
                   const SizedBox(height: 8),
                 ],
-                SlotSelector(
+                MealSlotPicker(
                   selected: _slot!,
                   keyPrefix: 'manual-slot-',
-                  wrapAtLargeText: true,
                   onSelected: (slot) {
                     setState(() => _slot = slot);
                     widget.onSlotChanged?.call(slot);
@@ -300,83 +321,79 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
                   maxChars: LoggedMealLimits.mealNameMaxChars,
                 ),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 24),
               _ManualGroup(
                 label: l10n.foodManualGroupNutrition,
                 trailing: l10n.foodManualPer100GSuffix,
-                // 2x2 instead of 4 columns: the headers are long and stay on
-                // one line this way even at large font sizes.
                 child: Column(
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    _ManualPair(
                       children: [
-                        Expanded(
-                          child: _ManualField(
-                            fieldKey: const ValueKey('manual-meal-kcal100'),
-                            controller: _kcal100,
-                            label: l10n.foodAddItemCaloriesLabel,
-                            unit: 'kcal',
-                            numeric: true,
-                            dot: t.accent,
-                            errorText: _kcal100Fehler,
-                          ),
+                        _ManualField(
+                          fieldKey: const ValueKey('manual-meal-kcal100'),
+                          controller: _kcal100,
+                          label: l10n.foodAddItemCaloriesLabel,
+                          unit: 'kcal',
+                          numeric: true,
+                          dot: t.accent,
+                          errorText: _kcal100Fehler,
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _ManualField(
-                            fieldKey: const ValueKey('manual-meal-protein'),
-                            controller: _protein,
-                            label: l10n.todayMacroProtein,
-                            unit: 'g',
-                            numeric: true,
-                            decimal: true,
-                            dot: t.protein,
-                            errorText: _makroFehler(_protein),
-                          ),
+                        _ManualField(
+                          fieldKey: const ValueKey('manual-meal-protein'),
+                          controller: _protein,
+                          label: l10n.todayMacroProtein,
+                          unit: 'g',
+                          numeric: true,
+                          decimal: true,
+                          dot: t.protein,
+                          errorText: _makroFehler(_protein),
                         ),
                       ],
                     ),
                     const SizedBox(height: 12),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    _ManualPair(
                       children: [
-                        Expanded(
-                          child: _ManualField(
-                            fieldKey: const ValueKey('manual-meal-carbs'),
-                            controller: _carbs,
-                            label: l10n.recipesNutritionCarbsLabel,
-                            unit: 'g',
-                            numeric: true,
-                            decimal: true,
-                            dot: t.carbs,
-                            errorText: _makroFehler(_carbs),
-                          ),
+                        _ManualField(
+                          fieldKey: const ValueKey('manual-meal-carbs'),
+                          controller: _carbs,
+                          label: l10n.todayMacroCarbs,
+                          unit: 'g',
+                          numeric: true,
+                          decimal: true,
+                          dot: t.carbs,
+                          errorText: _makroFehler(_carbs),
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _ManualField(
-                            fieldKey: const ValueKey('manual-meal-fat'),
-                            controller: _fat,
-                            label: l10n.todayMacroFat,
-                            unit: 'g',
-                            numeric: true,
-                            decimal: true,
-                            dot: t.fat,
-                            errorText: _makroFehler(_fat),
-                          ),
+                        _ManualField(
+                          fieldKey: const ValueKey('manual-meal-fat'),
+                          controller: _fat,
+                          label: l10n.todayMacroFat,
+                          unit: 'g',
+                          numeric: true,
+                          decimal: true,
+                          dot: t.fat,
+                          errorText: _makroFehler(_fat),
                         ),
                       ],
                     ),
                   ],
                 ),
               ),
-              const SizedBox(height: 10),
-              _ManualGroup(
-                label: l10n.foodManualGroupPortion,
+              const SizedBox(height: 24),
+              Container(
+                key: const ValueKey('manual-portion-panel'),
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: t.brandSurface,
+                  borderRadius: BorderRadius.circular(rCard),
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Text(
+                      l10n.foodManualGroupPortion,
+                      style: AppType.display(18, color: t.onBrandSurface),
+                    ),
+                    const SizedBox(height: 14),
                     _ManualField(
                       fieldKey: const ValueKey('manual-meal-grams'),
                       controller: _grams,
@@ -386,7 +403,20 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
                       errorText: _gramsFehler,
                     ),
                     if (vorschau != null) ...[
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 16),
+                      Text.rich(
+                        TextSpan(
+                          text: '$vorschau',
+                          style: AppType.display(40, color: t.onBrandSurface),
+                          children: [
+                            TextSpan(
+                              text: ' kcal',
+                              style: AppType.ui(16, color: t.onBrandSurface),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 4),
                       Text(
                         key: const ValueKey('manual-meal-computed'),
                         l10n.foodManualComputedKcal(
@@ -396,8 +426,43 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
                         style: AppType.ui(
                           13,
                           weight: FontWeight.w600,
-                          color: t.accent,
+                          color: t.onBrandSurface,
                         ),
+                      ),
+                      const SizedBox(height: 16),
+                      Wrap(
+                        spacing: 20,
+                        runSpacing: 12,
+                        children: [
+                          for (final nutrient in [
+                            (l10n.todayMacroProtein, _protein),
+                            (l10n.todayMacroCarbs, _carbs),
+                            (l10n.todayMacroFat, _fat),
+                          ])
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  nutrient.$1,
+                                  style: AppType.ui(11, color: t.ink2),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _makroFehler(nutrient.$2) == null
+                                      ? MealAnalysisResult.macroForGrams(
+                                          _makroOderNull(nutrient.$2),
+                                          _zahlOderNull(_grams)!,
+                                        )
+                                      : '—',
+                                  style: AppType.ui(
+                                    15,
+                                    weight: FontWeight.w700,
+                                    color: t.onBrandSurface,
+                                  ),
+                                ),
+                              ],
+                            ),
+                        ],
                       ),
                     ],
                   ],
@@ -406,15 +471,18 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
               const SizedBox(height: 14),
               // FilledButton with onPressed == null as the lock signal — same
               // testable pattern as recipe-create-save.
-              FilledButton.icon(
-                key: const ValueKey('manual-meal-save'),
-                onPressed: _isValid ? _save : null,
-                icon: const Icon(Icons.check_rounded, size: 18),
-                // No styleFrom: fill, ink, disabled tone and shape come from
-                // the app-wide filledButtonTheme (review F8-10).
-                label: Text(
-                  l10n.commonSave,
-                  style: AppType.ui(14.5, weight: FontWeight.w700),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  key: const ValueKey('manual-meal-save'),
+                  onPressed: _isValid ? _save : null,
+                  icon: const Icon(Icons.check_rounded, size: 18),
+                  // No styleFrom: fill, ink, disabled tone and shape come from
+                  // the app-wide filledButtonTheme (review F8-10).
+                  label: Text(
+                    l10n.commonSave,
+                    style: AppType.ui(14.5, weight: FontWeight.w700),
+                  ),
                 ),
               ),
             ],
@@ -425,8 +493,32 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
   }
 }
 
-/// Group header (uppercase label plus a muted suffix on the right) — local
-/// copy of the `_SheetGroup` pattern from recipe_create_sheet.dart.
+class _ManualPair extends StatelessWidget {
+  const _ManualPair({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      if (constraints.maxWidth < 280 ||
+          MediaQuery.textScalerOf(context).scale(14) > 21) {
+        return Column(
+          children: [children.first, const SizedBox(height: 14), children.last],
+        );
+      }
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: children.first),
+          const SizedBox(width: 14),
+          Expanded(child: children.last),
+        ],
+      );
+    },
+  );
+}
+
 class _ManualGroup extends StatelessWidget {
   const _ManualGroup({required this.label, required this.child, this.trailing});
 
@@ -440,40 +532,49 @@ class _ManualGroup extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Expanded(
-              child: Text(
-                label.toUpperCase(),
-                style: AppType.eyebrow(t.ink2, size: 10),
+        if (MediaQuery.textScalerOf(context).scale(17) > 25.5)
+          Wrap(
+            spacing: 12,
+            runSpacing: 4,
+            crossAxisAlignment: WrapCrossAlignment.end,
+            children: [
+              Text(label, style: AppType.display(17, color: t.ink)),
+              if (trailing != null)
+                Text(trailing!, style: AppType.ui(11, color: t.ink2)),
+            ],
+          )
+        else
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Expanded(
+                child: Text(label, style: AppType.display(17, color: t.ink)),
               ),
-            ),
-            if (trailing != null)
-              Flexible(
-                child: Padding(
-                  padding: const EdgeInsets.only(left: 10),
-                  child: Text(
-                    trailing!,
-                    textAlign: TextAlign.right,
-                    style: AppType.ui(
-                      11,
-                      weight: FontWeight.w500,
-                      color: t.ink2,
+              if (trailing != null)
+                Flexible(
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 10),
+                    child: Text(
+                      trailing!,
+                      textAlign: TextAlign.right,
+                      style: AppType.ui(
+                        11,
+                        weight: FontWeight.w500,
+                        color: t.ink2,
+                      ),
                     ),
                   ),
                 ),
-              ),
-          ],
-        ),
-        const SizedBox(height: 6),
+            ],
+          ),
+        const SizedBox(height: 12),
         child,
       ],
     );
   }
 }
 
-/// Labelled input field: uppercase header with unit and macro dot on a
+/// Labelled input field: readable header with unit and macro dot on a
 /// [FieldCapsule] (rest `field`, focus `fieldFocus`, error `fieldError` plus
 /// the error line below), semantics label for the screen reader.
 class _ManualField extends StatefulWidget {
@@ -535,41 +636,25 @@ class _ManualFieldState extends State<_ManualField> {
     final ziffernfilter = widget.decimal
         ? FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))
         : FilteringTextInputFormatter.digitsOnly;
-    final kopfzeile = unit == null
-        ? label.toUpperCase()
-        : '${label.toUpperCase()} · ${unit.toUpperCase()}';
+    final kopfzeile = unit == null ? label : '$label · $unit';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(
-          // Fixed one-line header: unevenly wrapping labels would otherwise
-          // start the fields at different heights.
-          height: MediaQuery.textScalerOf(context).scale(9.5) * 1.35,
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              if (dot != null) ...[
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
-                ),
-                const SizedBox(width: 6),
-              ],
-              Expanded(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    kopfzeile,
-                    maxLines: 1,
-                    softWrap: false,
-                    style: AppType.eyebrow(t.ink2, size: 9.5),
-                  ),
-                ),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            if (dot != null) ...[
+              Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
               ),
+              const SizedBox(width: 6),
             ],
-          ),
+            Expanded(
+              child: Text(kopfzeile, style: AppType.ui(12, color: t.ink2)),
+            ),
+          ],
         ),
         const SizedBox(height: 5),
         FieldCapsule(
@@ -595,7 +680,11 @@ class _ManualFieldState extends State<_ManualField> {
                     textCapitalization: widget.numeric
                         ? TextCapitalization.none
                         : TextCapitalization.sentences,
-                    style: AppType.ui(14, color: t.ink),
+                    style: AppType.ui(
+                      widget.numeric ? 20 : 16,
+                      weight: FontWeight.w600,
+                      color: t.ink,
+                    ),
                     cursorColor: t.accent,
                     decoration: InputDecoration(
                       border: InputBorder.none,
