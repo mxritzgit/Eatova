@@ -244,7 +244,9 @@ class SecurePkceAsyncStorage extends GotrueAsyncStorage {
 ///
 /// Keystore options (`resetOnError: false`, `first_unlock_this_device`) are
 /// reused from [PluginSecureKeyStore]: `first_unlock` keeps background token
-/// refresh working after a reboot, `_this_device` keeps it out of iCloud.
+/// refresh working after the first device unlock following a reboot.
+/// `_this_device` prevents migration to another device; it can still be restored
+/// from a backup to the same device.
 class SecureSessionLocalStorage extends LocalStorage {
   SecureSessionLocalStorage({
     required this.persistSessionKey,
