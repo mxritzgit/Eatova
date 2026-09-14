@@ -99,10 +99,14 @@ def main():
     parser.add_argument('--prove-detection', action='store_true')
     args = parser.parse_args()
     docker('image', 'inspect', IMAGE)
+    revision = command(['git', '-C', str(ROOT), 'rev-parse', 'HEAD']).stdout.decode().strip()
+    if len(revision) != 40 or any(character not in '0123456789abcdef' for character in revision):
+        raise RuntimeError('Cannot identify the reviewed source revision')
     run_id = uuid.uuid4().hex
     containers = []
     started = time.monotonic()
-    report = {'synthetic_only': True, 'network': 'none', 'published_ports': 0,
+    report = {'source_revision': revision, 'synthetic_only': True,
+              'network': 'none', 'published_ports': 0,
               'image': IMAGE, 'migration_count': 0}
     try:
         for side in ('source', 'restored'):
