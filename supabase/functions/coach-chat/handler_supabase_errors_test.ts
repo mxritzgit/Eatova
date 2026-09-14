@@ -82,7 +82,7 @@ async function withStub(
     const answer = (stage: Stage, value: unknown) => replyFor(stage, value, init?.signal);
     try {
       if (url.endsWith("/rest/v1/rpc/reserve_ai_provider_call")) return Promise.resolve(json({ allowed: true, reason: "allowed" }));
-    if (url.endsWith("/auth/v1/user")) return Promise.resolve(answer("auth", { id: USER_ID }));
+      if (url.endsWith("/auth/v1/user")) return Promise.resolve(answer("auth", { id: USER_ID }));
       if (url.endsWith("/consume_edge_rate_limits")) {
         return Promise.resolve(answer("limits", [{ allowed: true }, { allowed: true }]));
       }
