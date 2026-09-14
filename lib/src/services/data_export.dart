@@ -11,6 +11,7 @@ import 'package:supabase/supabase.dart';
 /// export nor silently look empty — it is named under `unvollstaendig`. A
 /// section cut at [einSeitenLimit] is listed separately under `gekappt`, so
 /// the recipient does not mistake the cap for their whole data set.
+/// Nonempty sections without a server count are explicitly unverified.
 ///
 /// Because every section error is caught, [buildExportJson] never throws
 /// offline; how much actually arrived is what [exportUmfangAus] reports.
@@ -40,6 +41,8 @@ class DataExportService {
   /// `edge_rate_limits` is deliberately absent: no `user_id` (only a SHA-256
   /// subject hash), no select policy, revoked from `authenticated`. Any new
   /// table holding user data belongs here or it drops out of the export.
+  /// `lifetime_stats_requests` contains operational replay markers and is
+  /// reserved for a separate, authorized operator data-access request.
   static const List<String> userIdTabellen = <String>[
     'lifetime_stats',
     'favorite_meals',
@@ -53,6 +56,7 @@ class DataExportService {
     'chat_sessions',
     'chat_messages',
     'chat_quota_usage',
+    'ai_provider_user_usage',
   ];
 
   /// Every section a complete export must contain. The completeness test
@@ -72,6 +76,7 @@ class DataExportService {
       'userId': _userId,
     };
     final unvollstaendig = <String>[];
+    final ungeprueft = <String>[];
     // Section -> rows the server really holds; `null` if it did not count.
     final gekappt = <String, int?>{};
 
@@ -91,15 +96,20 @@ class DataExportService {
 
     await sektion(
       'profiles',
-      () => _rows('profiles', keySpalte: 'id', gekappt: gekappt),
+      () => _rows('profiles', keySpalte: 'id', gekappt: gekappt,
+          ungeprueft: ungeprueft),
     );
     await sektion('logged_meals', _alleLoggedMeals);
     for (final tabelle in userIdTabellen) {
-      await sektion(tabelle, () => _rows(tabelle, gekappt: gekappt));
+      await sektion(tabelle, () => _rows(tabelle, gekappt: gekappt,
+          ungeprueft: ungeprueft));
     }
 
     if (unvollstaendig.isNotEmpty) {
       export['unvollstaendig'] = unvollstaendig;
+    }
+    if (ungeprueft.isNotEmpty) {
+      export['vollstaendigkeitUnbekannt'] = ungeprueft;
     }
     if (gekappt.isNotEmpty) {
       final gezaehlt = <String, int>{
@@ -128,6 +138,7 @@ class DataExportService {
   Future<List<Map<String, dynamic>>> _rows(
     String tabelle, {
     required Map<String, int?> gekappt,
+    required List<String> ungeprueft,
     String keySpalte = 'user_id',
   }) async {
     final (alle, aufDemServer) = await _seiteMitZaehler(tabelle, keySpalte);
@@ -142,6 +153,9 @@ class DataExportService {
       gekappt[tabelle] = null;
       return alle.sublist(0, einSeitenLimit);
     }
+    // A short nonempty response without a total may be a smaller server cap.
+    // Preserve the data, but do not label unverified completeness as fact.
+    if (aufDemServer == null && alle.isNotEmpty) ungeprueft.add(tabelle);
     return alle;
   }
 
@@ -193,12 +207,18 @@ class DataExportService {
           .order('logged_at', ascending: false)
           .order('id', ascending: false)
           .range(von, von + pageSize - 1);
+      if (seite.isEmpty) break;
+      final vorher = rows.length;
       for (final row in seite) {
         final map = Map<String, dynamic>.of(row);
         if (gesehen.add(map['id'])) rows.add(map);
       }
-      if (seite.length < pageSize) break;
-      von += pageSize;
+      if (rows.length == vorher) {
+        throw const FormatException('Diary pagination made no progress');
+      }
+      // A server-side row cap may be lower than pageSize. A short page does
+      // not prove completion; advance by what arrived and stop on empty.
+      von += seite.length;
     }
     return rows;
   }
@@ -214,7 +234,7 @@ enum ExportUmfang {
   /// Every section present, nothing truncated.
   vollstaendig,
 
-  /// At least one section missing or truncated.
+  /// At least one section missing, truncated or not proven complete.
   teilweise,
 
   /// Not a single section arrived.
@@ -239,7 +259,8 @@ ExportUmfang? exportUmfangAus(String json) {
   if (geladen == 0) return ExportUmfang.nichtsGeladen;
   if (geladen < DataExportService.alleExportTabellen.length ||
       auskunft.containsKey('unvollstaendig') ||
-      auskunft.containsKey('gekappt')) {
+      auskunft.containsKey('gekappt') ||
+      auskunft.containsKey('vollstaendigkeitUnbekannt')) {
     return ExportUmfang.teilweise;
   }
   return ExportUmfang.vollstaendig;

@@ -1192,7 +1192,7 @@
   "settingsAccountDiscardConfirm": "Cancel",
 
   "exportSheetLoadingSubtitle": "Your data is loading from the server …",
-  "exportSheetErrorSubtitle": "Server not reachable — please reopen the full copy with an internet connection.",
+  "exportSheetErrorSubtitle": "This copy is incomplete or could not be fully verified. Please try again later.",
   "exportSheetFullSubtitle": "Full copy of your stored data as JSON — all tables, loaded directly from the server (Art. 15/20 GDPR).",
   "exportSheetSessionSubtitle": "In-memory snapshot of your current session as JSON.",
   "exportSheetTitleFull": "Data disclosure",

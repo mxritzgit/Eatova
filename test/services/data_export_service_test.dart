@@ -31,6 +31,8 @@ final List<Map<String, dynamic>> _mealRows = List.generate(5, (i) {
 class _FakePostgrest {
   final List<http.Request> requests = <http.Request>[];
   bool failChatMessages = false;
+  int? serverPageLimit;
+  bool ignoresOffset = false;
 
   /// Simulates what an offset scan really does when a row is inserted while
   /// the export runs: the window slides and the following page repeats a row
@@ -44,8 +46,13 @@ class _FakePostgrest {
     requests.add(req);
     final path = req.url.path;
 
-    http.Response ok(Object body) => http.Response(jsonEncode(body), 200,
-        headers: const {'Content-Type': 'application/json'}, request: req);
+    http.Response ok(Object body) {
+      final count = body is List ? body.length : 0;
+      return http.Response(jsonEncode(body), 200, headers: {
+        'Content-Type': 'application/json',
+        'content-range': '${count == 0 ? '*' : '0-${count - 1}'}/$count',
+      }, request: req);
+    }
 
     if (path.contains('/profiles')) {
       return ok([
@@ -73,6 +80,13 @@ class _FakePostgrest {
           from = int.parse(m.group(1)!);
           to = int.parse(m.group(2)!);
         }
+      }
+      if (ignoresOffset) {
+        to -= from;
+        from = 0;
+      }
+      if (serverPageLimit case final int cap) {
+        to = to.clamp(from, from + cap - 1);
       }
       if (wiederholtEineZeile && from > 0) from -= 1;
       if (from >= _mealRows.length) return ok(const <dynamic>[]);
@@ -102,6 +116,12 @@ class _FakePostgrest {
           'user_id': 'user-export',
           'payload': <String, dynamic>{'mealName': 'Bowl'},
         }
+      ]);
+    }
+    if (path.endsWith('/ai_provider_user_usage')) {
+      expect(req.url.queryParameters['user_id'], 'eq.user-export');
+      return ok([
+        {'user_id': 'user-export', 'usage_date': '2026-09-15', 'calls': 3},
       ]);
     }
     // Remaining tables: empty, but successful.
@@ -139,6 +159,9 @@ void main() {
         containsPair('content', 'Wie viel Protein brauche ich?'));
     expect((json['favorite_meals'] as List).single,
         containsPair('favorite_key', 'name:bowl'));
+    expect(json['ai_provider_user_usage'], [
+      {'user_id': 'user-export', 'usage_date': '2026-09-15', 'calls': 3},
+    ]);
     for (final tabelle in DataExportService.alleExportTabellen) {
       expect(json.containsKey(tabelle), isTrue,
           reason: '$tabelle fehlt im Export');
@@ -168,7 +191,7 @@ void main() {
     for (var i = 0; i < seiten.length; i++) {
       expect(seiten[i].url.queryParameters['limit'], '2',
           reason: 'Seite $i fordert genau pageSize Zeilen an');
-      expect(seiten[i].url.queryParameters['offset'], '${i * 2}',
+      expect(seiten[i].url.queryParameters['offset'], '${[0, 2, 4, 5][i]}',
           reason: 'die Fenster stossen lueckenlos aneinander');
     }
   });
@@ -187,6 +210,40 @@ void main() {
         reason: 'ohne den id-Filter stuenden Mahlzeiten doppelt in der '
             'Auskunft und der Empfaenger zaehlt falsch');
     expect(ids.toSet(), _mealRows.map((r) => r['id']).toSet());
+  });
+
+  test('ein kleineres Server-Seitenlimit schneidet das Tagebuch nicht ab',
+      () async {
+    final (service, server) = setup(pageSize: 3);
+    server.serverPageLimit = 2;
+    final text = await service.buildExportJson();
+    final json = jsonDecode(text) as Map<String, dynamic>;
+
+    expect((json['logged_meals'] as List).map((row) => (row as Map)['id']),
+        _mealRows.map((row) => row['id']));
+    expect(exportUmfangAus(text), ExportUmfang.vollstaendig);
+    expect(
+      server.requests
+          .where((r) => r.url.path.endsWith('/logged_meals'))
+          .map((r) => r.url.queryParameters['offset']),
+      ['0', '2', '4', '5'],
+      reason: 'Die naechste Seite folgt auf die wirklich empfangenen Zeilen.',
+    );
+  });
+
+  test('ein Server ohne Seitenfortschritt endet als unvollstaendig', () async {
+    final (service, server) = setup();
+    server.ignoresOffset = true;
+    final text = await service.buildExportJson();
+    final json = jsonDecode(text) as Map<String, dynamic>;
+
+    expect(json['unvollstaendig'], contains('logged_meals'));
+    expect(json, isNot(contains('logged_meals')));
+    expect(exportUmfangAus(text), ExportUmfang.teilweise);
+    expect(
+        server.requests.where((r) => r.url.path.endsWith('/logged_meals')),
+        hasLength(2),
+        reason: 'Kein unbegrenztes Nachladen der gleichen privaten Daten.');
   });
 
   test('eine nicht lesbare Tabelle macht den Export nicht kaputt — sie wird '

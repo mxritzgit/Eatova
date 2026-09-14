@@ -871,5 +871,6 @@ rollback;
 \ir training_history_rls.sql
 \ir meal_plans_rls.sql
 \ir database_privilege_boundaries.sql
+\ir privacy_deletion.sql
 
 select 'RLS-Kreuzzugriffe: alle Erwartungen erfuellt' as ergebnis;

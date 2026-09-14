@@ -378,7 +378,7 @@ class StummerFotoStore extends RecipeImageStore {
   Future<void> setActiveUser(String? userId) => Future<void>.value();
 
   @override
-  Future<void> clear() => Future<void>.value();
+  Future<void> clear({String? expectedUserId}) => Future<void>.value();
 }
 
 /// A timestamp that is guaranteed to sit on TODAY's local calendar day, at

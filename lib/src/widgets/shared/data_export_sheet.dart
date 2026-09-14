@@ -177,8 +177,7 @@ class _DataExportSheetState extends State<DataExportSheet> {
       // The fetch did not throw but loaded nothing; without this case the
       // sheet would claim a complete export over an empty file.
       ExportUmfang.nichtsGeladen => l10n.exportNothingLoaded,
-      // No separate sentence for "partial": the error sentence is the closest
-      // one that claims no completeness and advises retrying online.
+      // Covers missing rows as well as an unavailable server count.
       ExportUmfang.teilweise => l10n.exportSheetErrorSubtitle,
       _ => l10n.exportSheetFullSubtitle,
     };
