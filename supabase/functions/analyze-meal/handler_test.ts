@@ -9,18 +9,15 @@
 // No external test dependencies, same style as ../coach-chat/handler_test.ts.
 
 import { handleRequest } from './handler.ts';
+import { PNG_BASE64 } from './image_fixtures.ts';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const BASE_URL = 'https://supabase.test.invalid';
 const ANON_KEY = 'test-anon-key';
 const USER_JWT = 'test-user-jwt';
 
-// Image payload of the tests. The function never DECODES the base64 — it
-// forwards it as a data: URL and only checks the character set and estimated
-// size. A PNG prefix plus padding suffices, but it must exceed
-// MIN_IMAGE_BYTES (128 bytes = 171 base64 chars) or image_too_small fires
-// instead of the path under test.
-const IMAGE_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ' + 'A'.repeat(200);
+// Real synthetic PNG above MIN_IMAGE_BYTES; provider requests remain stubbed.
+const IMAGE_BASE64 = PNG_BASE64;
 
 // Over MAX_IMAGE_BYTES (5 MB): estimatedBytes = floor(len * 0.75), so more
 // than 6,666,666 chars are needed while the JSON body stays under
@@ -1328,7 +1325,7 @@ for (const [label, hint, expected] of [
       assertEquals(messages[1].role, 'user', 'Data role');
       const content = messages[1].content as JsonRecord[];
       assertEquals(JSON.parse(String(content[0].text)).foodObservations, expected, 'Observation value');
-      assertEquals((content[1].image_url as JsonRecord).url, `data:image/jpeg;base64,${IMAGE_BASE64}`, 'Photo preserved');
+      assertEquals((content[1].image_url as JsonRecord).url, `data:image/png;base64,${IMAGE_BASE64}`, 'Photo preserved');
       assertEquals(stub.rateLimitScopes().join(','), GATE_ORDER, 'Normal gate order');
       assert(!logs.text().includes(BODY_PROBE), 'Context must not be logged');
       assert(!logs.text().includes(IMAGE_BASE64), 'Photo must not be logged');

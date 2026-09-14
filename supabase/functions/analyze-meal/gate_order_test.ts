@@ -18,15 +18,15 @@
 
 import { handleRequest } from './handler.ts';
 import { pruneRateLimits } from '../_shared/rate_limit_prune.ts';
+import { PNG_BASE64 } from './image_fixtures.ts';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const BASE_URL = 'https://supabase.test.invalid';
 const ANON_KEY = 'test-anon-key';
 const USER_JWT = 'test-user-jwt';
 
-// Must exceed MIN_IMAGE_BYTES (128 bytes = 171 base64 chars), otherwise
-// image_too_small fires instead of the path under test.
-const IMAGE_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ' + 'A'.repeat(200);
+// Real synthetic PNG above MIN_IMAGE_BYTES; provider requests remain stubbed.
+const IMAGE_BASE64 = PNG_BASE64;
 // Over MAX_IMAGE_BYTES (5 MB) but below MAX_CONTENT_LENGTH (7 MB), so the
 // second 413 (image_too_large) fires — the one that sits behind the gates.
 const OVERSIZED_IMAGE_BASE64 = 'A'.repeat(6_700_000);
