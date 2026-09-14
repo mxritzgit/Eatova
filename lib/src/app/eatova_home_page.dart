@@ -320,18 +320,25 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     }
   }
 
-  /// Regular sign-out: clear the local PII cache (M-1) first — cleanup needs
-  /// the still-logged-in user. The flag comes before both, since only it tells
-  /// [AuthGate] "signed out" from "session lost".
+  /// Prepare durable logout before clearing local data; cleanup still needs
+  /// the signed-in user. The intent distinguishes logout from session loss.
   Future<void> _signOut() async {
     IntentionalSignOut.mark();
     try {
-      await _store.signOutCleanup();
-      await widget.onSignOut?.call();
+      if (widget.authRepository case final CoordinatedSignOut repository) {
+        await repository.signOutWithCleanup(_store.signOutCleanup);
+      } else {
+        await _store.signOutCleanup();
+        await widget.onSignOut?.call();
+      }
     } catch (_) {
       // Sign-out failed, so no intent may explain a later auth event.
       IntentionalSignOut.clear();
-      rethrow;
+      if (!mounted) return;
+      _emitSnack(
+        context.l10n.settingsSignOutFailed,
+        tone: SnackTone.error,
+      );
     }
   }
 

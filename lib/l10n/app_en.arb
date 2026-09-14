@@ -1101,6 +1101,7 @@
   "settingsAboutSubtitle": "Version, sources & privacy",
   "settingsGroupDangerZone": "DANGER ZONE",
   "settingsSignOutTitle": "Sign out",
+  "settingsSignOutFailed": "Sign-out failed. Please try again.",
   "settingsDeleteAccountTitle": "Delete account",
   "settingsDeleteAccountBlockSubtitle": "Removes all entries permanently",
   "settingsDeleteAccountPromptPrefix": "You'll be asked to type ",

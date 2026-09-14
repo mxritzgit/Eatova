@@ -1129,6 +1129,7 @@
   "settingsAboutSubtitle": "Version, Quellen & Datenschutz",
   "settingsGroupDangerZone": "GEFAHRENZONE",
   "settingsSignOutTitle": "Ausloggen",
+  "settingsSignOutFailed": "Abmelden fehlgeschlagen. Bitte versuche es erneut.",
   "settingsDeleteAccountTitle": "Konto löschen",
   "settingsDeleteAccountBlockSubtitle": "Entfernt alle Einträge dauerhaft",
   "settingsDeleteAccountPromptPrefix": "Du wirst gebeten, ",
