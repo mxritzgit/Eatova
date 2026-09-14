@@ -257,7 +257,7 @@ class _SlotMark extends StatelessWidget {
         color: slot.diarySurface(context.t),
         shape: BoxShape.circle,
       ),
-      child: Icon(slot.diaryIcon, size: 21, color: context.t.ink),
+      child: AppIcon(slot.symbol, size: 21, color: context.t.ink),
     ),
   );
 }

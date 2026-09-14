@@ -39,8 +39,7 @@ void main() {
                 onChanged: (_) {},
                 items: const <AppNavItem>[
                   AppNavItem(
-                    icon: Icons.restaurant_outlined,
-                    activeIcon: Icons.restaurant_rounded,
+                    icon: AppSymbol.food,
                     label: 'Food',
                   ),
                 ],

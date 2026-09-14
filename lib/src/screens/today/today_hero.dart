@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
+import '../../widgets/design/app_icon.dart';
 import 'today_progress.dart';
 import 'today_texts.dart';
 
@@ -98,8 +99,8 @@ class TodayCalorieHero extends StatelessWidget {
                 width: 32,
                 height: 32,
                 decoration: BoxDecoration(color: t.ink, shape: BoxShape.circle),
-                child: Icon(
-                  Icons.local_fire_department_outlined,
+                child: AppIcon(
+                  AppSymbol.energy,
                   color: t.bg,
                   size: 21,
                 ),

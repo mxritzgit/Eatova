@@ -213,7 +213,7 @@ class TodayScreen extends StatelessWidget {
                   borderRadius: BorderRadius.circular(rPill),
                 ),
               ),
-              icon: const Icon(Icons.add_circle_rounded, size: 23),
+              icon: const AppIcon(AppSymbol.addMeal, size: 23),
               label: Text(l10n.todayAddMeal),
             ),
           ),
@@ -257,11 +257,11 @@ class _Kopfzeile extends StatelessWidget {
         ),
         const SizedBox(width: 8),
         if (onOpenSettings != null) ...[
-          SquareIconButton(
+          SquareIconButton.custom(
             key: const ValueKey('today-settings'),
-            icon: Icons.settings_outlined,
             onTap: onOpenSettings,
             semanticLabel: context.l10n.foodSemanticsSettings,
+            child: const AppIcon(AppSymbol.settings),
           ),
           const SizedBox(width: 8),
         ],

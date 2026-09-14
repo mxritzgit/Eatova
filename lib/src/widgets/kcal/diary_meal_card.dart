@@ -137,8 +137,8 @@ class _DiaryMealCardState extends State<DiaryMealCard> {
                   color: slot.diarySurface(t),
                   borderRadius: BorderRadius.circular(rCard),
                 ),
-                child: Icon(
-                  slot.diaryIcon,
+                child: AppIcon(
+                  slot.symbol,
                   color: slot == MealSlot.snack ? t.accent : slot.accentOn(t),
                   size: 26,
                 ),

@@ -193,7 +193,7 @@ class _MealSlotButton extends StatelessWidget {
                   color: slot.diarySurface(t),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Icon(slot.diaryIcon, size: 24, color: accent),
+                child: AppIcon(slot.symbol, size: 24, color: accent),
               ),
 
               const SizedBox(width: 12),

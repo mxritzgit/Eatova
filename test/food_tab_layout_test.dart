@@ -32,23 +32,19 @@ Future<void> _pumpFoodTab(WidgetTester tester, {double textScale = 1.0}) async {
         onChanged: (_) {},
         items: const <AppNavItem>[
           AppNavItem(
-            icon: Icons.home_outlined,
-            activeIcon: Icons.home_rounded,
+            icon: AppSymbol.today,
             label: 'Heute',
           ),
           AppNavItem(
-            icon: Icons.restaurant_outlined,
-            activeIcon: Icons.restaurant_rounded,
+            icon: AppSymbol.food,
             label: 'Food',
           ),
           AppNavItem(
-            icon: Icons.menu_book_outlined,
-            activeIcon: Icons.menu_book_rounded,
+            icon: AppSymbol.recipes,
             label: 'Rezepte',
           ),
           AppNavItem(
-            icon: Icons.auto_awesome_outlined,
-            activeIcon: Icons.auto_awesome_rounded,
+            icon: AppSymbol.coach,
             label: 'Coach',
           ),
         ],
