@@ -2,9 +2,35 @@
 
 Vorbereitet am 14.09.2026 für [eatova.de/datenschutz](https://eatova.de/datenschutz).
 **Noch nicht veröffentlicht.** Diese Datei enthält die sachlichen Änderungen für
-die bestehende deutsche Seite. Die zugehörige Website-Quelle bzw. das CMS konnte
-im lokalen Projektbestand und in den öffentlichen Repository-Metadaten nicht
-zugeordnet werden. Der Commit dieser Datei verändert die öffentliche Seite nicht.
+die bestehende deutsche Seite. Die lokale Quelle wurde inzwischen zugeordnet:
+`EatovaTest21st/public/datenschutz.html` stimmt am 14.09.2026 exakt mit dem per
+HTTPS abgerufenen öffentlichen Datenschutz-HTML überein. Der Projektordner
+`EatovaTestCodex` enthält eine lokale Neugestaltung und eine identische archivierte
+Referenz; seine gestaltete Rechtsseite ist nicht der veröffentlichte HTML-Stand.
+Der Commit dieser Datei verändert die öffentliche Seite nicht.
+
+Der [vorbereitete Ein-Datei-Patch](PRIVACY-WEBSITE-CORRECTION-2026-09-14.patch)
+wendet die Änderungen auf `public/datenschutz.html` an. Er wurde gegen eine
+isolierte Kopie erstellt; das bestehende Website-Projekt mit seinen uncommitteten
+Designänderungen wurde nicht verändert. `git apply --check` ist gegen die
+zugeordnete lokale Quelle erfolgreich. Ein späterer Gesamtbuild oder Upload des
+Website-Projekts würde weitere vorhandene Änderungen einschließen und ist nicht
+Teil dieser Korrekturvorbereitung.
+
+SHA-256 des ursprünglichen, veröffentlichten HTML nach LF-Normalisierung:
+`ffc51f782bc1a1e1150ff3dca59345b0814be267316362a51b2b5b1818409877`.
+Vor einer späteren Anwendung die Quelle erneut abgleichen, den Patch nur auf die
+Datenschutzdatei anwenden und ausschließlich das geprüfte Ergebnis zur
+Veröffentlichung vorlegen. Das Änderungsdatum im Patch ist das Vorbereitungsdatum
+und muss zum tatsächlichen Veröffentlichungsstand passen.
+
+Die isolierte HTML-Fassung wurde mit den vorhandenen lokalen Website-Styles
+in Chromium bei 320, 390, 768 und 1440 Pixel Breite geprüft: keine horizontale
+Überbreite, keine fehlenden Ressourcen oder JavaScriptfehler; alle 26 IDs sind
+eindeutig und alle internen Sprungziele vorhanden. Neue Anbieter-/Trainings-/Health-
+Connect-/Exportangaben sind im gerenderten Text enthalten. Die Originaldatei hat
+nach den Tests weiterhin denselben Hash. Das ist ein lokaler HTML-Nachweis,
+kein vollständiger Site-Build oder Veröffentlichungsnachweis.
 
 Die Texte folgen den aktuellen Datenflüssen im App-Repository. Vor Veröffentlichung
 müssen die tatsächlich bereitgestellten Modellanbieter und etwaige Serveroverrides
