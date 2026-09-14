@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -7,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/supabase_config.dart';
 import '../l10n/l10n.dart';
 import '../services/crash_reporter.dart';
+import '../services/session_revocations.dart';
 import 'auth_exceptions.dart';
 import 'auth_session_mutation.dart';
 import 'google_id_token_provider.dart';
@@ -150,13 +152,16 @@ class SupabaseAuthRepository implements AuthRepository {
     this._client, {
     GoogleIdTokenProvider? googleIdTokenProvider,
     http.Client? mutationHttpClient,
+    SecureSessionLocalStorage? sessionStorage,
   }) : _googleIdTokenProvider =
            googleIdTokenProvider ?? const GoogleSignInIdTokenProvider(),
-       _mutationHttpClient = mutationHttpClient;
+       _mutationHttpClient = mutationHttpClient,
+       _sessionStorage = sessionStorage;
 
   final SupabaseClient _client;
   final GoogleIdTokenProvider _googleIdTokenProvider;
   final http.Client? _mutationHttpClient;
+  final SecureSessionLocalStorage? _sessionStorage;
 
   @override
   EatovaUser? get currentUser => _mapUser(_client.auth.currentUser);
@@ -335,7 +340,25 @@ class SupabaseAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<void> signOut() => _client.auth.signOut();
+  Future<void> signOut() async {
+    final session = _client.auth.currentSession;
+    final storage =
+        _sessionStorage ?? EatovaSupabaseConfig.sessionStorageFor(_client);
+    if (session != null && storage != null) {
+      await storage.prepareLogout(jsonEncode(session.toJson()));
+      // A second login while the preflight is pending belongs to its caller.
+      // Do not pass it to the SDK's parameterless signOut().
+      final current = _client.auth.currentSession;
+      if (current == null ||
+          !SessionRevocations.sameSession(
+            jsonEncode(session.toJson()),
+            jsonEncode(current.toJson()),
+          )) {
+        throw const AuthException('Authentication session changed');
+      }
+    }
+    await _client.auth.signOut();
+  }
 
   EatovaUser? _mapUser(User? user) {
     if (user == null) return null;
