@@ -52,6 +52,10 @@ flutter test --coverage \
 deno lint supabase/functions \
   && deno check supabase/functions/*/index.ts \
   && deno test --allow-env supabase/functions
+
+# Offline evaluation harness; no API key or network permission.
+deno lint supabase/eval
+deno test --allow-env supabase/eval/coach_eval_test.ts
 ```
 
 Step 3 is required whenever you touch `supabase/functions/`; it is cheap
@@ -64,6 +68,16 @@ The line-coverage floor is **88%**, excluding `lib/src/l10n/generated/`.
 The Deno job also executes each discovered test file independently to catch
 module-state/test-discovery gaps. Follow the workflow's disposable PostgreSQL
 setup for database checks; never run the RLS suite against the live service.
+Database changes also run the provider-budget SQL/race checks and
+`python test/operations/backup_restore.py --prove-detection` against new,
+synthetic containers. See [operations](docs/OPERATIONS.md).
+
+The Android job resolves and strictly scans actual runtime/desugar dependencies;
+the dependency job also inventories pinned Swift revisions. Gradle build-tool
+advisories are a separate visible report with [dated reachability triage](android/BUILD_TOOL_SECURITY.md).
+Scanner/inventory errors fail the job; an advisory report is not proof that the
+toolchain is free from vulnerabilities. The Gradle resolver regression fixtures
+require the normal Flutter-generated wrapper/bootstrap before execution.
 
 Live migration drift runs on `main`, including the weekly scheduled run, in the
 `supabase-drift` GitHub environment. Its deployment branch policy must allow only
