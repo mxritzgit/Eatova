@@ -216,12 +216,14 @@ class RecipeImageStore {
   /// signed in, there is no storage location, or the bytes never arrived in
   /// this namespace.
   Future<File?> resolve(String imageAsset) async {
+    final scope = _scopeToken;
     final name = _fileNameFor(imageAsset);
     if (name == null) return null;
     final namespace = await _ensureNamespace();
     if (namespace == null) return null;
     final file = File('${namespace.path}/$name');
-    return await file.exists() ? file : null;
+    final exists = await file.exists();
+    return identical(scope, _scopeToken) && exists ? file : null;
   }
 
   /// Like [resolve] but without await; null while the namespace is not yet
@@ -381,10 +383,12 @@ class RecipeImageStore {
   /// Bytes of the proposal image for [messageId]; null when it is not in this
   /// namespace on this device.
   Future<Uint8List?> readProposalImage(String messageId) async {
+    final scope = _scopeToken;
     final file = await resolve(proposalReference(messageId));
     if (file == null) return null;
     try {
-      return await file.readAsBytes();
+      final bytes = await file.readAsBytes();
+      return identical(scope, _scopeToken) ? bytes : null;
     } catch (e) {
       dev.log('RecipeImageStore: Vorschlagsbild nicht lesbar',
           error: e, name: 'recipe_image_store');
@@ -517,12 +521,16 @@ class RecipeImageStore {
     });
   }
 
-  /// Wipes the whole root folder — all namespaces and the flat legacy files.
-  ///
-  /// Recipe photos are PII and must vanish on sign-out or account deletion
-  /// like every other slot in `LocalCache.clear()`. Deliberately broader than
-  /// the transition purge in [setActiveUser].
-  Future<void> clear() {
+  /// Wipes the root when no owner is supplied. Delayed account cleanup must
+  /// pass [expectedUserId] to erase only its namespace and legacy flat files.
+  Future<void> clear({String? expectedUserId}) {
+    if (expectedUserId != null) {
+      // Delayed cleanup belongs to the initiating store's pinned identity. A
+      // previous user's cleanup must not invalidate the new user's photos.
+      if (_activeUserId == expectedUserId) _scopeToken = Object();
+      return _afterMaintenance(() => _purgeNamespace(expectedUserId,
+          invalidateActive: _activeUserId == expectedUserId));
+    }
     _scopeToken = Object();
     // Via the maintenance chain, so no concurrent migration moves a file into
     // a namespace while the folder is being deleted.
@@ -548,10 +556,13 @@ class RecipeImageStore {
   /// Purges [uid]'s namespace and the flat legacy files. Those predate
   /// namespaces and belong to the previous device user, so they go too even if
   /// his migration never ran. Fail-closed; errors are logged, never rethrown.
-  Future<void> _purgeNamespace(String uid) async {
-    // Same reason as in [clear]: raised before the first await.
-    _purgeEpoch++;
-    _writtenThisSession.clear();
+  Future<void> _purgeNamespace(String uid, {bool invalidateActive = true}) async {
+    // Same reason as in [clear]: raised before the first await. A delayed
+    // identity-pinned clear of A must leave B's current writes valid.
+    if (invalidateActive) {
+      _purgeEpoch++;
+      _writtenThisSession.clear();
+    }
     final root = await _ensureRoot();
     if (root == null) return;
     try {
