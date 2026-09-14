@@ -10,7 +10,7 @@ import { userToken } from "../_shared/auth_test_fixtures.ts";
 //
 // No external test dependencies, same style as prefilter_test.ts.
 
-import { handleRequest, PROVIDER_TIMEOUTS_MS } from "./handler.ts";
+import { handleRequest, PROVIDER_TIMEOUTS_MS, REQUEST_BODY_TIMEOUTS_MS } from "./handler.ts";
 import { JPEG_BASE64, PNG_BASE64, WEBP_BASE64 } from "../analyze-meal/image_fixtures.ts";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -2799,4 +2799,110 @@ Deno.test('raster boundary: invalid photo does not create a session or spend quo
       assertEquals(stub.openRouterBodies.length, 0, 'no provider');
     } finally { stub.restore(); }
   }
+});
+
+for (const scenario of ["silent", "idle", "drip", "empty-drip", "abort", "already-aborted"] as const) {
+  Deno.test(`upload deadline: ${scenario} stops before session, question or provider quota`, async () => {
+    const saved = { ...REQUEST_BODY_TIMEOUTS_MS };
+    REQUEST_BODY_TIMEOUTS_MS.idle = 40;
+    REQUEST_BODY_TIMEOUTS_MS.total = 120;
+    const stub = installFetch({ quota: "exhausted" });
+    const abort = new AbortController();
+    const bytes = new TextEncoder();
+    let closed = false;
+    let cancelled = false;
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>({
+      start(value) { controller = value; },
+      cancel() {
+        closed = true;
+        cancelled = true;
+        // A stuck source cleanup cannot extend the reader's own deadline.
+        if (scenario === "silent") return new Promise<void>(() => {});
+      },
+    });
+    if (scenario === "idle") controller.enqueue(bytes.encode(" "));
+    if (scenario === "already-aborted") abort.abort();
+    const drip = setInterval(() => {
+      if (closed) return;
+      if (scenario === "drip") controller.enqueue(bytes.encode(" "));
+      if (scenario === "empty-drip") controller.enqueue(new Uint8Array());
+    }, 10);
+    const abortTimer = setTimeout(() => {
+      if (scenario === "abort") abort.abort(new Error("SYNTHETIC_PRIVATE_ABORT"));
+    }, 15);
+    // Bounded negative proof: the old reader eventually gets valid JSON,
+    // reaches the question quota and returns 429 instead of timing out.
+    const watchdog = setTimeout(() => {
+      if (!closed) {
+        closed = true;
+        controller.enqueue(bytes.encode(JSON.stringify({ message: "Please help with dinner" })));
+        controller.close();
+      }
+    }, 350);
+    try {
+      const req = new Request(makeRequest({}), { body, signal: abort.signal });
+      const res = await handleRequest(req);
+      const isAbort = scenario === "abort" || scenario === "already-aborted";
+      assertEquals(res.status, isAbort ? 499 : 408, "bounded request status");
+      assertEquals((await res.json()).error, isAbort ? "request_aborted" : "request_timeout", "sanitized error code");
+      assert(cancelled, "underlying upload stream is cancelled");
+      assertEquals(stub.callsTo("chat_sessions").length, 0, "no session read/write");
+      assertEquals(stub.callsTo("claim_chat_quota").length, 0, "no question quota");
+      assertEquals(stub.callsTo("reserve_ai_provider_call").length, 0, "no provider budget");
+      assertEquals(stub.callsTo("openrouter.ai").length, 0, "no paid request");
+    } finally {
+      clearInterval(drip);
+      clearTimeout(abortTimer);
+      clearTimeout(watchdog);
+      if (!closed) controller.close();
+      Object.assign(REQUEST_BODY_TIMEOUTS_MS, saved);
+      stub.restore();
+    }
+  });
+}
+
+Deno.test("upload deadline: valid chunked JSON resets idle while respecting total deadline", async () => {
+  const saved = { ...REQUEST_BODY_TIMEOUTS_MS };
+  REQUEST_BODY_TIMEOUTS_MS.idle = 70;
+  REQUEST_BODY_TIMEOUTS_MS.total = 500;
+  const stub = installFetch({ quota: "exhausted" });
+  const pieces = ['{"message":', '"Please help ', 'with dinner"', '}'];
+  const encoder = new TextEncoder();
+  let index = 0;
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      timer = setInterval(() => {
+        controller.enqueue(encoder.encode(pieces[index++]));
+        if (index === pieces.length) { clearInterval(timer); controller.close(); }
+      }, 25);
+    },
+    cancel() { cancelled = true; clearInterval(timer); },
+  });
+  try {
+    const res = await handleRequest(new Request(makeRequest({}), { body }));
+    assertEquals(res.status, 429, "completed upload reaches the existing question quota gate");
+    assertEquals((await res.json()).error, "quota_exceeded", "JSON parsed successfully");
+    assertEquals(index, pieces.length, "all chunks consumed");
+    assertEquals(cancelled, false, "completed source needs no cancellation");
+    assertEquals(stub.callsTo("claim_chat_quota").length, 1, "one question claim");
+    assertEquals(stub.callsTo("reserve_ai_provider_call").length, 0, "exhausted question quota stops provider");
+  } finally { clearInterval(timer); Object.assign(REQUEST_BODY_TIMEOUTS_MS, saved); stub.restore(); }
+});
+
+Deno.test("upload deadline: stream errors are sanitized and stop before persistence", async () => {
+  const stub = installFetch({ quota: "exhausted" });
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) { controller.error(new Error("SYNTHETIC_PRIVATE_UPLOAD")); },
+  });
+  try {
+    const res = await handleRequest(new Request(makeRequest({}), { body }));
+    assertEquals(res.status, 400, "controlled stream failure");
+    assertEquals((await res.json()).error, "request_body_unavailable", "no raw stream error");
+    assertEquals(stub.callsTo("chat_sessions").length, 0, "no session changes");
+    assertEquals(stub.callsTo("claim_chat_quota").length, 0, "no question quota");
+    assertEquals(stub.callsTo("reserve_ai_provider_call").length, 0, "no provider budget");
+  } finally { stub.restore(); }
 });

@@ -115,6 +115,11 @@ export const PROVIDER_TIMEOUTS_MS = {
 // is cosmetic — see the call sites. Mutable so tests can shorten it.
 export const SUPABASE_TIMEOUTS_MS = { call: 5_000 };
 
+// The upload phase precedes question/provider quotas. Allow a 30 s upload,
+// including 10 s gaps, within the client's existing 95 s chat deadline.
+// Mutable only to exercise bounded slow streams in offline tests.
+export const REQUEST_BODY_TIMEOUTS_MS = { total: 30_000, idle: 10_000 };
+
 /** One Supabase roundtrip under the shared deadline. Callers translate an
  *  abort into their OWN outage channel (isAbortError); nothing here decides
  *  what a timeout means. */
@@ -2137,33 +2142,69 @@ async function userIdFromJwt(
 }
 
 // ---------------------------------------------------------------------------
-// Body read with a hard server-side byte limit: Content-Length is
-// client-controlled, so the stream itself is capped and past maxBytes the read
-// aborts (null) before an oversized body is fully in memory.
+// Bound the stream itself; Content-Length and client connection speed are
+// untrusted. No question/provider quota is claimed before this completes.
 // ---------------------------------------------------------------------------
-async function readBodyLimited(req: Request | Response, maxBytes: number): Promise<string | null> {
-  if (!req.body) return "";
+class RequestBodyError extends Error {
+  constructor(readonly code: "request_timeout" | "request_aborted" | "request_body_unavailable") {
+    super(code);
+  }
+}
+
+async function readBodyLimited(req: Request, maxBytes: number): Promise<string | null> {
+  if (!req.body) {
+    if (req.signal.aborted) throw new RequestBodyError("request_aborted");
+    return "";
+  }
   const reader = req.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (!value) continue;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel();
-      return null;
+  const started = performance.now();
+  const deadline = new AbortController();
+  const signal = AbortSignal.any([req.signal, deadline.signal]);
+  const cancel = () => { void reader.cancel().catch(() => {}); };
+  signal.addEventListener("abort", cancel, { once: true });
+  const timeout = () => deadline.abort();
+  const wallTimer = setTimeout(timeout, REQUEST_BODY_TIMEOUTS_MS.total);
+  let idleTimer = setTimeout(timeout, REQUEST_BODY_TIMEOUTS_MS.idle);
+  const checkDeadline = () => {
+    if (req.signal.aborted) throw new RequestBodyError("request_aborted");
+    // A continuously ready stream can starve timers; elapsed time still wins.
+    if (signal.aborted || performance.now() - started >= REQUEST_BODY_TIMEOUTS_MS.total) {
+      throw new RequestBodyError("request_timeout");
     }
-    chunks.push(value);
+  };
+  try {
+    while (true) {
+      checkDeadline();
+      const { done, value } = await reader.read();
+      checkDeadline();
+      if (done) break;
+      if (!value?.byteLength) continue;
+      total += value.byteLength;
+      if (total > maxBytes) return null;
+      chunks.push(value);
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(timeout, REQUEST_BODY_TIMEOUTS_MS.idle);
+    }
+    const buf = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      buf.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return new TextDecoder().decode(buf);
+  } catch (error) {
+    if (error instanceof RequestBodyError) throw error;
+    // Never expose a client-controlled stream/abort error in responses or logs.
+    throw new RequestBodyError("request_body_unavailable");
+  } finally {
+    clearTimeout(wallTimer);
+    clearTimeout(idleTimer);
+    signal.removeEventListener("abort", cancel);
+    // Cancellation itself may stall; it must not extend the upload deadline.
+    cancel();
   }
-  const buf = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    buf.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(buf);
 }
 
 async function providerErrorBodyMeta(resp: Response, signal: AbortSignal): Promise<string> {
@@ -2337,8 +2378,15 @@ async function handleCoachRequest(req: Request): Promise<Response> {
   // waits on it.
   void pruneRateLimits({ supabaseUrl, serviceKey });
 
-  // 2) Read the body, hard-capped server-side (see readBodyLimited).
-  const rawBody = await readBodyLimited(req, MAX_CONTENT_LENGTH);
+  // 2) Read the body under byte, idle and total-upload limits.
+  let rawBody: string | null;
+  try {
+    rawBody = await readBodyLimited(req, MAX_CONTENT_LENGTH);
+  } catch (error) {
+    if (!(error instanceof RequestBodyError)) throw error;
+    const status = error.code === "request_timeout" ? 408 : error.code === "request_aborted" ? 499 : 400;
+    return json({ error: error.code }, status);
+  }
   if (rawBody === null) return json({ error: "payload_too_large" }, 413);
   let body: any;
   try { body = JSON.parse(rawBody); } catch { return json({ error: "Invalid JSON" }, 400); }
