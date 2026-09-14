@@ -4,14 +4,15 @@ _Repository data-flow update: 2026-09-14_
 
 > The published German policy for the app and website lives at
 > **[eatova.de/datenschutz](https://eatova.de/datenschutz)**. This repository
-> document now reflects the current app source. The published page, checked on
-> 2026-09-14, still describes Grok/xAI and older feature data. It needs a separate
-> publication update; this Git change does not update the website. Deployment
-> and provider-account terms must be reconciled with the published notice.
+> document reflects the current app source. The public policy was separately
+> corrected on 2026-09-14 at 21:34 UTC after explicit publication approval and a
+> live model-configuration check. See the [publication evidence](docs/BACKEND.md#published-privacy-documentation-follow-up).
+> Provider contracts, account privacy/retention settings and legal requirements
+> remain separate verification needs.
 
 Eatova ("the app") is a nutrition, meal-planning and training app with an AI coach.
 This document explains its data flows and the existing privacy-policy terms.
-It does not establish that a new store build or website policy has been published.
+No new store build was installed as part of that backend and website publication.
 
 **Controller:** Moritz Gietl, Zellweg 6a, 92540 Altendorf, Germany ·
 support@eatova.de
@@ -341,4 +342,4 @@ entered in the app, and the database rejects such values as well (minimum age
 
 The date at the top identifies this repository update. Changes to the published
 policy and any required in-app notice have a separate publication process; the
-current website mismatch is recorded in [Backend](docs/BACKEND.md#published-privacy-documentation-follow-up).
+verified website publication is recorded in [Backend](docs/BACKEND.md#published-privacy-documentation-follow-up).

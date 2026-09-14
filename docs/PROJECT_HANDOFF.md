@@ -981,3 +981,24 @@ excluding generated localization, strict analysis, **541 Deno tests** and all
 and the source secret scan pass. `fix/security-audit-findings` is the delivery
 branch; its protected PR records the later CI and merge checkpoint. No local
 database/schema changes required; the CI still replays all migrations and RLS.
+
+
+## 2026-09-14: authorized backend and privacy publication completed
+
+The user subsequently explicitly approved both deployments. Security PR #90 was
+already merged after green protected CI. `coach-chat` v47 and `analyze-meal` v30
+are ACTIVE with JWT verification; their downloaded production import graphs
+(12 and 9 TypeScript files) match the tested source. `search-key` stays v9.
+The existing Gemini model overrides were verified, with no settings or database
+changes and no billable production AI calls. Rollback sources were retained.
+
+The prepared privacy HTML was published separately at 21:34 UTC on 2026-09-14.
+Public HTML, server file and the updated `EatovaTest21st/public/datenschutz.html`
+match; all 34 other public files are unchanged. Live Chromium at four widths
+passes under the real CSP. Original HTML is retained outside the web root for
+rollback. Only the intended local privacy file changed; unrelated design work
+remains untouched. No new device build was installed.
+
+The [security checkbook](../SECURITY_AUDIT.md#verifizierte-veröffentlichung-am-14092026)
+records current versions, public HTML hash, evidence and remaining limits.
+Earlier "prepared/not deployed" entries describe their historical checkpoints.

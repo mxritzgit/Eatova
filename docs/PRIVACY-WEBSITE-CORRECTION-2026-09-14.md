@@ -1,13 +1,19 @@
 # Korrekturtexte für die öffentliche Datenschutzerklärung
 
 Vorbereitet am 14.09.2026 für [eatova.de/datenschutz](https://eatova.de/datenschutz).
-**Noch nicht veröffentlicht.** Diese Datei enthält die sachlichen Änderungen für
+**Veröffentlicht am 14.09.2026, 21:34 UTC, nach ausdrücklicher Nutzerfreigabe.**
+Der folgende Text dokumentiert die vorbereiteten und inzwischen angewandten Änderungen für
 die bestehende deutsche Seite. Die lokale Quelle wurde inzwischen zugeordnet:
 `EatovaTest21st/public/datenschutz.html` stimmt am 14.09.2026 exakt mit dem per
 HTTPS abgerufenen öffentlichen Datenschutz-HTML überein. Der Projektordner
 `EatovaTestCodex` enthält eine lokale Neugestaltung und eine identische archivierte
 Referenz; seine gestaltete Rechtsseite ist nicht der veröffentlichte HTML-Stand.
-Der Commit dieser Datei verändert die öffentliche Seite nicht.
+Ein separater, verifizierter Einzeldatei-Upload hat die öffentliche Seite aktualisiert.
+Der ursprüngliche Patch bleibt als Änderungsnachweis erhalten; nicht erneut auf die
+bereits aktualisierte Quelle anwenden. Der [Live-Nachweis](../SECURITY_AUDIT.md#verifizierte-veröffentlichung-am-14092026)
+enthält Funktionsversionen, HTML-Hash und Prüfgrenzen. Die übrigen 34 Website-Dateien
+blieben unverändert; die lokale `public/datenschutz.html` entspricht jetzt der
+veröffentlichten Korrektur. Die folgenden Vorbereitungsangaben sind historisch.
 
 Der [vorbereitete Ein-Datei-Patch](PRIVACY-WEBSITE-CORRECTION-2026-09-14.patch)
 wendet die Änderungen auf `public/datenschutz.html` an. Er wurde gegen eine
