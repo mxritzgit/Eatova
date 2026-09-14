@@ -1,5 +1,9 @@
 # Eatova — Deep-Dive-Follow-up „von gut zu richtig gut" (Stand nach Welle-A/B-Ausführung)
 
+> Historical record: statements and open items below describe the dated
+> source/plan, not the current product. See the [current feature inventory](../../FEATURES.md)
+> and [documentation index](../../README.md) for implemented behavior and newer delivery records.
+
 **Datum:** 2026-06-04
 **Methode:** 6 parallele Read-only-Audit-Agenten (Produkt/Retention, Architektur,
 Daten/Sync/Backend, UX/A11y/Datenschutz, Tests, Performance/Plattform). Jeder der

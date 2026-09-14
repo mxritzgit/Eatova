@@ -1,5 +1,9 @@
 # Abarbeitung des Reviews vom 2026-08-08 — Design
 
+> Historical record: statements and open items below describe the dated
+> source/plan, not the current product. See the [current feature inventory](../../FEATURES.md)
+> and [documentation index](../../README.md) for implemented behavior and newer delivery records.
+
 **Basis:** `docs/REVIEW-2026-08-08.md` (61 Funde) · **Branch:** `fix/review-2026-08-08` · **Ausgangs-Commit:** `7f895f9`
 **Baseline vor der ersten Änderung:** `flutter test` → **442 passed, 0 failed**, 31 s.
 

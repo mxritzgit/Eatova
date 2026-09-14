@@ -1,440 +1,206 @@
 # Eatova
 
-> A polished Flutter nutrition app — frictionless calorie and macro tracking
-> with AI meal scanning, barcode lookup, and a personal AI coach.
+Nutrition, meal planning and training in one Flutter app for Android and iOS.
 
-[![Status](https://img.shields.io/badge/status-in%20production-success)](#project-status)
-[![Platform](https://img.shields.io/badge/platform-Flutter-02569B?logo=flutter)](https://flutter.dev)
-[![Backend](https://img.shields.io/badge/backend-Supabase-3ECF8E?logo=supabase&logoColor=white)](https://supabase.com)
-[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![CI](https://github.com/mxritzgit/Eatova/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/mxritzgit/Eatova/actions/workflows/security.yml)
+[![Flutter](https://img.shields.io/badge/Flutter-3.47.2-02569B?logo=flutter)](CONTRIBUTING.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Eatova makes everyday food logging fast: snap a meal photo and get an itemized
-nutrition estimate, scan a barcode, or search a self-hosted product index —
-then let an AI coach answer training and nutrition questions with your actual
-daily numbers as context. The app has five tabs (**Heute**, **Food**,
-**Rezepte**, **Training**, **Coach**), is localized in German and English once you're
-signed in, and targets Android and iOS only.
+Eatova combines a daily calorie and macro dashboard, a food diary, editable
+recipes, a weekly meal plan and shopping list, guided workouts and an AI coach.
+The five tabs are **Today · Food · Recipes · Training · Coach**. German and
+English are supported throughout the app, including sign-in and account flows.
 
-> **i18n scope:** the screens behind sign-in follow the language picker
-> (`gen_l10n` over `lib/l10n/app_de.arb` / `app_en.arb`), guarded by
-> the hardcoding rule in `test/repo_rules_test.dart` — which since the
-> 2026-08-19 review also looks for German display words that carry no umlaut,
-> the class its character filter was blind to. Two things stay outside the
-> picker:
->
-> - the **sign-in/sign-up flow** itself (`lib/src/screens/auth_screen.dart`,
->   `lib/src/screens/auth_code_screen.dart`) is **not** part of that migration
->   and remains hard-coded German — an English-language device sees German text
->   on the very first screen;
-> - German free text that is **already stored**: the model's own `explanation`
->   from earlier meal scans, and notes written into log entries before those
->   notes were resolved at display time. Stored text is your data and is never
->   retranslated retroactively.
->
-> The notes on the analysis card (`lib/src/models/meal_analysis_result.dart`)
-> are what the second point is about: source, confidence and portion notes are
-> moving onto neutral markers that are resolved against the picker when the
-> card is drawn, instead of being frozen in German at logging time. New
-> entries follow the picker as that mechanism reaches each of them; the old
-> rows keep the wording they were written with.
+| Today | Food | Training |
+| --- | --- | --- |
+| <img src="docs/icon-family-preview/today-light-en-1.0.png" width="240" alt="Today dashboard with calorie balance, macro bars and steps"> | <img src="docs/icon-family-preview/food-light-en-1.0.png" width="240" alt="Food diary with distinct meal icons"> | <img src="docs/icon-family-preview/training-footer-dark-en-1.0.png" width="240" alt="Training page with the dark studio design"> |
 
-> **Note on the name:** the app is **Eatova** (formerly ShiftFit/FitPilot).
-> The Dart package is now named `eatova` as well, so package name, app name,
-> and branding are consistent throughout the repository.
-
----
+Actual Flutter renders with fixture data. More previews and implementation
+notes are in the [documentation index](docs/README.md).
 
 ## Project status
 
-Eatova is **in production**. This repository is open-sourced under the MIT
-license so the implementation can be studied, reused, and improved. It is a
-real application, not a demo — treat the `main` branch as shippable.
-See [CHANGELOG.md](CHANGELOG.md) for the release history.
+This documentation describes the source on `main`, checked on **2026-09-14**
+through [PR #88](https://github.com/mxritzgit/Eatova/pull/88). The package is
+`eatova`; `pubspec.yaml` declares **1.1.0+3**. Newer merged work is recorded
+under **Unreleased** in [CHANGELOG.md](CHANGELOG.md).
 
----
+A merged commit, deployed Supabase functions and an installed/store build are
+separate delivery steps. See the [backend guide](docs/BACKEND.md) and dated
+[handoff records](docs/PROJECT_HANDOFF.md) for deployment evidence.
 
 ## Features
 
-- **Today** — the day at a glance: calorie hero, macro rings, and the logging
-  streak. The landing tab; the Food tab is the diary itself.
-- **Food tracking** — calorie and macro tracking per meal slot (breakfast,
-  lunch, dinner, snacks) with:
-  - **AI photo analysis** — preview an in-app camera or gallery photo and add
-    optional food context, such as omitted sauce, before starting analysis.
-    The `analyze-meal` Edge Function returns an itemized nutrition estimate
-    (per-component grams/kcal) that can be re-portioned before and after logging.
-  - **Barcode scanning** — product nutrition via `mobile_scanner`.
-  - **Product search** — live text search against a self-hosted Meilisearch
-    index of Open Food Facts, with the public Open Food Facts API as fallback.
-  - **Manual entry** — a form for label values per 100 g plus the portion, for
-    everything the scan, the barcode and the search do not find.
-  - **History & editing** — swipe-to-delete, an edit sheet for logged meals,
-    pinned favorites, and a date strip to log onto past days.
-- **Trends** — weight, calories, and macros over selectable 7/30/90-day
-  ranges, computed from real logged history, with goal corridor overlays.
-  A full page opened from the Food tab, not a tab of its own.
-- **Recipes** — browse recipes and add them straight to the tracker (on the
-  day currently selected in the Food tab), plus your own recipes with a photo.
-- **Training** — create and edit plans with multiple workouts, repetitions or
-  timed exercises. The session player supports pause/resume, 10-second rewind
-  and forward, reset, and set/exercise navigation. Timed sets advance into
-  their rest and next timed interval automatically; repetitions require manual
-  completion. Leaving saves a paused checkpoint on this device; restarting
-  requires deliberate resume. Removing its source plan or workout retires the
-  checkpoint.
-- **AI Coach** — chat coach for training and nutrition questions with session
-  management, image input, speech input (iOS), a compact snapshot of your
-  remaining macros as context, a daily quota, and layered safety filtering.
-  The `/recipe` command returns a generated recipe with an AI picture as a
-  card; it lands in your recipes only after you confirm it, and the picture
-  stays on the device. `/plan` creates a training draft for review and editing;
-  only explicit adoption saves it to Training.
-- **Profile & stats** — weight log with chart, a stat bar (streak, record,
-  meals logged, weigh-ins), body values, daily goals, and the Apple Health
-  connection. Language, theme, the JSON data export, sign-out and account
-  deletion live on the Settings page behind the gear icon; the reminder toggle
-  sits with the daily goals.
-- **Offline robustness** — a durable write-through cache plus a sync outbox:
-  logging works offline and reconciles with Supabase when connectivity
-  returns; a cold start offline shows the last known state.
-- **Reminders** — one local, on-device notification type: the evening
-  streak-at-risk nudge, planned as dated single shots over a four-week horizon
-  (daily for the first week, then weekly). No push infrastructure required.
-- **Health integration** — reads the step count and body-weight history from
-  Apple HealthKit on iOS, and writes back a body-weight entry when you log a
-  weigh-in; the step count drives the calories-burned estimate.
-  No-op on Android (no Health Connect integration).
-- **Auth** — Supabase e-mail auth plus native Google Sign-In (Credential
-  Manager on Android, Google SDK on iOS) with a web-OAuth fallback.
-- **Crash reporting (opt-in)** — Sentry, only active when a DSN is provided.
+- **Today:** remaining calories, macro progress bars, logging streak and a
+  connected step count. Profile and Settings are opened from this tab.
+- **Food:** camera/gallery meal analysis with optional context, barcode lookup,
+  product search, manual nutrition entry, editable portions, favorites and a
+  calendar for the selected diary date. Trends show weight, calories and macros
+  over 7/30/90 days.
+- **Recipes:** a recipe catalog and editable own/adopted recipes with photos,
+  preparation steps, structured ingredients and fractional servings. Add a
+  portion to the diary or schedule it in the meal plan.
+- **Meal Plan and Shopping List:** plan meals by week, day and meal slot;
+  aggregate compatible ingredient quantities and keep checked items. Planned
+  meals affect the food diary only after an explicit consumption action.
+- **Training:** create/select/edit plans with multiple workouts, repetitions or
+  timed sets. The player supports rest intervals, pause/resume and a local
+  recovery checkpoint. Completed sessions store actual set values and immutable
+  history; previous results are available as “Last time”.
+- **Coach:** streamed conversations with sessions, image input, optional iOS
+  dictation, nutrition context and a server-enforced daily quota. `/recipe`
+  creates a recipe proposal with an image; `/plan` uses an explicit training
+  brief and can discuss/adapt a selected plan. Saving a proposal requires
+  confirmation.
+- **Profile and Settings:** body values, daily goals, weight history, lifetime
+  statistics, health connection, language/theme, JSON export, account changes
+  and account deletion with email verification.
+- **Offline use:** account-scoped encrypted local data and a durable sync outbox
+  preserve supported edits across restarts. AI and fresh remote lookups require
+  a connection. Recipe pictures stay on the device.
+- **Health and reminders:** Apple HealthKit steps and weight on iOS; read-only
+  Health Connect steps on Android. One local evening reminder helps protect the
+  logging streak.
 
----
+The [feature and platform matrix](docs/FEATURES.md) documents current behavior,
+entry points and limitations, including Android weight sync and export sharing.
+
+## AI models
+
+All AI requests run through Supabase Edge Functions and **OpenRouter**. Current
+source defaults are:
+
+| Use | Model ID | Server override |
+| --- | --- | --- |
+| Meal photo analysis | `google/gemini-3.8-flash` | `OPENROUTER_MODEL` |
+| Coach replies, recipe text and training drafts | `google/gemini-3.8-flash` | `COACH_MODEL_ANSWER` |
+| Coach safety/topic classifier | `google/gemini-3.8-flash` | `COACH_MODEL_CLASSIFIER` |
+| Generated recipe pictures | `google/gemini-3.1-flash-image` | `COACH_IMAGE_MODEL` |
+
+Grok is no longer the configured default. Server overrides can change the
+effective model independently of a client build. See
+[Backend](docs/BACKEND.md#ai-configuration) for sources and deployment checks.
 
 ## Tech stack
 
-| Layer            | Technology                                                        |
-| ---------------- | ----------------------------------------------------------------- |
-| App              | [Flutter](https://flutter.dev) 3.47.2 stable (CI-pinned; Dart 3.13.2, pubspec lower bound `^3.11.5`), German + English (`gen_l10n`/ARB) |
-| Backend          | [Supabase](https://supabase.com) — Auth, Postgres + RLS           |
-| Serverless       | Supabase Edge Functions (Deno / TypeScript)                       |
-| Product search   | Self-hosted [Meilisearch](https://www.meilisearch.com) index of [Open Food Facts](https://world.openfoodfacts.org), OFF API fallback |
-| AI meal analysis | Gemini vision model via [OpenRouter](https://openrouter.ai)       |
-| AI coach         | Grok via OpenRouter, with server-side quota + safety layers       |
-| AI recipe image  | Gemini image model via the OpenRouter image API (`/recipe` only)  |
-| Health           | Apple HealthKit (`package:health`, iOS only) — read: step count, body-weight history · write: weight |
-| Crash reporting  | [Sentry](https://sentry.io) (optional, DSN via dart-define)       |
-
-Key Flutter packages: `supabase_flutter`, `camera`, `image_picker`,
-`mobile_scanner`, `health`, `google_sign_in`, `sentry_flutter`,
-`flutter_local_notifications`, `shared_preferences`, `package_info_plus`.
-
----
+| Layer | Implementation |
+| --- | --- |
+| Client | Flutter **3.47.2**, Dart **3.13.2**; Android and iOS |
+| Localization | Flutter `gen_l10n`, German/English ARB files |
+| UI | Shared theme tokens, Bricolage Grotesque/Archivo, original vector icons, light/dark themes |
+| Backend | Supabase Auth, Postgres with RLS, Deno Edge Functions |
+| Product lookup | Self-hosted Meilisearch/Open Food Facts index; public OFF fallback |
+| AI | OpenRouter with separate Gemini text/vision and image models |
+| Local persistence | Encrypted cache, OS-keystore key, durable account-scoped outbox |
+| Health | HealthKit on iOS; Health Connect steps on Android |
+| Diagnostics | Optional Sentry, enabled by build configuration and sanitized before sending |
 
 ## Architecture
 
 ```text
-┌─────────────────────────────────┐         ┌──────────────────────────────────┐
-│           Flutter app           │         │             Supabase             │
-│            (lib/src)            │  HTTPS  │                                  │
-│                                 │ ──────► │  Auth · Postgres (RLS)           │
-│  screens · widgets · theme      │         │  Edge Functions (Deno):          │
-│  models · services · config     │         │   · analyze-meal ──► OpenRouter  │
-│  l10n (de + en)                 │         │   · coach-chat   ──► (Grok text, │
-│                                 │         │                    Gemini image) │
-│  LocalCache + SyncOutbox        │         │   · search-key                   │
-│  (offline write-through)        │         └──────────────────────────────────┘
-└──────────────┬──────────────────┘
-               │
-               ├── Meilisearch product index (self-hosted, search-only key)
-               ├── Open Food Facts API (barcode + search fallback)
-               ├── Apple HealthKit (read: steps/weight · write: weight; iOS only)
-               ├── Local notifications (on-device, no push backend)
-               └── Sentry (crashes only, opt-in via SENTRY_DSN)
+Flutter screens / widgets / theme
+              |
+       HomeStore + models
+              |
+     services + local cache/outbox
+              |
+              +-- Supabase Auth + Postgres/RLS
+              +-- Edge Functions --> OpenRouter --> Gemini models
+              +-- Meilisearch / Open Food Facts
+              +-- HealthKit / Health Connect
+              +-- Local notifications / optional Sentry
 ```
 
-The Flutter client is layered by responsibility, and all server-side state is
-persisted to Supabase with Row Level Security. AI features run server-side in
-Edge Functions so API keys never ship in the client bundle. Writes go through
-a local write-through cache and an outbox, so the app stays usable offline.
-
----
+AI provider credentials remain server-side. The client receives public client
+configuration and limited search credentials. Account data is protected at both
+the RLS boundary and the local account namespace.
 
 ## Project structure
 
-```text
-lib/
-├── l10n/                     # app_de.arb / app_en.arb (source of truth)
-├── main.dart                 # Entry point; exports EatovaApp for tests
-└── src/
-    ├── app/                  # MaterialApp, auth gate, home shell + store
-    ├── auth/                 # Auth repository
-    ├── config/               # Supabase, search index + legal link config
-    ├── l10n/                 # l10n helper + generated/ (gen_l10n output)
-    ├── models/               # Pure data models and mapping logic
-    ├── screens/              # Top-level screens (auth, onboarding, food/meal,
-    │   ├── coach/            #   trends, profile), large ones as part-based
-    │   ├── recipes/          #   libraries in their own folder
-    │   ├── settings/
-    │   └── today/
-    ├── services/             # Sync, outbox, cache, analyzers, external APIs
-    ├── theme/                # Central colors and app theme
-    └── widgets/              # Reusable UI, grouped by feature
-        ├── auth/  common/  design/  shared/
-        ├── kcal/  meal/  profile/
-
-test/
-├── flows/                    # End-to-end widget flows (auth, navigation,
-│                             #   scan, logging, search, recipes) + helpers
-├── app/  l10n/  models/  screens/  services/  theme/  widgets/
-└── *_test.dart               # Screen-/feature-level suites
-
-supabase/
-├── functions/                # Edge Functions (analyze-meal, coach-chat,
-│                             #   search-key) + _shared/
-├── migrations/               # Versioned SQL schema (RLS, grants, features)
-└── OAUTH_SETUP.md            # OAuth provider setup guide
-```
-
-The app is mobile-only: the repository contains `android/` and `ios/` platform
-folders. Desktop and web scaffolding was removed on purpose (services use
-`dart:io`; there is no web target).
-
-**Conventions for future changes:**
-
-- New screens → `lib/src/screens/` (large screens as a `part`-based library in
-  their own subfolder, like `screens/coach/`)
-- Reusable UI → `lib/src/widgets/`
-- Pure data objects → `lib/src/models/`
-- External API / sync logic → `lib/src/services/` (don't call APIs from widgets)
-- Colors and theme → `lib/src/theme/` only
-- User-facing text → a key in `lib/l10n/app_de.arb` **and** `app_en.arb`, never
-  a string literal in a widget (`test/repo_rules_test.dart` fails on hard-coded
-  text and on an ARB key missing from either file)
-- Keep `lib/main.dart` small
-
----
+| Path | Responsibility |
+| --- | --- |
+| `lib/src/app/` | App shell, auth gate, HomeStore and feature-specific store parts |
+| `lib/src/auth/`, `lib/src/config/` | Authentication and build-time client configuration |
+| `lib/src/screens/` | Today, Food, recipes/meal plan, training, Coach, profile and settings |
+| `lib/src/models/`, `lib/src/services/` | Domain data, persistence, sync and external integrations |
+| `lib/src/theme/`, `lib/src/widgets/` | Shared design tokens, original icons and reusable UI |
+| `lib/l10n/` | German/English source strings; generated output is ignored |
+| `test/` | Unit, widget, flow, repository-rule and migration tests |
+| `supabase/functions/`, `supabase/migrations/` | Three Edge Functions and versioned database changes |
+| `docs/` | Current guides, design contracts, previews and dated delivery records |
 
 ## Getting started
 
-### Prerequisites
-
-- [Flutter SDK](https://docs.flutter.dev/get-started/install) — CI pins
-  **3.47.2 stable** (Dart 3.13.2); use the same locally. The pubspec constraint
-  `^3.11.5` is the lower bound only.
-- Xcode (iOS) and/or Android Studio for device/emulator builds
-
-### Run
-
-```bash
-flutter pub get
-flutter analyze
-flutter test
-flutter run
-```
-
-The app is runnable out of the box: `SUPABASE_URL` and `SUPABASE_ANON_KEY`
-have build-time defaults in `lib/src/config/supabase_config.dart`. The Supabase
-anon key is a public JWT (`role: anon`) — it is intended to be shipped in the
-client and is not a secret on its own; access is enforced server-side by Row
-Level Security.
+Use the CI-pinned Flutter SDK. Android builds require the Android toolchain;
+iOS builds require macOS/Xcode. The app minimums are Android API 26 and iOS 15;
+Health Connect availability is checked separately on each device.
 
 ### Point at your own Supabase project
 
-Override the defaults with a local, git-ignored `dart_defines.json`:
-
 ```bash
+flutter pub get
 cp dart_defines.example.json dart_defines.json
-# fill in SUPABASE_URL / SUPABASE_ANON_KEY for your project
+# Fill in your project's public SUPABASE_URL and SUPABASE_ANON_KEY.
 flutter run --dart-define-from-file=dart_defines.json
 ```
 
-`--dart-define` values take precedence over the source defaults.
+The repository contains public defaults for the maintained Eatova service.
+Configure your own backend for independent development. Keep the local defines
+file out of Git and never add management, service-role or AI provider secrets
+to a Flutter build. An explicitly empty define overrides its source default.
 
-**An empty value is not "unset".** `String.fromEnvironment` uses its
-`defaultValue` only when the key is *undefined*; a key present with `""`
-defines it as the empty string and overwrites the compiled-in default. So only
-list keys you actually want to override — the example file carries just the
-three that are either meant to be filled in or empty by default. In particular,
-adding `"OFF_MIRROR_SEARCH_KEY": ""` would ship a build with no search key: the
-product search then silently falls back to the public Open Food Facts search
-(see "Product-search key rotation") and still returns plausible results, so the
-misconfiguration does not show up as an error.
-
-### Crash reporting (optional)
-
-Release builds can ship crash reporting via [Sentry](https://sentry.io). Set
-`SENTRY_DSN` in `dart_defines.json` (see `dart_defines.example.json`) — with an
-empty or missing DSN, Sentry is never initialized and the app runs exactly as
-before, so dev builds and CI are unaffected. The configuration is deliberately
-conservative (no PII, no screenshots, no replay, no performance tracing, no
-automatic session tracking); app code reports handled errors through
-`lib/src/services/crash_reporter.dart`.
-
-### Release build (Android)
-
-Play Store builds are signed with a dedicated upload keystore. Both the
-keystore (`android/app/upload-keystore.jks`) and its credentials
-(`android/key.properties`) are git-ignored and must never be committed.
-`android/key.properties` has this format (`storeFile` is resolved relative to
-`android/app/`):
-
-```properties
-storePassword=<store password>
-keyPassword=<key password>
-keyAlias=upload
-storeFile=upload-keystore.jks
-```
-
-Build the Play Store bundle (or an installable APK) with:
-
-```bash
-flutter build appbundle --release --dart-define-from-file=dart_defines.json
-flutter build apk --release --dart-define-from-file=dart_defines.json
-```
-
-If `android/key.properties` is missing, any release *assemble*/*bundle*/*package*
-task **fails** with a `GradleException` naming the offending tasks (the E5
-guard in `android/app/build.gradle.kts`: the `gradle.taskGraph.whenReady`
-block matching `releaseAssemblePattern`). This is deliberate: without the file the
-artifact would be signed with the universal Android **debug** key — Play rejects
-the upload, and a sideloaded build silently breaks Google Sign-In because the
-SHA-1 fingerprint no longer matches. Create `android/key.properties` as shown
-above; for a pure compile check, build `--debug` instead. Debug builds are
-unaffected. CI builds both: a debug APK as a fast pre-check and a release AAB
-(job `build-android-release` in `.github/workflows/security.yml`), which
-satisfies the guard with a per-run throwaway keystore and verifies that R8
-produced a `mapping.txt`; the artifact is never uploaded. Release builds run
-R8 (minify + resource shrinking); plugin keep rules live in
-`android/app/proguard-rules.pro`.
-
-> **Warning:** Back up the keystore and its passwords outside the repository
-> (password manager + offline copy). If the upload key is lost, the only
-> recovery is requesting an upload-key reset through Google Play App Signing
-> support, which takes days and blocks releases.
-
----
+See [Development and builds](docs/DEVELOPMENT.md) for client configuration,
+Google Sign-In, search fallback, Sentry and signed Android release builds.
 
 ## Backend
 
-The Supabase project is fully versioned in `supabase/`:
+The endpoints are `analyze-meal`, `coach-chat` and `search-key`. Apply the
+versioned migrations to your own project and configure the needed function
+secrets before deploying. Schema changes and function deployments are separate.
 
-- **`migrations/`** — every schema change (tables, RLS policies, grants,
-  feature migrations) as a timestamped SQL file.
-- **`functions/`** — Deno/TypeScript Edge Functions:
-  - `analyze-meal` — accepts a meal photo and returns a structured, itemized
-    nutrition estimate from a Gemini vision model (via OpenRouter).
-  - `coach-chat` — the AI coach endpoint (Grok via OpenRouter), with
-    server-side daily quota and layered safety filtering. Its `mode: "recipe"`
-    branch drafts a recipe and generates the card picture through the
-    OpenRouter image API; it returns data only and never writes user rows.
-  - `search-key` — hands the client the base URL plus the search-only key of
-    the product index at runtime (see "Product-search key rotation").
-- **`OAUTH_SETUP.md`** — step-by-step OAuth provider configuration.
-
-To work against your own project, apply the migrations with the Supabase CLI
-and deploy the Edge Functions. Each function requires its own provider API key
-configured as a function secret — keys are never stored in the repo.
+- [Backend configuration and operations](docs/BACKEND.md)
+- [Google sign-in setup](supabase/OAUTH_SETUP.md)
+- [Email OTP contract and historical configuration](supabase/AUTH_EMAIL_OTP.md)
+- [Generated schema access map](supabase/SCHEMA_STATE.md)
 
 ### Product-search key rotation
 
-The Meilisearch search-only key used by the product search is resolved at
-**runtime**, not baked into the binary. The client walks this chain:
-
-1. **Cache** — last key fetched, in SharedPreferences under
-   `eatova.v1.search_credentials` (12 h TTL). Deliberately *not* keyed per
-   user: it is device-global config, not PII, and sign-out must not throw a
-   working key away. Expired entries are still **used** (served immediately,
-   refreshed in the background) so a user offline for a week keeps searching.
-2. **Fetch** — the `search-key` edge function returns base URL + key together,
-   so relocating the mirror is a single secret update.
-3. **Compile-time default** — `--dart-define=OFF_MIRROR_URL` /
-   `OFF_MIRROR_SEARCH_KEY`. Covers a fresh install with no network. Both have
-   working defaults in `lib/src/config/search_config.dart`; defining either as
-   an empty string in a `dart_defines.json` *removes* that default (see "Point
-   at your own Supabase project"), which is why they are not in
-   `dart_defines.example.json`.
-4. **Mirror off** — empty credentials, search goes straight to Open Food Facts.
-
-Search never hard-fails because the key endpoint is unreachable; the worst case
-is the Open Food Facts fallback.
-
-**To rotate the key:** create the new search-only key in Meilisearch, run
-`supabase secrets set EATOVA_MIRROR_SEARCH_KEY=<new key>`, then revoke the old
-one. Installed builds recover on their next search: the mirror answers the dead
-key with `403`, the client drops it from memory and disk, fetches the
-replacement and retries the same query once. No app update, no user action.
-
-Rotation is driven by the 403 path, not by the TTL — the TTL only exists to
-propagate a **base-URL** change, which surfaces as a connection error rather
-than a 403 and therefore cannot self-heal. Refetching after a rejection is
-single-flight with a 1-minute per-process cooldown, so a mirror returning 403
-for an unrelated reason cannot burn the 20/h user rate limit. A successful
-rotation logs once under the `search_credentials` log name.
-
-`--dart-define=OFF_MIRROR_URL=` (empty) is a **hard local kill switch**: that
-build never touches the mirror and no server setting can turn it back on. The
-server-side kill switch is `EATOVA_MIRROR_SEARCH_KEY=disabled`, which makes the
-function return empty credentials. A *missing* secret is a misconfiguration
-(HTTP 500), not a kill switch — clients then keep their working compile-time
-default instead of silently losing mirror search.
-
----
+See the [runtime credential and rotation guide](docs/BACKEND.md#product-search-key-rotation),
+including tenant tokens, cache refresh, fallback and server/client disable switches.
 
 ## Testing
 
 ```bash
-flutter test
+flutter analyze --fatal-infos --fatal-warnings
+flutter test --coverage \
+  --dart-define=SUPABASE_URL=https://ci.invalid \
+  --dart-define=SUPABASE_ANON_KEY=ci-dummy-key
 ```
 
-The suite is split by concern: end-to-end widget flows live in `test/flows/`
-(shared fakes and the viewport-pinning `testWidgetsRobust` wrapper in
-`test/flows/flow_test_helpers.dart`), unit suites in `test/models/` and
-`test/services/`, widget- and screen-level suites in `test/widgets/`,
-`test/screens/`, `test/app/` and `test/theme/`, the localization guards in
-`test/l10n/` (ARB parity, hard-coded-text watchdog, locale wiring), and the
-remaining suites at the `test/` root. Widget tests rely on stable `Key` values
-and label strings (test pins) — when changing UI, keep those identifiers
-intact or update the corresponding tests in the same change.
-
----
+[CONTRIBUTING.md](CONTRIBUTING.md) lists the Deno and database checks, the
+**88% coverage floor**, documentation-only validation and repository conventions.
+Tests use dummy configuration and stub external requests.
 
 ## Continuous integration
 
-`.github/workflows/security.yml` runs on every push/PR to `main`, on a weekly
-schedule, and on demand:
+[security.yml](.github/workflows/security.yml) runs for main pushes, PRs to main,
+weekly and on demand. It checks strict Flutter analysis/tests/coverage, Android
+debug APK and release AAB/R8 builds, secrets, dependencies, Deno lint/type/unit
+tests and cross-account RLS against disposable Postgres. The production
+migration comparison runs only on `main`; PRs receive a separate required gate.
 
-- `flutter analyze` + `flutter test`, with a coverage floor check
-- Android debug build (APK) and Android release build (AAB with R8), the latter
-  against a throw-away keystore plus a check that R8 actually ran
-- `flutter pub outdated` (informational)
-- secret scanning (gitleaks)
-- [OSV-Scanner](https://google.github.io/osv-scanner/) against `pubspec.lock`
-  and the Deno dependencies, with SARIF upload
-- `deno lint` and `deno check` for the Edge Functions
-- Supabase migration drift against the Management API
+[ios.yml](.github/workflows/ios.yml) builds without code signing when iOS files,
+the pubspec/lockfile or that workflow change, and on its schedule/manual trigger.
+CI artifacts do not establish a store release or a device installation.
 
-`.github/workflows/ios.yml` builds the iOS app without code signing. The weekly
-cron run catches newly published CVEs in dependencies that were clean at merge
-time.
+## Documentation and contributing
 
----
-
-## Contributing
-
-Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the
-workflow, coding conventions, and how to run checks locally.
-
-## Security
-
-Please report vulnerabilities responsibly — see [SECURITY.md](SECURITY.md). Do
-not open public issues for security reports.
+Start with the [documentation index](docs/README.md). Contributions follow
+[CONTRIBUTING.md](CONTRIBUTING.md); report vulnerabilities privately using
+[SECURITY.md](SECURITY.md). Data flows are described in [PRIVACY.md](PRIVACY.md).
 
 ## License
 
-Released under the [MIT License](LICENSE). © 2026 Moritz Gietl.
+[MIT](LICENSE) · © 2026 Moritz Gietl.
 
----
-
-> **Disclaimer:** Eatova provides general fitness and nutrition information
-> and is **not** medical advice. Consult a qualified professional before making
-> significant changes to your training, diet, or health routine.
+Eatova provides general nutrition and fitness information, not medical advice.

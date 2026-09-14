@@ -1,5 +1,9 @@
 # Training design, 2026-09-08
 
+> Historical record: statements and open items below describe the dated
+> source/plan, not the current product. See the [current feature inventory](FEATURES.md)
+> and [documentation index](README.md) for implemented behavior and newer delivery records.
+
 Design specification for the Training tab, Coach `/plan` draft flow and workout
 player. Implementation is coordinated in the ignored training worktrees; this
 document records direction, not completion or live deployment.

@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Eatova is an actively developed, in-production application. Security fixes
+Eatova is an actively developed mobile application. Security fixes
 are applied to the latest state of the `main` branch.
 
 | Version            | Supported |
@@ -43,5 +43,16 @@ before any public disclosure.
 - **Reportable issues** include, for example: RLS policy gaps that expose data
   across users, authentication or authorization bypasses, injection flaws, and
   leakage of any genuine secret.
+
+Current protected boundaries also include account-scoped encrypted caches and
+outboxes, deletion receipts for training history, explicit Coach proposal
+adoption and server-side quota/identity checks. See [Backend](docs/BACKEND.md)
+and [privacy data flows](PRIVACY.md). This description is not a new security audit
+or a claim that an installed build matches the latest source.
+
+For local tooling, retrieve only the named credential needed for an operation
+from the configured secret manager. Keep credentials out of command output,
+runtime artifacts and commits; never use a provider/management key as a Flutter
+client define. CI checks secrets, dependencies and RLS in addition to app tests.
 
 Thank you for helping keep Eatova and its users safe.

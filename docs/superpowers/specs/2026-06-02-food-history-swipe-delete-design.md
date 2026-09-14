@@ -1,5 +1,9 @@
 # Eatova — Verlauf im Food-Tab per Swipe löschen
 
+> Historical record: statements and open items below describe the dated
+> source/plan, not the current product. See the [current feature inventory](../../FEATURES.md)
+> and [documentation index](../../README.md) for implemented behavior and newer delivery records.
+
 **Datum:** 2026-06-02
 **Status:** Genehmigt (autonom, im Auftrag des Users freigegeben — User ist AFK,
 Goal: „von rechts nach links swipen → Lösch-Symbol → nach Drücken Verlauf direkt

@@ -76,9 +76,11 @@ their absence was verified. This is a bounded live check, not evidence of
 long-term provider reliability or a newly installed device build.
 
 The user authorized push and protected-main merge of `fix/coach-recipe-completion`.
-The branch's pull request records the final Git delivery and CI results. Production
-v46 was deployed before Git delivery; its source must remain identical to the
-reviewed fix when merging. Existing Sentry events remain as historical evidence.
+[PR #83](https://github.com/mxritzgit/Eatova/pull/83) is merged as `38bd0e0` after
+green PR CI. Production v46 was deployed before Git delivery and its downloaded
+source matched the reviewed fix. The earlier "prepared" wording above records
+that sequence; it is no longer an open Git-delivery item. Existing Sentry events
+remain as historical evidence.
 
 Sanitized local log evidence and check output are ignored under
 `.agents/sentry-2026-09-13/`. No user message, generated recipe, credential,

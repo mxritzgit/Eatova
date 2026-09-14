@@ -8,6 +8,37 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
 
 ## [Unreleased]
 
+Current main through PR #88, reviewed 2026-09-14. These entries describe merged
+source changes, not a newly published store version. Older entries below retain
+their implementation history; [the feature inventory](docs/FEATURES.md) describes
+the complete current product.
+
+### Latest changes (September 2026)
+
+- **Gemini Coach and analysis** (#74–#76): meal analysis, Coach replies and
+  classification default to `google/gemini-3.8-flash`. Recipe pictures retain
+  their separate `google/gemini-3.1-flash-image` model. Classifier handling and
+  response completion were corrected; recipe completion was hardened in #83.
+- **Recipes, planning and shopping** (#77): editable own/adopted recipes,
+  preparation steps, structured ingredients, fractional servings, a weekly
+  meal plan and a durable aggregated shopping checklist. Consumption is explicit
+  and idempotent.
+- **Training and health** (#77): completed workout actuals/history and Last time,
+  Android Health Connect steps, explicit Coach briefs and selected-plan context.
+- **Today and Food redesign** (#78–#82): pastel Balance Duo dashboard, Thumb
+  First diary, expanded favorites and improved keyboard/gesture navigation.
+- **Recipes and Training design** (#84–#85): Spotlight recipe/detail/portion
+  surfaces, Meal Plan/Shopping List and dark Nachtstudio training/plan selection.
+- **Account and meal-entry polish** (#86–#87): fully visible Today Steps card,
+  consistent headers, Today-only Profile/Settings entry, redesigned account
+  pages, shared meal choice across camera/barcode/manual, improved product
+  results, manual nutrition entry and Food calendar.
+- **Original icon family** (#88): 16 shared vector pictograms for Today, meal
+  slots and all five footer tabs, with larger footer glyphs at the same height.
+- **Documentation refresh**: current feature/platform matrix, Gemini model
+  configuration, setup/operations, privacy data flows and a navigable index;
+  historical plans/reviews are explicitly identified.
+
 ### Added
 
 - **Macros per slot and per meal** (#49) — the diary shows protein, carbs and
@@ -22,17 +53,16 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
 - **Favorites menu in the add sheet** (#53) — the top three favorites inline
   plus "All (N)", which opens a favorites sheet with search, add-to-slot and
   unpin.
-- **English localization** — everything behind sign-in speaks German and
+- **English localization** — the app, including sign-in/account flows, speaks German and
   English (`gen_l10n` over `lib/l10n/app_de.arb` / `app_en.arb`): screens, the
   recipe catalog, the AI scan, dictation and the service texts all follow the
   chosen language. The picker sits in the settings; without a choice a German
   device gets German and every other device English. `test/l10n/` guards ARB
-  parity and hard-coded text. **Not yet covered:** the sign-in/sign-up flow
-  (`auth_screen.dart`, `auth_code_screen.dart`) is still hard-coded German —
-  it predates this package and was never folded into it.
+  parity and hard-coded text. Auth was completed after the initial screen
+  migration; server email templates remain independently configured.
 - **Heute tab** — the day at a glance (calorie hero, macros, streak) as the
-  landing tab; the Food tab becomes the diary itself. Four tabs instead of
-  three, in the order Heute · Food · Rezepte · Coach.
+  landing tab; the Food tab becomes the diary itself. That change initially
+  introduced a fourth tab; the current five-tab shell also includes Training.
 - **New design language** — token-based theme with a light mode, and the
   settings as a page of their own (language, appearance, data export,
   sign-out, account deletion) instead of a block inside the profile. The

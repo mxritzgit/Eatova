@@ -1,5 +1,9 @@
 # Coach-Rezept-Generator (`/rezept`) — Design
 
+> Historical record: statements and open items below describe the dated
+> source/plan, not the current product. See the [current feature inventory](../../FEATURES.md)
+> and [documentation index](../../README.md) for implemented behavior and newer delivery records.
+
 Stand: 2026-08-12 · Status: vom Nutzer freigegeben
 
 ## Ziel

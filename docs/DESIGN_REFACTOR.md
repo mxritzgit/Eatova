@@ -1,5 +1,9 @@
 # Design-Refactor 2026-08-09 — Briefing für alle Screen-Pakete
 
+> Historical record: statements and open items below describe the dated
+> source/plan, not the current product. See the [current feature inventory](FEATURES.md)
+> and [documentation index](README.md) for implemented behavior and newer delivery records.
+
 Dieses Dokument ist der **Vertrag**. Sechs Screen-Pakete arbeiten parallel gegen
 ihn. Wenn du hier etwas anderes liest als in deinem Auftrag: dieses Dokument
 gewinnt. Wenn etwas fehlt: melde es in deinem Bericht, erfinde es nicht.

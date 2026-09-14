@@ -1,5 +1,9 @@
 # Training visual review, 2026-09-08
 
+> Historical record: statements and open items below describe the dated
+> source/plan, not the current product. See the [current feature inventory](FEATURES.md)
+> and [documentation index](README.md) for implemented behavior and newer delivery records.
+
 Independent Flutter renders inspect the Page agent's implementation with real
 bundled Archivo/Bricolage fonts and Material symbols. This is widget-render
 evidence, not an installed-device capture or the final integrated app shell.

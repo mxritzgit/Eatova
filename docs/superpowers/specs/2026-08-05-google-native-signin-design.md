@@ -1,5 +1,9 @@
 # Design: Nativer Google Sign-In — „Eatova" statt „…supabase.co"
 
+> Historical record: statements and open items below describe the dated
+> source/plan, not the current product. See the [current feature inventory](../../FEATURES.md)
+> and [documentation index](../../README.md) for implemented behavior and newer delivery records.
+
 **Datum:** 2026-08-05 · **Status:** implementiert und live (`lib/src/auth/google_id_token_provider.dart`) · **zuletzt geprüft:** 2026-08-29 (Review-Fixlauf, P4-01/P4-04)
 
 ## Problem

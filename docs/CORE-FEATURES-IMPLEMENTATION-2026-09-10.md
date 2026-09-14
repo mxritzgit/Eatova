@@ -180,13 +180,21 @@ Ignored local logs and native screenshots are under `.agents/feature-wave/`;
 the reproducible tests and SQL fixtures are committed under `test/`. The PR and
 its check runs are the durable evidence for final-head CI and merge status.
 
-## Release boundary
+## Release boundary at implementation
 
 This PR changes app code, three migrations and `coach-chat`. Merge alone does not
 deploy Supabase or install a new production app. Apply the migrations and deploy
 the updated function before releasing clients that use the new RPCs. The protected
 main migration-drift job is a separate live check; the PR's stable required gate
 does not query production.
+
+**Subsequent rollout completed on 2026-09-10:** the final
+[PR #77 record](https://github.com/mxritzgit/Eatova/pull/77) confirms all three
+migrations applied with all 43 local/live versions matching, `coach-chat` v45
+active and authenticated feature checks completed. That satisfies the backend
+requirement above. The later [recipe fix](SENTRY-RECIPE-2026-09-13.md) advanced
+Coach to v46. These are dated delivery facts, not a new live inspection;
+physical-device/store verification remains separate.
 
 Android permission denial/retry/grant and empty Health Connect data are checked
 in a synthetic emulator account. Actual physical-device step records, overlapping

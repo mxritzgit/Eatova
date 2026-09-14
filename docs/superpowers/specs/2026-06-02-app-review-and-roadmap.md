@@ -1,5 +1,9 @@
 # Eatova — Komplett-Review & Roadmap „von gut zu richtig gut"
 
+> Historical record: statements and open items below describe the dated
+> source/plan, not the current product. See the [current feature inventory](../../FEATURES.md)
+> and [documentation index](../../README.md) for implemented behavior and newer delivery records.
+
 **Datum:** 2026-06-02
 **Methode:** 6 parallele Read-only-Review-Agenten (Architektur, Produkt, UX/A11y,
 Tests, Security, Backend/Sync), jeder Befund gegen den echten Code verifiziert
