@@ -192,20 +192,24 @@ class SupabaseAuthRepository implements AuthRepository, CoordinatedSignOut {
   @override
   Future<void> verifyRecoveryCode(
       {required String email, required String code}) async {
-    await _client.auth.verifyOTP(
+    await verifySessionLoginCode(
+      _client,
       type: OtpType.recovery,
       email: email.trim(),
-      token: code.trim(),
+      code: code.trim(),
+      httpClient: _mutationHttpClient,
     );
   }
 
   @override
   Future<void> verifySignupCode(
       {required String email, required String code}) async {
-    await _client.auth.verifyOTP(
+    await verifySessionLoginCode(
+      _client,
       type: OtpType.signup,
       email: email.trim(),
-      token: code.trim(),
+      code: code.trim(),
+      httpClient: _mutationHttpClient,
     );
   }
 

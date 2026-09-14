@@ -80,6 +80,7 @@ void main() {
     'password change',
     'email change',
     'email confirmation',
+    'recovery verification',
   ]) {
     test(
       '$operation cannot replace the next account with a late response',
@@ -99,7 +100,8 @@ void main() {
           await release.future;
           return http.Response(
             jsonEncode(
-              operation == 'email confirmation'
+              operation == 'email confirmation' ||
+                      operation == 'recovery verification'
                   ? _session('account-a')
                   : _user('account-a'),
             ),
@@ -135,6 +137,10 @@ void main() {
             newPassword: 'new-fixture-password',
           ),
           'email change' => repository.startEmailChange('new@example.com'),
+          'recovery verification' => repository.verifyRecoveryCode(
+            email: 'account-a@example.com',
+            code: '12345678',
+          ),
           _ => repository.confirmEmailChange(
             email: 'account-a@example.com',
             code: '12345678',

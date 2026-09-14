@@ -33,16 +33,42 @@ Future<void> verifySessionEmailChange(
   return (user: null, session: response.session);
 }, httpClient: httpClient);
 
+/// Verifies a login/reauthentication code without letting a late SDK response
+/// replace a newer login. Recovery also serves account-deletion reauth.
+Future<void> verifySessionLoginCode(
+  SupabaseClient client, {
+  required OtpType type,
+  required String email,
+  required String code,
+  http.Client? httpClient,
+}) => _mutate(
+  client,
+  (scoped) async {
+    final response = await scoped.verifyOTP(
+      type: type,
+      email: email,
+      token: code,
+    );
+    if (response.session == null) {
+      throw const AuthException('Code verification returned no session');
+    }
+    return (user: null, session: response.session);
+  },
+  httpClient: httpClient,
+  allowSignedOut: true,
+);
+
 Future<void> _mutate(
   SupabaseClient client,
   Future<_MutationResult> Function(GoTrueClient scoped) operation, {
   http.Client? httpClient,
+  bool allowSignedOut = false,
 }) async {
   // A browser GoTrueClient broadcasts sessions to sibling clients before this
   // guard can adopt them. Eatova's account flows currently target Android/iOS.
   if (kIsWeb) throw UnsupportedError('Account changes require the mobile app');
   final original = client.auth.currentSession;
-  if (original == null) throw AuthSessionMissingException();
+  if (original == null && !allowSignedOut) throw AuthSessionMissingException();
   final identity = _identity(original);
   final transport = httpClient ?? http.Client();
   final scoped = GoTrueClient(
@@ -54,18 +80,35 @@ Future<void> _mutate(
     // They must not replace the shared client's pending OAuth PKCE verifier.
     flowType: AuthFlowType.implicit,
   );
+  var changed = false;
+  // GoTrue 2.27.2: the synchronous stream observes even A -> B -> A or
+  // signed-out -> B -> signed-out before queued responses can be adopted.
+  // ignore: invalid_use_of_internal_member
+  final subscription = client.auth.onAuthStateChangeSync.listen(
+    (event) {
+      if (event.event == AuthChangeEvent.signedOut ||
+          _identity(event.session) != identity) {
+        changed = true;
+      }
+    },
+    onError: (Object _, StackTrace __) {
+      changed = true;
+    },
+  );
   try {
-    await scoped.setInitialSession(jsonEncode(original.toJson()));
-    if (_identity(client.auth.currentSession) != identity) {
+    if (original != null) {
+      await scoped.setInitialSession(jsonEncode(original.toJson()));
+    }
+    if (changed || _identity(client.auth.currentSession) != identity) {
       throw const AuthException('Authentication session changed');
     }
     final result = await operation(scoped);
     final current = client.auth.currentSession;
-    if (_identity(current) != identity) {
+    if (changed || _identity(current) != identity) {
       throw const AuthException('Authentication session changed');
     }
     final user = result.session?.user ?? result.user;
-    if (user != null && user.id != original.user.id) {
+    if (user != null && original != null && user.id != original.user.id) {
       throw const AuthException('Authentication session changed');
     }
     // Keep a concurrently refreshed token on PUT /user. Only successful OTP
@@ -80,6 +123,7 @@ Future<void> _mutate(
       await client.auth.setInitialSession(jsonEncode(next.toJson()));
     }
   } finally {
+    await subscription.cancel();
     scoped.dispose();
     if (httpClient == null) transport.close();
   }
