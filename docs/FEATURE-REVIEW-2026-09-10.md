@@ -1,5 +1,9 @@
 # Eatova – Review wichtiger Feature-Lücken
 
+> Historical record: statements and open items below describe the dated
+> source/plan, not the current product. See the [current feature inventory](FEATURES.md)
+> and [documentation index](README.md) for implemented behavior and newer delivery records.
+
 Stand: 2026-09-10, geprüfter Code `1b03c18de87746e4b84192051088e5dc6e48125c`.
 Ausgangslage: sauberes lokales `main`. Drei Subagents prüften Ernährung/Rezepte,
 Training/Coach und Onboarding/Integrationen. Die Hauptinstanz glich ihre Befunde

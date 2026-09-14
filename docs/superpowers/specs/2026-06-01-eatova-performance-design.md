@@ -1,5 +1,9 @@
 # Eatova — Performance-Härtung (60 FPS, saubere Übergänge, robuste Listen)
 
+> Historical record: statements and open items below describe the dated
+> source/plan, not the current product. See the [current feature inventory](../../FEATURES.md)
+> and [documentation index](../../README.md) for implemented behavior and newer delivery records.
+
 **Datum:** 2026-06-01
 **Status:** Genehmigt (autonom, im Auftrag des Users freigegeben — User ist AFK, hat
 delegiert: „Brainstorme zuerst, beantworte die Fragen selbst, dann führ es aus,

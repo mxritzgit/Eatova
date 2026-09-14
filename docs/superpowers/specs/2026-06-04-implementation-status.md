@@ -1,5 +1,9 @@
 # Eatova — Umsetzungs-Status (Deep-Dive 2026-06-04, Abschluss)
 
+> Historical record: statements and open items below describe the dated
+> source/plan, not the current product. See the [current feature inventory](../../FEATURES.md)
+> and [documentation index](../../README.md) for implemented behavior and newer delivery records.
+
 Ausführung des Deep-Dive (`2026-06-04-deepdive-followup.md`) nach dem Wellen-Plan
 (`2026-06-04-implementation-plan.md`). Parallele Subagenten pro Welle auf disjunkten
 Dateien, `home_page`-Integration jeweils seriell, jede Welle gegen `flutter analyze`

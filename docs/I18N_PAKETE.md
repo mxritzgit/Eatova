@@ -1,5 +1,9 @@
 # i18n-Screen-Pakete — Briefing (2026-08-10)
 
+> Historical record: statements and open items below describe the dated
+> source/plan, not the current product. See the [current feature inventory](FEATURES.md)
+> and [documentation index](README.md) for implemented behavior and newer delivery records.
+
 Dieses Dokument ist der Vertrag für die Extraktion der ~2.000 deutschen
 Bestandstexte in die ARB-Dateien. Grundlage:
 `docs/superpowers/specs/2026-08-10-i18n-design.md` (§4–§6). Das Grundgerüst

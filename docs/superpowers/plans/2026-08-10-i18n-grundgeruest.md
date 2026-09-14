@@ -1,5 +1,9 @@
 # i18n-Grundgerüst (Deutsch + Englisch) — Implementierungsplan
 
+> Historical record: statements and open items below describe the dated
+> source/plan, not the current product. See the [current feature inventory](../../FEATURES.md)
+> and [documentation index](../../README.md) for implemented behavior and newer delivery records.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Nach diesem Plan ist die App-Sprache in den Einstellungen umschaltbar

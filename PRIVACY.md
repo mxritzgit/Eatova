@@ -1,17 +1,17 @@
 # Privacy Policy — Eatova
 
-_Last updated: 2026-08-29_
+_Repository data-flow update: 2026-09-14_
 
-> The authoritative, always-current version of this policy (in German, covering
-> both the app and the website) lives at
-> **[eatova.de/datenschutz](https://eatova.de/datenschutz)**. This file is the
-> repository mirror of that policy; where the two differ, the published German
-> version governs.
+> The published German policy for the app and website lives at
+> **[eatova.de/datenschutz](https://eatova.de/datenschutz)**. This repository
+> document now reflects the current app source. The published page, checked on
+> 2026-09-14, still describes Grok/xAI and older feature data. It needs a separate
+> publication update; this Git change does not update the website. Deployment
+> and provider-account terms must be reconciled with the published notice.
 
-Eatova ("the app") is a nutrition and body-weight tracker with an AI coach. This policy
-explains what data the app processes, why, and the rights you have over it. It is
-written to satisfy GDPR (Art. 13/15–20) and the Apple App Store / Google Play
-health-data requirements.
+Eatova ("the app") is a nutrition, meal-planning and training app with an AI coach.
+This document explains its data flows and the existing privacy-policy terms.
+It does not establish that a new store build or website policy has been published.
 
 **Controller:** Moritz Gietl, Zellweg 6a, 92540 Altendorf, Germany ·
 support@eatova.de
@@ -30,10 +30,12 @@ You enter and the app stores the following, tied to your account:
   rights").
 - **Profile / body metrics:** name, email, weight, height, age, biological sex,
   activity level, goal weight, weight goal (lose/hold/gain), dietary preference,
-  and your daily targets (calories, macros, steps, water, sleep).
+  and your daily targets (calories, macros and steps). Water and sleep goals
+  are no longer active profile controls.
 - **Nutrition log:** meals you log (name, calories, macros, portion, barcode/brand
   where applicable, and whether the values came from the AI scan, a barcode, the
-  product search or your own manual entry), favorites, and your own recipes.
+  product search or your own manual entry), favorites, and your own recipes,
+  including preparation, structured ingredients and serving calculations.
   If you add a **photo of your own recipe**, it is re-encoded on your device and
   its entire metadata container discarded first (see "Photos" below), and the
   result is stored **only on your device**, in the app's own directory — it is
@@ -46,12 +48,21 @@ You enter and the app stores the following, tied to your account:
   device-to-device transfer** to your own new phone, so you keep them when you
   switch devices; the app's encrypted local cache and your login session are
   excluded even there. See "Retention" for when it is deleted.
+- **Meal planning and shopping:** planned dates, meal slots, recipe snapshots,
+  servings, consumption links and weekly shopping-item check states. Scheduling
+  a meal alone does not add it to your eaten-food diary.
+- **Training:** saved plans/workouts/exercises and completed workout snapshots,
+  including actual repetitions, weight or duration where recorded. A paused
+  session checkpoint is kept encrypted on this device. Deleting completed
+  history keeps an account-scoped identifier receipt, without the deleted
+  workout content, to stop an older offline copy from restoring it. These
+  receipts are included in account export and deleted with the account.
 - **Weight & progress:** your weight history and your logging streak (the run of
   consecutive days on which you logged a meal), plus lifetime counters (meals
   logged, weigh-ins recorded). Accounts created before August 2026 may still
-  carry frozen totals for water, steps and workouts from features that have
-  since been removed; nothing writes to them any more, and they are part of
-  your export and of the account deletion like every other value.
+  carry legacy totals from earlier water/step/workout logging. Those legacy
+  counters are distinct from the current completed-workout history. They remain
+  part of export and account deletion where present.
 - **Coach chat:** the messages you send to the in-app AI coach and its replies.
   You may optionally attach a photo to a coach message (for example a meal or a
   progress picture); it is sent to the AI provider only to generate that reply and
@@ -59,7 +70,15 @@ You enter and the app stores the following, tied to your account:
   advice, each coach message is automatically accompanied by a short snapshot of
   your current targets and progress — your body weight and goal weight, today's
   calorie balance and remaining macros, and a short list of the meals you logged
-  today (meal slot, name and calories, truncated to fit a fixed length limit).
+  today (meal slot, name and calories, truncated to fit a fixed length limit),
+  as well as per-slot nutrition totals. Recent messages from the same chat can
+  accompany the request. Replies stream to the app; a completed reply or the
+  delivered partial text after an interruption is persisted in chat history.
+- **Coach training briefs:** when you request a plan, you can provide your goal,
+  experience, available equipment, frequency, duration and constraints. You may
+  explicitly attach the selected plan for discussion or adaptation. This context
+  is sent to the AI service for that request; the generated proposal is stored
+  with the chat and becomes a saved plan only after adoption.
 - **Recipe generator (the `/recipe` command in the coach):** the dish you ask for is sent to
   the AI provider as a normal coach message and is stored in your chat history
   like any other. The recipe that comes back (title, description, ingredients,
@@ -87,11 +106,18 @@ You enter and the app stores the following, tied to your account:
   audio is captured only while the microphone is active (tap to start, tap again
   to stop) and is converted to text by Apple's speech recognition. Only the resulting text is sent to the coach — the
   app neither stores the audio recording nor sends it to our servers.
+- **Health Connect (optional, Android only):** with permission, the app reads
+  aggregated steps during foreground refreshes for the selected day's display
+  and activity estimate. It does not request Android weight access or write
+  health records. Step counts are not persisted to our servers. Availability,
+  permission and an empty source are handled as distinct states.
 
 In addition, and **not** tied to your account:
 
-- **Crash diagnostics:** the builds we publish contain the Sentry crash-reporting
-  SDK. When the app hits an error it sends a technical report — the error type,
+- **Crash diagnostics:** builds configured with a Sentry DSN enable the
+  crash-reporting SDK; a missing/empty DSN leaves it inactive. This is a build
+  setting, not an in-app consent toggle. On an error an enabled build sends a
+  technical report — the error type,
   an allow-listed technical detail such as a database status code, the Dart stack
   trace, and standard device/app context (device model, OS version, app version,
   build environment). Before anything leaves the device it passes a filter that
@@ -124,17 +150,27 @@ the device, before the photo is uploaded.
   above, except what is marked as device-only there (recipe pictures, the step
   count). Every row is protected by row-level security so it is only accessible
   to your authenticated account. On your device the app additionally keeps an
-  offline copy of your diary, weight series and profile; it is encrypted with a
-  key held in the operating system's keystore.
+  offline copy of supported account data, including diary, weight, profile,
+  recipes, plans, shopping checks and workout history. It is encrypted with a
+  key held in the operating system's keystore; pending writes use an
+  account-scoped durable outbox.
 - **OpenRouter** routes your AI requests to the underlying model providers, solely
-  to generate the response. Three kinds of request run through it:
+  to generate the response. The current source configures Google's Gemini
+  family for these requests:
   - coach-chat messages — together with the profile/progress snapshot and any
-    photo you attach, as described above — are answered by **xAI's Grok**;
-  - a recipe you ask the coach for is drafted by the same **xAI Grok** model,
+    photo you attach, as described above — use **Gemini 3.8 Flash**, as does the
+    safety/topic classifier;
+  - a recipe you ask the coach for is drafted by the same Gemini model,
     from your wording alone (no profile snapshot, no photo);
-  - the photo you submit for AI meal analysis, and the picture generated for a
-    recipe card, are processed by models of **Google's Gemini family** (a
-    vision model for the analysis, an image-generation model for the card).
+  - training requests use Gemini 3.8 Flash with the explicit brief and any
+    selected-plan context;
+  - meal photos use Gemini 3.8 Flash for analysis; recipe pictures use a separate
+    image-generation model, `google/gemini-3.1-flash-image`.
+
+  Server settings can override these defaults. The exact configuration names
+  and dated rollout evidence are in [Backend](docs/BACKEND.md#ai-configuration).
+  The classifier receives the message text, not the profile snapshot, chat
+  history or attached image. Ordinary chat can include up to ten recent messages.
 
   All of these run through our server (Supabase Edge Functions). We rely on
   OpenRouter's and the underlying providers' data-use terms to keep your API
@@ -144,8 +180,8 @@ the device, before the photo is uploaded.
 - **Google Sign-In** (optional). If you sign in with Google, Google processes
   your Google account identifier, email address, name and the device/connection
   data involved in the sign-in in order to issue the identity token we exchange
-  for an Eatova session. If you sign in with email and password, Google is not
-  involved at all.
+  for an Eatova session. Email/password sign-in does not use Google's
+  authentication service; the optional Gemini AI features are separate.
 - **Our own product-search index** (Meilisearch, `eatova.de/meili`, on a server
   we operate in Germany) answers product and barcode searches from a copy of the
   public Open Food Facts database. It receives the search term or barcode and the
@@ -171,31 +207,30 @@ the device, before the photo is uploaded.
   instead; see Apple's privacy policy. In either case only the resulting transcript
   reaches our systems, never the audio.
 
-The API keys that can write, spend money or read other people's data live only on
-our server, never in the app. The one key shipped with the app is the
-**search-only** key for our product-search index: it can run searches against the
-public product index and nothing else. It is resolved at runtime so it can be
-rotated without breaking installed builds.
+Management, service-role and AI provider credentials remain server-side.
+The app contains public Supabase client configuration and a limited product
+search fallback. Runtime search credentials can be either a search-only key or
+an expiring, index-scoped tenant token, depending on server configuration. They
+provide access to public product data and can be rotated independently of a build.
 
 ## Transfers outside the EU/EEA
 
-Most of the processing above stays in the EU: Supabase runs in an EU region, the
+The published service policy places the main hosted data in the EU: Supabase runs in an EU region, the
 crash reports go to Sentry's EU ingest endpoint, and our product-search index
 runs on a server in Germany.
 
-Three recipients are, or route to, the United States:
+The configured AI path involves recipients in, or routing to, the United States:
 
 - **OpenRouter, Inc.** (San Francisco, USA) — the router your AI requests pass
   through,
-- **xAI** (USA) — the provider of the Grok model that answers coach messages and
-  drafts coach recipes,
-- **Google** (USA) — the provider of the Gemini models that analyse meal photos
-  and generate the picture for a coach recipe card. This entry is about the
+- **Google** (USA) — the provider of the Gemini models for Coach/classification,
+  recipes, training drafts, meal analysis and recipe pictures. This entry is about the
   Gemini models only; Google Sign-In is a separate service provided to users in
   the EU by Google's European entity.
 
-These transfers only happen when you use an AI feature (coach chat, coach recipe,
-or AI meal scan). They are based on the **Standard Contractual Clauses** adopted by the EU
+These AI transfers happen when you use coach chat, a coach recipe/training
+proposal or AI meal analysis. The published policy identifies the
+**Standard Contractual Clauses** adopted by the EU
 Commission (Art. 46(2)(c) GDPR). Despite these safeguards, a residual risk
 remains that US authorities can access data held by US providers, and that your
 rights may be harder to enforce there than in the EU. If you do not want this,
@@ -208,8 +243,8 @@ on-device model is available for your language (see above).
 ## Why (legal basis)
 
 We process this data to provide the tracking features you ask for — i.e. to perform
-the service you signed up for (GDPR Art. 6(1)(b)), and, for the optional Apple Health
-read/write, voice input, and AI features, on the basis of the explicit permission you
+the service you signed up for (GDPR Art. 6(1)(b)), and, for optional Apple Health
+read/write, Health Connect steps, voice input and AI features, on the basis of the permission you
 grant in-app (Art. 6(1)(a), Art. 9 for health data).
 
 Crash diagnostics and the short-lived storage of the hashed IP address for rate
@@ -220,23 +255,28 @@ servers from abuse and runaway cost (Art. 6(1)(f)).
 
 You can, at any time:
 
-- **Access / export** your data. The in-app export (Profile → Einstellungen →
-  Daten exportieren) loads a complete JSON copy of your stored data directly
+- **Access / export** your data. The in-app export (Today → Settings →
+  Export data) requests a JSON copy of your stored data directly
   from our servers — every table that belongs to your account: profile, food
-  diary, favorites, your own recipes, weight log, lifetime statistics, coach
-  chat sessions and messages, and the daily counter of your coach quota. That
-  satisfies Art. 15/20. If a section cannot be fetched, the export lists it by
-  name instead of silently omitting it. You can also ask us by email at any time
-  and we will send you a copy.
-- **Correct** any value directly in the app.
-- **Delete** your account and all associated data — in-app via Profile →
-  Einstellungen → Konto löschen, which removes your auth record; every app
+  diary, favorites, recipes, weight log, lifetime statistics, training plans,
+  meal plans, shopping checks, training history/deletion receipts, coach chats
+  and daily coach quota counters. The app can copy the full returned JSON;
+  native file sharing is not wired. Device-only pictures and unsynced changes
+  are not part of this server export. The diary is paginated; other sections
+  have a 10,000-row client limit and may be capped lower by the server. Missing
+  or truncated sections are explicitly identified. You can also request your
+  data by email.
+- **Correct** supported editable values in the app, or contact us for other
+  corrections; completed training history is intentionally immutable.
+- **Delete** your account and all associated data — in-app via Today →
+  Settings → Delete account, which removes your auth record; every app
   table hangs off it with `on delete cascade` and is deleted with it. You
   confirm the deletion with an eight-digit one-time code emailed to you, on top
   of typing the confirmation word — deletion is immediate and irreversible
   once confirmed, there is no grace period.
-- **Withdraw consent** for Apple Health or voice input (in iOS Settings → Privacy)
-  or AI features (by not using them).
+- **Withdraw health/voice permission** in the platform privacy settings or
+  Health Connect permissions; stop sending new AI requests by not using those
+  features. Account/data deletion is available as described above.
 
 To exercise a right or ask a question, contact **support@eatova.de**. You also
 have the right to lodge a complaint with your data-protection authority.
@@ -278,6 +318,12 @@ Exceptions:
 No other data has an automatic expiry: everything else is kept until you delete
 it or delete your account.
 
+Training-history deletion receipts retain only the account/history identifiers
+needed to reject stale replays; they remain until account deletion. Local
+checkpoints/outbox data are isolated to the account and cleared with account
+cleanup. Provider-side retention is governed by the applicable service terms,
+not by deleting a local copy alone.
+
 ## Children
 
 Eatova is not directed at children under 16 and should not be used by them.
@@ -287,5 +333,6 @@ entered in the app, and the database rejects such values as well (minimum age
 
 ## Changes
 
-We will update the "Last updated" date above when this policy changes. Material
-changes will be surfaced in-app.
+The date at the top identifies this repository update. Changes to the published
+policy and any required in-app notice have a separate publication process; the
+current website mismatch is recorded in [Backend](docs/BACKEND.md#published-privacy-documentation-follow-up).

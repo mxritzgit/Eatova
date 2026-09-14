@@ -1,5 +1,17 @@
 # E-Mail-OTP-Konfiguration (GoTrue)
 
+> Einordnung, 2026-09-14: Der aktuelle App-Code erwartet weiterhin achtstellige
+> Codes. Anmeldung, Recovery und Konto-Seiten sind inzwischen Deutsch/Englisch
+> lokalisiert. Die Tabellen unten dokumentieren die bisher gesetzte Auth-Konfiguration;
+> sie wurden bei dieser Doku-Aktualisierung nicht erneut live ausgelesen.
+> Mail-Vorlagen und serverseitige Limits sind davon getrennte Einstellungen.
+> Aktueller Einstieg: [Backend](../docs/BACKEND.md), [Google-Setup](OAUTH_SETUP.md).
+
+Die Aussagen zur historischen GoTrue-Implementierung weiter unten sind datierte
+Analysebefunde. Fuer aktuelle Dienstgrenzen gilt die
+[Supabase-Dokumentation zu Auth-Limits](https://supabase.com/docs/guides/auth/rate-limits)
+zusammen mit der tatsaechlichen Projektkonfiguration.
+
 Die Anmelde-Mails laufen seit 2026-08-09 ueber **Ziffern-Codes** statt
 Mail-Links (`AuthCodeScreen` in der App); seit 2026-08-18 sind es **8 Stellen**. Die zugehoerige Konfiguration lebt
 NICHT im Repo, sondern in der Supabase-Auth-Config des Projekts
@@ -7,7 +19,7 @@ NICHT im Repo, sondern in der Supabase-Auth-Config des Projekts
 (`PATCH /v1/projects/{ref}/config/auth`, User-Agent-Falle beachten:
 Default-Python-UAs blockt Cloudflare, `curl/8.0` mitschicken).
 
-## Massgebliche Werte
+## Dokumentierte Projektwerte (historischer Konfigurationsstand)
 
 | Feld | Wert | Bedeutung |
 |---|---|---|

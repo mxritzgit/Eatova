@@ -1,9 +1,15 @@
 # Eatova project handoff
 
-Snapshot: 2026-09-06. This is a context handoff from Claude Code to Codex, not a
-new security clearance or a full test run. Existing documentation remains shared.
+Current documentation entry point: [docs index](README.md),
+[features/platforms](FEATURES.md), [backend/models](BACKEND.md).
+The product docs were reconciled with main through PR #88 on 2026-09-14.
 
-## Current position
+This file is an append-only, dated handoff from Claude Code to Codex. The initial
+snapshot below is from 2026-09-06; subsequent entries supersede earlier open
+items and delivery states. It is not a fresh security clearance, live deployment
+inspection or test run. Follow the specific PR/source links for each checkpoint.
+
+## Initial position, 2026-09-06
 
 - Eatova is an existing Flutter/Supabase nutrition app for Android and iOS.
   Main areas: Today, Food diary, Recipes, Coach; offline cache/outbox, scanning,
@@ -903,3 +909,31 @@ failing before the centering fix. Existing full Steps-card visibility tests pass
 PR and merge after green CI under the user's explicit authorization; the PR
 records the final merge. Original instruction-cleanup work remains untouched.
 Device installation and backend deployment are separate from this code change.
+
+## Documentation reconciliation, 2026-09-14
+
+The user requested the GitHub documentation be checked against the current app,
+including the old Grok Coach claim. [README](../README.md) and the
+[documentation index](README.md) now lead to current feature/platform, backend
+and development guides. Source defaults are Gemini 3.8 Flash for meal analysis,
+Coach answers and classification; recipe images use Gemini 3.1 Flash Image.
+The documented model override rollout was also checked in PR #74's delivery
+record. No Supabase configuration was changed or freshly queried for this task.
+
+The inventory includes recipe editing/ingredients, planned versus eaten meals,
+Shopping List, training actuals/history, Android steps, localized auth and the
+subsequent UI work through PR #88. Boundaries include no Android weight sync,
+no current native export sharing, no post-onboarding diet editor and no exposed
+Apple sign-in button. Historical reviews and plans are marked as dated evidence;
+completed backend/Git rollout notes are corrected using PR #77/#83 records.
+
+Only Markdown changed. Validation covers repository-wide local links/anchors,
+index coverage, source/configuration references, diff checks and secret scanning.
+GitHub access uses the named Infisical credential inside the process. Delivery
+uses `docs/current-product-documentation`, based on main `378fbc5`, with a
+protected PR and merge after required CI.
+
+The [published website privacy policy](https://eatova.de/datenschutz) still names
+Grok/xAI and old profile goals as of the read-only 2026-09-14 check. The repository
+privacy data-flow document now matches current source; publishing the website
+update remains separate from the requested GitHub documentation work.

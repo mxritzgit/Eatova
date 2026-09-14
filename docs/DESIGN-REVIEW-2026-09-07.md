@@ -1,5 +1,9 @@
 # App design review, 2026-09-07
 
+> Historical record: statements and open items below describe the dated
+> source/plan, not the current product. See the [current feature inventory](FEATURES.md)
+> and [documentation index](README.md) for implemented behavior and newer delivery records.
+
 Review and implementation based on `main` at `4ae47eb`, on local branch
 `design/app-icon-polish`. The user requested replacing the Today walking-person
 icon and Coach sparkles, plus a broader design inspection and suitable fixes.

@@ -1,5 +1,9 @@
 # Eatova — Review der Kalorien-Berechnungen (2026-08-21)
 
+> Historical record: statements and open items below describe the dated
+> source/plan, not the current product. See the [current feature inventory](FEATURES.md)
+> and [documentation index](README.md) for implemented behavior and newer delivery records.
+
 **Anlass.** Frage des Produktverantwortlichen: „Ist unsere Formel für den
 Tagesbedarf gut so? Stimmen die verbrannten Kalorien aus Schritten (7000
 Schritte → knapp 400 kcal)? Helfen diese Zahlen Leuten wirklich beim

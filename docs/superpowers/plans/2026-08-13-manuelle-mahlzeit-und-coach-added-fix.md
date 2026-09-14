@@ -1,5 +1,9 @@
 # Manueller Mahlzeiten-Eintrag + /recipe-„Hinzugefügt"-Fix — Implementation Plan
 
+> Historical record: statements and open items below describe the dated
+> source/plan, not the current product. See the [current feature inventory](../../FEATURES.md)
+> and [documentation index](../../README.md) for implemented behavior and newer delivery records.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ein Formular für eigene Nährwerte (pro 100 g + Portion) mit zwei Einstiegen im Add-Meal-Sheet, plus deterministische Coach-Rezept-Slugs, damit die /recipe-Karte „Hinzugefügt" über App-Neustarts hinweg kennt.

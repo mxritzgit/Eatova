@@ -1,5 +1,9 @@
 # Eatova — Umsetzungs-Brief (Deep-Dive 2026-06-04)
 
+> Historical record: statements and open items below describe the dated
+> source/plan, not the current product. See the [current feature inventory](../../FEATURES.md)
+> and [documentation index](../../README.md) for implemented behavior and newer delivery records.
+
 Master-Hand-off für die parallele Umsetzung aller verifizierten Befunde aus
 `2026-06-04-deepdive-followup.md`. Partitioniert nach **Datei-Eigentum**, damit
 parallele Agenten kollisionsfrei arbeiten. `shiftfit_home_page.dart` + Aggregations-

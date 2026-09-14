@@ -21,12 +21,18 @@ set up the project, the conventions we follow, and how to get a change merged.
    flutter pub get
    ```
 
-4. (Optional) Point the app at your own Supabase project via a git-ignored
+4. Point independent development at your own Supabase project via a git-ignored
    `dart_defines.json` — see the [README](README.md#point-at-your-own-supabase-project).
 
 ## Before you open a pull request
 
-Run the same checks CI runs (`.github/workflows/security.yml`), with the
+For documentation-only changes, validate the changed Markdown links/anchors,
+source paths, configuration names and commands against current code/workflows;
+run `git diff --check` and a secret scan. Do not rerun app suites locally solely
+for prose edits. The protected PR workflow still runs its required CI checks.
+Keep historical records dated and link them to the [current guides](docs/README.md).
+
+For code changes, run the applicable checks CI runs (`.github/workflows/security.yml`), with the
 same flags — a plain `flutter analyze` / `flutter test` can be green locally
 while CI is red:
 
@@ -53,6 +59,11 @@ enough to run every time. CI additionally builds a debug APK and a release
 AAB (R8 + AOT, throwaway keystore), scans secrets across the full history
 (gitleaks) and dependencies (OSV), and replays all migrations against PostgreSQL
 to test real cross-user access and account-deletion reauthentication.
+
+The line-coverage floor is **88%**, excluding `lib/src/l10n/generated/`.
+The Deno job also executes each discovered test file independently to catch
+module-state/test-discovery gaps. Follow the workflow's disposable PostgreSQL
+setup for database checks; never run the RLS suite against the live service.
 
 Live migration drift runs on `main`, including the weekly scheduled run, in the
 `supabase-drift` GitHub environment. Its deployment branch policy must allow only
@@ -81,6 +92,11 @@ CI, but `test/l10n/` guards ARB parity and hard-coded text.
   load-bearing. If you change UI that a test targets, update the test in the
   same commit.
 - **Lints**: the project uses `flutter_lints`. Keep `flutter analyze` clean.
+- **Design**: reuse tokens, soft-fill input/focus styles and shared components.
+  `AppIcon`/`AppSymbol` provide the custom family; meal slots use
+  `MealSlotStyle.symbol`. See the [current design contracts](docs/README.md#design-contracts-and-previews).
+- **Persistence**: preserve account namespaces, cache encryption, durable outbox
+  acknowledgments and explicit adoption of Coach proposals.
 
 ## Commit messages
 
@@ -99,9 +115,11 @@ Common types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`,
 
 1. Create a topic branch off `main`.
 2. Keep the PR focused on a single concern.
-3. Ensure the three commands above pass locally with the CI flags.
+3. Complete the applicable local checks above and wait for the required PR CI.
 4. Describe **what** changed and **why** in the PR description.
 5. Update documentation when behavior or structure changes.
+6. Merge through the protected-main workflow. A merge does not deploy backend
+   changes, publish a store build or install an app on a device.
 
 ## Reporting bugs and requesting features
 
