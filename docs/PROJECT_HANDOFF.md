@@ -937,3 +937,47 @@ The [published website privacy policy](https://eatova.de/datenschutz) still name
 Grok/xAI and old profile goals as of the read-only 2026-09-14 check. The repository
 privacy data-flow document now matches current source; publishing the website
 update remains separate from the requested GitHub documentation work.
+
+## Security audit and confirmed-finding fixes, 2026-09-14
+
+The initial audit created [SECURITY_AUDIT.md](../SECURITY_AUDIT.md) with all 91
+requested points and seven confirmed findings, keeping source inspection,
+synthetic local tests and missing live evidence distinct. The user then explicitly
+authorized fixes with five subagents, functional review and a protected PR merge
+after green CI. Work starts at main `a3a7422` in isolated worktrees; the original
+instruction-cleanup branch and unrelated local documents remain untouched.
+
+Coach responses now wait for complete provider/output approval before SSE text
+delivery. Provider safety filters and invalid completion/classification metadata
+fail closed across JSON, SSE, recipe and training modes. Valid suggestions retain
+their explicit adoption flow. A cancelled SSE request does not receive a quota
+refund or store an unapproved assistant prefix. The first text arrives later;
+client deadlines and the SSE transport shape remain compatible.
+
+Photo analysis validates supported image containers before paid quota/provider
+work. The entire Flutter Navigator holds the existing native private-screen
+guard. Session logout uses token-free revocation records and ordered persistence;
+the integration review additionally covers native Preferences acknowledgements,
+cleanup ordering and the pinned SDK's PKCE failure path. Regression tests cover
+the unsafe prior behavior and legitimate login/refresh/retry flows.
+
+The app's German/English Coach disclosure and privacy data-flow documentation now
+name OpenRouter/Google/Gemini and the actual context types. The published website
+source was located in `C:/Users/morit/Desktop/EatovaTest21st/public/datenschutz.html`;
+it matches the currently published policy. A reviewed, isolated
+[single-file correction](PRIVACY-WEBSITE-CORRECTION-2026-09-14.md) is ready without
+changing that project's existing uncommitted design work.
+
+Security checkbook Runde 2 records the final local validation and delivery
+checkpoint. This change does not deploy `coach-chat`/`analyze-meal`, publish the
+website, install a device build or establish live RLS/Auth/provider/backup safety.
+These remain separate actions/evidence. In particular, cancelling a local
+OpenRouter stream does not prove a Gemini billing stop. The next five broader
+audit points and safe read-only verification steps remain in the checkbook.
+
+Local final verification: **4500 Flutter tests**, **95.07%** line coverage
+excluding generated localization, strict analysis, **541 Deno tests** and all
+**28 Deno files independently** passed. All 58 Markdown files / 325 local links
+and the source secret scan pass. `fix/security-audit-findings` is the delivery
+branch; its protected PR records the later CI and merge checkpoint. No local
+database/schema changes required; the CI still replays all migrations and RLS.

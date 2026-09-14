@@ -8,13 +8,22 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
 
 ## [Unreleased]
 
-Current main through PR #88, reviewed 2026-09-14. These entries describe merged
-source changes, not a newly published store version. Older entries below retain
+Updated 2026-09-14. These entries describe repository changes, not a newly
+published store version. Older entries below retain
 their implementation history; [the feature inventory](docs/FEATURES.md) describes
 the complete current product.
 
 ### Latest changes (September 2026)
 
+- **Security audit fixes:** provider safety completions and malformed photo
+  classification fail closed; Coach text is approved before SSE delivery.
+  Photo analysis checks actual supported image containers before daily/global
+  quota consumption. Token-free logout records prevent restoring sessions after
+  failed local deletion; session writes are ordered and checked against the
+  current SDK login. The full app Navigator now keeps the native screen guard
+  active across tabs, pushed routes and login/logout. Provider information is
+  corrected in German and English. Verification and remaining deployment/device
+  boundaries are recorded in [SECURITY_AUDIT.md](SECURITY_AUDIT.md).
 - **Gemini Coach and analysis** (#74–#76): meal analysis, Coach replies and
   classification default to `google/gemini-3.8-flash`. Recipe pictures retain
   their separate `google/gemini-3.1-flash-image` model. Classifier handling and

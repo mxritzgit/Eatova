@@ -16,6 +16,8 @@ but their old feature gaps, branch snapshots and test counts are not live state.
 | [Changelog](../CHANGELOG.md) | Merged changes and dated release history |
 | [Privacy data flows](../PRIVACY.md) | Current app data processing and the separate published-policy follow-up |
 | [Security policy](../SECURITY.md) | Reporting vulnerabilities and trust boundaries |
+| [Security checkbook](../SECURITY_AUDIT.md) | All 91 audit points, confirmed findings, corrections and evidence limits |
+| [Website privacy correction](PRIVACY-WEBSITE-CORRECTION-2026-09-14.md) | Reviewed single-file correction prepared for separate publication |
 | [Google sign-in](../supabase/OAUTH_SETUP.md) | Native Google clients and web callback setup |
 | [Email OTP](../supabase/AUTH_EMAIL_OTP.md) | Current client contract and dated Auth settings/history |
 | [Agent entry point](../AGENTS.md) | Repository working conventions |

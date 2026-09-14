@@ -47,11 +47,13 @@ separate delivery steps. See the [backend guide](docs/BACKEND.md) and dated
   timed sets. The player supports rest intervals, pause/resume and a local
   recovery checkpoint. Completed sessions store actual set values and immutable
   history; previous results are available as “Last time”.
-- **Coach:** streamed conversations with sessions, image input, optional iOS
+- **Coach:** conversations with sessions, image input, optional iOS
   dictation, nutrition context and a server-enforced daily quota. `/recipe`
   creates a recipe proposal with an image; `/plan` uses an explicit training
   brief and can discuss/adapt a selected plan. Saving a proposal requires
-  confirmation.
+  confirmation. Replies use SSE transport and are released after the complete
+  provider response passes server-side checks; the thinking state stays visible
+  while that validation is pending.
 - **Profile and Settings:** body values, daily goals, weight history, lifetime
   statistics, health connection, language/theme, JSON export, account changes
   and account deletion with email verification.

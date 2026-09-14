@@ -1,6 +1,6 @@
 # Backend configuration and operations
 
-Checked against main through PR #88 on **2026-09-14**. This guide describes
+Updated for the **2026-09-14 security fixes**. This guide describes
 source contracts; environment values can override defaults. Runtime inspection
 and deployment are separate from editing this documentation.
 
@@ -47,11 +47,19 @@ credentials use `OPENROUTER_API_KEY`, only in the function environment. Function
 secrets override source defaults, so an old `OPENROUTER_MODEL` can keep a
 deployment on a different model even after merging a model change.
 
-Ordinary Coach replies support SSE and JSON. The classifier requests structured
-categories; malformed ordinary-chat classification is handled as a provider
-error instead of an invented off-topic refusal. Prefilter, classifier and output
-guardrails remain active. Recipe and training modes have their own validation
-paths; do not assume every mode sends the same prompt/context.
+Ordinary Coach replies support SSE and JSON. SSE text is held server-side until
+the full provider completion and output checks pass. The wire format remains
+meta/delta/done/error; the app shows its thinking state while approval is pending.
+This also prevents already transmitted text from escaping a later refusal.
+
+The classifier requests structured categories; benign approvals require an
+explicit `stop` completion. Malformed ordinary-chat or image-plus-text
+classification fails closed. Recipe and training modes keep
+their dedicated validation paths. Provider `content_filter` completion is a
+safety refusal across answer modes, with no accepted proposal or recipe-image
+follow-up. Refusals do not refund a paid safety check. An image without text
+does not gain a meaningful text-classifier check; the model's semantic safety
+still requires separate evaluation. See the scoped [security checkbook](../SECURITY_AUDIT.md).
 
 Chat receives a bounded nutrition/profile snapshot and recent messages. Recipe
 drafting uses the explicit recipe wish; image generation uses the generated
@@ -147,3 +155,6 @@ Android steps, meal planning and training history. The published
 still names Grok/xAI and old water/sleep goals. Website publication is a separate
 follow-up; changing this repository does not update that page. Provider/account
 terms and the published notice must be reconciled with the actual deployment.
+The matching source was located in the separate `EatovaTest21st` project.
+A [verified single-file patch](PRIVACY-WEBSITE-CORRECTION-2026-09-14.md) is prepared;
+the existing website design changes were preserved and nothing was published.
