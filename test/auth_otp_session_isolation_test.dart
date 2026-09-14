@@ -66,6 +66,59 @@ void main() {
       expect(client.auth.currentUser?.id, 'a');
     });
 
+    test('$type verification succeeds after a completed logout', () async {
+      final transport = MockClient(
+        (request) async => http.Response(
+          request.url.path.endsWith('/logout')
+              ? '{}'
+              : _session('a', 'verified-a'),
+          200,
+        ),
+      );
+      final client = _client(transport);
+      addTearDown(client.dispose);
+      final repository = SupabaseAuthRepository(
+        client,
+        mutationHttpClient: transport,
+      );
+      await client.auth.setInitialSession(_session('b', 'old-b'));
+      await repository.signOut();
+      await Future<void>.delayed(Duration.zero);
+      expect(client.auth.currentSession, isNull);
+
+      await _verify(repository, type);
+      expect(client.auth.currentUser?.id, 'a');
+    });
+
+    test('$type rejects A to B to the identical A session', () async {
+      final started = Completer<void>();
+      final release = Completer<void>();
+      final transport = MockClient((request) async {
+        started.complete();
+        await release.future;
+        return http.Response(_session('a', 'verified-a'), 200);
+      });
+      final client = _client(transport);
+      addTearDown(client.dispose);
+      final original = _session('a', 'old-a');
+      await client.auth.setInitialSession(original);
+      final repository = SupabaseAuthRepository(
+        client,
+        mutationHttpClient: transport,
+      );
+      final result = _verify(
+        repository,
+        type,
+      ).then<Object?>((_) => null, onError: (Object error) => error);
+      await started.future;
+      unawaited(client.auth.setInitialSession(_session('b', 'new-b')));
+      unawaited(client.auth.setInitialSession(original));
+      release.complete();
+
+      expect(await result, isA<AuthException>());
+      expect(client.auth.currentSession?.refreshToken, 'synthetic-a-old-a-1');
+    });
+
     for (final change in [
       'B',
       'B then logout',

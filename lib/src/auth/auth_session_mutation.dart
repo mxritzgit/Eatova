@@ -83,11 +83,12 @@ Future<void> _mutate(
   var changed = false;
   // GoTrue 2.27.2: the synchronous stream observes even A -> B -> A or
   // signed-out -> B -> signed-out before queued responses can be adopted.
+  // supabase_common 0.1.2 also replays its latest event: a historical signedOut
+  // matches an already signed-out baseline and must not reject a new login.
   // ignore: invalid_use_of_internal_member
   final subscription = client.auth.onAuthStateChangeSync.listen(
     (event) {
-      if (event.event == AuthChangeEvent.signedOut ||
-          _identity(event.session) != identity) {
+      if (_identity(event.session) != identity) {
         changed = true;
       }
     },
