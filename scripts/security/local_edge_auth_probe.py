@@ -4,6 +4,7 @@ Requires Docker, Deno, Python 3.11+. Creates only two named disposable
 containers plus their own network; removes them in finally. The Auth port is
 loopback-only, Postgres has no published port and stores data on tmpfs.
 """
+import argparse
 import base64
 import hashlib
 import hmac
@@ -23,6 +24,9 @@ PORT = 54991
 BASE = f'http://127.0.0.1:{PORT}'
 secret = secrets.token_urlsafe(40)
 password = secrets.token_urlsafe(24)
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--require-provider-budgets', action='store_true', help='Assert a distinct verified-user budget reservation before every stubbed paid call.')
+options = parser.parse_args()
 
 def cmd(*args, input=None):
     result = subprocess.run(args, input=input, capture_output=True, text=True, check=False)
@@ -112,7 +116,8 @@ try:
     }
     outcomes = {name: request('/user', token=value)[0] for name, value in variants.items()}
     evidence = {'gotrue_version': '2.196.0', 'auth_image_digest': cmd('docker', 'image', 'inspect', 'supabase/gotrue:v2.196.0', '--format', '{{index .RepoDigests 0}}'), 'postgres': '17.6', 'isolation': 'separate Docker network, loopback-only Auth port, ephemeral DB tmpfs, synthetic users, no external requests', 'user_endpoint_statuses': outcomes}
-    result = subprocess.run(['deno', 'run', '--allow-env', f'--allow-net=127.0.0.1:{PORT}', str(ROOT / 'scripts' / 'security' / 'edge_auth_probe.ts')], input=json.dumps({'base': BASE, 'tokens': variants, 'users': [u['user']['id'] for u in users]}), capture_output=True, text=True)
+    evidence['provider_budgets_required'] = options.require_provider_budgets
+    result = subprocess.run(['deno', 'run', '--allow-env', f'--allow-net=127.0.0.1:{PORT}', str(ROOT / 'scripts' / 'security' / 'edge_auth_probe.ts')], input=json.dumps({'base': BASE, 'tokens': variants, 'users': [u['user']['id'] for u in users], 'requireProviderBudgets': options.require_provider_budgets}), capture_output=True, text=True)
     evidence['handler_probe_exit'] = result.returncode
     if result.returncode == 0:
         evidence['handler_checks'] = json.loads(result.stdout)

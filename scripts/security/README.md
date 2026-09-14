@@ -6,6 +6,19 @@ Run from the repository root with Docker Desktop, Deno 2 and Python 3.11+:
 python scripts/security/local_edge_auth_probe.py
 ```
 
+After integrating the global AI budget, require its boundary explicitly:
+
+```powershell
+python scripts/security/local_edge_auth_probe.py --require-provider-budgets
+```
+
+This mode checks a separate `reserve_ai_provider_call` request, bound to the
+verified user and correct operation, before **each** stubbed classifier, coach
+answer and meal-analysis call. The RPC remains a local stub and never changes a
+deployed budget. Its required-mode flag and reservation counts appear in the
+report, so an older baseline run cannot be confused with a budget enforcement
+check. Recipe/plan/image budget paths have separate handler/SQL regression tests.
+
 The script uses the real GoTrue **2.196.0** image (the version in the official
 [Supabase Compose](https://github.com/supabase/supabase/blob/master/docker/docker-compose.yml)
 checked on 2026-09-15) and PostgreSQL **17.6**. Both versions are explicit test
