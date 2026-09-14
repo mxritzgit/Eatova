@@ -140,6 +140,12 @@ the six-feature backend rollout in [PR #77](https://github.com/mxritzgit/Eatova/
 and the latest recipe completion fix in [PR #83](https://github.com/mxritzgit/Eatova/pull/83).
 The latter record verifies `coach-chat` v46 against the merged source;
 `analyze-meal` v29 and `search-key` v9 were unchanged at that checkpoint.
+After explicit rollout approval on 2026-09-14, security [PR #90](https://github.com/mxritzgit/Eatova/pull/90)
+was deployed as `coach-chat` **v47** and `analyze-meal` **v30**; `search-key` remains
+**v9**. Both changed functions are ACTIVE with JWT verification enabled, and their
+downloaded production import graphs match the reviewed source. Model overrides
+were checked without changing settings or invoking billable AI. See the
+[deployment evidence and limits](../SECURITY_AUDIT.md#verifizierte-veröffentlichung-am-14092026).
 These are dated deployment records, not a fresh live inspection on every read.
 
 CI replays migrations and RLS against disposable Postgres. The separate
@@ -149,12 +155,13 @@ function deployment or provider response. See [workflows](../.github/workflows).
 
 ## Published privacy documentation follow-up
 
-The GitHub [privacy data-flow document](../PRIVACY.md) is updated with Gemini,
-Android steps, meal planning and training history. The published
-[German website policy](https://eatova.de/datenschutz), inspected on 2026-09-14,
-still names Grok/xAI and old water/sleep goals. Website publication is a separate
-follow-up; changing this repository does not update that page. Provider/account
-terms and the published notice must be reconciled with the actual deployment.
-The matching source was located in the separate `EatovaTest21st` project.
-A [verified single-file patch](PRIVACY-WEBSITE-CORRECTION-2026-09-14.md) is prepared;
-the existing website design changes were preserved and nothing was published.
+The [German website policy](https://eatova.de/datenschutz) was corrected after
+explicit approval on 2026-09-14 at 21:34 UTC. It now matches the documented Gemini,
+Android steps, meal planning, training and approved-response data flows. The live
+model configuration was verified before publication. Provider contracts, account
+privacy/retention settings and legal requirements still need separate assessment.
+
+The [single-file correction record](PRIVACY-WEBSITE-CORRECTION-2026-09-14.md)
+identifies the separate `EatovaTest21st` source. The public HTML and updated local
+privacy file match; all 34 other website files remained unchanged. Live Chromium
+checks at four widths passed with the actual CSP. No device build was installed.
