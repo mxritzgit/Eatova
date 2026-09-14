@@ -13,6 +13,7 @@ import { clientIpSubject } from '../_shared/client_ip.ts';
 import { EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS, positiveIntFromEnv } from '../_shared/env.ts';
 import { loggableFinishReason } from '../_shared/provider_log.ts';
 import { pruneRateLimits } from '../_shared/rate_limit_prune.ts';
+import { imageMimeFromBytes } from './image_type.ts';
 import {
   hasEnergyStatement,
   isRecord,
@@ -888,22 +889,32 @@ function normalizeLanguage(raw: unknown): Language {
 
 function parseImageBase64(raw: string): { imageBase64: string; mimeType: string } {
   const trimmed = raw.trim();
-  const dataUrlMatch = trimmed.match(/^data:(image\/(?:jpeg|jpg|png|webp));base64,(.+)$/i);
-  const mimeType = dataUrlMatch?.[1]?.toLowerCase().replace('image/jpg', 'image/jpeg') ?? 'image/jpeg';
+  const dataUrlMatch = trimmed.match(/^data:(image\/(?:jpeg|jpg|png|webp));base64,([\s\S]+)$/i);
   const imageBase64 = (dataUrlMatch?.[2] ?? trimmed).replace(/\s+/g, '');
 
-  if (!/^[A-Za-z0-9+/]+=*$/.test(imageBase64)) {
+  if (imageBase64.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(imageBase64)) {
     throw new HttpError(400, 'invalid_image_base64', 'Bilddaten sind ungültig.');
   }
 
-  const estimatedBytes = Math.floor(imageBase64.length * 0.75);
-  if (estimatedBytes < MIN_IMAGE_BYTES) {
+  const padding = imageBase64.endsWith('==') ? 2 : imageBase64.endsWith('=') ? 1 : 0;
+  // Reject nonzero unused bits as well as malformed padding; inspect four chars only.
+  const finalQuartet = imageBase64.slice(-4);
+  if (btoa(atob(finalQuartet)) !== finalQuartet) {
+    throw new HttpError(400, 'invalid_image_base64', 'Bilddaten sind ungültig.');
+  }
+  const imageBytes = imageBase64.length * 0.75 - padding;
+  if (imageBytes < MIN_IMAGE_BYTES) {
     throw new HttpError(400, 'image_too_small', 'Bild ist zu klein.');
   }
-  if (estimatedBytes > MAX_IMAGE_BYTES) {
+  if (imageBytes > MAX_IMAGE_BYTES) {
     throw new HttpError(413, 'image_too_large', 'Bild ist zu groß. Bitte kleineres Foto wählen.');
   }
 
+  // The claimed MIME never decides what reaches the provider or spends a day slot.
+  const mimeType = imageMimeFromBytes(imageBase64, imageBytes);
+  if (mimeType === null) {
+    throw new HttpError(400, 'invalid_image_base64', 'Bilddaten sind ungültig.');
+  }
   return { imageBase64, mimeType };
 }
 

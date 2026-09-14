@@ -1,0 +1,197 @@
+--- a/public/datenschutz.html
++++ b/public/datenschutz.html
+@@ -37,7 +37,7 @@
+ 
+       <p class="eyebrow legal-kicker">Rechtliches</p>
+       <h1 class="h1 legal-title">Datenschutz&shy;erklärung</h1>
+-      <p class="legal-updated">Stand: 1. September 2026</p>
++      <p class="legal-updated">Stand: 14. September 2026</p>
+       <div class="lg-rule" aria-hidden="true"></div>
+ 
+       <p class="legal-intro">
+@@ -80,7 +80,7 @@
+         <li>Die App enthält <strong>keine Werbe- und keine Analyse- oder Tracking-SDKs</strong> und erhebt weder Standort noch Kontakte noch Werbe-IDs. Einziger Telemetrie-Baustein ist ein Absturz-Melder (Sentry, EU-Endpunkt) – er meldet Fehler, nicht dein Nutzungsverhalten; seine automatische Sitzungsverfolgung ist abgeschaltet (siehe 5.7).</li>
+         <li>Fotos werden vor jedem Upload <strong>auf deinem Gerät von sämtlichen Metadaten befreit</strong> (GPS-Position, Aufnahmezeit, Geräte-Kennungen).</li>
+         <li>Bilder zu Rezepten – dein eigenes Rezeptfoto ebenso wie das vom Coach erzeugte Bild – bleiben <strong>ausschließlich auf deinem Gerät</strong> und erreichen unsere Server nie (siehe 5.2 und 5.3).</li>
+-        <li>Du kannst dir in der App jederzeit eine <strong>vollständige Kopie deiner Daten</strong> herunterladen und dein Konto samt allen Daten <strong>direkt in der App löschen</strong>.</li>
++        <li>Du kannst dir in der App jederzeit eine JSON-Auskunft über deine vom Server geladenen Daten anzeigen und kopieren (Umfang und Grenzen siehe Abschnitt 8) und dein Konto samt allen Daten <strong>direkt in der App löschen</strong>.</li>
+       </ul>
+ 
+       <h2 id="website">3. Besuch der Website eatova.de</h2>
+@@ -145,8 +145,9 @@
+         (Google Ireland Limited, Gordon House, Barrow Street, Dublin 4, Irland) verarbeitet dabei
+         deine Google-Konto-Kennung, deine E-Mail-Adresse, deinen Namen sowie die bei der
+         Anmeldung anfallenden Geräte- und Verbindungsdaten, um das Identitäts-Token auszustellen,
+-        das wir gegen eine Eatova-Sitzung eintauschen. Meldest du dich mit E-Mail und Passwort
+-        an, ist Google überhaupt nicht beteiligt. Details findest du in der
++        das wir gegen eine Eatova-Sitzung eintauschen. Bei der Anmeldung mit E-Mail und Passwort
++        nutzen wir Google Sign-In nicht. Davon unabhängig können freiwillige KI-Funktionen Daten
++        an Gemini-Modelle von Google übermitteln (siehe 5.3). Details findest du in der
+         <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Datenschutzerklärung von Google</a>.
+       </p>
+ 
+@@ -154,10 +155,12 @@
+       <p>Folgende Daten gibst du selbst ein bzw. entstehen bei der Nutzung und werden deinem Konto zugeordnet gespeichert:</p>
+       <ul>
+         <li><strong>Konto und Anmeldung:</strong> deine E-Mail-Adresse und entweder ein Passwort oder – wenn du „Weiter mit Google“ wählst – das von Google ausgestellte Identitäts-Token (siehe 5.1).</li>
+-        <li><strong>Profil- und Körperdaten:</strong> Name, E-Mail-Adresse, Gewicht, Größe, Alter, biologisches Geschlecht, Aktivitätslevel, Zielgewicht, Gewichtsziel (abnehmen, halten, zunehmen), Ernährungspräferenz sowie deine Tagesziele (Kalorien, Makronährstoffe, Schritte, Wasser, Schlaf).</li>
++        <li><strong>Profil- und Körperdaten:</strong> Anzeigename, E-Mail-Adresse, Gewicht, Größe, Alter, biologisches Geschlecht, Aktivitätslevel, Zielgewicht, Gewichtsziel (abnehmen, halten, zunehmen), Ernährungspräferenz sowie deine aktuellen Tagesziele für Kalorien, Makronährstoffe und Schritte. Wasser- und Schlafziele gehören nicht mehr zu den aktuellen Einstellmöglichkeiten.</li>
+         <li><strong>Ernährungstagebuch:</strong> protokollierte Mahlzeiten (Name, Kalorien, Makros, Portion, ggf. Barcode/Marke sowie die Angabe, ob die Werte aus dem KI-Scan, einem Barcode, der Produktsuche oder deiner eigenen manuellen Eingabe stammen), Favoriten und eigene Rezepte.</li>
+         <li><strong>Gewicht und Fortschritt:</strong> dein Gewichtsverlauf und deine Logging-Serie (die Folge von Tagen, an denen du eine Mahlzeit protokolliert hast) sowie Gesamtzähler (protokollierte Mahlzeiten, erfasste Wiegungen). Konten, die vor August 2026 angelegt wurden, können außerdem noch eingefrorene Gesamtwerte für Wasser, Schritte und Workouts aus inzwischen entfernten Funktionen enthalten; sie werden nicht mehr fortgeschrieben und sind wie jeder andere Wert Teil deines Exports und der Konto-Löschung.</li>
+-        <li><strong>Coach-Chat:</strong> deine Nachrichten an den KI-Coach und dessen Antworten sowie die vom Coach erzeugten Rezepte (siehe 5.3). Die Antwort erreicht deine App fortlaufend, Stück für Stück, während das Modell sie schreibt; brichst du sie ab oder reißt die Verbindung, speichern wir den bis dahin an dich <strong>ausgelieferten Teiltext</strong> als Antwort im Verlauf – damit der Chat zeigt, was du tatsächlich gesehen hast. Dazu kommt ein reiner Tageszähler, wie viele Coach-Nachrichten du an einem Tag genutzt hast (eine Zahl, kein Nachrichteninhalt), mit dem wir das tägliche Kontingent durchsetzen; wie lange er bleibt, steht in Abschnitt 6.</li>
++        <li><strong>Coach-Chat:</strong> deine Nachrichten an den KI-Coach, seine Antworten sowie erzeugte Rezept- und Trainingsvorschläge (siehe 5.3). Der Server sammelt und prüft eine erzeugte Antwort vollständig, bevor er Antworttext an die App sendet. Freigegebene Antworten werden danach in kurzen Abschnitten über die Streaming-Verbindung ausgeliefert; andernfalls kann eine sichere Ablehnung erscheinen. Im Verlauf werden nur freigegebene Antworten oder Ablehnungshinweise gespeichert. Brichst du vor der Freigabe ab, entsteht keine teilweise gespeicherte Coach-Antwort; deine Frage kann im Chat verbleiben. Nach der Freigabe kann die vollständige geprüfte Antwort bereits im Verlauf stehen, auch wenn dein Gerät wegen eines Verbindungsabbruchs nicht den gesamten Text empfangen hat. Dazu kommt ein Tageszähler der genutzten Coach-Nachrichten ohne Nachrichteninhalt; die Aufbewahrung steht in Abschnitt 6.</li>
++        <li><strong>Mahlzeitenplanung und Einkaufsliste:</strong> von dir geplante Mahlzeiten mit Datum, Mahlzeit und Portion sowie abgehakte Einkaufspositionen. Ein geplanter Eintrag gelangt erst nach deiner ausdrücklichen Verbrauchsaktion ins Ernährungstagebuch.</li>
++        <li><strong>Training:</strong> gespeicherte Trainingspläne mit Workouts und Übungen sowie abgeschlossene Einheiten mit den tatsächlich erfassten Sätzen. Abgeschlossene Einheiten behalten eine eigene Kopie der damaligen Trainingsdaten. Nach dem Löschen bleibt eine technische Kennung bis zur Konto-Löschung erhalten, damit ein älterer Offline-Eintrag die Einheit nicht erneut anlegt. Ein Zwischenstand zum Fortsetzen eines laufenden Trainings wird auf deinem Gerät gespeichert.</li>
+       </ul>
+       <p>
+         <strong>Fotos zu eigenen Rezepten:</strong> Fügst du einem eigenen Rezept ein Foto hinzu,
+@@ -187,17 +190,18 @@
+         Einträge oder dein Konto löschst.
+       </p>
+ 
+-      <h3 id="ki">5.3 KI-Funktionen (Foto-Scan, Coach und Rezept-Generator)</h3>
++      <h3 id="ki">5.3 KI-Funktionen (Foto-Scan, Coach, Rezepte und Trainingsvorschläge)</h3>
+       <p>
+         Die KI-Funktionen sind freiwillig und werden nur aktiv, wenn du sie nutzt. Die Anfragen
+         laufen über unsere eigene Server-Funktion (Supabase Edge Function) und werden von dort an
+         den API-Dienst <strong>OpenRouter</strong> (OpenRouter, Inc., San Francisco, USA)
+-        übermittelt, der sie an das jeweilige KI-Modell weiterleitet:
++        übermittelt, der sie an Gemini-Modelle von Google weiterleitet:
+       </p>
+       <ul>
+-        <li><strong>KI-Foto-Scan:</strong> Das von dir aufgenommene Essensfoto wird zur Analyse an ein Modell der Gemini-Familie von Google übermittelt. Das Ergebnis (erkanntes Gericht, geschätzte Portion und Nährwerte) wird in deinem Ernährungstagebuch gespeichert; das Foto selbst wird nicht dauerhaft gespeichert.</li>
+-        <li><strong>KI-Coach:</strong> Deine Chat-Nachrichten werden von <strong>Grok (xAI)</strong> beantwortet. Damit der Coach konkrete statt generischer Antworten geben kann, wird jeder Nachricht automatisch eine kurze Zusammenfassung deiner aktuellen Ziele und Fortschritte beigefügt. Sie enthält: die in der App eingestellte Sprache, dein Gewicht und Zielgewicht, die daraus wirksame Zielrichtung (abnehmen, halten, zunehmen), die heutige Kalorienbilanz (gegessen, Tagesziel, Rest) und die noch offenen Makros, je Mahlzeit (Frühstück, Mittag, Abend, Snacks) Kalorien, Makros und Anzahl der Einträge sowie die heute protokollierten Mahlzeiten mit Mahlzeit, Name und Kalorien (höchstens zehn, auf eine feste Länge gekürzt). Nicht enthalten sind Schritte, Serien, dein Name, deine E-Mail-Adresse und Einträge anderer Tage. Ein optional angehängtes Foto wird nur zur Erstellung der Antwort verwendet und danach nicht gespeichert. Die Antwort des Modells reichen wir in derselben, TLS-gesicherten Verbindung fortlaufend an deine App weiter; auf unseren Servern liegt sie dabei nur im Arbeitsspeicher der Server-Funktion – gespeichert wird ausschließlich der fertige oder, bei einem Abbruch, der bereits übertragene Antworttext im Chat-Verlauf (siehe 5.2). Vor der Antwort prüft ein zweiter Aufruf desselben Anbieters deine Nachricht darauf, ob sie ein Thema betrifft, das der Coach nicht beantworten darf; er erhält dafür nur den Text deiner Nachricht. Damit der Coach dem Gespräch folgen kann, gehen außerdem bis zu zehn vorangegangene Nachrichten desselben Chats mit.</li>
+-        <li><strong>Rezept-Generator (der <code>/recipe</code>-Befehl im Coach):</strong> Dein Rezeptwunsch wird als normale Coach-Nachricht von <strong>Grok (xAI)</strong> beantwortet – allein aus deinem Wortlaut, ohne Profil-Zusammenfassung und ohne Foto – und wie jede andere Nachricht in deinem Chat-Verlauf gespeichert. Das zurückkommende Rezept (Titel, Beschreibung, Zutaten, Zubereitung, Nährwerte) wird mit dieser Chat-Nachricht gespeichert, damit die Karte einen Neustart übersteht; zu deinen eigenen Rezepten wird es erst, wenn du es ausdrücklich bestätigst. Das Bild zur Rezeptkarte erzeugt ein separates <strong>KI-Bildmodell</strong> der Gemini-Familie von Google; der Prompt dafür enthält nur den generierten Titel und die Beschreibung, nie deinen eigenen Wortlaut. Das erzeugte Bild wird <strong>nur auf deinem Gerät</strong> gespeichert – nie auf unseren Servern; ein zweites Gerät zeigt die Karte mit einem Platzhalter. Wie andere App-Dokumente ist diese Gerätekopie Teil eines Geräte-Backups deines Betriebssystems, sofern du eines nutzt (auf iOS: das iCloud-Backup deines Geräts); auf Android ist sie von Cloud-Backups vollständig ausgenommen, und nur eine direkte Geräte-zu-Geräte-Übertragung auf dein eigenes neues Telefon nimmt sie mit – genau wie bei deinen eigenen Rezeptfotos (siehe 5.2).</li>
++        <li><strong>KI-Foto-Scan:</strong> Das ausgewählte oder aufgenommene Essensfoto und gegebenenfalls von dir ergänzte Hinweise werden zur Erkennung von Mahlzeit, Portion und Nährwerten an ein Gemini-Modell von Google übermittelt. Du kannst das Ergebnis vor dem Speichern im Ernährungstagebuch prüfen und verändern. Das Foto wird nicht als Teil des Tagebucheintrags in unserer Datenbank gespeichert.</li>
++        <li><strong>KI-Coach:</strong> Der Coach nutzt <strong>Gemini-Modelle von Google</strong>. Bei gewöhnlichen Chat-Anfragen werden deine Frage und eine begrenzte Zusammenfassung deiner Ziele und Tageswerte übermittelt: App-Sprache, Gewicht und Zielgewicht, wirksame Zielrichtung, Kalorienbilanz, offene Makronährstoffe, Summen je Mahlzeit sowie bis zu zehn protokollierte Mahlzeiten mit gekürzten Namen. Die automatisch zusammengestellte Tageszusammenfassung enthält keinen Namen, keine E-Mail-Adresse und keine Schrittzahl. Angaben, die du selbst in einer Nachricht oder einem Foto mitteilst, können diese Informationen trotzdem enthalten. Außerdem können bis zu zehn vorherige Nachrichten desselben Chats und ein von dir angehängtes Foto verarbeitet werden. Eine Sicherheitsprüfung erhält den aktuellen Nachrichtentext, bei Planbesprechungen auch den zu prüfenden Trainingskontext, jedoch kein Foto, Profil oder Chatverlauf. Eine erzeugte Antwort wird vor ihrer Auslieferung vollständig geprüft; Einzelheiten zum Streaming und Chatverlauf stehen in 5.2.</li>
++        <li><strong>Rezept-Generator (der <code>/recipe</code>-Befehl im Coach):</strong> Dein Rezeptwunsch wird als normale Coach-Nachricht von <strong>Gemini-Modellen von Google</strong> beantwortet – allein aus deinem Wortlaut, ohne Profil-Zusammenfassung und ohne Foto – und wie jede andere Nachricht in deinem Chat-Verlauf gespeichert. Das zurückkommende Rezept (Titel, Beschreibung, Zutaten, Zubereitung, Nährwerte) wird mit dieser Chat-Nachricht gespeichert, damit die Karte einen Neustart übersteht; zu deinen eigenen Rezepten wird es erst, wenn du es ausdrücklich bestätigst. Das Bild zur Rezeptkarte erzeugt ein separates <strong>KI-Bildmodell</strong> der Gemini-Familie von Google; der Prompt dafür enthält nur den generierten Titel und die Beschreibung, nie deinen eigenen Wortlaut. Das erzeugte Bild wird <strong>nur auf deinem Gerät</strong> gespeichert – nie auf unseren Servern; ein zweites Gerät zeigt die Karte mit einem Platzhalter. Wie andere App-Dokumente ist diese Gerätekopie Teil eines Geräte-Backups deines Betriebssystems, sofern du eines nutzt (auf iOS: das iCloud-Backup deines Geräts); auf Android ist sie von Cloud-Backups vollständig ausgenommen, und nur eine direkte Geräte-zu-Geräte-Übertragung auf dein eigenes neues Telefon nimmt sie mit – genau wie bei deinen eigenen Rezeptfotos (siehe 5.2).</li>
++        <li><strong>Trainingsvorschläge und Planbesprechung:</strong> Gemini-Modelle von Google verarbeiten deine Frage, die Angaben aus dem Trainingsbrief und gegebenenfalls die Informationen des von dir ausgewählten Trainingsplans. Ein erzeugter Vorschlag wird im Chat angezeigt und gespeichert. Er wird erst nach deiner ausdrücklichen Übernahme zu einem gespeicherten Trainingsplan.</li>
+       </ul>
+       <p>
+         <strong>Fotos und Metadaten:</strong> Jedes Foto, das die App verschickt – ob in der App
+@@ -207,29 +211,31 @@
+         verlassen dein Gerät nicht.
+       </p>
+       <p>
+-        Mit der Übermittlung an OpenRouter und die Modellanbieter werden Daten in die
+-        <strong>USA</strong> übertragen. Betroffen sind OpenRouter, Inc. (San Francisco, USA) als
+-        Vermittler, <strong>xAI</strong> (USA) als Anbieter des Grok-Modells für Coach-Antworten
+-        und Coach-Rezepte sowie <strong>Google</strong> (USA) als Anbieter der Gemini-Modelle für
+-        die Analyse von Essensfotos und für das Bild der Rezeptkarte; dieser Punkt betrifft
+-        ausschließlich die Gemini-Modelle – Google Sign-In (siehe 5.1) ist ein davon getrennter
+-        Dienst, der Nutzern in der EU von Googles europäischer Gesellschaft erbracht wird. Die
++        Empfänger der KI-Anfragen sind <strong>OpenRouter</strong> als Vermittler und
++        <strong>Google</strong> als Anbieter der Gemini-Modelle für Coach-Antworten,
++        Rezept- und Trainingsvorschläge, Essensfoto-Analyse und Rezeptbilder. Dabei können Daten
++        auch außerhalb der EU, einschließlich der <strong>USA</strong>, verarbeitet werden.
++        Ein EU-Standort unserer Supabase-Datenbank bedeutet nicht, dass die nachgelagerte
++        KI-Verarbeitung ausschließlich in der EU stattfindet. Google Sign-In (siehe 5.1) ist
++        ein davon getrennter Dienst. Die
+         Übermittlung findet nur statt, wenn du eine KI-Funktion nutzt, und stützt sich auf die
+         EU-Standardvertragsklauseln der EU-Kommission (Art. 46 Abs. 2 lit. c DSGVO). Trotz dieser
+         Garantien bleibt ein Restrisiko, dass US-Behörden auf Daten bei US-Anbietern zugreifen
+         können und deine Rechte dort schwerer durchsetzbar sind als in der EU; wenn du das nicht
+-        möchtest, nutze Coach, Rezept-Generator und KI-Scan einfach nicht – alle übrigen
++        möchtest, nutze die KI-Funktionen nicht. Alle übrigen
+         Funktionen der App kommen ohne sie aus. Rechtsgrundlage ist deine Einwilligung durch die
+         aktive Nutzung der jeweiligen Funktion (Art. 6 Abs. 1 lit. a, Art. 9 Abs. 2 lit. a
+         DSGVO); du kannst sie jederzeit widerrufen, indem du die Funktion nicht mehr nutzt.
+       </p>
+       <p>
+-        <strong>Training der Modelle:</strong> Wir stützen uns darauf, dass OpenRouter und die
+-        dahinterliegenden Modellanbieter deine API-Anfragen nach ihren
+-        Datennutzungsbedingungen <strong>nicht zum Training ihrer Modelle</strong> verwenden.
+-        Unser Server sendet dabei keinen Opt-out-Parameter pro Anfrage; der Ausschluss beruht
+-        also auf der Konfiguration unseres OpenRouter-Kontos und den Richtlinien der Anbieter,
+-        nicht auf einer Durchsetzung durch unseren eigenen Code. Die API-Schlüssel liegen
++        <strong>Datenverwendung bei den Anbietern:</strong> OpenRouter und die Modellanbieter
++        haben eigene Regelungen und Einstellungen zur Verarbeitung, Protokollierung,
++        Aufbewahrung und möglichen Nutzung von Anfragen für das Modelltraining. Diese Punkte
++        sind getrennt zu betrachten. Unser Server sendet keinen allgemeinen Opt-out-Parameter
++        pro Anfrage; die Auswahl zulässiger Anbieter und ihrer Datennutzung hängt von der
++        OpenRouter-Kontokonfiguration und den Richtlinien der Anbieter ab. Das Löschen eines
++        Chats in Eatova ist kein Nachweis, dass sämtliche bei einem Anbieter gegebenenfalls
++        aufbewahrten Kopien sofort gelöscht wurden. Privilegierte API-Schlüssel liegen
+         ausschließlich auf unserem Server, nie in der App.
+       </p>
+       <p>
+@@ -273,9 +279,9 @@
+         angemeldet und wird deshalb – wie in 5.3 beschrieben – auch je Konto gezählt.
+       </p>
+ 
+-      <h3 id="apple-health">5.5 Apple Health (optional, nur iOS)</h3>
+-      <p>
+-        Wenn du die Berechtigung erteilst, liest die App deine <strong>Schrittzahl</strong> und
++      <h3 id="apple-health">5.5 Apple Health und Health Connect (optional)</h3>
++      <p>
++        Auf iOS liest die App mit deiner Berechtigung deine <strong>Schrittzahl</strong> und
+         deinen <strong>Gewichtsverlauf</strong> aus Apple Health und schreibt mit derselben
+         Berechtigung einen Gewichts-Eintrag zurück, wenn du ein Wiegen erfasst. Es werden
+         ausschließlich diese Kategorien gelesen und geschrieben; auf andere Apple-Health-Daten
+@@ -285,6 +291,16 @@
+         iOS-Berechtigung (Art. 6 Abs. 1 lit. a, Art. 9 Abs. 2 lit. a DSGVO); du kannst sie
+         jederzeit in den iOS-Einstellungen
+         (Datenschutz → Health) widerrufen.
++      </p>
++
++      <h4 id="health-connect">Health Connect auf Android (optional)</h4>
++      <p>
++        Wenn du die Berechtigung erteilst, liest Eatova bei Aktualisierungen im Vordergrund die
++        zusammengefassten Schritte für den ausgewählten Tag. Sie dienen der Tagesanzeige und
++        der Schätzung deiner Aktivität. Die App fordert auf Android keinen Zugriff auf
++        Gewichtsdaten an und schreibt keine Gesundheitsdatensätze in Health Connect.
++        Schrittzahlen werden nicht in unserer Supabase-Datenbank gespeichert. Du kannst die
++        Berechtigung in Health Connect wieder entziehen.
+       </p>
+ 
+       <h3 id="spracheingabe">5.6 Spracheingabe (optional, nur iOS)</h3>
+@@ -356,8 +372,8 @@
+         Berechnung deines Kalorien- und Makroziels braucht die App deine Körperdaten
+         (Geschlecht, Alter, Größe, Gewicht, Aktivitätsniveau, Zielgewicht) – du kannst dein
+         Tagesziel alternativ auch von Hand setzen, dann rechnet die App nicht mehr für dich.
+-        Alles Weitere ist freiwillig: Apple Health, die Spracheingabe, der Foto-Scan, der Coach,
+-        der Rezept-Generator und die Erinnerungen. Wenn du eine dieser Funktionen nicht nutzt
++        Alles Weitere ist freiwillig: Apple Health, Health Connect, die Spracheingabe, der Foto-Scan,
++        der Coach, Rezept- und Trainingsvorschläge sowie die Erinnerungen. Wenn du eine dieser Funktionen nicht nutzt
+         oder eine Berechtigung nicht erteilst, entfällt nur diese Funktion – die übrige App
+         bleibt vollständig nutzbar.
+       </p>
+@@ -436,7 +452,7 @@
+         <li><strong>Löschung</strong> (Art. 17 DSGVO) – in der App direkt möglich,</li>
+         <li><strong>Einschränkung der Verarbeitung</strong> (Art. 18 DSGVO),</li>
+         <li><strong>Datenübertragbarkeit</strong> (Art. 20 DSGVO) – direkt in der App, siehe unten,</li>
+-        <li><strong>Widerruf erteilter Einwilligungen</strong> mit Wirkung für die Zukunft (Art. 7 Abs. 3 DSGVO) – für Apple Health und die Spracheingabe in den iOS-Einstellungen, für die KI-Funktionen, indem du sie nicht mehr nutzt.</li>
++        <li><strong>Widerruf erteilter Einwilligungen</strong> mit Wirkung für die Zukunft (Art. 7 Abs. 3 DSGVO) – für Apple Health und die Spracheingabe in den iOS-Einstellungen, für Health Connect in dessen Berechtigungen und für die KI-Funktionen, indem du sie nicht mehr nutzt.</li>
+       </ul>
+       <div class="legal-box" id="widerspruch">
+         <p>
+@@ -452,16 +468,19 @@
+         </p>
+       </div>
+       <p>
+-        Der In-App-Export (Profil → Einstellungen → „Daten exportieren“) lädt eine
+-        <strong>vollständige JSON-Kopie</strong> deiner gespeicherten Daten direkt von unseren
+-        Servern – jede Tabelle, die zu deinem Konto gehört: Profil, Ernährungstagebuch,
+-        Favoriten, eigene Rezepte, Gewichtsverlauf, Gesamtstatistiken, Coach-Chat-Sitzungen und
+-        -Nachrichten sowie den Tageszähler deines Coach-Kontingents – und erfüllt damit Art. 15
+-        und Art. 20 DSGVO. Kann ein Abschnitt nicht geladen werden, weist der Export ihn
+-        namentlich aus, statt ihn stillschweigend wegzulassen; dasselbe gilt für sehr große
+-        Abschnitte: Außer dem Ernährungstagebuch, das vollständig durchgeblättert wird, führt der
+-        Export je Abschnitt bis zu 10.000 Zeilen auf und nennt bei Überschreitung die tatsächliche
+-        Zeilenzahl auf dem Server. Zusätzlich kannst du jederzeit eine Kopie per E-Mail anfordern.
++        Unter <strong>Today → Einstellungen → Daten exportieren</strong> kannst du eine
++        JSON-Auskunft über die vom Server geladenen Kontodaten anzeigen und kopieren. Sie
++        umfasst Profil, Ernährungstagebuch, Favoriten, eigene Rezepte, Gewichtsverlauf,
++        Gesamtstatistiken, Trainingspläne, Mahlzeitenplanung, Einkaufscheckzustände,
++        Trainingshistorie mit technischen Löschkennungen, Coach-Sitzungen und -Nachrichten sowie
++        tägliche Coach-Kontingentzähler. Das Ernährungstagebuch wird seitenweise geladen.
++        Andere Abschnitte sind auf höchstens 10.000 Zeilen begrenzt; der Server kann eine
++        niedrigere Grenze setzen. Nicht geladene oder gekürzte Abschnitte werden gekennzeichnet.
++        Nur auf dem Gerät gespeicherte Bilder und noch nicht synchronisierte Änderungen sind
++        in dieser Serverauskunft nicht enthalten. Die App kopiert die JSON-Auskunft auf deine
++        Aktion hin in die Zwischenablage; einen nativen Datei-Download oder Dateiversand bietet
++        dieser Dialog derzeit nicht. Für weitere Auskünfte kannst du dich an
++        support@eatova.de wenden.
+       </p>
+       <p>
+         Wende dich dafür an <a href="mailto:support@eatova.de">support@eatova.de</a>. Außerdem

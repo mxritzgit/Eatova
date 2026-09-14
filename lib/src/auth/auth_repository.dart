@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -7,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../config/supabase_config.dart';
 import '../l10n/l10n.dart';
 import '../services/crash_reporter.dart';
+import '../services/session_revocations.dart';
 import 'auth_exceptions.dart';
 import 'auth_session_mutation.dart';
 import 'google_id_token_provider.dart';
@@ -145,18 +147,27 @@ abstract class AuthRepository {
   Future<void> signOut();
 }
 
-class SupabaseAuthRepository implements AuthRepository {
+/// Optional capability for repositories that must commit logout intent before
+/// the caller clears account-scoped caches, photos and device integrations.
+abstract interface class CoordinatedSignOut {
+  Future<void> signOutWithCleanup(Future<void> Function() cleanup);
+}
+
+class SupabaseAuthRepository implements AuthRepository, CoordinatedSignOut {
   const SupabaseAuthRepository(
     this._client, {
     GoogleIdTokenProvider? googleIdTokenProvider,
     http.Client? mutationHttpClient,
+    SecureSessionLocalStorage? sessionStorage,
   }) : _googleIdTokenProvider =
            googleIdTokenProvider ?? const GoogleSignInIdTokenProvider(),
-       _mutationHttpClient = mutationHttpClient;
+       _mutationHttpClient = mutationHttpClient,
+       _sessionStorage = sessionStorage;
 
   final SupabaseClient _client;
   final GoogleIdTokenProvider _googleIdTokenProvider;
   final http.Client? _mutationHttpClient;
+  final SecureSessionLocalStorage? _sessionStorage;
 
   @override
   EatovaUser? get currentUser => _mapUser(_client.auth.currentUser);
@@ -335,7 +346,78 @@ class SupabaseAuthRepository implements AuthRepository {
   }
 
   @override
-  Future<void> signOut() => _client.auth.signOut();
+  Future<void> signOut() => _signOutWithCleanup(null);
+
+  @override
+  Future<void> signOutWithCleanup(Future<void> Function() cleanup) =>
+      _signOutWithCleanup(cleanup);
+
+  Future<void> _signOutWithCleanup(Future<void> Function()? cleanup) async {
+    final session = _client.auth.currentSession;
+    final storage =
+        _sessionStorage ?? EatovaSupabaseConfig.sessionStorageFor(_client);
+    if (session != null && storage != null) {
+      await storage.prepareLogout(jsonEncode(session.toJson()));
+    }
+    _requireSameSession(session);
+    if (cleanup != null) await cleanup();
+    // A second login during preflight or cleanup belongs to its caller.
+    // Never hand that login to the SDK's parameterless signOut().
+    _requireSameSession(session);
+    final accessToken = _client.auth.currentSession?.accessToken;
+    var signedOutEmitted = false;
+    // gotrue 2.27.2 clears its session before awaiting PKCE removal. A storage
+    // failure skips both signedOut and server revocation. These internal hooks
+    // keep the SDK listeners consistent without weakening PKCE storage errors.
+    // ignore: invalid_use_of_internal_member
+    final subscription = _client.auth.onAuthStateChangeSync.listen(
+      (event) {
+        if (event.event == AuthChangeEvent.signedOut) signedOutEmitted = true;
+      },
+      onError: (Object _, StackTrace __) {},
+    );
+    try {
+      await _client.auth.signOut();
+    } catch (_) {
+      if (!signedOutEmitted) {
+        // No await between the null check and notification: a new B login
+        // must never receive A's compensating signedOut event.
+        if (_client.auth.currentSession == null) {
+          // ignore: invalid_use_of_internal_member
+          _client.auth.notifyAllSubscribers(
+            AuthChangeEvent.signedOut,
+            signOutReason: SignOutReason.userInitiated,
+          );
+        }
+        if (accessToken != null) {
+          try {
+            // Fixed A token, same local scope as the SDK, one bounded attempt.
+            await _client.auth.admin
+                .signOut(accessToken, scope: SignOutScope.local)
+                .timeout(const Duration(seconds: 10));
+          } catch (error, stack) {
+            unawaited(CrashReporter.capture(
+              error, stack, context: 'session_logout_revoke',
+            ));
+          }
+        }
+      }
+      rethrow;
+    } finally {
+      await subscription.cancel();
+    }
+  }
+
+  void _requireSameSession(Session? original) {
+    final current = _client.auth.currentSession;
+    if (original == null && current == null) return;
+    if (original == null || current == null ||
+        !SessionRevocations.sameSession(
+          jsonEncode(original.toJson()), jsonEncode(current.toJson()),
+        )) {
+      throw const AuthException('Authentication session changed');
+    }
+  }
 
   EatovaUser? _mapUser(User? user) {
     if (user == null) return null;

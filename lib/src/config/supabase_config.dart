@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:developer' as dev;
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
@@ -9,6 +10,7 @@ import '../services/crash_reporter.dart' show CrashReporter;
 import '../services/local_cache.dart' show KeyValueStore, SharedPreferencesStore;
 import '../services/secure_cache_store.dart'
     show PluginSecureKeyStore, SecureKeyStore;
+import '../services/session_revocations.dart';
 
 class EatovaSupabaseConfig {
   const EatovaSupabaseConfig._();
@@ -69,7 +71,19 @@ class EatovaSupabaseConfig {
   static const PostgrestClientOptions postgrestOptions =
       PostgrestClientOptions(requestTimeout: Duration(seconds: 20));
 
+  static SecureSessionLocalStorage? _sessionStorage;
+  static SupabaseClient? _sessionClient;
+
+  static SecureSessionLocalStorage? sessionStorageFor(SupabaseClient client) {
+    return identical(_sessionClient, client) ? _sessionStorage : null;
+  }
+
   static Future<void> initialize() async {
+    final sessionStorage = buildSessionStorage(
+      currentAccessToken: () =>
+          Supabase.instance.client.auth.currentSession?.accessToken,
+    );
+    _sessionStorage = sessionStorage;
     // supabase_flutter 2.14 deprecated the `anonKey` init parameter in favour
     // of `publishableKey` (legacy anon JWT still accepted); the internal
     // constant keeps the name `anonKey`.
@@ -83,7 +97,7 @@ class EatovaSupabaseConfig {
       publishableKey: anonKey,
       postgrestOptions: postgrestOptions,
       authOptions: FlutterAuthClientOptions(
-        localStorage: buildSessionStorage(),
+        localStorage: sessionStorage,
         // Without this override the PKCE code verifier would be the last
         // plaintext auth item in SharedPreferences — see
         // [SecurePkceAsyncStorage].
@@ -93,20 +107,23 @@ class EatovaSupabaseConfig {
         detectSessionInUriPredicate: isOAuthCallbackDeeplink,
       ),
     );
+    _sessionClient = Supabase.instance.client;
     _wireOAuthSheetDismiss();
   }
 
-  /// Builds the session storage. The optional seams exist for tests only; in
-  /// production both are null.
+  /// Production binds writes to the current SDK token; storage overrides are
+  /// test seams. Initial recovery reads do not depend on an existing session.
   @visibleForTesting
   static SecureSessionLocalStorage buildSessionStorage({
     SecureKeyStore? secureStore,
     KeyValueStore? legacyStore,
+    String? Function()? currentAccessToken,
   }) =>
       SecureSessionLocalStorage(
         persistSessionKey: sessionPersistKey,
         secureStore: secureStore,
         legacyStore: legacyStore,
+        currentAccessToken: currentAccessToken,
       );
 
   /// Builds the PKCE verifier storage — same seam as [buildSessionStorage].
@@ -233,12 +250,69 @@ class SecureSessionLocalStorage extends LocalStorage {
     required this.persistSessionKey,
     SecureKeyStore? secureStore,
     KeyValueStore? legacyStore,
-  })  : _secure = secureStore ?? const PluginSecureKeyStore(),
-        _legacyOverride = legacyStore;
+    String? Function()? currentAccessToken,
+  }) : _secure = secureStore ?? const PluginSecureKeyStore(),
+       _legacyOverride = legacyStore,
+       _currentAccessToken = currentAccessToken;
 
   final String persistSessionKey;
   final SecureKeyStore _secure;
   final KeyValueStore? _legacyOverride;
+  final String? Function()? _currentAccessToken;
+  Future<void> _storageQueue = Future<void>.value();
+  String? _lastSession;
+  late final SessionRevocations _revocations = SessionRevocations(
+    '$persistSessionKey.logout-v1',
+    _legacyStore,
+  );
+
+  Future<KeyValueStore> _legacyStore() async =>
+      _legacyOverride ?? await SharedPreferencesStore.create();
+
+  Future<T> _ordered<T>(Future<T> Function() action) {
+    final result = _storageQueue.then((_) => action());
+    _storageQueue = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace __) {},
+    );
+    return result;
+  }
+
+  /// Called before the SDK clears its session. If the journal cannot be
+  /// committed, explicit logout fails before the SDK clears its session.
+  Future<void> prepareLogout(String session) => _ordered(() async {
+    try {
+      await _revocations.revoke([session]);
+    } catch (error, stack) {
+      _meldeEinmal('session_logout_journal', error, stack);
+      rethrow;
+    }
+  });
+
+  Future<void> _retireAbsentRevocations() async {
+    try {
+      final secure = await _secure.read(persistSessionKey);
+      // SharedPreferences 2.5.5 clears its cache before native remove returns.
+      // Cached absence therefore proves nothing after an IO failure. Require
+      // acknowledged erasure of the obsolete legacy slot on EVERY retirement,
+      // including subsequent writes and fresh adapters sharing that cache.
+      try {
+        await (await _legacyStore()).remove(persistSessionKey);
+      } catch (error, stack) {
+        _meldeEinmal('session_legacy_purge', error, stack);
+        return;
+      }
+      await _revocations.retireAbsent(
+        [
+          if (secure != null && secure.isNotEmpty) secure,
+        ],
+        currentSessionGuarded: _currentAccessToken != null,
+      );
+    } catch (error, stack) {
+      // Keeping a tombstone costs space; guessing absence reopens the session.
+      _meldeEinmal('session_logout_journal', error, stack);
+    }
+  }
 
   bool _migrationDone = false;
 
@@ -268,7 +342,7 @@ class SecureSessionLocalStorage extends LocalStorage {
   }
 
   @override
-  Future<void> initialize() => _migrateLegacySession();
+  Future<void> initialize() => _ordered(_migrateLegacySession);
 
   /// ONE-SHOT migration for existing users: their session lives in
   /// SharedPreferences, the new storage reads only the keystore. Runs in
@@ -280,9 +354,14 @@ class SecureSessionLocalStorage extends LocalStorage {
     if (_migrationDone) return;
     _migrationDone = true;
     try {
-      final legacy = _legacyOverride ?? await SharedPreferencesStore.create();
+      final legacy = await _legacyStore();
       final plain = await legacy.getString(persistSessionKey);
       if (plain == null || plain.isEmpty) return;
+
+      if (!await _revocations.permits(plain)) {
+        await legacy.remove(persistSessionKey);
+        return;
+      }
 
       final existing = await _secure.read(persistSessionKey);
       if (existing == null || existing.isEmpty) {
@@ -296,8 +375,12 @@ class SecureSessionLocalStorage extends LocalStorage {
       // try/catch, so an exception here would fail the whole app boot. The
       // session stays in plaintext and the next start retries; there is no
       // silent plaintext fallback on the read path.
-      dev.log('SecureSessionLocalStorage: Migration fehlgeschlagen',
-          error: e, stackTrace: s, name: 'supabase_config');
+      dev.log(
+        'SecureSessionLocalStorage: Migration fehlgeschlagen',
+        error: e,
+        stackTrace: s,
+        name: 'supabase_config',
+      );
       // A permanently failing migration leaves the session in plaintext — the
       // only state of this class that silently breaks a compliance promise.
       _meldeEinmal('session_migrate', e, s);
@@ -308,60 +391,114 @@ class SecureSessionLocalStorage extends LocalStorage {
   Future<bool> hasAccessToken() async => (await accessToken()) != null;
 
   @override
-  Future<String?> accessToken() async {
+  Future<String?> accessToken() => _ordered(() async {
     await _migrateLegacySession();
     try {
       final value = await _secure.read(persistSessionKey);
-      return (value == null || value.isEmpty) ? null : value;
+      if (value == null ||
+          value.isEmpty ||
+          !await _revocations.permits(value)) {
+        return null;
+      }
+      _lastSession = value;
+      return value;
     } catch (e, s) {
       // A keystore error means "this session is unreadable", not "the app
       // won't start": the user lands on the login screen and the entry
       // survives. Still reported — if the keystore never recovers this is a
       // forced logout on every start that nobody else would notice.
-      dev.log('SecureSessionLocalStorage: Session-Read fehlgeschlagen',
-          error: e, stackTrace: s, name: 'supabase_config');
+      dev.log(
+        'SecureSessionLocalStorage: Session-Read fehlgeschlagen',
+        error: e,
+        stackTrace: s,
+        name: 'supabase_config',
+      );
       _meldeEinmal('session_read', e, s);
       return null;
     }
-  }
+  });
 
   @override
-  Future<void> persistSession(String persistSessionString) async {
+  Future<void> persistSession(String persistSessionString) => _ordered(
+    () async {
+      try {
+        if (!await _revocations.permits(persistSessionString)) return;
+        final current = _currentAccessToken;
+        if (current != null) {
+          final candidate = jsonDecode(persistSessionString);
+          if (candidate is! Map ||
+              candidate['access_token'] != current() ||
+              candidate['access_token'] == null) {
+            return;
+          }
+        }
+        await _secure.write(persistSessionKey, persistSessionString);
+        _lastSession = persistSessionString;
+        await _retireAbsentRevocations();
+      } catch (e, s) {
+        // The write is what makes the session durable. If it fails the app runs
+        // on until process end and the user is logged out on the next start,
+        // with nothing visible now.
+        dev.log(
+          'SecureSessionLocalStorage: Session-Write fehlgeschlagen',
+          error: e,
+          stackTrace: s,
+          name: 'supabase_config',
+        );
+        _meldeEinmal('session_write', e, s);
+      }
+    },
+  );
+
+  @override
+  Future<void> removePersistedSession() => _ordered(() async {
     try {
-      await _secure.write(persistSessionKey, persistSessionString);
-    } catch (e, s) {
-      // The write is what makes the session durable. If it fails the app runs
-      // on until process end and the user is logged out on the next start,
-      // with nothing visible now.
-      dev.log('SecureSessionLocalStorage: Session-Write fehlgeschlagen',
-          error: e, stackTrace: s, name: 'supabase_config');
-      _meldeEinmal('session_write', e, s);
+      String? stored;
+      try {
+        stored = await _secure.read(persistSessionKey);
+      } catch (_) {
+        // Unknown old bytes need a global tombstone, not a guessed identity.
+        if (_lastSession == null) stored = '';
+      }
+      final legacy = await (await _legacyStore()).getString(persistSessionKey);
+      await _revocations.revoke([
+        if (_lastSession != null) _lastSession!,
+        if (stored != null) stored,
+        if (legacy != null && legacy.isNotEmpty) legacy,
+      ]);
+    } catch (error, stack) {
+      _meldeEinmal('session_logout_journal', error, stack);
+      // Also attempt erasure if an involuntary SDK sign-out had no preflight.
     }
-  }
-
-  @override
-  Future<void> removePersistedSession() async {
     try {
       await _secure.delete(persistSessionKey);
     } catch (e, s) {
-      // The worst case of this class: the logout does NOT take effect locally
-      // and the refresh token stays in the keystore, while the UI already
-      // shows the login screen. Only visible here.
-      dev.log('SecureSessionLocalStorage: Session-Delete fehlgeschlagen',
-          error: e, stackTrace: s, name: 'supabase_config');
+      // The journal denies restoration even if the old bytes remain.
+      dev.log(
+        'SecureSessionLocalStorage: Session-Delete fehlgeschlagen',
+        error: e,
+        stackTrace: s,
+        name: 'supabase_config',
+      );
       _meldeEinmal('session_delete', e, s);
     }
     // Safety net: purges the plaintext slot even if the migration never ran.
     // A logout must remove the token from the device in EVERY case.
     try {
-      final legacy = _legacyOverride ?? await SharedPreferencesStore.create();
+      final legacy = await _legacyStore();
       await legacy.remove(persistSessionKey);
     } catch (e, s) {
       // Own operation, not merged with `session_delete`: this is the PLAINTEXT
       // slot failing to clear, so the token stays in its unprotected form.
-      dev.log('SecureSessionLocalStorage: Legacy-Purge fehlgeschlagen',
-          error: e, stackTrace: s, name: 'supabase_config');
+      dev.log(
+        'SecureSessionLocalStorage: Legacy-Purge fehlgeschlagen',
+        error: e,
+        stackTrace: s,
+        name: 'supabase_config',
+      );
       _meldeEinmal('session_legacy_purge', e, s);
     }
-  }
+    await _retireAbsentRevocations();
+    _lastSession = null;
+  });
 }

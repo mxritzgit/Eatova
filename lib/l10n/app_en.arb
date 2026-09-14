@@ -587,7 +587,7 @@
   "coachInfoBulletWeight": "Your weight and your target weight",
   "coachInfoBulletMacros": "Today's calories and your remaining macros",
   "coachInfoBulletMeals": "The names of the meals you've logged today",
-  "coachInfoProvider": "This goes together with your question to our AI provider (OpenRouter, model Grok by xAI) on servers in the USA — only to generate the answer. More on this is in the privacy policy.",
+  "coachInfoProvider": "The coach uses OpenRouter to route requests to Google Gemini models. Depending on your request, this includes your question, the details listed above, up to ten previous chat messages, an attached photo or selected training plan information. Data may also be processed outside the EU, including in the USA. The privacy policy explains the recipients and how they use the data.",
   "coachInfoLimitLabel": "Coach limit",
   "coachInfoLimitBody": "{remaining} of {dailyLimit} questions left today. Resets at midnight (UTC).",
   "@coachInfoLimitBody": {
@@ -1101,6 +1101,7 @@
   "settingsAboutSubtitle": "Version, sources & privacy",
   "settingsGroupDangerZone": "DANGER ZONE",
   "settingsSignOutTitle": "Sign out",
+  "settingsSignOutFailed": "Sign-out failed. Please try again.",
   "settingsDeleteAccountTitle": "Delete account",
   "settingsDeleteAccountBlockSubtitle": "Removes all entries permanently",
   "settingsDeleteAccountPromptPrefix": "You'll be asked to type ",

@@ -16,7 +16,7 @@ inventory. Dated reviews describe what was present at their own checkpoint.
 | Training plans | Multiple workouts, plan selection/editing, exercise lists, repetition/timed sets and rest | [Training](../lib/src/screens/training/training_screen.dart) |
 | Workout player | Pause/resume, reset, 10-second rewind/forward, set/exercise navigation, actual values and local paused recovery | [Session controller](../lib/src/services/training_session_controller.dart) |
 | Training history | Completed immutable sessions with actual values, previous results/Last time and deletion | [History](../lib/src/screens/training/training_history_screen.dart) |
-| Coach | Streaming chat, sessions, attached image, nutrition context, quota and layered safety checks | [Coach service](../lib/src/services/coach_chat_service.dart) |
+| Coach | Chat over SSE with full server-side approval before text is released; sessions, attached image, nutrition context and quota | [Coach service](../lib/src/services/coach_chat_service.dart) |
 | Coach recipes | `/recipe` proposal with recipe text and a generated picture; explicit confirmation saves the recipe | [Recipe flow](../lib/src/screens/coach/coach_recipe.dart) |
 | Coach training | `/plan` brief with goal/experience/equipment/frequency/duration/constraints; optional selected-plan discussion or adaptation; explicit adoption | [Training brief](../lib/src/screens/coach/coach_training_brief.dart) |
 | Profile | Body data, daily goals, weight chart, health connection and lifetime statistics | [Profile](../lib/src/screens/profile_screen.dart) |

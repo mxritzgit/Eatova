@@ -47,8 +47,8 @@ export const REFUSAL_CATEGORIES: ReadonlySet<ClassifierCategory> = new Set([
 // sees the TEXT, and short deictic captions would land in off_topic and break
 // the vision flow; off-topic IMAGES are Layer 3's job via `__REFUSE__`.
 //
-// This path also ignores ClassifierResult.parseFailed, since Layer 3 carries
-// its own CRISIS RULE and the actual image.
+// Image captions must classify successfully; the handler treats an unusable
+// result as a retryable outage before using this category set.
 export const IMAGE_REFUSAL_CATEGORIES: ReadonlySet<ClassifierCategory> =
   new Set([
     "self_harm",
@@ -103,7 +103,8 @@ export type Layer2RefusalReason = ClassifierCategory | "classifier_unusable";
  * Does Layer 2 refuse, and why? null = let through. With `parseFailed` only
  * set membership counts; without it nothing classified, so paths whose set
  * lacks off_topic would skip the crisis check — `refuseOnUnusableOutput` is
- * the CALLER's switch for that (image path: no, recipe path: yes).
+ * the caller enables this for structured proposals. Ordinary chat/image
+ * parse errors stop earlier as retryable outages.
  */
 export function layer2RefusalReason(options: {
   result: ClassifierResult;

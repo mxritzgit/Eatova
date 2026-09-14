@@ -72,8 +72,14 @@ You enter and the app stores the following, tied to your account:
   calorie balance and remaining macros, and a short list of the meals you logged
   today (meal slot, name and calories, truncated to fit a fixed length limit),
   as well as per-slot nutrition totals. Recent messages from the same chat can
-  accompany the request. Replies stream to the app; a completed reply or the
-  delivered partial text after an interruption is persisted in chat history.
+  accompany the request. Before sending any reply text to the app, the server
+  buffers and checks the generated reply. Approved text is then delivered in
+  short chunks over the streaming connection, or a safe refusal is returned.
+  Only approved assistant replies or refusal messages are stored in chat history.
+  Canceling before approval leaves no partial assistant reply; your question
+  may remain in the chat. After approval, history may already contain the full
+  checked reply even if a dropped connection prevents your device from receiving
+  all of it.
 - **Coach training briefs:** when you request a plan, you can provide your goal,
   experience, available equipment, frequency, duration and constraints. You may
   explicitly attach the selected plan for discussion or adaptation. This context
