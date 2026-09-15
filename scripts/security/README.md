@@ -31,6 +31,11 @@ no published port. Auth is available only on `127.0.0.1:54991`. Existing resourc
 with those names cause startup to fail; they are not replaced. Created resources
 are removed in `finally`. A forcibly killed interpreter can leave them behind;
 inspect the exact names before manually removing any leftover test resources.
+Readiness waits for PostgreSQL's final TCP server, not its temporary socket-only
+initialization server. Auth HTTP requests reject non-loopback origins, ignore
+system proxy configuration and never follow redirects. The local transport
+regressions run with `python test/tooling/local_auth_transport_test.py` and use
+only temporary loopback HTTP servers.
 
 All credentials and A/B accounts are generated for that disposable service.
 Email confirmation is automatic, synthetic addresses use `example.test`, and no

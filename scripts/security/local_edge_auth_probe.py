@@ -13,10 +13,9 @@ from pathlib import Path
 import secrets
 import subprocess
 import time
-import urllib.error
-import urllib.request
 
 from auth_lifecycle_checks import LifecycleFailure, LifecycleProbe
+from local_auth_transport import LocalAuthClient
 
 ROOT = Path(__file__).resolve().parents[2]
 AUTH_IMAGE = 'supabase/gotrue:v2.196.0@sha256:c0c25187a6b835e65a6f6e6c6b39d090e832d40e6de5186f2c038e0411944232'
@@ -35,27 +34,16 @@ PORT = 54992 if options.auth_lifecycle else 54991
 BASE = f'http://127.0.0.1:{PORT}'
 EVIDENCE = ROOT / '.agents' / ('auth-lifecycle-probe' if options.auth_lifecycle else 'edge-auth-probe')
 EVIDENCE.mkdir(parents=True, exist_ok=True)
+# The synthetic IP emulates a gateway header, not its hosted trust policy.
+request = LocalAuthClient(
+    BASE, client_ip='198.51.100.23' if options.auth_lifecycle else None,
+).request
 
 def cmd(*args, input=None):
     result = subprocess.run(args, input=input, capture_output=True, text=True, check=False)
     if result.returncode:
         raise RuntimeError(f'command {args[0]} {args[1]} failed ({result.returncode})')
     return result.stdout.strip()
-
-def request(path, data=None, token=None, method=None):
-    headers = {'Content-Type': 'application/json'}
-    if options.auth_lifecycle:
-        # This emulates a trusted gateway's client-IP header in the local test.
-        # It does not test a hosted gateway's header stripping/trust policy.
-        headers['X-Forwarded-For'] = '198.51.100.23'
-    if token:
-        headers['Authorization'] = 'Bearer ' + token
-    req = urllib.request.Request(BASE + path, data=None if data is None else json.dumps(data).encode(), headers=headers, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=10) as response:
-            return response.status, json.loads(response.read() or b'{}')
-    except urllib.error.HTTPError as error:
-        return error.code, json.loads(error.read() or b'{}')
 
 def b64(data):
     return base64.urlsafe_b64encode(json.dumps(data, separators=(',', ':')).encode()).decode().rstrip('=')
@@ -75,10 +63,14 @@ try:
     cmd('docker', 'run', '--detach', '--name', db, '--network', network, '--tmpfs', '/var/lib/postgresql/data', '--env', 'POSTGRES_PASSWORD=' + password, POSTGRES_IMAGE)
     created.append(('container', db))
     for _ in range(30):
-        p = subprocess.run(['docker', 'exec', db, 'pg_isready', '-U', 'postgres'], capture_output=True)
+        # The image's temporary init server accepts Unix sockets, then restarts.
+        # TCP becomes ready only on the final server used by the Auth container.
+        p = subprocess.run(['docker', 'exec', db, 'pg_isready', '-h', '127.0.0.1', '-U', 'postgres'], capture_output=True)
         if p.returncode == 0:
             break
         time.sleep(0.4)
+    else:
+        raise RuntimeError('local Postgres did not become TCP-ready')
     cmd('docker', 'exec', '-i', db, 'psql', '-U', 'postgres', '-v', 'ON_ERROR_STOP=1', input='CREATE SCHEMA auth; ALTER ROLE postgres SET search_path TO auth, public;')
     env = {
         'GOTRUE_API_HOST': '0.0.0.0', 'GOTRUE_API_PORT': '9999',
