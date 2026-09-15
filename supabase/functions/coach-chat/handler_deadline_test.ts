@@ -1,3 +1,4 @@
+import { userToken } from "../_shared/auth_test_fixtures.ts";
 // E1 (Review 2026-08-31): coach-chat haengt nicht mehr unbegrenzt an einem
 // stockenden PostgREST — und der beanspruchte Kontingent-Slot geht dabei nicht
 // still verloren.
@@ -132,6 +133,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
     ) {
       return haengtBisAbbruch(signal);
     }
+    if (url.endsWith("/rest/v1/rpc/reserve_ai_provider_call")) return jsonRes({ allowed: true, reason: "allowed" });
     if (url.includes("/auth/v1/user")) {
       if (options.authStatus !== undefined) return jsonRes({ message: "invalid token" }, options.authStatus);
       return jsonRes({ id: USER_ID });
@@ -231,7 +233,7 @@ function makeRequest(payload: JsonRecord = { message: "wie viele kalorien hat ei
   return new Request("https://edge.test.invalid/coach-chat", {
     method: "POST",
     headers: {
-      "authorization": "Bearer test-user-jwt",
+      "authorization": `Bearer ${userToken(USER_ID)}`,
       "content-type": "application/json",
       "cf-connecting-ip": CLIENT_IP,
     },

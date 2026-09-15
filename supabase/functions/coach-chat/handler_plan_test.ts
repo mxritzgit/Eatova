@@ -1,3 +1,4 @@
+import { userToken } from "../_shared/auth_test_fixtures.ts";
 // Real handler flow with a closed network stub and frozen quota dates.
 import { handleRequest, PROVIDER_TIMEOUTS_MS, SUPABASE_TIMEOUTS_MS } from "./handler.ts";
 
@@ -89,6 +90,7 @@ function stubNetwork(defaultDraft: string, options: Options = {}) {
     const body = typeof init?.body === "string" ? JSON.parse(init.body) as Row : {};
     const signal = init?.signal;
     calls.push({ url, method, body, signal });
+    if (url.endsWith("/rest/v1/rpc/reserve_ai_provider_call")) return Promise.resolve(response({ allowed: true, reason: "allowed" }));
     if (url.includes("/auth/v1/user")) return Promise.resolve(response({ id: USER }, options.authStatus));
     if (url.includes("/rpc/consume_edge_rate_limits")) {
       return Promise.resolve(response((body.p_gates as Row[]).map((gate) => ({
@@ -171,7 +173,7 @@ function stubNetwork(defaultDraft: string, options: Options = {}) {
 function request(payload: Row = {}, signal?: AbortSignal): Request {
   return new Request("https://edge.test.invalid/coach-chat", {
     method: "POST", signal,
-    headers: { authorization: "Bearer test-user-jwt", "content-type": "application/json", accept: "text/event-stream", "x-forwarded-for": "203.0.113.7" },
+    headers: { authorization: `Bearer ${userToken(USER)}`, "content-type": "application/json", accept: "text/event-stream", "x-forwarded-for": "203.0.113.7" },
     body: JSON.stringify({ message: "3 days of strength training at home", mode: "plan", locale: "en", ...payload }),
   });
 }

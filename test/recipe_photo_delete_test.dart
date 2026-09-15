@@ -70,7 +70,7 @@ class _TestImageStore extends RecipeImageStore {
   }
 
   @override
-  Future<void> clear() async {
+  Future<void> clear({String? expectedUserId}) async {
     if (ordner.existsSync()) ordner.deleteSync(recursive: true);
   }
 

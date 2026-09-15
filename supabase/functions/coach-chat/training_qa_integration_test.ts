@@ -1,3 +1,4 @@
+import { userToken } from "../_shared/auth_test_fixtures.ts";
 import { handleRequest } from "./handler.ts";
 import { parseTrainingPlan } from "./training_plan.ts";
 
@@ -45,6 +46,7 @@ async function run(
     calls.push({ path: url.pathname, method, body: data });
     if (url.hostname === "ci.invalid") {
       switch (url.pathname) {
+        case "/rest/v1/rpc/reserve_ai_provider_call": return json({ allowed: true, reason: "allowed" });
         case "/auth/v1/user": return json({ id: USER });
         case "/rest/v1/rpc/consume_edge_rate_limits":
           return json((data.p_gates as Row[]).map((gate) => ({
@@ -77,7 +79,7 @@ async function run(
   })) as typeof fetch;
   try {
     const response = await handleRequest(new Request("https://ci.invalid/functions/v1/coach-chat", {
-      method: "POST", headers: { authorization: "Bearer ci-dummy-user", "content-type": "application/json" },
+      method: "POST", headers: { authorization: `Bearer ${userToken(USER)}`, "content-type": "application/json" },
       body: JSON.stringify({ session_id: SESSION, locale: "en", ...body }),
     }));
     const result = await response.json();

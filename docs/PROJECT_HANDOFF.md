@@ -3,6 +3,9 @@
 Current documentation entry point: [docs index](README.md),
 [features/platforms](FEATURES.md), [backend/models](BACKEND.md).
 The product docs were reconciled with main through PR #88 on 2026-09-14.
+Current security work is recorded in the [91-point checkbook](../SECURITY_AUDIT.md)
+and the [operations runbook](OPERATIONS.md); its dated evidence supersedes older
+unchecked security items below.
 
 This file is an append-only, dated handoff from Claude Code to Codex. The initial
 snapshot below is from 2026-09-06; subsequent entries supersede earlier open
@@ -1002,3 +1005,50 @@ remains untouched. No new device build was installed.
 The [security checkbook](../SECURITY_AUDIT.md#verifizierte-veröffentlichung-am-14092026)
 records current versions, public HTML hash, evidence and remaining limits.
 Earlier "prepared/not deployed" entries describe their historical checkpoints.
+
+
+## Security completion round 3, 2026-09-15
+
+Ten isolated specialist worktrees and independent cross-reviews addressed the
+full 91-point audit from main `8e836456` (PR #91). The [current checkbook](../SECURITY_AUDIT.md)
+contains the concrete findings, regression links, verification boundaries and
+remaining owner actions; avoid treating historical open lists as current state.
+
+Account-bound OTP completion, image reads/cleanup and cache ownership are fixed;
+exports now report actual completeness and include own provider usage. Every
+paid AI call has a separate atomic, non-refundable reservation and configurable
+stop switch. Upload/response bodies and photo metadata/decoder boundaries are
+bounded. Database defaults and PG17 maintenance grants are tightened. The
+Gradle resolver is patched to 8.14.4; native runtime scans, separately triaged
+build-tool findings, offline Coach evaluation and synthetic restore are in CI.
+
+Commander checks: 662 offline Deno tests plus 35 files independently; 38 real local
+GoTrue/handler cases with 9 paid stubs and 9 prior reservations; 46 migrations,
+restricted-role RLS/deletion/budget races, atomic rollout/rollback rehearsal and
+synthetic restore. The first full Flutter run found four integration contract
+failures; they were corrected, and 228 affected tests plus strict analysis pass.
+The full protected CI on `78f8d55` then passed: 4620 Flutter tests, 95.0% coverage,
+Android debug/release and iOS without signing. The scanner's ignored relative
+inventory failure was reproduced in a real Git fixture and fixed; nonzero scanner
+exits still fail. PR #92 contains the final merge/check status.
+
+Live hardening already verified: DB SSL enforcement, private-only Realtime,
+four Auth-security notification flags and GitHub private reporting. No actual
+security email or alarm was sent. All three new migrations were deployed atomically
+before Functions coach-chat v48, analyze-meal v31 and search-key v10. Complete
+source graphs and an independent live catalog comparison passed. The public
+privacy extension was published on 2026-09-15 at 00:13 UTC; all 34 other website
+files were preserved. [Sanitized rollout evidence](SECURITY-ROLLOUT-2026-09-15.json)
+records the actual checks. Platform-managed secret timestamps changed during
+deployment; current injected project key types are publishable/secret even under
+the legacy variable names. Values were compared only in memory; do not equate a
+timestamp change or legacy label with a credential leak. No app-store or
+user-device installation is implied by source, CI, merge or backend deployment.
+
+Owner requirements remain: sole Supabase Owner MFA, production backup/restore
+and separate staging, actual runtime provider-key money/privacy settings,
+Sentry/admin alert access and delivery proof, clinical/legal review and physical
+iOS/store checks. The named Vault provider key differs from the deployed one;
+never replace it or attribute its limits to production without proper account
+identification. Provider call ceilings are not dollar budgets. Build-tool
+advisories remain explicitly triaged, not silently ignored.

@@ -1220,7 +1220,7 @@
   "settingsAccountDiscardConfirm": "Abbrechen",
 
   "exportSheetLoadingSubtitle": "Deine Daten werden vom Server geladen …",
-  "exportSheetErrorSubtitle": "Server nicht erreichbar — die vollständige Kopie bitte mit Internet erneut öffnen.",
+  "exportSheetErrorSubtitle": "Diese Kopie ist unvollständig oder konnte nicht vollständig geprüft werden. Bitte versuche es später erneut.",
   "exportSheetFullSubtitle": "Vollständige Kopie deiner gespeicherten Daten als JSON — alle Tabellen, direkt vom Server geladen (Art. 15/20 DSGVO).",
   "exportSheetSessionSubtitle": "In-Memory Snapshot deiner aktuellen Session als JSON.",
   "exportSheetTitleFull": "Datenauskunft",

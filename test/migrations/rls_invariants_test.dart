@@ -196,6 +196,17 @@ const Map<String, Erwartung> _erwartet = {
     grund: 'Kein user_id, nur ein SHA-256 des Subjekts; ausschliesslich die '
         'security-definer-RPC und service_role fassen sie an.',
   ),
+  'ai_provider_limits': Erwartung.nurServer(
+    grund: 'Globale Kostengrenzen und Abschaltung; nur der Betreiber aendert sie.',
+  ),
+  'ai_provider_daily_usage': Erwartung.nurServer(
+    grund: 'Globale Providerkosten; nur die reservierende Server-RPC schreibt.',
+  ),
+  'ai_provider_user_usage': Erwartung(
+    besitzerSpalte: 'user_id',
+    clientBefehle: {'select'},
+    grund: 'Eigene Verbrauchszaehler sind exportierbar; keine Client-Schreibrechte.',
+  ),
   'lifetime_stats_requests': Erwartung.nurServer(
     grund: 'Idempotenz-Journal von increment_lifetime_stats; RLS an und '
         'BEWUSST ohne Policy — nur der Funktionseigentuemer schreibt.',
@@ -290,6 +301,10 @@ const Map<String, FunktionsErwartung> _erwarteteFunktionen = {
       definer: true, grund: 'Coach: Unterhaltung umbenennen.'),
 
   // -- server only ---------------------------------------------------------
+  'reserve_ai_provider_call': FunktionsErwartung.nurServer(
+      definer: true,
+      grund: 'Reserviert globale und eigene Providerkosten atomar vor jedem '
+          'bezahlten Aufruf; direkte Clients duerfen keine Reservierung ausloesen.'),
   'claim_chat_quota': FunktionsErwartung.nurServer(
       definer: true,
       grund: 'bucht einen der fuenf Gratis-Slots. Client-aufrufbar hiesse: '
@@ -338,8 +353,14 @@ const Map<String, FunktionsErwartung> _erwarteteFunktionen = {
 const Set<String> _erlaubteRollen = {'authenticated', 'service_role'};
 
 /// Privileges no client role may ever hold: TRUNCATE ignores RLS completely,
-/// TRIGGER and REFERENCES attach foreign code or constraints to the table.
-const Set<String> _verboteneRechte = {'truncate', 'references', 'trigger'};
+/// TRIGGER and REFERENCES attach foreign code or constraints to the table;
+/// MAINTAIN permits database maintenance that the app client never performs.
+const Set<String> _verboteneRechte = {
+  'truncate',
+  'references',
+  'trigger',
+  'maintain',
+};
 
 /// Expressions that let every row through.
 const Set<String> _konstantWahr = {'true', '1=1', "'1'='1'", "'t'", 'not false'};
@@ -352,6 +373,14 @@ List<String> regelReplayVollstaendig(SchemaState s) => [
       for (final u in s.unverstanden)
         'Anweisung nicht verstanden, der Waechter ist an dieser Stelle BLIND: '
             '$u',
+    ];
+
+List<String> regelFunktionsDefaults(SchemaState s) => [
+      for (final rolle
+          in s.standardExecuteRollen.difference({'service_role'}))
+        'Neue Funktionen erben unerlaubtes EXECUTE fuer `$rolle`',
+      if (!s.standardExecuteRollen.contains('service_role'))
+        'Neuen Funktionen fehlt das vorgesehene service_role-EXECUTE',
     ];
 
 List<String> regelTabellenMenge(SchemaState s, Map<String, Erwartung> soll) {
@@ -529,7 +558,8 @@ List<String> regelClientRechte(SchemaState s, Map<String, Erwartung> soll) {
       funde.add(
         'Tabelle `$name`: `authenticated` haelt '
         '${(verboten.toList()..sort()).join('/')} — TRUNCATE umgeht RLS '
-        'vollstaendig, TRIGGER/REFERENCES haengen fremden Code an die Tabelle',
+        'vollstaendig, TRIGGER/REFERENCES haengen fremden Code an die Tabelle; '
+        'MAINTAIN erlaubt nicht benoetigte Datenbankwartung',
       );
     }
   }
@@ -854,6 +884,10 @@ void main() {
   });
 
   group('security definer', () {
+    test('neue Funktionen erben nur das vorgesehene Server-EXECUTE', () {
+      expect(regelFunktionsDefaults(schema), isEmpty);
+    });
+
     test('die Funktionsmenge deckt sich mit der Erwartung', () {
       expect(
         regelFunktionsMenge(schema, _erwarteteFunktionen),
@@ -1055,6 +1089,11 @@ create policy "notizen_select_own"
       expect(regelClientRechte(s, soll), contains(contains('TRUNCATE')));
     });
 
+    test('MAINTAIN fuer `authenticated` faellt auf', () {
+      final s = bau('${gesund}grant maintain on public.notizen to authenticated;');
+      expect(regelClientRechte(s, soll), contains(contains('haelt maintain')));
+    });
+
     // -----------------------------------------------------------------------
     // P12-01/P12-02: EXECUTE-Rechte und das definer-Schluesselwort.
     //
@@ -1063,6 +1102,31 @@ create policy "notizen_select_own"
     // Tabellen und kennt refund_chat_quota gar nicht.
     // -----------------------------------------------------------------------
     group('EXECUTE-Rechte und `security definer`', () {
+      test('fehlender globaler Entzug im echten Verlauf faellt auf', () {
+        const datei = '20260915090000_database_privilege_boundaries.sql';
+        final mutant = schemaAusQuellen({
+          ...quellen,
+          datei: quellen[datei]!.replaceFirst(
+            'alter default privileges revoke execute on functions from public;',
+            '',
+          ),
+        });
+        expect(regelReplayVollstaendig(mutant), isEmpty);
+        expect(regelFunktionsDefaults(mutant), contains(contains('`public`')));
+      });
+
+      test('spaetere globale oder schema-lokale Freigabe faellt auf', () {
+        for (final schemaKlausel in ['', 'in schema public ']) {
+          final mutant = schemaAusQuellen({
+            ...quellen,
+            '99999999999999_mutant.sql': 'alter default privileges '
+                '${schemaKlausel}grant execute on functions to public;',
+          });
+          expect(regelReplayVollstaendig(mutant), isEmpty);
+          expect(regelFunktionsDefaults(mutant), contains(contains('`public`')));
+        }
+      });
+
       /// One server-only definer RPC, as the migrations shape them.
       const nurServer = '''
 create or replace function public.geheim(p_user uuid)

@@ -1657,7 +1657,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
 
   /// Clears the local cache. Prefers the booted [_cache], the injected
   /// [debugCache] in tests; if the logout beats the boot, it is rebuilt
-  /// defensively from the current session user id so nothing is left behind.
+  /// defensively from the store's pinned owner so a new account is untouched.
   ///
   /// [preserveOutbox] holds back `_outboxKey`/`_pendingStatsKey` (A2).
   Future<void> _clearCache({bool preserveOutbox = false}) async {
@@ -1670,18 +1670,19 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     if (laufend != null) {
       await laufend.timeout(kCacheSnapshotWaitBudget, onTimeout: () {});
     }
-    final cache = _cache ?? debugCache ?? await _resolveCacheForCurrentUser();
+    final cache = _cache ?? debugCache ?? await _resolveCacheForOwner();
     await cache?.clear(preserveOutbox: preserveOutbox);
     // Own-recipe photos are files in the app directory, not in the LocalCache,
     // so they need their own call — same M-1 reasoning as the recipe row, and
     // therefore also under `preserveOutbox: true` (the outbox carries rows, not
     // bytes). Accepted consequence: a replayed recipe upsert keeps its
     // `local:` marker without bytes and falls back to the placeholder.
-    await RecipeImageStore.instance.clear();
+    await RecipeImageStore.instance.clear(expectedUserId: sync?.userId);
   }
 
-  Future<LocalCache?> _resolveCacheForCurrentUser() async {
-    final userId = sync?.client.auth.currentUser?.id;
+  Future<LocalCache?> _resolveCacheForOwner() async {
+    // Cleanup can finish after an account switch on the shared auth client.
+    final userId = sync?.userId;
     if (userId == null || userId.isEmpty) return null;
     return LocalCache.create(userId);
   }

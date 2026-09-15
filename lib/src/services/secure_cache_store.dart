@@ -657,10 +657,10 @@ class PluginSecureKeyStore implements SecureKeyStore {
   );
 
   /// `first_unlock` so lifecycle and notification paths can read the DEK
-  /// after a reboot; `_this_device` keeps it off iCloud and other devices.
-  /// PRICE, and the reason for the give-up logic in [CacheKeyProvider]: such
-  /// items are excluded from every backup, so a restored device loses the DEK
-  /// while the prefs travel along.
+  /// after the first device unlock following a reboot. `_this_device` prevents
+  /// migration to another device, but permits restoring to the same device.
+  /// When prefs migrate without a usable DEK, [CacheKeyProvider] must recover
+  /// safely instead of assuming every restored cache remains decryptable.
   static const IOSOptions iosOptions =
       IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device);
 

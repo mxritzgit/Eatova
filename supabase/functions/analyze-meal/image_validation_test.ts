@@ -1,3 +1,4 @@
+import { userToken } from "../_shared/auth_test_fixtures.ts";
 import { handleRequest } from './handler.ts';
 import { JPEG_BASE64, PNG_BASE64, WEBP_ALPHA_BASE64, WEBP_BASE64, WEBP_LOSSLESS_BASE64 } from './image_fixtures.ts';
 
@@ -23,6 +24,7 @@ async function probe(imageBase64: string) {
   const providerImages: string[] = [];
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = String(input);
+    if (url.endsWith("/rest/v1/rpc/reserve_ai_provider_call")) return Promise.resolve(json({ allowed: true, reason: "allowed" }));
     if (url.endsWith('/auth/v1/user')) {
       return Promise.resolve(json({ id: '11111111-1111-4111-8111-111111111111' }));
     }
@@ -54,7 +56,7 @@ async function probe(imageBase64: string) {
     const response = await handleRequest(new Request('https://function.test.invalid/analyze-meal', {
       method: 'POST',
       headers: {
-        authorization: 'Bearer test-user-token', 'content-type': 'application/json',
+        authorization: `Bearer ${userToken("11111111-1111-4111-8111-111111111111")}`, 'content-type': 'application/json',
         'cf-connecting-ip': '203.0.113.7',
       },
       body: JSON.stringify({ imageBase64 }),
@@ -119,5 +121,19 @@ for (const [name, base64] of [['lossless', WEBP_LOSSLESS_BASE64], ['alpha', WEBP
     assertEquals(result.status, 200);
     assertEquals(result.gates.join(','), ALL_GATES);
     assertEquals(result.providerImages[0], `data:image/webp;base64,${base64}`);
+  });
+}
+
+// Tiny header mutations only: no raster allocations or decompression bombs.
+for (const [name, input] of [
+  ['JPEG framing without pixels', btoa('\xff\xd8\xffnot a jpeg\xff\xd9')],
+  ['PNG over raster budget', changeByte(PNG_BASE64, 16, 1)],
+  ['WebP lossy over raster budget', changeByte(changeByte(changeByte(changeByte(WEBP_BASE64, 26, 0xff), 27, 0x3f), 28, 0xff), 29, 0x3f)],
+] as const) {
+  Deno.test(`raster boundary: ${name} stops before paid quotas`, async () => {
+    const result = await probe(input);
+    assertEquals(result.status, 400);
+    assertEquals(result.gates.join(','), ATTEMPT_GATES);
+    assertEquals(result.providerImages.length, 0);
   });
 }

@@ -312,7 +312,9 @@ Exceptions:
   taken is governed by that backup, not by the app.
 - a technical **request-deduplication marker** (a request ID, no content) is
   written when certain counters are updated, so a retried request cannot be
-  counted twice; each marker is deleted after 30 days regardless.
+  counted twice. Markers older than 30 days are removed on the next new counter
+  update for the same account, or when the account is deleted. A duplicate retry
+  does not trigger this cleanup; inactive accounts can retain older markers.
 - the **daily coach counters** — one number per day recording how many coach
   messages you used, so the daily limit can be enforced. They hold no message
   content. Counters older than 90 days are deleted; the current day's counter is
@@ -321,6 +323,14 @@ Exceptions:
   endpoints themselves as part of a later request rather than by a scheduler, so
   a counter can outlive the 90 days by the length of a quiet period. Until they
   are deleted, these counters are part of the data export you can request.
+- **daily AI-provider usage** records contain your account identifier, UTC day
+  and the number of reserved provider calls, without prompts, images or answers.
+  They enforce an independent limit that is not refunded after a failed call.
+  Records older than 30 days are removed on the first permitted provider call
+  of a later UTC day; inactivity or disabled AI processing can delay cleanup.
+  Account deletion removes that account's records. Your own records are included
+  in the data export. Separate global counters contain only daily totals and no
+  account identifier; the same request-triggered cleanup applies to them.
 
 No other data has an automatic expiry: everything else is kept until you delete
 it or delete your account.

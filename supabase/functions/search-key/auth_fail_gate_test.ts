@@ -1,3 +1,4 @@
+import { userToken } from "../_shared/auth_test_fixtures.ts";
 // Pre-auth fail limiter of `search-key` (F-28-1, review 2026-08-28).
 //
 // The gateway's verify_jwt stops random garbage, but a signature-valid yet
@@ -176,7 +177,7 @@ async function loadHandler(): Promise<Handler> {
   return handler!;
 }
 
-function request(token = "eyJhbGciOiJIUzI1NiJ9.test.token", withIp = true): Request {
+function request(token = userToken(USER_ID), withIp = true): Request {
   const headers: Record<string, string> = { authorization: `Bearer ${token}` };
   if (withIp) headers["cf-connecting-ip"] = CLIENT_IP;
   return new Request(`${BASE_URL}/functions/v1/search-key`, { method: "GET", headers });

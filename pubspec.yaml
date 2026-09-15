@@ -60,6 +60,8 @@ dependencies:
   # compute() in an isolate) instead of flutter_image_compress: no extra native
   # plugin, testable in VM tests, and bakeOrientation bakes in EXIF rotation.
   image: ^4.3.0
+  # Already transitive via image; bounded PNG/ICC inflation uses its public API.
+  archive: ^4.0.9
   # Native Google login (credential manager sheet on Android, Google SDK dialog
   # on iOS). The sheet shows the consent-screen app name instead of the Supabase
   # domain, which the web OAuth flow is forced to show. The ID token is

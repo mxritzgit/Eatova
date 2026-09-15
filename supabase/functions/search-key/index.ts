@@ -14,6 +14,7 @@
 // already applies.
 
 import { authFailGate } from '../_shared/auth_fail_gate.ts';
+import { hasExpectedUserTokenContext } from '../_shared/user_token_context.ts';
 import { clientIpSubject } from '../_shared/client_ip.ts';
 import { EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS, positiveIntFromEnv } from '../_shared/env.ts';
 import { pruneRateLimits } from '../_shared/rate_limit_prune.ts';
@@ -368,7 +369,7 @@ async function authenticateUser(request: Request, deadline: Deadline): Promise<A
   }
 
   const user = await response.json() as Partial<AuthUser>;
-  if (typeof user.id !== 'string' || user.id.length < 10) {
+  if (typeof user.id !== 'string' || !hasExpectedUserTokenContext(token, user.id)) {
     throw new HttpError(401, 'invalid_user_token', 'Bitte erneut anmelden.');
   }
   return { user: { id: user.id, email: typeof user.email === 'string' ? user.email : undefined } };

@@ -123,7 +123,9 @@ MealAnalysisResult parseAnalyzeMealResponse(int statusCode, String body) {
   if (statusCode == 401 || statusCode == 403) {
     throw const MealAnalysisReauthRequired();
   }
-  if (statusCode == 429) {
+  // Shared provider capacity can be exhausted while this user's photo quota
+  // is still available. Preserve that code for the service-availability text.
+  if (statusCode == 429 && code != 'ai_budget_exhausted') {
     throw MealAnalysisRateLimited(resetAt: _readResetAt(decoded));
   }
   if (statusCode == 413 ||

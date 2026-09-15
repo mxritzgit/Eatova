@@ -8,7 +8,10 @@
 // silently swapping base URL and key. Functionally a no-op, since the edge
 // runtime fixes the environment at isolate start.
 
+import { readProviderBody } from '../_shared/provider_body.ts';
+import { providerCallBudget, ProviderBudgetError } from '../_shared/provider_budget.ts';
 import { authFailGate } from '../_shared/auth_fail_gate.ts';
+import { hasExpectedUserTokenContext } from '../_shared/user_token_context.ts';
 import { clientIpSubject } from '../_shared/client_ip.ts';
 import { EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS, positiveIntFromEnv } from '../_shared/env.ts';
 import { loggableFinishReason } from '../_shared/provider_log.ts';
@@ -75,10 +78,9 @@ const MIN_PROVIDER_MS = 15_000;
 // as the divisor of the Supabase ceiling below and as the line whose crossing
 // gets logged in bodyReadBudget().
 const MIN_UPLOAD_WINDOW_MS = 25_000;
-// Ceiling for ONE Supabase roundtrip (auth lookup, one of the two batched
-// rate-limit RPCs, the fail bucket). Since A4 an awaited chain is at most
-// three of them — auth, attempt batch, day batch — i.e. 5 s x 3 = 15 s worst
-// case, which leaves the provider 40 s of the budget.
+// Ceiling for ONE Supabase roundtrip. The authenticated path has four:
+// auth, attempt batch, day batch and independent provider budget. Their time
+// is deducted from the same total deadline before provider execution.
 // The env ceiling is DERIVED, not a round number: bodyReadBudget() reserves
 // TWO of these roundtrips plus MIN_PROVIDER_MS, so every second added here
 // costs the upload two. At the old flat ceiling of 120 s any value from ~19 s
@@ -137,7 +139,7 @@ const IP_WINDOW_SECONDS = positiveIntFromEnv(
 // Day caps (F9-01): 20/h/user alone allowed 480 paid vision calls per user
 // and day, with free OTP signups and no ceiling on the bill at all.
 //  - analyze-meal:global, subject 'all': one bucket for everyone, the cost
-//    ceiling. 5000/day ~= a few EUR at flash-lite prices.
+//    legacy ceiling. The shared provider budget is enforced separately.
 //  - analyze-meal:user-day: 100/day, far above honest use (~5-10 scans).
 // The window is a fixed constant on purpose: positiveIntFromEnv caps at
 // 10000 s by default, so a day window read from env WITHOUT an explicit
@@ -285,11 +287,8 @@ type BodyReadBudget = { idleMs: number; totalMs: number };
  */
 function bodyReadBudget(deadline: Deadline, requestId: string): BodyReadBudget {
   const remaining = deadline.remainingMs();
-  // Behind the read: the two day gates and the provider. Since A4 those gates
-  // are ONE roundtrip, not two — the reserve still counts two on purpose. It
-  // is the margin SUPABASE_TIMEOUT_CEILING_MS is derived from, and spending
-  // it on a wider upload window would change an operator-facing bound, which
-  // is a different decision than batching the calls.
+  // Behind the read: one batched day-gate call, one independent provider-budget
+  // reservation and the provider. Both RPCs share the existing upload reserve.
   const reserve = 2 * SUPABASE_TIMEOUT_MS + MIN_PROVIDER_MS;
   const spare = remaining - reserve;
   const totalMs = Math.max(1, Math.min(Math.max(MIN_BODY_READ_MS, spare), remaining));
@@ -420,6 +419,9 @@ export async function handleRequest(request: Request): Promise<Response> {
     // isolate mid model call (../_shared/rate_limit_prune.ts).
     void pruneRateLimits({ supabaseUrl: secrets.supabaseUrl, serviceKey: secrets.serviceKey });
 
+    const budget = providerCallBudget({ supabaseUrl: secrets.supabaseUrl, serviceKey: secrets.serviceKey, userId: user.id,
+      signal: request.signal, timeoutMs: Math.min(SUPABASE_TIMEOUT_MS, deadline.remainingMs()) });
+    await budget('analyze_meal');
     const providerResult = await callOpenRouter(secrets, body, prompt, requestId, deadline);
     const result = normalizeMealResult(providerResult);
 
@@ -496,6 +498,9 @@ export async function handleRequest(request: Request): Promise<Response> {
       message: error instanceof Error ? error.message : String(error),
     });
 
+    if (error instanceof ProviderBudgetError) {
+      return jsonResponse(request, { error: error.code, requestId }, error.status);
+    }
     if (error instanceof HttpError) {
       return jsonResponse(request, { error: error.code, message: error.publicMessage, requestId }, error.status);
     }
@@ -717,7 +722,7 @@ async function authenticateUser(request: Request, secrets: Secrets, deadline: De
     }
     throw error;
   }
-  if (typeof user.id !== 'string' || user.id.length < 10) {
+  if (typeof user.id !== 'string' || !hasExpectedUserTokenContext(token, user.id)) {
     throw new HttpError(401, 'invalid_user_token', 'Bitte erneut anmelden.');
   }
   return { user: { id: user.id, email: typeof user.email === 'string' ? user.email : undefined } };
@@ -844,6 +849,8 @@ async function consumeRateLimits(
   return { allowed: results };
 }
 
+const REQUEST_FIELDS = new Set(['imageBase64', 'portionHint', 'freeTextHint', 'language']);
+
 async function parseBody(request: Request, deadline: Deadline, requestId: string): Promise<ParsedBody> {
   const contentType = request.headers.get('content-type') ?? '';
   if (!contentType.toLowerCase().includes('application/json')) {
@@ -864,7 +871,7 @@ async function parseBody(request: Request, deadline: Deadline, requestId: string
     throw new HttpError(400, 'invalid_json', 'Ungültige Anfrage.');
   }
 
-  if (!isRecord(body)) {
+  if (!isRecord(body) || Object.keys(body).some((field) => !REQUEST_FIELDS.has(field))) {
     throw new HttpError(400, 'invalid_body', 'Ungültige Anfrage.');
   }
 
@@ -975,6 +982,7 @@ async function callOpenRouter(
   // What is left of the request budget, at most OPENROUTER_TIMEOUT_MS: the
   // preliminary steps have already spent part of the 60 s the client waits.
   const timeoutMs = Math.max(1, Math.min(OPENROUTER_TIMEOUT_MS, deadline.remainingMs()));
+  const signal = AbortSignal.timeout(timeoutMs);
   let response: Response;
   let text: string;
   try {
@@ -989,7 +997,7 @@ async function callOpenRouter(
       // Hard cap on the whole provider roundtrip, including the body read
       // below. Without it the function would hang until the platform kills it
       // and the client would see a dropped connection, not an error JSON.
-      signal: AbortSignal.timeout(timeoutMs),
+      signal,
       body: JSON.stringify({
         model: OPENROUTER_MODEL,
         messages: [
@@ -1018,7 +1026,9 @@ async function callOpenRouter(
         max_tokens: 4096,
       }),
     });
-    text = await response.text();
+    const bounded = await readProviderBody(response, 512 * 1024, signal);
+    if (bounded === null) throw new HttpError(502, 'provider_response_too_large', 'Analyse-Antwort war zu gross.');
+    text = bounded;
   } catch (error) {
     if (isTimeout(error)) {
       console.error('OpenRouter timeout', {

@@ -1,0 +1,231 @@
+{
+  "purpose": "Sanitized deployment and metadata verification; no production behavioral tests.",
+  "source_commit": "78f8d55673f2df46dcc5edc04b7398390f675008",
+  "pull_request": "https://github.com/mxritzgit/Eatova/pull/92",
+  "green_code_workflows": [
+    {
+      "id": 34910018524,
+      "name": "ios",
+      "conclusion": "success"
+    },
+    {
+      "id": 34910018466,
+      "name": "security",
+      "conclusion": "success"
+    }
+  ],
+  "protected_checks": [
+    "Flutter analyze + test",
+    "Android Debug-Build (APK)",
+    "Android Release-Build (AAB + R8)",
+    "Secret scanning (gitleaks)",
+    "OSV-Scanner (Pub + Deno)",
+    "Deno lint + check (Edge Functions)",
+    "Supabase migration drift (Management API)",
+    "RLS gegen echtes Postgres (Kreuzzugriffe)"
+  ],
+  "backend_completed_at": "2026-09-15T00:12:44.536608+00:00",
+  "runtime_configuration_review": {
+    "checked_at": "2026-09-15T00:12:44.536608+00:00",
+    "project_health": "ACTIVE_HEALTHY",
+    "read_only": true,
+    "redeployments": 0,
+    "managed_secret_entries": 7,
+    "managed_timestamps_match_last_function_deployment": true,
+    "application_secret_entries": 8,
+    "application_update_times_precede_rollout": true,
+    "metadata_stable_across_two_reads": true,
+    "runtime_project_bindings_match": {
+      "SUPABASE_ANON_KEY": true,
+      "SUPABASE_SERVICE_ROLE_KEY": true,
+      "SUPABASE_URL": true
+    },
+    "runtime_key_types": {
+      "SUPABASE_ANON_KEY": [
+        "publishable"
+      ],
+      "SUPABASE_SERVICE_ROLE_KEY": [
+        "secret"
+      ]
+    },
+    "model_overrides_match_expected": {
+      "OPENROUTER_MODEL": true,
+      "COACH_MODEL_ANSWER": true,
+      "COACH_MODEL_CLASSIFIER": true
+    },
+    "recipe_image_model_uses_source_default": "google/gemini-3.1-flash-image",
+    "explanation": "The full-object comparison included updated_at. Managed SUPABASE_* timestamps now equal the last deployment time; application timestamps predate the rollout. No secrets were written by the deployment helper.",
+    "limit": "Original pre-rollout secret digests were memory-only and were not retained after the helper exited. Full before/after value equality is not asserted. Current project bindings and known models were independently checked.",
+    "reference": "https://supabase.com/docs/guides/functions/secrets"
+  },
+  "runtime_key_compatibility_review": {
+    "source_commit": "78f8d55673f2df46dcc5edc04b7398390f675008",
+    "service_rest_headers_use_identical_key": true,
+    "matches_documented_compatibility_exception": true,
+    "user_auth_requires_verified_user_jwt": true,
+    "code_change_required": false,
+    "hosted_gateway_behavior_tested": false,
+    "sdk_comparison_version": "supabase-js v2.110.7",
+    "references": [
+      "https://github.com/orgs/supabase/discussions/29260",
+      "https://github.com/supabase/supabase-js/blob/v2.110.7/packages/core/supabase-js/src/lib/fetch.ts#L70",
+      "https://github.com/supabase/supabase-js/blob/v2.110.7/packages/core/supabase-js/src/SupabaseClient.ts#L353"
+    ],
+    "limit": "Source and documentation review; local GoTrue tests stub REST/RPC and do not prove hosted gateway execution."
+  },
+  "functions": [
+    {
+      "slug": "coach-chat",
+      "version": 48,
+      "status": "ACTIVE",
+      "verify_jwt": true,
+      "source_verified": true,
+      "verified_source_files": 16
+    },
+    {
+      "slug": "analyze-meal",
+      "version": 31,
+      "status": "ACTIVE",
+      "verify_jwt": true,
+      "source_verified": true,
+      "verified_source_files": 13
+    },
+    {
+      "slug": "search-key",
+      "version": 10,
+      "status": "ACTIVE",
+      "verify_jwt": true,
+      "source_verified": true,
+      "verified_source_files": 6
+    }
+  ],
+  "database": {
+    "migrations": 46,
+    "registrations": [
+      {
+        "version": "20260915090000",
+        "name": "database_privilege_boundaries",
+        "statement_count": 1,
+        "source_md5": "7ede9cfa892b0be58daee39fc28c39cb"
+      },
+      {
+        "version": "20260915091000",
+        "name": "ai_provider_budgets",
+        "statement_count": 1,
+        "source_md5": "2c22d4945475d1bd8851b8ef96128f88"
+      },
+      {
+        "version": "20260915093000",
+        "name": "ai_usage_export",
+        "statement_count": 1,
+        "source_md5": "4cb8ef68b132ca8e0220fffde89b0e4e"
+      }
+    ],
+    "public_rls": {
+      "tables": 19,
+      "without_rls": 0
+    },
+    "expected_catalog_match": true,
+    "compared_app_fields": [
+      "column_grants",
+      "constraints",
+      "foreign_keys",
+      "functions",
+      "policies",
+      "public_columns",
+      "public_indexes",
+      "public_sequences",
+      "relations",
+      "table_privileges",
+      "triggers"
+    ],
+    "catalog_counts": {
+      "relations": 19,
+      "policies": 35,
+      "column_grants": 36,
+      "foreign_keys": 17,
+      "table_privileges": 57,
+      "triggers": 12,
+      "constraints": 83,
+      "public_columns": 146,
+      "public_indexes": 33,
+      "public_sequences": 0,
+      "functions": 34
+    },
+    "known_comment_only_sql_differences": [
+      "delete_account",
+      "increment_lifetime_stats",
+      "record_tracking_day"
+    ],
+    "advisor_summary": {
+      "total": 20,
+      "errors": 0,
+      "intended_authenticated_definer_warnings": 15,
+      "expected_server_only_rls_infos": 4,
+      "remaining_auth_password_protection_warnings": 1
+    },
+    "provider_catalog_matches_reviewed_before": true,
+    "defaults_match_expected_transition": true,
+    "global_public_execute_removed": true,
+    "client_maintain_count": 0,
+    "provider_budget_config": [
+      {
+        "enabled": true,
+        "coach_enabled": true,
+        "analysis_enabled": true,
+        "images_enabled": true,
+        "daily_call_limit": 1000,
+        "daily_image_limit": 50,
+        "daily_user_limit": 150
+      }
+    ]
+  },
+  "website": {
+    "published_at": "2026-09-15T00:13:24.756114+00:00",
+    "after_hash": "81a6128993911d83bd7d89825aa8ea1e131d096265f0dbbd9f639c24e9d68fc8",
+    "public_verified": true,
+    "other_files_unchanged": 34,
+    "local_privacy_source_updated": true,
+    "browser_verified_at": "2026-09-15T00:14:09.936Z",
+    "viewports": [
+      {
+        "width": 320,
+        "publicHashMatches": true,
+        "actualServerCsp": true,
+        "overflow": false,
+        "errors": 0,
+        "failedResources": 0
+      },
+      {
+        "width": 390,
+        "publicHashMatches": true,
+        "actualServerCsp": true,
+        "overflow": false,
+        "errors": 0,
+        "failedResources": 0
+      },
+      {
+        "width": 768,
+        "publicHashMatches": true,
+        "actualServerCsp": true,
+        "overflow": false,
+        "errors": 0,
+        "failedResources": 0
+      },
+      {
+        "width": 1440,
+        "publicHashMatches": true,
+        "actualServerCsp": true,
+        "overflow": false,
+        "errors": 0,
+        "failedResources": 0
+      }
+    ]
+  },
+  "limits": [
+    "Catalog and source comparison does not prove a production behavioral attack test.",
+    "Synthetic restore does not establish an available production backup or recovery point.",
+    "No new app was installed on user devices or submitted to an app store.",
+    "Remaining operator and professional verification requirements are in SECURITY_AUDIT.md."
+  ]
+}

@@ -1,3 +1,4 @@
+import { userToken } from "../_shared/auth_test_fixtures.ts";
 // End-to-end tests for handleRequest's recipe mode, fetch stubbed, same style
 // as handler_test.ts (no external test dependencies). Covers the spec:
 //   * 1 quota slot per recipe, refund ONLY on infra errors
@@ -58,6 +59,7 @@ interface RecordedCall {
 }
 
 interface StubOptions {
+  imageBudgetDenied?: boolean;
   /** "ok" (default), "exhausted" or "forbidden" (claim must never happen). */
   quota?: "ok" | "exhausted" | "forbidden";
   /** Category returned by the classifier call (max_tokens 256). */
@@ -150,6 +152,10 @@ function installFetch(options: StubOptions = {}): FetchStub {
   let quotaUsed = 0;
 
   function route(url: string, method: string, body: string): Response {
+    if (url.endsWith("/rest/v1/rpc/reserve_ai_provider_call")) {
+      const denied = options.imageBudgetDenied && JSON.parse(body).p_operation === "coach_image";
+      return jsonRes({ allowed: !denied, reason: denied ? "budget_exhausted" : "allowed" });
+    }
     if (url.includes("/auth/v1/user")) return jsonRes({ id: USER_ID });
     // Batched limiter (P6-02). MUST be tested before the single-gate URL: that
     // fragment is a prefix of this one.
@@ -309,7 +315,7 @@ function makeRecipeRequest(payload: JsonRecord = {}): Request {
   return new Request("https://edge.test.invalid/coach-chat", {
     method: "POST",
     headers: {
-      "authorization": "Bearer test-user-jwt",
+      "authorization": `Bearer ${userToken(USER_ID)}`,
       "content-type": "application/json",
     },
     body: JSON.stringify({
@@ -325,7 +331,7 @@ function makeChatRequest(payload: JsonRecord = {}): Request {
   return new Request("https://edge.test.invalid/coach-chat", {
     method: "POST",
     headers: {
-      "authorization": "Bearer test-user-jwt",
+      "authorization": `Bearer ${userToken(USER_ID)}`,
       "content-type": "application/json",
     },
     body: JSON.stringify({
@@ -1162,4 +1168,18 @@ Deno.test("Security completion: recipe requires valid terminal metadata", async 
       assertEquals(stub.callsTo("refund_chat_quota").length, 1, "outage refund");
     } finally { stub.restore(); }
   }
+});
+
+Deno.test("Provider budget: denied recipe image preserves valid draft without image cost", async () => {
+  const stub = installFetch({ imageBudgetDenied: true });
+  try {
+    const res = await handleRequest(makeRecipeRequest());
+    const body = await res.json() as JsonRecord;
+    assertEquals(res.status, 200, "usable recipe remains available");
+    assert(body.recipe !== undefined, "recipe proposal returned");
+    assertEquals(stub.callsTo("openrouter.ai/api/v1/images").length, 0, "image provider never invoked");
+    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "successful recipe keeps question charge");
+    assertEquals(JSON.stringify(stub.callsTo("reserve_ai_provider_call").map((call) => JSON.parse(call.body).p_operation)),
+      JSON.stringify(["coach_classifier", "coach_recipe", "coach_image"]), "all three calls independently gated");
+  } finally { stub.restore(); }
 });

@@ -1,3 +1,4 @@
+import { userToken } from "../_shared/auth_test_fixtures.ts";
 // Real handler, stubbed transport: failures before and after response headers.
 import { handleRequest, SUPABASE_TIMEOUTS_MS } from "./handler.ts";
 
@@ -80,6 +81,7 @@ async function withStub(
     calls.push({ url, method, body });
     const answer = (stage: Stage, value: unknown) => replyFor(stage, value, init?.signal);
     try {
+      if (url.endsWith("/rest/v1/rpc/reserve_ai_provider_call")) return Promise.resolve(json({ allowed: true, reason: "allowed" }));
       if (url.endsWith("/auth/v1/user")) return Promise.resolve(answer("auth", { id: USER_ID }));
       if (url.endsWith("/consume_edge_rate_limits")) {
         return Promise.resolve(answer("limits", [{ allowed: true }, { allowed: true }]));
@@ -122,7 +124,7 @@ async function withStub(
   try {
     const response = await handleRequest(new Request("https://edge.test.invalid/coach-chat", {
       method: "POST",
-      headers: { authorization: "Bearer test-user", "cf-connecting-ip": "203.0.113.7" },
+      headers: { authorization: `Bearer ${userToken(USER_ID)}`, "cf-connecting-ip": "203.0.113.7" },
       body: JSON.stringify({
         message: "Wie viele Kalorien hat eine Banane?",
         ...(options.recipe ? { mode: "recipe" } : {}),

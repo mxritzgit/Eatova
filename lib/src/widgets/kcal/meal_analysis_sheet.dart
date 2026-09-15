@@ -79,6 +79,7 @@ String _mealAnalysisExceptionMessage(
         'request_timeout' =>
           l10n.foodAnalysisTimeoutMessage,
         'provider_error' ||
+        'provider_response_too_large' ||
         'provider_invalid_response' ||
         'provider_invalid_json' ||
         'provider_empty_response' ||
@@ -87,6 +88,9 @@ String _mealAnalysisExceptionMessage(
         'invalid_result' =>
           l10n.foodAnalysisProviderErrorMessage,
         'provider_not_configured' ||
+        'ai_budget_exhausted' ||
+        'ai_disabled' ||
+        'ai_budget_unavailable' ||
         'server_misconfigured' ||
         'rate_limit_unavailable' ||
         // 503 when the GoTrue lookup runs into its step deadline. The server

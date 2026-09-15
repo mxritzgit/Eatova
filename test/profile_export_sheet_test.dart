@@ -52,15 +52,20 @@ const Set<String> _tabellenLautMigrationen = <String>{
   'chat_sessions',
   'chat_messages',
   'chat_quota_usage',
+  'ai_provider_user_usage',
 };
 
 /// Exists but belongs in no export: `edge_rate_limits` has no `user_id`, only a
 /// SHA-256 hash of the subject, and `lifetime_stats_requests` is an idempotency
 /// journal. Both revoke `authenticated` entirely, so exporting them would be a
 /// permanent `unvollstaendig`.
+/// AI provider limits and global counters have no user identifier and remain
+/// server-only. The separate own-user counter belongs in the export above.
 const Set<String> _nichtExportierbar = <String>{
   'edge_rate_limits',
   'lifetime_stats_requests',
+  'ai_provider_limits',
+  'ai_provider_daily_usage',
 };
 
 /// PostgREST fake that behaves like the REAL server: a table that no longer
@@ -195,7 +200,7 @@ void main() {
       onExportData: () async => throw Exception('offline'),
     );
 
-    expect(find.textContaining('Server nicht erreichbar'), findsOneWidget);
+    expect(find.textContaining('unvollständig'), findsOneWidget);
     expect(
       find.textContaining('Vollständige Kopie deiner gespeicherten Daten'),
       findsNothing,

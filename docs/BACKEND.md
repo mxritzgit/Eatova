@@ -1,6 +1,6 @@
 # Backend configuration and operations
 
-Updated for the **2026-09-14 security fixes**. This guide describes
+Updated for the **2026-09-15 security work**. This guide describes
 source contracts; environment values can override defaults. Runtime inspection
 and deployment are separate from editing this documentation.
 
@@ -15,7 +15,7 @@ and deployment are separate from editing this documentation.
 | `search-key` | Authenticated product-index URL and limited search credentials |
 | Meilisearch / Open Food Facts | Public product data lookup; OFF fallback |
 
-There are **43 SQL migrations** in the reviewed source. Apply them in version
+There are **46 SQL migrations** in the reviewed source. Apply them in version
 order to a new project. The generated [schema access map](../supabase/SCHEMA_STATE.md)
 describes RLS, policies, grants and functions; table columns/constraints live in
 the [migration files](../supabase/migrations). Do not hand-edit the generated map.
@@ -72,6 +72,42 @@ the outcome; it is not a promise that every unsuccessful request is free. A
 failed recipe image can leave a usable recipe with a placeholder. See the
 [recipe completion fix](SENTRY-RECIPE-2026-09-13.md) for the latest recorded
 recipe validation and provider-completion work.
+
+An independent provider-call budget is enforced before **each** billable HTTP
+request, including classification and optional recipe images. The atomic
+`reserve_ai_provider_call` RPC locks the configuration row and increments
+non-refundable global and account counters. Missing configuration/RPC evidence
+fails closed. Existing feature quotas and their selective refunds remain separate.
+
+| `ai_provider_limits` setting | Default | Meaning |
+| --- | --- | --- |
+| `daily_call_limit` | 1000 | All provider calls per UTC day |
+| `daily_user_limit` | 150 | Provider calls per account per UTC day |
+| `daily_image_limit` | 50 | Recipe image calls per UTC day, also counted globally |
+| `enabled`, `coach_enabled`, `analysis_enabled`, `images_enabled` | true | Administrative stop switches |
+
+Zero is a valid limit. Administrative configuration is not client-writable.
+An exhausted budget returns `429/ai_budget_exhausted`; disabled or unavailable
+budget verification returns a controlled `503`. Optional image exhaustion keeps
+an otherwise valid recipe usable without a generated picture. The client does
+not mislabel these service limits as the user's personal question quota.
+These are request counts, **not dollar limits**, and they cannot cancel an
+already reserved upstream call. See the [stop and recovery procedure](OPERATIONS.md).
+
+The Coach upload reader has a 30-second total and 10-second idle deadline while
+preserving its byte limit. Provider text/error envelopes are capped at 512 KiB;
+successful recipe-image envelopes at 8 MiB. All three functions validate the
+verified Auth response and user token context; clients cannot add privileged
+request fields. Meal-photo checks bound container dimensions before quota work;
+the Flutter compressor additionally removes opaque metadata and checks PNG/ICC
+inflation before the relevant decoder stage. Structural checks do not establish
+complete pixel validity or provider-decoder safety.
+
+Per-account provider counters contain only user ID, UTC date and reserved-call
+count; own counters are exportable and cascade on account deletion. Records
+older than 30 days are pruned on the first permitted call of a new UTC day,
+not by a guaranteed background TTL. Inactivity or disabled AI can delay pruning.
+Global counters have no user ID. See [privacy data flows](../PRIVACY.md).
 
 Changing a model requires checking its input/output capabilities separately:
 the recipe-image model must generate images; a chat/vision model is not a
@@ -141,8 +177,8 @@ and the latest recipe completion fix in [PR #83](https://github.com/mxritzgit/Ea
 The latter record verifies `coach-chat` v46 against the merged source;
 `analyze-meal` v29 and `search-key` v9 were unchanged at that checkpoint.
 After explicit rollout approval on 2026-09-14, security [PR #90](https://github.com/mxritzgit/Eatova/pull/90)
-was deployed as `coach-chat` **v47** and `analyze-meal` **v30**; `search-key` remains
-**v9**. Both changed functions are ACTIVE with JWT verification enabled, and their
+was deployed as `coach-chat` **v47** and `analyze-meal` **v30**; `search-key` remained
+**v9** at that checkpoint. Both changed functions were ACTIVE with JWT verification enabled, and their
 downloaded production import graphs match the reviewed source. Model overrides
 were checked without changing settings or invoking billable AI. See the
 [deployment evidence and limits](../SECURITY_AUDIT.md#verifizierte-veröffentlichung-am-14092026).
@@ -153,12 +189,45 @@ production migration comparison runs only on `main` in the protected
 `supabase-drift` environment; its success checks migration history, not every
 function deployment or provider response. See [workflows](../.github/workflows).
 
+On **2026-09-15 at 00:03–00:04 UTC**, all three `20260915...` migrations were
+applied atomically before deploying `coach-chat` **v48**, `analyze-meal` **v31**
+and `search-key` **v10**. Their complete source graphs (16, 13 and 6 files)
+match the reviewed code; all are ACTIVE with JWT verification enabled. The
+independent live catalog comparison confirms all 46 migrations and the tested
+RLS, grants and function definitions. Source commit `78f8d55` passed the full
+protected CI before deployment: 4620 Flutter tests, 95.0% coverage and all builds.
+See the [versioned rollout evidence](SECURITY-ROLLOUT-2026-09-15.json) and
+[current audit](../SECURITY_AUDIT.md#runde-3--aktueller-stand).
+
+The configuration readback also confirmed the actual injected key types:
+`SUPABASE_ANON_KEY` contains a project publishable key here, and
+`SUPABASE_SERVICE_ROLE_KEY` contains a project secret key. Do not infer the key
+format from a legacy variable name. The platform-managed update timestamps
+changed during deployment; current project bindings and known model overrides
+were verified without writing or disclosing credentials. Full pre/post secret
+value equality was not retained or asserted. No production behavioral tests
+were performed. The three text-model overrides match the table above; recipe
+images use the source default because no image-model override is configured.
+
+The outgoing service REST/RPC requests put the identical key in `apikey` and
+Bearer, satisfying Supabase's [documented compatibility exception](https://github.com/orgs/supabase/discussions/29260).
+The official [supabase-js v2.110.7 REST initialization](https://github.com/supabase/supabase-js/blob/v2.110.7/packages/core/supabase-js/src/SupabaseClient.ts#L353)
+also retains this combination; that SDK is a comparison reference here.
+User authentication still requires a real user JWT and verified account binding.
+No header change was justified. This source review does not prove execution by
+the hosted gateway; the local Auth probe stubs REST/RPC. Obtain any additional
+gateway execution evidence in an approved synthetic staging environment.
+
+CI now exercises PostgreSQL 17.6, atomic budget races, synthetic two-cluster
+restore, native dependency inventories and the offline Coach evaluation harness.
+
 ## Published privacy documentation follow-up
 
-The [German website policy](https://eatova.de/datenschutz) was corrected after
-explicit approval on 2026-09-14 at 21:34 UTC. It now matches the documented Gemini,
-Android steps, meal planning, training and approved-response data flows. The live
-model configuration was verified before publication. Provider contracts, account
+The [German website policy](https://eatova.de/datenschutz) was first corrected
+after explicit approval on 2026-09-14 at 21:34 UTC. Its **2026-09-15 00:13 UTC**
+extension now documents the deployed provider-call counters and activity-triggered
+retention accurately. Gemini, Android steps, planning and approved-response
+data flows remain documented. Provider contracts, account
 privacy/retention settings and legal requirements still need separate assessment.
 
 The [single-file correction record](PRIVACY-WEBSITE-CORRECTION-2026-09-14.md)

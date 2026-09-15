@@ -1,3 +1,4 @@
+import { userToken } from "../_shared/auth_test_fixtures.ts";
 // P6-03 (review 2026-08-29): the rate-limit WINDOWS of search-key must survive
 // an operator override.
 //
@@ -127,7 +128,7 @@ function request(): Request {
   return new Request(`${BASE_URL}/functions/v1/search-key`, {
     method: "GET",
     headers: {
-      authorization: "Bearer eyJhbGciOiJIUzI1NiJ9.test.token",
+      authorization: `Bearer ${userToken(USER_ID)}`,
       "cf-connecting-ip": "203.0.113.7",
     },
   });

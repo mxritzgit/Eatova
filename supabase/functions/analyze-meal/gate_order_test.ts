@@ -1,3 +1,4 @@
+import { userToken } from "../_shared/auth_test_fixtures.ts";
 // Gate order and request budget of analyze-meal (review 2026-08-29,
 // findings P6-01 / P6-02 / P6-07).
 //
@@ -23,7 +24,7 @@ import { PNG_BASE64 } from './image_fixtures.ts';
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const BASE_URL = 'https://supabase.test.invalid';
 const ANON_KEY = 'test-anon-key';
-const USER_JWT = 'test-user-jwt';
+const USER_JWT = userToken(USER_ID);
 
 // Real synthetic PNG above MIN_IMAGE_BYTES; provider requests remain stubbed.
 const IMAGE_BASE64 = PNG_BASE64;
@@ -182,6 +183,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
 
   function route(call: RecordedCall): Promise<Response> {
     const { url, body, signal } = call;
+    if (url.endsWith("/rest/v1/rpc/reserve_ai_provider_call")) return Promise.resolve(jsonRes({ allowed: true, reason: "allowed" }));
     if (url.includes('/auth/v1/user')) {
       if (hangOn.has('auth')) return hang(signal);
       if (options.authStatus !== undefined) {
@@ -462,7 +464,7 @@ async function loadHandler(tag: keyof typeof LOADERS, env: Record<string, string
 Deno.test('P6-01: fehlendes Bild -> 400 ohne globalen Slot', async () => {
   const stub = installFetch();
   try {
-    const res = await handleRequest(makeRequest({ x: 1 }));
+    const res = await handleRequest(makeRequest({}));
     assertEquals(res.status, 400, 'Status');
     assertEquals((await res.json() as JsonRecord).error, 'missing_image', 'Fehlercode');
     // The decisive assertion: a few hundred bytes of junk must not be able to

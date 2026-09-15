@@ -133,6 +133,23 @@ void main() {
   }
 
   group('Kappung, die nicht an unserer eigenen Grenze passiert', () {
+    test('fehlender Zaehler mit niedriger Servergrenze behauptet keine Vollstaendigkeit',
+        () async {
+      final server = _ZaehlenderPostgrest(
+        vorhanden: const {'weight_log': 5},
+        serverMax: 2,
+        zaehltMit: false,
+      );
+      final text = await service(server).buildExportJson();
+      final json = jsonDecode(text) as Map<String, dynamic>;
+
+      expect(json['weight_log'], hasLength(2));
+      expect(exportUmfangAus(text), ExportUmfang.teilweise);
+      expect(json['vollstaendigkeitUnbekannt'], contains('weight_log'));
+      expect(json, isNot(contains('gekappt')),
+          reason: 'Ohne Zaehler ist die Kappung nicht nachgewiesen.');
+    });
+
     test(
         'kappt der SERVER still bei db-max-rows, steht die Kappung trotzdem im '
         'Export', () async {

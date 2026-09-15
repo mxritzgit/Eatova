@@ -82,7 +82,7 @@ void main() {
     test('traegt das NEUE Token aus verifyRecoveryCode, nicht das Login-Token',
         () async {
       final rpcAuth = <String>[];
-      final client = _clientAm(MockClient((req) async {
+      final transport = MockClient((req) async {
         final pfad = req.url.path;
         if (pfad.endsWith('/token')) {
           return _json(req, _sessionJson('login-jwt'));
@@ -96,10 +96,11 @@ void main() {
           return http.Response('', 204, request: req);
         }
         return _json(req, <String, dynamic>{});
-      }));
+      });
+      final client = _clientAm(transport);
       addTearDown(client.dispose);
 
-      final repo = SupabaseAuthRepository(client);
+      final repo = SupabaseAuthRepository(client, mutationHttpClient: transport);
       await repo.signIn(email: 'jonas@eatova.de', password: 'eatova123');
       expect(client.auth.currentSession?.accessToken, 'login-jwt',
           reason: 'Ausgangslage: eine normale Passwort-Sitzung');

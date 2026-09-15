@@ -1,3 +1,4 @@
+import { userToken } from "../_shared/auth_test_fixtures.ts";
 // Tenant-token mode of `search-key` (F9-02, review 2026-08-27).
 //
 // With EATOVA_MIRROR_KEY_UID set the function no longer hands out the shared
@@ -136,7 +137,7 @@ async function loadHandler(tag: keyof typeof LOADERS, env: Record<string, string
 function request(): Request {
   return new Request(`${BASE_URL}/functions/v1/search-key`, {
     method: "GET",
-    headers: { authorization: "Bearer eyJhbGciOiJIUzI1NiJ9.test.token", "cf-connecting-ip": "203.0.113.7" },
+    headers: { authorization: `Bearer ${userToken(USER_ID)}`, "cf-connecting-ip": "203.0.113.7" },
   });
 }
 

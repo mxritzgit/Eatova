@@ -1,3 +1,4 @@
+import { userToken } from "../_shared/auth_test_fixtures.ts";
 // E1 (Review 2026-08-31): search-key haengt nicht mehr unbegrenzt an einem
 // stockenden Supabase.
 //
@@ -225,7 +226,7 @@ async function loadHandler(tag: keyof typeof LOADERS): Promise<Handler> {
   return handler!;
 }
 
-function request(token = "eyJhbGciOiJIUzI1NiJ9.test.token"): Request {
+function request(token = userToken(USER_ID)): Request {
   return new Request(`${BASE_URL}/functions/v1/search-key`, {
     method: "GET",
     headers: { authorization: `Bearer ${token}`, "cf-connecting-ip": CLIENT_IP },

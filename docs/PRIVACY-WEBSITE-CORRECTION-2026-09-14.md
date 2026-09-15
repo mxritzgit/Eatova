@@ -1,6 +1,21 @@
 # Korrekturtexte für die öffentliche Datenschutzerklärung
 
 Vorbereitet am 14.09.2026 für [eatova.de/datenschutz](https://eatova.de/datenschutz).
+
+**Ergänzung veröffentlicht am 15.09.2026, 00:13 UTC:** Nach dem verifizierten
+Backend-Rollout wurden die neuen nutzerbezogenen Provider-Aufrufzähler und die
+an tatsächliche Aufrufe gebundene Aufbewahrung ergänzt. Öffentliche Antwort,
+Serverdatei und lokale `EatovaTest21st/public/datenschutz.html` stimmen bytegenau
+überein; SHA-256 `81a6128993911d83bd7d89825aa8ea1e131d096265f0dbbd9f639c24e9d68fc8`.
+Die übrigen 34 Website-Dateien blieben unverändert. Chromium-Prüfungen bei
+320/390/768/1440 Pixeln mit tatsächlicher CSP bestanden; keine defekten Anker,
+überlaufenden Inhalte, Browserfehler oder fehlgeschlagenen Ressourcen.
+Der [aktuelle Nachweis](SECURITY-ROLLOUT-2026-09-15.json) und das
+[Checkbuch](../SECURITY_AUDIT.md#runde-3--aktueller-stand) trennen technische
+Veröffentlichung von weiterhin erforderlicher fachlicher Datenschutzprüfung.
+Die folgenden Angaben dokumentieren die erste Veröffentlichung und ihren
+historischen Patch; diesen nicht erneut auf die aktuelle Datei anwenden.
+
 **Veröffentlicht am 14.09.2026, 21:34 UTC, nach ausdrücklicher Nutzerfreigabe.**
 Der folgende Text dokumentiert die vorbereiteten und inzwischen angewandten Änderungen für
 die bestehende deutsche Seite. Die lokale Quelle wurde inzwischen zugeordnet:

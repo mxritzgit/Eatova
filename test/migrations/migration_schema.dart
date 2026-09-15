@@ -11,7 +11,9 @@
 // history says what the database actually enforces, and only that state can be
 // asserted against.
 //
-// SCOPE, deliberately: this models what the MIGRATIONS state. It does not know
+// SCOPE, deliberately: this models what the MIGRATIONS state on PostgreSQL 17.
+// It includes PostgreSQL's global PUBLIC EXECUTE default and additive schema
+// function defaults. It does not know
 // the Supabase platform bootstrap (the `grant all on tables` default that ships
 // with a fresh project), so a privilege the migrations never mention is
 // reported as absent. Every lockdown in this repo is written out explicitly
@@ -30,7 +32,7 @@ const String kMigrationsVerzeichnis = 'supabase/migrations';
 /// The four table privileges a PostgREST client can actually use.
 const Set<String> kCrud = {'select', 'insert', 'update', 'delete'};
 
-/// Everything `grant all on <table>` covers.
+/// Everything `grant all on <table>` covers on PostgreSQL 17, including MAINTAIN.
 const Set<String> kAlleTabellenrechte = {
   'select',
   'insert',
@@ -39,6 +41,7 @@ const Set<String> kAlleTabellenrechte = {
   'truncate',
   'references',
   'trigger',
+  'maintain',
 };
 
 /// One RLS policy as the history leaves it.
@@ -137,6 +140,16 @@ class SchemaState {
   final Map<String, TableState> tabellen = {};
   final Map<String, PolicyState> policies = {};
   final Map<String, FunctionState> funktionen = {};
+
+  /// PostgreSQL's global defaults for the migration owner, independent of
+  /// additive defaults in public. A schema-local REVOKE cannot remove these.
+  final Set<String> globaleExecuteRollen = {'public'};
+  final Set<String> schemaExecuteRollen = {};
+
+  Set<String> get standardExecuteRollen => {
+        ...globaleExecuteRollen,
+        ...schemaExecuteRollen,
+      };
 
   /// Statements the replay did not understand. NOT ignored: a security guard
   /// that silently skips what it cannot parse is worse than none, so
@@ -385,9 +398,19 @@ final RegExp _reGrant = RegExp(
   r'^(grant|revoke) (?:grant option for )?(.+?) on (.+?) (?:to|from) (.+)$',
 );
 final RegExp _reDefaults = RegExp(
-  r'^alter default privileges in schema public '
+  r'^alter default privileges (in schema public )?'
   r'(grant|revoke) (.+?) on (tables|sequences|functions) (?:to|from) (.+)$',
 );
+
+// Exact reviewed PG17 compatibility block, not a file-wide DO waiver.
+// PostgreSQL 16 skips it; PostgreSQL 17 executes the fixed REVOKE. Both replay
+// paths are exercised by database_privilege_boundaries.sql on real PostgreSQL.
+const _pg17MaintainRevoke =
+    'revoke maintain on all tables in schema public '
+    'from public, anon, authenticated';
+const _pg17MaintainBlock =
+    "begin if current_setting('server_version_num')::integer >= 170000 then "
+    "execute '$_pg17MaintainRevoke'; end if; end;";
 
 /// File name -> raw SQL of every migration, in the order they are applied.
 Map<String, String> leseMigrationsQuellen({
@@ -440,9 +463,6 @@ class _Replay {
 
   /// role -> privileges a NEW table inherits (ALTER DEFAULT PRIVILEGES).
   final Map<String, Set<String>> _standardTabellenrechte = {};
-
-  /// Roles that get EXECUTE on a NEW function by default.
-  final Set<String> _standardExecute = {};
 
   void anwenden(String roh, String datei) {
     final s = _flach(roh);
@@ -529,6 +549,10 @@ class _Replay {
       return;
     }
     final text = _flach(_ohneSqlKommentare(koerper)).toLowerCase();
+    if (text == _pg17MaintainBlock) {
+      _rechte(_pg17MaintainRevoke, _pg17MaintainRevoke, datei);
+      return;
+    }
     final waiver = kDoAusnahmen[datei] ?? const <String, String>{};
 
     for (final eintrag in kDoPruefungen.entries) {
@@ -669,7 +693,9 @@ class _Replay {
       rumpf: _flach(_ohneSqlKommentare(roh)).toLowerCase(),
       quelle: datei,
     );
-    neu.executeRollen.addAll(alt?.executeRollen ?? _standardExecute);
+    neu.executeRollen.addAll(
+      alt?.executeRollen ?? zustand.standardExecuteRollen,
+    );
     zustand.funktionen[name] = neu;
   }
 
@@ -699,10 +725,15 @@ class _Replay {
       zustand.unverstanden.add('$datei: $s');
       return;
     }
-    final gewaehren = m.group(1) == 'grant';
-    final privs = _privilegien(m.group(2)!);
-    final art = m.group(3)!;
-    final rollen = _rollen(m.group(4)!);
+    final schemaLokal = m.group(1) != null;
+    final gewaehren = m.group(2) == 'grant';
+    final privs = _privilegien(m.group(3)!);
+    final art = m.group(4)!;
+    final rollen = _rollen(m.group(5)!);
+    if (!schemaLokal && art != 'functions') {
+      zustand.unverstanden.add('$datei: $s');
+      return;
+    }
     if (art == 'tables') {
       for (final rolle in rollen) {
         final ziel = _standardTabellenrechte.putIfAbsent(rolle, () => {});
@@ -713,11 +744,12 @@ class _Replay {
         }
       }
     } else if (art == 'functions') {
+      final ziel = schemaLokal
+          ? zustand.schemaExecuteRollen
+          : zustand.globaleExecuteRollen;
       for (final rolle in rollen) {
         if (!privs.containsKey('execute')) continue;
-        gewaehren
-            ? _standardExecute.add(rolle)
-            : _standardExecute.remove(rolle);
+        gewaehren ? ziel.add(rolle) : ziel.remove(rolle);
       }
     }
     // sequences carry no row data; out of scope on purpose.
@@ -770,7 +802,7 @@ class _Replay {
     for (final t in ziele) {
       for (final rolle in rollen) {
         // `grant all` expands to every privilege class; on a TABLE only the
-        // seven table privileges apply (EXECUTE/USAGE belong to functions and
+        // table privileges apply (EXECUTE/USAGE belong to functions and
         // sequences and would otherwise show up as phantom table rights).
         final tabellenPrivs = Map<String, Set<String>?>.fromEntries(
           privs.entries.where((e) => kAlleTabellenrechte.contains(e.key)),

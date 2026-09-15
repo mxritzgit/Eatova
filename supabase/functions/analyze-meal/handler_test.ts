@@ -1,3 +1,4 @@
+import { userToken } from "../_shared/auth_test_fixtures.ts";
 // End-to-end tests for handleRequest (handler.ts) with a stubbed fetch,
 // covering the expensive paths: auth (401), both rate-limit gates (429 / 500
 // on limiter failure) and the image size/type checks (413 / 415).
@@ -14,7 +15,7 @@ import { PNG_BASE64 } from './image_fixtures.ts';
 const USER_ID = '11111111-1111-4111-8111-111111111111';
 const BASE_URL = 'https://supabase.test.invalid';
 const ANON_KEY = 'test-anon-key';
-const USER_JWT = 'test-user-jwt';
+const USER_JWT = userToken(USER_ID);
 
 // Real synthetic PNG above MIN_IMAGE_BYTES; provider requests remain stubbed.
 const IMAGE_BASE64 = PNG_BASE64;
@@ -69,6 +70,7 @@ interface RecordedCall {
 }
 
 interface StubOptions {
+  providerBudgetDenied?: boolean;
   /** HTTP status of the /auth/v1/user lookup (auth failure simulation). */
   authStatus?: number;
   /**
@@ -193,6 +195,8 @@ function installFetch(options: StubOptions = {}): FetchStub {
   }
 
   function route(url: string, body: string): Response {
+    if (url.endsWith("/rest/v1/rpc/reserve_ai_provider_call")) return jsonRes({ allowed: !options.providerBudgetDenied,
+      reason: options.providerBudgetDenied ? "budget_exhausted" : "allowed" });
     if (url.includes('/auth/v1/user')) {
       if (options.authStatus !== undefined) {
         return jsonRes({ message: 'invalid token' }, options.authStatus);
@@ -414,6 +418,41 @@ Deno.test('OPTIONS -> 204 ohne jeden Roundtrip', async () => {
     assertEquals(stub.calls.length, 0, 'Roundtrips');
   } finally {
     stub.restore();
+  }
+});
+
+Deno.test('Provider budget: exhausted shared allowance stops photo analysis before provider', async () => {
+  const stub = installFetch({ providerBudgetDenied: true });
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(res.status, 429, 'budget status');
+    assertEquals((await res.json()).error, 'ai_budget_exhausted', 'stable public error');
+    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'no unreserved paid photo call');
+    const claim = JSON.parse(stub.callsTo('reserve_ai_provider_call')[0].body);
+    assertEquals(claim.p_operation, 'analyze_meal', 'shared budget operation');
+    assertEquals(claim.p_user_id, USER_ID, 'verified account identity');
+  } finally { stub.restore(); }
+});
+
+Deno.test('Provider budget: invalid image never spends shared provider allowance', async () => {
+  const stub = installFetch();
+  try {
+    const res = await handleRequest(makeRequest({ imageBase64: 'invalid!' }));
+    assertEquals(res.status, 400, 'invalid image rejected');
+    assertEquals(stub.callsTo('reserve_ai_provider_call').length, 0, 'no provider reservation');
+    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'no paid call');
+  } finally { stub.restore(); }
+});
+
+Deno.test('Provider body: oversized successful and failed analysis envelopes are rejected', async () => {
+  for (const providerStatus of [200, 500]) {
+    const providerRaw = JSON.stringify({ choices: [{ message: { content: JSON.stringify(MODEL_RESULT) } }], padding: 'x'.repeat(530000) });
+    const stub = installFetch({ providerStatus, providerRaw });
+    try {
+      const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+      assertEquals(res.status, 502, 'oversized envelope rejected before normalization');
+      assertEquals((await res.json()).error, 'provider_response_too_large', 'bounded failure');
+    } finally { stub.restore(); }
   }
 });
 
