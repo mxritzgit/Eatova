@@ -1,0 +1,28 @@
+// Reviewed with Kotlin 2.2.20 and Jetifier 1.0.0-beta10 on 2026-09-15.
+// Keep their vulnerable optional paths inactive. A vendor upgrade/reassessment
+// may narrow these guards together with android/BUILD_TOOL_SECURITY.md.
+gradle.taskGraph.whenReady {
+    rootProject.allprojects.each { project ->
+        // Match AGP ProjectOptions: extra properties on plugin subprojects do
+        // not override ProviderFactory.gradleProperty's effective build option.
+        def jetifier = project.providers.gradleProperty('android.enableJetifier').orNull
+        if (jetifier != null && jetifier != 'false') {
+            throw new GradleException(
+                'Build-tool security review required: Jetifier must remain disabled. ' +
+                'Review the vendor XML consumer and benign/XXE tests before changing ' +
+                'android/build_tool_policy.gradle; see android/BUILD_TOOL_SECURITY.md.'
+            )
+        }
+        def kaptPlugin = project.plugins.hasPlugin('org.jetbrains.kotlin.kapt') ||
+            project.plugins.hasPlugin('kotlin-kapt')
+        def kaptTasks = project.tasks.names.any { it.toLowerCase(Locale.ROOT).startsWith('kapt') }
+        if (kaptPlugin || kaptTasks) {
+            throw new GradleException(
+                'Build-tool security review required: KAPT activates an unreviewed ' +
+                'incremental-cache deserialization path in the current Kotlin toolchain. ' +
+                'Validate a vendor fix before changing android/build_tool_policy.gradle; ' +
+                'see android/BUILD_TOOL_SECURITY.md.'
+            )
+        }
+    }
+}

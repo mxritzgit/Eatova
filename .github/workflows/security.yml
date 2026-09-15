@@ -117,7 +117,9 @@ jobs:
       # Pub's lock does not contain Android plugin transitives. Resolve the
       # actual release graph rather than scanning Gradle's requested versions.
       - name: Check dependency resolution and inventory guards
-        run: python3 test/tooling/android_dependencies_test.py
+        run: |
+          python3 test/tooling/android_dependencies_test.py
+          python3 test/tooling/build_tool_policy_test.py
 
       - name: Inventory Android release dependencies
         working-directory: android
