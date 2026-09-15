@@ -3,7 +3,7 @@
 // server tables (RLS select_own) instead, the authoritative copy.
 //
 // The test drives the real SupabaseClient against a MockClient that applies
-// PostgREST pagination (offset/limit or Range header) — otherwise broken
+// PostgREST filtering and pagination — otherwise broken
 // pagination would never show up here.
 
 import 'dart:convert';
@@ -16,28 +16,28 @@ import 'package:supabase/supabase.dart';
 import 'package:eatova/src/services/data_export.dart';
 
 /// 5 diary rows, descending by logged_at.
-final List<Map<String, dynamic>> _mealRows = List.generate(5, (i) {
-  return <String, dynamic>{
-    'id': 'meal-$i',
-    'user_id': 'user-export',
-    'logged_at': DateTime.utc(2026, 8, 1 + i, 12).toIso8601String(),
-    'meal_name': 'Mahlzeit $i',
-    'calories_kcal': 300 + i,
-  };
-})
-  ..sort((a, b) =>
-      (b['logged_at'] as String).compareTo(a['logged_at'] as String));
+final List<Map<String, dynamic>> _mealRows =
+    List.generate(5, (i) {
+      return <String, dynamic>{
+        'id': '00000000-0000-4000-8000-${i.toString().padLeft(12, '0')}',
+        'user_id': 'user-export',
+        'logged_at': DateTime.utc(2026, 8, 1 + i, 12).toIso8601String(),
+        'meal_name': 'Mahlzeit $i',
+        'calories_kcal': 300 + i,
+      };
+    })..sort(
+      (a, b) => (b['logged_at'] as String).compareTo(a['logged_at'] as String),
+    );
 
 class _FakePostgrest {
   final List<http.Request> requests = <http.Request>[];
   bool failChatMessages = false;
   int? serverPageLimit;
-  bool ignoresOffset = false;
+  bool ignoresCursor = false;
+  String? invalidCursorId;
+  List<Map<String, dynamic>> _lastPage = [];
 
-  /// Simulates what an offset scan really does when a row is inserted while
-  /// the export runs: the window slides and the following page repeats a row
-  /// that was already delivered. Only with this does the id set in
-  /// `_alleLoggedMeals` have anything to do.
+  /// A faulty peer repeats a previously delivered row at the page boundary.
   bool wiederholtEineZeile = false;
 
   http.Client client() => MockClient(_handle);
@@ -48,10 +48,15 @@ class _FakePostgrest {
 
     http.Response ok(Object body) {
       final count = body is List ? body.length : 0;
-      return http.Response(jsonEncode(body), 200, headers: {
-        'Content-Type': 'application/json',
-        'content-range': '${count == 0 ? '*' : '0-${count - 1}'}/$count',
-      }, request: req);
+      return http.Response(
+        jsonEncode(body),
+        200,
+        headers: {
+          'Content-Type': 'application/json',
+          'content-range': '${count == 0 ? '*' : '0-${count - 1}'}/$count',
+        },
+        request: req,
+      );
     }
 
     if (path.contains('/profiles')) {
@@ -61,14 +66,29 @@ class _FakePostgrest {
           'display_name': 'Moritz',
           'weight_kg': 81,
           'diet_preference': 'vegetarian',
-        }
+        },
       ]);
     }
     if (path.contains('/logged_meals')) {
+      var selected = _mealRows.toList();
+      final cursor = req.url.queryParameters['or'];
+      if (cursor != null && !ignoresCursor) {
+        final match = RegExp(
+          r'^\(logged_at\.lt\.([^,]+),and\(logged_at\.eq\.([^,]+),id\.lt\.([a-f0-9-]+)\)\)$',
+        ).firstMatch(cursor)!;
+        final at = DateTime.parse(match.group(1)!);
+        expect(DateTime.parse(match.group(2)!), at);
+        final id = match.group(3)!;
+        selected = selected.where((row) {
+          final rowTime = DateTime.parse(row['logged_at'] as String);
+          return rowTime.isBefore(at) ||
+              (rowTime == at && (row['id'] as String).compareTo(id) < 0);
+        }).toList();
+      }
       // Apply PostgREST pagination: postgrest-dart sends offset/limit as query
       // parameters, falling back to a Range header "items=from-to".
       var from = 0;
-      var to = _mealRows.length - 1;
+      var to = selected.length - 1;
       final offset = int.tryParse(req.url.queryParameters['offset'] ?? '');
       final limit = int.tryParse(req.url.queryParameters['limit'] ?? '');
       if (offset != null) from = offset;
@@ -81,24 +101,28 @@ class _FakePostgrest {
           to = int.parse(m.group(2)!);
         }
       }
-      if (ignoresOffset) {
-        to -= from;
-        from = 0;
-      }
       if (serverPageLimit case final int cap) {
         to = to.clamp(from, from + cap - 1);
       }
-      if (wiederholtEineZeile && from > 0) from -= 1;
-      if (from >= _mealRows.length) return ok(const <dynamic>[]);
-      final slice = _mealRows.sublist(
-          from, (to + 1).clamp(0, _mealRows.length));
+      if (from >= selected.length) return ok(const <dynamic>[]);
+      final slice = selected.sublist(from, (to + 1).clamp(0, selected.length));
+      if (wiederholtEineZeile && _lastPage.isNotEmpty) {
+        slice.insert(0, _lastPage.last);
+      }
+      _lastPage = slice.toList();
+      if (invalidCursorId case final String id) {
+        slice[slice.length - 1] = {...slice.last, 'id': id};
+      }
       return ok(slice);
     }
     if (path.contains('/chat_messages')) {
       if (failChatMessages) {
-        return http.Response(jsonEncode({'message': 'kaputt'}), 500,
-            headers: const {'Content-Type': 'application/json'},
-            request: req);
+        return http.Response(
+          jsonEncode({'message': 'kaputt'}),
+          500,
+          headers: const {'Content-Type': 'application/json'},
+          request: req,
+        );
       }
       return ok([
         <String, dynamic>{
@@ -106,7 +130,7 @@ class _FakePostgrest {
           'user_id': 'user-export',
           'role': 'user',
           'content': 'Wie viel Protein brauche ich?',
-        }
+        },
       ]);
     }
     if (path.contains('/favorite_meals')) {
@@ -115,7 +139,7 @@ class _FakePostgrest {
           'favorite_key': 'name:bowl',
           'user_id': 'user-export',
           'payload': <String, dynamic>{'mealName': 'Bowl'},
-        }
+        },
       ]);
     }
     if (path.endsWith('/ai_provider_user_usage')) {
@@ -151,20 +175,33 @@ void main() {
     final json =
         jsonDecode(await service.buildExportJson()) as Map<String, dynamic>;
 
-    expect((json['profiles'] as List).single, containsPair('diet_preference', 'vegetarian'),
-        reason: 'Profil-Stammdaten inkl. Diaetpraeferenz (C7-Luecke)');
-    expect(json['logged_meals'], hasLength(_mealRows.length),
-        reason: 'das VOLLSTAENDIGE Tagebuch, nicht das 35-Tage-Fenster');
-    expect((json['chat_messages'] as List).single,
-        containsPair('content', 'Wie viel Protein brauche ich?'));
-    expect((json['favorite_meals'] as List).single,
-        containsPair('favorite_key', 'name:bowl'));
+    expect(
+      (json['profiles'] as List).single,
+      containsPair('diet_preference', 'vegetarian'),
+      reason: 'Profil-Stammdaten inkl. Diaetpraeferenz (C7-Luecke)',
+    );
+    expect(
+      json['logged_meals'],
+      hasLength(_mealRows.length),
+      reason: 'das VOLLSTAENDIGE Tagebuch, nicht das 35-Tage-Fenster',
+    );
+    expect(
+      (json['chat_messages'] as List).single,
+      containsPair('content', 'Wie viel Protein brauche ich?'),
+    );
+    expect(
+      (json['favorite_meals'] as List).single,
+      containsPair('favorite_key', 'name:bowl'),
+    );
     expect(json['ai_provider_user_usage'], [
       {'user_id': 'user-export', 'usage_date': '2026-09-15', 'calls': 3},
     ]);
     for (final tabelle in DataExportService.alleExportTabellen) {
-      expect(json.containsKey(tabelle), isTrue,
-          reason: '$tabelle fehlt im Export');
+      expect(
+        json.containsKey(tabelle),
+        isTrue,
+        reason: '$tabelle fehlt im Export',
+      );
     }
     expect(json['exportedAt'], isNotNull);
   });
@@ -185,14 +222,16 @@ void main() {
         .where((r) => r.url.path.contains('/logged_meals'))
         .toList();
     expect(seiten.length, greaterThanOrEqualTo(3));
-    // The requested windows themselves, not just the merged result: a window
-    // one row too wide overlaps and only the id set hides it, so both guards
-    // would mask each other's loss.
+    // Each request seeks after the prior final tuple instead of counting
+    // mutable offsets. The independent concurrency tests exercise deletion.
     for (var i = 0; i < seiten.length; i++) {
-      expect(seiten[i].url.queryParameters['limit'], '2',
-          reason: 'Seite $i fordert genau pageSize Zeilen an');
-      expect(seiten[i].url.queryParameters['offset'], '${[0, 2, 4, 5][i]}',
-          reason: 'die Fenster stossen lueckenlos aneinander');
+      expect(
+        seiten[i].url.queryParameters['limit'],
+        '2',
+        reason: 'Seite $i fordert genau pageSize Zeilen an',
+      );
+      expect(seiten[i].url.queryParameters['offset'], isNull);
+      expect(seiten[i].url.queryParameters['or'], i == 0 ? isNull : isNotNull);
     }
   });
 
@@ -206,34 +245,43 @@ void main() {
     final ids = (json['logged_meals'] as List)
         .map((r) => (r as Map)['id'])
         .toList();
-    expect(ids.length, _mealRows.length,
-        reason: 'ohne den id-Filter stuenden Mahlzeiten doppelt in der '
-            'Auskunft und der Empfaenger zaehlt falsch');
+    expect(
+      ids.length,
+      _mealRows.length,
+      reason:
+          'ohne den id-Filter stuenden Mahlzeiten doppelt in der '
+          'Auskunft und der Empfaenger zaehlt falsch',
+    );
     expect(ids.toSet(), _mealRows.map((r) => r['id']).toSet());
   });
 
-  test('ein kleineres Server-Seitenlimit schneidet das Tagebuch nicht ab',
-      () async {
-    final (service, server) = setup(pageSize: 3);
-    server.serverPageLimit = 2;
-    final text = await service.buildExportJson();
-    final json = jsonDecode(text) as Map<String, dynamic>;
+  test(
+    'ein kleineres Server-Seitenlimit schneidet das Tagebuch nicht ab',
+    () async {
+      final (service, server) = setup(pageSize: 3);
+      server.serverPageLimit = 2;
+      final text = await service.buildExportJson();
+      final json = jsonDecode(text) as Map<String, dynamic>;
 
-    expect((json['logged_meals'] as List).map((row) => (row as Map)['id']),
-        _mealRows.map((row) => row['id']));
-    expect(exportUmfangAus(text), ExportUmfang.vollstaendig);
-    expect(
-      server.requests
-          .where((r) => r.url.path.endsWith('/logged_meals'))
-          .map((r) => r.url.queryParameters['offset']),
-      ['0', '2', '4', '5'],
-      reason: 'Die naechste Seite folgt auf die wirklich empfangenen Zeilen.',
-    );
-  });
+      expect(
+        (json['logged_meals'] as List).map((row) => (row as Map)['id']),
+        _mealRows.map((row) => row['id']),
+      );
+      expect(exportUmfangAus(text), ExportUmfang.vollstaendig);
+      expect(
+        server.requests
+            .where((r) => r.url.path.endsWith('/logged_meals'))
+            .length,
+        4,
+        reason:
+            'Ein kleineres Serverlimit beendet die Pagination nicht vorzeitig.',
+      );
+    },
+  );
 
   test('ein Server ohne Seitenfortschritt endet als unvollstaendig', () async {
     final (service, server) = setup();
-    server.ignoresOffset = true;
+    server.ignoresCursor = true;
     final text = await service.buildExportJson();
     final json = jsonDecode(text) as Map<String, dynamic>;
 
@@ -241,9 +289,24 @@ void main() {
     expect(json, isNot(contains('logged_meals')));
     expect(exportUmfangAus(text), ExportUmfang.teilweise);
     expect(
-        server.requests.where((r) => r.url.path.endsWith('/logged_meals')),
-        hasLength(2),
-        reason: 'Kein unbegrenztes Nachladen der gleichen privaten Daten.');
+      server.requests.where((r) => r.url.path.endsWith('/logged_meals')),
+      hasLength(2),
+      reason: 'Kein unbegrenztes Nachladen der gleichen privaten Daten.',
+    );
+  });
+
+  test('ungueltige Cursorwerte gelangen nicht in weitere Filter', () async {
+    final (service, server) = setup();
+    server.invalidCursorId = 'bad),user_id.eq.other-owner';
+    final text = await service.buildExportJson();
+    final json = jsonDecode(text) as Map<String, dynamic>;
+
+    expect(json['unvollstaendig'], contains('logged_meals'));
+    expect(exportUmfangAus(text), ExportUmfang.teilweise);
+    expect(
+      server.requests.where((r) => r.url.path.endsWith('/logged_meals')),
+      hasLength(1),
+    );
   });
 
   test('eine nicht lesbare Tabelle macht den Export nicht kaputt — sie wird '
@@ -253,9 +316,15 @@ void main() {
     final json =
         jsonDecode(await service.buildExportJson()) as Map<String, dynamic>;
 
-    expect(json['unvollstaendig'], contains('chat_messages'),
-        reason: 'ein Fehler darf nicht still eine leere Sektion vortaeuschen');
-    expect(json['logged_meals'], hasLength(_mealRows.length),
-        reason: 'die uebrigen Sektionen bleiben vollstaendig');
+    expect(
+      json['unvollstaendig'],
+      contains('chat_messages'),
+      reason: 'ein Fehler darf nicht still eine leere Sektion vortaeuschen',
+    );
+    expect(
+      json['logged_meals'],
+      hasLength(_mealRows.length),
+      reason: 'die uebrigen Sektionen bleiben vollstaendig',
+    );
   });
 }

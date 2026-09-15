@@ -75,7 +75,7 @@ class _StrengerPostgrest {
   _StrengerPostgrest({this.zeilen = const <String, int>{}});
 
   /// Table -> rows on the server; tables not listed are empty. `logged_meals`
-  /// stays empty here — its offset pagination has its own test in
+  /// stays empty here — its cursor pagination has its own test in
   /// test/services/data_export_service_test.dart.
   final Map<String, int> zeilen;
 

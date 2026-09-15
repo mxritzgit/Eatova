@@ -193,20 +193,29 @@ class DataExportService {
     }
   }
 
-  /// The diary is the only unbounded table: offset pagination with a total
-  /// order (logged_at, id) so ties at a page boundary lose no row.
+  /// Seek after the last (logged_at, id), so deleting a previously read row
+  /// cannot shift an unread meal past the next page. This is not a database
+  /// snapshot: concurrent edits to a meal's timestamp can still move it.
   Future<List<Map<String, dynamic>>> _alleLoggedMeals() async {
     final rows = <Map<String, dynamic>>[];
     final gesehen = <Object?>{};
-    var von = 0;
+    ({DateTime at, String id})? cursor;
     while (true) {
-      final seite = await _client
+      var query = _client
           .from('logged_meals')
           .select('*')
-          .eq('user_id', _userId)
+          .eq('user_id', _userId);
+      if (cursor != null) {
+        // Only canonical timestamps and UUIDs enter the filter grammar.
+        final at = cursor.at.toIso8601String();
+        query = query.or(
+          'logged_at.lt.$at,and(logged_at.eq.$at,id.lt.${cursor.id})',
+        );
+      }
+      final seite = await query
           .order('logged_at', ascending: false)
           .order('id', ascending: false)
-          .range(von, von + pageSize - 1);
+          .limit(pageSize);
       if (seite.isEmpty) break;
       final vorher = rows.length;
       for (final row in seite) {
@@ -216,9 +225,25 @@ class DataExportService {
       if (rows.length == vorher) {
         throw const FormatException('Diary pagination made no progress');
       }
+      final id = seite.last['id'];
+      final stamp = seite.last['logged_at'];
+      final at = stamp is String ? DateTime.tryParse(stamp) : null;
+      if (id is! String ||
+          !RegExp(
+            r'^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$',
+          ).hasMatch(id) ||
+          at == null ||
+          !at.isUtc) {
+        throw const FormatException('Invalid diary cursor');
+      }
+      if (cursor != null &&
+          !(at.isBefore(cursor.at) ||
+              (at == cursor.at && id.compareTo(cursor.id) < 0))) {
+        throw const FormatException('Diary cursor made no progress');
+      }
       // A server-side row cap may be lower than pageSize. A short page does
-      // not prove completion; advance by what arrived and stop on empty.
-      von += seite.length;
+      // not prove completion; continue after its final row until empty.
+      cursor = (at: at, id: id);
     }
     return rows;
   }
