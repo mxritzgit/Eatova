@@ -1,0 +1,40 @@
+{
+  "source_sha": "236f68be21d3f2e2c5f8c4a6214ed4affb0b109f",
+  "started_at_utc": "2026-09-15T22:16:29.323243+00:00",
+  "authorized_by_user": true,
+  "functions": [
+    {
+      "slug": "coach-chat",
+      "version": 49,
+      "status": "ACTIVE",
+      "verify_jwt": true,
+      "updated_at": 1789510593799,
+      "source_verified": true,
+      "verified_source_files": 16
+    },
+    {
+      "slug": "analyze-meal",
+      "version": 32,
+      "status": "ACTIVE",
+      "verify_jwt": true,
+      "updated_at": 1789510597443,
+      "source_verified": true,
+      "verified_source_files": 13
+    }
+  ],
+  "no_production_function_invocations": true,
+  "no_database_or_secret_changes": true,
+  "rollback_graphs_verified": true,
+  "completed_at_utc": "2026-09-15T22:16:37.599024+00:00",
+  "runtime_dependency_graphs_verified": true,
+  "model_configuration_verified": true,
+  "unrelated_function_versions_unchanged": true,
+  "pr": "https://github.com/mxritzgit/Eatova/pull/93",
+  "pre_deployment_security_ci": "https://github.com/mxritzgit/Eatova/actions/runs/35028139431",
+  "project_identity_verified": true,
+  "backup_source_graphs_match_baseline_main": "bc8957b09db27e1f42060605ae4db0b3680c85d7",
+  "unchanged_search_key_version": 10,
+  "database_migrations_applied": 0,
+  "secret_fingerprints_unchanged": true,
+  "secret_comparison": "Management API value fingerprints compared only in memory; no deployed secret plaintext or fingerprints published"
+}
