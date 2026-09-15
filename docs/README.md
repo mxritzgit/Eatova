@@ -1,7 +1,7 @@
 # Eatova documentation
 
 Current product review: **2026-09-14**, main through PR #88; security follow-up
-**2026-09-15**, based on main through PR #91. Begin with the
+**2026-09-15**, implementation and verified rollout in PR #92, based on main through PR #91. Begin with the
 guides below. Dated reviews, plans and delivery notes remain useful evidence,
 but their old feature gaps, branch snapshots and test counts are not live state.
 
@@ -18,12 +18,13 @@ but their old feature gaps, branch snapshots and test counts are not live state.
 | [Privacy data flows](../PRIVACY.md) | Current app data processing and the separate published-policy follow-up |
 | [Security policy](../SECURITY.md) | Reporting vulnerabilities and trust boundaries |
 | [Security checkbook](../SECURITY_AUDIT.md) | All 91 audit points, confirmed findings, corrections and evidence limits |
+| [Verified security rollout](SECURITY-ROLLOUT-2026-09-15.json) | Tested commit, green CI, deployed functions, catalog comparison and published privacy evidence |
 | [Operations and recovery](OPERATIONS.md) | Backups, synthetic restore, incident response, stop switches and remaining operator decisions |
 | [Build-tool security](../android/BUILD_TOOL_SECURITY.md) | Resolved toolchain advisories, actual usage and update candidates, separate from app runtime |
 | [Coach evaluation](../supabase/eval/README.md) | Bounded synthetic model evaluation and offline harness tests |
 | [Evaluation results, 2026-09-15](../supabase/eval/results/2026-09-15.md) | Real-model cases, budget ledger and semantic/clinical limits |
 | [Local Auth probe](../scripts/security/README.md) | Disposable GoTrue tests with restricted tokens and stubbed provider calls |
-| [Website privacy correction](PRIVACY-WEBSITE-CORRECTION-2026-09-14.md) | Reviewed single-file correction prepared for separate publication |
+| [Website privacy correction](PRIVACY-WEBSITE-CORRECTION-2026-09-14.md) | Published single-file corrections and their dated verification records |
 | [Google sign-in](../supabase/OAUTH_SETUP.md) | Native Google clients and web callback setup |
 | [Email OTP](../supabase/AUTH_EMAIL_OTP.md) | Current client contract and dated Auth settings/history |
 | [Agent entry point](../AGENTS.md) | Repository working conventions |

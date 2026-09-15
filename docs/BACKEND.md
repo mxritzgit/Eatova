@@ -177,8 +177,8 @@ and the latest recipe completion fix in [PR #83](https://github.com/mxritzgit/Ea
 The latter record verifies `coach-chat` v46 against the merged source;
 `analyze-meal` v29 and `search-key` v9 were unchanged at that checkpoint.
 After explicit rollout approval on 2026-09-14, security [PR #90](https://github.com/mxritzgit/Eatova/pull/90)
-was deployed as `coach-chat` **v47** and `analyze-meal` **v30**; `search-key` remains
-**v9**. Both changed functions are ACTIVE with JWT verification enabled, and their
+was deployed as `coach-chat` **v47** and `analyze-meal` **v30**; `search-key` remained
+**v9** at that checkpoint. Both changed functions were ACTIVE with JWT verification enabled, and their
 downloaded production import graphs match the reviewed source. Model overrides
 were checked without changing settings or invoking billable AI. See the
 [deployment evidence and limits](../SECURITY_AUDIT.md#verifizierte-veröffentlichung-am-14092026).
@@ -189,19 +189,45 @@ production migration comparison runs only on `main` in the protected
 `supabase-drift` environment; its success checks migration history, not every
 function deployment or provider response. See [workflows](../.github/workflows).
 
-Round 3 changes require the three `20260915...` migrations before deployment of
-all three functions; otherwise the new budget RPC deliberately blocks AI work.
-Use the [current audit record](../SECURITY_AUDIT.md#runde-3--aktueller-stand) for
-actual rollout status rather than inferring it from this source contract.
+On **2026-09-15 at 00:03–00:04 UTC**, all three `20260915...` migrations were
+applied atomically before deploying `coach-chat` **v48**, `analyze-meal` **v31**
+and `search-key` **v10**. Their complete source graphs (16, 13 and 6 files)
+match the reviewed code; all are ACTIVE with JWT verification enabled. The
+independent live catalog comparison confirms all 46 migrations and the tested
+RLS, grants and function definitions. Source commit `78f8d55` passed the full
+protected CI before deployment: 4620 Flutter tests, 95.0% coverage and all builds.
+See the [versioned rollout evidence](SECURITY-ROLLOUT-2026-09-15.json) and
+[current audit](../SECURITY_AUDIT.md#runde-3--aktueller-stand).
+
+The configuration readback also confirmed the actual injected key types:
+`SUPABASE_ANON_KEY` contains a project publishable key here, and
+`SUPABASE_SERVICE_ROLE_KEY` contains a project secret key. Do not infer the key
+format from a legacy variable name. The platform-managed update timestamps
+changed during deployment; current project bindings and known model overrides
+were verified without writing or disclosing credentials. Full pre/post secret
+value equality was not retained or asserted. No production behavioral tests
+were performed. The three text-model overrides match the table above; recipe
+images use the source default because no image-model override is configured.
+
+The outgoing service REST/RPC requests put the identical key in `apikey` and
+Bearer, satisfying Supabase's [documented compatibility exception](https://github.com/orgs/supabase/discussions/29260).
+The official [supabase-js v2.110.7 REST initialization](https://github.com/supabase/supabase-js/blob/v2.110.7/packages/core/supabase-js/src/SupabaseClient.ts#L353)
+also retains this combination; that SDK is a comparison reference here.
+User authentication still requires a real user JWT and verified account binding.
+No header change was justified. This source review does not prove execution by
+the hosted gateway; the local Auth probe stubs REST/RPC. Obtain any additional
+gateway execution evidence in an approved synthetic staging environment.
+
 CI now exercises PostgreSQL 17.6, atomic budget races, synthetic two-cluster
 restore, native dependency inventories and the offline Coach evaluation harness.
 
 ## Published privacy documentation follow-up
 
-The [German website policy](https://eatova.de/datenschutz) was corrected after
-explicit approval on 2026-09-14 at 21:34 UTC. It now matches the documented Gemini,
-Android steps, meal planning, training and approved-response data flows. The live
-model configuration was verified before publication. Provider contracts, account
+The [German website policy](https://eatova.de/datenschutz) was first corrected
+after explicit approval on 2026-09-14 at 21:34 UTC. Its **2026-09-15 00:13 UTC**
+extension now documents the deployed provider-call counters and activity-triggered
+retention accurately. Gemini, Android steps, planning and approved-response
+data flows remain documented. Provider contracts, account
 privacy/retention settings and legal requirements still need separate assessment.
 
 The [single-file correction record](PRIVACY-WEBSITE-CORRECTION-2026-09-14.md)
