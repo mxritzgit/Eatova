@@ -71,7 +71,7 @@ function inspect(bytes: string): ImageContainer | null {
         const depth = u8(start + 8), color = u8(start + 9);
         const depths: Record<number, number[]> = { 0: [1, 2, 4, 8, 16], 2: [8, 16], 3: [1, 2, 4, 8], 4: [8, 16], 6: [8, 16] };
         if (!depths[color]?.includes(depth) || u8(start + 10) !== 0 || u8(start + 11) !== 0 || u8(start + 12) > 1 || !fits(width, height, depth === 16 ? 8 : 4)) return null;
-      } else if (tag === 'IHDR' || tag === 'acTL') return null;
+      } else if (['IHDR', 'acTL', 'fcTL', 'fdAT'].includes(tag)) return null;
       else if (tag === 'IDAT') hasPixels ||= length > 0;
       else if (tag === 'IEND') return length === 0 && hasPixels && offset + 12 === bytes.length ? { mime: 'image/png', width, height } : null;
       offset += length + 12;
