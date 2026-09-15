@@ -8,12 +8,19 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
 
 ## [Unreleased]
 
-Updated 2026-09-14. These entries describe repository changes, not a newly
+Updated 2026-09-15. These entries describe repository changes, not a newly
 published store version. Older entries below retain
 their implementation history; [the feature inventory](docs/FEATURES.md) describes
 the complete current product.
 
 ### Latest changes (September 2026)
+
+- **Security follow-up:** concurrent diary deletions no longer skip unread rows
+  in account exports. Coach client cancellations preserve consumed daily quota;
+  provider/persistence diagnostics omit raw errors. Client and server reject
+  orphan PNG animation chunks. Auth lifecycle, operations readiness and optional
+  build-tool paths gain regression gates; Android decoder resource measurements
+  and remaining owner actions are recorded in [the checkbook](SECURITY_AUDIT.md).
 
 - **Security audit fixes:** provider safety completions and malformed photo
   classification fail closed; Coach text is approved before SSE delivery.

@@ -36,7 +36,7 @@ gradle.projectsEvaluated {
             add('com.android.tools', 'r8', r8)
             def kaptProjects = rootProject.allprojects.count { it.plugins.hasPlugin('org.jetbrains.kotlin.kapt') || it.plugins.hasPlugin('kotlin-kapt') }
             def kaptTasks = rootProject.allprojects.sum { p -> p.tasks.names.count { it.toLowerCase().startsWith('kapt') } }
-            def jetifier = app.findProperty('android.enableJetifier')?.toString()
+            def jetifier = app.providers.gradleProperty('android.enableJetifier').orNull
             if (jetifier != null && !(jetifier in ['true', 'false'])) throw new GradleException('Unknown Jetifier setting')
             def output = rootProject.file('../build/security/build-tools/android-build-tools.cdx.json')
             output.parentFile.mkdirs()

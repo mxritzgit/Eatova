@@ -117,7 +117,9 @@ jobs:
       # Pub's lock does not contain Android plugin transitives. Resolve the
       # actual release graph rather than scanning Gradle's requested versions.
       - name: Check dependency resolution and inventory guards
-        run: python3 test/tooling/android_dependencies_test.py
+        run: |
+          python3 test/tooling/android_dependencies_test.py
+          python3 test/tooling/build_tool_policy_test.py
 
       - name: Inventory Android release dependencies
         working-directory: android
@@ -356,6 +358,12 @@ jobs:
         run: |
           deno lint ../eval
           deno test --allow-env ../eval/coach_eval_test.ts
+      - name: Operations readiness checks (offline)
+        run: python3 -m unittest discover -s test/operations -p '*_test.py'
+      - name: Isolated GoTrue lifecycle and handler boundaries
+        run: |
+          python3 test/tooling/local_auth_transport_test.py
+          python3 scripts/security/local_edge_auth_probe.py --auth-lifecycle --prove-detection --require-provider-budgets
       # Befund P5-08b (Review 2026-08-29): the suite runs every test file in
       # ONE isolate, so a file that forgets its own `Deno.env.set` block or
       # leaves a `globalThis.fetch` stub behind can be carried by a sibling and

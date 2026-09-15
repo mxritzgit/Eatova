@@ -1,3 +1,5 @@
+apply(from = "build_tool_policy.gradle")
+
 allprojects {
     repositories {
         google()

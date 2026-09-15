@@ -9,6 +9,30 @@ function changed(base64: string, offset: number, values: number[]): string {
   return btoa(bytes.slice(0, offset) + String.fromCharCode(...values) + bytes.slice(offset + values.length));
 }
 
+for (const tag of ['acTL', 'fcTL', 'fdAT']) {
+  Deno.test(`still-photo boundary rejects PNG ${tag} even without other animation chunks`, () => {
+    const bytes = atob(PNG_BASE64);
+    const payload = new Uint8Array(tag === 'fcTL' ? 26 : 8);
+    if (tag === 'fcTL') {
+      const fields = new DataView(payload.buffer);
+      fields.setUint32(4, 8);
+      fields.setUint32(8, 8);
+    }
+    const typeAndData = new TextEncoder().encode(tag + String.fromCharCode(...payload));
+    let crc = 0xffffffff;
+    for (const value of typeAndData) {
+      crc ^= value;
+      for (let bit = 0; bit < 8; bit++) crc = crc >>> 1 ^ ((crc & 1) ? 0xedb88320 : 0);
+    }
+    const trailer = new Uint8Array(4);
+    new DataView(trailer.buffer).setUint32(0, (crc ^ 0xffffffff) >>> 0);
+    const chunk = String.fromCharCode(0, 0, 0, payload.length) +
+      String.fromCharCode(...typeAndData, ...trailer);
+    const input = btoa(bytes.slice(0, -12) + chunk + bytes.slice(-12));
+    assert(imageContainerFromBase64(input) === null, `reject ${tag} before provider decoding`);
+  });
+}
+
 for (const [mime, input] of [
   ['image/jpeg', JPEG_BASE64], ['image/jpeg', JPEG_PROGRESSIVE_BASE64], ['image/png', PNG_BASE64],
   ['image/webp', WEBP_BASE64], ['image/webp', WEBP_LOSSLESS_BASE64], ['image/webp', WEBP_ALPHA_BASE64],

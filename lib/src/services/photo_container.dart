@@ -207,7 +207,10 @@ PhotoContainer inspectPhotoContainer(Uint8List bytes) {
           final rows = (height - pass[1] + pass[3] - 1) ~/ pass[3];
           inflatedBytes += rows * (1 + (columns * channels * depth + 7) ~/ 8);
         }
-      } else if (tag(offset + 4, 'IHDR') || tag(offset + 4, 'acTL')) {
+      } else if (tag(offset + 4, 'IHDR') ||
+          tag(offset + 4, 'acTL') ||
+          tag(offset + 4, 'fcTL') ||
+          tag(offset + 4, 'fdAT')) {
         _invalid(); // Uploads are still photos, not unbounded frame collections.
       } else if (tag(offset + 4, 'eXIf')) {
         if (exif != null) _invalid();

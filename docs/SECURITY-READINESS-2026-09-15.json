@@ -1,0 +1,44 @@
+{
+  "checked_at_utc": "2026-09-15T21:45:48.787188+00:00",
+  "read_only": true,
+  "notification_sent": false,
+  "checks": {
+    "project": {
+      "state": "ok",
+      "identity_verified": true,
+      "active_healthy": true
+    },
+    "backups": {
+      "state": "attention",
+      "completed_backup_count": 0,
+      "failed_backup_count": 0,
+      "pitr_enabled": false,
+      "physical_window_present": false,
+      "physical_window_access_unverified": false,
+      "latest_recovery_point_utc": null,
+      "age_hours": null,
+      "max_age_hours": 24,
+      "restore_verified": false
+    },
+    "budgets": {
+      "state": "ok",
+      "reasons": [],
+      "enabled": true,
+      "coach_enabled": true,
+      "analysis_enabled": true,
+      "images_enabled": true,
+      "daily_call_limit": 1000,
+      "daily_image_limit": 50,
+      "daily_user_limit": 150,
+      "calls": 0,
+      "image_calls": 0,
+      "usage_date": "2026-09-15",
+      "warning_percent": 80,
+      "monetary_limit_verified": false
+    }
+  },
+  "staging": "not_checked_no_project_supplied",
+  "exit_code": 1,
+  "threshold_basis": "24 hours is diagnostic only; operator RPO not yet agreed",
+  "vault_ref_matches_local_link": true
+}

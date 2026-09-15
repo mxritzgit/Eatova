@@ -36,6 +36,22 @@ Uint8List _pngWith(String type, List<int> payload) {
 }
 
 void main() {
+  for (final type in ['acTL', 'fcTL', 'fdAT']) {
+    test('still-photo boundary rejects PNG $type before pixel decoding', () {
+      final payload = Uint8List(type == 'fcTL' ? 26 : 8);
+      if (type == 'fcTL') {
+        final data = ByteData.sublistView(payload);
+        data.setUint32(4, 1);
+        data.setUint32(8, 1);
+      }
+      final input = _pngWith(type, payload);
+      // Only tiny finite chunks. In particular, orphan frame controls must not
+      // reach the dependency merely because their acTL chunk is absent.
+      expect(() => inspectPhotoContainer(input), throwsFormatException);
+      expect(() => compressMealPhoto(input), throwsFormatException);
+    });
+  }
+
   test('rejects PNG pixel-stream overrun even with a tiny valid IHDR', () {
     final png = img.encodePng(img.Image(width: 1, height: 1, numChannels: 4));
     final input = Uint8List.fromList([

@@ -7,7 +7,7 @@ type RecordData = Record<string, unknown>;
 type Handler = (request: Request) => Response | Promise<Response>;
 const input = JSON.parse(await new Response(Deno.stdin.readable).text());
 const base = new URL(input.base);
-if (base.hostname !== "127.0.0.1" || base.protocol !== "http:" || base.port !== "54991") {
+if (!["http://127.0.0.1:54991/", "http://127.0.0.1:54992/"].includes(base.href)) {
   throw new Error("This probe accepts only its isolated loopback Auth service");
 }
 const ANON = "synthetic-anon-key";
