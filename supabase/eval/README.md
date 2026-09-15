@@ -51,7 +51,7 @@ prove live proxy/chunk timing or deployed auth/RLS.
 
 `technicalPass` only checks response kind and two explicit injection canaries.
 Read every answer against its case rubric. A small passing sample is not a
-semantic, medical, nutrition, child-safety or legal certification. Image-only,
+semantic, medical, nutrition, child-safety or legal certification. Real-model image-only,
 broader multilingual/obfuscated attacks, multi-turn escalation and qualified
 clinical review remain separate work. Model slug + returned provider metadata
 identify this run; they do not prove an immutable model build if the provider
@@ -67,3 +67,29 @@ request-count cap. No images, retry or fallback are enabled. All processes must
 still be counted against the authorised cumulative budget; this mode is not an
 automatic retry. Fixed stderr start/reservation markers and a partial JSON
 artifact retain spend evidence on failures without printing raw errors.
+
+## Offline handler boundary matrix
+
+`supabase/functions/coach-chat/handler_boundary_test.ts` exercises the actual
+handler with synthetic auth/database records and scripted provider replies:
+
+```sh
+deno test --allow-env supabase/functions/coach-chat/handler_boundary_test.ts
+```
+
+It covers image-only and caption routing, measured image types, classifier
+failures/refusals, selected-plan notes, multi-turn history authority, overlapping
+account A/B requests, ownership-scoped persistence, cancellation/refunds and
+sanitized transport diagnostics. Legitimate captions, ordinary plan discussion,
+connected-client outage refunds and completed-proposal recovery are controls.
+No external network permission or provider key is required.
+
+These are enforcement tests: a scripted `injection` verdict proves that the
+handler stops subsequent work, not that a real model detects the attack. The
+tiny PNG tests image transport, not OCR or interpretation of embedded text.
+The paid text-only harness above is unchanged and still blocks images.
+Buffered provider calls already in flight retain their deadlines and may finish
+after disconnect; completed proposals can be recovered from owned history.
+Cancellation stops subsequent provider-budget reservations and never restores
+the daily slot. These local tests do not prove deployed disconnect propagation,
+platform concurrency limits, end-to-end latency or provider billing cessation.

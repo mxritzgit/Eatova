@@ -168,6 +168,13 @@ class ProviderError extends Error {
   }
 }
 
+// Transport errors and abort reasons can contain private request data.
+// Only locally constructed provider metadata is safe for diagnostics.
+function providerFailureDetail(error: unknown): string {
+  return isProviderTimeout(error) ? "timeout" :
+    error instanceof ProviderError ? error.message : "unavailable";
+}
+
 // 4xx the CLIENT caused with its input. An allowlist, not "anything under
 // 500": 401, 402, 404 and 429 are OUR outages (key, credit, model name,
 // throttle) and must not cost the user a slot.
@@ -970,8 +977,8 @@ function sseAnswerResponse(options: SseAnswerOptions): Response {
       const persistBestEffort = async (content: string, refusal: boolean): Promise<void> => {
         try {
           await persist(content, refusal);
-        } catch (e) {
-          console.error(`stream persist failed: ${e instanceof Error ? e.message : String(e)}`);
+        } catch {
+          console.error("stream persist unavailable");
         }
       };
       void (async () => {
@@ -1001,7 +1008,7 @@ function sseAnswerResponse(options: SseAnswerOptions): Response {
         } catch (e) {
           // A client that hangs up is expected traffic, not an incident.
           if (!clientGone) {
-            console.error(`answer stream failed: ${e instanceof Error ? e.message : String(e)}`);
+            console.error(`answer stream failed: ${providerFailureDetail(e)}`);
           }
           // The refund line is the first delta, NOT the status: nothing
           // delivered refunds exactly like the buffered path, one delta out
@@ -1162,7 +1169,7 @@ async function generateRecipeImage(
     return { base64: clean, mimeType };
   } catch (e) {
     console.error(
-      `recipe image failed after ${Date.now() - started} ms: ${e instanceof Error ? e.message : String(e)}`,
+      `recipe image failed after ${Date.now() - started} ms: ${providerFailureDetail(e)}`,
     );
     return null;
   }
@@ -1224,6 +1231,7 @@ async function storeRecipeMessage(
 /// recipe prompt. Persists the user message before the paid calls (E5).
 async function handleRecipeMode(params: {
   budget: ProviderCallBudget;
+  requestSignal: AbortSignal;
   serviceKey: string;
   supabaseUrl: string;
   openRouterKey: string;
@@ -1250,7 +1258,7 @@ async function handleRecipeMode(params: {
     user_id: userId, session_id: sessionId, role: "user", content: message,
   });
   if (!userStored) {
-    await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
+    if (!params.requestSignal.aborted) await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
     return json({ error: "store_failed" }, 500);
   }
   void maybeAutoTitle(serviceKey, supabaseUrl, userId, sessionId, message)
@@ -1262,8 +1270,8 @@ async function handleRecipeMode(params: {
   } catch (e) {
     // Infra error: nothing delivered -> refund + honest status, as in the
     // answer path. Client-caused 4xx keep the slot (isClientFaultFailure).
-    console.error(`recipe draft failed: ${e instanceof Error ? e.message : String(e)}`);
-    if (!isClientFaultFailure(e)) {
+    console.error(`recipe draft failed: ${providerFailureDetail(e)}`);
+    if (!params.requestSignal.aborted && !isClientFaultFailure(e)) {
       await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
     }
     await touchSession(serviceKey, supabaseUrl, sessionId);
@@ -1309,7 +1317,7 @@ async function handleRecipeMode(params: {
     // failures; request gates remain an additional abuse limit. Explicit
     // provider/model safety refusals above still keep the question charge.
     console.error(`recipe draft unlesbar (${raw.length} Zeichen, finish_reason=${completion.finishReason ?? "missing"})`);
-    await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
+    if (!params.requestSignal.aborted) await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
     await touchSession(serviceKey, supabaseUrl, sessionId);
     return json({ error: "provider_error", session_id: sessionId }, 502);
   }
@@ -1421,6 +1429,7 @@ async function storeTrainingPlanMessage(
 
 async function handlePlanMode(params: {
   budget: ProviderCallBudget;
+  requestSignal: AbortSignal;
   serviceKey: string; supabaseUrl: string; openRouterKey: string;
   userId: string; sessionId: string; message: string; locale: CoachLocale;
   remaining: number | null; quotaDay: string | null;
@@ -1431,7 +1440,7 @@ async function handlePlanMode(params: {
     user_id: userId, session_id: sessionId, role: "user", content: message,
   });
   if (!userStored) {
-    await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
+    if (!params.requestSignal.aborted) await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
     return json({ error: "store_failed" }, 500);
   }
   void maybeAutoTitle(serviceKey, supabaseUrl, userId, sessionId, message)
@@ -1445,7 +1454,7 @@ async function handlePlanMode(params: {
     // text. Only the stable class/status crosses the diagnostic boundary.
     console.error(isProviderTimeout(e) ? "training plan provider timeout" :
       e instanceof ProviderError ? `training plan provider status ${e.status}` : "training plan provider unavailable");
-    if (!isClientFaultFailure(e)) await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
+    if (!params.requestSignal.aborted && !isClientFaultFailure(e)) await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
     await touchSession(serviceKey, supabaseUrl, sessionId);
     if (e instanceof ProviderBudgetError) return json({ error: e.code, session_id: sessionId }, e.status);
     return json({ error: isProviderTimeout(e) ? "provider_timeout" : "provider_error", session_id: sessionId }, isProviderTimeout(e) ? 504 : 502);
@@ -1467,7 +1476,7 @@ async function handlePlanMode(params: {
   const draft = completion.finishReason === "stop" ? parseTrainingPlanDraft(raw) : null;
   if (draft === null) {
     console.error(`training plan invalid (chars=${raw.length})`);
-    await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
+    if (!params.requestSignal.aborted) await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
     await touchSession(serviceKey, supabaseUrl, sessionId);
     return json({ error: "provider_error", session_id: sessionId }, 502);
   }
@@ -2536,6 +2545,9 @@ async function handleCoachRequest(req: Request): Promise<Response> {
   }
 
   const quotaDay = claim.quotaDay;
+  // A disconnect never restores a claimed daily slot, including when a later
+  // budget gate stops work after an already-paid classifier. Buffered drafts
+  // already in flight may still finish and persist for later recovery.
   const budget = providerCallBudget({ supabaseUrl, serviceKey, userId, signal: req.signal });
 
   // ---------------------------------------------------------------- LAYER 2
@@ -2575,7 +2587,7 @@ async function handleCoachRequest(req: Request): Promise<Response> {
         e instanceof ProviderError ? `classify failed: ${e.message}` : "classify unavailable");
       // Refund only on an OUTAGE: a client-caused 4xx is a paid call, and
       // refunding it would make the slot reusable at will.
-      if (!isClientFaultFailure(e)) {
+      if (!req.signal.aborted && !isClientFaultFailure(e)) {
         await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
       }
       if (e instanceof ProviderBudgetError) return json({ error: e.code, session_id: sessionId }, e.status);
@@ -2624,6 +2636,7 @@ async function handleCoachRequest(req: Request): Promise<Response> {
   if (isPlanMode) {
     return await handlePlanMode({
       budget,
+      requestSignal: req.signal,
       serviceKey, supabaseUrl, openRouterKey, userId, sessionId, message, locale,
       remaining: claim.remaining, quotaDay,
       trainingContext,
@@ -2637,6 +2650,7 @@ async function handleCoachRequest(req: Request): Promise<Response> {
   if (isRecipeMode) {
     return await handleRecipeMode({
       budget,
+      requestSignal: req.signal,
       serviceKey,
       supabaseUrl,
       openRouterKey,
@@ -2657,7 +2671,7 @@ async function handleCoachRequest(req: Request): Promise<Response> {
     user_id: userId, session_id: sessionId, role: "user", content: message,
   });
   if (!userStored) {
-    await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
+    if (!req.signal.aborted) await rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
     return json({ error: "store_failed" }, 500);
   }
   // First real user message in the session becomes the title, so the session
@@ -2694,7 +2708,7 @@ async function handleCoachRequest(req: Request): Promise<Response> {
   // too — SSE would lock the status at 200, so it must stay pre-header.
   const answerFailed = async (e: unknown): Promise<Response> => {
     console.error(trainingContext ? "training discussion provider unavailable" :
-      `answer failed: ${e instanceof Error ? e.message : String(e)}`);
+      `answer failed: ${providerFailureDetail(e)}`);
     // Only for an OUTAGE: a client-caused 4xx is paid work, and refunding it
     // would leave only the IP gate capping paid vision calls.
     if (!req.signal.aborted && !isClientFaultFailure(e)) {
