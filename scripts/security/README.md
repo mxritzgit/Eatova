@@ -34,8 +34,11 @@ inspect the exact names before manually removing any leftover test resources.
 Readiness waits for PostgreSQL's final TCP server, not its temporary socket-only
 initialization server. Auth HTTP requests reject non-loopback origins, ignore
 system proxy configuration and never follow redirects. The local transport
-regressions run with `python test/tooling/local_auth_transport_test.py` and use
-only temporary loopback HTTP servers.
+regressions run with `python test/tooling/local_auth_transport_test.py`, require
+Deno 2, and use only temporary loopback HTTP servers. The Deno subprocess also
+removes inherited HTTP/HTTPS/ALL/NO proxy variables case-insensitively: its
+`--allow-net` permission checks the target, but did not prevent proxy forwarding
+in the installed Deno 2.8.1 runtime. Required non-proxy configuration is retained.
 
 All credentials and A/B accounts are generated for that disposable service.
 Email confirmation is automatic, synthetic addresses use `example.test`, and no

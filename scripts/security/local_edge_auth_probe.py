@@ -9,13 +9,14 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 from pathlib import Path
 import secrets
 import subprocess
 import time
 
 from auth_lifecycle_checks import LifecycleFailure, LifecycleProbe
-from local_auth_transport import LocalAuthClient
+from local_auth_transport import LocalAuthClient, direct_subprocess_environment
 
 ROOT = Path(__file__).resolve().parents[2]
 AUTH_IMAGE = 'supabase/gotrue:v2.196.0@sha256:c0c25187a6b835e65a6f6e6c6b39d090e832d40e6de5186f2c038e0411944232'
@@ -161,7 +162,9 @@ try:
             evidence['auth_lifecycle_failure'] = str(error)
             (EVIDENCE / 'result.json').write_text(json.dumps(evidence, indent=2) + '\n', encoding='utf-8')
             raise
-    result = subprocess.run(['deno', 'run', '--allow-env', f'--allow-net=127.0.0.1:{PORT}', str(ROOT / 'scripts' / 'security' / 'edge_auth_probe.ts')], input=json.dumps({'base': BASE, 'tokens': variants, 'users': [u['user']['id'] for u in users], 'requireProviderBudgets': options.require_provider_budgets}), capture_output=True, text=True)
+    # Deno's target --allow-net check does not constrain an environment-selected
+    # proxy. Never let local bearer tokens inherit the operator's proxy routing.
+    result = subprocess.run(['deno', 'run', '--allow-env', f'--allow-net=127.0.0.1:{PORT}', str(ROOT / 'scripts' / 'security' / 'edge_auth_probe.ts')], input=json.dumps({'base': BASE, 'tokens': variants, 'users': [u['user']['id'] for u in users], 'requireProviderBudgets': options.require_provider_budgets}), capture_output=True, text=True, env=direct_subprocess_environment(os.environ))
     evidence['handler_probe_exit'] = result.returncode
     if result.returncode == 0:
         evidence['handler_checks'] = json.loads(result.stdout)

@@ -5,6 +5,13 @@ import urllib.parse
 import urllib.request
 
 
+def direct_subprocess_environment(environment):
+    """Keep runtime configuration while removing inherited proxy routing."""
+    proxy_names = {'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy'}
+    return {key: value for key, value in environment.items()
+            if key.lower() not in proxy_names}
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None

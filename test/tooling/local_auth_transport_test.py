@@ -4,13 +4,16 @@ import http.server
 import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
+import tempfile
 import threading
 import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts' / 'security'))
-from local_auth_transport import LocalAuthClient
+from local_auth_transport import LocalAuthClient, direct_subprocess_environment
 
 
 @contextlib.contextmanager
@@ -45,6 +48,56 @@ def server(*, redirect=None):
 
 
 class LocalAuthTransportTests(unittest.TestCase):
+    def deno_fetch(self, origin, environment):
+        executable = shutil.which('deno')
+        self.assertIsNotNone(executable, 'Deno 2 must be installed for the transport regression')
+        source = (
+            'const response = await fetch(' + json.dumps(origin + '/user') + ','
+            '{headers:{Authorization:"Bearer synthetic-local-token"},redirect:"error"});'
+            'console.log(JSON.stringify({status:response.status,'
+            'environmentKept:Deno.env.get("AUTH_PROBE_SYNTHETIC_VALUE")==="fixture-kept"}));'
+        )
+        with tempfile.TemporaryDirectory(prefix='eatova-deno-transport-') as folder:
+            script = Path(folder) / 'fetch.ts'
+            script.write_text(source, encoding='utf-8')
+            result = subprocess.run([
+                executable, 'run', '--no-config', '--allow-env',
+                '--allow-net=' + origin.removeprefix('http://'), str(script),
+            ], env=direct_subprocess_environment(environment), capture_output=True,
+                text=True, timeout=20)
+        self.assertEqual(result.returncode, 0, 'Deno must complete the direct local request')
+        self.assertEqual(json.loads(result.stdout), {'status': 200, 'environmentKept': True})
+
+    def test_deno_environment_proxy_cannot_receive_auth_requests(self):
+        for key in ('HTTP_PROXY', 'http_proxy', 'ALL_PROXY'):
+            with self.subTest(variable=key):
+                with server() as (proxy, proxy_seen), server() as (origin, origin_seen):
+                    # Remove the operator's routing first: every candidate proxy
+                    # in this regression is another synthetic loopback server.
+                    env = {name: value for name, value in os.environ.items()
+                           if not name.lower().endswith('_proxy')}
+                    env.update({key: proxy, 'NO_PROXY': '', 'no_proxy': '',
+                                'AUTH_PROBE_SYNTHETIC_VALUE': 'fixture-kept'})
+                    self.deno_fetch(origin, env)
+                    self.assertEqual(proxy_seen, [], 'Deno must never forward auth to the proxy')
+                    self.assertEqual(origin_seen, ['/user'])
+
+    def test_deno_direct_origin_preserves_required_environment(self):
+        with server() as (origin, seen):
+            env = {name: value for name, value in os.environ.items()
+                   if not name.lower().endswith('_proxy')}
+            env['AUTH_PROBE_SYNTHETIC_VALUE'] = 'fixture-kept'
+            self.deno_fetch(origin, env)
+            self.assertEqual(seen, ['/user'])
+
+    def test_subprocess_proxy_variables_are_removed_case_insensitively(self):
+        env = {'PATH': 'synthetic-path', 'SUPABASE_URL': 'https://ci.invalid'}
+        for key in ('HTTP_PROXY', 'https_proxy', 'All_Proxy', 'No_PrOxY'):
+            env[key] = 'http://127.0.0.1:1'
+        self.assertEqual(direct_subprocess_environment(env), {
+            'PATH': 'synthetic-path', 'SUPABASE_URL': 'https://ci.invalid',
+        })
+
     def test_proxy_environment_cannot_receive_auth_requests(self):
         with server() as (proxy, proxy_seen), server() as (origin, origin_seen):
             with patch.dict(os.environ, {
