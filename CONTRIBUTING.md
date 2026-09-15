@@ -65,6 +65,14 @@ AAB (R8 + AOT, throwaway keystore), scans secrets across the full history
 to test real cross-user access and account-deletion reauthentication.
 
 The line-coverage floor is **88%**, excluding `lib/src/l10n/generated/`.
+The Deno job also runs the Python operations readiness and loopback transport
+regressions, then `scripts/security/local_edge_auth_probe.py --auth-lifecycle
+--prove-detection --require-provider-budgets` against digest-pinned disposable
+GoTrue/PostgreSQL containers. Image retrieval needs network access; auth and
+handler behavior uses synthetic accounts on loopback and stubbed providers.
+The probe sends no mail and requires Docker, Deno and Python 3.11+.
+See [the security probe guide](scripts/security/README.md).
+
 The Deno job also executes each discovered test file independently to catch
 module-state/test-discovery gaps. Follow the workflow's disposable PostgreSQL
 setup for database checks; never run the RLS suite against the live service.

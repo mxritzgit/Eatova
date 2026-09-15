@@ -1052,3 +1052,37 @@ iOS/store checks. The named Vault provider key differs from the deployed one;
 never replace it or attribute its limits to production without proper account
 identification. Provider call ceilings are not dollar budgets. Build-tool
 advisories remain explicitly triaged, not silently ignored.
+
+## Security follow-up round 4, 2026-09-15
+
+Exactly five isolated agents plus root follow up the owner-requested actionable
+items from PR #92. The [current checkbook](../SECURITY_AUDIT.md#runde-4--nacharbeit-mit-fünf-agents)
+records fixes, red/green controls, live readback and explicit remaining work.
+Export now uses a timestamp/ID cursor so deleting a previously exported row does
+not skip an unread row. Coach cancellation paths preserve consumed question
+quota and sanitize transport/persistence errors; client and server reject orphan
+APNG chunks. The Gradle policy enforces the reviewed Jetifier/KAPT exclusions.
+An actual AGP 8.13.2 trial leaves the same 45 toolchain advisory IDs, so no
+ineffective version bump or lockfile churn was retained.
+
+The local GoTrue lifecycle, bounded operations checker and Gradle regression
+fixtures run in existing CI jobs. The decoder now has a reproducible Android
+profile/AOT probe: four synthetic cases pass, but total process RSS reaches
+465.1 MiB. The 64-MiB raster guard is not a process-memory cap. See the
+[measurement guide](../scripts/security/PHOTO_DECODER_PROBE.md).
+
+The [21:45 UTC metadata readback](SECURITY-READINESS-2026-09-15.json) confirms
+active 1000/150/50 call/account/image limits, no completed backup recovery point
+and PITR off.
+Initial HTTP 503 coincided with scheduled Management API maintenance; do not
+interpret those failed reads as an app outage. The checker is not a scheduler,
+dollar budget or alert-delivery proof. Export/erasure handling and concrete
+backup/monitoring setup steps are in [operations](OPERATIONS.md).
+
+No new database migration, provider-key change, paid model test, real health-data
+read, external notification or user-device installation. Backend rollout/PR-CI
+delivery is recorded separately in the checkbook; never infer it from a local
+commit. MFA, actual backup/restore, alert recipients/delivery, staging,
+provider-account money/privacy choices, signed device release and legal/clinical
+acceptance remain owner work. All 91 status categories remain unchanged because
+those independent requirements still matter.
