@@ -106,6 +106,108 @@ destination before any authorized routing test. Do not send unsolicited test
 alerts to real recipients. A configured rule without delivery evidence remains
 unverified. Recheck access, rules and restore evidence after material changes.
 
+### Executable read-only readiness check
+
+Run the [metadata checker](../scripts/operations/readiness.py) with Python 3.11+
+and a management token injected into the process as `SUPABASE_ACCESS_TOKEN` by
+the approved secret manager. For the Eatova workstation, follow the local
+Infisical access guide; retrieve only that token and the named project reference.
+Independently compare the reference with the intended linked project before use.
+Do not put credentials in command arguments, shell history or a committed file.
+
+```sh
+python scripts/operations/readiness.py \
+  --expected-project-ref <verified-production-ref> \
+  --backup-max-age-hours <operator-approved-RPO-hours>
+
+# Optional: also verify the identity of a separately designated staging project.
+python scripts/operations/readiness.py \
+  --expected-project-ref <verified-production-ref> \
+  --staging-project-ref <verified-staging-ref> \
+  --backup-max-age-hours <operator-approved-RPO-hours>
+
+# Offline tests, with fixed time and stubbed responses; no token/network needed.
+python -m unittest discover -s test/operations -p '*_test.py'
+```
+
+The script verifies project identity first, reads completed-backup metadata and
+the enabled PITR recovery window, and reads only the singleton AI limits and the
+current UTC day's global call/image counters. The sole POST uses Supabase's
+[read-only SQL endpoint](https://supabase.com/docs/reference/api/v1-read-only-query)
+with a fixed aggregate query. It never queries account rows, sends notifications,
+creates a backup, changes a stop switch or exports a database. HTTPS uses the
+fixed Supabase management host, certificate/hostname verification, no proxies or
+redirects, a response-size cap and timeouts. Errors contain fixed categories or
+HTTP status numbers; raw responses and exception text are withheld.
+
+The JSON report and exit code can be consumed by an operator-approved scheduler:
+
+| Exit | Meaning | Operator action |
+| --- | --- | --- |
+| `0` | Requested metadata checks passed | Keep the dated result; still require restore and alarm-delivery evidence |
+| `1` | Attention: project unhealthy, no fresh completed recovery point, a failed backup, an active AI stop/zero limit, or usage at the warning/exhaustion threshold | Review the indicated condition; stops may be intentional |
+| `2` | Unknown: identity/access/transport/response validation failed | Treat the check as unavailable; do not read silence as healthy |
+
+The initial usage warning is 80%; change it explicitly with
+`--budget-warning-percent` after agreeing the threshold. The required backup
+age is a monitoring threshold, not proof of achieved RPO/RTO. A current backup
+record is not a successful restore. Completed daily physical backups count even
+with PITR disabled; if only an unlisted physical window is returned without PITR,
+restore access remains unknown. See the [backup API](https://supabase.com/docs/reference/api/v1-list-all-backups)
+and [physical backup behavior](https://supabase.com/docs/guides/platform/backups).
+Any failed backup record is reported even
+if another recent record completed; review retained failures before suppressing
+them. Missing metadata and 403 responses remain unknown, never zero usage or
+an empty backup inventory. A UTC midnight rollover invalidates that snapshot;
+rerun once for the new day. Output excludes project names/refs, account IDs,
+tokens, payloads and provider error bodies.
+
+No schedule, notification route or paid resource is installed by this tool.
+Run it from a trusted operator host or protected deployment environment; never
+expose the token to PR code. Add a heartbeat/dead-man check and approved routing
+for exit `1`, exit `2`, and missed runs. Test those routes separately with
+synthetic results before a specifically authorized delivery test. If staging
+is omitted it is explicitly unchecked. Two distinct verified project identities
+alone do not prove separate credentials, data, billing or deployment isolation.
+The checker does not establish an OpenRouter money limit, external backups,
+Storage-file coverage, provider retention, Sentry rules or end-to-end recovery.
+
+### Account export and deletion outside the app
+
+Use a restricted case record, not a public GitHub issue. Record a case reference,
+verified account ownership, requested scope, assigned operator, affected systems,
+completion evidence and remaining retention dates. Authenticate the request
+through the existing account/recovery process; an email address or user ID alone
+is not authorization. Keep the minimum identifiers needed for authorized lookup
+inside that record. Never ask for passwords, login codes or complete chat logs.
+
+| System | Authorized export/deletion work | Evidence needed to close the case |
+| --- | --- | --- |
+| App server records | Use the authenticated in-app export and account deletion; verify result in the correct project. The export covers server data only. | Completion and own-account scope; synthetic A/B rehearsal before changing the workflow |
+| Device and offline data | Before deletion, let the owner preserve wanted unsynced edits and device-only pictures. Explain that server export excludes them. Verify logout/account deletion clears local account caches on each device. | Owner/device check; separately record unavailable devices and OS-controlled copies |
+| Supabase Auth and operational records | Check permitted Auth metadata and configured platform log retention using restricted admin access. Avoid bulk log downloads; distinguish live-row deletion from retained audit records. | Provider-supported outcome or documented retention/exception; no unrelated users in the response |
+| OpenRouter and selected model providers | Identify the actual runtime key's owning account and routing/settings. Determine which provider records exist and use its supported access/deletion route. Do not claim zero retention from a different key's settings. | Account/configuration evidence and provider confirmation or explicit retention limit |
+| Sentry | Verify the deployed project's settings and retention. Use only necessary authorized lookup; sanitized client events may provide no reliable account linkage. Do not invent a match. | Actual project settings and supported outcome, or a precise non-identifiability limitation |
+| Support and communications | Search only the relevant authorized support locations and account-correlated records; remove unrelated third-party information from an export. | Each responsible location's completion/retention evidence |
+| Backups and recovery copies | Record which retained copies may predate deletion and when they expire. Restrict access and keep a minimal, separately protected deletion-replay record when required by the approved retention process. | Agreed retention and expiry; any restore re-applies applicable deletions before reopening traffic |
+
+Deliver exports only through an authenticated, access-restricted route agreed
+with the owner. Verify the recipient and record delivery without retaining a
+second unsecured payload. Apply the approved short-lived case-artifact retention
+and remove temporary copies after delivery. For a restore, the deletion replay
+record must survive separately from the old database being recovered; do not
+restore it from that same older backup. Test this with synthetic deleted/retained
+accounts in the separate recovery destination. Contractual/legal retention,
+exceptions and response deadlines require the responsible privacy owner's
+decision. A technical database cascade alone does not close the external case.
+
+Remaining operator inputs are specific: production backup destination and
+RPO/RTO/retention; separately identified staging project and credentials; actual
+OpenRouter account/key and money budget; read access to Sentry/provider settings;
+primary/backup responders and approved alert destination; privacy owner and
+provider access/deletion procedures. Keep their secrets and personal contact
+details outside this repository.
+
 ## Incident response, containment and rollback
 
 1. Record UTC time, affected service/revision, sanitized symptom, known impact
