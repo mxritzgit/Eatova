@@ -1129,3 +1129,56 @@ Delivery uses branch `design/auth-onboarding`; the protected PR/check records
 are the authority for push and merge status. No dependency, schema or backend
 function changed. No device build was installed or published. Physical-device
 Google selection, OS autofill and live mail delivery were not exercised here.
+
+## Authentication entry revision and welcome alignment, 2026-09-17
+
+The user rejected the September 16 login/signup composition as generic and
+static, and requested a focused revision plus the left-shifted lavender
+startup/sign-in surface fix. Five coordinated agents worked in an isolated
+`design/auth-refresh` worktree from main `86b4525`; the original checkout's
+unrelated work was preserved. The six-step onboarding and app identity remain
+unchanged. The [existing auth design contract](AUTH-ONBOARDING-DESIGN.md) records
+the revised composition without creating a second design archive.
+
+- **Entry:** open theme background, enlarged Bricolage Eatova wordmark, concise
+  German/English headline and visible login/signup choices above the form.
+  The [header and mode selector](../lib/src/widgets/auth/auth_entry_header.dart)
+  use finite focus-reticle motion and an animated selection underline, with
+  immediate reduced-motion states. Large text can stack the mode choices; the
+  keyboard collapses the headline. Registration expands the name field while
+  preserving email/password state and the existing soft-fill focus contract.
+- **Welcome fix:** [scroll content](../lib/src/widgets/auth/welcome_screen.dart)
+  now has the available viewport's minimum width after padding. The previous
+  shrink-wrap centered the painted mark within its content width, causing the
+  reported left shift. Existing profile readiness and completion behavior stay
+  intact.
+- **Regression scope:** [auth interaction tests](../test/auth_entry_regression_test.dart)
+  cover interrupted mode changes, credential/selection retention, autofill and
+  keyboard traversal, reduced motion, and busy-state guards. The
+  [render matrix](../test/auth_entry_design_test.dart) adds small-phone keyboard
+  cases at 200% text in both themes/languages. The
+  [welcome regression](../test/widgets/welcome_screen_centering_test.dart)
+  measures both layout and actual mark pixels at phone, compact, landscape and
+  tablet sizes, including reduced motion.
+- **Visual evidence:** the [design contract](AUTH-ONBOARDING-DESIGN.md) includes
+  refreshed real-font Flutter login, signup and centered welcome frames.
+  Native review used a separate synthetic preview package on the
+  `fitpilot_pixel` Android emulator in light/dark themes, with the real Android
+  keyboard and an expanded 800 × 1280 dp window. It did not touch the installed
+  production app and does not establish iOS or physical-device validation.
+
+Verification: Flutter 3.47.2 strict analyzer passed. The final local coverage
+run passed 4,673 tests but one existing recipe-photo test file did not complete;
+all 26 tests in that file passed on the immediate isolated rerun. The full CI run
+remains the merge gate. Collected line coverage was 95.02% (27,475 / 28,914
+lines), excluding generated localization, above the unchanged 88% floor.
+The 35 focused auth tests passed after the keyboard correction. Red controls
+reproduce the old welcome offset (164 instead of 195 px) and the header's lost
+keyboard inset. Independent source/render review returned `ship` after that
+keyboard finding was fixed and recaptured. Gitleaks found no source secrets.
+
+The user authorized pushing a protected PR and merging after green CI. The PR
+and its checks record final push/merge status; authorization alone does not
+establish delivery. This revision does not deploy backend functions or change
+live authentication settings. No production build installation, physical-device
+Google selection, OS autofill or live mail delivery is established here.

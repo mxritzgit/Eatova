@@ -64,7 +64,13 @@ void main() {
     // Flow tests resolve to English (test PlatformDispatcher locale).
     expect(find.text('Sign in with Google'), findsOneWidget);
     expect(find.text('Sign in with Apple'), findsNothing);
-    expect(find.text('Log in'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('auth-submit')),
+        matching: find.text('Log in'),
+      ),
+      findsOneWidget,
+    );
 
     await tester.tap(find.byKey(const ValueKey('auth-toggle-register')));
     await tester.pumpAndSettle();

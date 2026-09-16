@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../theme/app_tokens.dart';
@@ -13,6 +15,7 @@ class EatovaWordmark extends StatelessWidget {
     this.fontSize = 24,
     this.textColor,
     this.ringColor,
+    this.focusTurn = 0,
   });
 
   final double fontSize;
@@ -24,6 +27,9 @@ class EatovaWordmark extends StatelessWidget {
   /// ground). The welcome screen paints its own mark with a CustomPainter.
   final Color? textColor;
   final Color? ringColor;
+
+  /// Quarter turns of the focus ticks. Integer values share the resting mark.
+  final double focusTurn;
 
   @override
   Widget build(BuildContext context) {
@@ -53,7 +59,7 @@ class EatovaWordmark extends StatelessWidget {
               offset: Offset(0, fontSize * 0.09),
               child: CustomPaint(
                 size: Size.square(ringBox),
-                painter: _FocusRingPainter(ringColor ?? t.lime),
+                painter: _FocusRingPainter(ringColor ?? t.lime, focusTurn),
               ),
             ),
           ),
@@ -65,9 +71,10 @@ class EatovaWordmark extends StatelessWidget {
 }
 
 class _FocusRingPainter extends CustomPainter {
-  const _FocusRingPainter(this.color);
+  const _FocusRingPainter(this.color, this.focusTurn);
 
   final Color color;
+  final double focusTurn;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -76,18 +83,19 @@ class _FocusRingPainter extends CustomPainter {
     final stroke = w * 0.105;
     final tick = w * 0.115;
     final gap = w * 0.075;
+    final focus = math.sin(focusTurn * math.pi).abs();
     // Ticks end at the box edge, which fixes the ring radius.
     final ringRadius = w / 2 - tick - gap - stroke / 2;
 
     canvas.drawCircle(
       c,
-      ringRadius,
+      ringRadius * (1 - focus * 0.12),
       Paint()
         ..color = color
         ..style = PaintingStyle.stroke
         ..strokeWidth = stroke,
     );
-    canvas.drawCircle(c, w * 0.10, Paint()..color = color);
+    canvas.drawCircle(c, w * (0.10 + focus * 0.025), Paint()..color = color);
 
     final tickPaint = Paint()
       ..color = color
@@ -95,12 +103,22 @@ class _FocusRingPainter extends CustomPainter {
       ..strokeCap = StrokeCap.butt;
     final inner = ringRadius + stroke / 2 + gap;
     final outer = inner + tick;
-    for (final d in const [Offset(0, -1), Offset(1, 0), Offset(0, 1), Offset(-1, 0)]) {
+    canvas.save();
+    canvas.translate(c.dx, c.dy);
+    canvas.rotate(focusTurn * math.pi / 2);
+    canvas.translate(-c.dx, -c.dy);
+    for (final d in const [
+      Offset(0, -1),
+      Offset(1, 0),
+      Offset(0, 1),
+      Offset(-1, 0),
+    ]) {
       canvas.drawLine(c + d * inner, c + d * outer, tickPaint);
     }
+    canvas.restore();
   }
 
   @override
   bool shouldRepaint(covariant _FocusRingPainter oldDelegate) =>
-      oldDelegate.color != color;
+      oldDelegate.color != color || oldDelegate.focusTurn != focusTurn;
 }

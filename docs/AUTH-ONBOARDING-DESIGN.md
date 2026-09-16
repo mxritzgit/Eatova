@@ -14,6 +14,54 @@ the app's input/focus contract. Both themes and German/English are supported.
 No global palette, dependency or nutrition-calculation change is part of this
 redesign.
 
+## Login and signup revision, 2026-09-17
+
+The revised entry composition uses the open theme background, an enlarged
+Eatova wordmark and a short localized headline. Login reads “Wieder da.” /
+“Welcome back.”; registration reads “Dein Start.” / “Make it yours.”. The
+wordmark, heading and fields share the same start edge inside the bounded,
+scrollable form. This replaces the September 16 filled hero and feature row;
+the six-step profile setup below is unchanged.
+
+[AuthEntryHeader and AuthModeSelector](../lib/src/widgets/auth/auth_entry_header.dart)
+define the entry behavior:
+
+- The wordmark's focus reticle makes one finite movement on entry and when the
+  account mode changes. It settles after 720 ms on entry or 440 ms on a mode
+  change; it does not run an idle loop. Reduced motion snaps to the resting mark.
+- Both account modes remain visible above Google and email sign-in. A violet
+  underline follows the selected mode. At narrow widths or large text sizes,
+  the options stack with a selected surface fill instead of squeezing labels.
+- Registration expands the name field in place. Email and password keep their
+  controllers, values and selection while switching modes, including when a
+  transition is interrupted. Password autofill changes with the chosen mode.
+- Opening the keyboard collapses the headline and supporting copy. The
+  wordmark and mode controls remain, while the form stays scrollable to reach
+  each field and the primary action.
+
+The shared [wordmark](../lib/src/widgets/shared/eatova_wordmark.dart) retains its
+existing resting geometry. It keeps its artwork proportions at large text
+sizes and exposes one spoken “Eatova” label. Animation is owned by the auth
+header, so other wordmark placements remain static. The focus reticle is a brand
+detail; input focus continues to use the existing borderless `field` /
+`fieldFocus` fills in
+[AuthField](../lib/src/widgets/auth/auth_controls.dart), with no new field ring.
+
+## Startup and signed-in welcome alignment
+
+The lavender startup/welcome surface centers its mark independently of the
+greeting's length. Its scroll content now fills at least the available viewport
+width after the existing padding, matching the existing minimum-height rule.
+This fixes the left shift caused by shrink-wrapped scroll content while keeping
+the surface scrollable on short windows and with enlarged text.
+
+The [welcome implementation](../lib/src/widgets/auth/welcome_screen.dart) keeps
+the existing profile-ready gate and completion timing. The
+[centering regression](../test/widgets/welcome_screen_centering_test.dart)
+checks both widget geometry and rendered ring/lettering pixels through loading,
+welcome and reduced-motion states. The auth form above remains deliberately
+start-aligned; the full-screen welcome mark is centered.
+
 ## Six-step setup
 
 The previous flow could require eleven screens. The new flow groups related
@@ -60,18 +108,25 @@ There is no extra permissions tour, upsell or forced tutorial.
 
 These are Flutter test frames with bundled production fonts and synthetic
 profiles, not device screenshots. Content scrolls; the plan's edit rows are
-shown separately from its first viewport.
+shown separately from its first viewport. Entry and welcome frames were
+refreshed on September 17. The profile setup frames are from September 16 and
+still describe the unchanged six-step flow. The previous entry composition and
+its verification remain in the dated handoff and Git history.
 
-| Login / signup | Profile setup |
+| Login, September 17 | Signup, September 17 | Welcome, September 17 |
+| --- | --- | --- |
+| ![Login, light theme](auth-onboarding-preview/login-light.png) | ![Signup, dark theme](auth-onboarding-preview/signup-dark.png) | ![Centered signed-in welcome, light theme](auth-onboarding-preview/welcome-light.png) |
+
+| Profile setup, September 16 | Profile setup, September 16 |
 | --- | --- |
-| ![Login, light theme](auth-onboarding-preview/login-light.png) | ![Basics, light theme](auth-onboarding-preview/basics-light.png) |
-| ![Signup, dark theme](auth-onboarding-preview/signup-dark.png) | ![Body details, dark theme, English](auth-onboarding-preview/body-dark-en.png) |
+| ![Basics, light theme](auth-onboarding-preview/basics-light.png) | ![Body details, dark theme, English](auth-onboarding-preview/body-dark-en.png) |
 | ![Plan, dark theme](auth-onboarding-preview/summary-dark.png) | ![Editable answers, light theme](auth-onboarding-preview/review-light.png) |
 
 Reproduce the complete theme/language/text-size matrix locally:
 
 ```sh
 flutter test test/auth_entry_design_test.dart --dart-define=AUTH_PREVIEW_DIR=build/auth-entry-preview
+flutter test test/widgets/welcome_screen_centering_test.dart --dart-define=WELCOME_PREVIEW_DIR=build/welcome-preview
 flutter test test/onboarding_redesign_test.dart --dart-define=ONBOARDING_CAPTURE=review
 ```
 
@@ -82,6 +137,12 @@ Validation evidence and the protected PR are recorded in the dated
 Flutter renders, focused authentication/profile regressions, a combined
 signup-to-onboarding-to-returning-login test, strict analysis and the full
 Flutter suite with dummy service configuration.
+
+The September 17 native visual review used a separate synthetic auth-preview
+package on the `fitpilot_pixel` Android emulator. It covered light/dark themes,
+the real Android keyboard and an expanded 800 × 1280 dp window. These checks did
+not change the installed production app and are not iOS or physical-device
+validation.
 
 Passing local checks and merging the PR do not install a new application.
 Physical-device Google account selection, OS keyboard/autofill and real email

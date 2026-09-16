@@ -44,7 +44,10 @@ class _RecordingRepository extends InMemoryAuthRepository {
   }
 }
 
-Future<_RecordingRepository> _pump(WidgetTester tester) async {
+Future<_RecordingRepository> _pump(
+  WidgetTester tester, {
+  bool reducedMotion = true,
+}) async {
   final repository = _RecordingRepository();
   addTearDown(repository.dispose);
   await pumpLocalized(
@@ -52,6 +55,7 @@ Future<_RecordingRepository> _pump(WidgetTester tester) async {
     AuthScreen(authRepository: repository),
     scaffold: false,
     safeArea: false,
+    reducedMotion: reducedMotion,
     settle: true,
   );
   return repository;
@@ -75,6 +79,200 @@ Future<void> _submit(WidgetTester tester) async {
 }
 
 void main() {
+  for (final reducedMotion in [false, true]) {
+    testWidgets(
+      'mode changes preserve credentials and settle with reduced motion '
+      '$reducedMotion',
+      (tester) async {
+        final repository = await _pump(tester, reducedMotion: reducedMotion);
+        await _fill(tester, 'long-password');
+        final password = tester.widget<TextField>(
+          find.byKey(const ValueKey('auth-password-field')),
+        );
+        password.controller!.selection = const TextSelection.collapsed(
+          offset: 4,
+        );
+        password.focusNode!.unfocus();
+        await tester.pumpAndSettle();
+
+        // Reverse the transition before it finishes, then open signup again.
+        for (final mode in ['register', 'login', 'register']) {
+          tester
+              .widget<InkWell>(find.byKey(ValueKey('auth-toggle-$mode')))
+              .onTap!();
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 40));
+          expect(
+            find.byKey(const ValueKey('auth-email-field')),
+            findsOneWidget,
+          );
+          expect(
+            find.byKey(const ValueKey('auth-password-field')),
+            findsOneWidget,
+          );
+        }
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('auth-name-field')), findsOneWidget);
+        expect(
+          tester
+              .widget<TextField>(find.byKey(const ValueKey('auth-email-field')))
+              .controller!
+              .text,
+          ' member@example.com ',
+        );
+        final retainedPassword = tester.widget<TextField>(
+          find.byKey(const ValueKey('auth-password-field')),
+        );
+        expect(retainedPassword.controller!.text, 'long-password');
+        expect(retainedPassword.controller!.selection.baseOffset, 4);
+        expect(repository.signIns, isEmpty);
+        expect(repository.signUps, isEmpty);
+        expect(tester.binding.transientCallbackCount, 0);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  }
+
+  testWidgets('reduced motion reaches the mode layout without a transition', (
+    tester,
+  ) async {
+    await _pump(tester);
+    tester
+        .widget<InkWell>(find.byKey(const ValueKey('auth-toggle-register')))
+        .onTap!();
+    await tester.pump();
+    final field = find.byKey(const ValueKey('auth-name-field'));
+    expect(field, findsOneWidget);
+    final immediateRect = tester.getRect(field);
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(tester.getRect(field), immediateRect);
+    expect(tester.binding.transientCallbackCount, 0);
+  });
+
+  testWidgets('mode changes keep platform autofill and keyboard focus order', (
+    tester,
+  ) async {
+    await _pump(tester);
+    final emailFinder = find.byKey(const ValueKey('auth-email-field'));
+    final passwordFinder = find.byKey(const ValueKey('auth-password-field'));
+    expect(find.byType(AutofillGroup), findsOneWidget);
+    expect(
+      tester.widget<TextField>(passwordFinder).autofillHints,
+      contains(AutofillHints.password),
+    );
+    await tester.enterText(emailFinder, 'member@example.com');
+    await tester.testTextInput.receiveAction(TextInputAction.next);
+    await tester.pump();
+    expect(
+      tester.widget<TextField>(passwordFinder).focusNode!.hasFocus,
+      isTrue,
+    );
+
+    tester
+        .widget<InkWell>(find.byKey(const ValueKey('auth-toggle-register')))
+        .onTap!();
+    await tester.pumpAndSettle();
+    final nameFinder = find.byKey(const ValueKey('auth-name-field'));
+    expect(find.byType(AutofillGroup), findsOneWidget);
+    expect(
+      tester.widget<TextField>(nameFinder).autofillHints,
+      contains(AutofillHints.name),
+    );
+    expect(
+      tester.widget<TextField>(emailFinder).autofillHints,
+      contains(AutofillHints.email),
+    );
+    expect(
+      tester.widget<TextField>(passwordFinder).autofillHints,
+      contains(AutofillHints.newPassword),
+    );
+    await tester.enterText(nameFinder, 'Mira');
+    await tester.testTextInput.receiveAction(TextInputAction.next);
+    await tester.pump();
+    expect(tester.widget<TextField>(emailFinder).focusNode!.hasFocus, isTrue);
+    await tester.testTextInput.receiveAction(TextInputAction.next);
+    await tester.pump();
+    expect(
+      tester.widget<TextField>(passwordFinder).focusNode!.hasFocus,
+      isTrue,
+    );
+
+    tester
+        .widget<InkWell>(find.byKey(const ValueKey('auth-toggle-login')))
+        .onTap!();
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(passwordFinder).autofillHints,
+      contains(AutofillHints.password),
+    );
+    expect(
+      tester.widget<TextField>(emailFinder).controller!.text,
+      'member@example.com',
+    );
+  });
+
+  testWidgets('pending login locks fields and actions until failure returns', (
+    tester,
+  ) async {
+    final repository = await _pump(tester);
+    final pending = Completer<void>();
+    repository.pending = pending;
+    await _fill(tester, 'long-password');
+    final submit = tester
+        .widget<AuthPrimaryButton>(find.byType(AuthPrimaryButton))
+        .onTap;
+    submit();
+    submit();
+    await tester.pump();
+    expect(repository.signIns, hasLength(1));
+    for (final field in ['email', 'password']) {
+      expect(
+        tester
+            .widget<TextField>(find.byKey(ValueKey('auth-$field-field')))
+            .enabled,
+        isFalse,
+      );
+    }
+    for (final action in [
+      'google-oauth',
+      'toggle-register',
+      'forgot-password',
+      'toggle-password',
+    ]) {
+      expect(
+        tester.widget<InkWell>(find.byKey(ValueKey('auth-$action'))).onTap,
+        isNull,
+      );
+    }
+    expect(
+      tester.widget<AuthPrimaryButton>(find.byType(AuthPrimaryButton)).enabled,
+      isFalse,
+    );
+    pending.completeError(
+      const AuthException('Invalid credentials', code: 'invalid_credentials'),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text(deL10n.authErrorInvalidCredentials), findsOneWidget);
+    for (final field in ['email', 'password']) {
+      expect(
+        tester
+            .widget<TextField>(find.byKey(ValueKey('auth-$field-field')))
+            .enabled,
+        isTrue,
+      );
+    }
+    expect(
+      tester.widget<AuthPrimaryButton>(find.byType(AuthPrimaryButton)).enabled,
+      isTrue,
+    );
+    repository.pending = null;
+    await _submit(tester);
+    expect(repository.signIns, [
+      ('member@example.com', 'long-password'),
+      ('member@example.com', 'long-password'),
+    ]);
+  });
+
   testWidgets(
     'opening recovery latches covered actions and returning unlocks them',
     (tester) async {
