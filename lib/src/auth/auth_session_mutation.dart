@@ -6,6 +6,33 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 typedef _MutationResult = ({User? user, Session? session});
 
+/// Isolates a credential exchange from other logins, including the time spent
+/// in a native account chooser. Signup may return a user without a session
+/// while email confirmation is pending.
+Future<AuthResponse> authenticateSession(
+  SupabaseClient client,
+  Future<AuthResponse> Function(GoTrueClient scoped) operation, {
+  http.Client? httpClient,
+  bool requireSession = false,
+}) async {
+  late AuthResponse response;
+  await _mutate(
+    client,
+    (scoped) async {
+      response = await operation(scoped);
+      if (requireSession && response.session == null) {
+        throw const AuthException('Authentication returned no session');
+      }
+      return (user: null, session: response.session);
+    },
+    httpClient: httpClient,
+    allowSignedOut: true,
+    allowAccountSwitch: true,
+    loginEvent: true,
+  );
+  return response;
+}
+
 /// Runs account mutations outside the shared GoTrue session. GoTrue 2.27.2
 /// applies a late updateUser response to whichever session is then current.
 /// A separate client keeps that response from changing another login.
@@ -63,6 +90,8 @@ Future<void> _mutate(
   Future<_MutationResult> Function(GoTrueClient scoped) operation, {
   http.Client? httpClient,
   bool allowSignedOut = false,
+  bool allowAccountSwitch = false,
+  bool loginEvent = false,
 }) async {
   // A browser GoTrueClient broadcasts sessions to sibling clients before this
   // guard can adopt them. Eatova's account flows currently target Android/iOS.
@@ -109,7 +138,10 @@ Future<void> _mutate(
       throw const AuthException('Authentication session changed');
     }
     final user = result.session?.user ?? result.user;
-    if (user != null && original != null && user.id != original.user.id) {
+    if (!allowAccountSwitch &&
+        user != null &&
+        original != null &&
+        user.id != original.user.id) {
       throw const AuthException('Authentication session changed');
     }
     // Keep a concurrently refreshed token on PUT /user. Only successful OTP
@@ -121,7 +153,16 @@ Future<void> _mutate(
       // For a valid SDK-parsed session, setInitialSession assigns synchronously
       // before its first await. No account switch fits between this check and
       // adoption. Its event updates AuthGate, encrypted storage and Realtime.
-      await client.auth.setInitialSession(jsonEncode(next.toJson()));
+      final adoption = client.auth.setInitialSession(jsonEncode(next.toJson()));
+      // Keep the SDK's interactive-login event for session-bound operations
+      // and OAuth sheet dismissal. Synchronous listeners may replace the
+      // adopted session, so never announce a login for that replacement.
+      if (loginEvent &&
+          _identity(client.auth.currentSession) == _identity(next)) {
+        // ignore: invalid_use_of_internal_member
+        client.auth.notifyAllSubscribers(AuthChangeEvent.signedIn);
+      }
+      await adoption;
     }
   } finally {
     await subscription.cancel();
