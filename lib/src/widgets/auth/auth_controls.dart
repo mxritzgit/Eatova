@@ -5,6 +5,7 @@ import '../../l10n/l10n.dart';
 import '../design/app_icon.dart';
 import '../design/controls.dart';
 import '../design/sheets.dart';
+import '../design/surfaces.dart';
 
 /// Keeps the form readable on tablets and lets the keyboard resize it once.
 class AuthPageLayout extends StatelessWidget {
@@ -39,8 +40,8 @@ class AuthHeadline extends StatelessWidget {
   final TextStyle style;
 
   @override
-  Widget build(BuildContext context) => Semantics(
-    header: true,
+  Widget build(BuildContext context) => HeadingSemantics(
+    level: 1,
     child: LayoutBuilder(
       builder: (context, constraints) {
         final measure = TextPainter(

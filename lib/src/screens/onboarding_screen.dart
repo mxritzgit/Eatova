@@ -610,8 +610,8 @@ class _StepFrame extends StatelessWidget {
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Semantics(
-        header: true,
+      HeadingSemantics(
+        level: 1,
         child: Text(
           title,
           style: AppType.display(
@@ -647,8 +647,8 @@ class _FieldHeading extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Semantics(
-          header: true,
+        HeadingSemantics(
+          level: 2,
           child: Text(title, style: AppType.display(20, color: context.t.ink)),
         ),
         if (subtitle != null) ...[
