@@ -109,14 +109,13 @@ void main() {
     required bool zunehmen,
   }) async {
     await starte(tester);
-    for (var i = 0; i < 4; i++) {
+    for (var i = 0; i < 1; i++) {
       await weiter(tester); // intro → sex → age → height → weight
     }
     await setze(tester, 'weight', gewicht);
     await weiter(tester); // activity
     await weiter(tester); // goal
     await tippe(tester, zunehmen ? 'onboarding-goal-gain' : 'onboarding-goal-lose');
-    await weiter(tester);
   }
 
   // =========================================================================
@@ -130,7 +129,7 @@ void main() {
 
     // Es gibt kein Zielgewicht, das bei 300 kg noch „zunehmen" hiesse — die
     // Spalte endet dort. Also wird auch keines angeboten.
-    expect(find.byKey(const ValueKey('onboarding-step-target')), findsNothing,
+    expect(find.byKey(const ValueKey('onboarding-target-section')), findsNothing,
         reason: 'ein leeres Fenster hat nichts zu waehlen');
     expect(find.byKey(const ValueKey('onboarding-target-value')), findsNothing);
     expect(find.byKey(const ValueKey('onboarding-target-inc')), findsNothing,
@@ -143,25 +142,31 @@ void main() {
 
     // Der Schritt danach ist die Ernaehrung — das Tempo faellt mit, weil ohne
     // Ziel auch kein Tempo geplant wird.
-    expect(find.byKey(const ValueKey('onboarding-step-diet')), findsOneWidget);
-    expect(find.byKey(const ValueKey('onboarding-step-pace')), findsNothing);
+    expect(find.byKey(const ValueKey('onboarding-step-goal')), findsOneWidget);
+    for (final goal in gainPaceGoals) {
+      expect(find.byKey(ValueKey('onboarding-pace-${goal.name}')), findsNothing);
+    }
   });
 
   testWidgets('Abnehmen am 30-kg-Boden: spiegelbildlich derselbe Fall',
       (tester) async {
     await bisNachDerRichtung(tester, gewicht: 30, zunehmen: false);
 
-    expect(find.byKey(const ValueKey('onboarding-step-target')), findsNothing);
+    expect(find.byKey(const ValueKey('onboarding-target-section')), findsNothing);
+    for (final goal in lossPaceGoals) {
+      expect(find.byKey(ValueKey('onboarding-pace-${goal.name}')), findsNothing);
+    }
     expect(find.text('0 kg abnehmen'), findsNothing,
         reason: 'vorher stand da eine 30 ueber „0 kg abnehmen" und zwei tote '
             'Stepper');
-    expect(find.byKey(const ValueKey('onboarding-step-diet')), findsOneWidget);
+    expect(find.byKey(const ValueKey('onboarding-step-goal')), findsOneWidget);
   });
 
   testWidgets('der Plan am Deckel ist widerspruchsfrei und behaelt die Absicht',
       (tester) async {
     await bisNachDerRichtung(tester, gewicht: 300, zunehmen: true);
 
+    await weiter(tester); // goal to diet
     await weiter(tester); // diet → summary
     expect(find.byKey(const ValueKey('onboarding-summary-kcal')), findsOneWidget);
 
@@ -201,7 +206,7 @@ void main() {
       (tester) async {
     await bisNachDerRichtung(tester, gewicht: 80, zunehmen: true);
 
-    expect(find.byKey(const ValueKey('onboarding-step-target')), findsOneWidget);
+    expect(find.byKey(const ValueKey('onboarding-target-section')), findsOneWidget);
     expect(angezeigt(tester, 'target'), '85'); // 80 + 5
     expect(find.text('5 kg zunehmen'), findsOneWidget);
 
@@ -228,7 +233,7 @@ void main() {
     // Fenster — es waere ueberkorrigiert, den Schritt auch hier zu schlucken.
     await bisNachDerRichtung(tester, gewicht: 299, zunehmen: true);
 
-    expect(find.byKey(const ValueKey('onboarding-step-target')), findsOneWidget);
+    expect(find.byKey(const ValueKey('onboarding-target-section')), findsOneWidget);
     expect(angezeigt(tester, 'target'), '300');
     expect(find.text('1 kg zunehmen'), findsOneWidget);
     expect(find.byKey(const ValueKey('onboarding-target-slider')), findsNothing,
@@ -268,12 +273,12 @@ void main() {
       );
 
       if (leer) {
-        expect(find.byKey(const ValueKey('onboarding-step-target')), findsNothing,
+        expect(find.byKey(const ValueKey('onboarding-target-section')), findsNothing,
             reason: '$wo: kein konsistentes Ziel, also kein Schritt');
         continue;
       }
 
-      expect(find.byKey(const ValueKey('onboarding-step-target')), findsOneWidget,
+      expect(find.byKey(const ValueKey('onboarding-target-section')), findsOneWidget,
           reason: '$wo: das Fenster $min … $max ist waehlbar');
       final zahl = int.parse(angezeigt(tester, 'target'));
       expect(zahl, inInclusiveRange(min, max), reason: wo);

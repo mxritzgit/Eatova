@@ -341,7 +341,7 @@ void main() {
 
       testWidgets('$modus: Geschlechts-Kachel (_TileCard)', (tester) async {
         // Step 1 = sex; UserProfile() defaults to `neutral`.
-        await _zumSchritt(tester, 1, brightness: brightness);
+        await _zumSchritt(tester, 0, brightness: brightness);
 
         const gewaehlt = ValueKey<String>('onboarding-sex-neutral');
         const ungewaehlt = ValueKey<String>('onboarding-sex-female');
@@ -375,7 +375,7 @@ void main() {
       testWidgets('$modus: Aktivitaets-Zeile (_RowCard) inkl. Haekchen',
           (tester) async {
         // Step 5 = activity; UserProfile() defaults to `sedentary`.
-        await _zumSchritt(tester, 5, brightness: brightness);
+        await _zumSchritt(tester, 2, brightness: brightness);
 
         const gewaehlt = ValueKey<String>('onboarding-activity-sedentary');
         const ungewaehlt = ValueKey<String>('onboarding-activity-moderate');
@@ -418,7 +418,7 @@ void main() {
           (tester) async {
         // Step 6 = goal. The leading icon only exists here, and it was the
         // fourth channel that stayed `lime`.
-        await _zumSchritt(tester, 6, brightness: brightness);
+        await _zumSchritt(tester, 3, brightness: brightness);
         await tester.tap(find.byKey(const ValueKey('onboarding-goal-lose')));
         await tester.pumpAndSettle();
 

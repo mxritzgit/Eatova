@@ -1245,8 +1245,23 @@
   "onboardingStartCta": "Los geht's",
   "onboardingActivatePlanCta": "Plan aktivieren",
   "onboardingNextCta": "Weiter",
-  "onboardingSexStepTitle": "Dein Geschlecht",
-  "onboardingSexStepSubtitle": "Beeinflusst deinen Grundumsatz.",
+  "onboardingSexStepTitle": "Für die Berechnung",
+  "onboardingSexStepSubtitle": "Das biologische Geschlecht fließt in den Grundumsatz ein. Ohne Angabe verwenden wir einen Mittelwert.",
+  "onboardingBasicsBody": "Ein paar Angaben für dein Tagesziel. Prüfe die Startwerte – du kannst sie später ändern.",
+  "onboardingBodyTitle": "Dein Körper.",
+  "onboardingBodySubtitle": "Größe und aktuelles Gewicht helfen uns, deinen Energiebedarf zu schätzen.",
+  "onboardingPhaseBasics": "Über dich",
+  "onboardingPhaseBody": "Körperdaten",
+  "onboardingPhaseActivity": "Dein Alltag",
+  "onboardingPhaseGoal": "Dein Ziel",
+  "onboardingPhaseDiet": "Deine Küche",
+  "onboardingPhasePlan": "Dein Startplan",
+  "onboardingStepProgress": "Schritt {current} von {total}",
+  "@onboardingStepProgress": {"placeholders": {"current": {"type": "int"}, "total": {"type": "int"}}},
+  "onboardingDietOptionalSubtitle": "Optional: Welche Rezepte passen zu dir? Ohne Vorliebe bleibt die Auswahl offen. Du kannst immer alle Rezepte durchsuchen.",
+  "onboardingWithoutPreference": "Ohne Vorliebe weiter",
+  "onboardingReviewTitle": "Deine Angaben prüfen",
+  "onboardingReviewChanges": "Zurück zum Plan",
   "onboardingAgeStepTitle": "Wie alt bist du?",
   "onboardingAgeStepSubtitle": "Der Energiebedarf sinkt mit dem Alter.",
   "onboardingHeightStepTitle": "Deine Größe",
@@ -1256,14 +1271,14 @@
   "onboardingActivityStepTitle": "Wie aktiv bist du?",
   "onboardingActivityStepSubtitle": "Beruf und Alltag ohne Gehen und Laufen – gezählte Schritte kommen automatisch obendrauf. Im Zweifel eine Stufe tiefer.",
   "onboardingGoalStepTitle": "Was ist dein Ziel?",
-  "onboardingGoalStepSubtitle": "Bestimmt deine tägliche Kalorienmenge.",
+  "onboardingGoalStepSubtitle": "Wähle deine Richtung. Zum Ab- oder Zunehmen legst du hier auch Wunschgewicht und Tempo fest.",
   "onboardingTargetStepTitle": "Dein Wunschgewicht",
   "onboardingTargetStepSubtitleLose": "Wohin willst du abnehmen?",
   "onboardingTargetStepSubtitleGain": "Wohin willst du aufbauen?",
   "onboardingPaceStepTitle": "Welches Tempo?",
   "onboardingPaceStepSubtitleLose": "Wie schnell willst du abnehmen?",
   "onboardingPaceStepSubtitleGain": "Wie schnell willst du aufbauen?",
-  "onboardingDietStepTitle": "Ernährungsweise?",
+  "onboardingDietStepTitle": "Was isst du gern?",
   "onboardingDietStepSubtitle": "Wir empfehlen dir passende Rezepte. Durchsuchen kannst du immer alle.",
   "onboardingUnitYears": "Jahre",
   "onboardingTargetFootnoteLose": "{kg} kg abnehmen",
@@ -1278,7 +1293,7 @@
       "kg": { "type": "int" }
     }
   },
-  "onboardingWelcomeTitle": "Willkommen, {firstName}.",
+  "onboardingWelcomeTitle": "Hallo, {firstName}.",
   "@onboardingWelcomeTitle": {
     "placeholders": {
       "firstName": { "type": "String" }
@@ -1297,7 +1312,7 @@
   "onboardingStepUpSemanticLabel": "Erhöhen",
   "onboardingSexMale": "Männlich",
   "onboardingSexFemale": "Weiblich",
-  "onboardingSexNeutral": "Divers",
+  "onboardingSexNeutral": "Keine Angabe",
   "onboardingGoalDescLose": "Fett verlieren, Defizit",
   "onboardingGoalDescMaintain": "Form & Energie stabil",
   "onboardingGoalDescGain": "Muskeln aufbauen, Überschuss",
@@ -1313,7 +1328,7 @@
       "paceLabel": { "type": "String" }
     }
   },
-  "onboardingSummaryTitle": "Dein Plan steht, {firstName}.",
+  "onboardingSummaryTitle": "Dein Plan, {firstName}.",
   "@onboardingSummaryTitle": {
     "placeholders": {
       "firstName": { "type": "String" }
@@ -1363,7 +1378,7 @@
     }
   },
   "onboardingTimelineUnknown": "Für dieses Ziel lässt sich kein verlässlicher Zeitraum schätzen.",
-  "onboardingSummaryFootnote": "Schätzung nach Mifflin-St Jeor (typisch ±10 %). Werte sind jederzeit unter Profil › Einstellungen anpassbar.",
+  "onboardingSummaryFootnote": "Schätzung nach Mifflin-St Jeor (typisch ±10 %). Körperdaten und Ziele kannst du später im Profil ändern.",
 
   "coachErrorEmptyReply": "Leere Antwort vom Coach.",
   "coachErrorUnreachable": "Der Coach ist gerade nicht erreichbar. Bitte versuch es gleich nochmal.",

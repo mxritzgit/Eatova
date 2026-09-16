@@ -7,6 +7,7 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/onboarding_screen.dart';
 
 import 'support/harness.dart';
+import 'support/onboarding_harness.dart';
 
 // Behaviour tests for the onboarding flow: steps, validation, keys and texts.
 // The shared harness supplies theme and localizations: the screen reads its
@@ -39,41 +40,27 @@ void main() {
     );
 
     expect(find.byKey(const ValueKey('screen-onboarding')), findsOneWidget);
-    expect(find.text('Willkommen, Moritz.'), findsOneWidget);
+    expect(find.text('Hallo, Moritz.'), findsOneWidget);
 
     Future<void> next() async {
       await tester.tap(find.byKey(const ValueKey('onboarding-next')));
       await tester.pumpAndSettle();
     }
 
-    // intro → sex
-    await next();
-    await tester.tap(find.byKey(const ValueKey('onboarding-sex-male')));
-    await tester.pumpAndSettle();
-    await next();
-
-    // age / height / weight — keep the defaults
-    await next(); // age
-    await next(); // height
-    await next(); // weight
+    await tapOnboarding(tester, 'onboarding-sex-male');
+    await goToOnboarding(tester, 'activity');
 
     // activity
     await tester.tap(find.byKey(const ValueKey('onboarding-activity-moderate')));
     await tester.pumpAndSettle();
     await next();
 
-    // goal: losing weight unlocks the target and pace steps
+    // goal: losing weight unlocks the target and pace controls
     await tester.tap(find.byKey(const ValueKey('onboarding-goal-lose')));
     await tester.pumpAndSettle();
-    await next();
 
-    // target weight — keep the default (weight − 5)
-    expect(find.byKey(const ValueKey('onboarding-step-target')), findsOneWidget);
-    await next();
-
-    // pace: −1 kg/week
-    await tester.tap(find.byKey(const ValueKey('onboarding-pace-lose1kg')));
-    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('onboarding-target-section')), findsOneWidget);
+    await tapOnboarding(tester, 'onboarding-pace-lose1kg');
     await next();
 
     // diet: pick vegetarian
@@ -112,7 +99,7 @@ void main() {
     expect(result.fatGoalG, greaterThan(0));
   });
 
-  testWidgets('maintain goal skips target and pace steps', (tester) async {
+  testWidgets('maintain goal skips target and pace controls', (tester) async {
     pinPhoneViewport(tester);
 
     final prior = FlutterError.onError;
@@ -143,18 +130,13 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    await next(); // intro → sex
-    await next(); // sex → age
-    await next(); // age → height
-    await next(); // height → weight
-    await next(); // weight → activity
-    await next(); // activity → goal
+    await goToOnboarding(tester, 'goal');
     // The default goal is maintain, so target and pace are skipped and the
     // diet step comes next.
     await next(); // goal → diet
 
     // Target and pace are skipped, the diet step is not.
-    expect(find.byKey(const ValueKey('onboarding-step-target')), findsNothing);
+    expect(find.byKey(const ValueKey('onboarding-target-section')), findsNothing);
     expect(find.byKey(const ValueKey('onboarding-step-diet')), findsOneWidget);
     await next(); // diet → summary, keeping the default diet
 
@@ -214,21 +196,13 @@ void main() {
       initialProfile: const UserProfile(ageYears: 13),
     );
 
-    Future<void> next() async {
-      await tester.tap(find.byKey(const ValueKey('onboarding-next')));
-      await tester.pumpAndSettle();
-    }
-
-    await next(); // intro → sex
-    await next(); // sex → age
-
     String ageValue() => tester
         .widget<Text>(find.byKey(const ValueKey('onboarding-age-value')))
         .data!;
     expect(ageValue(), '16');
 
     // The stepper cannot go below the minimum.
-    await tester.tap(find.byKey(const ValueKey('onboarding-age-dec')));
+    await tapOnboarding(tester, 'onboarding-age-dec');
     await tester.pumpAndSettle();
     expect(ageValue(), '16');
   });
@@ -243,28 +217,17 @@ void main() {
       initialProfile: const UserProfile(weightKg: 60),
     );
 
-    Future<void> next() async {
-      await tester.tap(find.byKey(const ValueKey('onboarding-next')));
-      await tester.pumpAndSettle();
-    }
-
-    await next(); // intro → sex
-    await next(); // sex → age
-    await next(); // age → height
-    await next(); // height → weight
-    await next(); // weight → activity
-    await next(); // activity → goal
+    await goToOnboarding(tester, 'goal');
     await tester.tap(find.byKey(const ValueKey('onboarding-goal-lose')));
-    await tester.pumpAndSettle();
-    await next(); // goal → target
+    await tester.pumpAndSettle(); // goal → target
 
-    expect(find.byKey(const ValueKey('onboarding-step-target')), findsOneWidget);
+    expect(find.byKey(const ValueKey('onboarding-target-section')), findsOneWidget);
     expect(find.byKey(const ValueKey('target-bmi-hint')), findsOneWidget);
     expect(find.textContaining('unterhalb'), findsOneWidget);
 
     // Raising the target to 59 kg gives BMI 18.6 and the hint disappears.
     for (var i = 0; i < 4; i++) {
-      await tester.tap(find.byKey(const ValueKey('onboarding-target-inc')));
+      await tapOnboarding(tester, 'onboarding-target-inc');
       await tester.pump();
     }
     await tester.pumpAndSettle();
@@ -316,7 +279,7 @@ void main() {
   testWidgets(
       'Systemzurueck geht einen Schritt zurueck statt acht Antworten wegzuwerfen',
       (tester) async {
-    // A loss goal makes target and pace visible, so the flow has 11 steps.
+    // A loss goal makes the inline target and pace controls visible.
     await pumpOnboarding(
       tester,
       initialProfile: const UserProfile(
@@ -325,8 +288,8 @@ void main() {
       ),
     );
 
-    // After eight answered steps we stand on the diet step.
-    await advance(tester, 9);
+    // After four groups we reach the optional diet.
+    await advance(tester, 4);
     expect(find.byKey(const ValueKey('onboarding-step-diet')), findsOneWidget);
 
     final closesApp = await systemBackClosesApp(tester);
@@ -337,7 +300,7 @@ void main() {
       reason: 'Die Randgeste darf auf der Root-Route nicht die Activity '
           'beenden — acht Antworten waeren weg.',
     );
-    expect(find.byKey(const ValueKey('onboarding-step-pace')), findsOneWidget,
+    expect(find.byKey(const ValueKey('onboarding-step-goal')), findsOneWidget,
         reason: 'Systemzurueck muss dasselbe tun wie der Header-Pfeil.');
   });
 
@@ -350,22 +313,21 @@ void main() {
         targetWeightKg: 68,
       ),
     );
-    await advance(tester, 9);
+    await advance(tester, 4);
 
-    await systemBackClosesApp(tester); // gesture: diet → pace
-    expect(find.byKey(const ValueKey('onboarding-step-pace')), findsOneWidget);
+    await systemBackClosesApp(tester); // gesture: diet → goal
+    expect(find.byKey(const ValueKey('onboarding-step-goal')), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('onboarding-back'))); // arrow
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('onboarding-step-target')), findsOneWidget);
+    expect(find.byKey(const ValueKey('onboarding-step-activity')), findsOneWidget);
   });
 
-  testWidgets('Systemzurueck auf dem Intro-Schritt schliesst die App',
+  testWidgets('Systemzurueck auf dem ersten Schritt schliesst die App',
       (tester) async {
-    // Step 0: nothing invested, so the root route releases the pop and the app
-    // behaves like any other Android app.
+    // The first group releases the root route pop, as before.
     await pumpOnboarding(tester, initialProfile: const UserProfile());
-    expect(find.byKey(const ValueKey('onboarding-step-intro')), findsOneWidget);
+    expect(find.byKey(const ValueKey('onboarding-step-basics')), findsOneWidget);
     expect(find.byKey(const ValueKey('onboarding-back')), findsNothing);
 
     expect(await systemBackClosesApp(tester), isTrue);
@@ -416,7 +378,7 @@ void main() {
     await pumpToSummary(
       tester,
       const UserProfile(weightGoal: WeightGoal.lose1kg, targetWeightKg: 68),
-      steps: 10,
+      steps: 5,
     );
 
     expect(textOfKey(tester, 'onboarding-summary-kcal'), '1350');
@@ -465,7 +427,7 @@ void main() {
     await pumpToSummary(
       tester,
       klemme.copyWith(weightGoal: WeightGoal.lose1kg),
-      steps: 10,
+      steps: 5,
     );
     final ambitioniert = [
       textOfKey(tester, 'onboarding-summary-kcal'),
@@ -476,7 +438,7 @@ void main() {
     await pumpToSummary(
       tester,
       klemme.copyWith(weightGoal: WeightGoal.lose075kg),
-      steps: 10,
+      steps: 5,
     );
     final zuegig = [
       textOfKey(tester, 'onboarding-summary-kcal'),
@@ -517,7 +479,7 @@ void main() {
         weightGoal: WeightGoal.lose025kg,
         targetWeightKg: 38,
       ),
-      steps: 10,
+      steps: 5,
     );
 
     expect(goalRowTexts(tester), ['Ziel · Gewicht stabil', '−37 kcal']);
@@ -548,7 +510,7 @@ void main() {
     await pumpToSummary(
       tester,
       const UserProfile(weightGoal: WeightGoal.lose075kg, targetWeightKg: 68),
-      steps: 10,
+      steps: 5,
     );
 
     expect(textOfKey(tester, 'onboarding-summary-kcal'), '1350');
@@ -583,8 +545,8 @@ void main() {
         targetWeightKg: 68,
       ),
     );
-    await advance(tester, 8);
-    expect(find.byKey(const ValueKey('onboarding-step-pace')), findsOneWidget);
+    await advance(tester, 3);
+    expect(find.byKey(const ValueKey('onboarding-step-goal')), findsOneWidget);
 
     // Title = the choice; unchanged.
     expect(find.text('Ambitioniert · −1 kg/Woche'), findsOneWidget);
@@ -629,19 +591,18 @@ void main() {
   // the copies could drift apart unnoticed.
   // -------------------------------------------------------------------------
 
-  /// Jumps from the intro to step [field] and reads its large number.
+  /// Opens the group containing [field] and reads its displayed value.
   Future<String> pickerValue(
     WidgetTester tester,
     UserProfile initialProfile, {
     required String field,
-    required int steps,
   }) async {
     await pumpOnboarding(
       tester,
       initialProfile: initialProfile,
       screenKey: UniqueKey(),
     );
-    await advance(tester, steps);
+    await goToOnboarding(tester, field == 'age' ? 'basics' : 'body');
     return tester
         .widget<Text>(find.byKey(ValueKey('onboarding-$field-value')))
         .data!;
@@ -657,7 +618,6 @@ void main() {
         tester,
         const UserProfile(weightKg: 210),
         field: 'weight',
-        steps: 4,
       ),
       '210',
     );
@@ -671,7 +631,6 @@ void main() {
         tester,
         const UserProfile(heightCm: 115),
         field: 'height',
-        steps: 3,
       ),
       '115',
     );
@@ -684,7 +643,6 @@ void main() {
         tester,
         const UserProfile(ageYears: 100),
         field: 'age',
-        steps: 2,
       ),
       '100',
     );
@@ -700,43 +658,42 @@ void main() {
     Future<double> sliderRange(
       WidgetTester tester, {
       required String field,
-      required int steps,
-      required bool min,
+        required bool min,
     }) async {
       await pumpOnboarding(
         tester,
         initialProfile: const UserProfile(),
         screenKey: UniqueKey(),
       );
-      await advance(tester, steps);
+      await goToOnboarding(tester, field == 'age' ? 'basics' : 'body');
       final slider =
           tester.widget<Slider>(find.byKey(ValueKey('onboarding-$field-slider')));
       return min ? slider.min : slider.max;
     }
 
     expect(
-      await sliderRange(tester, field: 'age', steps: 2, min: true),
+      await sliderRange(tester, field: 'age', min: true),
       ProfileLimits.ageYearsMin.toDouble(),
       reason: 'Mindestalter ist Art. 8 DSGVO, keine UI-Vorliebe.',
     );
     expect(
-      await sliderRange(tester, field: 'age', steps: 2, min: false),
+      await sliderRange(tester, field: 'age', min: false),
       ProfileLimits.ageYearsMax.toDouble(),
     );
     expect(
-      await sliderRange(tester, field: 'height', steps: 3, min: true),
+      await sliderRange(tester, field: 'height', min: true),
       ProfileLimits.heightCmMin.toDouble(),
     );
     expect(
-      await sliderRange(tester, field: 'height', steps: 3, min: false),
+      await sliderRange(tester, field: 'height', min: false),
       ProfileLimits.heightCmMax.toDouble(),
     );
     expect(
-      await sliderRange(tester, field: 'weight', steps: 4, min: true),
+      await sliderRange(tester, field: 'weight', min: true),
       ProfileLimits.weightKgMin.toDouble(),
     );
     expect(
-      await sliderRange(tester, field: 'weight', steps: 4, min: false),
+      await sliderRange(tester, field: 'weight', min: false),
       ProfileLimits.weightKgMax.toDouble(),
     );
   });

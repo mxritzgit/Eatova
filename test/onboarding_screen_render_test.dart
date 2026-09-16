@@ -24,12 +24,12 @@ Future<void> _pumpOnboarding(
     );
 
 // DESIGN_REFACTOR §7.2 / §5: every screen renders in both brightnesses and at
-// 200 % system text without RenderFlex overflow. All eleven onboarding steps
+// 200 % system text without RenderFlex overflow. All six onboarding groups
 // are walked because several are layout edge cases. Unlike the behaviour
 // tests, overflows are not swallowed here: they are the subject.
 void main() {
   /// A weight-loss goal makes the target and pace steps visible, so the flow
-  /// has all 11 steps. The 1 % deficit cap applies (858 instead of 1100
+  /// has all six groups. The 1 % deficit cap applies (858 instead of 1100
   /// kcal/day), so the summary also carries the warning line.
   const vollerFlow = UserProfile(
     weightGoal: WeightGoal.lose1kg,
@@ -59,19 +59,7 @@ void main() {
       prior?.call(details);
     };
 
-    const schritte = <String>[
-      'intro',
-      'sex',
-      'age',
-      'height',
-      'weight',
-      'activity',
-      'goal',
-      'target',
-      'pace',
-      'diet',
-      'summary',
-    ];
+    const schritte = <String>['basics', 'body', 'activity', 'goal', 'diet', 'summary'];
     final gesehen = <String>[];
 
     try {
@@ -101,7 +89,7 @@ void main() {
     }
 
     expect(gesehen, schritte,
-        reason: '$fall hat nicht alle elf Schritte durchlaufen');
+        reason: '$fall hat nicht alle sechs Gruppen durchlaufen');
     expect(tester.takeException(), isNull);
     expect(
       overflows,
@@ -170,7 +158,12 @@ void main() {
     // transliteration would be mispronounced by TalkBack.
     expect(
       tester.getSemantics(find.byKey(const ValueKey('onboarding-back'))),
-      isSemantics(isButton: true, label: 'Zurück'),
+      isSemantics(isButton: true),
+    );
+    expect(
+      tester.getSemantics(find.byKey(const ValueKey('onboarding-back')))
+          .getSemanticsData().tooltip,
+      'Zurück',
     );
   });
 
@@ -212,7 +205,7 @@ void main() {
         textScale: 2.0,
       );
       await tester.pumpAndSettle();
-      for (var i = 0; i < 10; i++) {
+      for (var i = 0; i < 5; i++) {
         await tester.tap(find.byKey(const ValueKey('onboarding-next')));
         await tester.pumpAndSettle();
       }
