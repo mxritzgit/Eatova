@@ -154,7 +154,13 @@ void _erwarteNeutralenAusweg() {
   // and the toggle offers signup.
   expect(find.byKey(const ValueKey('auth-name-field')), findsNothing);
   expect(find.byKey(const ValueKey('auth-toggle-register')), findsOneWidget);
-  expect(find.text('Einloggen'), findsOneWidget);
+  expect(
+    find.descendant(
+      of: find.byKey(const ValueKey('auth-submit')),
+      matching: find.text(deL10n.authSubmitLogin),
+    ),
+    findsOneWidget,
+  );
 }
 
 void main() {

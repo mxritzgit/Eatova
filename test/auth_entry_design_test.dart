@@ -95,6 +95,83 @@ void main() {
   }
   for (final brightness in Brightness.values) {
     for (final locale in const ['de', 'en']) {
+      testWidgets(
+        'small phone keyboard and large text ${brightness.name} $locale',
+        (tester) async {
+          tester.view.devicePixelRatio = 1;
+          tester.view.physicalSize = const Size(320, 640);
+          addTearDown(tester.view.reset);
+          final capture = GlobalKey();
+          final repository = InMemoryAuthRepository();
+          addTearDown(repository.dispose);
+          await pumpLocalized(
+            tester,
+            RepaintBoundary(
+              key: capture,
+              child: AuthScreen(authRepository: repository),
+            ),
+            locale: Locale(locale),
+            brightness: brightness,
+            textScale: 2,
+            scaffold: false,
+            safeArea: false,
+            settle: true,
+          );
+          for (final mode in ['login', 'signup']) {
+            if (mode == 'signup') {
+              tester.view.viewInsets = FakeViewPadding.zero;
+              await tester.pumpAndSettle();
+              final toggle = find.byKey(const ValueKey('auth-toggle-register'));
+              await tester.ensureVisible(toggle);
+              await tester.tap(toggle);
+              await tester.pumpAndSettle();
+            }
+            await tester.enterText(
+              find.byKey(const ValueKey('auth-email-field')),
+              'mira@example.com',
+            );
+            tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+            await tester.pumpAndSettle();
+            expect(
+              find.byType(AuthHeadline),
+              findsNothing,
+              reason: 'The keyboard collapses the intro above the form.',
+            );
+            for (final field in [
+              if (mode == 'signup') 'name',
+              'email',
+              'password',
+            ]) {
+              final finder = find.byKey(ValueKey('auth-$field-field'));
+              await tester.ensureVisible(finder);
+              await tester.pumpAndSettle();
+              expect(finder.hitTestable(), findsOneWidget);
+              final rect = tester.getRect(finder);
+              expect(rect.left, greaterThanOrEqualTo(0));
+              expect(rect.right, lessThanOrEqualTo(320));
+              expect(rect.bottom, lessThanOrEqualTo(340));
+            }
+            final submit = find.byKey(const ValueKey('auth-submit'));
+            await tester.ensureVisible(submit);
+            await tester.pumpAndSettle();
+            expect(submit.hitTestable(), findsOneWidget);
+            expect(tester.getRect(submit).bottom, lessThanOrEqualTo(340));
+            await _capture(
+              tester,
+              capture,
+              '$mode-keyboard-${brightness.name}-$locale-2.0',
+            );
+            expect(tester.takeException(), isNull);
+            tester.view.viewInsets = FakeViewPadding.zero;
+            await tester.pumpAndSettle();
+            expect(
+              find.byType(AuthHeadline),
+              findsOneWidget,
+              reason: 'The intro returns when the keyboard is dismissed.',
+            );
+          }
+        },
+      );
       for (final scale in [1.0, 2.0]) {
         testWidgets('entry real fonts ${brightness.name} $locale $scale', (
           tester,

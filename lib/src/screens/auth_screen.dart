@@ -14,14 +14,14 @@ import '../services/sync_error_messages.dart'
     show isAuthNetworkError, isAuthServerFaultError;
 import '../theme/app_tokens.dart';
 import '../widgets/auth/auth_controls.dart';
+import '../widgets/auth/auth_entry_header.dart';
 import '../widgets/common/app_snack.dart';
 import '../widgets/common/motion.dart';
-import '../widgets/shared/eatova_wordmark.dart';
 import 'auth_code_screen.dart';
 import 'settings/account_change_messages.dart'
     show kAccountMinPasswordLength, classifyAuthError, AuthErrorKind;
 
-/// An editorial brand header and a single, accessible sign-in form.
+/// A focused account entry with persistent fields and a visible mode switch.
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key, required this.authRepository});
 
@@ -285,6 +285,8 @@ class _AuthScreenState extends State<AuthScreen> {
   Widget build(BuildContext context) {
     final t = context.t;
     final unconfirmed = _unconfirmedEmail;
+    // Scaffold removes this inset from its resized body's MediaQuery.
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     return SecureScreenGuard(
       child: Scaffold(
@@ -295,12 +297,22 @@ class _AuthScreenState extends State<AuthScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _Hero(isRegister: _isRegister),
+                AuthEntryHeader(
+                  key: const ValueKey('auth-hero'),
+                  isRegister: _isRegister,
+                  keyboardOpen: keyboardOpen,
+                ),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 28),
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      AuthModeSelector(
+                        isRegister: _isRegister,
+                        enabled: !_busy,
+                        onChanged: _setMode,
+                      ),
+                      const SizedBox(height: 22),
                       _GoogleButton(
                         enabled: !_busy,
                         loading: _oauthLoading == EatovaOAuthProvider.google,
@@ -334,12 +346,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                 },
                         ),
                       ),
-                      const SizedBox(height: 14),
-                      _ModeToggle(
-                        isRegister: _isRegister,
-                        onTap: _busy ? null : () => _setMode(!_isRegister),
-                      ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 24),
                       const _ConsentNotice(),
                     ],
                   ),
@@ -352,85 +359,6 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 }
-
-class _BrandMark extends StatelessWidget {
-  const _BrandMark();
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    // The header uses the theme-aware brand pair.
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.start,
-      children: [
-        EatovaWordmark(
-          fontSize: 27,
-          textColor: t.onBrandSurface,
-          ringColor: t.accent,
-        ),
-      ],
-    );
-  }
-}
-
-// ═════════════════════════════════════════════════════════════════════
-// Editorial brand header.
-// ═════════════════════════════════════════════════════════════════════
-
-class _Hero extends StatelessWidget {
-  const _Hero({required this.isRegister});
-
-  final bool isRegister;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final l10n = context.l10n;
-    return Container(
-      key: const ValueKey('auth-hero'),
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-      decoration: BoxDecoration(
-        color: t.brandSurface,
-        borderRadius: const BorderRadius.only(
-          bottomLeft: Radius.circular(rHero),
-          bottomRight: Radius.circular(rHero),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _BrandMark(),
-          const SizedBox(height: 26),
-          AuthHeadline(
-            isRegister ? l10n.authHeadlineRegister : l10n.authHeadlineLogin,
-            style: AppType.display(
-              38,
-              color: t.onBrandSurface,
-              height: 1.04,
-              letterSpacing: -1.1,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            isRegister ? l10n.authSublineRegister : l10n.authSublineLogin,
-            style: AppType.ui(
-              14,
-              weight: FontWeight.w500,
-              color: t.onBrandSurface.withValues(alpha: 0.76),
-              height: 1.45,
-            ),
-          ),
-          const SizedBox(height: 22),
-          const AuthFeatureLine(),
-        ],
-      ),
-    );
-  }
-}
-
-// ═════════════════════════════════════════════════════════════════════
-// Google button - card surface, prominent primary action (OAuth).
-// ═════════════════════════════════════════════════════════════════════
 
 class _GoogleButton extends StatelessWidget {
   const _GoogleButton({
@@ -734,74 +662,6 @@ class _EmailForm extends StatelessWidget {
           onTap: onSubmit,
         ),
       ],
-    );
-  }
-}
-
-// ═════════════════════════════════════════════════════════════════════
-// Mode toggle - quiet text switch between login and register.
-// ═════════════════════════════════════════════════════════════════════
-
-class _ModeToggle extends StatelessWidget {
-  const _ModeToggle({required this.isRegister, required this.onTap});
-
-  final bool isRegister;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final l10n = context.l10n;
-    // MergeSemantics: prompt and action read as ONE button, not two texts.
-    return MergeSemantics(
-      child: Semantics(
-        button: true,
-        enabled: onTap != null,
-        child: InkWell(
-          key: ValueKey(
-            isRegister ? 'auth-toggle-login' : 'auth-toggle-register',
-          ),
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(rChip),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 44),
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-                // Wrap, not Row: at 200% system font the two texts stack
-                // instead of running off screen (WCAG 1.4.4).
-                child: Wrap(
-                  alignment: WrapAlignment.center,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 6,
-                  children: [
-                    Text(
-                      isRegister
-                          ? l10n.authTogglePromptRegister
-                          : l10n.authTogglePromptLogin,
-                      style: AppType.ui(
-                        14,
-                        weight: FontWeight.w500,
-                        color: t.ink2,
-                      ),
-                    ),
-                    Text(
-                      isRegister
-                          ? l10n.authToggleActionLogin
-                          : l10n.authToggleActionRegister,
-                      style: AppType.ui(
-                        14,
-                        weight: FontWeight.w700,
-                        color: t.accent,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

@@ -157,6 +157,9 @@ class _WelcomeScreenState extends State<WelcomeScreen>
               padding: const EdgeInsets.all(24),
               child: ConstrainedBox(
                 constraints: BoxConstraints(
+                  // The scroll view receives loose width constraints from the
+                  // Scaffold. Keep its centre independent of greeting width.
+                  minWidth: math.max(0, constraints.maxWidth - 48),
                   minHeight: math.max(0, constraints.maxHeight - 48),
                 ),
                 child: Column(
