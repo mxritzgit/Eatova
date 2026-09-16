@@ -1,10 +1,110 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/app_tokens.dart';
+import '../../l10n/l10n.dart';
+import '../design/app_icon.dart';
 import '../design/controls.dart';
 import '../design/sheets.dart';
 
-// ---------------------------------------------------------------------------
+/// Keeps the form readable on tablets and lets the keyboard resize it once.
+class AuthPageLayout extends StatelessWidget {
+  const AuthPageLayout({
+    super.key,
+    required this.child,
+    this.padding = EdgeInsets.zero,
+  });
+
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) => Align(
+    alignment: Alignment.topCenter,
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 520),
+      child: SingleChildScrollView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        padding: padding,
+        child: child,
+      ),
+    ),
+  );
+}
+
+/// Honors large text without splitting a headline's words on narrow phones.
+class AuthHeadline extends StatelessWidget {
+  const AuthHeadline(this.text, {super.key, required this.style});
+
+  final String text;
+  final TextStyle style;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    header: true,
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        final measure = TextPainter(
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+        );
+        var longestWord = 0.0;
+        for (final word in text.split(RegExp(r'\s+'))) {
+          measure.text = TextSpan(text: word, style: style);
+          measure.layout();
+          if (measure.width > longestWord) longestWord = measure.width;
+        }
+        measure.dispose();
+        final fit = longestWord == 0
+            ? 1.0
+            : ((constraints.maxWidth - 1) / longestWord).clamp(0.0, 1.0);
+        return Text(
+          text,
+          style: style.copyWith(
+            fontSize: style.fontSize! * fit,
+            letterSpacing: (style.letterSpacing ?? 0) * fit,
+          ),
+        );
+      },
+    ),
+  );
+}
+
+/// The three everyday activities behind the account, using the app's symbols.
+class AuthFeatureLine extends StatelessWidget {
+  const AuthFeatureLine({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    return Wrap(
+      spacing: 20,
+      runSpacing: 12,
+      children: [
+        for (final feature in [
+          (AppSymbol.food, l10n.authFeatureFood),
+          (AppSymbol.recipes, l10n.navRecipes),
+          (AppSymbol.training, l10n.navTraining),
+        ])
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AppIcon(feature.$1, size: 19, color: t.onBrandSurface),
+              const SizedBox(width: 6),
+              Text(
+                feature.$2,
+                style: AppType.ui(
+                  12,
+                  weight: FontWeight.w600,
+                  color: t.onBrandSurface,
+                ),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
+}
 // AUTH CONTROLS — shared by auth_screen.dart and auth_code_screen.dart.
 //
 // Inputs follow the house rule: no hairline, no focus ring. The capsule is a
@@ -12,7 +112,7 @@ import '../design/sheets.dart';
 // Colors via `context.t`, type via [AppType].
 // ---------------------------------------------------------------------------
 
-/// Borderless soft-capsule text field with an optional eyebrow label and
+/// Borderless soft-capsule text field with an optional persistent label and
 /// leading icon.
 class AuthField extends StatefulWidget {
   const AuthField({
@@ -39,7 +139,7 @@ class AuthField extends StatefulWidget {
   final TextEditingController controller;
   final String hint;
 
-  /// Small all-caps caption above the capsule.
+  /// Persistent caption above the capsule.
   final String? label;
   final IconData? icon;
   final bool enabled;
@@ -137,8 +237,8 @@ class _AuthFieldState extends State<AuthField> {
       children: [
         if (widget.label != null) ...[
           Text(
-            widget.label!.toUpperCase(),
-            style: AppType.eyebrow(t.ink2, size: 10.5),
+            widget.label!,
+            style: AppType.ui(13, weight: FontWeight.w600, color: t.ink2),
           ),
           const SizedBox(height: 8),
         ],
@@ -180,8 +280,8 @@ class AuthPasswordToggle extends StatelessWidget {
         message: label,
         excludeFromSemantics: true,
         child: SizedBox(
-          width: 44,
-          height: 44,
+          width: 48,
+          height: 48,
           child: Material(
             type: MaterialType.transparency,
             child: InkWell(
@@ -189,7 +289,9 @@ class AuthPasswordToggle extends StatelessWidget {
               onTap: onTap,
               customBorder: const CircleBorder(),
               child: Icon(
-                visible ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                visible
+                    ? Icons.visibility_off_rounded
+                    : Icons.visibility_rounded,
                 size: 20,
                 color: t.ink2,
               ),
@@ -231,7 +333,7 @@ class AuthTextLink extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(rChip),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 44),
+          constraints: const BoxConstraints(minHeight: 48),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             child: Center(
@@ -241,9 +343,9 @@ class AuthTextLink extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: AppType.ui(12.5, weight: FontWeight.w600, color: color)
                     .copyWith(
-                  decoration: TextDecoration.underline,
-                  decorationColor: color.withValues(alpha: 0.5),
-                ),
+                      decoration: TextDecoration.underline,
+                      decorationColor: color.withValues(alpha: 0.5),
+                    ),
               ),
             ),
           ),

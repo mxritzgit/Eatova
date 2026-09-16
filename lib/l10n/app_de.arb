@@ -1501,9 +1501,19 @@
   "authEyebrowLogin": "WILLKOMMEN ZURÜCK",
   "authEyebrowRegister": "KONTO ERSTELLEN",
   "authHeadlineLogin": "Schön,\ndich zu sehen.",
-  "authHeadlineRegister": "Starte deine\nReise.",
+  "authHeadlineRegister": "Deine Balance\nbeginnt hier.",
   "authSublineLogin": "Melde dich an und mach genau da weiter, wo du aufgehört hast.",
-  "authSublineRegister": "Erstell dein Konto und richte in einer Minute dein Tagesziel ein.",
+  "authSublineRegister": "Erstelle dein Konto. Danach richten wir dein persönliches Tagesziel ein.",
+  "authFieldPasswordLoginHint": "Dein Passwort",
+  "authFeatureFood": "Essen",
+  "authErrorPasswordMissing": "Bitte gib dein Passwort ein.",
+  "authRecoveryProgress": "Schritt {current} von {total}",
+  "@authRecoveryProgress": {
+    "placeholders": {
+      "current": {"type": "int"},
+      "total": {"type": "int"}
+    }
+  },
   "authGoogleCta": "Mit Google anmelden",
   "authOrWithEmail": "oder mit E-Mail",
   "authFieldNameLabel": "Name",

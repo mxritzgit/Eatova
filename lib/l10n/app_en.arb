@@ -1473,9 +1473,19 @@
   "authEyebrowLogin": "WELCOME BACK",
   "authEyebrowRegister": "CREATE ACCOUNT",
   "authHeadlineLogin": "Good to\nsee you.",
-  "authHeadlineRegister": "Start your\njourney.",
+  "authHeadlineRegister": "Your balance\nstarts here.",
   "authSublineLogin": "Sign in and pick up right where you left off.",
-  "authSublineRegister": "Create your account and set up your daily goal in a minute.",
+  "authSublineRegister": "Create your account. Then we’ll set up your personal daily goal.",
+  "authFieldPasswordLoginHint": "Your password",
+  "authFeatureFood": "Food",
+  "authErrorPasswordMissing": "Please enter your password.",
+  "authRecoveryProgress": "Step {current} of {total}",
+  "@authRecoveryProgress": {
+    "placeholders": {
+      "current": {"type": "int"},
+      "total": {"type": "int"}
+    }
+  },
   "authGoogleCta": "Sign in with Google",
   "authOrWithEmail": "or with email",
   "authFieldNameLabel": "Name",

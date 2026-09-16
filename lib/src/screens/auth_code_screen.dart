@@ -12,6 +12,7 @@ import '../services/local_cache.dart'
 import '../services/secure_screen.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/auth/auth_controls.dart';
+import '../widgets/shared/eatova_wordmark.dart';
 import '../widgets/common/app_snack.dart';
 import '../widgets/design/controls.dart';
 import '../widgets/design/sheets.dart';
@@ -814,9 +815,8 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
         key: const ValueKey('auth-code-screen'),
         backgroundColor: t.bg,
         body: SafeArea(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-                20, 8, 20, 24 + MediaQuery.viewInsetsOf(context).bottom),
+          child: AuthPageLayout(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
             // One autofill context: the password manager sees e-mail and new
             // password together and is told when they are final.
             child: AutofillGroup(
@@ -835,29 +835,71 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                             : () => Navigator.of(context).maybePop(),
                         semanticLabel: l10n.authBackSemanticLabel,
                       ),
+                      const Spacer(),
+                      EatovaWordmark(
+                        fontSize: 25,
+                        textColor: t.ink,
+                        ringColor: t.accent,
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 18),
-                  Text(
+                  const SizedBox(height: 30),
+                  if (_isRecovery) ...[
+                    ExcludeSemantics(
+                      child: Row(
+                        children: [
+                          for (var index = 0; index < 3; index++) ...[
+                            if (index > 0) const SizedBox(width: 6),
+                            Expanded(
+                              child: Container(
+                                height: 4,
+                                decoration: BoxDecoration(
+                                  color: index <= _step.index
+                                      ? t.accent
+                                      : t.line,
+                                  borderRadius: BorderRadius.circular(rChip),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      l10n.authRecoveryProgress(_step.index + 1, 3),
+                      style: AppType.ui(
+                        12,
+                        weight: FontWeight.w600,
+                        color: t.ink2,
+                      ),
+                    ),
+                    const SizedBox(height: 26),
+                  ],
+                  AuthHeadline(
                     switch (_step) {
                       _Step.email => l10n.authCodeTitleEmail,
                       _Step.code => l10n.authCodeTitleCode,
                       _Step.password => l10n.authCodeTitlePassword,
                     },
-                    style: AppType.display(28, color: t.ink, height: 1.08),
+                    style: AppType.display(
+                      32,
+                      color: t.ink,
+                      height: 1.08,
+                      letterSpacing: -0.9,
+                    ),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    switch (_step) {
-                      _Step.email =>
-                        l10n.authCodeSubtitleEmail(kAccountCodeLength),
-                      _Step.code => _isRecovery
+                  const SizedBox(height: 12),
+                  Text(switch (_step) {
+                    _Step.email => l10n.authCodeSubtitleEmail(
+                      kAccountCodeLength,
+                    ),
+                    _Step.code =>
+                      _isRecovery
                           ? l10n.authCodeSubtitleRecovery(email)
                           : l10n.authCodeSubtitleSignup(email),
-                      _Step.password => l10n.authCodeSubtitlePassword,
-                    },
-                    style: AppType.ui(13.5, color: t.ink2, height: 1.45),
-                  ),
+                    _Step.password => l10n.authCodeSubtitlePassword,
+                  }, style: AppType.ui(15, color: t.ink2, height: 1.45)),
                   const SizedBox(height: 26),
                   if (_step == _Step.email) ...[
                     AuthField(
@@ -894,6 +936,8 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                       textInputAction: TextInputAction.done,
                       autofillHints: const [AutofillHints.newPassword],
                       obscure: !_passwordVisible,
+                      autocorrect: false,
+                      enableSuggestions: false,
                       onSubmitted: (_) => _savePassword(),
                       trailing: AuthPasswordToggle(
                         toggleKey: const ValueKey('code-toggle-password'),
@@ -901,7 +945,8 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                         showLabel: l10n.authShowPasswordTooltip,
                         hideLabel: l10n.authHidePasswordTooltip,
                         onTap: () => setState(
-                            () => _passwordVisible = !_passwordVisible),
+                          () => _passwordVisible = !_passwordVisible,
+                        ),
                       ),
                     ),
                   ],
@@ -943,11 +988,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                   // and — before this — no way out at all for half an hour.
                   if (_step == _Step.email && _auswegSichtbar) ...[
                     const SizedBox(height: 12),
-                    _ausweg(
-                      l10n,
-                      t,
-                      onTap: () => _sendCode(trotzdem: true),
-                    ),
+                    _ausweg(l10n, t, onTap: () => _sendCode(trotzdem: true)),
                   ],
                   if (_step == _Step.code) ...[
                     const SizedBox(height: 12),
@@ -964,11 +1005,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                       ),
                     ),
                     if (_auswegSichtbar)
-                      _ausweg(
-                        l10n,
-                        t,
-                        onTap: () => _resend(trotzdem: true),
-                      ),
+                      _ausweg(l10n, t, onTap: () => _resend(trotzdem: true)),
                   ],
                 ],
               ),
@@ -1004,8 +1041,8 @@ class _CodeField extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          label.toUpperCase(),
-          style: AppType.eyebrow(t.ink2, size: 10.5),
+          label,
+          style: AppType.ui(13, weight: FontWeight.w600, color: t.ink2),
         ),
         const SizedBox(height: 8),
         // The `Focus` ancestor only observes (cannot take focus, skipped in
@@ -1014,50 +1051,83 @@ class _CodeField extends StatelessWidget {
           canRequestFocus: false,
           skipTraversal: true,
           includeSemantics: false,
-          child: Builder(
-            builder: (context) => FieldCapsule(
-              focused: Focus.of(context).hasFocus,
-              enabled: enabled,
-              constraints: const BoxConstraints(minHeight: 64),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              alignment: Alignment.center,
-              // Spoken name for the field; without it a screen reader only
-              // reads the dot hint.
-              child: Semantics(
-                label: label,
-                child: TextField(
-                  key: fieldKey,
-                  controller: controller,
-                  enabled: enabled,
-                  autofocus: true,
-                  keyboardType: TextInputType.number,
-                  // Without this hint the password manager never offers the
-                  // code.
-                  autofillHints: const [AutofillHints.oneTimeCode],
-                  inputFormatters: [
-                    FilteringTextInputFormatter.digitsOnly,
-                    LengthLimitingTextInputFormatter(kAccountCodeLength),
-                  ],
-                  textAlign: TextAlign.center,
-                  cursorColor: t.accent,
-                  onSubmitted: (_) => onSubmitted(),
-                  style: AppType.display(26, color: t.ink, letterSpacing: 10),
-                  decoration: InputDecoration(
-                    // One placeholder dot per digit.
-                    hintText: '·' * kAccountCodeLength,
-                    hintStyle:
-                        AppType.display(26, color: t.ink2, letterSpacing: 10),
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    disabledBorder: InputBorder.none,
-                    filled: false,
-                    isCollapsed: true,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final tracking =
+                  constraints.maxWidth < 320 ||
+                      MediaQuery.textScalerOf(context).scale(1) > 1.3
+                  ? 2.0
+                  : 6.0;
+              final baseStyle = AppType.display(
+                24,
+                color: t.ink,
+                letterSpacing: tracking,
+              );
+              // Keep the complete code in view, including the widest digits,
+              // while using as much of the requested text size as will fit.
+              final measure = TextPainter(
+                text: TextSpan(
+                  text: '8' * kAccountCodeLength,
+                  style: baseStyle,
+                ),
+                textDirection: Directionality.of(context),
+                textScaler: MediaQuery.textScalerOf(context),
+              )..layout();
+              final fit = ((constraints.maxWidth - 44) / measure.width).clamp(
+                0.0,
+                1.0,
+              );
+              measure.dispose();
+              final codeStyle = baseStyle.copyWith(
+                fontSize: 24 * fit,
+                letterSpacing: tracking * fit,
+              );
+              return FieldCapsule(
+                focused: Focus.of(context).hasFocus,
+                enabled: enabled,
+                constraints: const BoxConstraints(minHeight: 64),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                alignment: Alignment.center,
+                // Spoken name for the field; without it a screen reader only
+                // reads the dot hint.
+                child: Semantics(
+                  label: label,
+                  child: TextField(
+                    key: fieldKey,
+                    controller: controller,
+                    enabled: enabled,
+                    autofocus: true,
+                    keyboardType: TextInputType.number,
+                    // Without this hint the password manager never offers the
+                    // code.
+                    autofillHints: const [AutofillHints.oneTimeCode],
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(kAccountCodeLength),
+                    ],
+                    textAlign: TextAlign.center,
+                    cursorColor: t.accent,
+                    onSubmitted: (_) => onSubmitted(),
+                    style: codeStyle,
+                    decoration: InputDecoration(
+                      // One placeholder dot per digit.
+                      hintText: '·' * kAccountCodeLength,
+                      hintStyle: codeStyle.copyWith(color: t.ink2),
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      disabledBorder: InputBorder.none,
+                      filled: false,
+                      isCollapsed: true,
+                      contentPadding: EdgeInsets.zero,
+                    ),
                   ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
         ),
       ],

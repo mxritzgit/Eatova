@@ -150,6 +150,7 @@ Future<void> _tippeNeuAnfordern(WidgetTester tester) async {
 
 /// Taps the "try anyway" escape once and settles.
 Future<void> _tippeTrotzdem(WidgetTester tester) async {
+  await tester.ensureVisible(_ausweichLink);
   await tester.tap(_ausweichLink);
   await tester.pumpAndSettle();
 }
