@@ -148,95 +148,103 @@ class _WelcomeScreenState extends State<WelcomeScreen>
               opacity: 1 - exit,
               child: Transform.translate(
                 offset: Offset(0, -16 * exit),
-                child: Transform.scale(
-                  scale: 1 - 0.015 * exit,
-                  child: child,
-                ),
+                child: Transform.scale(scale: 1 - 0.015 * exit, child: child),
               ),
             );
           },
-          child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                AnimatedBuilder(
-                  animation: Listenable.merge(
-                    [_introController, _loopController, _assembleController],
-                  ),
-                  builder: (context, _) {
-                    final iv = _introController.value;
-                    double seg(double a, double b, Curve curve) =>
-                        curve.transform(((iv - a) / (b - a)).clamp(0.0, 1.0));
-                    // Staged intro: the mark fades in, the ring draws itself,
-                    // ticks and dot follow, then the hunt takes over.
-                    final appear = seg(0.0, 0.35, Curves.easeOutCubic);
-                    final draw = seg(0.08, 0.60, Curves.easeInOutCubic);
-                    final ticksIn = seg(0.52, 0.86, Curves.easeOutCubic);
-                    final dotPop = seg(0.62, 0.95, Curves.easeOutBack);
-                    final cometIn = seg(0.60, 0.80, Curves.easeOutCubic);
-                    // Lock-in: position/size follow the eased curve, the comet
-                    // leaves within the first third.
-                    final av =
-                        _reduceMotion ? 1.0 : _assembleController.value;
-                    final assemble = Curves.easeInOutCubic.transform(av);
-                    final hunt =
-                        _reduceMotion ? 0.0 : 1 - (av / 0.35).clamp(0.0, 1.0);
-                    // Dot breathing: one full wave per orbit.
-                    final breath = 0.5 -
-                        0.5 * math.cos(2 * math.pi * _loopController.value);
-                    // Painted lettering, so screen readers need a label.
-                    return Semantics(
-                      label: 'Eatova',
-                      child: SizedBox(
-                        key: const ValueKey('boot-mark'),
-                        width: 280,
-                        height: 132,
-                        child: CustomPaint(
-                          painter: _BootMarkPainter(
-                            ring: t.lime,
-                            text: t.onForest,
-                            appear: appear,
-                            draw: draw,
-                            ticksIn: ticksIn,
-                            dotPop: dotPop,
-                            cometIn: cometIn,
-                            orbit: _loopController.value,
-                            breath: breath,
-                            hunt: hunt,
-                            assemble: assemble,
-                          ),
-                        ),
-                      ),
-                    );
-                  },
+          child: LayoutBuilder(
+            builder: (context, constraints) => SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: math.max(0, constraints.maxHeight - 48),
                 ),
-                const SizedBox(height: 26),
-                // Reserved height so the mark does not jump when the greeting
-                // appears. A MINIMUM, scaled with the system text size: at
-                // textScaler 2.0 the two-line greeting needs more than 68 px,
-                // and a fixed height would overflow there.
-                ConstrainedBox(
-                  constraints: BoxConstraints(
-                    minHeight: MediaQuery.textScalerOf(context).scale(68),
-                  ),
-                  child: AnimatedSwitcher(
-                    duration: motionDuration(
-                      context,
-                      const Duration(milliseconds: 260),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    AnimatedBuilder(
+                      animation: Listenable.merge([
+                        _introController,
+                        _loopController,
+                        _assembleController,
+                      ]),
+                      builder: (context, _) {
+                        final iv = _introController.value;
+                        double seg(double a, double b, Curve curve) => curve
+                            .transform(((iv - a) / (b - a)).clamp(0.0, 1.0));
+                        // Staged intro: the mark fades in, the ring draws itself,
+                        // ticks and dot follow, then the hunt takes over.
+                        final appear = seg(0.0, 0.35, Curves.easeOutCubic);
+                        final draw = seg(0.08, 0.60, Curves.easeInOutCubic);
+                        final ticksIn = seg(0.52, 0.86, Curves.easeOutCubic);
+                        final dotPop = seg(0.62, 0.95, Curves.easeOutBack);
+                        final cometIn = seg(0.60, 0.80, Curves.easeOutCubic);
+                        // Lock-in: position/size follow the eased curve, the comet
+                        // leaves within the first third.
+                        final av = _reduceMotion
+                            ? 1.0
+                            : _assembleController.value;
+                        final assemble = Curves.easeInOutCubic.transform(av);
+                        final hunt = _reduceMotion
+                            ? 0.0
+                            : 1 - (av / 0.35).clamp(0.0, 1.0);
+                        // Dot breathing: one full wave per orbit.
+                        final breath =
+                            0.5 -
+                            0.5 * math.cos(2 * math.pi * _loopController.value);
+                        // Painted lettering, so screen readers need a label.
+                        return Semantics(
+                          label: 'Eatova',
+                          child: SizedBox(
+                            key: const ValueKey('boot-mark'),
+                            width: 280,
+                            height: 132,
+                            child: CustomPaint(
+                              painter: _BootMarkPainter(
+                                ring: t.lime,
+                                text: t.onForest,
+                                appear: appear,
+                                draw: draw,
+                                ticksIn: ticksIn,
+                                dotPop: dotPop,
+                                cometIn: cometIn,
+                                orbit: _loopController.value,
+                                breath: breath,
+                                hunt: hunt,
+                                assemble: assemble,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                     ),
-                    switchInCurve: Curves.easeOutCubic,
-                    switchOutCurve: Curves.easeIn,
-                    child: _showWelcome
-                        ? _WelcomeText(
-                            key: const ValueKey('welcome-text'),
-                            firstName: widget.firstName,
-                          )
-                        : const SizedBox.shrink(
-                            key: ValueKey('boot-hold'),
-                          ),
-                  ),
+                    const SizedBox(height: 16),
+                    // Reserved height so the mark does not jump when the greeting
+                    // appears. A MINIMUM, scaled with the system text size: at
+                    // textScaler 2.0 the two-line greeting needs more than 68 px,
+                    // and a fixed height would overflow there.
+                    ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: MediaQuery.textScalerOf(context).scale(68),
+                      ),
+                      child: AnimatedSwitcher(
+                        duration: motionDuration(
+                          context,
+                          const Duration(milliseconds: 260),
+                        ),
+                        switchInCurve: Curves.easeOutCubic,
+                        switchOutCurve: Curves.easeIn,
+                        child: _showWelcome
+                            ? _WelcomeText(
+                                key: const ValueKey('welcome-text'),
+                                firstName: widget.firstName,
+                              )
+                            : const SizedBox.shrink(key: ValueKey('boot-hold')),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
@@ -484,32 +492,35 @@ class _WelcomeText extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          l10n.onboardingWelcomeTitle(firstName),
-          textAlign: TextAlign.center,
-          style: AppType.display(
-            22,
-            weight: FontWeight.w700,
-            letterSpacing: -0.4,
-            color: t.onForest,
+    return Semantics(
+      liveRegion: true,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            l10n.onboardingWelcomeTitle(firstName),
+            textAlign: TextAlign.center,
+            style: AppType.display(
+              28,
+              weight: FontWeight.w700,
+              letterSpacing: -0.4,
+              color: t.onForest,
+            ),
           ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          l10n.authWelcomeSignedIn,
-          textAlign: TextAlign.center,
-          style: AppType.ui(
-            14,
-            weight: FontWeight.w500,
-            // Muted, but on the brand surface — not t.ink2, which is tuned
-            // for the mode background and would clash with forest.
-            color: t.onForest.withValues(alpha: 0.62),
+          const SizedBox(height: 6),
+          Text(
+            l10n.authWelcomeSignedIn,
+            textAlign: TextAlign.center,
+            style: AppType.ui(
+              14,
+              weight: FontWeight.w500,
+              // Muted, but on the brand surface — not t.ink2, which is tuned
+              // for the mode background and would clash with forest.
+              color: t.onForest.withValues(alpha: 0.76),
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

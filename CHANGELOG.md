@@ -8,12 +8,19 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
 
 ## [Unreleased]
 
-Updated 2026-09-15. These entries describe repository changes, not a newly
+Updated 2026-09-16. These entries describe repository changes, not a newly
 published store version. Older entries below retain
 their implementation history; [the feature inventory](docs/FEATURES.md) describes
 the complete current product.
 
 ### Latest changes (September 2026)
+
+- **Account entry and onboarding:** Balance Duo login, signup and code entry;
+  six grouped setup screens with direct summary editing. Existing passwords
+  reach server validation without the signup-only minimum length. Late password,
+  signup and native Google responses cannot replace a newer session; onboarding
+  completion is idempotent and leaves reminders to explicit opt-in. See the
+  [design and behavior contract](docs/AUTH-ONBOARDING-DESIGN.md).
 
 - **Security follow-up:** concurrent diary deletions no longer skip unread rows
   in account exports. Coach client cancellations preserve consumed daily quota;

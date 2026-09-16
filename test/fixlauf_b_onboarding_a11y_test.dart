@@ -63,27 +63,17 @@ Future<void> _next(WidgetTester tester, [int times = 1]) async {
 }
 
 void main() {
-  testWidgets('F2-08: die Intro nennt die echte Zahl der Fragen',
-      (tester) async {
+  testWidgets('progress names the six real groups', (tester) async {
     await _pump(tester, profile: const UserProfile());
-    expect(find.text(deL10n.onboardingWelcomeBody(7)), findsOneWidget,
-        reason: 'Halten: 7 Fragen zwischen Intro und Zusammenfassung');
-
-    await _pump(
-      tester,
-      profile: const UserProfile(
-        weightGoal: WeightGoal.lose05kg,
-        targetWeightKg: 68,
-      ),
-    );
-    expect(find.text(deL10n.onboardingWelcomeBody(9)), findsOneWidget,
-        reason: 'Abnehmen: Zielgewicht und Tempo kommen dazu');
+    expect(find.byKey(const ValueKey('onboarding-step-basics')), findsOneWidget);
+    expect(find.text('1 / 6'), findsOneWidget);
+    await _next(tester);
+    expect(find.text('2 / 6'), findsOneWidget);
   });
 
   testWidgets('F2-04: Auswahlkarten sind Knoepfe mit selected-Status',
       (tester) async {
     await _pump(tester, profile: const UserProfile());
-    await _next(tester); // sex
 
     await tester.tap(find.byKey(const ValueKey('onboarding-sex-male')));
     await tester.pumpAndSettle();
@@ -96,7 +86,7 @@ void main() {
       isSemantics(isButton: true, isSelected: false),
     );
 
-    await _next(tester, 4); // age, height, weight -> activity
+    await _next(tester, 2); // basics, body -> activity
     await tester.tap(find.byKey(const ValueKey('onboarding-activity-moderate')));
     await tester.pumpAndSettle();
     expect(
@@ -109,7 +99,7 @@ void main() {
   testWidgets('F2-04: Stepper haben Labels, der Slider spricht den Wert',
       (tester) async {
     await _pump(tester, profile: const UserProfile(weightKg: 75));
-    await _next(tester, 4); // -> weight
+    await _next(tester); // -> body
 
     expect(
       tester.getSemantics(find.byKey(const ValueKey('onboarding-weight-dec'))),
@@ -138,10 +128,9 @@ void main() {
     };
     try {
       await _pump(tester, profile: const UserProfile(), textScale: 2.0);
-      await _next(tester); // sex
       expect(
         find.descendant(
-          of: find.byKey(const ValueKey('onboarding-step-sex')),
+          of: find.byKey(const ValueKey('onboarding-sex-male')),
           matching: find.byType(FittedBox),
         ),
         findsNothing,
@@ -154,10 +143,9 @@ void main() {
       expect(female.top, greaterThan(male.bottom - 1),
           reason: 'gestapelt statt eingedampft');
 
-      await _next(tester); // age
       expect(
         find.descendant(
-          of: find.byKey(const ValueKey('onboarding-step-age')),
+          of: find.byKey(const ValueKey('onboarding-step-basics')),
           matching: find.byType(FittedBox),
         ),
         findsOneWidget,
@@ -171,7 +159,6 @@ void main() {
 
   testWidgets('bei 1.0 stehen die drei Kacheln nebeneinander', (tester) async {
     await _pump(tester, profile: const UserProfile());
-    await _next(tester);
     final male = tester.getRect(find.byKey(const ValueKey('onboarding-sex-male')));
     final female =
         tester.getRect(find.byKey(const ValueKey('onboarding-sex-female')));

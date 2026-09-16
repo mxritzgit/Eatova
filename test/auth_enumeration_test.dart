@@ -105,14 +105,17 @@ void main() {
 
   group('signUp meldet den Existenzfall zurueck', () {
     test('leeres identities-Array => emailAlreadyRegistered', () async {
-      final client = _clientAm(MockClient((req) async => http.Response(
+      final transport = MockClient((req) async => http.Response(
             jsonEncode(_userJson(identities: const [])),
             200,
             headers: _jsonHeader,
-          )));
+          ));
+      final client = _clientAm(transport);
       addTearDown(client.dispose);
 
-      final ergebnis = await SupabaseAuthRepository(client).signUp(
+      final ergebnis = await SupabaseAuthRepository(
+        client, mutationHttpClient: transport,
+      ).signUp(
         email: 'schon@eatova.de',
         password: 'eatova123',
         displayName: 'Moritz',
@@ -123,7 +126,7 @@ void main() {
     });
 
     test('gefuelltes identities-Array => created', () async {
-      final client = _clientAm(MockClient((req) async => http.Response(
+      final transport = MockClient((req) async => http.Response(
             jsonEncode(_userJson(identities: [
               {
                 'id': 'ident-1',
@@ -135,10 +138,13 @@ void main() {
             ])),
             200,
             headers: _jsonHeader,
-          )));
+          ));
+      final client = _clientAm(transport);
       addTearDown(client.dispose);
 
-      final ergebnis = await SupabaseAuthRepository(client).signUp(
+      final ergebnis = await SupabaseAuthRepository(
+        client, mutationHttpClient: transport,
+      ).signUp(
         email: 'neu@eatova.de',
         password: 'eatova123',
         displayName: 'Moritz',
@@ -148,14 +154,17 @@ void main() {
     });
 
     test('fehlendes identities-Feld gilt als frische Registrierung', () async {
-      final client = _clientAm(MockClient((req) async => http.Response(
+      final transport = MockClient((req) async => http.Response(
             jsonEncode(_userJson()),
             200,
             headers: _jsonHeader,
-          )));
+          ));
+      final client = _clientAm(transport);
       addTearDown(client.dispose);
 
-      final ergebnis = await SupabaseAuthRepository(client).signUp(
+      final ergebnis = await SupabaseAuthRepository(
+        client, mutationHttpClient: transport,
+      ).signUp(
         email: 'neu@eatova.de',
         password: 'eatova123',
         displayName: 'Moritz',

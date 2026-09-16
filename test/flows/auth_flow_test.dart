@@ -82,6 +82,7 @@ void main() {
       find.byKey(const ValueKey('auth-password-field')),
       'eatova123',
     );
+    await tester.ensureVisible(find.byKey(const ValueKey('auth-submit')));
     await tester.tap(find.byKey(const ValueKey('auth-submit')));
     await tester.pumpAndSettle();
 

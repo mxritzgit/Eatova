@@ -21,11 +21,7 @@ import 'auth_code_screen.dart';
 import 'settings/account_change_messages.dart'
     show kAccountMinPasswordLength, classifyAuthError, AuthErrorKind;
 
-/// Eatova auth: one calm single screen that follows the display mode.
-///
-/// Soft accent aurora at the top, compact brand mark, large headline, Google
-/// OAuth as the primary action, borderless e-mail fields and the primary CTA
-/// below, the login/register switch as a quiet text toggle at the bottom.
+/// An editorial brand header and a single, accessible sign-in form.
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key, required this.authRepository});
 
@@ -42,6 +38,7 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _isRegister = false;
   bool _loading = false;
   bool _passwordVisible = false;
+  bool _codeRouteOpen = false;
   EatovaOAuthProvider? _oauthLoading;
   String? _message;
   String? _error;
@@ -58,7 +55,7 @@ class _AuthScreenState extends State<AuthScreen> {
     super.dispose();
   }
 
-  bool get _busy => _loading || _oauthLoading != null;
+  bool get _busy => _loading || _oauthLoading != null || _codeRouteOpen;
 
   void _clearNotes() {
     _error = null;
@@ -98,9 +95,15 @@ class _AuthScreenState extends State<AuthScreen> {
       setState(() => _error = l10n.authErrorInvalidEmail);
       return;
     }
-    if (password.length < kAccountMinPasswordLength) {
-      setState(() => _error =
-          l10n.authErrorPasswordTooShort(kAccountMinPasswordLength));
+    if (password.isEmpty) {
+      setState(() => _error = l10n.authErrorPasswordMissing);
+      return;
+    }
+    if (_isRegister && password.length < kAccountMinPasswordLength) {
+      setState(
+        () =>
+            _error = l10n.authErrorPasswordTooShort(kAccountMinPasswordLength),
+      );
       return;
     }
     if (_isRegister && name.length < 2) {
@@ -146,14 +149,22 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
-  Future<void> _openSignupCode(String email) {
-    return Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => AuthCodeScreen(
-        authRepository: widget.authRepository,
-        flow: AuthCodeFlow.signup,
-        initialEmail: email,
-      ),
-    ));
+  Future<void> _openSignupCode(String email) async {
+    if (_codeRouteOpen) return;
+    setState(() => _codeRouteOpen = true);
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => AuthCodeScreen(
+            authRepository: widget.authRepository,
+            flow: AuthCodeFlow.signup,
+            initialEmail: email,
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _codeRouteOpen = false);
+    }
   }
 
   /// Answer to "this address already has an account", in both shapes GoTrue
@@ -170,6 +181,10 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   bool _isExistingAccount(Object error) {
+    if (error is AuthException &&
+        (error.code == 'user_already_exists' || error.code == 'email_exists')) {
+      return true;
+    }
     final raw = error.toString().toLowerCase();
     return raw.contains('already registered') || raw.contains('already exists');
   }
@@ -185,15 +200,25 @@ class _AuthScreenState extends State<AuthScreen> {
 
   /// Opens the code flow page (8-digit OTP instead of a mail link) with the
   /// email prefilled; entering/changing it happens there.
-  void _forgotPassword() {
-    setState(_clearNotes);
-    Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => AuthCodeScreen(
-        authRepository: widget.authRepository,
-        flow: AuthCodeFlow.recovery,
-        initialEmail: _emailController.text.trim(),
-      ),
-    ));
+  Future<void> _forgotPassword() async {
+    if (_busy || _codeRouteOpen) return;
+    setState(() {
+      _clearNotes();
+      _codeRouteOpen = true;
+    });
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => AuthCodeScreen(
+            authRepository: widget.authRepository,
+            flow: AuthCodeFlow.recovery,
+            initialEmail: _emailController.text.trim(),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _codeRouteOpen = false);
+    }
   }
 
   String _friendlyError(Object error) {
@@ -218,7 +243,8 @@ class _AuthScreenState extends State<AuthScreen> {
       case AuthErrorKind.sendThrottled:
         if (_isRegister) {
           return l10n.authCodeRateLimitedSeconds(
-              classified.retryAfter!.inSeconds);
+            classified.retryAfter!.inSeconds,
+          );
         }
         return l10n.settingsAccountRateLimited;
       case AuthErrorKind.rateLimited:
@@ -248,7 +274,7 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   void _setMode(bool register) {
-    if (register == _isRegister) return;
+    if (_busy || register == _isRegister) return;
     setState(() {
       _isRegister = register;
       _clearNotes();
@@ -258,96 +284,68 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final insets = MediaQuery.viewInsetsOf(context).bottom;
     final unconfirmed = _unconfirmedEmail;
 
     return SecureScreenGuard(
       child: Scaffold(
         key: const ValueKey('screen-auth'),
         backgroundColor: t.bg,
-        body: Stack(
-          children: [
-            const Positioned.fill(child: _AuroraBackdrop()),
-            SafeArea(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.fromLTRB(24, 0, 24, 28 + insets),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const SizedBox(height: 8),
-                    const _BrandMark(),
-                    const SizedBox(height: 16),
-                    _Hero(isRegister: _isRegister),
-                    const SizedBox(height: 18),
-                    _GoogleButton(
-                      enabled: !_busy,
-                      loading: _oauthLoading == EatovaOAuthProvider.google,
-                      onTap: () => _startOAuth(EatovaOAuthProvider.google),
-                    ),
-                    const SizedBox(height: 14),
-                    const _OrDivider(),
-                    const SizedBox(height: 14),
-                    // One autofill context for the whole form, so the
-                    // password manager sees name, e-mail and password together.
-                    AutofillGroup(
-                      child: _EmailForm(
-                        isRegister: _isRegister,
-                        loading: _loading,
-                        busy: _busy,
-                        passwordVisible: _passwordVisible,
-                        nameController: _nameController,
-                        emailController: _emailController,
-                        passwordController: _passwordController,
-                        error: _error,
-                        message: _message,
-                        onTogglePassword: () => setState(
-                            () => _passwordVisible = !_passwordVisible),
-                        onSubmit: _submit,
-                        onForgotPassword: _forgotPassword,
-                        onEnterCode: unconfirmed == null
-                            ? null
-                            : () => _openSignupCode(unconfirmed),
+        body: SafeArea(
+          child: AuthPageLayout(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _Hero(isRegister: _isRegister),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 28),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _GoogleButton(
+                        enabled: !_busy,
+                        loading: _oauthLoading == EatovaOAuthProvider.google,
+                        onTap: () => _startOAuth(EatovaOAuthProvider.google),
                       ),
-                    ),
-                    const SizedBox(height: 14),
-                    _ModeToggle(
-                      isRegister: _isRegister,
-                      onTap: _busy ? null : () => _setMode(!_isRegister),
-                    ),
-                    const SizedBox(height: 16),
-                    const _ConsentNotice(),
-                  ],
+                      const SizedBox(height: 14),
+                      const _OrDivider(),
+                      const SizedBox(height: 14),
+                      // One autofill context for the whole form, so the
+                      // password manager sees name, e-mail and password together.
+                      AutofillGroup(
+                        child: _EmailForm(
+                          isRegister: _isRegister,
+                          loading: _loading,
+                          busy: _busy,
+                          passwordVisible: _passwordVisible,
+                          nameController: _nameController,
+                          emailController: _emailController,
+                          passwordController: _passwordController,
+                          error: _error,
+                          message: _message,
+                          onTogglePassword: () => setState(
+                            () => _passwordVisible = !_passwordVisible,
+                          ),
+                          onSubmit: _submit,
+                          onForgotPassword: _forgotPassword,
+                          onEnterCode: unconfirmed == null
+                              ? null
+                              : () {
+                                  if (!_busy) _openSignupCode(unconfirmed);
+                                },
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+                      _ModeToggle(
+                        isRegister: _isRegister,
+                        onTap: _busy ? null : () => _setMode(!_isRegister),
+                      ),
+                      const SizedBox(height: 16),
+                      const _ConsentNotice(),
+                    ],
+                  ),
                 ),
-              ),
+              ],
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ═════════════════════════════════════════════════════════════════════
-// Aurora backdrop - one soft accent light source at the top, decorative.
-// ═════════════════════════════════════════════════════════════════════
-
-class _AuroraBackdrop extends StatelessWidget {
-  const _AuroraBackdrop();
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return IgnorePointer(
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: RadialGradient(
-            center: const Alignment(0.0, -1.15),
-            radius: 1.05,
-            colors: [
-              t.lime.withValues(alpha: 0.17),
-              t.lime.withValues(alpha: 0.0),
-            ],
-            stops: const [0.0, 1.0],
           ),
         ),
       ),
@@ -355,28 +353,28 @@ class _AuroraBackdrop extends StatelessWidget {
   }
 }
 
-// ═════════════════════════════════════════════════════════════════════
-// Brand mark - Eatova wordmark with the focus-ring o.
-// ═════════════════════════════════════════════════════════════════════
-
 class _BrandMark extends StatelessWidget {
   const _BrandMark();
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    // On the mode ground the mark takes ink/accent, not the brand pair.
+    // The header uses the theme-aware brand pair.
     return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisAlignment: MainAxisAlignment.start,
       children: [
-        EatovaWordmark(fontSize: 26, textColor: t.ink, ringColor: t.accent),
+        EatovaWordmark(
+          fontSize: 27,
+          textColor: t.onBrandSurface,
+          ringColor: t.accent,
+        ),
       ],
     );
   }
 }
 
 // ═════════════════════════════════════════════════════════════════════
-// Hero - eyebrow, large headline, quiet subline.
+// Editorial brand header.
 // ═════════════════════════════════════════════════════════════════════
 
 class _Hero extends StatelessWidget {
@@ -388,30 +386,44 @@ class _Hero extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    return Column(
+    return Container(
       key: const ValueKey('auth-hero'),
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          isRegister ? l10n.authEyebrowRegister : l10n.authEyebrowLogin,
-          style: AppType.eyebrow(t.accent, size: 11),
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+      decoration: BoxDecoration(
+        color: t.brandSurface,
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(rHero),
+          bottomRight: Radius.circular(rHero),
         ),
-        const SizedBox(height: 12),
-        Text(
-          isRegister ? l10n.authHeadlineRegister : l10n.authHeadlineLogin,
-          style: AppType.display(30, color: t.ink, height: 1.08),
-        ),
-        const SizedBox(height: 12),
-        Text(
-          isRegister ? l10n.authSublineRegister : l10n.authSublineLogin,
-          style: AppType.ui(
-            15,
-            weight: FontWeight.w500,
-            color: t.ink2,
-            height: 1.45,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const _BrandMark(),
+          const SizedBox(height: 26),
+          AuthHeadline(
+            isRegister ? l10n.authHeadlineRegister : l10n.authHeadlineLogin,
+            style: AppType.display(
+              38,
+              color: t.onBrandSurface,
+              height: 1.04,
+              letterSpacing: -1.1,
+            ),
           ),
-        ),
-      ],
+          const SizedBox(height: 12),
+          Text(
+            isRegister ? l10n.authSublineRegister : l10n.authSublineLogin,
+            style: AppType.ui(
+              14,
+              weight: FontWeight.w500,
+              color: t.onBrandSurface.withValues(alpha: 0.76),
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 22),
+          const AuthFeatureLine(),
+        ],
+      ),
     );
   }
 }
@@ -443,20 +455,21 @@ class _GoogleButton extends StatelessWidget {
         child: Container(
           decoration: BoxDecoration(
             color: t.surf,
-            borderRadius: BorderRadius.circular(rPill),
+            borderRadius: BorderRadius.circular(rControl),
             border: Border.all(color: t.line),
-            boxShadow: softShadow(t),
           ),
           child: Material(
             type: MaterialType.transparency,
-            borderRadius: BorderRadius.circular(rPill),
+            borderRadius: BorderRadius.circular(rControl),
             clipBehavior: Clip.antiAlias,
             child: InkWell(
               key: const ValueKey('auth-google-oauth'),
               onTap: enabled ? onTap : null,
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(vertical: 16, horizontal: 18),
+                padding: const EdgeInsets.symmetric(
+                  vertical: 16,
+                  horizontal: 18,
+                ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -476,8 +489,7 @@ class _GoogleButton extends StatelessWidget {
                     Flexible(
                       child: Text(
                         context.l10n.authGoogleCta,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
                         style: AppType.ui(
                           15.5,
                           weight: FontWeight.w700,
@@ -560,8 +572,7 @@ class _OrDivider extends StatelessWidget {
         Flexible(
           child: Text(
             context.l10n.authOrWithEmail,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
             style: AppType.ui(
               12,
               weight: FontWeight.w600,
@@ -662,10 +673,14 @@ class _EmailForm extends StatelessWidget {
           fieldKey: const ValueKey('auth-password-field'),
           icon: Icons.lock_outline_rounded,
           label: l10n.authFieldPasswordLabel,
-          hint: l10n.authFieldPasswordHint,
+          hint: isRegister
+              ? l10n.authFieldPasswordHint
+              : l10n.authFieldPasswordLoginHint,
           controller: passwordController,
           enabled: !busy,
           obscure: !passwordVisible,
+          autocorrect: false,
+          enableSuggestions: false,
           textInputAction: TextInputAction.done,
           autofillHints: isRegister
               ? const [AutofillHints.newPassword]
@@ -744,15 +759,15 @@ class _ModeToggle extends StatelessWidget {
         enabled: onTap != null,
         child: InkWell(
           key: ValueKey(
-              isRegister ? 'auth-toggle-login' : 'auth-toggle-register'),
+            isRegister ? 'auth-toggle-login' : 'auth-toggle-register',
+          ),
           onTap: onTap,
           borderRadius: BorderRadius.circular(rChip),
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 44),
             child: Center(
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
                 // Wrap, not Row: at 200% system font the two texts stack
                 // instead of running off screen (WCAG 1.4.4).
                 child: Wrap(
@@ -819,8 +834,10 @@ class _ConsentNoticeState extends State<_ConsentNotice> {
   Future<void> _open(String url) async {
     var geoeffnet = false;
     try {
-      geoeffnet =
-          await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+      geoeffnet = await launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+      );
     } catch (_) {
       geoeffnet = false;
     }

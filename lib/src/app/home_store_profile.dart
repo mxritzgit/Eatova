@@ -308,6 +308,7 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
   /// the entered body data and sent the user through onboarding again. Runs
   /// through the outbox now.
   Future<void> completeOnboarding(UserProfile finished) async {
+    if (_disposed || _onboardingDone) return;
     _mutate(() {
       profile = finished;
       _onboardingDone = true;
@@ -317,7 +318,7 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     });
     if (sync == null) return;
     unawaited(_cache?.writeProfile(finished) ?? Future<void>.value());
-    unawaited(_setNotificationsEnabled(true));
+    // Reminders are an explicit Settings opt-in, separate from profile setup.
     _syncOrQueue(
       'Profil-Sync (Onboarding)',
       () => sync!.profile.save(finished),

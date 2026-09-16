@@ -369,7 +369,7 @@ void main() {
         () async {
       final wege = <String>[];
       final kopfzeilen = <String?>[];
-      final client = _clientAm(MockClient((req) async {
+      final transport = MockClient((req) async {
         if (req.url.path.endsWith('/token')) {
           return http.Response(jsonEncode(_sessionJson()), 200,
               headers: _jsonHeader);
@@ -381,10 +381,11 @@ void main() {
           return http.Response('{}', 200, headers: _jsonHeader);
         }
         return http.Response('{}', 200, headers: _jsonHeader);
-      }));
+      });
+      final client = _clientAm(transport);
       addTearDown(client.dispose);
 
-      final repo = SupabaseAuthRepository(client);
+      final repo = SupabaseAuthRepository(client, mutationHttpClient: transport);
       await repo.signIn(email: 'alt@eatova.de', password: 'eatova123');
       await repo.startPasswordChange();
 

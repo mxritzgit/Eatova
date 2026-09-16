@@ -46,7 +46,7 @@ class OnboardingScreen extends StatefulWidget {
 
 enum _GoalDirection { lose, maintain, gain }
 
-enum _Step { intro, sex, age, height, weight, activity, goal, target, pace, diet, summary }
+enum _Step { basics, body, activity, goal, diet, summary }
 
 class _OnboardingScreenState extends State<OnboardingScreen> {
   late BiologicalSex _sex;
@@ -57,10 +57,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   late _GoalDirection _direction;
   late int _target;
   late DietPreference _diet;
+  final _targetsByDirection = <_GoalDirection, int>{};
   // Separate pace per direction, so switching back and forth loses nothing.
   WeightGoal _losePace = WeightGoal.lose05kg;
   WeightGoal _gainPace = WeightGoal.gain025kg;
   int _index = 0;
+  bool _editing = false;
 
   @override
   void initState() {
@@ -89,38 +91,18 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       _direction = _GoalDirection.maintain;
     }
     _target = clampProfileTargetWeightKg(p.targetWeightKg);
+    _targetsByDirection[_direction] = _target;
     _diet = p.diet;
   }
 
-  /// Visible steps — target weight and pace are skipped for "maintain", and
-  /// for a direction that has no target left to offer ([_targetWindow] null).
-  ///
-  /// The second case is the same statement as the first: gaining at the 300 kg
-  /// column end has nothing to aim at, so the plan IS maintain (the calculator
-  /// derives exactly that, see [UserProfile.effectiveWeightGoal]). Two steps
-  /// whose only value is today's weight would be dead controls over a footnote
-  /// reading "0 kg", which is what the picker used to draw.
-  List<_Step> get _steps => [
-        _Step.intro,
-        _Step.sex,
-        _Step.age,
-        _Step.height,
-        _Step.weight,
-        _Step.activity,
-        _Step.goal,
-        if (_direction != _GoalDirection.maintain && _targetWindow != null) ...[
-          _Step.target,
-          _Step.pace,
-        ],
-        _Step.diet,
-        _Step.summary,
-      ];
+  /// Six stable groups; the goal group conditionally offers target and pace.
+  static const _steps = _Step.values;
 
   WeightGoal get _weightGoal => switch (_direction) {
-        _GoalDirection.maintain => WeightGoal.maintain,
-        _GoalDirection.lose => _losePace,
-        _GoalDirection.gain => _gainPace,
-      };
+    _GoalDirection.maintain => WeightGoal.maintain,
+    _GoalDirection.lose => _losePace,
+    _GoalDirection.gain => _gainPace,
+  };
 
   /// The target weights the chosen direction leaves open (lose -> below today's
   /// weight, gain -> above), or `null` when it leaves none.
@@ -155,7 +137,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   /// (80 kg → "lose" → back → 60 kg showed "59 kg" over "15 kg abnehmen").
   ///
   /// With an empty window today's weight is the only value left; the target
-  /// step is dropped there (see [_steps]) and the plan reads as maintain
+  /// section is hidden there and the plan reads as maintain
   /// through [UserProfile.effectiveWeightGoal], which is what it is.
   int get _targetSafe {
     final window = _targetWindow;
@@ -164,8 +146,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   UserProfile _draftProfile() {
-    final target =
-        _direction == _GoalDirection.maintain ? _weight : _targetSafe;
+    final target = _direction == _GoalDirection.maintain
+        ? _weight
+        : _targetSafe;
     return widget.initialProfile.copyWith(
       sex: _sex,
       ageYears: _age,
@@ -183,8 +166,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   /// What [option] actually yields with the body data collected so far —
   /// subtitle of every row in the pace step (B2).
   ///
-  /// The pace step is 9 of 11, so weight, height, age, sex and activity are
-  /// all fixed and `calculate` is unconditional here. Showing the requested
+  /// Body data and activity precede the goal group. Showing the requested
   /// delta instead would lie whenever the safety floor or the 1 % cap changes
   /// it — two pace options could then promise different rates for the same
   /// plan.
@@ -194,8 +176,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   /// belongs in the subtitle.
   String _tempoFolge(WeightGoal option) {
     final l10n = context.l10n;
-    final t = const KcalCalculator()
-        .calculate(_draftProfile().copyWith(weightGoal: option));
+    final t = const KcalCalculator().calculate(
+      _draftProfile().copyWith(weightGoal: option),
+    );
     return l10n.commonKcalOutcomeLabel(t.kcal, t.effectivePaceLabel(l10n));
   }
 
@@ -204,13 +187,32 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       _finish();
       return;
     }
-    setState(() => _index++);
+    setState(() {
+      if (_editing) {
+        _index = _steps.indexOf(_Step.summary);
+        _editing = false;
+      } else {
+        _index++;
+      }
+    });
   }
 
   void _back() {
+    if (_editing) {
+      setState(() {
+        _index = _steps.indexOf(_Step.summary);
+        _editing = false;
+      });
+      return;
+    }
     if (_index == 0) return;
     setState(() => _index--);
   }
+
+  void _edit(_Step step) => setState(() {
+    _editing = true;
+    _index = _steps.indexOf(step);
+  });
 
   /// Android system back (button or edge gesture) — must do what the header
   /// arrow does (D4).
@@ -219,27 +221,30 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   /// falls back to `SystemNavigator.pop()` and kills the activity, losing
   /// every answer given so far (only `_finish()` persists anything).
   ///
-  /// From step 1 the pop is intercepted and turned into a step back. On step 0
-  /// `canPop` stays `true`: nothing is invested there, and the alternative —
-  /// back to the auth screen — would mean signing out.
+  /// Later groups step back; summary edits return to the plan. The first group
+  /// releases system Back, preserving the existing root-route behavior.
   void _onPopInvoked(bool didPop, Object? result) {
     if (didPop) return;
     _back();
   }
 
   void _onDirectionChosen(_GoalDirection dir) {
+    if (_direction == dir) return;
     setState(() {
+      _targetsByDirection[_direction] = _target;
       _direction = dir;
       // A sensible default INSIDE the window the new direction opens: 5 kg
       // along it. The window itself comes from [_targetWindow], which already
       // reads the direction assigned one line above — spelling the bounds out a
       // second time here is how the rule started drifting.
       final window = dir == _GoalDirection.maintain ? null : _targetWindow;
-      _target = window == null
-          ? _weight
-          : (dir == _GoalDirection.lose ? _weight - 5 : _weight + 5)
-              .clamp(window.min, window.max)
-              .toInt();
+      _target =
+          _targetsByDirection[dir] ??
+          (window == null
+              ? _weight
+              : (dir == _GoalDirection.lose ? _weight - 5 : _weight + 5)
+                    .clamp(window.min, window.max)
+                    .toInt());
     });
   }
 
@@ -260,70 +265,67 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     final t = context.t;
     final l10n = context.l10n;
     final step = _steps[_index];
-    final progress = (_index + 1) / _steps.length;
     final isSummary = step == _Step.summary;
-
     return PopScope<Object?>(
-      // Only the intro step releases the pop — see [_onPopInvoked].
-      canPop: _index == 0,
+      canPop: _index == 0 && !_editing,
       onPopInvokedWithResult: _onPopInvoked,
       child: Scaffold(
         key: const ValueKey('screen-onboarding'),
         backgroundColor: t.bg,
         body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _Header(
-                  progress: progress,
-                  showBack: _index > 0,
-                  onBack: _back,
-                ),
-                const SizedBox(height: 24),
-                Expanded(
-                  child: AnimatedSwitcher(
-                    duration:
-                        motionDuration(context, const Duration(milliseconds: 240)),
-                    switchInCurve: Curves.easeOutCubic,
-                    transitionBuilder: (child, anim) {
-                      return FadeTransition(
-                        opacity: anim,
-                        child: SlideTransition(
-                          position: Tween<Offset>(
-                            begin: const Offset(0.06, 0),
-                            end: Offset.zero,
-                          ).animate(anim),
-                          child: child,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _Header(
+                      index: _index,
+                      count: _steps.length,
+                      label: _phaseLabel(step),
+                      showBack: _index > 0 || _editing,
+                      onBack: _back,
+                    ),
+                    const SizedBox(height: 24),
+                    Expanded(
+                      child: AnimatedSwitcher(
+                        duration: motionDuration(
+                          context,
+                          const Duration(milliseconds: 180),
                         ),
-                      );
-                    },
-                    child: SingleChildScrollView(
-                      key: ValueKey('onboarding-step-${step.name}'),
-                      child: _buildStep(step),
+                        layoutBuilder: (child, previous) => Stack(
+                          alignment: Alignment.topLeft,
+                          children: [...previous, ?child],
+                        ),
+                        child: SingleChildScrollView(
+                          key: ValueKey('onboarding-step-${step.name}'),
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _buildStep(step),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Semantics(
-                  // [PrimaryActionButton] is a bare InkWell without `isButton`,
-                  // so a screen reader would announce the CTA as plain text.
-                  // Belongs in the library; here until then.
-                  button: true,
-                  child: PrimaryActionButton(
-                    key: ValueKey(
-                      isSummary ? 'onboarding-finish' : 'onboarding-next',
+                    const SizedBox(height: 16),
+                    Semantics(
+                      button: true,
+                      child: PrimaryActionButton(
+                        key: ValueKey(
+                          isSummary ? 'onboarding-finish' : 'onboarding-next',
+                        ),
+                        label: isSummary
+                            ? l10n.onboardingActivatePlanCta
+                            : _editing
+                            ? l10n.onboardingReviewChanges
+                            : step == _Step.diet && _diet == DietPreference.none
+                            ? l10n.onboardingWithoutPreference
+                            : l10n.onboardingNextCta,
+                        onTap: _next,
+                      ),
                     ),
-                    label: switch (step) {
-                      _Step.intro => l10n.onboardingStartCta,
-                      _Step.summary => l10n.onboardingActivatePlanCta,
-                      _ => l10n.onboardingNextCta,
-                    },
-                    onTap: _next,
-                  ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
@@ -331,155 +333,165 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 
-  Widget _buildStep(_Step step) {
+  String _phaseLabel(_Step step) {
     final l10n = context.l10n;
     return switch (step) {
-      // Questions between intro and summary — what the user actually answers.
-      _Step.intro => _IntroStep(
-          firstName: widget.firstName,
-          questionCount: _steps.length - 2,
-        ),
-      _Step.sex => _StepFrame(
-          title: l10n.onboardingSexStepTitle,
-          subtitle: l10n.onboardingSexStepSubtitle,
-          child: _SexPicker(
-            value: _sex,
-            onChanged: (v) => setState(() => _sex = v),
-          ),
-        ),
-      _Step.age => _StepFrame(
-          title: l10n.onboardingAgeStepTitle,
-          subtitle: l10n.onboardingAgeStepSubtitle,
-          child: _NumberPicker(
-            field: 'age',
-            value: _age,
-            min: ProfileLimits.ageYearsMin,
-            max: ProfileLimits.ageYearsMax,
-            unit: l10n.onboardingUnitYears,
-            onChanged: (v) => setState(() => _age = v),
-          ),
-        ),
-      _Step.height => _StepFrame(
-          title: l10n.onboardingHeightStepTitle,
-          subtitle: l10n.onboardingHeightStepSubtitle,
-          child: _NumberPicker(
-            field: 'height',
-            value: _height,
-            min: ProfileLimits.heightCmMin,
-            max: ProfileLimits.heightCmMax,
-            unit: l10n.commonUnitCm,
-            onChanged: (v) => setState(() => _height = v),
-          ),
-        ),
-      _Step.weight => _StepFrame(
-          title: l10n.onboardingWeightStepTitle,
-          subtitle: l10n.onboardingWeightStepSubtitle,
-          child: _NumberPicker(
-            field: 'weight',
-            value: _weight,
-            min: ProfileLimits.weightKgMin,
-            max: ProfileLimits.weightKgMax,
-            unit: l10n.commonUnitKg,
-            // Deliberately does NOT follow the target weight along (P9-07b):
-            // [_targetSafe] already keeps every shown number inside the window,
-            // and writing the clamped value back would COST the choice. 80 kg
-            // with a target of 70, weight down to 60 and back to 80 then ended
-            // at 59 instead of the 70 the user had picked.
-            onChanged: (v) => setState(() => _weight = v),
-          ),
-        ),
-      _Step.activity => _StepFrame(
-          title: l10n.onboardingActivityStepTitle,
-          subtitle: l10n.onboardingActivityStepSubtitle,
-          child: _ActivityPicker(
-            value: _activity,
-            onChanged: (v) => setState(() => _activity = v),
-          ),
-        ),
-      _Step.goal => _StepFrame(
-          title: l10n.onboardingGoalStepTitle,
-          subtitle: l10n.onboardingGoalStepSubtitle,
-          child: _GoalPicker(
-            value: _direction,
-            onChanged: _onDirectionChosen,
-          ),
-        ),
-      _Step.target => _buildTargetStep(),
-      _Step.pace => _StepFrame(
-          title: l10n.onboardingPaceStepTitle,
-          subtitle: _direction == _GoalDirection.lose
-              ? l10n.onboardingPaceStepSubtitleLose
-              : l10n.onboardingPaceStepSubtitleGain,
-          child: _PacePicker(
-            options: _direction == _GoalDirection.lose
-                ? lossPaceGoals
-                : gainPaceGoals,
-            value: _direction == _GoalDirection.lose ? _losePace : _gainPace,
-            outcomeFor: _tempoFolge,
-            onChanged: (v) => setState(() {
-              if (_direction == _GoalDirection.lose) {
-                _losePace = v;
-              } else {
-                _gainPace = v;
-              }
-            }),
-          ),
-        ),
-      _Step.diet => _StepFrame(
-          title: l10n.onboardingDietStepTitle,
-          subtitle: l10n.onboardingDietStepSubtitle,
-          child: _DietPicker(
-            value: _diet,
-            onChanged: (v) => setState(() => _diet = v),
-          ),
-        ),
-      _Step.summary => _SummaryStep(
-          firstName: widget.firstName,
-          targets: _targets,
-          profile: _draftProfile(),
-        ),
+      _Step.basics => l10n.onboardingPhaseBasics,
+      _Step.body => l10n.onboardingPhaseBody,
+      _Step.activity => l10n.onboardingPhaseActivity,
+      _Step.goal => l10n.onboardingPhaseGoal,
+      _Step.diet => l10n.onboardingPhaseDiet,
+      _Step.summary => l10n.onboardingPhasePlan,
     };
   }
 
-  /// The target-weight step.
-  ///
-  /// [_steps] offers it only while [_targetWindow] is non-null, so the picker
-  /// never sees an inverted window and needs no rule of its own — that second
-  /// rule was J1.
+  Widget _buildStep(_Step step) {
+    final l10n = context.l10n;
+    return switch (step) {
+      _Step.basics => _StepFrame(
+        title: l10n.onboardingWelcomeTitle(widget.firstName),
+        subtitle: l10n.onboardingBasicsBody,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _FieldHeading(
+              title: l10n.onboardingSexStepTitle,
+              subtitle: l10n.onboardingSexStepSubtitle,
+            ),
+            _SexPicker(value: _sex, onChanged: (v) => setState(() => _sex = v)),
+            const SizedBox(height: 24),
+            _FieldHeading(title: l10n.onboardingAgeStepTitle),
+            _NumberPicker(
+              field: 'age',
+              value: _age,
+              min: ProfileLimits.ageYearsMin,
+              max: ProfileLimits.ageYearsMax,
+              unit: l10n.onboardingUnitYears,
+              onChanged: (v) => setState(() => _age = v),
+            ),
+          ],
+        ),
+      ),
+      _Step.body => _StepFrame(
+        title: l10n.onboardingBodyTitle,
+        subtitle: l10n.onboardingBodySubtitle,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _FieldHeading(title: l10n.onboardingHeightStepTitle),
+            _NumberPicker(
+              field: 'height',
+              value: _height,
+              min: ProfileLimits.heightCmMin,
+              max: ProfileLimits.heightCmMax,
+              unit: l10n.commonUnitCm,
+              onChanged: (v) => setState(() => _height = v),
+            ),
+            const SizedBox(height: 28),
+            _FieldHeading(title: l10n.onboardingWeightStepTitle),
+            _NumberPicker(
+              field: 'weight',
+              value: _weight,
+              min: ProfileLimits.weightKgMin,
+              max: ProfileLimits.weightKgMax,
+              unit: l10n.commonUnitKg,
+              // Keep the raw target so backtracking never loses an answer.
+              onChanged: (v) => setState(() => _weight = v),
+            ),
+          ],
+        ),
+      ),
+      _Step.activity => _StepFrame(
+        title: l10n.onboardingActivityStepTitle,
+        subtitle: l10n.onboardingActivityStepSubtitle,
+        child: _ActivityPicker(
+          value: _activity,
+          onChanged: (v) => setState(() => _activity = v),
+        ),
+      ),
+      _Step.goal => _StepFrame(
+        title: l10n.onboardingGoalStepTitle,
+        subtitle: l10n.onboardingGoalStepSubtitle,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _GoalPicker(value: _direction, onChanged: _onDirectionChosen),
+            if (_direction != _GoalDirection.maintain &&
+                _targetWindow != null) ...[
+              const SizedBox(height: 32),
+              _buildTargetStep(),
+              const SizedBox(height: 28),
+              _FieldHeading(
+                title: l10n.onboardingPaceStepTitle,
+                subtitle: _direction == _GoalDirection.lose
+                    ? l10n.onboardingPaceStepSubtitleLose
+                    : l10n.onboardingPaceStepSubtitleGain,
+              ),
+              _PacePicker(
+                options: _direction == _GoalDirection.lose
+                    ? lossPaceGoals
+                    : gainPaceGoals,
+                value: _direction == _GoalDirection.lose
+                    ? _losePace
+                    : _gainPace,
+                outcomeFor: _tempoFolge,
+                onChanged: (v) => setState(() {
+                  if (_direction == _GoalDirection.lose) {
+                    _losePace = v;
+                  } else {
+                    _gainPace = v;
+                  }
+                }),
+              ),
+            ],
+          ],
+        ),
+      ),
+      _Step.diet => _StepFrame(
+        title: l10n.onboardingDietStepTitle,
+        subtitle: l10n.onboardingDietOptionalSubtitle,
+        child: _DietPicker(
+          value: _diet,
+          onChanged: (v) => setState(() => _diet = v),
+        ),
+      ),
+      _Step.summary => _SummaryStep(
+        firstName: widget.firstName,
+        targets: _targets,
+        profile: _draftProfile(),
+        onEdit: _edit,
+      ),
+    };
+  }
+
+  /// The inline target section is built only for a nonempty target window.
   Widget _buildTargetStep() {
     final l10n = context.l10n;
     final window = _targetWindow!;
     final abnehmen = _direction == _GoalDirection.lose;
     final delta = (_weight - _targetSafe).abs();
-    return _StepFrame(
-      title: l10n.onboardingTargetStepTitle,
-      subtitle: abnehmen
-          ? l10n.onboardingTargetStepSubtitleLose
-          : l10n.onboardingTargetStepSubtitleGain,
-      child: Column(
-        children: [
-          _NumberPicker(
-            field: 'target',
-            // [_targetSafe], not `_target`: number and footnote have to mean
-            // the same kilograms.
-            value: _targetSafe,
-            min: window.min,
-            max: window.max,
-            unit: l10n.commonUnitKg,
-            onChanged: (v) => setState(() => _target = v),
-            footnote: abnehmen
-                ? l10n.onboardingTargetFootnoteLose(delta)
-                : l10n.onboardingTargetFootnoteGain(delta),
-          ),
-          // Soft, non-blocking BMI hint — same thresholds as the settings
-          // sheet (below 18.5 / above 35).
-          TargetBmiHint(
-            margin: const EdgeInsets.only(top: 16),
-            heightCm: _height,
-            targetWeightKg: _targetSafe,
-          ),
-        ],
-      ),
+    return Column(
+      key: const ValueKey('onboarding-target-section'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _FieldHeading(title: l10n.onboardingTargetStepTitle),
+        _NumberPicker(
+          field: 'target',
+          value: _targetSafe,
+          min: window.min,
+          max: window.max,
+          unit: l10n.commonUnitKg,
+          onChanged: (v) => setState(() => _target = v),
+          footnote: abnehmen
+              ? l10n.onboardingTargetFootnoteLose(delta)
+              : l10n.onboardingTargetFootnoteGain(delta),
+        ),
+        TargetBmiHint(
+          margin: const EdgeInsets.only(top: 16),
+          heightCm: _height,
+          targetWeightKg: _targetSafe,
+        ),
+      ],
     );
   }
 }
@@ -490,56 +502,100 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
 class _Header extends StatelessWidget {
   const _Header({
-    required this.progress,
+    required this.index,
+    required this.count,
+    required this.label,
     required this.showBack,
     required this.onBack,
   });
-
-  final double progress;
+  final int index;
+  final int count;
+  final String label;
   final bool showBack;
   final VoidCallback onBack;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return Row(
+    final progress = context.l10n.onboardingStepProgress(index + 1, count);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(
-          // Exactly the edge length of SquareIconButton, so the bar does not
-          // jump between intro and step 1.
-          width: 34,
-          child: showBack
-              ? SquareIconButton(
-                  key: const ValueKey('onboarding-back'),
-                  icon: Icons.chevron_left_rounded,
-                  onTap: onBack,
-                  // Real umlaut, not "ue": a Semantics label is SPOKEN text
-                  // (cf. PageHeader in widgets/design/rows.dart).
-                  semanticLabel: context.l10n.onboardingBackSemanticLabel,
-                )
-              : const SizedBox.shrink(),
+        Row(
+          children: [
+            if (showBack) ...[
+              IconButton(
+                key: const ValueKey('onboarding-back'),
+                tooltip: context.l10n.onboardingBackSemanticLabel,
+                onPressed: onBack,
+                icon: const Icon(Icons.arrow_back_rounded),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+              ),
+              const SizedBox(width: 8),
+            ],
+            Expanded(
+              child: Text(
+                'Eatova',
+                style: AppType.display(
+                  MediaQuery.textScalerOf(context).scale(1) > 1.5 ? 18 : 24,
+                  color: t.ink,
+                ),
+              ),
+            ),
+            const AppIcon(AppSymbol.food, size: 28),
+          ],
         ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(rPill),
-            child: LinearProgressIndicator(
-              value: progress,
-              minHeight: 6,
-              backgroundColor: t.tile,
-              valueColor: AlwaysStoppedAnimation<Color>(t.accent),
+        const SizedBox(height: 16),
+        Semantics(
+          label: '$label, $progress',
+          liveRegion: true,
+          child: ExcludeSemantics(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    style: AppType.ui(
+                      13,
+                      weight: FontWeight.w600,
+                      color: t.ink2,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  '${index + 1} / $count',
+                  style: AppType.ui(13, weight: FontWeight.w600, color: t.ink2),
+                ),
+              ],
             ),
           ),
         ),
-        const SizedBox(width: 46),
+        const SizedBox(height: 10),
+        ExcludeSemantics(
+          child: Row(
+            children: [
+              for (var i = 0; i < count; i++) ...[
+                if (i > 0) const SizedBox(width: 5),
+                Expanded(
+                  child: Container(
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: i <= index ? t.accent : t.tile,
+                      borderRadius: BorderRadius.circular(rPill),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ],
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// Generic step frame
-// ---------------------------------------------------------------------------
 
 class _StepFrame extends StatelessWidget {
   const _StepFrame({
@@ -547,127 +603,64 @@ class _StepFrame extends StatelessWidget {
     required this.subtitle,
     required this.child,
   });
-
   final String title;
   final String subtitle;
   final Widget child;
-
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: AppType.display(28, color: t.ink, height: 1.08)),
-        const SizedBox(height: 8),
-        Text(
-          subtitle,
-          style: AppType.ui(
-            14,
-            weight: FontWeight.w500,
-            color: t.ink2,
-            height: 1.45,
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      HeadingSemantics(
+        level: 1,
+        child: Text(
+          title,
+          style: AppType.display(
+            MediaQuery.textScalerOf(context).scale(1) > 1.5 ? 24 : 32,
+            color: context.t.ink,
+            height: 1.08,
           ),
         ),
-        const SizedBox(height: 32),
-        child,
-      ],
-    );
-  }
+      ),
+      const SizedBox(height: 12),
+      Text(
+        subtitle,
+        style: AppType.ui(
+          14,
+          weight: FontWeight.w500,
+          color: context.t.ink2,
+          height: 1.45,
+        ),
+      ),
+      const SizedBox(height: 28),
+      child,
+    ],
+  );
 }
 
-// ---------------------------------------------------------------------------
-// Intro
-// ---------------------------------------------------------------------------
-
-class _IntroStep extends StatelessWidget {
-  const _IntroStep({required this.firstName, required this.questionCount});
-
-  final String firstName;
-
-  /// Number of questions ahead; the intro must not promise "6" when the flow
-  /// has 7 or 9.
-  final int questionCount;
-
+class _FieldHeading extends StatelessWidget {
+  const _FieldHeading({required this.title, this.subtitle});
+  final String title;
+  final String? subtitle;
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final l10n = context.l10n;
-    return Column(
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 16),
-        Container(
-          width: 64,
-          height: 64,
-          decoration: BoxDecoration(
-            color: t.forest,
-            borderRadius: BorderRadius.circular(rSheet),
+        HeadingSemantics(
+          level: 2,
+          child: Text(title, style: AppType.display(20, color: context.t.ink)),
+        ),
+        if (subtitle != null) ...[
+          const SizedBox(height: 5),
+          Text(
+            subtitle!,
+            style: AppType.ui(13, color: context.t.ink2, height: 1.4),
           ),
-          child: Icon(Icons.flag_rounded, color: t.lime, size: 30),
-        ),
-        const SizedBox(height: 28),
-        Text(
-          l10n.onboardingWelcomeTitle(firstName),
-          style: AppType.display(30, color: t.ink, height: 1.08),
-        ),
-        const SizedBox(height: 12),
-        Text(
-          l10n.onboardingWelcomeBody(questionCount),
-          style: AppType.ui(
-            15,
-            weight: FontWeight.w500,
-            color: t.ink2,
-            height: 1.45,
-          ),
-        ),
-        const SizedBox(height: 32),
-        _IntroBullet(
-          icon: Icons.calculate_rounded,
-          text: l10n.onboardingBulletFormula,
-        ),
-        const SizedBox(height: 14),
-        _IntroBullet(
-          icon: Icons.local_fire_department_rounded,
-          text: l10n.onboardingBulletAutoMacros,
-        ),
-        const SizedBox(height: 14),
-        _IntroBullet(
-          icon: Icons.tune_rounded,
-          text: l10n.onboardingBulletAdjustable,
-        ),
+        ],
       ],
-    );
-  }
-}
-
-class _IntroBullet extends StatelessWidget {
-  const _IntroBullet({required this.icon, required this.text});
-
-  final IconData icon;
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Row(
-      children: [
-        IconTile(icon: icon, color: t.accent),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Text(
-            text,
-            style: AppType.ui(
-              14,
-              weight: FontWeight.w500,
-              color: t.ink,
-              height: 1.3,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+    ),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -689,53 +682,59 @@ class _SexPicker extends StatelessWidget {
       BiologicalSex.female: (l10n.onboardingSexFemale, Icons.female_rounded),
       BiologicalSex.neutral: (l10n.onboardingSexNeutral, Icons.person_rounded),
     };
-    // Width is reserved for the longest label at the current text scale
-    // (like MacroBar, not FittedBox — that would freeze the label at 14 px).
-    // When a third of the row cannot hold it, the tiles take the full width
-    // and stack.
-    const gap = 12.0;
-    final labelWidth = MediaQuery.textScalerOf(context).scale(68) + 16;
+    Widget tile(BiologicalSex sex) => _TileCard(
+      keyValue: ValueKey('onboarding-sex-${sex.name}'),
+      selected: value == sex,
+      onTap: () => onChanged(sex),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            labels[sex]!.$2,
+            size: 30,
+            color: value == sex ? t.onSelected : t.ink2,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            labels[sex]!.$1,
+            textAlign: TextAlign.center,
+            style: AppType.ui(
+              14,
+              weight: FontWeight.w700,
+              color: value == sex ? t.onSelected : t.ink2,
+            ),
+          ),
+        ],
+      ),
+    );
     return LayoutBuilder(
       builder: (context, constraints) {
-        final third = (constraints.maxWidth - 2 * gap) / 3;
-        final tileWidth = labelWidth <= third ? third : constraints.maxWidth;
-        return Wrap(
-          spacing: gap,
-          runSpacing: gap,
-          children: [
-            for (final sex in BiologicalSex.values)
-              SizedBox(
-                width: tileWidth,
-                child: _TileCard(
-                  keyValue: ValueKey('onboarding-sex-${sex.name}'),
-                  selected: value == sex,
-                  onTap: () => onChanged(sex),
-                  child: Column(
-                    children: [
-                      Icon(
-                        labels[sex]!.$2,
-                        size: 30,
-                        // Glyph and label sit ON [_TileCard]'s fill, so they
-                        // take its counterpart — `lime` would be 1.07:1 there
-                        // in dark mode.
-                        color: value == sex ? t.onSelected : t.ink2,
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        labels[sex]!.$1,
-                        maxLines: 2,
-                        textAlign: TextAlign.center,
-                        style: AppType.ui(
-                          14,
-                          weight: FontWeight.w700,
-                          color: value == sex ? t.onSelected : t.ink2,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-          ],
+        final stacked =
+            MediaQuery.textScalerOf(context).scale(84) >
+            (constraints.maxWidth - 24) / 3;
+        if (stacked) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final sex in BiologicalSex.values) ...[
+                if (sex != BiologicalSex.values.first)
+                  const SizedBox(height: 12),
+                tile(sex),
+              ],
+            ],
+          );
+        }
+        return IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final sex in BiologicalSex.values) ...[
+                if (sex != BiologicalSex.values.first)
+                  const SizedBox(width: 12),
+                Expanded(child: tile(sex)),
+              ],
+            ],
+          ),
         );
       },
     );
@@ -939,100 +938,111 @@ class _NumberPicker extends StatelessWidget {
     final l10n = context.l10n;
     final safeValue = value.clamp(min, max).toInt();
     String spoken(double v) => '${v.round()} $unit';
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            _StepButton(
-              keyValue: ValueKey('onboarding-$field-dec'),
-              icon: Icons.remove_rounded,
-              semanticLabel: l10n.onboardingStepDownSemanticLabel,
-              onTap: () => _set(safeValue - 1),
-            ),
-            const SizedBox(width: 20),
-            // Not a fixed width: at textScaler 2.0 the 52 pt digits exceed
-            // 150 px. The column takes the remaining space; only the hero
-            // number may shrink (F8-09), the unit scales like any label.
-            Flexible(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      '$safeValue',
-                      key: ValueKey('onboarding-$field-value'),
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 16, 14, 12),
+      decoration: BoxDecoration(
+        color: t.brandSurface,
+        borderRadius: BorderRadius.circular(rCard),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _StepButton(
+                keyValue: ValueKey('onboarding-$field-dec'),
+                icon: Icons.remove_rounded,
+                semanticLabel: l10n.onboardingStepDownSemanticLabel,
+                onTap: () => _set(safeValue - 1),
+              ),
+              const SizedBox(width: 20),
+              // Not a fixed width: at textScaler 2.0 the large digits exceed
+              // 150 px. The column takes the remaining space; only the hero
+              // number may shrink (F8-09), the unit scales like any label.
+              Flexible(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        '$safeValue',
+                        key: ValueKey('onboarding-$field-value'),
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        style: AppType.display(
+                          44,
+                          color: t.onBrandSurface,
+                          height: 1,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      unit,
                       textAlign: TextAlign.center,
-                      maxLines: 1,
-                      style: AppType.display(52, color: t.ink, height: 1),
+                      style: AppType.ui(
+                        13,
+                        weight: FontWeight.w600,
+                        color: t.ink2,
+                        letterSpacing: 0.2,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    unit,
-                    textAlign: TextAlign.center,
-                    style: AppType.ui(
-                      13,
-                      weight: FontWeight.w600,
-                      color: t.ink2,
-                      letterSpacing: 0.2,
-                    ),
-                  ),
-                ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 20),
+              _StepButton(
+                keyValue: ValueKey('onboarding-$field-inc'),
+                icon: Icons.add_rounded,
+                semanticLabel: l10n.onboardingStepUpSemanticLabel,
+                onTap: () => _set(safeValue + 1),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // A single-value window (e.g. gaining at 299 kg) has nothing to slide.
+          if (max > min)
+            SliderTheme(
+              data: SliderThemeData(
+                activeTrackColor: t.accent,
+                inactiveTrackColor: t.onBrandSurface.withValues(alpha: 0.12),
+                thumbColor: t.accent,
+                overlayColor: t.accent.withValues(alpha: 0.15),
+                trackHeight: 3,
+              ),
+              child: Slider(
+                key: ValueKey('onboarding-$field-slider'),
+                value: safeValue.toDouble(),
+                min: min.toDouble(),
+                max: max.toDouble(),
+                // A screen reader hears "75 kg", not a percentage.
+                label: spoken(safeValue.toDouble()),
+                semanticFormatterCallback: spoken,
+                onChanged: (v) => _set(v.round()),
               ),
             ),
-            const SizedBox(width: 20),
-            _StepButton(
-              keyValue: ValueKey('onboarding-$field-inc'),
-              icon: Icons.add_rounded,
-              semanticLabel: l10n.onboardingStepUpSemanticLabel,
-              onTap: () => _set(safeValue + 1),
+          if (footnote != null) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: t.lime,
+                borderRadius: BorderRadius.circular(rPill),
+              ),
+              child: Text(
+                footnote!,
+                textAlign: TextAlign.center,
+                style: AppType.display(
+                  13,
+                  weight: FontWeight.w700,
+                  color: t.onLime,
+                ),
+              ),
             ),
           ],
-        ),
-        const SizedBox(height: 24),
-        // A single-value window (e.g. gaining at 299 kg) has nothing to slide.
-        if (max > min)
-          SliderTheme(
-            data: SliderThemeData(
-              activeTrackColor: t.accent,
-              inactiveTrackColor: t.tile,
-              thumbColor: t.accent,
-              overlayColor: t.accent.withValues(alpha: 0.15),
-              trackHeight: 5,
-            ),
-            child: Slider(
-              key: ValueKey('onboarding-$field-slider'),
-              value: safeValue.toDouble(),
-              min: min.toDouble(),
-              max: max.toDouble(),
-              // A screen reader hears "75 kg", not a percentage.
-              label: spoken(safeValue.toDouble()),
-              semanticFormatterCallback: spoken,
-              onChanged: (v) => _set(v.round()),
-            ),
-          ),
-        if (footnote != null) ...[
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: t.lime,
-              borderRadius: BorderRadius.circular(rPill),
-            ),
-            child: Text(
-              footnote!,
-              textAlign: TextAlign.center,
-              style: AppType.display(
-                13,
-                weight: FontWeight.w700,
-                color: t.onLime,
-              ),
-            ),
-          ),
         ],
-      ],
+      ),
     );
   }
 }
@@ -1107,9 +1117,11 @@ class _TileCard extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(rCard),
           child: AnimatedContainer(
-            duration:
-                motionDuration(context, const Duration(milliseconds: 160)),
-            padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 8),
+            duration: motionDuration(
+              context,
+              const Duration(milliseconds: 160),
+            ),
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
             decoration: BoxDecoration(
               // Selected means a full fill, not a tinted border, so the
               // selection reads through contrast rather than hue — and the
@@ -1117,9 +1129,7 @@ class _TileCard extends StatelessWidget {
               // is itself a surface and the card sat at 1.33:1 on `surf`.
               color: selected ? t.selectedFill : t.surf,
               borderRadius: BorderRadius.circular(rCard),
-              border: Border.all(
-                color: selected ? t.selectedFill : t.line,
-              ),
+              border: Border.all(color: selected ? t.selectedFill : t.line),
             ),
             child: child,
           ),
@@ -1157,78 +1167,85 @@ class _RowCard extends StatelessWidget {
         button: true,
         selected: selected,
         child: InkWell(
-      key: keyValue,
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(rCard),
-      child: AnimatedContainer(
-        duration: motionDuration(context, const Duration(milliseconds: 160)),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        // [SelectionTone] — same language as [_TileCard] and every chip in
-        // the app. See there for why `forest` had to go.
-        decoration: BoxDecoration(
-          color: selected ? t.selectedFill : t.surf,
+          key: keyValue,
+          onTap: onTap,
           borderRadius: BorderRadius.circular(rCard),
-          border: Border.all(color: selected ? t.selectedFill : t.line),
-        ),
-        child: Row(
-          children: [
-            if (leadingIcon != null) ...[
-              Icon(
-                leadingIcon,
-                size: 22,
-                color: selected ? t.onSelected : t.ink2,
-              ),
-              const SizedBox(width: 14),
-            ],
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: AppType.ui(
-                      15,
-                      weight: FontWeight.w700,
-                      color: selected ? t.onSelected : t.ink,
-                      letterSpacing: -0.2,
-                    ),
+          child: AnimatedContainer(
+            duration: motionDuration(
+              context,
+              const Duration(milliseconds: 160),
+            ),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            // [SelectionTone] — same language as [_TileCard] and every chip in
+            // the app. See there for why `forest` had to go.
+            decoration: BoxDecoration(
+              color: selected ? t.selectedFill : t.surf,
+              borderRadius: BorderRadius.circular(rCard),
+              border: Border.all(color: selected ? t.selectedFill : t.line),
+            ),
+            child: Row(
+              children: [
+                if (leadingIcon != null) ...[
+                  Icon(
+                    leadingIcon,
+                    size: 22,
+                    color: selected ? t.onSelected : t.ink2,
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(width: 14),
+                ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: AppType.ui(
+                          15,
+                          weight: FontWeight.w700,
+                          color: selected ? t.onSelected : t.ink,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        style: AppType.ui(
+                          12.5,
+                          weight: FontWeight.w500,
+                          color: selected
+                              ? t.onSelected.withValues(alpha: 0.78)
+                              : t.ink2,
+                          height: 1.3,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (trailing != null) ...[
+                  const SizedBox(width: 10),
                   Text(
-                    subtitle,
-                    style: AppType.ui(
-                      12.5,
-                      weight: FontWeight.w500,
-                      color: selected
-                          ? t.onSelected.withValues(alpha: 0.78)
-                          : t.ink2,
-                      height: 1.3,
+                    trailing!,
+                    style: AppType.display(
+                      13,
+                      weight: FontWeight.w700,
+                      color: selected ? t.onSelected : t.ink2,
                     ),
                   ),
                 ],
-              ),
+                if (selected) ...[
+                  const SizedBox(width: 10),
+                  // The tick is the second state channel next to the fill, so it
+                  // has to READ on that fill: `lime` on `ink` is 1.07:1 in dark
+                  // mode, [SelectionTone.onSelected] is 16.35:1.
+                  Icon(
+                    Icons.check_circle_rounded,
+                    color: t.onSelected,
+                    size: 20,
+                  ),
+                ],
+              ],
             ),
-            if (trailing != null) ...[
-              const SizedBox(width: 10),
-              Text(
-                trailing!,
-                style: AppType.display(
-                  13,
-                  weight: FontWeight.w700,
-                  color: selected ? t.onSelected : t.ink2,
-                ),
-              ),
-            ],
-            if (selected) ...[
-              const SizedBox(width: 10),
-              // The tick is the second state channel next to the fill, so it
-              // has to READ on that fill: `lime` on `ink` is 1.07:1 in dark
-              // mode, [SelectionTone.onSelected] is 16.35:1.
-              Icon(Icons.check_circle_rounded, color: t.onSelected, size: 20),
-            ],
-          ],
-        ),
-      ),
+          ),
         ),
       ),
     );
@@ -1244,19 +1261,23 @@ class _SummaryStep extends StatelessWidget {
     required this.firstName,
     required this.targets,
     required this.profile,
+    required this.onEdit,
   });
 
   final String firstName;
   final KcalTargets targets;
   final UserProfile profile;
+  final ValueChanged<_Step> onEdit;
 
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     // [targets] was computed from exactly this profile — pass it through
     // instead of running `calculate` a second time.
-    final weeks =
-        const KcalCalculator().weeksToGoalRange(profile, targets: targets);
+    final weeks = const KcalCalculator().weeksToGoalRange(
+      profile,
+      targets: targets,
+    );
     // The EFFECTIVE goal, like the row above it (which shows
     // `targets.effectivePaceLabel`): a direction with no reachable target —
     // gaining at the 300 kg column end — plans maintain, and answering "no
@@ -1273,13 +1294,12 @@ class _SummaryStep extends StatelessWidget {
     // dynamic upper bound the deficit never reaches the target, and the text
     // says "at the earliest".
     final timeline = switch (goal) {
-      WeightGoal.maintain =>
-        l10n.onboardingTimelineMaintain(profile.weightKg),
+      WeightGoal.maintain => l10n.onboardingTimelineMaintain(profile.weightKg),
       _ when weeks != null => timelineEstimateText(
-          l10n,
-          targetWeightKg: profile.targetWeightKg,
-          weeks: weeks,
-        ),
+        l10n,
+        targetWeightKg: profile.targetWeightKg,
+        weeks: weeks,
+      ),
       _ => l10n.onboardingTimelineUnknown,
     };
 
@@ -1292,7 +1312,11 @@ class _SummaryStep extends StatelessWidget {
       children: [
         Text(
           l10n.onboardingSummaryTitle(firstName),
-          style: AppType.display(28, color: t.ink, height: 1.08),
+          style: AppType.display(
+            MediaQuery.textScalerOf(context).scale(1) > 1.5 ? 24 : 28,
+            color: t.ink,
+            height: 1.08,
+          ),
         ),
         const SizedBox(height: 8),
         Text(
@@ -1315,14 +1339,11 @@ class _SummaryStep extends StatelessWidget {
           ),
           child: Stack(
             children: [
-              Positioned.fill(
-                child: DotGridBackground(
-                  color: t.onForest.withValues(alpha: 0.07),
-                ),
-              ),
               Padding(
-                padding:
-                    const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
+                padding: const EdgeInsets.symmetric(
+                  vertical: 28,
+                  horizontal: 20,
+                ),
                 child: Column(
                   children: [
                     Text(
@@ -1344,8 +1365,11 @@ class _SummaryStep extends StatelessWidget {
                             '${targets.kcal}',
                             key: const ValueKey('onboarding-summary-kcal'),
                             maxLines: 1,
-                            style:
-                                AppType.display(52, color: t.lime, height: 1),
+                            style: AppType.display(
+                              48,
+                              color: t.onForest,
+                              height: 1,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 8),
@@ -1490,7 +1514,47 @@ class _SummaryStep extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 28),
+        _FieldHeading(title: l10n.onboardingReviewTitle),
+        for (final (step, label, value) in [
+          (
+            _Step.basics,
+            l10n.onboardingPhaseBasics,
+            '${profile.ageYears} ${l10n.onboardingUnitYears} \u00b7 ${switch (profile.sex) {
+              BiologicalSex.male => l10n.onboardingSexMale,
+              BiologicalSex.female => l10n.onboardingSexFemale,
+              BiologicalSex.neutral => l10n.onboardingSexNeutral,
+            }}',
+          ),
+          (
+            _Step.body,
+            l10n.onboardingPhaseBody,
+            '${profile.heightCm} ${l10n.commonUnitCm} \u00b7 ${profile.weightKg} ${l10n.commonUnitKg}',
+          ),
+          (
+            _Step.activity,
+            l10n.onboardingPhaseActivity,
+            profile.activityLevel.label(l10n),
+          ),
+          (
+            _Step.goal,
+            l10n.onboardingPhaseGoal,
+            '${profile.effectiveWeightGoal.label(l10n)} \u00b7 ${profile.targetWeightKg} ${l10n.commonUnitKg}',
+          ),
+          (_Step.diet, l10n.onboardingPhaseDiet, profile.diet.label(l10n)),
+        ])
+          ListTile(
+            key: ValueKey('onboarding-edit-${step.name}'),
+            contentPadding: EdgeInsets.zero,
+            title: Text(
+              label,
+              style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
+            ),
+            subtitle: Text(value, style: AppType.ui(13, color: t.ink2)),
+            trailing: const Icon(Icons.edit_outlined, size: 20),
+            onTap: () => onEdit(step),
+          ),
+        const SizedBox(height: 16),
         Text(
           l10n.onboardingSummaryFootnote,
           style: AppType.ui(
@@ -1506,7 +1570,11 @@ class _SummaryStep extends StatelessWidget {
 }
 
 class _MacroChip extends StatelessWidget {
-  const _MacroChip({required this.label, required this.value, required this.color});
+  const _MacroChip({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
 
   final String label;
   final String value;
@@ -1540,8 +1608,7 @@ class _MacroChip extends StatelessWidget {
               value,
               maxLines: 2,
               textAlign: TextAlign.center,
-              style:
-                  AppType.display(16, weight: FontWeight.w700, color: t.ink),
+              style: AppType.display(16, weight: FontWeight.w700, color: t.ink),
             ),
             const SizedBox(height: 4),
             Text(

@@ -91,7 +91,7 @@ void main() {
     expect(find.byKey(const ValueKey('screen-onboarding')), findsOneWidget,
         reason: 'ohne Profil muss das Onboarding-Gate greifen');
     expect(find.byKey(const ValueKey('screen-today')), findsNothing);
-    expect(find.byKey(const ValueKey('onboarding-step-intro')), findsOneWidget);
+    expect(find.byKey(const ValueKey('onboarding-step-basics')), findsOneWidget);
 
     Future<void> tapKey(String key) async {
       await tester.tap(find.byKey(ValueKey(key)));
@@ -105,18 +105,15 @@ void main() {
           reason: 'nach „Weiter" fehlt der Schritt $expectedStep');
     }
 
-    await next('sex');
     await tapKey('onboarding-sex-female');
-    await next('age');
-    await next('height');
-    await next('weight');
+    await next('body');
     await next('activity');
     await tapKey('onboarding-activity-moderate');
     await next('goal');
     // Losing weight unlocks target and pace.
     await tapKey('onboarding-goal-lose');
-    await next('target');
-    await next('pace');
+    await tester.ensureVisible(find.byKey(const ValueKey('onboarding-pace-lose05kg')));
+    await tester.pumpAndSettle();
     await tapKey('onboarding-pace-lose05kg');
     await next('diet');
     await tapKey('onboarding-diet-vegetarian');

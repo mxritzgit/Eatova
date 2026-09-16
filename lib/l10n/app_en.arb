@@ -1217,8 +1217,23 @@
   "onboardingStartCta": "Let's go",
   "onboardingActivatePlanCta": "Activate plan",
   "onboardingNextCta": "Next",
-  "onboardingSexStepTitle": "Your sex",
-  "onboardingSexStepSubtitle": "Affects your basal metabolic rate.",
+  "onboardingSexStepTitle": "For the calculation",
+  "onboardingSexStepSubtitle": "Biological sex helps estimate resting energy needs. If you prefer not to say, we use an average.",
+  "onboardingBasicsBody": "A few details for your daily target. Check the starting values – you can change them later.",
+  "onboardingBodyTitle": "Your starting point.",
+  "onboardingBodySubtitle": "Height and current weight help us estimate your energy needs.",
+  "onboardingPhaseBasics": "About you",
+  "onboardingPhaseBody": "Body details",
+  "onboardingPhaseActivity": "Your day",
+  "onboardingPhaseGoal": "Your goal",
+  "onboardingPhaseDiet": "Your kitchen",
+  "onboardingPhasePlan": "Your starting plan",
+  "onboardingStepProgress": "Step {current} of {total}",
+  "@onboardingStepProgress": {"placeholders": {"current": {"type": "int"}, "total": {"type": "int"}}},
+  "onboardingDietOptionalSubtitle": "Optional: Which recipes suit you? Keep your options open with no preference. You can always browse every recipe.",
+  "onboardingWithoutPreference": "Continue without a preference",
+  "onboardingReviewTitle": "Review your details",
+  "onboardingReviewChanges": "Back to your plan",
   "onboardingAgeStepTitle": "How old are you?",
   "onboardingAgeStepSubtitle": "Energy needs decrease with age.",
   "onboardingHeightStepTitle": "Your height",
@@ -1228,14 +1243,14 @@
   "onboardingActivityStepTitle": "How active are you?",
   "onboardingActivityStepSubtitle": "Job and daily life without walking and running – counted steps are added on top automatically. When in doubt, pick one level lower.",
   "onboardingGoalStepTitle": "What's your goal?",
-  "onboardingGoalStepSubtitle": "Determines your daily calorie amount.",
+  "onboardingGoalStepSubtitle": "Choose your direction. To lose or gain weight, set your target weight and pace here too.",
   "onboardingTargetStepTitle": "Your target weight",
   "onboardingTargetStepSubtitleLose": "How far do you want to lose?",
   "onboardingTargetStepSubtitleGain": "How far do you want to gain?",
   "onboardingPaceStepTitle": "What pace?",
   "onboardingPaceStepSubtitleLose": "How fast do you want to lose weight?",
   "onboardingPaceStepSubtitleGain": "How fast do you want to gain weight?",
-  "onboardingDietStepTitle": "Diet?",
+  "onboardingDietStepTitle": "What do you enjoy?",
   "onboardingDietStepSubtitle": "We'll recommend recipes that fit. You can always browse all of them.",
   "onboardingUnitYears": "years",
   "onboardingTargetFootnoteLose": "{kg} kg to lose",
@@ -1250,7 +1265,7 @@
       "kg": { "type": "int" }
     }
   },
-  "onboardingWelcomeTitle": "Welcome, {firstName}.",
+  "onboardingWelcomeTitle": "Hi, {firstName}.",
   "@onboardingWelcomeTitle": {
     "placeholders": {
       "firstName": { "type": "String" }
@@ -1269,7 +1284,7 @@
   "onboardingStepUpSemanticLabel": "Increase",
   "onboardingSexMale": "Male",
   "onboardingSexFemale": "Female",
-  "onboardingSexNeutral": "Other",
+  "onboardingSexNeutral": "Prefer not to say",
   "onboardingGoalDescLose": "Lose fat, deficit",
   "onboardingGoalDescMaintain": "Keep shape & energy stable",
   "onboardingGoalDescGain": "Build muscle, surplus",
@@ -1285,7 +1300,7 @@
       "paceLabel": { "type": "String" }
     }
   },
-  "onboardingSummaryTitle": "Your plan is ready, {firstName}.",
+  "onboardingSummaryTitle": "Your plan, {firstName}.",
   "@onboardingSummaryTitle": {
     "placeholders": {
       "firstName": { "type": "String" }
@@ -1335,7 +1350,7 @@
     }
   },
   "onboardingTimelineUnknown": "No reliable timeframe can be estimated for this goal.",
-  "onboardingSummaryFootnote": "Estimate based on Mifflin-St Jeor (typically ±10%). Values can be adjusted anytime under Profile › Settings.",
+  "onboardingSummaryFootnote": "Estimate based on Mifflin-St Jeor (typically ±10%). You can change body details and goals later in your profile.",
 
   "coachErrorEmptyReply": "Empty reply from the coach.",
   "coachErrorUnreachable": "The coach isn't reachable right now. Please try again shortly.",
@@ -1458,9 +1473,19 @@
   "authEyebrowLogin": "WELCOME BACK",
   "authEyebrowRegister": "CREATE ACCOUNT",
   "authHeadlineLogin": "Good to\nsee you.",
-  "authHeadlineRegister": "Start your\njourney.",
+  "authHeadlineRegister": "Your balance\nstarts here.",
   "authSublineLogin": "Sign in and pick up right where you left off.",
-  "authSublineRegister": "Create your account and set up your daily goal in a minute.",
+  "authSublineRegister": "Create your account. Then we’ll set up your personal daily goal.",
+  "authFieldPasswordLoginHint": "Your password",
+  "authFeatureFood": "Food",
+  "authErrorPasswordMissing": "Please enter your password.",
+  "authRecoveryProgress": "Step {current} of {total}",
+  "@authRecoveryProgress": {
+    "placeholders": {
+      "current": {"type": "int"},
+      "total": {"type": "int"}
+    }
+  },
   "authGoogleCta": "Sign in with Google",
   "authOrWithEmail": "or with email",
   "authFieldNameLabel": "Name",

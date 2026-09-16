@@ -1088,3 +1088,44 @@ acceptance remain owner work. All 91 status categories remain unchanged because
 those independent requirements still matter.
 
 Round-four backend delivery completed at 2026-09-15T22:16:37.599024+00:00: coach-chat v49, analyze-meal v32; search-key remains v10. All deployed TypeScript import graphs match the green PR-tested source, JWT verification stays on, and secret fingerprints/model choices were compared only in memory. [Sanitized delivery evidence](SECURITY-ROLLOUT-FOLLOWUP-2026-09-15.json). [PR #93](https://github.com/mxritzgit/Eatova/pull/93) carries the final protected checks/merge. No device installation or production behavior test is implied.
+
+
+## Authentication and onboarding redesign, 2026-09-16
+
+The user requested three coordinated workstreams, a distinct Eatova login/signup
+and onboarding design, auth defect fixes, and delivery through protected main.
+Work started from security follow-up main `0128339` in isolated worktrees; the
+original checkout's unrelated instruction/security documentation was preserved.
+
+- **Entry:** Balance Duo surfaces, Bricolage/Archivo typography and app symbols;
+  responsive login, signup and verification/recovery. Keyboard/autofill, legal
+  links, neutral errors, resend/cooldowns and reduced motion remain.
+- **Setup:** six groups replace up to eleven screens: basics, body, activity,
+  goal with conditional target/pace, optional diet, editable plan. Summary edits
+  return directly. `ProfileLimits` and the nutrition calculator are unchanged.
+- **Confirmed fixes:** late password/signup/native-Google responses cannot
+  replace a newer session; a password response without a session fails. Existing
+  nonempty login passwords reach the server without signup-only length rules.
+  Typed account conflicts and competing form/code routes are handled correctly.
+  Goal reselection preserves custom targets. Completion is idempotent, rejects
+  disposed callbacks and does not automatically request notification permission.
+- **Verification:** Flutter 3.47.2; strict analyzer clean; **4,675 tests passed**
+  with dummy service defines; **95.09% coverage (27,432 / 28,849 lines)** excluding
+  generated localization, above the unchanged 88% floor. Regression tests detect
+  the original session races, goal reset and completion/notification faults.
+  The combined [app journey](../test/flows/auth_onboarding_journey_test.dart)
+  verifies confirmation before setup, exactly one profile write, and returning
+  login without repeated setup or unsolicited notification prompts.
+- **Review:** independent read-only review found route races and a weak legacy
+  boundary assertion; both were corrected. Full-suite fixes preserve original
+  assertions while scrolling before taps, deriving the changed greeting from
+  localization and using shared ranked `HeadingSemantics`.
+- **Visual evidence:** [design contract and six previews](AUTH-ONBOARDING-DESIGN.md).
+  Real-font Flutter matrices cover German/English, both themes, normal and 200%
+  text, narrow screens, keyboard insets, tablet layout and landscape welcome.
+  These are test renders, not device captures.
+
+Delivery uses branch `design/auth-onboarding`; the protected PR/check records
+are the authority for push and merge status. No dependency, schema or backend
+function changed. No device build was installed or published. Physical-device
+Google selection, OS autofill and live mail delivery were not exercised here.

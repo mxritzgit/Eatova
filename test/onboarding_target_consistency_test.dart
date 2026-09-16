@@ -78,7 +78,7 @@ void main() {
     await starte(tester);
 
     // intro → sex → age → height → weight
-    for (var i = 0; i < 4; i++) {
+    for (var i = 0; i < 1; i++) {
       await weiter(tester);
     }
     await setze(tester, 'weight', 80);
@@ -87,24 +87,23 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('onboarding-goal-lose')));
     await tester.pumpAndSettle();
-    await weiter(tester);
-    expect(find.byKey(const ValueKey('onboarding-step-target')), findsOneWidget);
+    expect(find.byKey(const ValueKey('onboarding-target-section')), findsOneWidget);
     // The direction default: 80 − 5.
     expect(angezeigt(tester, 'target'), '75');
     expect(find.text('5 kg abnehmen'), findsOneWidget);
 
     // Back to the weight step and down to 60 — WITHOUT touching the target
     // row again. Its window is now 30 … 59.
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < 2; i++) {
       await zurueck(tester);
     }
-    expect(find.byKey(const ValueKey('onboarding-step-weight')), findsOneWidget);
+    expect(find.byKey(const ValueKey('onboarding-step-body')), findsOneWidget);
     await setze(tester, 'weight', 60);
 
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < 2; i++) {
       await weiter(tester);
     }
-    expect(find.byKey(const ValueKey('onboarding-step-target')), findsOneWidget);
+    expect(find.byKey(const ValueKey('onboarding-target-section')), findsOneWidget);
 
     // The number and the sentence have to mean the same kilograms.
     expect(angezeigt(tester, 'target'), '59');
@@ -116,7 +115,7 @@ void main() {
       (tester) async {
     await starte(tester);
 
-    for (var i = 0; i < 4; i++) {
+    for (var i = 0; i < 1; i++) {
       await weiter(tester);
     }
     await setze(tester, 'weight', 60);
@@ -125,16 +124,15 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('onboarding-goal-gain')));
     await tester.pumpAndSettle();
-    await weiter(tester);
     expect(angezeigt(tester, 'target'), '65'); // 60 + 5
     expect(find.text('5 kg zunehmen'), findsOneWidget);
 
     // Raise the weight past the old target: the window becomes 81 … 250.
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < 2; i++) {
       await zurueck(tester);
     }
     await setze(tester, 'weight', 80);
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < 2; i++) {
       await weiter(tester);
     }
 
@@ -153,7 +151,7 @@ void main() {
     // darueber), die Nachfuehrung war nur Verlust.
     await starte(tester);
 
-    for (var i = 0; i < 4; i++) {
+    for (var i = 0; i < 1; i++) {
       await weiter(tester);
     }
     await setze(tester, 'weight', 80);
@@ -161,29 +159,28 @@ void main() {
     await weiter(tester); // goal
     await tester.tap(find.byKey(const ValueKey('onboarding-goal-lose')));
     await tester.pumpAndSettle();
-    await weiter(tester); // target
 
     // Das Ziel von Hand setzen — nicht der Richtungs-Default 75.
     await setze(tester, 'target', 70);
     expect(angezeigt(tester, 'target'), '70');
 
     // Gewicht unter das Ziel: das Fenster ist jetzt 30 … 59, gezeigt wird 59.
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < 2; i++) {
       await zurueck(tester);
     }
     await setze(tester, 'weight', 60);
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < 2; i++) {
       await weiter(tester);
     }
     expect(angezeigt(tester, 'target'), '59');
     expect(find.text('1 kg abnehmen'), findsOneWidget);
 
     // Zurueck auf 80 kg: das Fenster gibt die 70 wieder frei.
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < 2; i++) {
       await zurueck(tester);
     }
     await setze(tester, 'weight', 80);
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < 2; i++) {
       await weiter(tester);
     }
     expect(angezeigt(tester, 'target'), '70',
@@ -195,7 +192,7 @@ void main() {
       (tester) async {
     await starte(tester);
 
-    for (var i = 0; i < 4; i++) {
+    for (var i = 0; i < 1; i++) {
       await weiter(tester);
     }
     await setze(tester, 'weight', 80);
@@ -203,19 +200,18 @@ void main() {
     await weiter(tester);
     await tester.tap(find.byKey(const ValueKey('onboarding-goal-lose')));
     await tester.pumpAndSettle();
-    await weiter(tester);
 
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < 2; i++) {
       await zurueck(tester);
     }
     await setze(tester, 'weight', 60);
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < 2; i++) {
       await weiter(tester);
     }
     expect(angezeigt(tester, 'target'), '59');
 
     // target → pace → diet → summary; the CTA is `onboarding-finish` there.
-    for (var i = 0; i < 3; i++) {
+    for (var i = 0; i < 2; i++) {
       await weiter(tester);
     }
     await tester.tap(find.byKey(const ValueKey('onboarding-finish')));

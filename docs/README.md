@@ -50,6 +50,7 @@ Later focused polish takes precedence over an earlier baseline in the same area.
 | Training | [Nachtstudio](TRAINING-DESIGN.md), [artwork provenance](../assets/training/README.md) |
 | Shared navigation and icons | [Gestures](GESTURE-NAVIGATION.md), [original icon family](ICON-FAMILY-2026-09-14.md) |
 | Account and headers | [App polish](APP-POLISH-2026-09-13.md) |
+| Login, signup and onboarding | [Entry and six-step setup](AUTH-ONBOARDING-DESIGN.md) |
 
 ## Delivery records
 

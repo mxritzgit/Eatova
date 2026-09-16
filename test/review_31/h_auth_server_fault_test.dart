@@ -134,6 +134,7 @@ Future<void> _pumpLogin(WidgetTester tester, Object fehler) async {
       find.byKey(const ValueKey('auth-email-field')), 'du@eatova.de');
   await tester.enterText(
       find.byKey(const ValueKey('auth-password-field')), 'geheim99');
+  await tester.ensureVisible(find.byKey(const ValueKey('auth-submit')));
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(const ValueKey('auth-submit')));
   await tester.pumpAndSettle();

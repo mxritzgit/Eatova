@@ -119,6 +119,8 @@ void main() {
       find.byKey(const ValueKey('auth-password-field')),
       'eatova123',
     );
+    await tester.ensureVisible(find.byKey(const ValueKey('auth-submit')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('auth-submit')));
     await settleFrames(tester);
 
@@ -148,7 +150,7 @@ void main() {
 
     expect(find.byKey(const ValueKey('screen-onboarding')), findsOneWidget,
         reason: 'ein frisches Konto ohne Profilzeile muss ins Onboarding');
-    expect(find.byKey(const ValueKey('onboarding-step-intro')), findsOneWidget);
+    expect(find.byKey(const ValueKey('onboarding-step-basics')), findsOneWidget);
 
     Future<void> tapKey(String key) async {
       await tester.tap(find.byKey(ValueKey(key)));
@@ -164,18 +166,15 @@ void main() {
       );
     }
 
-    await next('sex');
     await tapKey('onboarding-sex-female');
-    await next('age');
-    await next('height');
-    await next('weight');
+    await next('body');
     await next('activity');
     await tapKey('onboarding-activity-moderate');
     await next('goal');
     // Losing weight unlocks target and pace.
     await tapKey('onboarding-goal-lose');
-    await next('target');
-    await next('pace');
+    await tester.ensureVisible(find.byKey(const ValueKey('onboarding-pace-lose05kg')));
+    await tester.pumpAndSettle();
     await tapKey('onboarding-pace-lose05kg');
     await next('diet');
     await tapKey('onboarding-diet-vegetarian');

@@ -281,9 +281,14 @@ class SupabaseAuthRepository implements AuthRepository, CoordinatedSignOut {
 
   @override
   Future<void> signIn({required String email, required String password}) async {
-    await _client.auth.signInWithPassword(
-      email: email.trim(),
-      password: password,
+    await authenticateSession(
+      _client,
+      (scoped) => scoped.signInWithPassword(
+        email: email.trim(),
+        password: password,
+      ),
+      httpClient: _mutationHttpClient,
+      requireSession: true,
     );
   }
 
@@ -296,10 +301,14 @@ class SupabaseAuthRepository implements AuthRepository, CoordinatedSignOut {
     // Deliberately without emailRedirectTo: signup confirms via the 8-digit
     // code, not a confirm link, so a template regression cannot silently
     // reactivate the deep-link path.
-    final antwort = await _client.auth.signUp(
-      email: email.trim(),
-      password: password,
-      data: {'display_name': displayName.trim()},
+    final antwort = await authenticateSession(
+      _client,
+      (scoped) => scoped.signUp(
+        email: email.trim(),
+        password: password,
+        data: {'display_name': displayName.trim()},
+      ),
+      httpClient: _mutationHttpClient,
     );
     final identitaeten = antwort.user?.identities;
     // Only the EMPTY array is the signal. A missing field (null) claims
@@ -314,14 +323,23 @@ class SupabaseAuthRepository implements AuthRepository, CoordinatedSignOut {
   @override
   Future<void> signInWithOAuth(EatovaOAuthProvider provider) async {
     if (provider == EatovaOAuthProvider.google) {
-      final nativeOk = await runNativeGoogleSignIn(
-        tokenProvider: _googleIdTokenProvider,
-        exchangeIdToken: (idToken) async {
-          await _client.auth.signInWithIdToken(
-            provider: OAuthProvider.google,
-            idToken: idToken,
+      var nativeOk = false;
+      await authenticateSession(
+        _client,
+        (scoped) async {
+          AuthResponse? response;
+          nativeOk = await runNativeGoogleSignIn(
+            tokenProvider: _googleIdTokenProvider,
+            exchangeIdToken: (idToken) async {
+              response = await scoped.signInWithIdToken(
+                provider: OAuthProvider.google,
+                idToken: idToken,
+              );
+            },
           );
+          return response ?? AuthResponse();
         },
+        httpClient: _mutationHttpClient,
       );
       if (nativeOk) return;
       // Technical failure in the native flow (no Play Services, client not
