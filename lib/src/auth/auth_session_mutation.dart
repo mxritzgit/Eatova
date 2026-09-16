@@ -144,8 +144,8 @@ Future<void> _mutate(
         user.id != original.user.id) {
       throw const AuthException('Authentication session changed');
     }
-    // Keep a concurrently refreshed token on PUT /user. Only successful OTP
-    // verification supplies a replacement session; a partial response does not.
+    // User-only updates keep a concurrently refreshed token. Successful
+    // credential or OTP exchanges provide their own replacement session.
     final next =
         result.session ??
         (result.user == null ? null : current!.copyWith(user: result.user));

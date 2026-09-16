@@ -1,12 +1,14 @@
 # Current features and platform support
 
-Source review: **2026-09-14**, main through PR #88. This is the current capability
-inventory. Dated reviews describe what was present at their own checkpoint.
+Base source review: **2026-09-14**, main through PR #88; authentication and
+onboarding updated **2026-09-16**. This is the current capability inventory.
+Dated reviews describe what was present at their own checkpoint.
 
 ## What is available
 
 | Area / entry point | Implemented behavior | Source |
 | --- | --- | --- |
+| Account entry | Email/password and Google sign-in, code confirmation/recovery, six-step profile setup with editable summary | [Entry and onboarding](AUTH-ONBOARDING-DESIGN.md) |
 | Today | Calorie balance, macro bars, streak, selected-day steps, quick meal logging, Profile and Settings | [Today](../lib/src/screens/today/today_screen.dart) |
 | Food | Breakfast/lunch/dinner/snack diary, meal editing and deletion, date calendar, favorites, history trends | [App shell](../lib/src/app/eatova_home_page.dart), [Food design](FOOD-DESIGN.md) |
 | Meal entry | Camera or gallery with optional context; barcode; product search; manual per-100-g values and a chosen portion; shared meal-slot picker | [Entry contracts](FOOD-ENTRY-POLISH-2026-09-14.md) |
@@ -52,6 +54,10 @@ these states distinct. Sources: [platform factory](../lib/src/services/platform_
   nutrition database.
 - Coach recipe/plan output is a proposal. Opening a card or receiving a reply
   does not silently adopt it.
+- Initial setup groups personal details, body data, activity, goals and an
+  optional dietary preference into six screens, ending in an editable plan.
+  Completing it does not request notification permission; reminders require
+  the existing explicit opt-in. See [entry and onboarding](AUTH-ONBOARDING-DESIGN.md).
 - Completed workouts preserve a snapshot and actual values. Editing a source
   plan does not rewrite history. A paused checkpoint is local to the device;
   it is not a cross-device live workout session.
