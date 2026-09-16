@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/widgets/auth/welcome_screen.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 
 import '../support/harness.dart';
 
@@ -136,13 +137,13 @@ void main() {
     await _tick(tester, const Duration(milliseconds: 1100));
 
     expect(find.byKey(const ValueKey('boot-mark')), findsOneWidget);
-    expect(find.text('Willkommen, Mira.'), findsNothing);
+    expect(find.text(deL10n.onboardingWelcomeTitle('Mira')), findsNothing);
 
     ready.complete();
     await tester.pump(); // .then fires
     await _tick(tester, const Duration(milliseconds: 900)); // snap + switcher
 
-    expect(find.text('Willkommen, Mira.'), findsOneWidget);
+    expect(find.text(deL10n.onboardingWelcomeTitle('Mira')), findsOneWidget);
     expect(find.text('Du bist drin.'), findsOneWidget);
     expect(find.byKey(const ValueKey('boot-mark')), findsOneWidget,
         reason: 'die eingerastete Marke bleibt stehen — der Willkommens-Text '
