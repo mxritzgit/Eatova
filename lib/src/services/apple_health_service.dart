@@ -2,6 +2,9 @@ import 'dart:async';
 import 'dart:developer' as dev;
 import 'dart:io';
 
+import 'package:clock/clock.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:health/health.dart';
 
 import 'crash_reporter.dart';
@@ -123,9 +126,12 @@ class HealthAuthVerifier {
     HealthAuthEvidence e, {
     required DateTime now,
   }) {
+    // A failed/missing step query is not a measured zero, even when earlier
+    // read evidence still verifies the connection.
+    if (e.steps == null) return null;
     if (resolve(e, now: now) != HealthAuthState.granted) return null;
     return HealthSnapshot(
-      stepsToday: e.steps ?? 0,
+      stepsToday: e.steps!,
       fetchedAt: now,
       latestWeightKg: e.latestWeightKg,
     );
@@ -147,14 +153,15 @@ class AppleHealthService implements HealthService {
     HealthAuthVerifier? verifier,
     Health? health,
     bool? debugIsIOS,
-  })  : _verifier = verifier ?? HealthAuthVerifier(),
-        _health = health ?? Health(),
-        _isIOS = debugIsIOS ?? Platform.isIOS;
+  }) : _verifier = verifier ?? HealthAuthVerifier(),
+       _health = health ?? Health(),
+       _isIOS = debugIsIOS ?? Platform.isIOS;
 
   final Health _health;
   final bool _isIOS;
   final HealthAuthVerifier _verifier;
   bool _configured = false;
+  int _generation = 0;
   HealthAuthState _authState = HealthAuthState.unknown;
 
   // Types and per-type permissions are PARALLEL lists (package:health expects
@@ -182,6 +189,61 @@ class AppleHealthService implements HealthService {
     _configured = true;
   }
 
+  bool get _foreground =>
+      WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+
+  /// Read only while active. A short-lived observer also detects a background
+  /// round trip while a native query is pending; checking only the final state
+  /// would miss it. Resume normally retries through the shell. If that resume
+  /// already happened while the store was busy, retry once here instead.
+  Future<T?> _read<T>(Future<T?> Function(_HealthReadSession) action) async {
+    if (!_isIOS || !_foreground) return null;
+    final generation = _generation;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final session = _HealthReadSession(() => generation == _generation);
+      try {
+        await _query(session, 'configure', _ensureConfigured);
+        final result = await action(session);
+        session.check();
+        return result;
+      } on _HealthReadDeferred {
+        // Preserve the last observation and permission state until a real read.
+      } finally {
+        session.dispose();
+      }
+      if (!session.interrupted || !_foreground || generation != _generation) {
+        break;
+      }
+    }
+    return null;
+  }
+
+  Future<T> _query<T>(
+    _HealthReadSession session,
+    String operation,
+    Future<T> Function() query,
+  ) async {
+    session.check();
+    late T result;
+    try {
+      result = await query();
+    } catch (e, st) {
+      // The plugin discards the native HKError code. Suppress these generic
+      // read errors only for an observed lifecycle interruption, never merely
+      // because their code is HEALTH_ERROR/STEPS_ERROR in the foreground.
+      final interruptedRead =
+          session.interrupted &&
+          e is PlatformException &&
+          (e.code == 'HEALTH_ERROR' || e.code == 'STEPS_ERROR');
+      if (session.isCurrent() && !interruptedRead) {
+        _reportError(operation, e, st);
+      }
+      throw const _HealthReadDeferred();
+    }
+    session.check();
+    return result;
+  }
+
   /// HealthKit errors stay silent for the user (callers return fallbacks) but
   /// go to dev.log + CrashReporter instead of vanishing.
   static void _reportError(String operation, Object e, StackTrace st) {
@@ -207,6 +269,7 @@ class AppleHealthService implements HealthService {
   /// about the next user, and the first refresh re-verifies anyway.
   @override
   void reset() {
+    _generation++;
     _verifier.reset();
     _adopt(HealthAuthState.unknown);
   }
@@ -232,26 +295,33 @@ class AppleHealthService implements HealthService {
   /// Collects all signals of one access in a single pass. No auth gate: the
   /// signals are what the auth state is derived from, so a gate would be
   /// circular.
-  Future<HealthAuthEvidence> _gatherEvidence(DateTime now) async {
-    final writeGrant = await _readWriteGrant();
-
-    int? steps;
-    try {
-      final startOfDay = DateTime(now.year, now.month, now.day);
-      steps = await _health.getTotalStepsInInterval(startOfDay, now);
-    } catch (e, st) {
-      _reportError('readSteps', e, st);
-    }
+  Future<HealthAuthEvidence> _gatherEvidence(
+    DateTime now,
+    _HealthReadSession session,
+  ) async {
+    final writeGrant = await _query(session, 'writeGrant', _readWriteGrant);
+    final startOfDay = DateTime(now.year, now.month, now.day);
+    final steps = await _query(
+      session,
+      'readSteps',
+      () => _health.getTotalStepsInInterval(startOfDay, now),
+    );
 
     double? latestWeight;
     try {
-      final weights = await _rawWeightSamples(
-        from: now.subtract(const Duration(days: 90)),
-        to: now,
+      final weights = await _query(
+        session,
+        'readSnapshot.weight',
+        () => _rawWeightSamples(
+          from: now.subtract(const Duration(days: 90)),
+          to: now,
+        ),
       );
       if (weights.isNotEmpty) latestWeight = weights.last.kg;
-    } catch (e, st) {
-      _reportError('readSnapshot.weight', e, st);
+    } on _HealthReadDeferred {
+      // Weight is optional, but a lifecycle/account change invalidates the
+      // entire snapshot, including the previously returned step count.
+      session.check();
     }
 
     return HealthAuthEvidence(
@@ -266,8 +336,11 @@ class AppleHealthService implements HealthService {
     // Defense in depth: HealthKit is iOS-only. The Apple-vs-noop choice
     // happens at construction, but no-op hard instead of crashing.
     if (!_isIOS) return _adopt(HealthAuthState.unsupported);
+    if (!_foreground) return _authState;
+    final generation = _generation;
     try {
       await _ensureConfigured();
+      if (generation != _generation || !_foreground) return _authState;
 
       // hasPermissions over the full type list is useless on iOS (READ and
       // READ_WRITE return `nil` natively), so always ask. Harmless: HealthKit
@@ -277,6 +350,7 @@ class AppleHealthService implements HealthService {
         _types,
         permissions: _permissions,
       );
+      if (generation != _generation) return _authState;
       if (!sheetShown) {
         // Apple's `success == false` means the request itself failed
         // (HealthKit unavailable / error), not a user "no". An error is not
@@ -286,9 +360,23 @@ class AppleHealthService implements HealthService {
 
       // `sheetShown` only proves the sheet ran without error; the state comes
       // from real signals.
-      final now = DateTime.now();
-      return _adopt(_verifier.resolve(await _gatherEvidence(now), now: now));
+      final evidence = await _read((session) async {
+        final now = clock.now();
+        final signals = await _gatherEvidence(now, session);
+        session.check();
+        return _verifier.resolve(signals, now: now);
+      });
+      if (generation != _generation) return _authState;
+      // A completed sheet with a deferred read remains eligible for the
+      // shell's next foreground refresh, without claiming a read grant.
+      return _adopt(
+        evidence ??
+            (_authState == HealthAuthState.unknown
+                ? HealthAuthState.unverified
+                : _authState),
+      );
     } catch (e, st) {
+      if (generation != _generation) return _authState;
       _reportError('requestAuthorization', e, st);
       // `unsupported` is reserved for the real platform fact above: the card
       // hides the connect button on it, which would be a dead end until
@@ -298,48 +386,39 @@ class AppleHealthService implements HealthService {
   }
 
   @override
-  Future<HealthSnapshot?> readSnapshot() async {
-    if (!Platform.isIOS) return null;
-    try {
-      await _ensureConfigured();
-      final now = DateTime.now();
-      // Re-verified on EVERY refresh. Unverified => null, so the store never
-      // sets dailySteps/healthLastFetch to a bogus value.
-      final snap =
-          _verifier.verifiedSnapshot(await _gatherEvidence(now), now: now);
-      _adopt(_verifier.state);
-      return snap;
-    } catch (e, st) {
-      _reportError('readSnapshot', e, st);
-      return null;
-    }
-  }
+  Future<HealthSnapshot?> readSnapshot() => _read((session) async {
+    final now = clock.now();
+    final evidence = await _gatherEvidence(now, session);
+    session.check();
+    // Re-verified on EVERY refresh. Unverified => null, so the store never
+    // sets dailySteps/healthLastFetch to a bogus value.
+    final snap = _verifier.verifiedSnapshot(evidence, now: now);
+    _adopt(_verifier.state);
+    return snap;
+  });
 
   @override
-  Future<int?> readStepsOnDay(DateTime day) async {
-    if (!Platform.isIOS) return null;
-    try {
-      await _ensureConfigured();
-      final start = DateTime(day.year, day.month, day.day);
-      // Calendar arithmetic instead of Duration(days: 1): across a DST edge a
-      // day is not 24 h. Dart normalises the day overflow itself.
-      var end = DateTime(day.year, day.month, day.day + 1);
-      final now = DateTime.now();
-      if (!start.isBefore(now)) return null;
-      if (end.isAfter(now)) end = now;
-      final steps = await _health.getTotalStepsInInterval(start, end);
-      // 0 proves nothing (see HealthAuthEvidence.steps): without read access
-      // an empty sum comes back, never an error. Store positives only.
-      return (steps ?? 0) > 0 ? steps : null;
-    } catch (e, st) {
-      _reportError('readStepsOnDay', e, st);
-      return null;
-    }
-  }
+  Future<int?> readStepsOnDay(DateTime day) => _read((session) async {
+    final start = DateTime(day.year, day.month, day.day);
+    // Calendar arithmetic instead of Duration(days: 1): across a DST edge a
+    // day is not 24 h. Dart normalises the day overflow itself.
+    var end = DateTime(day.year, day.month, day.day + 1);
+    final now = clock.now();
+    if (!start.isBefore(now)) return null;
+    if (end.isAfter(now)) end = now;
+    final steps = await _query(
+      session,
+      'readStepsOnDay',
+      () => _health.getTotalStepsInInterval(start, end),
+    );
+    // 0 proves nothing (see HealthAuthEvidence.steps): without read access
+    // an empty sum comes back, never an error. Store positives only.
+    return (steps ?? 0) > 0 ? steps : null;
+  });
 
   @override
   Future<bool> writeWeight(double kg, DateTime when) async {
-    if (!Platform.isIOS) return false;
+    if (!_isIOS) return false;
     if (kg <= 0) return false;
     try {
       await _ensureConfigured();
@@ -364,14 +443,14 @@ class AppleHealthService implements HealthService {
     required DateTime from,
     required DateTime to,
   }) async {
-    if (!Platform.isIOS) return const <WeightSample>[];
-    try {
-      await _ensureConfigured();
-      return await _rawWeightSamples(from: from, to: to);
-    } catch (e, st) {
-      _reportError('readWeightSamples', e, st);
-      return const <WeightSample>[];
-    }
+    return await _read(
+          (session) => _query(
+            session,
+            'readWeightSamples',
+            () => _rawWeightSamples(from: from, to: to),
+          ),
+        ) ??
+        const <WeightSample>[];
   }
 
   /// Ungated weight read path — basis of [readWeightSamples] AND
@@ -397,4 +476,33 @@ class AppleHealthService implements HealthService {
     samples.sort((a, b) => a.measuredAt.compareTo(b.measuredAt));
     return samples;
   }
+}
+
+class _HealthReadDeferred implements Exception {
+  const _HealthReadDeferred();
+}
+
+/// Scoped to one read, so no observer survives a completed request or logout.
+class _HealthReadSession with WidgetsBindingObserver {
+  _HealthReadSession(this.isCurrent) {
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  final bool Function() isCurrent;
+  bool interrupted = false;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) interrupted = true;
+  }
+
+  void check() {
+    if (!isCurrent() ||
+        interrupted ||
+        WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+      throw const _HealthReadDeferred();
+    }
+  }
+
+  void dispose() => WidgetsBinding.instance.removeObserver(this);
 }

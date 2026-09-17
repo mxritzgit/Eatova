@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health/health.dart';
 
@@ -77,7 +78,8 @@ HealthAuthEvidence _ev({
     );
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+  final binding = TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(() => binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
 
   group('Fund 1 — kein SLEEP-Scope mehr', () {
     test('das Berechtigungs-Sheet fragt Schlaf nicht mehr an', () async {

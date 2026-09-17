@@ -1182,3 +1182,50 @@ and its checks record final push/merge status; authorization alone does not
 establish delivery. This revision does not deploy backend functions or change
 live authentication settings. No production build installation, physical-device
 Google selection, OS autofill or live mail delivery is established here.
+
+## Sentry HealthKit background reads, 2026-09-17
+
+Chrome inspection of [FLUTTER-F](https://eatova.sentry.io/issues/147438147/)
+and [FLUTTER-G](https://eatova.sentry.io/issues/147438150/) found one event each
+in the same trace, from iOS release `1.1.0 (3)`. The step query failed at
+2026-09-16 04:27:52.366 UTC (`health.readSteps`, `STEPS_ERROR`); the following
+weight query failed at .370 (`health.readSnapshot.weight`, `HEALTH_ERROR`).
+Both followed the background lifecycle event at .287 and report foreground=false.
+These are captured read failures, not evidence that the app terminated.
+
+The confirmed code defect is an unfenced refresh continuing across that
+lifecycle transition. Failed step queries could also become a fresh zero via
+the verifier's retained read evidence. A locked HealthKit store is consistent
+with [Apple's privacy documentation](https://developer.apple.com/documentation/healthkit/protecting-user-privacy),
+but the historical native reason is not proven: health 13.3.1 discards the native
+error code, and Sentry removes the free-text message.
+
+[AppleHealthService](../lib/src/services/apple_health_service.dart) now defers
+reads outside the resumed state, checks lifecycle/account validity around native
+queries, and discards interrupted results. Scoped observers catch a background
+round trip even if the app is already resumed when a query completes. One bounded
+read retry handles that case when the shell's resume refresh was blocked by the
+existing in-flight request. Missing steps never become a measured zero; the
+store keeps its previous value and fetch time. Foreground failures still reach
+sanitized reporting, and an optional weight failure does not discard valid steps.
+The generic HEALTH_ERROR/STEPS_ERROR codes are suppressed only after an observed
+lifecycle interruption, not globally. Reset invalidates pending account evidence.
+
+Verification: [21 new regressions](../test/services/apple_health_lifecycle_test.dart)
+cover lifecycle changes, recovery, true zero versus unavailable steps, retained
+store state, reporting and account reset. Before the fix, two controls reproduced
+the false-zero snapshot and the continued weight query after background failure;
+only the existing platform seam and clock were aligned to run them on Windows.
+All **4,715 Flutter tests** pass with dummy defines; strict analysis passes with
+fatal infos/warnings. Coverage excluding generated localization is
+**95.16% (27,559 / 28,960 lines)**, above the 88% floor. Scoped Gitleaks and
+`git diff --check` pass. Review was a direct source/diff review, without subagents.
+
+The fix was prepared on `fix/healthkit-background-refresh`, based on main
+`a193282`, in `.agents/sentry-health-2026-09-17/worktree`. The original dirty
+checkout is preserved. The user authorized push and protected-main merge after
+green CI; the branch's PR records final Git delivery and check results. No
+backend deployment is needed. An updated iOS build and a physical-device
+foreground/lock/resume check remain necessary; no device installation was
+performed and the historical Sentry issues stay open. Local test logs are ignored
+under `.agents/sentry-health-2026-09-17/`.
