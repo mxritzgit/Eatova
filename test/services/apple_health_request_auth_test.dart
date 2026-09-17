@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health/health.dart';
 
@@ -47,7 +48,8 @@ class _FakeHealth implements Health {
 }
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+  final binding = TestWidgetsFlutterBinding.ensureInitialized();
+  setUp(() => binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
 
   test('Plugin-Fehler beim Anfordern -> unknown, NICHT unsupported', () async {
     final service = AppleHealthService(
