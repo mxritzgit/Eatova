@@ -12,6 +12,7 @@
 // slice also carries `lifetimeStats` and `userName`, so the expectations below
 // were re-measured for it.
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -37,7 +38,7 @@ class _StaticHealth implements HealthService {
   @override
   Future<HealthSnapshot?> readSnapshot() async {
     snapshotCalls++;
-    return HealthSnapshot(stepsToday: 7000, fetchedAt: DateTime(2026, 8, 8));
+    return HealthSnapshot(stepsToday: 7000, fetchedAt: clock.now());
   }
 
   @override
@@ -105,7 +106,7 @@ void main() {
   setUp(debugTabBuilds.clear);
 
   testWidgets('ein Health-Refresh baut den Heute-Tab nicht mehr neu',
-      (tester) async {
+      (tester) => withClock(Clock.fixed(DateTime(2026, 9, 19, 12)), () async {
     final health = _StaticHealth();
     await _pumpHome(tester, health: health);
     await _pumpFrames(tester);
@@ -128,7 +129,7 @@ void main() {
     expect(debugTabBuilds[0], nachBoot,
         reason: 'sechs irrelevante Notifies -> null zusaetzliche Rebuilds '
             '(gemessen vorher fuer Food: 2 -> 5)');
-  });
+  }));
 
   testWidgets('eine echte Aenderung baut den Heute-Tab genau einmal neu',
       (tester) async {

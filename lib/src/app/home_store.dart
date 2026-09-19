@@ -9,6 +9,7 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 
 import '../l10n/l10n.dart';
+import '../models/daily_calorie_balance.dart';
 import '../models/favorite_meal.dart';
 import '../models/fitness_recipe.dart';
 import '../models/lifetime_stats.dart';
@@ -357,7 +358,12 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   /// only line the cap may hit.
   String get coachContext {
     final p = profile;
-    final remKcal = p.dailyKcalGoal - dailyConsumedKcal;
+    final balance = DailyCalorieBalance(
+      goalKcal: p.dailyKcalGoal,
+      consumedKcal: dailyConsumedKcal,
+      burnedKcal: burnedKcalForFoodDate(clock.now()),
+    );
+    final remKcal = balance.remainingKcal;
     final remProt = (p.proteinGoalG - macroProgress.proteinG).round();
     final remCarbs = (p.carbsGoalG - macroProgress.carbsG).round();
     final remFat = (p.fatGoalG - macroProgress.fatG).round();
@@ -377,8 +383,10 @@ abstract class _HomeStoreBase extends ChangeNotifier {
       // German like the rest of the context, hence the fixed German bundle and
       // not the user's — the reply language is the system prompt's business.
       'Wirksames Gewichtsziel: ${p.effectiveWeightGoal.label(deL10n)}.',
-      'Heute gegessen: $dailyConsumedKcal von ${p.dailyKcalGoal} kcal '
+      'Heute gegessen: ${balance.consumedKcal} von ${balance.budgetKcal} kcal '
           '(noch $remKcal kcal übrig).',
+      'Basisziel: ${balance.goalKcal} kcal; '
+          'Aktivitätsbonus: ${balance.burnedKcal} kcal.',
       'Makros heute noch offen: Protein $remProt g, Kohlenhydrate $remCarbs g, '
           'Fett $remFat g.',
     ];
@@ -434,6 +442,9 @@ abstract class _HomeStoreBase extends ChangeNotifier {
 
   bool get selectedFoodDateIsToday =>
       _isSameFoodDate(selectedFoodDate, clock.now());
+
+  // Supplied by the tracking part; its day/source checks govern every caller.
+  int burnedKcalForFoodDate(DateTime date);
 
   // Pure aggregation lives in services/meal_totals.dart; these are thin
   // wrappers binding the current loggedMeals.

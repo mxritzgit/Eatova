@@ -13,17 +13,35 @@
 
 import 'dart:io';
 
+import 'package:clock/clock.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/meal_totals.dart';
+import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/trend_service.dart';
+import 'package:eatova/src/widgets/common/app_snack.dart';
 
 /// Marker the driver greps for in stdout; it proves the probe really ran in
 /// a non-UTC zone.
 const String zonenMarker = 'SONDE-ZONE-OK';
+
+class _UtcHealth extends NoopHealthService {
+  _UtcHealth(this.snapshot);
+
+  final HealthSnapshot snapshot;
+
+  @override
+  HealthAuthState get authState => HealthAuthState.granted;
+
+  @override
+  Future<HealthSnapshot?> readSnapshot() async => snapshot;
+}
 
 const MealAnalysisResult _result = MealAnalysisResult(
   mealName: 'Spaetes Abendessen',
@@ -53,6 +71,7 @@ DateTime _zeitpunktMitAbweichendemTag() {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   final offset = DateTime.now().timeZoneOffset;
 
   test('die Sonde laeuft in einer Zone ungleich UTC', () {
@@ -151,6 +170,33 @@ void main() {
       );
       expect(localDayKey(totals.single.day), isNot(utcTag));
       expect(totals.single.kcal, 600);
+    });
+
+    test('health snapshot uses its local day even with a UTC timestamp',
+        () async {
+      final localNow = utcInstant.toLocal();
+      await withClock(Clock.fixed(localNow), () async {
+        final store = HomeStore(
+          sync: null,
+          health: _UtcHealth(
+            HealthSnapshot(stepsToday: 12000, fetchedAt: utcInstant),
+          ),
+          notificationService: const NoopNotificationService(),
+          initialUserName: 'Test',
+          emitSnack: (_, {
+            IconData icon = Icons.info_outline,
+            SnackTone tone = SnackTone.positive,
+            Duration? duration,
+            SnackBarAction? action,
+          }) {},
+        );
+        addTearDown(store.dispose);
+        await store.refreshHealthSteps();
+        expect(store.stepsForFoodDate(localNow), 12000);
+        expect(store.burnedKcalForFoodDate(localNow), greaterThan(0));
+        expect(store.dailyActivity[lokalerTag]?.steps, 12000);
+        expect(store.dailyActivity, isNot(contains(utcTag)));
+      });
     });
 
     test('alle drei Stellen liefern DENSELBEN Tag', () {

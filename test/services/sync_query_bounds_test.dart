@@ -132,7 +132,7 @@ void main() {
 
   group('MealsSync.loadLoggedMealsForDay', () {
     test(
-        'sendet halboffenes Tagesfenster (gte/lt auf logged_at), order desc '
+        'sendet kanonischen Tag mit Null-Fallback, order desc '
         'und kleines Limit', () async {
       final c = _recordingClient(const <dynamic>[]);
       await MealsSync(c.client, 'user-1')
@@ -144,18 +144,12 @@ void main() {
           orderSpalte: 'logged_at',
           limit: MealsSync.loggedMealsDayMaxRows);
 
-      // gte and lt share the query key logged_at -> queryParametersAll.
-      final bounds = req.url.queryParametersAll['logged_at'] ?? const [];
-      final gte = bounds
-          .singleWhere((f) => f.startsWith('gte.'))
-          .substring('gte.'.length);
-      final lt = bounds
-          .singleWhere((f) => f.startsWith('lt.'))
-          .substring('lt.'.length);
-      // Local midnight of the day and the next, translated to UTC; the time
-      // of the passed DateTime does not matter.
-      expect(DateTime.parse(gte), DateTime(2026, 3, 14).toUtc());
-      expect(DateTime.parse(lt), DateTime(2026, 3, 15).toUtc());
+      expect(req.url.queryParameters.containsKey('logged_at'), isFalse,
+          reason: 'Canonical rows must not inherit the legacy timestamp window');
+      expect(req.url.queryParameters['or'],
+          '(local_day.eq.2026-03-14,and(local_day.is.null,'
+          'logged_at.gte.${DateTime(2026, 3, 14).toUtc().toIso8601String()},'
+          'logged_at.lt.${DateTime(2026, 3, 15).toUtc().toIso8601String()}))');
     });
   });
 

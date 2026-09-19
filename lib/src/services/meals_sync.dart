@@ -9,6 +9,7 @@ import '../models/logged_meal.dart';
 import '../models/meal_analysis_result.dart';
 import '../models/meal_component.dart';
 import 'crash_reporter.dart';
+import 'local_day.dart';
 
 /// Reads and writes LoggedMeal + FavoriteMeal against public.logged_meals and
 /// public.favorite_meals. MealAnalysisResult travels as a JSONB payload plus a
@@ -96,9 +97,9 @@ class MealsSync {
   }
 
   /// Loads the meals of ONE local calendar day — the on-demand path for days
-  /// outside the [loggedMealsWindowDays] boot window. Half-open local wall
-  /// clock window [day 00:00, next day 00:00) translated to UTC on logged_at,
-  /// because old rows may carry local_day=null.
+  /// outside the [loggedMealsWindowDays] boot window. Persisted local_day wins
+  /// across timezone changes. Legacy null rows use the half-open local
+  /// midnight window on logged_at.
   Future<List<LoggedMeal>> loadLoggedMealsForDay(DateTime day) async {
     try {
       final start = DateTime(day.year, day.month, day.day);
@@ -109,8 +110,10 @@ class MealsSync {
           .from('logged_meals')
           .select('id, logged_at, forced_slot, local_day, payload')
           .eq('user_id', _userId)
-          .gte('logged_at', start.toUtc().toIso8601String())
-          .lt('logged_at', end.toUtc().toIso8601String())
+          .or('local_day.eq.${localDayKey(start)},'
+              'and(local_day.is.null,'
+              'logged_at.gte.${start.toUtc().toIso8601String()},'
+              'logged_at.lt.${end.toUtc().toIso8601String()})')
           .order('logged_at', ascending: false)
           .limit(loggedMealsDayMaxRows)
           // No postgrest auto-retry (default 3 attempts, 1s/2s/4s backoff):

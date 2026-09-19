@@ -1229,3 +1229,54 @@ backend deployment is needed. An updated iOS build and a physical-device
 foreground/lock/resume check remain necessary; no device installation was
 performed and the historical Sentry issues stay open. Local test logs are ignored
 under `.agents/sentry-health-2026-09-17/`.
+
+## Review fixes: calorie budgets, Health days and archive meals, 2026-09-19
+
+Three coordinated agents implemented and independently cross-reviewed three
+reproduced defects against main `79821e1`. The original dirty checkout was
+preserved; the integrated worktree is
+`.agents/review-fixes-2026-09-19/integration`, branch
+`fix/review-calories-health-archive`.
+
+- **Calorie budget:** [DailyCalorieBalance](../lib/src/models/daily_calorie_balance.dart)
+  now supplies both Today and Coach with base goal plus valid activity minus
+  consumed calories. The displayed base goal remains separate, and an over-budget
+  remainder keeps its sign. The mounted Coach observes changes to the valid bonus
+  without rebuilding for an unchanged fetch timestamp. The
+  [Coach regressions](../test/coach_calorie_balance_test.dart) exercise measured
+  activity, unknown activity, overshoot and an already open screen.
+- **Health day validity:** the [tracking store](../lib/src/app/home_store_tracking.dart)
+  requires a snapshot from the same local calendar day on both platforms.
+  Unknown steps remain nullable; a measured zero is real data. iOS retains a
+  same-day reading through a failed refresh and preserves historical activity.
+  A read spanning midnight can perform exactly one current-day catch-up, with
+  account-generation and disposal checks before platform reads and weight offers.
+  Android additionally requires verified permission, including after a settings
+  failure. Profile, Today, Food and Coach use the central validity rule.
+  [Store regressions](../test/home_store_health_day_validity_test.dart),
+  [screen wiring](../test/health_day_screen_wiring_test.dart),
+  [Android settings checks](../test/home_store_health_connect_test.dart) and the
+  [non-UTC probe](../test/wire_local_day_probe.dart) cover these boundaries.
+- **Archive loading:** [MealsSync](../lib/src/services/meals_sync.dart) uses the
+  persisted `local_day`; only legacy rows with a null day use the half-open
+  timestamp window between local midnights. One query preserves the owner filter,
+  descending order, shared 50-row cap and existing failure/retry behavior.
+  [Wire regressions](../test/wire_meals_sync_window_test.dart) and the
+  [HomeStore archive flow](../test/home_store_day_load_test.dart) cover timezone
+  travel, wrong-day rows consuming the cap, legacy bounds, owner isolation and
+  DST. The existing indexes suffice; no migration is needed.
+
+Verification on Flutter 3.47.2 / Dart 3.13.2: the original three independent review
+probes now pass, and each fix has a failing-before regression control. The full
+suite passes **4,745 tests**, including 30 added cases, with dummy service defines.
+Coverage excluding generated localization is **95.23% (27,602 / 28,986 lines)**,
+above the unchanged 88% floor. Strict analysis passes with fatal infos/warnings.
+The Android debug APK builds successfully with dummy service defines.
+All three agents completed independent source/diff review of the combined work.
+Local evidence is ignored under `.agents/review-fixes-2026-09-19/`.
+
+The user authorized pushing a PR and merging through protected main after green
+CI. The PR and its required checks establish delivery status; local preparation
+does not establish merge. No backend function, schema, dependency or runtime
+configuration changed. No device installation or physical iOS validation was
+performed.
