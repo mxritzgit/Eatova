@@ -30,8 +30,10 @@ import 'package:supabase/supabase.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/services/meals_sync.dart';
 
+import 'support/postgrest_filters.dart';
+
 /// Loopback server implementing the PostgREST semantics `MealsSync` uses:
-/// `eq`, `gte`, `lt`, plus `order` and `limit`. Anything else throws, so a
+/// `eq`, `gte`, `lt`, `is.null`, `and`/`or`, plus `order` and `limit`. Anything else throws, so a
 /// newly used filter surfaces here instead of silently passing.
 class _PostgrestFake {
   _PostgrestFake._(this._server);
@@ -92,15 +94,7 @@ class _PostgrestFake {
 
     var zeilen = bestand.toList();
 
-    for (final eintrag in uri.queryParametersAll.entries) {
-      const steuerung = <String>{'select', 'order', 'limit', 'offset'};
-      if (steuerung.contains(eintrag.key)) continue;
-      for (final filter in eintrag.value) {
-        zeilen = zeilen
-            .where((zeile) => _trifft(zeile, eintrag.key, filter))
-            .toList();
-      }
-    }
+    zeilen = zeilen.where((row) => matchesPostgrestFilters(row, uri)).toList();
 
     final order = uri.queryParameters['order'];
     if (order != null) {
@@ -132,39 +126,6 @@ class _PostgrestFake {
         )
         .toList();
   }
-
-  bool _trifft(Map<String, dynamic> zeile, String spalte, String filter) {
-    final punkt = filter.indexOf('.');
-    if (punkt < 0) throw StateError('Filter ohne Operator: $filter');
-    final operator = filter.substring(0, punkt);
-    final wert = filter.substring(punkt + 1);
-    if (!zeile.containsKey(spalte)) {
-      // Fail loudly rather than filter everything away: in Postgres a filter
-      // on a missing column is an error, here it would look like a pass.
-      throw StateError('Zeile hat keine Spalte "$spalte": $zeile');
-    }
-    final zelle = zeile[spalte];
-
-    switch (operator) {
-      case 'eq':
-        return zelle?.toString() == wert;
-      case 'gte':
-        // timestamptz comparison on the timeline, not on the string: Postgres
-        // compares instants regardless of the offset they are written in.
-        return !_instant(zelle).isBefore(_instant(wert));
-      case 'lt':
-        return _instant(zelle).isBefore(_instant(wert));
-      default:
-        throw StateError(
-          'Operator "$operator" ist im PostgREST-Fake nicht implementiert. '
-          'Wer ihn in meals_sync.dart benutzt, muss ihn hier nachziehen — '
-          'sonst prueft dieser Test ihn nur scheinbar.',
-        );
-    }
-  }
-
-  static DateTime _instant(Object? roh) =>
-      DateTime.parse(roh! as String).toUtc();
 
   static Comparable<Object> _sortierschluessel(Object? zelle) {
     if (zelle is String) {
@@ -444,14 +405,165 @@ void main() {
     });
   });
 
+  group('Archive: canonical day before timestamp fallback', () {
+    final day = DateTime(2026, 3, 14);
+    final nextDay = DateTime(2026, 3, 15);
+
+    test(
+      'keeps canonical meals across timezone shifts in both directions',
+      () async {
+        server.tables['logged_meals'] = [
+          // After travel, either side of the current-zone window can contain
+          // a meal whose original local calendar date is the selected day.
+          _zeile(
+            id: 'earlier-zone',
+            loggedAt: day.subtract(const Duration(hours: 1)),
+            localDay: '2026-03-14',
+          ),
+          _zeile(
+            id: 'later-zone',
+            loggedAt: nextDay.add(const Duration(hours: 1)),
+            localDay: '2026-03-14',
+          ),
+        ];
+        final meals = await MealsSync(
+          client,
+          'user-1',
+        ).loadLoggedMealsForDay(day);
+        expect(meals.map((meal) => meal.id), ['later-zone', 'earlier-zone']);
+        expect(
+          meals.map((meal) => meal.effectiveLocalDay),
+          everyElement('2026-03-14'),
+        );
+      },
+    );
+
+    test(
+      'does not spend the day cap on timestamp matches for another day',
+      () async {
+        server.tables['logged_meals'] = [
+          for (var i = 0; i < 60; i++)
+            _zeile(
+              id: 'other-day-$i',
+              loggedAt: DateTime(2026, 3, 14, 20, i),
+              localDay: i.isEven ? '2026-03-13' : '2026-03-15',
+            ),
+          _zeile(
+            id: 'selected',
+            loggedAt: DateTime(2026, 3, 14, 1),
+            localDay: '2026-03-14',
+          ),
+          _zeile(
+            id: 'foreign-canonical',
+            loggedAt: nextDay,
+            localDay: '2026-03-14',
+            userId: 'other-user',
+          ),
+          _zeile(id: 'foreign-legacy', loggedAt: day, userId: 'other-user'),
+        ];
+        final meals = await MealsSync(
+          client,
+          'user-1',
+        ).loadLoggedMealsForDay(day);
+        expect(meals.map((meal) => meal.id), ['selected']);
+        expect(server.requests, hasLength(1));
+        expect(server.requests.single.queryParameters['user_id'], 'eq.user-1');
+        expect(server.requests.single.queryParameters['limit'], '50');
+        expect(
+          server.requests.single.queryParameters['order'],
+          startsWith('logged_at.desc'),
+        );
+      },
+    );
+
+    test('propagates server failure without automatic retries', () async {
+      server.tables.remove('logged_meals');
+      await expectLater(
+        MealsSync(client, 'user-1').loadLoggedMealsForDay(day),
+        throwsA(isA<PostgrestException>()),
+      );
+      expect(server.requests, hasLength(1));
+    });
+
+    test(
+      'caps the combined modern and legacy matches at the newest 50',
+      () async {
+        server.tables['logged_meals'] = [
+          for (var i = 0; i < 60; i++)
+            _zeile(
+              id: 'meal-$i',
+              loggedAt: DateTime(2026, 3, 14, 12, i),
+              localDay: i.isEven ? '2026-03-14' : null,
+            ),
+        ];
+        final meals = await MealsSync(
+          client,
+          'user-1',
+        ).loadLoggedMealsForDay(day);
+        expect(meals.map((meal) => meal.id), [
+          for (var i = 59; i >= 10; i--) 'meal-$i',
+        ]);
+        expect(server.requests, hasLength(1));
+      },
+    );
+
+    // Both European and North-American DST boundaries. The assertions follow
+    // calendar midnights in the real process zone, never a fixed 24-hour span.
+    for (final date in [
+      DateTime(2026, 3, 8),
+      DateTime(2026, 3, 29),
+      DateTime(2026, 10, 25),
+      DateTime(2026, 11, 1),
+    ]) {
+      test(
+        'legacy half-open midnight bounds on ${date.toIso8601String()}',
+        () async {
+          final end = DateTime(date.year, date.month, date.day + 1);
+          server.tables['logged_meals'] = [
+            _zeile(
+              id: 'before',
+              loggedAt: date.subtract(const Duration(microseconds: 1)),
+            ),
+            _zeile(id: 'start', loggedAt: date),
+            _zeile(
+              id: 'last',
+              loggedAt: end.subtract(const Duration(microseconds: 1)),
+            ),
+            _zeile(id: 'end', loggedAt: end),
+          ];
+          final meals = await MealsSync(
+            client,
+            'user-1',
+          ).loadLoggedMealsForDay(date);
+          expect(meals.map((meal) => meal.id), ['last', 'start']);
+        },
+      );
+    }
+  });
+
   group('Der PostgREST-Fake verhaelt sich wie PostgREST', () {
     // Without this group, "the filter applies" would be a claim about the
     // fake. Here the server is queried directly over HTTP.
     setUp(() {
       server.tables['probe'] = <Map<String, dynamic>>[
-        <String, dynamic>{'id': 'a', 'at': '2026-03-14T00:00:00Z', 'u': 'x'},
-        <String, dynamic>{'id': 'b', 'at': '2026-03-15T00:00:00Z', 'u': 'x'},
-        <String, dynamic>{'id': 'c', 'at': '2026-03-16T00:00:00Z', 'u': 'y'},
+        <String, dynamic>{
+          'id': 'a',
+          'at': '2026-03-14T00:00:00Z',
+          'u': 'x',
+          'local_day': null,
+        },
+        <String, dynamic>{
+          'id': 'b',
+          'at': '2026-03-15T00:00:00Z',
+          'u': 'x',
+          'local_day': '2026-03-14',
+        },
+        <String, dynamic>{
+          'id': 'c',
+          'at': '2026-03-16T00:00:00Z',
+          'u': 'y',
+          'local_day': null,
+        },
       ];
     });
 
@@ -466,6 +578,47 @@ void main() {
 
     List<String> ids(List<dynamic> zeilen) =>
         zeilen.map((z) => (z as Map<String, dynamic>)['id'] as String).toList();
+
+    test(
+      'nested OR/AND applies NULL and the independent owner filter',
+      () async {
+        expect(
+          ids(
+            await hole(
+              'u=eq.x&or=(local_day.eq.2026-03-14,'
+              'and(local_day.is.null,at.gte.2026-03-14T00:00:00Z,'
+              'at.lt.2026-03-17T00:00:00Z))',
+            ),
+          ),
+          ['a', 'b'],
+        );
+        expect(
+          ids(
+            await hole(
+              'u=eq.x&or=(local_day.eq.2026-03-13,'
+              'and(local_day.is.null,at.gte.2026-03-15T00:00:00Z,'
+              'at.lt.2026-03-17T00:00:00Z))',
+            ),
+          ),
+          isEmpty,
+        );
+        expect(ids(await hole('local_day=is.null')), ['a', 'c']);
+        expect(ids(await hole('or=(u.eq.y,and(local_day.is.null,u.eq.x))')), [
+          'a',
+          'c',
+        ]);
+      },
+    );
+
+    test('unsupported nested filters fail instead of being ignored', () {
+      expect(
+        () => matchesPostgrestFilters(
+          server.tables['probe']!.first,
+          Uri.parse('http://localhost/?or=(u.eq.x,at.unsupported.1)'),
+        ),
+        throwsFormatException,
+      );
+    });
 
     test('gte ist inklusive, lt ist exklusiv', () async {
       expect(ids(await hole('at=gte.2026-03-15T00:00:00Z')), <String>['b', 'c']);

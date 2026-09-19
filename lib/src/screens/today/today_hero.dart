@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
+import '../../models/daily_calorie_balance.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/design/app_icon.dart';
 import 'today_progress.dart';
@@ -24,12 +25,16 @@ class TodayCalorieHero extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    final goal = kcalGoal <= 0 ? 1 : kcalGoal;
-    final eaten = consumedKcal.clamp(0, 99999);
-    final burned = burnedKcal.clamp(0, 99999);
-    final budget = goal + burned;
-    final remaining = (budget - eaten).clamp(-99999, 99999);
-    final progress = (eaten / budget).clamp(0.0, 1.0);
+    final balance = DailyCalorieBalance(
+      goalKcal: kcalGoal,
+      consumedKcal: consumedKcal,
+      burnedKcal: burnedKcal,
+    );
+    final goal = balance.goalKcal;
+    final eaten = balance.consumedKcal;
+    final burned = balance.burnedKcal;
+    final remaining = balance.remainingKcal;
+    final progress = balance.progress;
     final percent = (progress * 100).round();
     final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
 

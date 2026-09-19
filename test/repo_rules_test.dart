@@ -433,6 +433,7 @@ const Map<String, List<String>> _bekannteAusnahmen = <String, List<String>>{
   'lib/src/app/home_store.dart': [
     "'Körpergewicht: \${p.weightKg} kg (Ziel \${p.targetWeightKg} kg).'",
     "'(noch \$remKcal kcal übrig).'",
+    "'Aktivitätsbonus: \${balance.burnedKcal} kcal.'",
     "'Makros heute noch offen: Protein \$remProt g, Kohlenhydrate \$remCarbs g, '",
     "'\$n Einträge'",
     "'Pro Mahlzeit heute: \$parts.'",

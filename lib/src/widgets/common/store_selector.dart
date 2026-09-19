@@ -10,12 +10,13 @@ import 'package:flutter/widgets.dart';
 /// structural equality; object slices without `==` compare by identity, which
 /// is correct as long as the store reassigns them on change.
 ///
-/// **Rule (G11):** put INPUTS in the selector, not derived values. A getter
+/// **Rule (G11):** prefer inputs or cheap, stable scalar projections. A getter
 /// like `mealsForFoodDate(date)` filters into a NEW list on every call, so as a
 /// slice it would always look "changed" and allocate on every notify. The store
 /// list itself (`loggedMeals`) is reassigned on every mutation, making its
-/// identity an exact O(1) fingerprint. The selector must allocate nothing but
-/// the record.
+/// identity an exact O(1) fingerprint. Avoid newly allocated collections or
+/// expensive calculations; a scalar projection can include freshness checks
+/// without rebuilding for an unchanged value after a refresh.
 class StoreSelector extends StatefulWidget {
   const StoreSelector({
     super.key,

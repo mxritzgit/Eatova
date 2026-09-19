@@ -13,17 +13,20 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_cache.dart';
+import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/meals_sync.dart'
     show MealsSync, mealResultToJson;
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
+import 'support/postgrest_filters.dart';
+
 // On-demand loading of old days: the boot loads only the 35-day window, and
 // picking an older day loads exactly that day and merges it by id. Driven
 // against the REAL HomeStore over a stateful MockClient that applies the
-// gte/lt filters like PostgREST.
+// canonical-day and legacy timestamp filters like PostgREST.
 
-/// Stateful fake PostgREST with gte/lt filtering on logged_at.
+/// Stateful fake PostgREST applying owner, day, timestamp, sort and row limits.
 class _FakeServer {
   bool offline = false;
 
@@ -38,14 +41,15 @@ class _FakeServer {
 
   http.Client client() => MockClient(_handle);
 
-  /// The logged_meals GETs carrying an lt. filter, i.e. the on-demand day
-  /// queries; the boot window query only sends gte.
+  /// Archive requests include a canonical-day group; old timestamp-only
+  /// requests remain recognizable for negative controls.
   List<http.Request> get dayReads => requests
       .where((r) =>
           r.method == 'GET' &&
           r.url.path.contains('/logged_meals') &&
-          (r.url.queryParametersAll['logged_at'] ?? const [])
-              .any((f) => f.startsWith('lt.')))
+          (r.url.queryParameters.containsKey('or') ||
+              (r.url.queryParametersAll['logged_at'] ?? const [])
+                  .any((f) => f.startsWith('lt.'))))
       .toList();
 
   Future<http.Response> _handle(http.Request req) async {
@@ -85,35 +89,26 @@ class _FakeServer {
         mealRows.remove(_eqParam(req, 'id'));
         return ok(const <dynamic>[]);
       }
-      // GET: optional hold, then apply gte/lt filters like PostgREST.
       final hold = holdMealReads;
       if (hold != null) await hold.future;
-      final filters = req.url.queryParametersAll['logged_at'] ?? const [];
-      bool inRange(Map<String, dynamic> r) {
-        final t = DateTime.parse(r['logged_at'] as String);
-        for (final f in filters) {
-          if (f.startsWith('gte.') &&
-              t.isBefore(DateTime.parse(f.substring(4)))) {
-            return false;
-          }
-          if (f.startsWith('lt.') &&
-              !t.isBefore(DateTime.parse(f.substring(3)))) {
-            return false;
-          }
-        }
-        return true;
+      var rows = mealRows.values
+          .where((row) => matchesPostgrestFilters(row, req.url))
+          .toList();
+      final order = req.url.queryParameters['order'];
+      if (order == null || !order.startsWith('logged_at.desc')) {
+        throw StateError('Diary request lost its server ordering');
       }
-
-      return ok(mealRows.values
-          .where(inRange)
-          .map((r) => <String, dynamic>{
+      rows.sort((a, b) => DateTime.parse(b['logged_at'] as String)
+          .compareTo(DateTime.parse(a['logged_at'] as String)));
+      final limit = int.parse(req.url.queryParameters['limit']!);
+      if (rows.length > limit) rows = rows.sublist(0, limit);
+      return ok(rows.map((r) => <String, dynamic>{
                 'id': r['id'],
                 'logged_at': r['logged_at'],
                 'forced_slot': r['forced_slot'],
                 'local_day': r['local_day'],
                 'payload': r['payload'],
-              })
-          .toList());
+              }).toList());
     }
     // Remaining reads empty, remaining writes succeed (see outbox test).
     if (req.method == 'GET') return ok(const <dynamic>[]);
@@ -212,12 +207,15 @@ Map<String, dynamic> _serverMealRow(
   DateTime loggedAt, {
   int kcal = 250,
   String name = 'Server-Gericht',
+  String? localDay,
+  String userId = 'user-dayload',
 }) =>
     <String, dynamic>{
       'id': id,
+      'user_id': userId,
       'logged_at': loggedAt.toUtc().toIso8601String(),
       'forced_slot': null,
-      'local_day': null,
+      'local_day': localDay,
       'payload': mealResultToJson(_result(name, kcal: kcal)),
     };
 
@@ -233,11 +231,21 @@ Future<void> _boot(HomeStore store) async {
   await _settle();
 }
 
+void _expectDayFilter(http.Request request, DateTime day) {
+  final start = DateTime(day.year, day.month, day.day).toUtc();
+  final end = DateTime(day.year, day.month, day.day + 1).toUtc();
+  expect(request.url.queryParameters['or'],
+      '(local_day.eq.${localDayKey(day)},and(local_day.is.null,'
+      'logged_at.gte.${start.toIso8601String()},'
+      'logged_at.lt.${end.toIso8601String()}))');
+  expect(request.url.queryParameters.containsKey('logged_at'), isFalse);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test(
-      'Alt-Tag waehlen laedt den Tag nach (gte/lt auf dem Wire), merged ihn '
+      'Alt-Tag waehlen laedt den kanonischen Tag nach, merged ihn '
       'und cached ihn fuer die Session (kein zweiter GET, keine Duplikate)',
       () async {
     final s = _setup();
@@ -263,16 +271,8 @@ void main() {
       reason: 'Merge ist duplikat-sicher per id',
     );
 
-    // Exactly ONE day GET with a half-open window on logged_at.
     expect(s.server.dayReads, hasLength(1));
-    final bounds =
-        s.server.dayReads.single.url.queryParametersAll['logged_at']!;
-    final gte = DateTime.parse(
-        bounds.singleWhere((f) => f.startsWith('gte.')).substring(4));
-    final lt = DateTime.parse(
-        bounds.singleWhere((f) => f.startsWith('lt.')).substring(3));
-    expect(gte, DateTime(oldDay.year, oldDay.month, oldDay.day).toUtc());
-    expect(lt, DateTime(oldDay.year, oldDay.month, oldDay.day + 1).toUtc());
+    _expectDayFilter(s.server.dayReads.single, oldDay);
 
     // Revisiting the same day hits the session cache, no further GET.
     s.store.setFoodDate(DateTime.now());
@@ -293,6 +293,33 @@ void main() {
             'die weiterhin ausgewaehlte Auswahl muss ihn neu holen');
     expect(s.store.mealsForFoodDate(oldDay).map((m) => m.id), ['old-1'],
         reason: 'sonst zeigt der offene Alt-Tag nach jedem Boot-Retry leer');
+  });
+
+  test('archive loads canonical meals after timezone travel', () async {
+    await withClock(Clock.fixed(DateTime(2026, 9, 19, 12)), () async {
+      final s = _setup();
+      final day = DateTime(2026, 7, 14);
+      final next = DateTime(2026, 7, 15);
+      s.server.mealRows.addAll({
+        'earlier': _serverMealRow('earlier', day.subtract(const Duration(hours: 1)),
+            localDay: '2026-07-14', kcal: 110),
+        'later': _serverMealRow('later', next.add(const Duration(hours: 1)),
+            localDay: '2026-07-14', kcal: 220),
+        'wrong-day': _serverMealRow('wrong-day', DateTime(2026, 7, 14, 12),
+            localDay: '2026-07-15', kcal: 900),
+        'foreign': _serverMealRow('foreign', day,
+            localDay: '2026-07-14', userId: 'other-user'),
+      });
+      await _boot(s.store);
+      expect(s.store.loggedMeals, isEmpty);
+      s.store.setFoodDate(day);
+      await _settle();
+      expect(s.store.mealsForFoodDate(day).map((meal) => meal.id),
+          ['later', 'earlier']);
+      expect(s.store.loggedMeals.map((meal) => meal.id), ['later', 'earlier']);
+      expect(s.store.consumedKcalForFoodDate(day), 330);
+      expect(s.server.dayReads, hasLength(1));
+    });
   });
 
   test('isLoadingFoodDay ist waehrend des Nachladens true (Spinner-Zustand)',
@@ -478,14 +505,7 @@ void main() {
 
       expect(s.server.dayReads, hasLength(1),
           reason: 'der Randtag muss on-demand nachgeladen werden');
-      final bounds =
-          s.server.dayReads.single.url.queryParametersAll['logged_at']!;
-      final gte = DateTime.parse(
-          bounds.singleWhere((f) => f.startsWith('gte.')).substring(4));
-      final lt = DateTime.parse(
-          bounds.singleWhere((f) => f.startsWith('lt.')).substring(3));
-      expect(gte, DateTime(2026, 3, 16).toUtc());
-      expect(lt, DateTime(2026, 3, 17).toUtc());
+      _expectDayFilter(s.server.dayReads.single, DateTime(2026, 3, 16));
     });
 
     test('ein Tag INNERHALB des Fensters loest weiterhin keinen Load aus',

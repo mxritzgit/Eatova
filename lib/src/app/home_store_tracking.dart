@@ -91,10 +91,15 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     }
   }
 
-  Future<void> refreshHealthSteps() async {
+  Future<void> refreshHealthSteps() =>
+      _refreshHealthSteps(allowDayCatchUp: true);
+
+  Future<void> _refreshHealthSteps({required bool allowDayCatchUp}) async {
     if (_disposed || _healthSessionEnded || healthSyncing) return;
     final generation = _healthGeneration;
+    final requestedDay = DateUtils.dateOnly(clock.now().toLocal());
     _mutate(() => healthSyncing = true);
+    if (_disposed || generation != _healthGeneration) return;
     final snapshot = await health.readSnapshot();
     if (_disposed || generation != _healthGeneration) return;
     _mutate(() {
@@ -104,20 +109,30 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
       // BOTH branches instead of only upgrading on success.
       healthAuthState = health.authState;
       if (snapshot != null) {
+        final fetchedAt = snapshot.fetchedAt.toLocal();
         dailySteps = snapshot.stepsToday;
-        healthLastFetch = snapshot.fetchedAt;
+        healthLastFetch = fetchedAt;
         // Pin to the SNAPSHOT's day, not "today": a refresh at the midnight
         // second still belongs to the query time.
-        _recordDailyActivity(snapshot.fetchedAt, snapshot.stepsToday);
+        _recordDailyActivity(fetchedAt, snapshot.stepsToday);
       } else if (health is HealthConnectAccess) {
         dailySteps = 0;
         healthLastFetch = null;
       }
       // iOS retains its last measured value when read access is unverified.
     });
+    if (_disposed || generation != _healthGeneration) return;
     // Offer the snapshot weight for import (deduped) instead of discarding it.
     if (snapshot != null) {
       _maybeOfferHealthWeight(snapshot.latestWeightKg);
+    }
+    // A midnight refresh may have hit the in-flight guard. Catch up once;
+    // a failed or repeatedly delayed provider must not create a retry loop.
+    final today = clock.now().toLocal();
+    if (allowDayCatchUp &&
+        !_isSameFoodDate(requestedDay, today) &&
+        stepsForFoodDate(today) == null) {
+      await _refreshHealthSteps(allowDayCatchUp: false);
     }
   }
 
@@ -145,40 +160,41 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// Every step counts (kcal review 2026-08-21): the daily goal uses a PAL
   /// ladder WITHOUT walking (`ActivityLevel.palFactor`), so the full step sum
   /// is not double counting.
+  @override
   int burnedKcalForFoodDate(DateTime date) {
-    if (_isSameFoodDate(date, clock.now())) {
-      if (health is HealthConnectAccess && stepsForFoodDate(date) == null) {
-        return 0;
-      }
+    final localDate = date.toLocal();
+    if (_isSameFoodDate(localDate, clock.now().toLocal())) {
+      final steps = stepsForFoodDate(localDate);
+      if (steps == null) return 0;
       return estimateKcalBurnedFromSteps(
-        steps: dailySteps,
+        steps: steps,
         weightKg: profile.weightKg,
         heightCm: profile.heightCm,
         sex: profile.sex,
       );
     }
-    return dailyActivity[localDayKey(date)]?.kcal ?? 0;
+    return dailyActivity[localDayKey(localDate)]?.kcal ?? 0;
   }
 
   /// Step count for [date] — live today, pinned for past days. `null` means
   /// "no step source", which hides the steps card instead of claiming 0.
   ///
-  /// Today the source counts as present once the permission is verified OR a
-  /// step count already arrived, so an early morning 0 is a real 0.
+  /// Only a snapshot from this local day proves today's value. Permission
+  /// alone cannot distinguish an unavailable reading from a measured zero.
   int? stepsForFoodDate(DateTime date) {
-    if (_isSameFoodDate(date, clock.now())) {
-      if (health is HealthConnectAccess) {
-        final fetched = healthLastFetch;
-        return fetched != null && _isSameFoodDate(fetched, date)
-            ? dailySteps
-            : null;
+    final localDate = date.toLocal();
+    if (_isSameFoodDate(localDate, clock.now().toLocal())) {
+      if (_healthSessionEnded ||
+          (health is HealthConnectAccess &&
+              healthAuthState != HealthAuthState.granted)) {
+        return null;
       }
-      if (healthAuthState == HealthAuthState.granted || dailySteps > 0) {
-        return dailySteps;
-      }
-      return null;
+      final fetched = healthLastFetch?.toLocal();
+      return fetched != null && _isSameFoodDate(fetched, localDate)
+          ? dailySteps
+          : null;
     }
-    return dailyActivity[localDayKey(date)]?.steps;
+    return dailyActivity[localDayKey(localDate)]?.steps;
   }
 
   /// Upserts the calendar day of [day] with [steps]; kcal are frozen using

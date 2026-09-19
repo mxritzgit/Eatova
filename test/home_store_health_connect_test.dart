@@ -15,6 +15,7 @@ import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show PlatformException;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'support/fake_health_connect_adapter.dart';
@@ -255,6 +256,35 @@ void main() {
       );
     },
   );
+
+  for (final errorCode in ['permission_denied', 'settings_error']) {
+    test('settings failure hides live Android steps ($errorCode)', () async {
+      await withClock(Clock.fixed(now), () async {
+        await store.connectHealth();
+        expect(store.stepsForFoodDate(now), 8400);
+        final activity = store.dailyActivity;
+        final fetched = store.healthLastFetch;
+        adapter.onSettings = () async =>
+            throw PlatformException(code: errorCode);
+        await store.openHealthSettings();
+
+        expect(
+          store.healthAuthState,
+          errorCode == 'permission_denied'
+              ? HealthAuthState.denied
+              : HealthAuthState.error,
+        );
+        expect(store.healthLastFetch, fetched);
+        expect(store.dailyActivity, same(activity));
+        expect(store.stepsForFoodDate(now), isNull);
+        expect(store.burnedKcalForFoodDate(now), 0);
+
+        adapter.onSettings = null;
+        await store.refreshHealthSteps();
+        expect(store.stepsForFoodDate(now), 8400);
+      });
+    });
+  }
 
   test('duplicate taps during permission request are coalesced', () async {
     adapter.permission = false;

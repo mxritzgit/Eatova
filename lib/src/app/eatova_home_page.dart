@@ -357,7 +357,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               weightLog: _store.weightLog,
               stats: _store.lifetimeStats,
               dailyConsumedKcal: _store.dailyConsumedKcal,
-              dailySteps: _store.dailySteps,
+              dailySteps: _store.stepsForFoodDate(clock.now()),
               healthAuthState: _store.healthAuthState,
               healthLastFetch: _store.healthLastFetch,
               healthConnect: _store.health is HealthConnectAccess,
@@ -591,10 +591,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           _store.selectedFoodDate,
           _store.loggedMeals,
           _store.profile,
-          _store.dailySteps,
+          _store.stepsForFoodDate(_store.selectedFoodDate),
           // Map identity as fingerprint (G11): an upsert replaces the map.
           _store.dailyActivity,
-          // Decides whether the steps card appears (granted -> 0 is a value).
+          // Health connection status can change without a new measurement.
           _store.healthAuthState,
           _store.userName,
           _store.lifetimeStats,
@@ -647,7 +647,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           _store.loggedMeals,
           _store.favorites,
           _store.profile,
-          _store.dailySteps,
+          _store.burnedKcalForFoodDate(_store.selectedFoodDate),
           _store.userName,
           _store.isLoadingFoodDay(_store.selectedFoodDate),
           _store.selectedFoodDateIsToday,
@@ -968,6 +968,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             _store.lifetimeStats,
             _store.profile,
             _store.dailyConsumedKcal,
+            // Includes the snapshot's day validity without timestamp churn.
+            _store.burnedKcalForFoodDate(clock.now()),
             _store.macroProgress,
             _store.loggedMeals,
             // Deleting in the recipes tab must re-enable the card button —

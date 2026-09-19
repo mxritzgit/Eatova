@@ -46,7 +46,9 @@ class ProfileScreen extends StatelessWidget {
   final WeightLog weightLog;
   final LifetimeStats stats;
   final int dailyConsumedKcal;
-  final int dailySteps;
+
+  /// Validated steps for today; null means no current-day measurement.
+  final int? dailySteps;
   final HealthAuthState healthAuthState;
   final DateTime? healthLastFetch;
   final ValueChanged<double> onLogWeight;
@@ -144,11 +146,7 @@ class ProfileScreen extends StatelessWidget {
                   GoalsCard(
                     profile: profile,
                     dailyKcal: dailyConsumedKcal,
-                    dailySteps: healthConnect &&
-                            (healthAuthState != HealthAuthState.granted ||
-                                !DateUtils.isSameDay(healthLastFetch, DateTime.now()))
-                        ? null
-                        : dailySteps,
+                    dailySteps: dailySteps,
                     onEdit: onEditProfile,
                   ),
                   const SizedBox(height: 30),
