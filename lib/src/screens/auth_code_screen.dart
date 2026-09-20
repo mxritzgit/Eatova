@@ -13,7 +13,6 @@ import '../services/secure_screen.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/auth/auth_controls.dart';
 import '../widgets/shared/eatova_wordmark.dart';
-import '../widgets/common/app_snack.dart';
 import '../widgets/design/controls.dart';
 import '../widgets/design/sheets.dart';
 import 'settings/account_change_messages.dart'
@@ -26,6 +25,8 @@ import 'settings/account_change_messages.dart'
 
 /// Which code flow is running: password reset or signup confirmation.
 enum AuthCodeFlow { recovery, signup }
+
+typedef AuthCodeResult = ({AuthCodeFlow flow, String email});
 
 /// Above this many seconds the wait is spoken in minutes — a quota block of a
 /// few minutes would otherwise read "in 180 s".
@@ -223,11 +224,10 @@ class _OtpSendThrottle {
 /// Page for the 8-digit e-mail codes (OTP instead of mail link, length in
 /// [kAccountCodeLength]). Codes are valid 10 minutes (mailer_otp_exp).
 ///
-///  * [AuthCodeFlow.recovery]: enter mail -> request code -> verify (creates
-///    the session) -> set new password. The send confirmation stays NEUTRAL:
+///  * [AuthCodeFlow.recovery]: request code -> isolated verification -> reset
+///    password -> normal login. The send confirmation stays NEUTRAL:
 ///    it never reveals whether an account exists for the address.
-///  * [AuthCodeFlow.signup]: address is fixed, only the code is checked; the
-///    AuthGate then switches to the home page on its own.
+///  * [AuthCodeFlow.signup]: confirm the fixed address, then normal login.
 class AuthCodeScreen extends StatefulWidget {
   const AuthCodeScreen({
     super.key,
@@ -262,6 +262,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
       widget.flow == AuthCodeFlow.signup ? _Step.code : _Step.email;
   bool _busy = false;
   bool _passwordVisible = false;
+  PasswordRecovery? _recovery;
   String? _error;
   String? _message;
 
@@ -352,6 +353,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
   @override
   void dispose() {
     _ticker?.cancel();
+    unawaited(_recovery?.close());
     _email.removeListener(_onEmailChanged);
     _email.dispose();
     _code.dispose();
@@ -597,6 +599,8 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
       // Naming a taken address here would confirm account existence to whoever
       // typed it (house rule against enumeration), so it stays generic.
       case AuthErrorKind.emailTaken:
+      case AuthErrorKind.currentPasswordRequired:
+      case AuthErrorKind.currentPasswordInvalid:
       case AuthErrorKind.unknown:
         return _l10n.authErrorGeneric;
     }
@@ -628,6 +632,8 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
       case AuthErrorKind.emailInvalid:
       case AuthErrorKind.passwordSameAsOld:
       case AuthErrorKind.passwordWeak:
+      case AuthErrorKind.currentPasswordRequired:
+      case AuthErrorKind.currentPasswordInvalid:
       case AuthErrorKind.codeRejected:
       case AuthErrorKind.unknown:
         return Duration.zero;
@@ -751,17 +757,23 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
     await _run(() async {
       try {
         if (_isRecovery) {
-          await widget.authRepository
+          final recovery = await widget.authRepository
               .verifyRecoveryCode(email: email, code: code);
-          if (!mounted) return;
-          setState(() => _step = _Step.password);
+          if (!mounted) {
+            await recovery.close();
+            return;
+          }
+          setState(() {
+            _recovery = recovery;
+            _step = _Step.password;
+          });
         } else {
           await widget.authRepository
               .verifySignupCode(email: email, code: code);
           if (!mounted) return;
-          // Session established — the AuthGate below this route switches to
-          // the home page, so this screen is done.
-          Navigator.of(context).pop();
+          Navigator.of(context).pop<AuthCodeResult>(
+            (flow: widget.flow, email: email),
+          );
         }
       } catch (error) {
         // Only a truly REJECTED code counts: a network or throttle error means
@@ -788,13 +800,27 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
       return;
     }
     await _run(() async {
-      await widget.authRepository.updatePassword(_password.text);
+      final recovery = _recovery;
+      if (recovery == null) return;
+      try {
+        await recovery.updatePassword(_password.text);
+      } catch (_) {
+        if (mounted && !recovery.isActive) {
+          setState(() {
+            _recovery = null;
+            _step = _Step.code;
+            _code.clear();
+            _password.clear();
+          });
+        }
+        rethrow;
+      }
       if (!mounted) return;
       // Lets the password manager store the new password.
       TextInput.finishAutofillContext();
-      final done = _l10n.authCodePasswordUpdated;
-      Navigator.of(context).pop();
-      showAppSnack(context, done, icon: Icons.lock_reset_rounded);
+      Navigator.of(context).pop<AuthCodeResult>(
+        (flow: widget.flow, email: _guardEmail),
+      );
     });
   }
 

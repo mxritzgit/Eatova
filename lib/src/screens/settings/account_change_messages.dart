@@ -115,6 +115,12 @@ enum AuthErrorKind {
   /// GoTrue's password policy refused the new password.
   passwordWeak,
 
+  /// The native password-change policy requires the existing credential.
+  currentPasswordRequired,
+
+  /// The existing credential was checked and rejected, not the mailbox code.
+  currentPasswordInvalid,
+
   /// The server really did check the code and refused it.
   codeRejected,
 
@@ -151,6 +157,7 @@ const Set<String> _abgelehnteCodes = <String>{
   'otp_expired',
   'invalid_credentials',
   'reauthentication_not_valid',
+  'reauthentication_needed',
   'reauth_nonce_missing',
 };
 
@@ -228,6 +235,12 @@ AuthErrorBefund classifyAuthError(Object error) {
     }
     if (code == 'weak_password') {
       return const AuthErrorBefund(AuthErrorKind.passwordWeak);
+    }
+    if (code == 'current_password_required') {
+      return const AuthErrorBefund(AuthErrorKind.currentPasswordRequired);
+    }
+    if (code == 'current_password_invalid') {
+      return const AuthErrorBefund(AuthErrorKind.currentPasswordInvalid);
     }
     if (_abgelehnteCodes.contains(code)) {
       return const AuthErrorBefund(AuthErrorKind.codeRejected);
@@ -314,6 +327,10 @@ String accountChangeErrorMessage(Object error, [AppLocalizations? l10n]) {
       return t.settingsAccountPasswordSameAsOld;
     case AuthErrorKind.passwordWeak:
       return t.settingsAccountPasswordWeak;
+    case AuthErrorKind.currentPasswordRequired:
+      return t.settingsAccountCurrentPasswordRequired;
+    case AuthErrorKind.currentPasswordInvalid:
+      return t.settingsAccountCurrentPasswordInvalid;
     case AuthErrorKind.codeRejected:
       return kAccountCodeRejected(t);
     case AuthErrorKind.unknown:

@@ -213,6 +213,7 @@ class _PasswordChangeSheet extends StatefulWidget {
 
 class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
   final TextEditingController _code = TextEditingController();
+  final TextEditingController _aktuell = TextEditingController();
   final TextEditingController _neu = TextEditingController();
   final TextEditingController _wiederholung = TextEditingController();
 
@@ -220,6 +221,7 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
   bool _busy = false;
   String? _fehler;
   String? _codeFehler;
+  String? _aktuellFehler;
   String? _neuFehler;
   String? _wiederholungFehler;
   Timer? _resendTimer;
@@ -250,6 +252,7 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
   void dispose() {
     _resendTimer?.cancel();
     _code.dispose();
+    _aktuell.dispose();
     _neu.dispose();
     _wiederholung.dispose();
     super.dispose();
@@ -298,12 +301,16 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
     if (_busy || _needsNewCode) return;
     final l10n = context.l10n;
     final code = _code.text.trim();
+    final aktuell = _aktuell.text;
     final neu = _neu.text;
     final wiederholung = _wiederholung.text;
 
     // Catch everything the app can know itself: a submit that predictably
     // fails server-side also burns the code (GoTrue accepts a nonce once).
     final codeFehler = isAccountCode(code) ? null : kAccountCodeInvalid(l10n);
+    final aktuellFehler = aktuell.isEmpty
+        ? l10n.settingsPasswordChangeCurrentRequired
+        : null;
     final neuFehler = neu.length < kAccountMinPasswordLength
         ? kAccountPasswordTooShort(l10n)
         : null;
@@ -311,10 +318,14 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
         ? kAccountPasswordMismatch(l10n)
         : null;
 
-    if (codeFehler != null || neuFehler != null || wiederholungFehler != null) {
+    if (codeFehler != null ||
+        aktuellFehler != null ||
+        neuFehler != null ||
+        wiederholungFehler != null) {
       setState(() {
         _fehler = null;
         _codeFehler = codeFehler;
+        _aktuellFehler = aktuellFehler;
         _neuFehler = neuFehler;
         _wiederholungFehler = wiederholungFehler;
       });
@@ -325,12 +336,16 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
       _busy = true;
       _fehler = null;
       _codeFehler = null;
+      _aktuellFehler = null;
       _neuFehler = null;
       _wiederholungFehler = null;
     });
     try {
-      await widget.authRepository
-          .confirmPasswordChange(code: code, newPassword: neu);
+      await widget.authRepository.confirmPasswordChange(
+        currentPassword: aktuell,
+        code: code,
+        newPassword: neu,
+      );
     } catch (error) {
       if (!mounted) return;
       // Do not clear the fields: a mistyped code does not invalidate the
@@ -339,7 +354,11 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
         _busy = false;
         _fehler = accountChangeErrorMessage(error, context.l10n);
         final kind = classifyAuthError(error).kind;
-        if (kind == AuthErrorKind.passwordSameAsOld) {
+        if (kind == AuthErrorKind.passwordSameAsOld ||
+            kind == AuthErrorKind.currentPasswordRequired ||
+            kind == AuthErrorKind.currentPasswordInvalid) {
+          // Older sessions spend the nonce before validating the password.
+          // Retrying it cannot succeed; let the user explicitly request anew.
           _needsNewCode = true;
           _code.clear();
         }
@@ -374,6 +393,16 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
         onAction: ersterSchritt ? _codeAnfordern : _passwortSetzen,
         children: <Widget>[
           if (!ersterSchritt) ...<Widget>[
+            SheetField(
+              key: const ValueKey<String>('password-change-current'),
+              label: l10n.settingsPasswordChangeCurrentLabel,
+              hint: l10n.settingsPasswordChangeCurrentHint,
+              obscure: true,
+              keyboardType: TextInputType.visiblePassword,
+              controller: _aktuell,
+              enabled: !_busy,
+              errorText: _aktuellFehler,
+            ),
             _CodeFeld(
               fieldKey: const ValueKey<String>('password-change-code'),
               label: l10n.settingsPasswordChangeCodeFieldLabel,
@@ -410,6 +439,10 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
               ),
             ),
           ],
+          Text(
+            l10n.settingsPasswordChangeRecoveryHint,
+            style: AppType.ui(12, color: context.t.ink2, height: 1.4),
+          ),
           if (_fehler != null)
             _FehlerNotiz(
               noteKey: const ValueKey<String>('password-change-error'),

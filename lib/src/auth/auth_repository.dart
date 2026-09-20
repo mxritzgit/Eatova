@@ -14,9 +14,11 @@ import '../services/sync_execution_guard.dart';
 import 'auth_exceptions.dart';
 import 'auth_session_mutation.dart';
 import 'google_id_token_provider.dart';
+import 'password_recovery.dart';
 
 export 'auth_exceptions.dart';
 export 'auth_session_mutation.dart' show ScopedAccountDeleteAction;
+export 'password_recovery.dart' show PasswordRecovery;
 
 class EatovaUser {
   const EatovaUser({required this.id, this.email, this.displayName, this.sessionId});
@@ -92,18 +94,15 @@ abstract class AuthRepository {
   Future<void> sendAccountDeletionCode({required String userId, required String email});
 
   /// Verifies the 8-digit code from the password reset mail (OTP, not a link;
-  /// mailer_otp_exp = 10 min). Success establishes the session; then
-  /// [updatePassword] sets the new password.
-  Future<void> verifyRecoveryCode({required String email, required String code});
+  /// mailer_otp_exp = 10 min). The returned flow owns the proof without
+  /// establishing an app login; callers must close it when leaving recovery.
+  Future<PasswordRecovery> verifyRecoveryCode({required String email, required String code});
 
-  /// Verifies the 8-digit signup confirmation code.
+  /// Verifies the 8-digit signup code without establishing an app login.
   Future<void> verifySignupCode({required String email, required String code});
 
   /// Requests a new signup confirmation code.
   Future<void> resendSignupCode(String email);
-
-  /// Sets the signed-in user's password (end of recovery).
-  Future<void> updatePassword(String newPassword);
 
   // --- In-app account changes -----------------------------------------------
   //
@@ -116,14 +115,13 @@ abstract class AuthRepository {
   /// signed-out counterpart is [sendPasswordReset].
   Future<void> startPasswordChange();
 
-  /// Submits the new password and the code from [startPasswordChange].
+  /// Submits the current password, new password and reauthentication code.
   ///
-  /// With `security_update_password_require_reauthentication` GoTrue demands
-  /// the nonce ONLY without a session or for sessions older than 24 h
-  /// (`session.CreatedAt`); for younger ones it is neither required nor
-  /// checked, so even a wrong code changes the password. Residual risk:
-  /// [AuthRepository.updatePassword] and supabase/AUTH_EMAIL_OTP.md.
+  /// The native current-password policy protects ordinary password changes.
+  /// Nonce verification additionally applies to sessions older than 24 hours;
+  /// this is not a universal fresh-mail requirement. Recovery is separate.
   Future<void> confirmPasswordChange({
+    required String currentPassword,
     required String code,
     required String newPassword,
   });
@@ -238,11 +236,10 @@ class SupabaseAuthRepository
   }
 
   @override
-  Future<void> verifyRecoveryCode(
+  Future<PasswordRecovery> verifyRecoveryCode(
       {required String email, required String code}) async {
-    await verifySessionLoginCode(
+    return beginPasswordRecovery(
       _client,
-      type: OtpType.recovery,
       email: email.trim(),
       code: code.trim(),
       httpClient: _mutationHttpClient,
@@ -252,9 +249,8 @@ class SupabaseAuthRepository
   @override
   Future<void> verifySignupCode(
       {required String email, required String code}) async {
-    await verifySessionLoginCode(
+    await confirmSignupWithoutLogin(
       _client,
-      type: OtpType.signup,
       email: email.trim(),
       code: code.trim(),
       httpClient: _mutationHttpClient,
@@ -267,40 +263,25 @@ class SupabaseAuthRepository
   }
 
   @override
-  Future<void> updatePassword(String newPassword) async {
-    // No nonce here on purpose: GoTrue checks it only when `session == nil` or
-    // the session is older than 24 h, and [verifyRecoveryCode] creates the
-    // session immediately before this call.
-    //
-    // Do not "fix" this — forgot-password depends on that freshness
-    // exception; if GoTrue ever always required the nonce, this path would
-    // dead-end for everyone (test/auth_enumeration_test.dart pins the wire
-    // format).
-    //
-    // Residual risk (supabase/AUTH_EMAIL_OTP.md): a stolen session younger
-    // than 24 h can swap the password without mailbox access. The mailbox
-    // stays the root of trust: mail recovery resets the password and ends all
-    // other sessions, and secure_email_change needs both mailboxes.
-    await updateSessionUser(_client, UserAttributes(password: newPassword),
-        httpClient: _mutationHttpClient);
-  }
-
-  @override
   Future<void> startPasswordChange() async {
     await _client.auth.reauthenticate();
   }
 
   @override
   Future<void> confirmPasswordChange({
+    required String currentPassword,
     required String code,
     required String newPassword,
   }) async {
-    // The nonce only bites for sessions 24 h or older (see [updatePassword]).
-    // Kept anyway: mandatory for old sessions, and the code mail makes the
-    // change visible to the account owner.
+    // Keep the exact current password: leading/trailing spaces are credentials.
+    // GoTrue may consume an older session's nonce before checking this password.
     await updateSessionUser(
       _client,
-      UserAttributes(password: newPassword, nonce: code.trim()),
+      UserAttributes(
+        password: newPassword,
+        nonce: code.trim(),
+        currentPassword: currentPassword,
+      ),
       httpClient: _mutationHttpClient,
     );
   }
@@ -529,8 +510,9 @@ class PreviewAuthRepository implements AuthRepository {
   Future<void> sendAccountDeletionCode({required String userId, required String email}) async {}
 
   @override
-  Future<void> verifyRecoveryCode(
-      {required String email, required String code}) async {}
+  Future<PasswordRecovery> verifyRecoveryCode(
+      {required String email, required String code}) async =>
+      _InMemoryPasswordRecovery((_) {});
 
   @override
   Future<void> verifySignupCode(
@@ -539,9 +521,6 @@ class PreviewAuthRepository implements AuthRepository {
   @override
   Future<void> resendSignupCode(String email) async {}
 
-  @override
-  Future<void> updatePassword(String newPassword) async {}
-
   // No account changes in preview mode: there is no mailbox behind the
   // preview user, so "code sent" would be a lie.
   @override
@@ -549,6 +528,7 @@ class PreviewAuthRepository implements AuthRepository {
 
   @override
   Future<void> confirmPasswordChange({
+    required String currentPassword,
     required String code,
     required String newPassword,
   }) async {}
@@ -580,10 +560,30 @@ class PreviewAuthRepository implements AuthRepository {
   Future<void> signOut() async {}
 }
 
+class _InMemoryPasswordRecovery implements PasswordRecovery {
+  _InMemoryPasswordRecovery(this._save);
+  final void Function(String) _save;
+  bool _active = true;
+
+  @override
+  bool get isActive => _active;
+
+  @override
+  Future<void> updatePassword(String newPassword) async {
+    if (!_active) throw const AuthException('Recovery flow closed');
+    _save(newPassword);
+    _active = false;
+  }
+
+  @override
+  Future<void> close() async => _active = false;
+}
+
 class InMemoryAuthRepository implements AuthRepository, ScopedAccountDeletion {
   InMemoryAuthRepository({EatovaUser? initialUser}) : _user = initialUser;
 
   EatovaUser? _user;
+  final Map<String, String> _registeredNames = {};
   final StreamController<EatovaUser?> _controller =
       StreamController<EatovaUser?>.broadcast();
 
@@ -656,14 +656,15 @@ class InMemoryAuthRepository implements AuthRepository, ScopedAccountDeletion {
       throw const AuthException('Token has expired or is invalid');
     }
     verifiedCodes.add('${email.trim()}:${code.trim()}');
-    _user ??= EatovaUser(id: 'otp-user', email: email.trim());
-    _controller.add(_user);
   }
 
   @override
-  Future<void> verifyRecoveryCode(
-          {required String email, required String code}) =>
-      _verify(email, code);
+  Future<PasswordRecovery> verifyRecoveryCode(
+      {required String email, required String code}) async {
+    if (_user != null) throw const AuthException('Sign out before recovery');
+    await _verify(email, code);
+    return _InMemoryPasswordRecovery(passwordUpdates.add);
+  }
 
   @override
   Future<void> verifySignupCode(
@@ -675,11 +676,6 @@ class InMemoryAuthRepository implements AuthRepository, ScopedAccountDeletion {
     signupResends.add(email.trim());
   }
 
-  @override
-  Future<void> updatePassword(String newPassword) async {
-    passwordUpdates.add(newPassword);
-  }
-
   // --- Account changes ------------------------------------------------------
 
   /// For tests: addresses a password-change code went to.
@@ -687,6 +683,9 @@ class InMemoryAuthRepository implements AuthRepository, ScopedAccountDeletion {
 
   /// For tests: codes passed as nonce when setting a password.
   final List<String> usedNonces = <String>[];
+
+  /// Synthetic credentials supplied by tests; never persisted or logged.
+  final List<String> usedCurrentPasswords = <String>[];
 
   /// For tests: requested new email addresses.
   final List<String> emailChangeRequests = <String>[];
@@ -704,6 +703,7 @@ class InMemoryAuthRepository implements AuthRepository, ScopedAccountDeletion {
 
   @override
   Future<void> confirmPasswordChange({
+    required String currentPassword,
     required String code,
     required String newPassword,
   }) async {
@@ -712,6 +712,7 @@ class InMemoryAuthRepository implements AuthRepository, ScopedAccountDeletion {
       throw const AuthException('Token has expired or is invalid');
     }
     usedNonces.add(code.trim());
+    usedCurrentPasswords.add(currentPassword);
     passwordUpdates.add(newPassword);
   }
 
@@ -760,7 +761,11 @@ class InMemoryAuthRepository implements AuthRepository, ScopedAccountDeletion {
 
   @override
   Future<void> signIn({required String email, required String password}) async {
-    _user = EatovaUser(id: 'test-user', email: email, displayName: 'Test User');
+    _user = EatovaUser(
+      id: 'test-user',
+      email: email,
+      displayName: _registeredNames[email.trim()] ?? 'Test User',
+    );
     _controller.add(_user);
   }
 
@@ -774,8 +779,7 @@ class InMemoryAuthRepository implements AuthRepository, ScopedAccountDeletion {
       // Like GoTrue: no error, no account, no mail — just the signal.
       return SignUpOutcome.emailAlreadyRegistered;
     }
-    _user = EatovaUser(id: 'test-user', email: email, displayName: displayName);
-    _controller.add(_user);
+    _registeredNames[email.trim()] = displayName;
     return SignUpOutcome.created;
   }
 
@@ -828,7 +832,7 @@ class UnavailableAuthRepository implements AuthRepository {
   Future<void> sendAccountDeletionCode({required String userId, required String email}) => _fail();
 
   @override
-  Future<void> verifyRecoveryCode(
+  Future<PasswordRecovery> verifyRecoveryCode(
           {required String email, required String code}) =>
       _fail();
 
@@ -841,13 +845,11 @@ class UnavailableAuthRepository implements AuthRepository {
   Future<void> resendSignupCode(String email) => _fail();
 
   @override
-  Future<void> updatePassword(String newPassword) => _fail();
-
-  @override
   Future<void> startPasswordChange() => _fail();
 
   @override
   Future<void> confirmPasswordChange({
+    required String currentPassword,
     required String code,
     required String newPassword,
   }) => _fail();

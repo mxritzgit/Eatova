@@ -35,7 +35,6 @@ class _ConfirmationAuth extends InMemoryAuthRepository {
     required String code,
   }) async {
     verifiedCodes.add('$email:$code');
-    await super.signIn(email: email, password: 'synthetic-confirmation');
   }
 }
 
@@ -198,6 +197,15 @@ void main() {
       await _tap(tester, 'code-primary');
       await _drain(tester, 90);
       expect(auth.verifiedCodes, ['alex@example.com:12345678']);
+      expect(auth.currentUser, isNull);
+      expect(find.byKey(const ValueKey('screen-onboarding')), findsNothing);
+      expect(profileWrites, 0);
+      await tester.enterText(
+        find.byKey(const ValueKey('auth-password-field')),
+        'synthetic-password-123',
+      );
+      await _tap(tester, 'auth-submit');
+      await _drain(tester, 90);
       expect(find.byKey(const ValueKey('screen-onboarding')), findsOneWidget);
       expect(find.byKey(const ValueKey('screen-today')), findsNothing);
 

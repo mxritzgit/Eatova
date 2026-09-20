@@ -154,39 +154,35 @@ Future<void> verifySessionEmailChange(
   required String code,
   http.Client? httpClient,
 }) => _mutate(client, (scoped) async {
+  final original = scoped.currentSession!;
   final response = await scoped.verifyOTP(
     type: OtpType.emailChange,
     email: email,
     token: code,
   );
   // The first secure-email code returns no session: keep the old address.
-  return (user: null, session: response.session);
-}, httpClient: httpClient);
-
-/// Verifies a login/reauthentication code without letting a late SDK response
-/// replace a newer login. Recovery also serves account-deletion reauth.
-Future<void> verifySessionLoginCode(
-  SupabaseClient client, {
-  required OtpType type,
-  required String email,
-  required String code,
-  http.Client? httpClient,
-}) => _mutate(
-  client,
-  (scoped) async {
-    final response = await scoped.verifyOTP(
-      type: type,
-      email: email,
-      token: code,
-    );
-    if (response.session == null) {
-      throw const AuthException('Code verification returned no session');
+  final verified = response.session;
+  if (verified == null) return (user: null, session: null);
+  if (verified.user.id != original.user.id) {
+    throw const AuthException('Authentication session changed');
+  }
+  if (_identity(verified) != _identity(original)) {
+    try {
+      // Email confirmation also issues privileged OTP AMR. Keep the existing
+      // login and discard only this new session, never a concurrent login.
+      await scoped.admin
+          .signOut(verified.accessToken, scope: SignOutScope.local)
+          .timeout(
+            client.rest.requestTimeout ??
+                EatovaSupabaseConfig.postgrestOptions.requestTimeout!,
+          );
+    } catch (_) {
+      // The email change already succeeded. Offline revocation cannot be
+      // guaranteed; the temporary credential is never adopted or persisted.
     }
-    return (user: null, session: response.session);
-  },
-  httpClient: httpClient,
-  allowSignedOut: true,
-);
+  }
+  return (user: verified.user, session: null);
+}, httpClient: httpClient);
 
 Future<void> _mutate(
   SupabaseClient client,

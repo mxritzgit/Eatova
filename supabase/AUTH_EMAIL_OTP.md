@@ -1,45 +1,110 @@
 # E-Mail-OTP-Konfiguration (GoTrue)
 
-## Passwortänderung: geltender Sicherheitsvertrag
+## Passwortänderung: Plan und Sicherheitsvertrag, 2026-09-20
 
-Eatova übernimmt bewusst Supabases Verhalten für kürzlich gestartete Sitzungen.
-**Eine Passwortänderung verlangt nicht bei jeder Sitzung einen neuen
-Postfachnachweis.** Ist die Sitzung jünger als 24 Stunden, akzeptiert GoTrue den
-direkten Aufruf von `PUT /auth/v1/user` auch ohne Nonce oder mit einer falschen
-Nonce. Maßgeblich ist der Beginn der Sitzung, nicht die letzte Token-Erneuerung.
-Bei älteren Sitzungen muss eine gültige, frische Reauthentication-Nonce vorliegen.
-Eine gestohlene, noch junge Sitzung reicht daher für einen Passwortwechsel aus.
+Der Zielvertrag nutzt die unterstützte native Supabase-Härtung: Bei normalen
+Passwort- und OAuth-Sitzungen eines Kontos mit bestehendem Passwort muss der
+Aufrufer das **aktuelle Passwort** nachweisen. Das gilt unabhängig vom Alter der
+Sitzung und auch für direkte Aufrufe von `PUT /auth/v1/user`. Für Sitzungen älter
+als 24 Stunden bleibt zusätzlich die frische Reauthentication-Nonce erforderlich.
+Die native Umsetzung folgt der
+[OWASP-Empfehlung zur Passwortänderung](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#change-password-feature)
+und [Supabases Passwortoptionen](https://supabase.com/docs/guides/auth/password-security).
+Dies ist keine vollständige OWASP-/NIST-Zertifizierung.
 
-Die Einstellungen führen weiterhin durch den Code-Ablauf. Dieser zusätzliche
-App-Schritt ist keine universelle serverseitige Sicherheitsschranke; die
-deutschen und englischen Texte nennen die 24-Stunden-Ausnahme ausdrücklich.
-Ein eigener Client- oder Edge-Endpunkt würde den weiterhin erreichbaren
-Auth-Endpunkt nicht absichern und wird deshalb nicht eingeführt.
+### Umsetzung und Abnahme
+
+1. Aktuelles Passwort im Einstellungsdialog verdeckt abfragen und unverändert
+   als `current_password` übergeben. Konto- und Sitzungsbindung, Schutz vor
+   parallelen Änderungen und Fehlerlokalisierung bleiben erhalten. Nach einer
+   Ablehnung muss ein neuer Code angefordert werden können: GoTrue kann die
+   Nonce vor der Passwortprüfung verbrauchen.
+2. `security_update_password_require_current_password=true` serverseitig
+   aktivieren; `security_update_password_require_reauthentication=true` und
+   Passwortänderungsbenachrichtigungen bleiben aktiv. Der versionierte,
+   ausschließlich lesende Audit erkennt fehlende, deaktivierte und falsch
+   typisierte Einstellungen. Produktivzugang gehört nur in das geschützte
+   `supabase-drift`-Environment, niemals in PR-Jobs.
+3. Recovery und Registrierung übernehmen keine privilegierte OTP-Sitzung mehr
+   als dauerhafte App-Anmeldung. Ein isolierter Recovery-Client setzt das
+   Passwort; danach wird seine Sitzung widerrufen und die normale Anmeldung
+   angeboten. Abbruch, verspätete Antworten und Kontowechsel dürfen keine
+   neue App-Sitzung ersetzen oder lokale Daten löschen. Signup bestätigt
+   die Adresse und führt ebenfalls zur normalen Anmeldung zurück. Nach einer
+   E-Mail-Änderung wird nur das bestätigte Benutzerprofil übernommen; die
+   normale bestehende Sitzung bleibt erhalten, die zusätzliche OTP-Sitzung
+   wird separat widerrufen.
+4. Direkte HTTP-Angriffe gegen Wegwerf-GoTrue testen: junge/alte Sitzungen,
+   fehlendes/falsches/richtiges aktuelles Passwort, falsche/abgelaufene/fremde/
+   wiederverwendete Nonces, Recovery, Signup und erstmaliges OAuth-Passwort.
+   Deaktivierte Schutzoptionen müssen als Negativkontrolle erkannt werden.
+   Flutter-Regressionen prüfen Nutzereingabe, Wire-Format und Kontowechsel.
+5. Nach lokalem Review und grüner PR-CI die eng begrenzte Auth-Konfiguration
+   ausrollen und exakt zurücklesen; anschließend über den geschützten PR nach
+   `main` mergen. Ein Merge installiert keinen neuen App-Build.
+
+**Rollout:** Ein alter Build sendet kein `current_password`; sein normaler
+Passwortwechsel wird nach Aktivierung abgelehnt. Anmeldung und Mail-Recovery
+bleiben verfügbar. Die Schutzoption wird bei einem Client-Rollback nicht
+abgeschaltet. Ein kompatibler App-Build muss für den neuen Einstellungsdialog
+verteilt werden. Die Aktivierung und Installation sind getrennte Nachweise.
+
+### Grenzen der verwalteten Auth-Implementierung
+
+Ein neuer Mailcode ist **nicht bei jedem Passwortwechsel serverseitig zwingend**.
+GoTrue 2.197.0 nimmt Recovery-/OTP-/Magic-Link-/Signup-Sitzungen von der Prüfung
+des aktuellen Passworts aus. Der Nachweis steht in der Authentifizierungsmethode
+(AMR) der Sitzung und wird beim Passwortwechsel nicht einmalig verbraucht.
+Ein solcher Bearer kann weitere Wechsel erlauben, auch nach Token-Erneuerung.
+Ein OAuth-Konto ohne bestehendes Passwort darf sein erstes Passwort ebenfalls
+ohne `current_password` setzen. Die App darf daher nicht behaupten, jede
+beliebige gestohlene Sitzung sei durch diese native Option abgesichert.
+
+Die Ausnahmen sind mit echten lokalen GoTrue-/SMTP-Anfragen geprüft; der
+OAuth-Fall verwendet einen synthetischen Providerzustand und echten Refresh,
+keinen externen Provider-Login. Quellen:
+[UserUpdate](https://github.com/supabase/auth/blob/v2.197.0/internal/api/user.go),
+[Session.IsRecovery](https://github.com/supabase/auth/blob/v2.197.0/internal/models/sessions.go).
+Auch die doppelt bestätigte E-Mail-Änderung liefert eine solche OTP-Sitzung.
+Ein Client-/Edge-Wrapper allein schließt den direkt erreichbaren Auth-Endpunkt
+nicht. Ein universeller frischer Postfachnachweis würde eine zusätzliche,
+unvermeidbare Prüfung im Auth-Schreibpfad und damit eine gesonderte
+Auth-Infrastrukturentscheidung erfordern. Es werden dafür keine Trigger auf
+verwaltete Auth-Passworthashes oder künstlich zurückdatierte Sitzungen verwendet.
+
+Der isolierte Client verhindert, dass neue Eatova-Flows OTP-Bearer als normale
+Anmeldung behalten. Er ist keine unvermeidbare Serverschranke gegen fremde
+Clients und widerruft keine historischen OTP-Sitzungen älterer App-Builds.
+Ein Widerruf schützt den Auth-Endpunkt; rein stateless geprüfte JWT-Zugriffe
+können bis zum Tokenablauf gültig bleiben. Bei Offline-Cleanup wird kein
+erfolgreicher Widerruf behauptet und eine bereits erfolgreiche Passwortänderung
+nicht erneut ausgeführt.
+
 **Die Kontolöschung behält ihren separaten, serverseitig erzwungenen frischen
 OTP-Nachweis**, den isolierten Verifikationsclient und die Konto-/Sitzungsbindung.
+Account-Isolation, verschlüsselte lokale Daten und ausstehende Outbox-Operationen
+werden durch den Passwortvertrag nicht gelockert.
 
-Am 2026-09-20 erneut nur lesend geprüft: im verknüpften Live-Projekt ist
+### Rollout-Nachweis
+
+Vor der Umsetzung am 2026-09-20 ausschließlich lesend geprüft:
 `security_update_password_require_reauthentication=true`,
 `security_update_password_require_current_password=false`,
-`mailer_otp_length=8` und `mailer_otp_exp=600`. Diese Überprüfung ändert keine
-Live-Konfiguration und versucht keine Passwortänderung an echten Konten.
-Die Semantik folgt der aktuellen
-[Supabase-Referenz](https://supabase.com/docs/reference/javascript/auth-reauthenticate)
-und wird gegen den gepinnten
-[GoTrue 2.196.0 UserUpdate](https://github.com/supabase/auth/blob/v2.196.0/internal/api/user.go)
-sowie die
-[Nonce-Prüfung](https://github.com/supabase/auth/blob/v2.196.0/internal/api/reauthenticate.go)
-mit echten lokalen HTTP- und SMTP-Anfragen geprüft.
+`mailer_notifications_password_changed_enabled=true`,
+`mailer_secure_email_change_enabled=true`, `mailer_otp_length=8`,
+`mailer_otp_exp=600`. Der Live-Health-Endpunkt meldete GoTrue **2.197.0**;
+die lokalen Auth-Probes verwenden das passende per Digest gepinnte Image.
+Dieser Readback dokumentiert den Ausgangszustand. Der Liefer-PR hält den
+Aktivierungsnachweis fest; der geschützte Live-Audit prüft danach den Zielzustand.
+Keine Passwortmutation an echten Nutzerkonten ist Teil der Überprüfung.
 
-`python scripts/security/local_email_template_probe.py --prove-detection`
-deckt zusätzlich zu den Vorlagen folgende Fälle ab: junge Sitzung ohne oder mit
-falschem Nachweis akzeptiert; alte Sitzung ohne, mit falschem, abgelaufenem,
-kontofremdem oder erneut benutztem Nachweis abgelehnt; frischer Code aus dem
-internen SMTP-Postfach erfolgreich. Passwort-Anmeldungen prüfen die tatsächliche
-Wirkung und den unveränderten Zustand nach Ablehnung. Der Negativtest deaktiviert
-Reauthentication ausschließlich im Wegwerf-Container und muss die fehlende
-Schranke für alte Sitzungen erkennen. Die Tests setzen keine strengere Garantie
-voraus, als der gewählte Vertrag bietet.
+Prüfbefehle und genaue Matrix stehen im
+[Security-Probe-Guide](../scripts/security/README.md#real-recovery-mail-purpose-otp-and-password-change-contract).
+Die reine Konfigurationsprüfung läuft mit
+`python scripts/security/auth_password_policy.py`; sie ersetzt keine
+Verhaltenstests. Ihre Offline-Regressionen benötigen keine Zugangsdaten:
+`python scripts/security/test_auth_password_policy.py`.
+
 
 ## Aktueller Vorlagenstand: 2026-09-20
 

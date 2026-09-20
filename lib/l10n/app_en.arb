@@ -1159,14 +1159,20 @@
   "settingsAccountPasswordSameAsOld": "The new password must be different from the old one.",
   "settingsAccountPasswordWeak": "This password is too weak. Use a longer or more unusual one.",
 
-  "settingsPasswordChangeCodeSentTo": "For this flow, we'll send an 8-digit code to {adresse}. It's valid for 10 minutes. If you signed in within the last 24 hours, your password can also be changed without another email confirmation.",
+  "settingsPasswordChangeCodeSentTo": "Have your current password ready. For this flow, we'll also send an 8-digit code to {adresse}. It's valid for 10 minutes.",
   "@settingsPasswordChangeCodeSentTo": {
     "placeholders": {
       "adresse": { "type": "String" }
     }
   },
-  "settingsPasswordChangeCodeSentDefault": "For this flow, we'll send an 8-digit code to your saved address. It's valid for 10 minutes. If you signed in within the last 24 hours, your password can also be changed without another email confirmation.",
-  "settingsPasswordChangeStep2Subtitle": "Enter the code from the email along with your new password.",
+  "settingsPasswordChangeCodeSentDefault": "Have your current password ready. For this flow, we'll also send an 8-digit code to your saved address. It's valid for 10 minutes.",
+  "settingsPasswordChangeCurrentHint": "Your existing password",
+  "settingsPasswordChangeCurrentRequired": "Enter your current password.",
+  "settingsPasswordChangeRecoveryHint": "Forgot your password or never set one? Sign out and choose “Forgot password” on the sign-in page.",
+  "settingsAccountCurrentPasswordRequired": "Enter your current password and request a new code.",
+  "settingsAccountCurrentPasswordInvalid": "Your current password is incorrect. Correct it and request a new code.",
+  "settingsPasswordChangeCurrentLabel": "Current password",
+  "settingsPasswordChangeStep2Subtitle": "Enter your current password, the email code and your new password.",
   "settingsPasswordChangeCodeFieldLabel": "Confirmation code",
   "settingsPasswordChangeNewLabel": "New password",
   "settingsPasswordChangeNewHint": "At least 8 characters",
@@ -1587,7 +1593,8 @@
     }
   },
   "authCodeErrorRejected": "The code is wrong or has expired. Just request a new one below.",
-  "authCodePasswordUpdated": "Password updated. You're logged in.",
+  "authCodePasswordUpdated": "Password updated. Sign in with your new password.",
+  "authCodeSignupConfirmed": "Email confirmed. Sign in to continue.",
   "coachInfoLimitUnknown": "How many questions are left today can't be retrieved right now. Resets at midnight (UTC).",
   "settingsAccountEmailNotAvailable": "We can't switch to this address. If an account already exists for it, sign in with that one; otherwise please check the spelling.",
   "settingsDeleteAccountCheckingCta": "Checking…",

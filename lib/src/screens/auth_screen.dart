@@ -153,8 +153,8 @@ class _AuthScreenState extends State<AuthScreen> {
     if (_codeRouteOpen) return;
     setState(() => _codeRouteOpen = true);
     try {
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
+      final result = await Navigator.of(context).push<AuthCodeResult>(
+        MaterialPageRoute<AuthCodeResult>(
           builder: (_) => AuthCodeScreen(
             authRepository: widget.authRepository,
             flow: AuthCodeFlow.signup,
@@ -162,9 +162,22 @@ class _AuthScreenState extends State<AuthScreen> {
           ),
         ),
       );
+      if (mounted && result != null) _finishEmailFlow(result);
     } finally {
       if (mounted) setState(() => _codeRouteOpen = false);
     }
+  }
+
+  void _finishEmailFlow(AuthCodeResult result) {
+    setState(() {
+      _clearNotes();
+      _isRegister = false;
+      _emailController.text = result.email;
+      _passwordController.clear();
+      _message = result.flow == AuthCodeFlow.recovery
+          ? context.l10n.authCodePasswordUpdated
+          : context.l10n.authCodeSignupConfirmed;
+    });
   }
 
   /// Answer to "this address already has an account", in both shapes GoTrue
@@ -207,8 +220,8 @@ class _AuthScreenState extends State<AuthScreen> {
       _codeRouteOpen = true;
     });
     try {
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
+      final result = await Navigator.of(context).push<AuthCodeResult>(
+        MaterialPageRoute<AuthCodeResult>(
           builder: (_) => AuthCodeScreen(
             authRepository: widget.authRepository,
             flow: AuthCodeFlow.recovery,
@@ -216,6 +229,7 @@ class _AuthScreenState extends State<AuthScreen> {
           ),
         ),
       );
+      if (mounted && result != null) _finishEmailFlow(result);
     } finally {
       if (mounted) setState(() => _codeRouteOpen = false);
     }

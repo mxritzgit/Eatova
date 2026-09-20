@@ -17,7 +17,7 @@ import 'package:eatova/src/screens/settings/account_change_messages.dart';
 //  * `signUp` returned `Future<void>` and dropped the `AuthResponse`, which is
 //    where GoTrue signals a taken address: success status, EMPTY `identities`,
 //    no mail.
-//  * Plus the unresolved nonce contradiction — only pinned here, not changed.
+//  * Recovery is scoped; authenticated changes send the existing password.
 
 const Map<String, String> _jsonHeader = {'Content-Type': 'application/json'};
 
@@ -32,7 +32,12 @@ Map<String, dynamic> _userJson({List<Map<String, dynamic>>? identities}) => {
     };
 
 Map<String, dynamic> _sessionJson() => {
-      'access_token': 'test-jwt',
+      'access_token': '${base64Url.encode(utf8.encode('{"alg":"none"}'))}.'
+          '${base64Url.encode(utf8.encode(jsonEncode({
+            'sub': 'user-1',
+            'session_id': 'fixture-session',
+            'exp': 4102444800
+          })))}.fixture-signature',
       'token_type': 'bearer',
       'expires_in': 3600,
       'refresh_token': 'test-refresh',
@@ -196,20 +201,23 @@ void main() {
             displayName: 'Moritz'),
         SignUpOutcome.created,
       );
+      expect(repo.currentUser, isNull,
+          reason: 'creating an account never establishes an app login');
+      await repo.verifySignupCode(email: 'neu@eatova.de', code: '12345678');
+      expect(repo.currentUser, isNull);
+      await repo.signIn(email: 'neu@eatova.de', password: 'eatova123');
       expect(repo.currentUser?.email, 'neu@eatova.de');
+      expect(repo.currentUser?.displayName, 'Moritz');
     });
   });
 
-  // FINDING B: not changed, only pinned. Which branch is wrong depends on live
-  // GoTrue behaviour (see
-  // `.superpowers/sdd/audit-2026-08-14/reports/auth-repo-hygiene.md`). This
-  // test fails as soon as someone aligns one side, and the clarification then
-  // belongs in the same commit.
-  group('Nonce: heutiges Wire-Verhalten', () {
-    test('Recovery setzt ohne Nonce, die Einstellungen mit', () async {
+  group('Separate recovery and current-password wire contracts', () {
+    test('Recovery stays scoped; normal change sends both password proofs',
+        () async {
       final koerper = <Map<String, dynamic>>[];
       final transport = MockClient((req) async {
-        if (req.url.path.endsWith('/token')) {
+        if (req.url.path.endsWith('/token') ||
+            req.url.path.endsWith('/verify')) {
           return http.Response(jsonEncode(_sessionJson()), 200,
               headers: _jsonHeader);
         }
@@ -225,20 +233,36 @@ void main() {
       addTearDown(client.dispose);
 
       final repo = SupabaseAuthRepository(client, mutationHttpClient: transport);
-      // Session as after `verifyRecoveryCode`: fresh and carrying no nonce.
+      final recovery = await repo.verifyRecoveryCode(
+        email: 'neu@eatova.de',
+        code: '12345678',
+      );
+      expect(repo.currentUser, isNull);
+      await recovery.updatePassword('neues-passwort');
+      await recovery.close();
+      expect(repo.currentUser, isNull);
       await repo.signIn(email: 'user@eatova.de', password: 'eatova123');
 
-      await repo.updatePassword('neues-passwort');
       await repo.confirmPasswordChange(
-          code: ' 123456 ', newPassword: 'neues-passwort');
+        currentPassword: ' CurrentPassword99 ',
+        code: ' 123456 ',
+        newPassword: 'neues-passwort',
+      );
 
       expect(koerper, hasLength(2));
       expect(koerper.first['password'], 'neues-passwort');
+      expect(koerper.first.containsKey('current_password'), isFalse);
       expect(koerper.first.containsKey('nonce'), isFalse,
           reason: 'der Recovery-Abschluss hat keinen Code zur Hand — verlangt '
               'GoTrue ihn hier, ist „Passwort vergessen" eine Sackgasse');
       expect(koerper.last['nonce'], '123456',
           reason: 'getrimmt, wie confirmPasswordChange es zusagt');
+      expect(
+        koerper.last['current_password'],
+        ' CurrentPassword99 ',
+        reason:
+            'The existing password is an exact credential, not normalized input.',
+      );
     });
   });
 }
