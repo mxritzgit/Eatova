@@ -1353,3 +1353,127 @@ reconcile the separately hosted privacy notice before releasing the new client;
 missing RPCs deliberately leave local work pending. No app was installed on a
 device. The protected PR checks establish push/merge delivery independently of
 these rollout steps.
+
+
+## Offline sync migrations deployed, 2026-09-20
+
+Following explicit user authorization, the three migrations from merged
+[PR #98](https://github.com/mxritzgit/Eatova/pull/98), source commit
+`01acb77f2d6ab93450b42415e0ec6faac44e9ed2`, were deployed to the verified linked
+Eatova Supabase project at 08:36 UTC. Versions `20260920100000`,
+`20260920100500`, and `20260920101000` were applied and registered in one
+transaction after an exact live-baseline comparison and disposable rehearsal.
+
+Independent readback verified all 49 migration versions, exact SQL source hashes,
+and the full expected application catalog/ACLs: 24 public tables with RLS,
+49 functions, 35 policies, and 15 triggers. The project is ACTIVE_HEALTHY.
+The [main security workflow](https://github.com/mxritzgit/Eatova/actions/runs/35483775158)
+is now successful, including the rerun live migration-drift check (attempt 2).
+Ignored local `sync-deploy-result.json` and `sync-deploy-ci-result.json` under
+`.agents/offline-sync-2026-09-20/` contain sanitized results.
+No production behavioral tests or user test records
+were introduced; no Edge Function redeployment was required. The app has not
+been installed/released, and the separately hosted privacy notice still needs
+its pending update. The 13 auth email templates were already published earlier.
+See the [merged sync contract](https://github.com/mxritzgit/Eatova/blob/main/docs/OFFLINE_SYNC.md).
+
+## SQLite rollback, password and background hardening, 2026-09-20
+
+Three isolated implementation agents and independent cross-reviews inspected
+commit `01acb77f2d6ab93450b42415e0ec6faac44e9ed2`, the current implementation,
+tests, sync/auth contracts, migrations and pinned GoTrue behavior. The existing
+dirty root checkout remains preserved. Integration is on
+`fix/sync-auth-hardening`; ignored local evidence is under
+`.agents/sync-auth-hardening-2026-09-20/`.
+
+**P1 confirmed:** completed SQLite migration skipped importing legacy slots but
+still deleted them. An obsolete build could create offline work after cutover
+which the next upgrade silently discarded. The supported production policy is
+now explicitly forward-only storage protocol 2. An encrypted cleanup receipt
+commits atomically with migration and identifies exact imported bytes; unknown or
+changed legacy data remains intact beside SQLite. Startup shows an actionable
+DE/EN recovery screen before network loading. Retry cannot bypass the conflict
+when the key is unavailable. New background acquisitions, including pooled
+connections, observe the conflict fence; already-running work is not falsely
+claimed to be cancelled. Safe recovery preserves both original stores.
+
+The protected-main release validator rejects the actual pre-SQLite revision,
+unmerged revisions and incompatible manifests, and binds an eligibility artifact
+to the exact candidate commit/tree. The [release runbook](OPERATIONS.md) requires
+this check for signing/upload, including rollbacks. It cannot physically prevent
+manual uploads or sideloads. Automatic bidirectional re-import is intentionally
+unsupported: arbitrary legacy data has no safe merge order against SQLite
+revisions, tombstones and immutable server receipts. SharedPreferences offers no
+cross-process compare-and-delete; supported mobile upgrades stop the old process.
+See the complete [storage contract](OFFLINE_SYNC.md).
+
+**P2 behavior confirmed, policy retained:** Eatova already accepted Supabase's
+recent-session password exception. The UI wrongly promised a code was universally
+required. DE/EN copy and API comments now state the 24-hour exception. A stolen
+valid recent session can therefore still change a password without fresh mailbox
+proof; this accepted residual risk is explicit in the
+[Auth contract](../supabase/AUTH_EMAIL_OTP.md). No custom endpoint or backend
+policy change was introduced. Account deletion keeps its separate mandatory
+fresh, account-bound recovery proof. Live settings were inspected read-only:
+secure reauthentication on, current-password requirement off, eight-digit codes,
+600-second expiry. No real-account password mutation was attempted.
+
+**P3 confirmed in specific paths:** initial DEK/cache-open failures already
+returned `unavailable`. Session-keystore exceptions, runtime DB errors and local
+prerequisite timeouts instead reached the generic retry handler. A failed local
+ACK could consume an attempt, and a missing local session was conflated with
+another worker. These now return `unavailable` without follow-up jobs; transport
+failures and real worker contention retain bounded retries. ACKs are separate
+from transport failure handling. Operations, frozen payloads and retry budgets
+survive prerequisite failure and replay after unlocking/reopening.
+
+Product files: `durable_cache_store.dart`, `local_cache.dart`, `home_store.dart`,
+`eatova_home_page.dart`, `background_sync.dart`, `sync_execution_guard.dart`,
+`auth_repository.dart` comments, and both ARBs. Other files are regression suites,
+local auth probes, the release manifest/validator/workflow and linked guides.
+The PR diff provides the exact complete inventory. No SQL migration, Edge
+Function, dependency or hosted Auth setting changes are required.
+
+Regression evidence includes the actual old-storage → migrate → old-client
+offline write → reopen sequence, cleanup/transaction failures, unavailable-key
+retry, real SQLite DE/EN recovery UI, and a historical production-release guard.
+Background tests include encrypted SQLite, the real Workmanager callback,
+reopening and network/503 retry. The migration regression and seven background
+regressions first failed against the original code. Existing atomic mutation,
+process-crash/replay, account isolation and receipt checks remain intact.
+
+The real disposable GoTrue/SMTP matrix passes 43 password assertions plus 30
+existing template/OTP assertions: recent/no-proof acceptance, old/no-proof
+rejection, fresh-proof success and invalid/expired/foreign/replayed proof
+rejection. Password logins verify actual effects. Disabling reauthentication
+and changing a mail-purpose branch are both detected by negative controls.
+
+An additional full auth probe initially failed a refresh-family assertion, while
+an unchanged isolated repeat passed; the original cause is not established.
+Inspection confirmed that host sleep did not prove Docker's database grace had
+elapsed. A bounded, read-only `clock_timestamp()` barrier now verifies synthetic
+token ages. Both HTTP denials remain strict first-attempt assertions, and the
+rotation-disabled negative control still fails. Four new deterministic timing
+tests and seven transport tests pass; the real probe passes its lifecycle and
+47 handler checks. No token rows are backdated for refresh tests.
+
+All 49 migrations, RLS/deletion, provider-budget and receipt/ownership concurrency
+checks passed again in disposable PostgreSQL, including the 1,800-recipe upgrade.
+Deno lint/type checks and 700 unit/evaluation tests pass. The 137 relevant server
+and migration source files still exactly match that verified run. No tests were
+run against production user data.
+
+The final integrated Flutter 3.47.2 / Dart 3.13.2 run passes **5,049 tests with no
+skips**, strict analysis with fatal infos/warnings, and **94.97% line coverage
+(30,123 / 31,718 lines)** excluding generated localization. The unchanged floor
+is 88%. All seven release-history guards, four template guards, four timing
+regressions and seven transport tests pass. Source comparison confirms the
+tested isolated snapshot matches the integration product/test/tooling files;
+documentation changes are validated separately. Scoped secret scan and diff
+checks are clean.
+
+The Android debug APK builds successfully with the same dummy service defines.
+The user authorized push and merge through protected main after successful CI;
+the PR checks establish that delivery separately. These fixes require no new
+Supabase deployment. The previously deployed migrations and email templates are
+unchanged, and no app-store release or device installation was performed.

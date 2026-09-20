@@ -26,6 +26,7 @@ import '../models/user_profile.dart';
 import '../models/weight_log.dart';
 import '../services/crash_reporter.dart';
 import '../services/day_math.dart';
+import '../services/durable_cache_store.dart' show LegacyStorageConflict;
 import '../services/eatova_sync.dart';
 import '../services/health_service.dart';
 import '../services/kcal_calculator.dart';
@@ -698,6 +699,9 @@ class HomeStore extends _HomeStoreBase
 
   bool get bootLoadInFlight => _bootLoadInFlight || _bootChainInFlight;
 
+  bool _legacyStorageConflict = false;
+  bool get legacyStorageConflict => _legacyStorageConflict;
+
   bool get trainingHistoryLoading => bootLoadInFlight;
   Future<void> retryTrainingHistory() => retryBoot();
   bool get trainingPlansLoading => bootLoadInFlight;
@@ -724,6 +728,10 @@ class HomeStore extends _HomeStoreBase
   /// while the boot chain or a load is running — two taps are one load.
   Future<void> retryBoot() async {
     if (sync == null || _disposed || bootLoadInFlight) return;
+    if (_legacyStorageConflict) {
+      await _hydrateThenBootGuarded();
+      return;
+    }
     try {
       await _bootFromSupabase();
     } catch (e, st) {
@@ -745,12 +753,25 @@ class HomeStore extends _HomeStoreBase
         _ownsCache = true;
         final opening = (debugCacheFactory ?? LocalCache.create)(userId);
         _cacheOpening = opening;
-        final opened = await opening;
+        final LocalCache? opened;
+        try {
+          opened = await opening;
+        } on LegacyStorageConflict {
+          if (_disposed || _trainingSessionEnded) return;
+          _mutate(() => _legacyStorageConflict = true);
+          _completeProfileReady();
+          return;
+        }
         if (_disposed || _trainingSessionEnded) {
           await opened?.releaseStorage();
           return;
         }
+        if (_legacyStorageConflict && opened == null) {
+          _completeProfileReady();
+          return;
+        }
         _cache = opened;
+        _mutate(() => _legacyStorageConflict = false);
       }
     }
     if (_cache != null) {

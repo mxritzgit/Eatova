@@ -5,6 +5,7 @@ import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase/supabase.dart';
 import 'package:eatova/src/config/supabase_config.dart';
 import 'package:eatova/src/services/session_revocations.dart';
 import 'package:http/http.dart' as http;
@@ -16,14 +17,47 @@ import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/sync_execution_guard.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 import 'package:eatova/src/services/sync_operation_sync.dart';
+import 'package:eatova/src/services/sqlite_key_value_store.dart';
 
 import 'background_sync_client_test.dart' show encodedSession;
 
 const _mealA = '11111111-1111-4111-8111-111111111111';
 const _mealB = '22222222-2222-4222-8222-222222222222';
+const _outboxKey = 'eatova.v1.outbox.A';
 
-Future<InMemoryKeyValueStore> _seed(List<SyncOp> ops) async {
-  final database = InMemoryKeyValueStore();
+class _UnavailableStore extends InMemoryKeyValueStore {
+  bool failQueueRead = false;
+  bool failNextAck = false;
+
+  @override
+  Future<KeyValueSnapshot> readSnapshot(Iterable<String> keys) {
+    if (failQueueRead && keys.contains(_outboxKey)) {
+      throw const DurableStorageException('database unavailable');
+    }
+    return super.readSnapshot(keys);
+  }
+
+  @override
+  Future<KeyValueCommit> writeBatch(
+    Map<String, String?> changes, {
+    Map<String, int> expectedVersions = const {},
+  }) {
+    final queue = changes[_outboxKey];
+    if (failNextAck &&
+        queue != null &&
+        (jsonDecode(queue)['items'] as List).isEmpty) {
+      failNextAck = false;
+      throw const DurableStorageException('database unavailable');
+    }
+    return super.writeBatch(changes, expectedVersions: expectedVersions);
+  }
+}
+
+Future<InMemoryKeyValueStore> _seed(
+  List<SyncOp> ops, {
+  InMemoryKeyValueStore? store,
+}) async {
+  final database = store ?? InMemoryKeyValueStore();
   await SyncExecutionGuard(database).activate('A', 'session-A');
   final cache = LocalCache(database, 'A');
   await cache.commitSyncOperations(ops);
@@ -348,7 +382,7 @@ void main() {
             return null;
           },
         ).run();
-        expect(result, BackgroundSyncOutcome.retry);
+        expect(result, BackgroundSyncOutcome.unavailable);
         expect(opens, 0);
       });
     },
@@ -363,4 +397,232 @@ void main() {
       expect(result, BackgroundSyncOutcome.unavailable);
     });
   });
+
+  test(
+    'DB-Lesefehler behaelt Queue fuer Wiedereroeffnung unveraendert',
+    () async {
+      await withClock(Clock.fixed(now), () async {
+        final db = _UnavailableStore();
+        final op = SyncOp.mealDelete(_mealA);
+        await _seed([op], store: db);
+        final before = db.snapshot[_outboxKey];
+        db.failQueueRead = true;
+        var requests = 0;
+        Future<LocalSyncResult> dispatch(EatovaSync _, SyncOp delivered) async {
+          requests++;
+          expect(delivered.operationId, op.operationId);
+          return const LocalSyncResult();
+        }
+
+        expect(
+          await _runner(db, dispatch: dispatch).run(),
+          BackgroundSyncOutcome.unavailable,
+        );
+        expect(db.snapshot[_outboxKey], before);
+        expect(requests, 0);
+        db.failQueueRead = false;
+        expect(
+          await _runner(db, dispatch: dispatch).run(),
+          BackgroundSyncOutcome.complete,
+        );
+        expect(requests, 1);
+        expect(await _pending(db), isEmpty);
+      });
+    },
+  );
+
+  test(
+    'lokaler Ack-Fehler zaehlt nicht als fehlgeschlagene Zustellung',
+    () async {
+      await withClock(Clock.fixed(now), () async {
+        final db = _UnavailableStore();
+        final op = SyncOp.mealDelete(_mealA);
+        await _seed([op], store: db);
+        db.failNextAck = true;
+        final delivered = <SyncOp>[];
+        Future<LocalSyncResult> dispatch(EatovaSync _, SyncOp op) async {
+          delivered.add(op);
+          return const LocalSyncResult();
+        }
+
+        expect(
+          await _runner(db, dispatch: dispatch).run(),
+          BackgroundSyncOutcome.unavailable,
+        );
+        final pending = (await _pending(db)).single;
+        expect(pending.operationId, op.operationId);
+        expect(pending.attempts, 0);
+        expect(pending.blockedReason, isNull);
+        expect(pending.toJson(), delivered.single.toJson());
+        expect(
+          await _runner(db, dispatch: dispatch).run(),
+          BackgroundSyncOutcome.complete,
+        );
+        expect(delivered[1].toJson(), delivered[0].toJson());
+        expect(await _pending(db), isEmpty);
+      });
+    },
+  );
+
+  for (final failure in <Object>[
+    PlatformException(code: 'keystore_locked'),
+    const DurableStorageException('database unavailable'),
+  ]) {
+    test(
+      'Cache-Voraussetzung ${failure.runtimeType} braucht App-Start',
+      () async {
+        await withClock(Clock.fixed(now), () async {
+          final db = await _seed([SyncOp.mealDelete(_mealA)]);
+          final before = db.snapshot;
+          final result = await BackgroundSyncRunner(
+            readSession: () async => encodedSession(),
+            openCache: (_) async => throw failure,
+          ).run();
+          expect(result, BackgroundSyncOutcome.unavailable);
+          expect(db.snapshot, before);
+        });
+      },
+    );
+  }
+
+  test(
+    'Zeitlimit beim Lesen der Session plant keinen Hintergrund-Retry',
+    () async {
+      final session = Completer<String?>();
+      var opens = 0;
+      final result = await BackgroundSyncRunner(
+        readSession: () => session.future,
+        openCache: (_) async {
+          opens++;
+          return null;
+        },
+        budget: const Duration(milliseconds: 20),
+      ).run();
+      expect(result, BackgroundSyncOutcome.unavailable);
+      session.complete(encodedSession());
+      await pumpEventQueue();
+      expect(opens, 0);
+    },
+  );
+
+  for (final timedOut in [false, true]) {
+    test(
+      'HTTP-Permission mit ${timedOut ? 'haengendem' : 'gesperrtem'} Keystore bleibt prerequisite',
+      () async {
+        await withClock(Clock.fixed(now), () async {
+          final db = await _seed([SyncOp.mealDelete(_mealA)]);
+          final original = (await _pending(db)).single;
+          final sessionRead = Completer<String?>();
+          var insideTransport = false;
+          var requests = 0;
+          final outcome = await BackgroundSyncRunner(
+            budget: const Duration(milliseconds: 500),
+            readSession: () async {
+              if (insideTransport) {
+                if (timedOut) return sessionRead.future;
+                throw PlatformException(code: 'keystore_locked');
+              }
+              return encodedSession();
+            },
+            openCache: (user) async => LocalCache(db, user),
+            clientBuilder: (session, permitted) => BackgroundSyncClient(
+              url: 'https://example.invalid',
+              anonKey: 'dummy',
+              session: session,
+              permitted: () async {
+                insideTransport = true;
+                return permitted();
+              },
+              transport: MockClient((_) async {
+                requests++;
+                throw StateError('Permission must stop HTTP');
+              }),
+            ),
+          ).run();
+          expect(insideTransport, isTrue);
+          expect(outcome, BackgroundSyncOutcome.unavailable);
+          expect(requests, 0);
+          sessionRead.complete(encodedSession());
+          await pumpEventQueue(times: 20);
+          final pending = (await _pending(db)).single;
+          expect(pending.attempts, 0);
+          expect(pending.blockedReason, isNull);
+          expect(pending.operationId, original.operationId);
+          expect(pending.wirePayload, isNotNull);
+        });
+      },
+    );
+  }
+
+  for (final error in <Object>[
+    const AuthException('Session expired'),
+    const PostgrestException(message: 'JWT expired', code: 'PGRST303'),
+    const PostgrestException(message: 'JWT rejected', code: '401'),
+  ]) {
+    test(
+      'erneuerungsbeduerftige Session ${error.runtimeType} braucht Foreground',
+      () async {
+        await withClock(Clock.fixed(now), () async {
+          final db = await _seed([SyncOp.mealDelete(_mealA)]);
+          final op = (await _pending(db)).single;
+          expect(
+            await _runner(db, dispatch: (_, _) async => throw error).run(),
+            BackgroundSyncOutcome.unavailable,
+          );
+          final pending = (await _pending(db)).single;
+          expect(pending.operationId, op.operationId);
+          expect(pending.attempts, 0);
+          expect(pending.blockedReason, isNull);
+        });
+      },
+    );
+  }
+
+  test(
+    'voruebergehender Auth-Netzwerkfehler bleibt kostenlos retrybar',
+    () async {
+      await withClock(Clock.fixed(now), () async {
+        final db = await _seed([SyncOp.mealDelete(_mealA)]);
+        expect(
+          await _runner(
+            db,
+            dispatch: (_, _) async =>
+                throw AuthRetryableFetchException(message: 'offline'),
+          ).run(),
+          BackgroundSyncOutcome.retry,
+        );
+        expect((await _pending(db)).single.attempts, 0);
+      });
+    },
+  );
+
+  for (final active in [null, ('A', 'other-session'), ('B', 'session-B')]) {
+    test(
+      'fehlende oder andere Foreground-Session $active startet keine Retrykette',
+      () async {
+        await withClock(Clock.fixed(now), () async {
+          final db = await _seed([SyncOp.mealDelete(_mealA)]);
+          if (active == null) {
+            await SyncExecutionGuard(db).invalidate('A');
+          } else {
+            await SyncExecutionGuard(db).activate(active.$1, active.$2);
+          }
+          final before = db.snapshot;
+          var requests = 0;
+          expect(
+            await _runner(
+              db,
+              dispatch: (_, _) async {
+                requests++;
+                return const LocalSyncResult();
+              },
+            ).run(),
+            BackgroundSyncOutcome.unavailable,
+          );
+          expect(requests, 0);
+          expect(db.snapshot, before);
+        });
+      },
+    );
+  }
 }

@@ -1,0 +1,32 @@
+name: Client release eligibility
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: 'Exact merged commit to release or use as a client rollback'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  storage-contract:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      # The candidate never supplies its own validator. Run this workflow from
+      # protected main and retain its exact-SHA artifact with the signed build.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+      - name: Check forward-only storage compatibility
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        run: python3 scripts/check_storage_release.py --candidate "$CANDIDATE_SHA" --output storage-release-eligibility.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: storage-release-eligibility
+          path: storage-release-eligibility.json
+          if-no-files-found: error

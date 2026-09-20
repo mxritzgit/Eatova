@@ -19,7 +19,8 @@ import 'package:eatova/src/auth/auth_repository.dart';
 // `updateUser(nonce:)` for the password, `updateUser(email:)` plus two
 // `verifyOTP(emailChange)` for the address. Server-side this needs
 // `mailer_secure_email_change_enabled` (two mails) and
-// `security_update_password_require_reauthentication` (code mandatory) —
+// `security_update_password_require_reauthentication` (code mandatory only
+// for sessions older than 24 hours; recent sessions ignore the nonce) —
 // see supabase/AUTH_EMAIL_OTP.md.
 //
 // First half checks the contract on [InMemoryAuthRepository], the fake every
@@ -81,7 +82,7 @@ void main() {
       expect(repo.reauthRequests, <String>['alt@eatova.de']);
     });
 
-    test('setzt das Passwort NUR zusammen mit dem Code', () async {
+    test('uebergibt Passwort und Code gemeinsam an das Repository', () async {
       final repo = InMemoryAuthRepository(
         initialUser: const EatovaUser(id: 'u1', email: 'alt@eatova.de'),
       );
@@ -94,7 +95,7 @@ void main() {
       expect(repo.usedNonces, <String>['123456']);
     });
 
-    test('ein falscher Code aendert nichts', () async {
+    test('ein serverseitig abgelehnter Code aendert nichts', () async {
       final repo = InMemoryAuthRepository(
         initialUser: const EatovaUser(id: 'u1', email: 'alt@eatova.de'),
       );

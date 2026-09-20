@@ -116,8 +116,7 @@ abstract class AuthRepository {
   /// signed-out counterpart is [sendPasswordReset].
   Future<void> startPasswordChange();
 
-  /// Sets the new password, only together with the code from
-  /// [startPasswordChange].
+  /// Submits the new password and the code from [startPasswordChange].
   ///
   /// With `security_update_password_require_reauthentication` GoTrue demands
   /// the nonce ONLY without a session or for sessions older than 24 h

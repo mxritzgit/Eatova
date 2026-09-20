@@ -13,6 +13,7 @@ import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/secure_cache_store.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/services/sync_execution_guard.dart';
+import 'package:eatova/src/services/sqlite_key_value_store.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -100,6 +101,63 @@ void main() {
     expect(target.startsWith('$root${Platform.pathSeparator}'), isTrue);
     await directory.delete(recursive: true);
   });
+
+  test(
+    'pooled background acquisition observes another engine legacy conflict fence',
+    () async {
+      final foreground = (await LocalCache.create(_owner))!;
+      await foreground.writeProfile(const UserProfile(weightKg: 87));
+      final other = await SqliteKeyValueStore.open(
+        LocalCache.debugDatabasePath!,
+      );
+      await other.setString('eatova.storage.legacy_conflict.v1', 'true');
+      await other.close();
+      expect(await LocalCache.create(_owner, background: true), isNull);
+      expect((await foreground.readProfile())!.weightKg, 87);
+      await foreground.releaseStorage();
+    },
+  );
+
+  test(
+    'legacy conflict blocks startup and retry cannot bypass local recovery',
+    () async {
+      var attempts = 0;
+      final store = makeStore(
+        factory: (_) async {
+          attempts++;
+          if (attempts >= 3) return null;
+          throw const LegacyStorageConflict();
+        },
+      );
+      await h.bootUntilIdle(store);
+      expect(store.legacyStorageConflict, isTrue);
+      expect(store.bootUnanswered, isTrue);
+      expect(store.syncStatusReadable, isFalse);
+      expect(server.requests, isEmpty);
+      await Future.wait([store.retryBoot(), store.retryBoot()]);
+      expect(attempts, 2, reason: 'Retries are serialized through local boot.');
+      expect(store.legacyStorageConflict, isTrue);
+      expect(server.requests, isEmpty);
+      await store.retryBoot();
+      expect(attempts, 3);
+      expect(
+        store.legacyStorageConflict,
+        isTrue,
+        reason: 'An unavailable key on retry is not successful recovery.',
+      );
+      expect(server.requests, isEmpty);
+      await expectLater(
+        store.applySettings(
+          newProfile: const UserProfile(weightKg: 90),
+          notificationsEnabled: false,
+        ),
+        throwsStateError,
+      );
+      expect(server.requests, isEmpty);
+      store.dispose();
+      await store.storageReleased;
+    },
+  );
 
   test(
     'owned production cache releases its SQLite handle and reopens durable data',

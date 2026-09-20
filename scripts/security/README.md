@@ -117,7 +117,11 @@ The probe verifies these real server boundaries:
   CAPTCHA behavior or email-quota resilience.
 
 Only OTP expiry and old-session age use backdated rows in the disposable database;
-the refresh tests wait for the real server's grace intervals. Tokens, passwords,
+the refresh tests poll read-only database timestamps until the real server's
+grace interval has elapsed, with a bounded monotonic deadline. Host sleep alone
+does not establish elapsed time inside a Docker VM. Each HTTP denial is still
+attempted once; a successful refresh is never retried until an assertion passes.
+Tokens, passwords,
 mail addresses and response bodies stay in memory. Google/browser callbacks,
 real identity linking, security-mail delivery, app/device behavior, administrator
 MFA, HIBP entitlement and actual production Auth version remain separate checks.
@@ -132,7 +136,7 @@ revoked token remains accepted by this version's `/user` endpoint. Conversely,
 these `/user` checks do not establish immediate revocation at a different service
 that validates only JWT signatures, such as a separately configured REST gateway.
 
-## Real recovery mail purpose and OTP
+## Real recovery mail purpose, OTP and password-change contract
 
 Run `python scripts/security/local_email_template_probe.py --prove-detection`
 with Docker available. Pinned GoTrue 2.196.0, Postgres 17.6 and a small Python SMTP
@@ -149,6 +153,20 @@ The final repeated request catches purpose state leaking across calls. The
 negative control changes only a temporary copy of the deletion branch and must
 fail the actual SMTP heading assertion. Sanitized results are in the ignored
 `.agents/email-template-probe/result.json`.
+
+The same isolated stack tests direct password updates with the production
+reauthentication policy: a recent session accepts missing/invalid nonces; a
+25-hour-old session rejects missing, invalid, expired, foreign-account and
+replayed proofs. A fresh eight-digit code captured from real local SMTP changes
+the password for its account. Real password login checks confirm each applied
+change and prove denied requests preserve the existing password. Session and
+code ages are backdated in disposable Postgres; no real-time expiry wait is
+needed. A second negative control disables the reauthentication setting in a new
+container and must catch an older session changing its password without proof.
+This pins the intentionally accepted
+[password contract](../../supabase/AUTH_EMAIL_OTP.md#passwortänderung-geltender-sicherheitsvertrag),
+not a universal mailbox-proof requirement. Account deletion's independent fresh
+OTP guard remains covered by the database/RLS and scoped-deletion suites.
 
 This proves rendering and OTP behavior for the committed recovery template on
 the pinned local Auth server. It does not prove live template deployment, real

@@ -57,8 +57,8 @@ class API(BaseHTTPRequestHandler):
             with LOCK:
                 body = json.dumps(MESSAGES).encode()
             kind = 'application/json'
-        elif self.path == '/recovery.html':
-            body = (TEMPLATES / 'recovery.html').read_bytes()
+        elif self.path in ('/recovery.html', '/reauthentication.html'):
+            body = (TEMPLATES / self.path[1:]).read_bytes()
             kind = 'text/html; charset=utf-8'
         else:
             self.send_error(404)

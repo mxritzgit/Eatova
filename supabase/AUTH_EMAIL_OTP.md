@@ -1,5 +1,46 @@
 # E-Mail-OTP-Konfiguration (GoTrue)
 
+## Passwortänderung: geltender Sicherheitsvertrag
+
+Eatova übernimmt bewusst Supabases Verhalten für kürzlich gestartete Sitzungen.
+**Eine Passwortänderung verlangt nicht bei jeder Sitzung einen neuen
+Postfachnachweis.** Ist die Sitzung jünger als 24 Stunden, akzeptiert GoTrue den
+direkten Aufruf von `PUT /auth/v1/user` auch ohne Nonce oder mit einer falschen
+Nonce. Maßgeblich ist der Beginn der Sitzung, nicht die letzte Token-Erneuerung.
+Bei älteren Sitzungen muss eine gültige, frische Reauthentication-Nonce vorliegen.
+Eine gestohlene, noch junge Sitzung reicht daher für einen Passwortwechsel aus.
+
+Die Einstellungen führen weiterhin durch den Code-Ablauf. Dieser zusätzliche
+App-Schritt ist keine universelle serverseitige Sicherheitsschranke; die
+deutschen und englischen Texte nennen die 24-Stunden-Ausnahme ausdrücklich.
+Ein eigener Client- oder Edge-Endpunkt würde den weiterhin erreichbaren
+Auth-Endpunkt nicht absichern und wird deshalb nicht eingeführt.
+**Die Kontolöschung behält ihren separaten, serverseitig erzwungenen frischen
+OTP-Nachweis**, den isolierten Verifikationsclient und die Konto-/Sitzungsbindung.
+
+Am 2026-09-20 erneut nur lesend geprüft: im verknüpften Live-Projekt ist
+`security_update_password_require_reauthentication=true`,
+`security_update_password_require_current_password=false`,
+`mailer_otp_length=8` und `mailer_otp_exp=600`. Diese Überprüfung ändert keine
+Live-Konfiguration und versucht keine Passwortänderung an echten Konten.
+Die Semantik folgt der aktuellen
+[Supabase-Referenz](https://supabase.com/docs/reference/javascript/auth-reauthenticate)
+und wird gegen den gepinnten
+[GoTrue 2.196.0 UserUpdate](https://github.com/supabase/auth/blob/v2.196.0/internal/api/user.go)
+sowie die
+[Nonce-Prüfung](https://github.com/supabase/auth/blob/v2.196.0/internal/api/reauthenticate.go)
+mit echten lokalen HTTP- und SMTP-Anfragen geprüft.
+
+`python scripts/security/local_email_template_probe.py --prove-detection`
+deckt zusätzlich zu den Vorlagen folgende Fälle ab: junge Sitzung ohne oder mit
+falschem Nachweis akzeptiert; alte Sitzung ohne, mit falschem, abgelaufenem,
+kontofremdem oder erneut benutztem Nachweis abgelehnt; frischer Code aus dem
+internen SMTP-Postfach erfolgreich. Passwort-Anmeldungen prüfen die tatsächliche
+Wirkung und den unveränderten Zustand nach Ablehnung. Der Negativtest deaktiviert
+Reauthentication ausschließlich im Wegwerf-Container und muss die fehlende
+Schranke für alte Sitzungen erkennen. Die Tests setzen keine strengere Garantie
+voraus, als der gewählte Vertrag bietet.
+
 ## Aktueller Vorlagenstand: 2026-09-20
 
 Alle 13 Auth- und Sicherheitsvorlagen sind unter
