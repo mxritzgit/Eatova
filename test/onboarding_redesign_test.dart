@@ -163,7 +163,7 @@ void main() {
       // Editing the first group keeps system Back inside this review session.
       await _tap(tester, 'onboarding-edit-basics');
       expect(
-        tester.widget<PopScope<Object?>>(find.byType(PopScope<Object?>)).canPop,
+        tester.widget<PopScope<Object?>>(find.byType(PopScope<Object?>).last).canPop,
         isFalse,
       );
       await _tap(tester, 'onboarding-back');

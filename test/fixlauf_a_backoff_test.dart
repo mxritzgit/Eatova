@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -40,22 +42,37 @@ void main() {
       s.store.addResultToDailyTotal(mealResult('Zwei'));
       async.flushMicrotasks();
       // Two meal inserts (plus their recents upserts) sit in the queue.
-      expect(s.store.pendingOutbox.where((o) => o.kind == SyncOpKind.mealInsert),
-          hasLength(2),
-          reason: 'Vorbedingung');
+      expect(
+        s.store.pendingOutbox.where((o) => o.kind == SyncOpKind.mealInsert),
+        hasLength(2),
+        reason: 'Vorbedingung',
+      );
 
       // t = 25 s: network is back.
       async.elapse(const Duration(seconds: 5));
       s.server.offline = false;
-      // t = 31 s: the timer armed at t = 0 fires at 30 s.
+      // t = 31 s: the original timer has fired at t = 30.
       async.elapse(const Duration(seconds: 6));
       async.flushMicrotasks();
 
-      expect(s.store.pendingOutbox, isEmpty,
-          reason: 'der zweite Fehlschlag darf den 30-s-Timer weder neu starten '
-              'noch auf 60 s eskalieren');
-      expect(s.server.requestsTo('/logged_meals', method: 'POST'), hasLength(2));
-    });
+      expect(
+        s.store.pendingOutbox,
+        isEmpty,
+        reason:
+            'der zweite Fehlschlag darf den 30-s-Timer weder neu starten '
+            'noch auf 60 s eskalieren',
+      );
+      expect(
+        s.server
+            .requestsTo('/rpc/apply_sync_operation')
+            .where(
+              (request) =>
+                  (jsonDecode(request.body) as Map)['p_kind'] == 'mealInsert',
+            ),
+        hasLength(2),
+      );
+      expect(s.server.mealsCounted, 2);
+    }, initialTime: DateTime(2026, 9, 20, 12));
   });
 
   test('Eskalation nur am Replay-Ende: 30 s, dann 60 s, dann 120 s', () {
@@ -76,14 +93,16 @@ void main() {
       // t = 89 s: not yet.
       async.elapse(const Duration(seconds: 29));
       async.flushMicrotasks();
-      expect(s.store.pendingOutbox.where((o) => o.kind == SyncOpKind.mealInsert),
-          hasLength(2),
-          reason: 'der Timer der zweiten Stufe steht bei 60 s (t = 90 s)');
+      expect(
+        s.store.pendingOutbox.where((o) => o.kind == SyncOpKind.mealInsert),
+        hasLength(2),
+        reason: 'der Timer der zweiten Stufe steht bei 60 s (t = 90 s)',
+      );
       // t = 91 s.
       async.elapse(const Duration(seconds: 2));
       async.flushMicrotasks();
       expect(s.store.pendingOutbox, isEmpty);
-    });
+    }, initialTime: DateTime(2026, 9, 20, 12));
   });
 
   test('nach einem Erfolg beginnt die Leiter wieder bei 30 s', () {
@@ -106,9 +125,12 @@ void main() {
       async.elapse(const Duration(seconds: 31));
       async.flushMicrotasks();
 
-      expect(s.store.pendingOutbox, isEmpty,
-          reason: 'die Stufe wurde beim Erfolg zurueckgesetzt');
-    });
+      expect(
+        s.store.pendingOutbox,
+        isEmpty,
+        reason: 'die Stufe wurde beim Erfolg zurueckgesetzt',
+      );
+    }, initialTime: DateTime(2026, 9, 20, 12));
   });
 
   test('ein Resume-/Backgrounding-Flush erhoeht die Stufe NICHT', () {
@@ -129,54 +151,73 @@ void main() {
       s.server.offline = false;
       async.elapse(const Duration(seconds: 59)); // t = 89
       async.flushMicrotasks();
-      expect(s.store.pendingOutbox.where((o) => o.kind == SyncOpKind.mealInsert),
-          hasLength(1),
-          reason: 'Vorbedingung: der 60-s-Timer steht noch');
+      expect(
+        s.store.pendingOutbox.where((o) => o.kind == SyncOpKind.mealInsert),
+        hasLength(1),
+        reason: 'Vorbedingung: der 60-s-Timer steht noch',
+      );
       async.elapse(const Duration(seconds: 2)); // t = 91
       async.flushMicrotasks();
 
-      expect(s.store.pendingOutbox, isEmpty,
-          reason: 'haette der Resume-Flush die Stufe erhoeht, staende der '
-              'Timer bei 120 s (t = 150)');
-    });
+      expect(
+        s.store.pendingOutbox,
+        isEmpty,
+        reason:
+            'haette der Resume-Flush die Stufe erhoeht, staende der '
+            'Timer bei 120 s (t = 150)',
+      );
+    }, initialTime: DateTime(2026, 9, 20, 12));
   });
 
   test('nur Stats-Deltas offen: der Timer eskaliert ueber den Tick und '
       'liefert nach, sobald das Netz zurueck ist', () {
     fakeAsync((async) {
       final s = _bootOnline(async);
-      // Delivered meal -> pending delta -> the debounced flush hits an
-      // outage.
-      s.store.addResultToDailyTotal(mealResult('Eins'));
+      // A migrated pre-transactional counter bundle is the only independent
+      // stats channel. New meals commit their counters in the insert RPC.
+      s.cache!.writePendingStatsDeltas(
+        meals: 1,
+        weightLogs: 0,
+        requestId: '11111111-2222-4333-8444-555555555555',
+      );
       async.flushMicrotasks();
       s.server.offline = true;
-      async.elapse(const Duration(seconds: 1)); // debounce 600 ms -> fails
+      s.store.syncPendingWrites();
       async.flushMicrotasks();
       expect(s.server.mealsCounted, 0, reason: 'Vorbedingung');
-      expect(s.store.debugOutboxRetryStage, 0,
-          reason: 'Vorbedingung: der Wecker steht auf der ersten Stufe');
+      expect(s.store.pendingOutbox.single.kind, SyncOpKind.statsIncrement);
+      expect(
+        s.store.debugOutboxRetryStage,
+        0,
+        reason: 'Vorbedingung: der Wecker steht auf der ersten Stufe',
+      );
 
-      // t = 31 s: the tick has no replay end to escalate at (the outbox is
-      // empty, the meal went live), so it climbs the ladder itself before the
-      // flush — which fails again and arms at 60 s.
+      // A failed timer pass climbs from 30 to 60 seconds.
       async.elapse(const Duration(seconds: 30));
       async.flushMicrotasks();
-      expect(s.store.debugOutboxRetryStage, 1,
-          reason: 'ohne die Eskalation im Tick tickte der Delta-Kanal ewig im '
-              '30-s-Takt');
+      expect(
+        s.store.debugOutboxRetryStage,
+        1,
+        reason:
+            'ohne die Eskalation im Tick tickte der Delta-Kanal ewig im '
+            '30-s-Takt',
+      );
 
       s.server.offline = false;
-      async.elapse(const Duration(seconds: 61)); // t = 92 s
+      async.elapse(const Duration(seconds: 61)); // t = 91 s
       async.flushMicrotasks();
 
-      expect(s.server.mealsCounted, 1,
-          reason: 'der Timer bedient auch den Stats-Kanal');
-      // The reset that _onSyncSuccess owns: no replay pass runs here (empty
-      // outbox), so the end-of-pass reset cannot cover for it. Without it the
-      // next delta would wait 60 s instead of 30 s, and after four outages
-      // 4 min.
-      expect(s.store.debugOutboxRetryStage, 0,
-          reason: 'der Erfolg setzt die Leiter zurueck');
-    });
+      expect(
+        s.server.mealsCounted,
+        1,
+        reason: 'der Timer bedient auch den Stats-Kanal',
+      );
+      expect(s.store.pendingOutbox, isEmpty);
+      expect(
+        s.store.debugOutboxRetryStage,
+        0,
+        reason: 'der Erfolg setzt die Leiter zurueck',
+      );
+    }, initialTime: DateTime(2026, 9, 20, 12));
   });
 }

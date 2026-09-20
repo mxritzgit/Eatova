@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../widgets/common/persistence_action.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../l10n/l10n.dart';
@@ -51,7 +53,7 @@ class ProfileScreen extends StatelessWidget {
   final int? dailySteps;
   final HealthAuthState healthAuthState;
   final DateTime? healthLastFetch;
-  final ValueChanged<double> onLogWeight;
+  final PersistValueChanged<double> onLogWeight;
 
   /// Opens profile and goals (body data, activity, calories). Wired to the
   /// edit buttons of the plan and goal cards (`profile-goalplan-edit`,

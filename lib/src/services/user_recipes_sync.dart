@@ -1,79 +1,86 @@
-import 'dart:developer' as dev;
-
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/fitness_recipe.dart';
+import 'sync_operation_sync.dart';
+import 'user_recipe_reads.dart';
+import 'user_rpc.dart';
+import 'uuid.dart';
 
-/// Reads and writes user-created recipes against public.user_recipes.
-/// Mirrors MealsSync: one instance per user_id, every method atomic against
-/// the table. Conflict key is (user_id, slug) from
-/// FitnessRecipe.userRecipeSlug().
+export '../models/recipe_mutation_result.dart';
+export 'user_recipe_reads.dart';
+
+/// Versioned account-scoped recipes. Missing RPCs must remain pending locally.
 class UserRecipesSync {
   UserRecipesSync(this._client, this._userId);
-
   final SupabaseClient _client;
   final String _userId;
 
-  /// Generous cap for user recipes (newest first). Recipes are created one by
-  /// one, so 200 is far above any real count but bounds the boot read.
-  ///
-  /// "Far above" is a guess, not a guarantee — the table itself allows 5000
-  /// (migration 20260829120000). A caller that gets exactly this many rows
-  /// holds a WINDOW on the newest recipes, not the collection, and must not
-  /// conclude anything from an entry it does not see: `HomeStore` turns a full
-  /// page into `userRecipesAuthoritative == false`, which stops the orphan
-  /// photo sweep from deleting the older recipes' photos (review 2026-08-31,
-  /// A).
-  static const int userRecipesLimit = 200;
+  /// The full snapshot is bounded by the server's active recipe capacity.
+  static const int userRecipesLimit = 5000;
 
-  Future<List<FitnessRecipe>> load() async {
-    try {
-      final rows = await _client
-          .from('user_recipes')
-          .select(
-            'slug, title, description, portion, ingredients, preparation, '
-            'image_asset, calories_kcal, protein_g, carbs_g, fat_g, '
-            'estimated_g, categories, structured_ingredients, batch_servings',
-          )
-          .eq('user_id', _userId)
-          .order('created_at', ascending: false)
-          .limit(userRecipesLimit);
-      return rows
-          .map<FitnessRecipe>(
-            (row) => FitnessRecipe.fromRow((row as Map).cast<String, dynamic>()),
-          )
-          .toList();
-    } catch (e, stack) {
-      dev.log('UserRecipesSync.load failed',
-          error: e, stackTrace: stack, name: 'user_recipes_sync');
-      rethrow;
-    }
-  }
+  Future<List<FitnessRecipe>> load() =>
+      UserRecipeReads(_client, _userId).load();
 
-  Future<void> upsert(FitnessRecipe recipe) async {
-    try {
-      await _client.from('user_recipes').upsert({
-        'user_id': _userId,
-        ...recipe.toRow(),
-      }, onConflict: 'user_id,slug', ignoreDuplicates: false);
-    } catch (e, stack) {
-      dev.log('UserRecipesSync.upsert failed',
-          error: e, stackTrace: stack, name: 'user_recipes_sync');
-      rethrow;
-    }
-  }
+  Future<Set<String>> loadPhotoReferences() =>
+      UserRecipeReads(_client, _userId).loadPhotoReferences();
 
-  Future<void> delete(String slug) async {
-    try {
-      await _client
-          .from('user_recipes')
-          .delete()
-          .eq('slug', slug)
-          .eq('user_id', _userId);
-    } catch (e, stack) {
-      dev.log('UserRecipesSync.delete failed',
-          error: e, stackTrace: stack, name: 'user_recipes_sync');
-      rethrow;
+  Future<RecipeHistoryPage> loadHistory({String? slug, int? beforeRevision}) =>
+      UserRecipeReads(
+        _client,
+        _userId,
+      ).loadHistory(slug: slug, beforeRevision: beforeRevision);
+
+  /// Durable replay uses SyncOperationSync with its persisted operation UUID.
+  Future<RecipeMutationResult> upsert(
+    FitnessRecipe recipe, {
+    String? operationId,
+    int? expectedRevision,
+  }) => _apply(operationId ?? uuidV4(), 'recipeUpsert', recipe.slug, {
+    'recipe': recipe.toRow(),
+    'expected_revision': expectedRevision ?? recipe.serverRevision,
+  });
+
+  Future<RecipeMutationResult> delete(
+    String slug, {
+    String? operationId,
+    int? expectedRevision,
+  }) => _apply(operationId ?? uuidV4(), 'recipeDelete', slug, {
+    'expected_revision': expectedRevision,
+  });
+
+  Future<RecipeMutationResult> _apply(
+    String id,
+    String kind,
+    String slug,
+    Map<String, dynamic> payload,
+  ) async {
+    if (!isUuidShape(id)) {
+      throw const FormatException('Invalid operation identity');
     }
+    final dynamic raw;
+    try {
+      raw = await userRpc(
+        _client,
+        _userId,
+        'apply_sync_operation',
+        params: {
+          'p_operation_id': id,
+          'p_kind': kind,
+          'p_entity_id': slug,
+          'p_payload': payload,
+        },
+      );
+    } on PostgrestException catch (error) {
+      rethrowSyncFailure(error);
+    }
+    if (raw is! Map) throw const FormatException('Invalid recipe receipt');
+    final receipt = SyncOperationReceipt.fromJson(raw.cast<String, dynamic>());
+    if (receipt.operationId != id ||
+        receipt.kind.name != kind ||
+        receipt.entityId != slug ||
+        receipt.recipeMutation == null) {
+      throw const FormatException('Mismatched recipe receipt');
+    }
+    return receipt.recipeMutation!;
   }
 }

@@ -1280,3 +1280,76 @@ CI. The PR and its required checks establish delivery status; local preparation
 does not establish merge. No backend function, schema, dependency or runtime
 configuration changed. No device installation or physical iOS validation was
 performed.
+
+## Transactional offline sync and Auth emails, 2026-09-20
+
+Five coordinated review/implementation areas verified the requested findings
+against main `c67e3f5`. SharedPreferences did not provide the assumed critical-data
+durability guarantee. The favorite owner-reassignment omission was a test gap,
+not evidence of an exploitable policy: the new collision-free mutation requires
+SQLSTATE `42501` from the existing ownership boundary. The original dirty checkout
+was preserved; integration uses `feat/transactional-offline-sync` in
+`.agents/offline-sync-2026-09-20/integration`.
+
+- [Local persistence and sync contracts](OFFLINE_SYNC.md): encrypted SQLite
+  commits entities, derived state and outbox intents atomically before confirming
+  a save. Legacy import is transactional. Frozen requests, permanent server
+  receipts, current-state reconciliation and account/session claims preserve
+  uncertain delivery and coordinate foreground/background work. Unreadable and
+  blocked queues remain visible; exhausted retries never evict confirmed intent.
+- Recipes use server revisions, deterministic conflict copies, visible history
+  and explicit restore. Snapshot pagination, export and historical photo
+  references cover complete collections. The detail screen follows its exact
+  acknowledged conflict copy. A delete-before-first-create marker has no content
+  to restore and remains an exact event in exported history.
+- Coach plans keep their stable proposal identity. Explicit incarnations separate
+  deletion from re-adoption; old first requests and receipts cannot change a
+  newer adoption. Conflict review retains the latest confirmed draft, checks for
+  another edit before committing, and replaces only the reviewed unsent intents.
+  Workout checkpoints remain bound to their source incarnation; already durable
+  completions retain their recovery path. Discard is a confirmed local operation.
+- Reconnection triggers foreground replay. Native background work is bounded and
+  uses the same encrypted queue and session claims. OS scheduling and physical
+  device behavior remain distinct from simulated runner tests and native builds.
+- [Auth email contracts](../supabase/AUTH_EMAIL_OTP.md): all 13 templates share
+  a maintained mobile/dark layout. A per-request purpose distinguishes account
+  deletion from password recovery, with a neutral fallback for older clients.
+  Deletion verifies in an isolated recovery session bound to the initiating
+  account and session; account switches cannot redirect deletion or cleanup.
+
+Regression evidence includes
+[real SQLite process crashes](../test/services/sqlite_process_crash_test.dart),
+[atomic mutation failures](../test/atomic_store_mutations_test.dart),
+[recipe result races](../test/recipe_edit_result_test.dart),
+[account deletion scope](../test/delete_account_scope_test.dart) and
+[disposable PostgreSQL concurrency](../test/migrations/offline_sync_concurrency.py).
+The final integrated database run applied all **49 migrations**, passed the RLS
+suite and concurrent recipe/training/ownership races, and upgraded **1,800 recipes
+(72,974,079 bytes)** plus legacy training heads. Deliberately removing receipt
+ownership checks or the upgrade storage allowance was detected. The email probe
+rendered and verified real OTPs through disposable GoTrue/SMTP with synthetic
+accounts; no real user mail was sent. Local evidence remains ignored under
+`.agents/offline-sync-2026-09-20/`.
+
+Final Flutter verification on 3.47.2 / Dart 3.13.2 passes **5,013 tests with no
+skips**, strict analysis with fatal infos/warnings, and **94.85% coverage
+(30,012 / 31,641 lines)** excluding generated localization. One legacy test
+still used an ordinary save after deleting a Coach plan; its fixture now uses
+explicit same-ID re-adoption and additionally rejects the old checkpoint before
+and after that adoption. The subsequent complete suite is green; product guards
+were preserved.
+
+The final Android debug APK builds with dummy service defines. Deno lint,
+entry-point/evaluation type checks and **700 tests** pass. Backup/restore verifies
+all **25 tables**, schema, grants and restricted roles; missing RLS and missing
+data controls fail as expected. Global/account provider-budget concurrency
+checks pass against the new schema. The independent final source review reports
+no remaining actionable findings in the changed scope.
+
+The 13 email templates, their subjects and the two exact purpose allowlist entries
+were published and read back exactly. The three new database migrations have
+**not** been applied to the live backend. Apply them in timestamp order and
+reconcile the separately hosted privacy notice before releasing the new client;
+missing RPCs deliberately leave local work pending. No app was installed on a
+device. The protected PR checks establish push/merge delivery independently of
+these rollout steps.

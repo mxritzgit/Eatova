@@ -81,8 +81,9 @@ and [Backend](BACKEND.md) for persistence details.
 - JSON export is available through **Today → Settings → Export data**. Copying
   the JSON is wired; native file sharing has a prepared callback but no app
   wiring. It is not an import/restore feature. Unreadable or capped sections are
-  identified, and non-diary sections have a 10,000-row client limit (a server
-  cap may be lower). [Export source](../lib/src/services/data_export.dart).
+  identified. Diary, recipes and recipe history paginate; other sections have a
+  10,000-row client limit (a server cap may be lower).
+  [Export source](../lib/src/services/data_export.dart).
 - Theme/language apply to app-owned UI. Stored user text, previous AI replies
   and independently configured auth email templates are not retroactively
   translated by changing the picker.

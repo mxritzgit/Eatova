@@ -4,6 +4,7 @@ import Speech
 import UIKit
 import UserNotifications
 import os.log
+import workmanager_apple
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -11,6 +12,11 @@ import os.log
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    WorkmanagerPlugin.registerBGProcessingTask(withIdentifier: "com.eatova.app.sync")
+    WorkmanagerPlugin.registerLaunchHandlers()
+    WorkmanagerPlugin.setPluginRegistrantCallback { registry in
+      GeneratedPluginRegistrant.register(with: registry)
+    }
     // PROD-1: flutter_local_notifications needs this delegate so local nudges
     // show in the foreground and tap callbacks arrive. Local only, no APNs.
     if #available(iOS 10.0, *) {

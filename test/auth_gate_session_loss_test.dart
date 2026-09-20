@@ -49,6 +49,9 @@ class _ScriptedAuthRepository implements AuthRepository {
   Stream<EatovaUser?> get authStateChanges => _controller.stream;
 
   @override
+  Future<void> sendAccountDeletionCode({required String userId, required String email}) async {}
+
+  @override
   Future<void> sendPasswordReset(String email) async {}
 
   @override
@@ -121,10 +124,12 @@ const _andererUser = EatovaUser(
 /// REPORTS every transition to the store (Finding 5, 2026-08-11).
 class _BindungsRekorder extends RecipeImageStore {
   final List<String?> bindungen = <String?>[];
+  final List<String?> sessions = <String?>[];
 
   @override
-  Future<void> setActiveUser(String? userId) {
+  Future<void> setActiveUser(String? userId, {String? sessionId}) {
     bindungen.add(userId);
+    sessions.add(sessionId);
     return Future<void>.value();
   }
 }
@@ -390,6 +395,27 @@ void main() {
 
   group('Finding 5 — der Gate bindet den Rezept-Foto-Store an die Identitaet',
       () {
+    testWidgets('photo binding distinguishes sessions of the same account', (tester) async {
+      final recorder = _BindungsRekorder();
+      RecipeImageStore.instance = recorder;
+      addTearDown(RecipeImageStore.resetInstance);
+      const first = EatovaUser(id: 'user-1', email: 'test@example.invalid', displayName: 'Test', sessionId: 'session-1');
+      const second = EatovaUser(id: 'user-1', email: 'test@example.invalid', displayName: 'Test', sessionId: 'session-2');
+      final repository = _ScriptedAuthRepository(first);
+      addTearDown(repository.dispose);
+      await _pumpGate(tester, repository);
+      await tester.tap(find.byKey(const ValueKey('push-profile')));
+      await tester.pumpAndSettle();
+      repository.emit(first);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('screen-fake-profile')), findsOneWidget);
+      repository.emit(second);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('screen-fake-profile')), findsNothing);
+      expect(recorder.bindungen, ['user-1', 'user-1', 'user-1']);
+      expect(recorder.sessions, ['session-1', 'session-1', 'session-2']);
+    });
+
     // The store purges on identity change itself (setActiveUser, own unit
     // tests); the gate is the ONE place every transition passes through,
     // including those signOutCleanup never sees: involuntary session loss and

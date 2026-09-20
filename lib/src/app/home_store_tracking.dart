@@ -37,6 +37,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// would reappear each time. Deliberately not persisted — one fresh offer
   /// per app start is fine.
   double? _lastOfferedHealthWeightKg;
+  bool _healthWeightImportInFlight = false;
 
   // --- Health ---------------------------------------------------------------
 
@@ -255,7 +256,13 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   void _maybeOfferHealthWeight(double? kg) {
     // Outside 20..400 kg the sample is a unit or sensor error; offering it
     // would only lead to a tap that [importHealthWeight] discards.
-    if (_disposed || kg == null || !isValidWeightLogKg(kg)) return;
+    if (_disposed ||
+        _healthSessionEnded ||
+        _healthWeightImportInFlight ||
+        kg == null ||
+        !isValidWeightLogKg(kg)) {
+      return;
+    }
     final lastLogged = weightLog.latest?.weightKg;
     if (lastLogged != null && (kg - lastLogged).abs() < 0.1) return;
     if (_lastOfferedHealthWeightKg == kg) return;
@@ -271,15 +278,41 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
       duration: const Duration(milliseconds: 3500),
       action: SnackBarAction(
         label: _l10n.commonHealthWeightOfferAction,
-        onPressed: () => importHealthWeight(kg),
+        onPressed: () => unawaited(_importOfferedHealthWeight(kg)),
       ),
     );
+  }
+
+  /// Snack actions have no awaiting caller. Keep their failure handling and
+  /// duplicate-tap guard at the user-action boundary, not in the save API.
+  Future<void> _importOfferedHealthWeight(double kg) async {
+    if (_disposed || _healthSessionEnded || _healthWeightImportInFlight) return;
+    final lastLogged = weightLog.latest?.weightKg;
+    if (lastLogged != null && (kg - lastLogged).abs() < 0.1) return;
+    final generation = _healthGeneration;
+    _healthWeightImportInFlight = true;
+    try {
+      await importHealthWeight(kg);
+    } catch (error, stack) {
+      if (_disposed || generation != _healthGeneration) return;
+      // A failed commit must not permanently consume the offer for this value.
+      if (_lastOfferedHealthWeightKg == kg) _lastOfferedHealthWeightKg = null;
+      _reportSyncError(
+        'health-weight-import',
+        error,
+        stack,
+        message: _l10n.commonLocalSaveFailed,
+      );
+    } finally {
+      _healthWeightImportInFlight = false;
+    }
   }
 
   // --- Body data (profile) --------------------------------------------------
 
   /// Manual weigh-in: logs locally, syncs, and writes back to HealthKit.
-  void logWeight(double kg) => _logWeightInternal(kg, writeToHealth: true);
+  Future<void> logWeight(double kg) =>
+      _logWeightInternal(kg, writeToHealth: true);
 
   /// Import FROM Apple Health: like [logWeight] but WITHOUT
   /// `health.writeWeight` — writing back would create an echo duplicate.
@@ -287,9 +320,9 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// Out-of-range samples (20..400 kg) are DISCARDED, not clamped (review G
   /// M-4): a clamped 20 kg from a 7.55 lb/stone sample would be a fiction in
   /// the log. The clamp stays the last barrier for manual input only.
-  void importHealthWeight(double kg) {
+  Future<void> importHealthWeight(double kg) async {
     if (!isValidWeightLogKg(kg)) return;
-    _logWeightInternal(kg, writeToHealth: false);
+    await _logWeightInternal(kg, writeToHealth: false);
   }
 
   /// Shared core of [logWeight] and [importHealthWeight]. The haptic fires in
@@ -299,70 +332,27 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   /// rejects out-of-range input, but a HealthKit import or any other caller
   /// still passes through here, and `weight_log_safe_range_check` would
   /// reject the row with 23514 while the local log already showed it.
-  void _logWeightInternal(double rawKg, {required bool writeToHealth}) {
+  Future<void> _logWeightInternal(
+    double rawKg, {
+    required bool writeToHealth,
+  }) async {
     final kg = WeightLog.sanitizeKg(rawKg);
-    if (kg == null) return;
-    HapticFeedback.lightImpact();
+    if (kg == null) throw const FormatException('Invalid weight');
     final ts = clock.now();
-    _mutate(() {
-      weightLog = weightLog.add(kg);
-      lifetimeStats = lifetimeStats.incrementWeightLogs();
-    });
-    _cacheWeightLog();
-    if (writeToHealth) {
-      unawaited(health.writeWeight(kg, ts));
-    }
-    if (sync == null) return;
-    // Client UUID for the server row: live write and a later outbox retry
-    // share the id -> upsert, so a retry after an unclear timeout creates no
-    // duplicate (DATA-7 idempotency).
-    final rowId = uuidV4();
-    // No rollback: the weight stays logged and is caught up via the outbox.
-    // Gap B: the op is queued BEFORE the write, otherwise a hanging request
-    // would never produce one.
-    _syncOrQueue(
-      'Gewicht',
-      () => sync!.tracking.insertWeight(kg, ts, id: rowId),
-      () => SyncOp.weightInsert(id: rowId, weightKg: kg, recordedAt: ts),
-      // As with the meal insert: otherwise _performOp books the lifetime
-      // delta on replay.
-      onDelivered: () => _queueStatsDelta(weightLogs: 1),
+    final op = SyncOp.weightInsert(id: uuidV4(), weightKg: kg, recordedAt: ts);
+    await _commitSyncIntents(
+      [op],
+      publish: () {
+        weightLog = WeightLog(
+          entries: [
+            ...weightLog.entries,
+            WeightLogEntry(timestamp: ts, weightKg: kg),
+          ],
+        );
+        lifetimeStats = lifetimeStats.incrementWeightLogs();
+      },
     );
-  }
-
-  // --- Streak ---------------------------------------------------------------
-
-  /// Records a logging day server-side (record_tracking_day, idempotent per
-  /// day) and adopts the fresh server row. Defaults to today; an outbox
-  /// replay passes the day of the caught-up meal.
-  ///
-  /// A failure must not stay silent: the debounced [_flushStatsDelta] would
-  /// adopt a server row that never saw the day and [_cacheLifetimeStats]
-  /// would persist the broken streak. On error the day goes into the same
-  /// persisted outbox as any other write ([_queueTrackingDay]).
-  @override
-  void _recordTrackingDay({DateTime? day}) {
-    final s = sync;
-    if (s == null) return;
-    final tag = day ?? clock.now();
-    s.lifetimeStats.recordTrackingDay(tag).then((fresh) {
-      if (_disposed) return;
-      // An older failed op for the same day is now settled.
-      _clearQueuedTrackingDay(localDayKey(tag));
-      _mutate(() {
-        lifetimeStats = fresh;
-        // Other undelivered days stay visible — the server row we just read
-        // does not know them.
-        _overlayPendingTrackingDays();
-      });
-      _cacheLifetimeStats();
-    }).catchError((Object e, StackTrace st) {
-      dev.log('recordTrackingDay failed — Tag bleibt in der Outbox liegen',
-          error: e, name: 'home_store');
-      // Network failures stay out of Sentry (F1-04); the outbox retries.
-      unawaited(CrashReporter.captureSyncFailure(e, st,
-          context: 'record-tracking-day'));
-      _queueTrackingDay(tag);
-    });
+    HapticFeedback.lightImpact();
+    if (writeToHealth) unawaited(health.writeWeight(kg, ts));
   }
 }

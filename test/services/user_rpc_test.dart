@@ -36,10 +36,17 @@ class _DelayedTokenClient extends SupabaseClient {
   GoTrueClient get auth => sessionClient.auth;
 }
 
+String tokenFor(String id) {
+  String encode(Map<String, Object> value) =>
+      base64Url.encode(utf8.encode(jsonEncode(value))).replaceAll('=', '');
+  return '${encode({'alg': 'HS256', 'typ': 'JWT'})}.'
+      '${encode({'sub': id, 'role': 'authenticated', 'session_id': 'session-$id', 'exp': 4102444800})}.fixture-signature';
+}
+
 Future<void> signIn(SupabaseClient client, String id) => client.auth
     .recoverSession(
       jsonEncode({
-        'access_token': 'fixture-$id',
+        'access_token': tokenFor(id),
         'refresh_token': 'refresh-$id',
         'token_type': 'bearer',
         'expires_in': 3600,
@@ -87,7 +94,7 @@ void main() {
     await signIn(sessionClient, 'B');
     release.complete();
     await pending;
-    expect(headers, ['Bearer fixture-A']);
+    expect(headers, ['Bearer ${tokenFor('A')}']);
   });
 
   test(
@@ -108,7 +115,7 @@ void main() {
       final pending = userRpc(client, 'A', 'delete_account');
       await signIn(client, 'B');
       await pending;
-      expect(headers, ['Bearer fixture-A']);
+      expect(headers, ['Bearer ${tokenFor('A')}']);
       await expectLater(
         userRpc(client, 'A', 'delete_account'),
         throwsA(isA<AuthException>()),
@@ -162,7 +169,9 @@ void main() {
           'https://example.supabase.co',
           'fixture-anon',
           httpClient: MockClient((request) async {
-            if (request.url.path.endsWith('/rpc/increment_lifetime_stats')) {
+            if (request.url.path.endsWith('/rpc/apply_sync_operation') &&
+                (jsonDecode(request.body) as Map)['p_kind'] ==
+                    'statsIncrement') {
               sent.add(request.headers['authorization']);
               if (sent.length == 1) {
                 entered.complete();
@@ -190,7 +199,7 @@ void main() {
         if (switchAccount) await signIn(client, 'B');
         gate.complete();
         await h.settle();
-        expect(sent, ['Bearer fixture-user-outbox']);
+        expect(sent, ['Bearer ${tokenFor('user-outbox')}']);
         expect(await cache.readOutbox(), hasLength(2));
       },
     );

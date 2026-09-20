@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../support/recipe_navigation.dart';
 
 import 'package:clock/clock.dart';
@@ -80,7 +82,12 @@ void main() {
         expect(store.pendingRecipeDeletes, isEmpty);
         expect(server.recipeRows, contains(recipe.slug));
         expect(
-          server.requestsTo('/user_recipes', method: 'DELETE'),
+          server
+              .requestsTo('/rpc/apply_sync_operation')
+              .where(
+                (request) =>
+                    jsonDecode(request.body)['p_kind'] == 'recipeDelete',
+              ),
           isEmpty,
           reason: 'the superseded deletion must never reach persistence',
         );

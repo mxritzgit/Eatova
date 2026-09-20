@@ -67,6 +67,27 @@ Future<void> _tap(WidgetTester tester, String key) async {
   await _frames(tester);
 }
 
+Future<void> _finishOperation(
+  WidgetTester tester,
+  Future<void> operation,
+) async {
+  var done = false;
+  final completion = operation.whenComplete(() => done = true);
+  // Saves initiated by widget callbacks run in the widget clock's zone.
+  // Advancing it completes the bounded delivery wait; runAsync cannot.
+  for (var frame = 0; frame < 100 && !done; frame++) {
+    await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+  expect(done, isTrue, reason: 'Confirmed offline saves must complete');
+  await completion;
+}
+
+Future<void> _finishSaves(
+  WidgetTester tester,
+  List<Future<SyncDelivery>> saves,
+) => _finishOperation(tester, Future.wait(saves).then((_) {}));
+
 void main() {
   testWidgets(
     'preview cancellation, duplicate confirmation, delete/re-add and offline reboot',
@@ -100,7 +121,7 @@ void main() {
       final saves = <Future<SyncDelivery>>[];
       Future<SyncDelivery> adopt(TrainingPlan plan) {
         adoptions++;
-        final save = saveGate.future.then((_) => store.saveTrainingPlan(plan));
+        final save = saveGate.future.then((_) => store.adoptTrainingPlan(plan));
         saves.add(save);
         return save;
       }
@@ -139,39 +160,41 @@ void main() {
       expect(adoptions, 1);
       saveGate.complete();
       await _frames(tester);
-      await tester.runAsync(() async {
-        await Future.wait(saves);
-      });
+      await _finishSaves(tester, saves);
       await tester.pumpAndSettle();
       expect(adoptions, 1);
       expect(store.trainingPlans.single.id, 'coach_server-message-1');
+      expect(store.trainingPlans.single.sourceId, 'server-message-1');
+      expect(store.trainingPlans.single.incarnation, 0);
       expect(store.pendingOutbox.single.trainingPlan?.title, 'Two sessions');
 
-      await tester.runAsync(() async {
-        await store.deleteTrainingPlan('coach_server-message-1');
-      });
+      await _finishOperation(
+        tester,
+        store.deleteTrainingPlan('coach_server-message-1').then((_) {}),
+      );
       await _frames(tester);
       expect(store.trainingPlans, isEmpty);
       await _tap(tester, 'coach-plan-review');
       await _tap(tester, 'training-editor-save');
-      await tester.runAsync(() async {
-        await Future.wait(saves);
-      });
+      await _finishSaves(tester, saves);
       await tester.pumpAndSettle();
       expect(adoptions, 2);
       expect(store.trainingPlans, hasLength(1));
+      expect(store.trainingPlans.single.incarnation, 1);
       await tester.pumpWidget(const SizedBox.shrink());
+      await _finishOperation(tester, cache.flush());
+      await _finishOperation(tester, cache.settle());
+      store.dispose();
+      disposed = true;
       await tester.runAsync(() async {
-        await cache.flush();
-        await cache.settle();
-        store.dispose();
-        disposed = true;
         final reopenedCache = LocalCache(raw, 'A');
         final reboot = _store(client, reopenedCache);
         try {
           await h.bootUntilIdle(reboot);
           expect(reboot.trainingPlans.single.id, 'coach_server-message-1');
           expect(reboot.trainingPlans.single.title, 'Two sessions');
+          expect(reboot.trainingPlans.single.sourceId, 'server-message-1');
+          expect(reboot.trainingPlans.single.incarnation, 1);
           expect(
             reboot.pendingOutbox.last.trainingPlan?.id,
             'coach_server-message-1',

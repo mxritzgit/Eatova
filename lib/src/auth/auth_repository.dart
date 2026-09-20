@@ -6,21 +6,25 @@ import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../config/supabase_config.dart';
+import '../config/auth_email_purpose.dart';
 import '../l10n/l10n.dart';
 import '../services/crash_reporter.dart';
 import '../services/session_revocations.dart';
+import '../services/sync_execution_guard.dart';
 import 'auth_exceptions.dart';
 import 'auth_session_mutation.dart';
 import 'google_id_token_provider.dart';
 
 export 'auth_exceptions.dart';
+export 'auth_session_mutation.dart' show ScopedAccountDeleteAction;
 
 class EatovaUser {
-  const EatovaUser({required this.id, this.email, this.displayName});
+  const EatovaUser({required this.id, this.email, this.displayName, this.sessionId});
 
   final String id;
   final String? email;
   final String? displayName;
+  final String? sessionId;
 
   /// First name for greetings: display name, else the mailbox part of the
   /// address, else a neutral ARB fallback. Nothing here is persisted, so the
@@ -81,6 +85,11 @@ abstract class AuthRepository {
   /// neither server nor app reveals whether an account exists, which would be
   /// an account-enumeration leak.
   Future<void> sendPasswordReset(String email);
+
+  /// Requests a recovery OTP with account-deletion copy, bound to the account
+  /// that opened the confirmation. [ScopedAccountDeletion] verifies the code
+  /// without replacing the app session.
+  Future<void> sendAccountDeletionCode({required String userId, required String email});
 
   /// Verifies the 8-digit code from the password reset mail (OTP, not a link;
   /// mailer_otp_exp = 10 min). Success establishes the session; then
@@ -153,7 +162,19 @@ abstract interface class CoordinatedSignOut {
   Future<void> signOutWithCleanup(Future<void> Function() cleanup);
 }
 
-class SupabaseAuthRepository implements AuthRepository, CoordinatedSignOut {
+/// Implementations must keep the recovery token separate from the app login.
+abstract interface class ScopedAccountDeletion {
+  Future<void> withAccountDeletionCode({
+    required String userId,
+    required String? sessionId,
+    required String email,
+    required String code,
+    required ScopedAccountDeleteAction performDeletion,
+  });
+}
+
+class SupabaseAuthRepository
+    implements AuthRepository, CoordinatedSignOut, ScopedAccountDeletion {
   const SupabaseAuthRepository(
     this._client, {
     GoogleIdTokenProvider? googleIdTokenProvider,
@@ -170,23 +191,51 @@ class SupabaseAuthRepository implements AuthRepository, CoordinatedSignOut {
   final SecureSessionLocalStorage? _sessionStorage;
 
   @override
-  EatovaUser? get currentUser => _mapUser(_client.auth.currentUser);
+  Future<void> withAccountDeletionCode({
+    required String userId,
+    required String? sessionId,
+    required String email,
+    required String code,
+    required ScopedAccountDeleteAction performDeletion,
+  }) async {
+    if (currentUser?.id != userId || currentUser?.sessionId != sessionId) {
+      throw const AuthException('Authentication session changed');
+    }
+    await runAccountDeletionCode(
+      _client,
+      userId: userId,
+      email: email,
+      code: code,
+      performDeletion: performDeletion,
+      httpClient: _mutationHttpClient,
+    );
+  }
+
+  @override
+  EatovaUser? get currentUser => _mapUser(_client.auth.currentUser, _client.auth.currentSession?.accessToken);
 
   @override
   Stream<EatovaUser?> get authStateChanges async* {
     yield currentUser;
     yield* _client.auth.onAuthStateChange.map(
-      (event) => _mapUser(event.session?.user),
+      (event) => _mapUser(event.session?.user, event.session?.accessToken),
     );
   }
 
   @override
   Future<void> sendPasswordReset(String email) async {
-    // Deliberately without redirectTo: the reset runs on the 8-digit code, not
-    // a mail link. A redirect_to would only matter if someone reverted the
-    // server template, silently reactivating the hijackable eatova:// deep
-    // link (security audit 2026-08-09).
-    await _client.auth.resetPasswordForEmail(email.trim());
+    await _client.auth.resetPasswordForEmail(email.trim(),
+        redirectTo: AuthEmailPurpose.passwordReset);
+  }
+
+  @override
+  Future<void> sendAccountDeletionCode({required String userId, required String email}) async {
+    final user = currentUser;
+    if (user == null || user.id != userId || user.email?.trim().toLowerCase() != email.trim().toLowerCase()) {
+      throw const AuthException('Account changed. Please sign in again.');
+    }
+    await _client.auth.resetPasswordForEmail(user.email!.trim(),
+        redirectTo: AuthEmailPurpose.accountDeletion);
   }
 
   @override
@@ -441,7 +490,7 @@ class SupabaseAuthRepository implements AuthRepository, CoordinatedSignOut {
     }
   }
 
-  EatovaUser? _mapUser(User? user) {
+  EatovaUser? _mapUser(User? user, [String? token]) {
     if (user == null) return null;
     final metadata = user.userMetadata ?? <String, dynamic>{};
     final rawName = metadata['display_name'] ??
@@ -449,6 +498,7 @@ class SupabaseAuthRepository implements AuthRepository, CoordinatedSignOut {
         metadata['name'] ??
         metadata['user_name'];
     return EatovaUser(
+      sessionId: syncSessionIdFromAccessToken(token ?? ''),
       id: user.id,
       email: user.email,
       displayName: rawName is String ? rawName : null,
@@ -475,6 +525,9 @@ class PreviewAuthRepository implements AuthRepository {
 
   @override
   Future<void> sendPasswordReset(String email) async {}
+
+  @override
+  Future<void> sendAccountDeletionCode({required String userId, required String email}) async {}
 
   @override
   Future<void> verifyRecoveryCode(
@@ -528,7 +581,7 @@ class PreviewAuthRepository implements AuthRepository {
   Future<void> signOut() async {}
 }
 
-class InMemoryAuthRepository implements AuthRepository {
+class InMemoryAuthRepository implements AuthRepository, ScopedAccountDeletion {
   InMemoryAuthRepository({EatovaUser? initialUser}) : _user = initialUser;
 
   EatovaUser? _user;
@@ -537,6 +590,37 @@ class InMemoryAuthRepository implements AuthRepository {
 
   /// For tests: addresses a reset was triggered for.
   final List<String> passwordResets = <String>[];
+
+  final List<String> accountDeletionCodes = <String>[];
+
+  @override
+  Future<void> withAccountDeletionCode({
+    required String userId,
+    required String? sessionId,
+    required String email,
+    required String code,
+    required ScopedAccountDeleteAction performDeletion,
+  }) async {
+    final original = _user;
+    bool isCurrent() =>
+        identical(_user, original) &&
+        _user?.id == userId &&
+        _user?.sessionId == sessionId;
+    if (!isCurrent() ||
+        _user?.email?.trim().toLowerCase() != email.trim().toLowerCase()) {
+      throw const AuthException('Authentication session changed');
+    }
+    if (verifyFails) {
+      verifyFails = false;
+      throw const AuthException('Token has expired or is invalid');
+    }
+    verifiedCodes.add('${email.trim()}:${code.trim()}');
+    await performDeletion(() async {
+      if (!isCurrent()) {
+        throw const AuthException('Authentication session changed');
+      }
+    }, isCurrent);
+  }
 
   /// For tests: new passwords that were set.
   final List<String> passwordUpdates = <String>[];
@@ -557,6 +641,14 @@ class InMemoryAuthRepository implements AuthRepository {
   @override
   Future<void> sendPasswordReset(String email) async {
     passwordResets.add(email.trim());
+  }
+
+  @override
+  Future<void> sendAccountDeletionCode({required String userId, required String email}) async {
+    if (_user?.id != userId || _user?.email?.trim().toLowerCase() != email.trim().toLowerCase()) {
+      throw const AuthException('Account changed. Please sign in again.');
+    }
+    accountDeletionCodes.add(email.trim());
   }
 
   Future<void> _verify(String email, String code) async {
@@ -732,6 +824,9 @@ class UnavailableAuthRepository implements AuthRepository {
 
   @override
   Future<void> sendPasswordReset(String email) => _fail();
+
+  @override
+  Future<void> sendAccountDeletionCode({required String userId, required String email}) => _fail();
 
   @override
   Future<void> verifyRecoveryCode(

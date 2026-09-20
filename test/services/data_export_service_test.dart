@@ -8,6 +8,8 @@
 
 import 'dart:convert';
 
+import '../support/recipe_read_fake.dart';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -43,6 +45,8 @@ class _FakePostgrest {
   http.Client client() => MockClient(_handle);
 
   Future<http.Response> _handle(http.Request req) async {
+    final recipe = emptyRecipeReadResponse(req);
+    if (recipe != null) return recipe;
     requests.add(req);
     final path = req.url.path;
 

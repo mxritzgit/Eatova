@@ -124,7 +124,7 @@ void main() {
     expect(server.mealRows.length, 1,
         reason: 'die Mahlzeit fehlt oder liegt doppelt auf dem Server');
     expect(server.mealRows.values.single['id'], mealId);
-    expect(server.requestsTo('logged_meals', method: 'POST').length, 1,
+    expect(server.requests.where((request) => request.url.path.endsWith('/rpc/apply_sync_operation') && (jsonDecode(request.body) as Map)['p_kind'] == 'mealInsert').length, 1,
         reason: 'der Replay hat dieselbe Mahlzeit mehrfach geschickt');
     expect(server.mealsCounted, 1,
         reason: 'der Lifetime-Zähler hat die Mahlzeit doppelt gebucht');

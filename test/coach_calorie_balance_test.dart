@@ -104,7 +104,7 @@ void main() {
         )..profile = _profile;
         addTearDown(store.dispose);
         await store.refreshHealthSteps();
-        store.addResultToDailyTotal(_meal(scenario.eaten));
+        await store.addResultToDailyTotal(_meal(scenario.eaten));
         final bonus = scenario.steps == null ? 0 : 300;
         expect(store.burnedKcalForFoodDate(_today), bonus);
 

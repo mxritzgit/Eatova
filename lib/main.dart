@@ -9,7 +9,9 @@ import 'src/app/eatova_app.dart';
 import 'src/config/supabase_config.dart';
 import 'src/services/platform_health_service.dart';
 import 'src/services/crash_reporter.dart';
+import 'src/services/background_sync_scheduler.dart';
 import 'src/services/notification_service.dart';
+import 'src/services/sync_connectivity.dart';
 import 'src/theme/app_theme.dart';
 import 'src/theme/app_tokens.dart';
 
@@ -53,6 +55,7 @@ Future<void> main() async {
 Future<void> _bootAndRun() async {
   try {
     await EatovaSupabaseConfig.initialize();
+    await PlatformBackgroundSyncScheduler.initialize();
   } catch (error, stack) {
     // Without this catch a boot error (missing --dart-define values,
     // unreachable Supabase) lands before runApp and iOS hangs on the white
@@ -91,6 +94,10 @@ Future<void> _bootAndRun() async {
 EatovaApp buildEatovaApp() => EatovaApp(
       healthService: createPlatformHealthService(),
       notificationService: LocalNotificationService(),
+      syncConnectivity: PlatformSyncConnectivity(),
+      backgroundSyncScheduler: PlatformBackgroundSyncScheduler.isSupported
+          ? PlatformBackgroundSyncScheduler()
+          : null,
     );
 
 /// Installs the global error handlers, independently of the Sentry DSN.

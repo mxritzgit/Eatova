@@ -13,6 +13,7 @@ but their old feature gaps, branch snapshots and test counts are not live state.
 | [Features and platforms](FEATURES.md) | What is implemented, entry points and current limitations |
 | [Development and builds](DEVELOPMENT.md) | Client defines, toolchain, localization and release signing |
 | [Backend](BACKEND.md) | AI defaults/overrides, data contracts, search credentials and deployment evidence |
+| [Offline sync](OFFLINE_SYNC.md) | Transactional local storage, conflict policy, background delivery, limits and rollout |
 | [Contributing](../CONTRIBUTING.md) | Local validation, CI gates and protected PR workflow |
 | [Changelog](../CHANGELOG.md) | Merged changes and dated release history |
 | [Privacy data flows](../PRIVACY.md) | Current app data processing and the separate published-policy follow-up |

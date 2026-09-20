@@ -12,7 +12,7 @@ class WeightCard extends StatelessWidget {
 
   final UserProfile profile;
   final WeightLog log;
-  final ValueChanged<double> onLogWeight;
+  final PersistValueChanged<double> onLogWeight;
 
   double get _current => log.latest?.weightKg ?? profile.weightKg.toDouble();
 
@@ -231,13 +231,14 @@ class WeightCard extends StatelessWidget {
   /// sheet can reach it. Drawn inside the sheet instead, see
   /// [_ProfileSheetGrabber].
   Future<void> _promptWeight(BuildContext context) async {
-    final result = await showModalBottomSheet<double>(
+    await showModalBottomSheet<double>(
+      showDragHandle: false,
       context: context,
       backgroundColor: context.t.bg,
       isScrollControlled: true,
-      builder: (_) => _ProfileWeightInputSheet(initial: _current),
+      builder: (_) =>
+          _ProfileWeightInputSheet(initial: _current, onSave: onLogWeight),
     );
-    if (result != null) onLogWeight(result);
   }
 
   static String _formatShort(DateTime d, AppLocalizations l10n) {
@@ -485,8 +486,10 @@ class _BmiInfoSheet extends StatelessWidget {
                         Container(
                           width: 8,
                           height: 8,
-                          decoration:
-                              BoxDecoration(color: z.$3, shape: BoxShape.circle),
+                          decoration: BoxDecoration(
+                            color: z.$3,
+                            shape: BoxShape.circle,
+                          ),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
@@ -528,9 +531,10 @@ class _BmiInfoSheet extends StatelessWidget {
 }
 
 class _ProfileWeightInputSheet extends StatefulWidget {
-  const _ProfileWeightInputSheet({required this.initial});
+  const _ProfileWeightInputSheet({required this.initial, required this.onSave});
 
   final double initial;
+  final PersistValueChanged<double> onSave;
 
   @override
   State<_ProfileWeightInputSheet> createState() =>
@@ -581,18 +585,30 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
     );
   }
 
-  void _save() {
+  bool _saving = false;
+
+  Future<void> _save() async {
     final v = _value;
-    if (v == null || !isValidWeightLogKg(v)) return;
+    if (v == null || !isValidWeightLogKg(v) || _saving) return;
+    setState(() => _saving = true);
+    final saved = await tryPersistChange(context, () => widget.onSave(v));
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (!saved) return;
     Navigator.pop(context, v);
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => CommitDismissGuard(
+    pending: _saving,
+    child: _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
     final fehler = _errorText(l10n);
-    final gesperrt = !_valid;
+    final gesperrt = !_valid || _saving;
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: SingleChildScrollView(
@@ -801,11 +817,7 @@ class _InfoButton extends StatelessWidget {
                 color: t.tile,
                 borderRadius: BorderRadius.circular(rControl),
               ),
-              child: Icon(
-                Icons.info_outline_rounded,
-                color: t.ink2,
-                size: 15,
-              ),
+              child: Icon(Icons.info_outline_rounded, color: t.ink2, size: 15),
             ),
           ),
         ),

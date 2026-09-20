@@ -19,6 +19,8 @@ Future<bool> showTrainingPlanEditor(
   CoachTrainingProposal? initialDraft,
   required Future<SyncDelivery> Function(CoachTrainingProposal) onSave,
   String? submitLabel,
+  String? explanation,
+  String? Function()? confirmationMessage,
 }) async =>
     await showEatovaSheet<bool>(
       context,
@@ -26,6 +28,8 @@ Future<bool> showTrainingPlanEditor(
         initialDraft: initialDraft,
         onSave: onSave,
         submitLabel: submitLabel,
+        explanation: explanation,
+        confirmationMessage: confirmationMessage,
       ),
       dragHandle: false,
       enableDrag: false,
@@ -37,11 +41,15 @@ class _TrainingPlanEditor extends StatefulWidget {
     this.initialDraft,
     required this.onSave,
     this.submitLabel,
+    this.explanation,
+    this.confirmationMessage,
   });
 
   final CoachTrainingProposal? initialDraft;
   final Future<SyncDelivery> Function(CoachTrainingProposal) onSave;
   final String? submitLabel;
+  final String? explanation;
+  final String? Function()? confirmationMessage;
 
   @override
   State<_TrainingPlanEditor> createState() => _TrainingPlanEditorState();
@@ -167,7 +175,8 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
       if (!mounted) return;
       showAppSnack(
         context,
-        deliveryHint(l10n.trainingPageSaved, delivery, l10n),
+        widget.confirmationMessage?.call() ??
+            deliveryHint(l10n.trainingPageSaved, delivery, l10n),
       );
       Navigator.pop(context, true);
     } catch (_) {
@@ -226,6 +235,13 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
                                 height: 1.15,
                               ),
                             ),
+                          ),
+                          const SizedBox(height: 16),
+                        ],
+                        if (widget.explanation case final explanation?) ...[
+                          Text(
+                            explanation,
+                            style: AppType.ui(14, color: t.ink2, height: 1.45),
                           ),
                           const SizedBox(height: 16),
                         ],

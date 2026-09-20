@@ -3,13 +3,13 @@ part of 'recipes_screen.dart';
 // ---------------------------------------------------------------------------
 // Slot picker sheet: asks for the MealSlot after the add tap.
 //
-// Runs through `showEatovaSheet`. Unlike the create sheet there is nothing to
-// lose here — no form, so a drag dismiss is harmless.
+// Keeps the portion draft visible until its local transaction commits.
 // ---------------------------------------------------------------------------
 class _MealSlotPickerSheet extends StatefulWidget {
-  const _MealSlotPickerSheet({required this.recipe});
+  const _MealSlotPickerSheet({required this.recipe, required this.onSave});
 
   final FitnessRecipe recipe;
+  final Future<bool> Function(MealSlot slot, double servings) onSave;
 
   @override
   State<_MealSlotPickerSheet> createState() => _MealSlotPickerSheetState();
@@ -17,6 +17,7 @@ class _MealSlotPickerSheet extends StatefulWidget {
 
 class _MealSlotPickerSheetState extends State<_MealSlotPickerSheet> {
   double? _servings = 1;
+  bool _saving = false;
   FitnessRecipe get recipe => widget.recipe;
 
   MealAnalysisResult? _selectedResult(AppLocalizations l10n) {
@@ -26,6 +27,16 @@ class _MealSlotPickerSheetState extends State<_MealSlotPickerSheet> {
     } on FormatException {
       return null;
     }
+  }
+
+  Future<void> _save(MealSlot slot) async {
+    if (_saving || _servings == null) return;
+    final servings = _servings!;
+    setState(() => _saving = true);
+    final saved = await widget.onSave(slot, servings);
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (saved) Navigator.of(context).pop((slot: slot, servings: servings));
   }
 
   @override
@@ -40,120 +51,130 @@ class _MealSlotPickerSheetState extends State<_MealSlotPickerSheet> {
       MealSlot.snack,
     ];
 
-    return SafeArea(
-      top: false,
-      // Four rows plus the header exceed the sheet height at 2x text scale.
-      child: SingleChildScrollView(
-        child: Padding(
-          key: const ValueKey('recipe-meal-picker-sheet'),
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: HeadingSemantics(
-                      level: 1,
-                      child: Text(
-                        l10n.recipesWhenToLogTitle,
-                        style: AppType.display(24, color: t.ink, height: 1.15),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  SquareIconButton(
-                    icon: Icons.close_rounded,
-                    semanticLabel: MaterialLocalizations.of(
-                      context,
-                    ).closeButtonTooltip,
-                    onTap: () => Navigator.of(context).pop(),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                l10n.recipePortionSheetIntro,
-                style: AppType.ui(14, color: t.ink2, height: 1.45),
-              ),
-              const SizedBox(height: 20),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: t.brandSurface,
-                  borderRadius: BorderRadius.circular(rCard),
-                ),
-                child: RecipePhotoRow(
-                  recipe: recipe,
-                  photoWidth: 76,
-                  photoHeight: 82,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        recipe.title,
-                        style: AppType.display(
-                          18,
-                          color: t.onBrandSurface,
-                          height: 1.2,
+    return PopScope(
+      canPop: !_saving,
+      child: SafeArea(
+        top: false,
+        // Four rows plus the header exceed the sheet height at 2x text scale.
+        child: SingleChildScrollView(
+          child: Padding(
+            key: const ValueKey('recipe-meal-picker-sheet'),
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: HeadingSemantics(
+                        level: 1,
+                        child: Text(
+                          l10n.recipesWhenToLogTitle,
+                          style: AppType.display(
+                            24,
+                            color: t.ink,
+                            height: 1.15,
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Text(
-                        result == null
-                            ? l10n.recipeEditCannotLog
-                            : '${result.caloriesKcal} kcal · ${result.protein} ${l10n.todayMacroProtein}',
-                        style: AppType.ui(13, color: t.ink2, height: 1.4),
-                      ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 12),
+                    SquareIconButton(
+                      icon: Icons.close_rounded,
+                      semanticLabel: MaterialLocalizations.of(
+                        context,
+                      ).closeButtonTooltip,
+                      onTap: _saving ? null : () => Navigator.of(context).pop(),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 22),
-              RecipePortionSelector(
-                onChanged: (value) => setState(() => _servings = value),
-              ),
-              if (result == null) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 Text(
-                  l10n.recipeEditCannotLog,
-                  key: const ValueKey('recipe-log-unavailable'),
-                  style: AppType.ui(14, color: t.ink2, height: 1.4),
+                  l10n.recipePortionSheetIntro,
+                  style: AppType.ui(14, color: t.ink2, height: 1.45),
                 ),
-              ],
-              const SizedBox(height: 18),
-              for (var i = 0; i < slots.length; i++) ...[
-                _MealSlotButton(
-                  slot: slots[i],
-                  onTap: result == null
-                      ? null
-                      : () => Navigator.of(
-                          context,
-                        ).pop((slot: slots[i], servings: _servings!)),
-                ),
-                if (i != slots.length - 1) const SizedBox(height: 9),
-              ],
-              const SizedBox(height: 10),
-              // Colours and shape come from the button theme; only the
-              // stature is local.
-              ConstrainedBox(
-                constraints: const BoxConstraints(
-                  minWidth: double.infinity,
-                  minHeight: 46,
-                ),
-                child: TextButton(
-                  key: const ValueKey('recipe-meal-picker-cancel'),
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: Text(
-                    l10n.commonCancel,
-                    style: AppType.ui(13.5, weight: FontWeight.w600),
+                const SizedBox(height: 20),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: t.brandSurface,
+                    borderRadius: BorderRadius.circular(rCard),
+                  ),
+                  child: RecipePhotoRow(
+                    recipe: recipe,
+                    photoWidth: 76,
+                    photoHeight: 82,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          recipe.title,
+                          style: AppType.display(
+                            18,
+                            color: t.onBrandSurface,
+                            height: 1.2,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          result == null
+                              ? l10n.recipeEditCannotLog
+                              : '${result.caloriesKcal} kcal · ${result.protein} ${l10n.todayMacroProtein}',
+                          style: AppType.ui(13, color: t.ink2, height: 1.4),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(height: 22),
+                IgnorePointer(
+                  ignoring: _saving,
+                  child: RecipePortionSelector(
+                    onChanged: (value) => setState(() => _servings = value),
+                  ),
+                ),
+                if (result == null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    l10n.recipeEditCannotLog,
+                    key: const ValueKey('recipe-log-unavailable'),
+                    style: AppType.ui(14, color: t.ink2, height: 1.4),
+                  ),
+                ],
+                const SizedBox(height: 18),
+                for (var i = 0; i < slots.length; i++) ...[
+                  _MealSlotButton(
+                    slot: slots[i],
+                    onTap: result == null || _saving
+                        ? null
+                        : () => _save(slots[i]),
+                  ),
+                  if (i != slots.length - 1) const SizedBox(height: 9),
+                ],
+                const SizedBox(height: 10),
+                // Colours and shape come from the button theme; only the
+                // stature is local.
+                ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    minWidth: double.infinity,
+                    minHeight: 46,
+                  ),
+                  child: TextButton(
+                    key: const ValueKey('recipe-meal-picker-cancel'),
+                    onPressed: _saving
+                        ? null
+                        : () => Navigator.of(context).pop(),
+                    child: Text(
+                      l10n.commonCancel,
+                      style: AppType.ui(13.5, weight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

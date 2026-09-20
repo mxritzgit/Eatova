@@ -3,6 +3,8 @@ import 'dart:developer' as dev;
 
 import 'package:supabase/supabase.dart';
 
+import 'user_recipe_reads.dart';
+
 /// Builds the full GDPR Art. 15/20 data export from the server tables (the
 /// authoritative copy), not from in-memory session state: every table with a
 /// `*_select_own` policy via an RLS-filtered `select('*')`.
@@ -66,6 +68,7 @@ class DataExportService {
     'profiles',
     'logged_meals',
     ...userIdTabellen,
+    'user_recipe_history',
   ];
 
   /// The complete export as indented JSON.
@@ -101,9 +104,11 @@ class DataExportService {
     );
     await sektion('logged_meals', _alleLoggedMeals);
     for (final tabelle in userIdTabellen) {
-      await sektion(tabelle, () => _rows(tabelle, gekappt: gekappt,
-          ungeprueft: ungeprueft));
+      await sektion(tabelle, () => tabelle == 'user_recipes'
+          ? UserRecipeReads(_client, _userId).loadRows()
+          : _rows(tabelle, gekappt: gekappt, ungeprueft: ungeprueft));
     }
+    await sektion('user_recipe_history', _allRecipeHistory);
 
     if (unvollstaendig.isNotEmpty) {
       export['unvollstaendig'] = unvollstaendig;
@@ -126,6 +131,20 @@ class DataExportService {
       };
     }
     return const JsonEncoder.withIndent('  ').convert(export);
+  }
+
+  /// The append-only journal uses an exclusive revision cursor. New events
+  /// above the initial page do not shift older entries across page boundaries.
+  Future<List<Map<String, dynamic>>> _allRecipeHistory() async {
+    final reader = UserRecipeReads(_client, _userId);
+    final rows = <Map<String, dynamic>>[];
+    int? before;
+    do {
+      final page = await reader.loadHistory(beforeRevision: before);
+      rows.addAll(page.versions.map((version) => version.toJson()));
+      before = page.nextBefore;
+    } while (before != null);
+    return rows;
   }
 
   /// One section in a single go, detecting truncation from the server's own

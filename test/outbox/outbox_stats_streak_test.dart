@@ -1,835 +1,428 @@
+import 'dart:convert';
+
 import 'package:clock/clock.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/models/logged_meal.dart';
-import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/local_day.dart';
-import 'package:eatova/src/services/sync_error_messages.dart'
-    show outboxDeleteLossHint, outboxLossHint;
 import 'package:eatova/src/services/sync_outbox.dart';
 import 'package:eatova/src/services/uuid.dart' show deriveStatsRequestId;
 
+import '../support/atomic_store_faults.dart';
 import 'outbox_test_helpers.dart';
 
-// The two RPC-backed families: increment_lifetime_stats (additive, so every
-// retry needs the SAME request id) and record_tracking_day (the streak day,
-// which used to be pure fire-and-forget).
+const _queueKey = 'eatova.v1.outbox.user-outbox';
+const _deltaKey = 'eatova.v1.pending_stats.user-outbox';
+const _statsKey = 'eatova.v1.stats.user-outbox';
+final _now = DateTime(2026, 5, 14, 12, 30);
+Future<void> _today(Future<void> Function() body) =>
+    withClock(Clock.fixed(_now), body);
+List<Map<String, dynamic>> _ops(FakeServer server, String kind) => server
+    .operations(kind)
+    .map((request) => (jsonDecode(request.body) as Map).cast<String, dynamic>())
+    .toList();
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('Pendende Stats-Deltas ueberleben den App-Neustart', () async {
-    final kv = InMemoryKeyValueStore();
-
-    // Session 1: meal sync fine, stats RPC fails, so the delta stays.
-    final a = setup(kv: kv);
-    await boot(a.store);
-    a.server.statsOffline = true;
-    a.store.addResultToDailyTotal(mealResult('Bowl'));
-    await settle();
-    a.store.flushPendingWrites();
-    await settle();
-
-    expect(a.server.mealsCounted, 0);
-    final pending = await a.cache.readPendingStatsDeltas();
-    expect(pending, isNotNull);
-    expect(pending!.meals, 1);
-
-    final b = setup(kv: kv);
-    await boot(b.store);
-
-    expect(b.server.mealsCounted, 1);
-    final after = await b.cache.readPendingStatsDeltas();
-    expect(after!.meals, 0, reason: 'Delta wurde verbucht, nicht dupliziert');
-  });
-
-  // --- Finding B: idempotency key of the stats deltas -----------------------
-  //
-  // `increment_lifetime_stats` ADDS, so a drop after the commit re-queues the
-  // same delta. The server tracks consumed `p_request_id`, which only helps if
-  // the client resends the SAME id.
+  test(
+    'meal and counter failure is atomic and pending intent survives restart',
+    () => _today(() async {
+      final kv = InMemoryKeyValueStore();
+      final server = FakeServer();
+      final a = setup(kv: kv, geteilterServer: server);
+      await bootUntilIdle(a.store);
+      server.statsOffline = true;
+      final id = await a.store.addResultToDailyTotal(mealResult('Bowl'));
+      expect(server.mealRows, isEmpty);
+      expect(server.mealsCounted, 0);
+      expect(server.trackedDay, isNull);
+      expect(
+        (await a.cache.readOutbox())!
+            .singleWhere((op) => op.kind == SyncOpKind.mealInsert)
+            .entityId,
+        id,
+      );
+      expect((await a.cache.readPendingStatsDeltas())?.meals ?? 0, 0);
+      final b = setup(kv: kv, geteilterServer: server);
+      server.statsOffline = false;
+      await bootUntilIdle(b.store);
+      expect(server.mealRows.keys, [id]);
+      expect(server.mealsCounted, 1);
+      expect(server.trackedDay, localDayKey(_now));
+      expect(b.store.pendingOutbox, isEmpty);
+    }),
+  );
 
   test(
-      'Retry des Stats-Deltas sendet DIESELBE Anfrage-Id — auch ueber einen '
-      'Kaltstart hinweg; erst ein verbuchtes Buendel bekommt eine neue',
+    'immutable receipt identity survives retries and restart; next meal gets a new one',
+    () async {
+      final kv = InMemoryKeyValueStore();
+      final server = FakeServer();
+      final a = setup(kv: kv, geteilterServer: server);
+      await bootUntilIdle(a.store);
+      server.statsOffline = true;
+      await a.store.addResultToDailyTotal(mealResult('First'));
+      await a.store.syncPendingWrites();
+      final first = _ops(server, 'mealInsert').first;
+      final b = setup(kv: kv, geteilterServer: server);
+      await bootUntilIdle(b.store);
+      expect(
+        _ops(server, 'mealInsert').map((op) => op['p_operation_id']).toSet(),
+        {first['p_operation_id']},
+      );
+      expect(
+        _ops(
+          server,
+          'mealInsert',
+        ).every((op) => jsonEncode(op) == jsonEncode(first)),
+        isTrue,
+      );
+      server.statsOffline = false;
+      await b.store.syncPendingWrites();
+      await b.store.addResultToDailyTotal(mealResult('Second'));
+      expect(
+        _ops(server, 'mealInsert').last['p_operation_id'],
+        isNot(first['p_operation_id']),
+      );
+      expect(server.mealsCounted, 2);
+    },
+  );
+
+  for (final legacyId in <String?>[
+    null,
+    'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+  ]) {
+    test(
+      'legacy counter bundle migrates atomically with stable identity $legacyId',
       () async {
-    final kv = InMemoryKeyValueStore();
-
-    final a = setup(kv: kv);
-    await boot(a.store);
-    a.server.statsOffline = true;
-    a.store.addResultToDailyTotal(mealResult('Bowl'));
-    await settle();
-    a.store.flushPendingWrites();
-    await settle();
-
-    expect(a.server.statsRequestIds, isNotEmpty,
-        reason: 'der Flush muss den Server ueberhaupt erreicht haben');
-    final id = a.server.statsRequestIds.first;
-    expect(id, isNotNull, reason: 'ohne Id ist der Aufruf rein additiv');
-    expect(a.server.statsRequestIds.toSet(), <String?>{id},
-        reason: 'mehrere Versuche desselben Buendels sind EIN Vorgang');
-
-    // The id lives with the bundle, or an app kill makes the retry a new op.
-    expect((await a.cache.readPendingStatsDeltas())!.requestId, id);
-
-    // Session 2 (cold start): the boot flush is the retry, with the FIRST id.
-    final b = setup(kv: kv);
-    b.server.statsOffline = true;
-    await boot(b.store);
-    b.store.flushPendingWrites();
-    await settle();
-
-    expect(b.server.statsRequestIds, isNotEmpty);
-    expect(b.server.statsRequestIds.toSet(), <String?>{id},
-        reason: 'eine frisch erzeugte Id koennte der Server nicht als '
-            'Wiederholung erkennen — er wuerde ein zweites Mal addieren');
-
-    b.server.statsOffline = false;
-    b.store.flushPendingWrites();
-    await settle();
-    expect(b.server.statsRequestIds.last, id);
-    expect(b.server.mealsCounted, 1);
-    expect((await b.cache.readPendingStatsDeltas())!.meals, 0);
-
-    // Counter-check: a NEW bundle needs a new id, else the server dismisses it.
-    b.store.addResultToDailyTotal(mealResult('Zweite Bowl'));
-    await settle();
-    b.store.flushPendingWrites();
-    await settle();
-    expect(b.server.statsRequestIds.last, isNot(id));
-    expect(b.server.mealsCounted, 2);
-  });
-
-  test(
-      'Bestandsdaten: ein persistiertes Buendel OHNE Anfrage-Id (aelterer '
-      'Build) geht nicht verloren — es bekommt eine nachtraeglich, und die '
-      'haelt', () async {
-    final kv = InMemoryKeyValueStore();
-    // The old wire form: numbers, no 'request_id'.
-    await LocalCache(kv, 'user-outbox')
-        .writePendingStatsDeltas(meals: 2, weightLogs: 1);
-
-    final s = setup(kv: kv);
-    s.server.statsOffline = true;
-    await boot(s.store);
-    s.store.flushPendingWrites();
-    await settle();
-
-    // Neither tripped up by `null` nor dropped: sent with a retrofitted id …
-    expect(s.server.statsRequestIds, isNotEmpty);
-    final id = s.server.statsRequestIds.first;
-    expect(id, isNotNull);
-    expect(s.server.statsRequestIds.toSet(), <String?>{id});
-
-    // … which now lives with the bundle, keeping further attempts one op.
-    final pending = await s.cache.readPendingStatsDeltas();
-    expect(pending!.requestId, id);
-    expect(pending.meals, 2);
-    expect(pending.weightLogs, 1);
-
-    s.server.statsOffline = false;
-    s.store.flushPendingWrites();
-    await settle();
-    expect(s.server.mealsCounted, 2);
-    expect(s.server.weightLogsCounted, 1);
-  });
-
-  // --- Fix 3: exactly-once counters for replayed ops ------------------------
-  //
-  // The replay was idempotent for CONTENT but not for its COUNTER: the +1 was
-  // persisted before the op left the outbox, so an app kill made the next boot
-  // count the meal twice. Fix 3 creates a statsIncrement entry ATOMICALLY with
-  // removing the source op, keyed on an id DERIVED from the source UUID.
-
-  test(
-      'Fix 3: Kill nach der Replay-Zustellung, VOR der Op-Entfernung — der '
-      'naechste Boot zaehlt die Mahlzeit NICHT ein zweites Mal', () async {
-    const mealId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-    final abgeleitet = deriveStatsRequestId(mealId)!;
-    final kv = InMemoryKeyValueStore();
-    // ONE server for both sessions: its dedup state must survive the restart.
-    final server = FakeServer();
-    // The previous session's blob: one stranded meal, UUID-shaped so a request
-    // id can be derived.
-    await seedRawOutbox(kv, <Map<String, dynamic>>[
-      SyncOp.mealInsert(
-        LoggedMeal(
-            id: mealId,
-            result: mealResult('Kill-Bowl'),
-            loggedAt: DateTime.now()),
-        trackDay: false,
-      ).toJson(),
-    ]);
-
-    // Session A: delivery and increment land, the OUTBOX write does not.
-    final a = setup(
-      kv: kv,
-      geteilterServer: server,
-      injizierterCache: EingefrorenerOutboxCache(kv, 'user-outbox'),
+        final kv = InMemoryKeyValueStore();
+        await LocalCache(
+          kv,
+          'user-outbox',
+        ).writePendingStatsDeltas(meals: 2, weightLogs: 1, requestId: legacyId);
+        final server = FakeServer()..statsOffline = true;
+        final a = setup(kv: kv, geteilterServer: server);
+        await bootUntilIdle(a.store);
+        final pending = a.store.pendingOutbox.singleWhere(
+          (op) => op.kind == SyncOpKind.statsIncrement,
+        );
+        expect(pending.statsMeals, 2);
+        expect(pending.statsWeightLogs, 1);
+        if (legacyId != null) expect(pending.entityId, legacyId);
+        expect((await a.cache.readPendingStatsDeltas())!.meals, 0);
+        final b = setup(kv: kv, geteilterServer: server);
+        await bootUntilIdle(b.store);
+        expect(b.store.pendingOutbox.single.operationId, pending.operationId);
+        server.statsOffline = false;
+        await b.store.syncPendingWrites();
+        expect(server.mealsCounted, 2);
+        expect(server.weightLogsCounted, 1);
+        expect(server.verbrauchteStatsIds, {pending.entityId});
+        expect(b.store.pendingOutbox, isEmpty);
+      },
     );
-    await boot(a.store);
-    // Short-circuit the bundle-flush debounce, else the +1 never leaves memory.
-    a.store.flushPendingWrites();
-    await settle();
-
-    expect(server.mealRows.keys, contains(mealId),
-        reason: 'Vorbedingung: die Mahlzeit ist zugestellt');
-    expect(server.mealsCounted, 1,
-        reason: 'Vorbedingung: sie ist genau einmal gezaehlt');
-    expect(kv.snapshot['eatova.v1.outbox.user-outbox'],
-        contains('"entity_id":"$mealId"'),
-        reason: 'Vorbedingung: der persistierte Blob traegt die Op WEITERHIN '
-            '— sonst prueft dieser Test gar nichts');
-    // No explicit dispose(): the "kill" is just the state left on storage.
-
-    final b = setup(kv: kv, geteilterServer: server);
-    await boot(b.store);
-    b.store.flushPendingWrites();
-    await settle();
-
-    expect(server.mealsCounted, 1,
-        reason: 'DER Befund: vorher buchte der Boot-Replay ein zweites +1 — '
-            'unter frischer Buendel-Id, also fuer den Server ein neuer '
-            'Vorgang, den nichts deduplizieren konnte');
-    expect(
-        server.statsRequestIds
-            .whereType<String>()
-            .where((id) => id == abgeleitet),
-        hasLength(greaterThanOrEqualTo(2)),
-        reason: 'Sitzung A verbucht, Sitzung B wiederholt — und beide senden '
-            'DIESELBE, aus der Meal-UUID abgeleitete Id');
-    expect(server.verbrauchteStatsIds, <String>{abgeleitet},
-        reason: 'serverseitig ist das EIN Vorgang, kein zweiter');
-    expect(server.mealRows, hasLength(1),
-        reason: 'Beifang: der Inhalt war schon immer idempotent');
-    expect(b.store.pendingOutbox, isEmpty);
-    expect(await b.cache.readOutbox(), isEmpty,
-        reason: 'nach dem zweiten Lauf ist der Blob wirklich leer');
-  });
+  }
 
   test(
-      'Fix 3: ein serverseitig bereits verbuchter statsIncrement-Eintrag '
-      'verlaesst die Queue als ERFOLG, ohne erneut zu addieren', () async {
-    const rid = '6561746f-7661-6d73-f461-74732d726964';
-    final kv = InMemoryKeyValueStore();
-    // The previous session delivered it; only the ANSWER was lost.
-    await seedRawOutbox(kv, <Map<String, dynamic>>[
-      SyncOp.statsIncrement(requestId: rid, meals: 1).toJson(),
-    ]);
-
-    final s = setup(kv: kv);
-    s.server.verbrauchteStatsIds.add(rid);
-    s.server.mealsCounted = 1;
-    await boot(s.store);
-
-    expect(s.server.statsRequestIds, contains(rid),
-        reason: 'Vorbedingung: der Retry hat den Server erreicht');
-    expect(s.server.mealsCounted, 1,
-        reason: 'FOUND-Zweig der Migration: eine verbrauchte Id addiert nicht '
-            'noch einmal, sie liefert nur die aktuelle Zeile');
-    expect(s.store.pendingOutbox, isEmpty,
-        reason: 'der Eintrag ist kein Gift — das Server-Verhalten macht den '
-            'Retry gruen, er wird als Erfolg abgeraeumt');
-    expect(await s.cache.readOutbox(), isEmpty);
-  });
-
-  test(
-      'Fix 3: faellt increment_lifetime_stats aus, bleibt NUR der '
-      'Zaehler-Eintrag liegen — mit stabiler Id ueber Versuche und Neustarts',
-      () async {
-    final kv = InMemoryKeyValueStore();
-    final server = FakeServer();
-
-    final a = setup(kv: kv, geteilterServer: server);
-    await boot(a.store);
-    server.offline = true;
-    final mealId = a.store.addResultToDailyTotal(mealResult('Nachhol-Bowl'));
-    await settle();
-    expect(a.store.pendingOutbox.map((o) => o.kind),
-        contains(SyncOpKind.mealInsert),
-        reason: 'Vorbedingung');
-
-    server.offline = false;
-    server.statsOffline = true;
-    a.store.flushPendingWrites();
-    await settle();
-
-    final abgeleitet = deriveStatsRequestId(mealId)!;
-    expect(server.mealRows.keys, contains(mealId),
-        reason: 'der Inhalt ist durch — nur sein Zaehler nicht');
-    expect(a.store.pendingOutbox.map((o) => o.kind).toList(),
-        <SyncOpKind>[SyncOpKind.statsIncrement],
-        reason: 'Mahlzeit, Favorit und Streak-Tag sind zugestellt; liegen '
-            'bleibt genau der Zaehler');
-    expect(a.store.pendingOutbox.single.entityId, abgeleitet,
-        reason: 'die entityId IST die Request-Id');
-    expect((await a.cache.readPendingStatsDeltas())?.meals ?? 0, 0,
-        reason: 'DER Beweis, dass der alte Pfad tot ist: der Replay fasst das '
-            'Buendel nicht mehr an (vorher stand hier 1)');
-    expect(server.statsRequestIds, contains(abgeleitet));
-
-    // Cold start, RPC still broken: the boot replay retries.
-    final b = setup(kv: kv, geteilterServer: server);
-    await boot(b.store);
-    b.store.flushPendingWrites();
-    await settle();
-
-    expect(b.store.pendingOutbox.map((o) => o.kind).toList(),
-        <SyncOpKind>[SyncOpKind.statsIncrement]);
-    expect(server.statsRequestIds.whereType<String>().toSet(),
-        <String>{abgeleitet},
-        reason: 'eine pro Versuch neu erzeugte Id koennte der Server nicht als '
-            'Wiederholung erkennen — er wuerde ein zweites Mal addieren');
-
-    server.statsOffline = false;
-    b.store.flushPendingWrites();
-    await settle();
-
-    expect(server.mealsCounted, 1);
-    expect(server.verbrauchteStatsIds, <String>{abgeleitet});
-    expect(b.store.pendingOutbox, isEmpty);
-  });
-
-  test(
-      'Fix 3: dasselbe fuer das Gewicht — der nachgeholte weightInsert zaehlt '
-      'ueber seinen eigenen Eintrag, nicht ueber das Buendel', () async {
-    final s = setup();
-    await boot(s.store);
-
-    // Applied but answered 500, so the live path does NOT count.
-    s.server.ambiguousWrites = true;
-    s.store.logWeight(80.5);
-    await settle();
-    final op = s.store.pendingOutbox
-        .singleWhere((o) => o.kind == SyncOpKind.weightInsert);
-    final abgeleitet = deriveStatsRequestId(op.entityId)!;
-
-    s.server.ambiguousWrites = false;
-    s.store.flushPendingWrites();
-    await settle();
-
-    expect(s.server.weightLogsCounted, 1);
-    expect(s.server.statsRequestIds, <String?>[abgeleitet],
-        reason: 'genau EIN Increment, und seine Id ist aus der weight_log-UUID '
-            'abgeleitet — kein Buendel beteiligt');
-    expect((await s.cache.readPendingStatsDeltas())?.weightLogs ?? 0, 0);
-    expect(s.store.pendingOutbox, isEmpty);
-  });
-
-  test(
-      'Fix 3: Op-Entfernung und Zaehler-Eintrag sind EIN Blob-Schreibvorgang '
-      '— es gibt keinen persistierten Zustand ohne beide', () async {
-    // Genau das ist der Fix: „Created ATOMICALLY with the op's removal (same
-    // blob write)". Zwei Schreibvorgaenge liessen den Zwischenstand
-    // „Mahlzeit zugestellt und aus der Queue, Zaehler noch nicht eingereiht"
-    // auf der Platte stehen — ein Kill dort zaehlt die Mahlzeit NIE, und der
-    // naechste Boot findet nichts mehr, was es nachholen koennte. Der
-    // Endzustand ist in beiden Faellen identisch, also kann ihn nur die
-    // FOLGE der Schreibvorgaenge unterscheiden.
-    const mealId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-    final abgeleitet = deriveStatsRequestId(mealId)!;
-    final kv = InMemoryKeyValueStore();
-    await seedRawOutbox(kv, <Map<String, dynamic>>[
-      SyncOp.mealInsert(
-        LoggedMeal(
-            id: mealId,
-            result: mealResult('Atom-Bowl'),
-            loggedAt: DateTime.now()),
+    'server commit followed by failed local acknowledgement is exactly once after restart',
+    () async {
+      final kv = InMemoryKeyValueStore();
+      final server = FakeServer();
+      final faults = AtomicStoreFaults(kv);
+      String? mealId;
+      faults.beforeWrite = (changes) async {
+        final body = changes[_queueKey];
+        if (mealId != null &&
+            server.mealRows.containsKey(mealId) &&
+            body != null &&
+            !body.contains(mealId)) {
+          throw StateError('Power failed before ACK commit');
+        }
+      };
+      const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+      final op = SyncOp.mealInsert(
+        LoggedMeal(id: id, result: mealResult('Crash'), loggedAt: _now),
         trackDay: false,
-      ).toJson(),
-    ]);
-
-    final mitschrift = OutboxSchreibMitschrift(kv, 'user-outbox');
-    final s = setup(kv: kv, injizierterCache: mitschrift);
-    // Nur increment_lifetime_stats faellt aus: der Folgeeintrag bleibt liegen
-    // und ist damit in den persistierten Blobs sichtbar.
-    s.server.statsOffline = true;
-    await boot(s.store);
-    await pumpUntil(() => s.store.pendingOutbox
-        .any((o) => o.kind == SyncOpKind.statsIncrement));
-
-    expect(s.server.mealRows.keys, contains(mealId),
-        reason: 'Vorbedingung: die Mahlzeit ist zugestellt');
-    final ohneMahlzeit = mitschrift.eintraege
-        .indexWhere((keys) => !keys.contains('meal:$mealId'));
-    expect(ohneMahlzeit, isNonNegative,
-        reason: 'Vorbedingung: die Quell-Op hat den Blob verlassen');
-    expect(mitschrift.eintraege[ohneMahlzeit], contains('stats:$abgeleitet'),
-        reason: 'DER Kern: in dem Moment, in dem die Quell-Op aus dem Blob '
-            'verschwindet, MUSS ihr Zaehler schon darin stehen — sonst gibt '
-            'es ein Kill-Fenster, in dem die Mahlzeit zugestellt, aber fuer '
-            'immer ungezaehlt ist');
-  });
+      );
+      await seedRawOutbox(kv, [op.toJson()]);
+      mealId = id;
+      final a = setup(
+        geteilterServer: server,
+        injizierterCache: LocalCache(faults, 'user-outbox'),
+      );
+      await bootUntilIdle(a.store);
+      expect(server.mealRows.keys, [id]);
+      expect(server.mealsCounted, 1);
+      expect(kv.snapshot[_queueKey], contains(op.operationId));
+      final b = setup(kv: kv, geteilterServer: server);
+      await bootUntilIdle(b.store);
+      expect(server.mealsCounted, 1);
+      expect(server.verbrauchteStatsIds, {deriveStatsRequestId(id)});
+      expect(
+        _ops(
+          server,
+          'mealInsert',
+        ).map((request) => request['p_operation_id']).toSet(),
+        {op.operationId},
+      );
+      expect(b.store.pendingOutbox, isEmpty);
+    },
+  );
 
   test(
-      'Fix 3: eine Korrektur WAEHREND des laufenden Insert-Writes wird '
-      'angehaengt, nicht koalesziert — sonst zaehlt dieselbe Mahlzeit zweimal',
+    'already applied legacy stats increment returns success without counting twice',
+    () async {
+      const rid = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+      final kv = InMemoryKeyValueStore();
+      await seedRawOutbox(kv, [
+        SyncOp.statsIncrement(requestId: rid, meals: 1).toJson(),
+      ]);
+      final s = setup(kv: kv);
+      s.server.verbrauchteStatsIds.add(rid);
+      s.server.mealsCounted = 1;
+      await bootUntilIdle(s.store);
+      expect(s.server.mealsCounted, 1);
+      expect(s.server.operations('statsIncrement'), hasLength(1));
+      expect(s.store.pendingOutbox, isEmpty);
+    },
+  );
+
+  test(
+    'ambiguous weight response keeps one row and one counter through replay',
+    () async {
+      final s = setup();
+      await bootUntilIdle(s.store);
+      s.server.ambiguousWrites = true;
+      await s.store.logWeight(80.5);
+      final pending = s.store.pendingOutbox.singleWhere(
+        (op) => op.kind == SyncOpKind.weightInsert,
+      );
+      expect(s.server.weightLogsCounted, 1);
+      s.server.ambiguousWrites = false;
+      await s.store.syncPendingWrites();
+      expect(s.server.weightRows, hasLength(1));
+      expect(s.server.weightLogsCounted, 1);
+      expect(s.server.verbrauchteStatsIds, {
+        deriveStatsRequestId(pending.entityId),
+      });
+      expect(
+        _ops(
+          s.server,
+          'weightInsert',
+        ).map((op) => op['p_operation_id']).toSet(),
+        {pending.operationId},
+      );
+      expect(s.store.pendingOutbox, isEmpty);
+    },
+  );
+
+  test(
+    'ACK removes source and persists authoritative counter in one local transaction',
+    () async {
+      final kv = InMemoryKeyValueStore();
+      final commits = <Map<String, String?>>[];
+      final faults = AtomicStoreFaults(kv)
+        ..beforeWrite = (changes) async {
+          commits.add({...kv.snapshot, ...changes});
+        };
+      final s = setup(injizierterCache: LocalCache(faults, 'user-outbox'));
+      await bootUntilIdle(s.store);
+      final id = await s.store.addResultToDailyTotal(mealResult('Atomic ACK'));
+      final queued = commits.indexWhere(
+        (batch) => batch[_queueKey]?.contains(id) == true,
+      );
+      expect(queued, greaterThanOrEqualTo(0));
+      final ack = commits
+          .skip(queued + 1)
+          .firstWhere(
+            (batch) =>
+                batch.containsKey(_queueKey) && !batch[_queueKey]!.contains(id),
+          );
+      expect(jsonDecode(ack[_statsKey]!)['meals_logged'], 1);
+      expect(s.server.mealsCounted, 1);
+      expect(s.store.pendingOutbox, isEmpty);
+    },
+  );
+
+  test(
+    'edit during an in-flight insert is appended with a distinct immutable identity',
+    () async {
+      final s = setup();
+      await bootUntilIdle(s.store);
+      s.server.holdMealWrites();
+      final adding = s.store.addResultToDailyTotal(mealResult('Original'));
+      await pumpUntil(() => s.server.operations('mealInsert').isNotEmpty);
+      final firstRequest = _ops(s.server, 'mealInsert').single;
+      final id = firstRequest['p_entity_id'] as String;
+      final edit = s.store.updateLoggedMealResult(
+        id,
+        mealResult('Edited', kcal: 500),
+      );
+      await pumpUntil(
+        () =>
+            s.store.pendingOutbox.where((op) => op.entityId == id).length == 2,
+      );
+      final pending = s.store.pendingOutbox
+          .where((op) => op.entityId == id)
+          .toList();
+      expect(pending.map((op) => op.kind), [
+        SyncOpKind.mealInsert,
+        SyncOpKind.mealUpsert,
+      ]);
+      expect(pending.first.meal!.result.caloriesKcal, 300);
+      expect(pending.last.meal!.result.caloriesKcal, 500);
+      expect(pending.first.operationId, isNot(pending.last.operationId));
+      s.server.releaseMealWrites();
+      await Future.wait([adding, edit]);
+      expect(s.server.mealsCounted, 1);
+      expect(s.server.mealRows[id]!['calories_kcal'], 500);
+      expect(_ops(s.server, 'mealInsert').single, firstRequest);
+    },
+  );
+
+  test(
+    'exhausted legacy counter stays blocked and explicitly recoverable',
+    () async {
+      final kv = InMemoryKeyValueStore();
+      final op = SyncOp.statsIncrement(
+        requestId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        meals: 2,
+      );
+      await seedRawOutbox(kv, [
+        op.toJson()..['attempts'] = kOutboxMaxAttempts - 1,
+      ]);
+      final s = setup(kv: kv);
+      s.server.statsOffline = true;
+      await bootUntilIdle(s.store);
+      expect(s.store.pendingOutbox.single.operationId, op.operationId);
+      expect(s.store.syncBlockedReason, SyncBlockedReason.rejected);
+      expect(s.server.mealsCounted, 0);
+      s.server.statsOffline = false;
+      await s.store.syncPendingWrites(retryBlocked: true);
+      expect(s.server.mealsCounted, 2);
+      expect(s.store.pendingOutbox, isEmpty);
+    },
+  );
+
+  for (final failures in [1, 6]) {
+    test(
+      'unreadable legacy stats never get overwritten by $failures new mutations',
       () async {
-    // Die Ausschliesslichkeit der beiden Zaehlwege ist die ganze Garantie:
-    // live bucht `onDelivered` unter der Buendel-Id, der Replay unter der aus
-    // der Meal-UUID abgeleiteten. Zwei verschiedene Vorgaenge serverseitig —
-    // sie deduplizieren einander NICHT. Koalesziert die Korrektur die
-    // fliegende Op weg, verschwindet die Instanz, deren Live-Erfolg zaehlt
-    // (`_dequeueDeliveredOp` sucht ueber Identitaet), die verschmolzene Op ist
-    // weiterhin ein mealInsert — und der Replay bucht ein zweites +1.
-    final s = setup();
-    await boot(s.store);
-
-    // Der Live-Insert haengt: seine Op liegt schon in der Queue (Luecke B),
-    // die Entitaet steht in _inFlightOps.
-    s.server.holdMealWrites();
-    final id = s.store.addResultToDailyTotal(mealResult('Bowl'));
-    await settle();
-    expect(s.store.pendingOutbox.map((o) => o.kind).toList(),
-        <SyncOpKind>[SyncOpKind.mealInsert],
-        reason: 'Vorbedingung: der Write fliegt, seine Op wartet');
-
-    s.store.updateLoggedMealResult(id, mealResult('Bowl', kcal: 500));
-    await settle();
-
-    expect(s.store.pendingOutbox.map((o) => o.kind).toList(),
-        <SyncOpKind>[SyncOpKind.mealInsert, SyncOpKind.mealUpsert],
-        reason: 'die Korrektur muss ANGEHAENGT werden — eine Ersetzung nimmt '
-            'die Op mit, deren Live-Zustellung gerade zaehlt');
-
-    s.server.releaseMealWrites();
-    await pumpUntil(() => s.store.pendingOutbox.isEmpty);
-    s.store.flushPendingWrites(); // Buendel-Debounce abkuerzen
-    await settle();
-
-    expect(s.store.pendingOutbox, isEmpty);
-    expect(s.server.mealRows[id]!['calories_kcal'], 500,
-        reason: 'der juengere Stand gewinnt trotzdem');
-    expect(s.server.mealsCounted, 1,
-        reason: 'DER Kern: einmal live gebucht. Ein Replay-Zaehler zusaetzlich '
-            'traegt eine andere Id und kann serverseitig nicht dedupliziert '
-            'werden');
-    expect(s.server.statsRequestIds.whereType<String>(),
-        isNot(contains(deriveStatsRequestId(id))),
-        reason: 'der abgeleitete Zaehler gehoert dem Replay-Pfad — hier hat '
-            'der Live-Pfad gebucht, beide zusammen waeren die Doppelzaehlung');
-  });
+        final kv = InMemoryKeyValueStore();
+        await LocalCache(
+          kv,
+          'user-outbox',
+        ).writePendingStatsDeltas(meals: 2, weightLogs: 1);
+        final original = kv.snapshot[_deltaKey];
+        final faults = AtomicStoreFaults(kv)
+          ..beforeRead = (keys) async {
+            if (keys.contains(_deltaKey)) {
+              throw StateError('Keystore temporarily unavailable');
+            }
+          };
+        final s = setup(injizierterCache: LocalCache(faults, 'user-outbox'));
+        await bootUntilIdle(s.store);
+        for (var i = 0; i < failures; i++) {
+          await expectLater(
+            s.store.addResultToDailyTotal(mealResult('Uncommitted $i')),
+            throwsStateError,
+          );
+          expect(kv.snapshot[_deltaKey], original);
+          expect(s.store.loggedMeals, isEmpty);
+        }
+        final recovered = setup(kv: kv);
+        await bootUntilIdle(recovered.store);
+        expect(recovered.server.mealsCounted, 2);
+        expect(recovered.server.weightLogsCounted, 1);
+        await recovered.store.addResultToDailyTotal(mealResult('Committed'));
+        expect(recovered.server.mealsCounted, 3);
+      },
+    );
+  }
 
   test(
-      'Fix 3: der Verwurf eines Zaehler-Eintrags ist STILL — er ist kein '
-      'Nutzer-Inhalt, „etwas fehlt" waere die falsche Meldung', () async {
-    const rid = '6561746f-7661-6d73-f461-74732d726964';
-    final kv = InMemoryKeyValueStore();
-    // Budget spent AND older than 24 h: both are required for the drop (A4).
-    await seedRawOutbox(kv, <Map<String, dynamic>>[
-      SyncOp.statsIncrement(requestId: rid, meals: 1).toJson()
-        ..['queued_at'] = DateTime.now()
-            .subtract(const Duration(hours: 25))
-            .toIso8601String()
-        ..['attempts'] = kOutboxMaxAttempts - 1,
-    ]);
-
-    final s = setup(kv: kv);
-    s.server.statsOffline = true; // an active rejection (500) counts
-    await boot(s.store);
-
-    expect(s.store.pendingOutbox, isEmpty, reason: 'verworfen');
-    expect(s.server.mealsCounted, 0);
-    expect(s.snacks.messages.where((m) => m == outboxLossHint()), isEmpty,
-        reason: 'die Mahlzeit ist laengst zugestellt — es fehlt kein Eintrag, '
-            'nur ein Zaehler. Der Snack waere gelogen.');
-    expect(s.snacks.messages.where((m) => m == outboxDeleteLossHint()), isEmpty);
-  });
-
-  // --- W7b: the brake for the deltas slot -----------------------------------
-  //
-  // The outbox has one since gap F; the deltas had none, and
-  // `_persistPendingStatsDeltas` always rewrites the whole slot.
-
-  test(
-      'ein kaputter pending_stats-Slot loest die Bremse aus, statt still eine '
-      'leere Menge zu liefern', () async {
-    final kv = InMemoryKeyValueStore();
-    // Previous session: three unbooked meals in the slot.
-    await LocalCache(kv, 'user-outbox')
-        .writePendingStatsDeltas(meals: 3, weightLogs: 0, requestId: 'alt-id');
-
-    final cache = DeltaLesefehlerCache(kv, 'user-outbox');
-    final s = setup(kv: kv, injizierterCache: cache);
-    // The stats RPC stays down so the test really measures the slot.
-    s.server.statsOffline = true;
-    await boot(s.store);
-    expect(cache.leseversuche, 1,
-        reason: 'Vorbedingung: die Hydration hat den Slot nicht gesehen');
-
-    // Its delta runs into _persistPendingStatsDeltas.
-    s.store.addResultToDailyTotal(mealResult('Bowl'));
-    await settle();
-
-    expect(cache.leseversuche, greaterThan(1),
-        reason: 'ohne Bremse schriebe der Flush den Slot ungeprueft nieder — '
-            'die Nachhydration waere toter Code');
-    final pending =
-        await LocalCache(kv, 'user-outbox').readPendingStatsDeltas();
-    expect(pending!.meals, 4,
-        reason: 'ein verschluckter Lesefehler liess den Slot bei 0 anfangen: '
-            'drei nie verbuchte Mahlzeiten fehlten danach dauerhaft in den '
-            'Lebenszeit-Zaehlern');
-    expect(pending.requestId, 'alt-id',
-        reason: 'die Id des nachgelesenen Buendels gewinnt — nur sie kann '
-            'serverseitig schon verbucht sein');
-  });
-
-  test(
-      'ein DAUERHAFT unlesbarer pending_stats-Slot blockiert das Persistieren '
-      'nicht auf Dauer — die Nachhydration laeuft genau einmal', () async {
-    final kv = InMemoryKeyValueStore();
-    await LocalCache(kv, 'user-outbox')
-        .writePendingStatsDeltas(meals: 3, weightLogs: 0);
-
-    final cache = DeltaLesefehlerCache(kv, 'user-outbox', kaputteVersuche: 2);
-    final s = setup(kv: kv, injizierterCache: cache);
-    s.server.statsOffline = true;
-    await boot(s.store);
-
-    s.store.addResultToDailyTotal(mealResult('Bowl'));
-    await settle();
-
-    expect(cache.leseversuche, 2,
-        reason: 'Hydration + GENAU EIN Nachlesevorgang');
-    expect(
-        (await LocalCache(kv, 'user-outbox').readPendingStatsDeltas())!.meals,
-        1,
-        reason: 'nach dem zweiten Fehlschlag ist der Slot mit diesem Code '
-            'ohnehin nicht mehr verbuchbar — ab da gilt wieder der normale '
-            'Schreibpfad, sonst koennte die Sitzung nie mehr etwas ablegen');
-
-    // And every further delta passes without a third read.
-    s.store.addResultToDailyTotal(mealResult('Zweite Bowl'));
-    await settle();
-    expect(cache.leseversuche, 2);
-    expect(
-        (await LocalCache(kv, 'user-outbox').readPendingStatsDeltas())!.meals,
-        2);
-  });
-
-  // --- The inventory finding: the streak day had ZERO nets -----------------
-  //
-  // `_recordTrackingDay` was pure fire-and-forget: no op, no marker, no retry.
-  // The optimistic state held 600 ms, then `_flushStatsDelta` adopted the
-  // server row that does not know the day and pinned the loss.
-
-  test(
-      'Streak-Tag: scheitert record_tracking_day, landet der Tag in der '
-      'Outbox statt im Nichts — und die Anzeige haelt, obwohl der Stats-Flush '
-      'gleich darauf die Serverzeile adoptiert', () async {
-    final s = setup();
-    await boot(s.store);
-    // ONLY the streak RPC fails, which is why the loss was invisible.
-    s.server.rejectTrackingDay = true;
-
-    final id = s.store.addResultToDailyTotal(mealResult('Streak-Bowl'));
-    await settle();
-    expect(s.server.mealRows.keys, contains(id),
-        reason: 'Vorbedingung: an der Mahlzeit selbst liegt es nicht');
-
-    // Let the 600 ms stats-flush debounce elapse: that is when the day was lost.
-    await Future<void>.delayed(const Duration(milliseconds: 900));
-    await settle();
-
-    expect(s.server.mealsCounted, 1,
-        reason: 'Vorbedingung: der Zaehler-RPC ist durchgekommen — nur der '
-            'Streak-RPC nicht');
-    expect(s.store.lifetimeStats.lastTrackedDate, isNotNull,
-        reason: 'genau hier sprang die Anzeige auf „Streak gerissen"');
-    expect(s.store.lifetimeStats.currentStreak, 1);
-    expect(s.store.pendingOutbox.map((o) => o.entityKey),
-        contains('tracking:${localDayKey(DateTime.now())}'),
-        reason: 'ohne Op gab es keine Stelle, die den Tag je nachgeholt '
-            'haette');
-    expect((await s.cache.readOutbox())!.map((o) => o.kind),
-        contains(SyncOpKind.trackingDay),
-        reason: 'und sie muss den App-Kill ueberleben wie jeder andere Write');
-  });
-
-  test(
-      'Streak-Tag: der liegengebliebene Tag ueberlebt den Kaltstart und wird '
-      'beim naechsten Start nachgeholt', () async {
-    final kv = InMemoryKeyValueStore();
-    final a = setup(kv: kv);
-    await a.cache.writeProfile(
-        const UserProfile(weightKg: 80, onboardingCompleted: true));
-    await boot(a.store);
-    a.server.rejectTrackingDay = true;
-    a.store.addResultToDailyTotal(mealResult('Streak-Bowl'));
-    await settle();
-    a.store.flushPendingWrites();
-    await settle();
-    expect(a.server.trackedDay, isNull, reason: 'Vorbedingung: nicht angekommen');
-
-    final b = setup(kv: kv);
-    await boot(b.store);
-
-    expect(b.server.trackedDay, localDayKey(DateTime.now()),
-        reason: 'der Boot-Replay muss den Tag serverseitig nachtragen — sonst '
-            'reisst die Streak beim naechsten Log, weil der Server eine '
-            'Luecke sieht');
-    expect(b.store.lifetimeStats.lastTrackedDate, isNotNull);
-    expect(
-        b.store.pendingOutbox
-            .where((o) => o.kind == SyncOpKind.trackingDay),
-        isEmpty,
-        reason: 'zugestellt heisst: die Op ist wieder raus');
-  });
-
-  test(
-      'Streak-Tag: mehrfaches Loggen am selben Tag erzeugt EINE Op, nicht eine '
-      'pro Mahlzeit', () async {
-    final s = setup();
-    await boot(s.store);
-    s.server.rejectTrackingDay = true;
-
-    s.store.addResultToDailyTotal(mealResult('Bowl 1'));
-    await settle();
-    s.store.addResultToDailyTotal(mealResult('Bowl 2'));
-    await settle();
-    s.store.addResultToDailyTotal(mealResult('Bowl 3'));
-    await settle();
-
-    expect(
+    'tracking-day failure leaves the whole meal transaction pending and local streak visible',
+    () => _today(() async {
+      final s = setup();
+      await bootUntilIdle(s.store);
+      s.server.rejectTrackingDay = true;
+      final id = await s.store.addResultToDailyTotal(mealResult('Streak'));
+      expect(s.server.mealRows, isEmpty);
+      expect(s.server.mealsCounted, 0);
+      expect(s.server.trackedDay, isNull);
+      expect(s.store.loggedMeals.map((meal) => meal.id), contains(id));
+      expect(s.store.lifetimeStats.currentStreak, 1);
+      expect(
         s.store.pendingOutbox
-            .where((o) => o.kind == SyncOpKind.trackingDay)
-            .length,
-        1,
-        reason: 'alle Ops eines Tages teilen den Entitaets-Schluessel und '
-            'koaleszieren — sonst waechst die Queue mit jedem Log um eine '
-            'voellig identische Op');
-  });
+            .singleWhere((op) => op.kind == SyncOpKind.mealInsert)
+            .trackDay,
+        isTrue,
+      );
+      s.server.rejectTrackingDay = false;
+      await s.store.syncPendingWrites();
+      expect(s.server.trackedDay, localDayKey(_now));
+      expect(s.store.lifetimeStats.currentStreak, 1);
+    }),
+  );
 
   test(
-      'Streak-Tag: kommt der RPC LIVE durch, bleibt keine alte Op liegen',
-      () async {
-    final s = setup();
-    await boot(s.store);
-    s.server.rejectTrackingDay = true;
-    s.store.addResultToDailyTotal(mealResult('Bowl 1'));
-    await settle();
-    expect(
-        s.store.pendingOutbox.where((o) => o.kind == SyncOpKind.trackingDay),
-        hasLength(1),
-        reason: 'Vorbedingung');
+    'pending tracked meal preserves optimistic streak after cold start with server stats',
+    () => _today(() async {
+      final kv = InMemoryKeyValueStore();
+      final server = FakeServer()..rejectTrackingDay = true;
+      final a = setup(kv: kv, geteilterServer: server);
+      await bootUntilIdle(a.store);
+      await a.store.addResultToDailyTotal(mealResult('Streak'));
+      final b = setup(kv: kv, geteilterServer: server);
+      await bootUntilIdle(b.store);
+      expect(b.store.lifetimeStats.currentStreak, 1);
+      server.rejectTrackingDay = false;
+      await b.store.syncPendingWrites();
+      expect(server.mealsCounted, 1);
+      expect(server.trackedDay, localDayKey(_now));
+      expect(b.store.pendingOutbox, isEmpty);
+    }),
+  );
 
-    s.server.rejectTrackingDay = false;
-    s.store.addResultToDailyTotal(mealResult('Bowl 2'));
-    await settle();
+  test(
+    'three offline meals retain three atomic day intents and count once each',
+    () => _today(() async {
+      final s = setup();
+      await bootUntilIdle(s.store);
+      s.server.offline = true;
+      for (var i = 0; i < 3; i++) {
+        await s.store.addResultToDailyTotal(mealResult('Bowl $i'));
+      }
+      final meals = s.store.pendingOutbox
+          .where((op) => op.kind == SyncOpKind.mealInsert)
+          .toList();
+      expect(meals, hasLength(3));
+      expect(meals.every((op) => op.trackDay), isTrue);
+      expect(meals.map((op) => op.operationId).toSet(), hasLength(3));
+      s.server.offline = false;
+      await s.store.syncPendingWrites();
+      expect(s.server.mealsCounted, 3);
+      expect(s.server.trackedDay, localDayKey(_now));
+      expect(s.store.lifetimeStats.currentStreak, 1);
+      expect(s.store.pendingOutbox, isEmpty);
+    }),
+  );
 
-    expect(s.server.trackedDay, localDayKey(DateTime.now()));
-    expect(
-        s.store.pendingOutbox.where((o) => o.kind == SyncOpKind.trackingDay),
-        isEmpty,
-        reason: 'eine Op, deren Tag laengst verbucht ist, haelt sonst die '
-            'Queue (und damit preserveOutbox beim Logout) unnoetig offen');
-  });
-
-  // --- P1-05: order of streak booking vs. meal upsert -----------------------
-  //
-  // record_tracking_day needs a logged_meals row with local_day = p_day (the
-  // source proof of migration 20260811120000), else EX_DAY_NOT_LOGGED /
-  // P0001. That proof is exactly what is missing when today holds nothing yet
-  // and the user moves a meal from yesterday ONTO today, so the RPC may only
-  // reach the server once the upsert has written the row.
-  // [FakeServer.enforceTrackingDaySourceProof] mirrors the proof — without it
-  // the fake would define the failure away.
-
-  group('P1-05 — Verschieben AUF heute bucht den Tag nach dem Upsert', () {
-    /// All tests of this group run under a PINNED clock: they log onto
-    /// yesterday and move onto today, which across midnight would silently
-    /// become a move onto TOMORROW (K-02, date-dependent tests).
-    final jetzt = DateTime(2026, 5, 14, 12, 30);
-    Future<void> anTag(Future<void> Function() koerper) =>
-        withClock(Clock.fixed(jetzt), koerper);
-
-    /// Logged for yesterday, today still empty — the finding's starting state.
-    Future<({String id, DateTime heute})> nachtragVonGestern(
-        HomeStore store) async {
-      final heute = DateUtils.dateOnly(clock.now());
-      final id = store.addResultToDailyTotal(mealResult('Nachtrag'),
-          foodDate: heute.subtract(const Duration(days: 1)));
-      await settle();
-      return (id: id, heute: heute);
-    }
-
-    test(
-        'live: die RPC erreicht den Server erst NACH dem PATCH und wird beim '
-        'ersten Versuch angenommen', () => anTag(() async {
-          final s = setup();
-          s.server.enforceTrackingDaySourceProof = true;
-          await boot(s.store);
-          final vor = await nachtragVonGestern(s.store);
-          expect(s.server.trackedDay, isNull,
-              reason: 'Vorbedingung: heute leer');
-          final abHier = s.server.requests.length;
-
-          s.store.updateLoggedMealDetails(vor.id, day: clock.now());
-          await settle();
-
-          final danach = s.server.requests.skip(abHier).toList();
-          final patch = danach.indexWhere((r) =>
-              r.method == 'PATCH' && r.url.path.contains('/logged_meals'));
-          final rpc = danach.indexWhere(
-              (r) => r.url.path.contains('/rpc/record_tracking_day'));
-          expect(patch, isNonNegative,
-              reason: 'der Upsert muss rausgegangen sein');
-          expect(rpc, isNonNegative, reason: 'der Tag muss gebucht worden sein');
-          expect(patch, lessThan(rpc),
-              reason: 'die Streak-Buchung vor dem Upsert trifft auf eine '
-                  'Zeile, die es fuer heute noch gar nicht gibt');
-          expect(s.server.trackingDayRejections, isEmpty,
-              reason: 'jede Ablehnung ist ein verbrannter Zustellversuch plus '
-                  'ein Sentry-Sync-Ereignis');
-          expect(s.server.trackedDay, localDayKey(vor.heute));
-          expect(s.store.pendingOutbox, isEmpty,
-              reason: 'live zugestellt heisst: nichts bleibt liegen');
-        }));
-
-    // P1-05b, Loch 1: dieser Test blieb beim vollstaendigen Rueckbau des Fixes
-    // gruen. Der alte `catchError -> _queueTrackingDay`-Pfad landet ebenfalls
-    // HINTER dem synchron eingereihten Upsert, also sagte die Reihenfolge
-    // allein nichts. Unterscheidend ist der ZEITPUNKT: der eifrige Zwilling
-    // steht in der Queue, bevor ueberhaupt eine Antwort da sein koennte.
-    test(
-        'offline: der Zwilling steht SYNCHRON hinter dem Upsert — vor jeder '
-        'Netzantwort; der Replay bucht dann erst die Zeile, dann den Tag',
-        () => anTag(() async {
-              final s = setup();
-              s.server.enforceTrackingDaySourceProof = true;
-              await boot(s.store);
-              final vor = await nachtragVonGestern(s.store);
-              expect(s.store.pendingOutbox, isEmpty, reason: 'Vorbedingung');
-
-              s.server.offline = true;
-              s.store.updateLoggedMealDetails(vor.id, day: clock.now());
-
-              // KEIN settle: hier ist noch kein einziger Microtask gelaufen.
-              expect(
-                  s.store.pendingOutbox.map((o) => o.kind).toList(),
-                  <SyncOpKind>[SyncOpKind.mealUpsert, SyncOpKind.trackingDay],
-                  reason: 'zwei Zusagen in einer Zeile: FIFO (steht der Tag '
-                      'vorn, scheitert der erste Pass zwangslaeufig an '
-                      'EX_DAY_NOT_LOGGED) UND unabhaengig vom Netz — ein Tag, '
-                      'der erst durch eine Fehlerantwort entsteht, existiert '
-                      'im haengenden und im gekillten Fall nie');
-              await settle();
-              expect((await s.cache.readOutbox())!.map((o) => o.kind),
-                  contains(SyncOpKind.trackingDay),
-                  reason: 'und kill-sicher, nicht nur im Speicher');
-
-              s.server.offline = false;
-              s.store.flushPendingWrites();
-              await settle();
-
-              expect(s.server.trackingDayRejections, isEmpty);
-              expect(s.server.trackedDay, localDayKey(vor.heute));
-              expect(s.store.pendingOutbox, isEmpty);
-            }));
-
-    // P1-05b, Loch 2a: der Fall, fuer den der Fix eigentlich gutgeschrieben
-    // ist. PostgREST kennt keinen Timeout — ein PATCH, der nie antwortet,
-    // feuert weder `then` noch `catchError`. Der alte Pfad lief hier nie, also
-    // deckte ihn auch kein Test.
-    test(
-        'haengender PATCH: der Tag liegt kill-sicher in der Queue, und die '
-        'RPC trifft nie auf die noch leere Zeile',
-        () => anTag(() async {
-              final s = setup();
-              s.server.enforceTrackingDaySourceProof = true;
-              await boot(s.store);
-              final vor = await nachtragVonGestern(s.store);
-
-              s.server.holdMealWrites();
-              s.store.updateLoggedMealDetails(vor.id, day: clock.now());
-              await settle();
-
-              expect(s.server.trackingDayRejections, isEmpty,
-                  reason: 'die Buchung vor dem Upsert trifft hier auf eine '
-                      'Zeile, die noch auf gestern steht — P0001, ein '
-                      'verbrannter Zustellversuch plus ein Sentry-Ereignis');
-              expect(s.server.trackedDay, isNull,
-                  reason: 'Vorbedingung: der Upsert haengt, live ist nichts '
-                      'gebucht');
-              expect((await s.cache.readOutbox())!.map((o) => o.kind),
-                  contains(SyncOpKind.trackingDay),
-                  reason: 'nur der eingereihte Zwilling haelt den Tag fest — '
-                      'ein Pfad, der erst an einer Antwort haengt, bekommt '
-                      'hier nie eine');
-
-              // Aufraeumen: die Antwort kommt doch noch.
-              s.server.releaseMealWrites();
-              await settle();
-              expect(s.server.trackedDay, localDayKey(vor.heute));
-            }));
-
-    // P1-05b, Loch 2b: der Kill zwischen Bearbeitung und RPC-Antwort. Der
-    // PATCH ist durch, die Buchung fliegt — und die App stirbt. Auch hier
-    // laeuft weder `then` noch `catchError`.
-    test(
-        'Kill zwischen Bearbeitung und RPC-Antwort: der Tag ueberlebt im '
-        'eingereihten Zwilling und wird beim naechsten Start gebucht',
-        () => anTag(() async {
-              final kv = InMemoryKeyValueStore();
-              final server = FakeServer()
-                ..enforceTrackingDaySourceProof = true;
-
-              final a = setup(kv: kv, geteilterServer: server);
-              await boot(a.store);
-              final vor = await nachtragVonGestern(a.store);
-
-              server.hangTrackingDay = true;
-              a.store.updateLoggedMealDetails(vor.id, day: clock.now());
-              await settle();
-              a.store.flushPendingWrites();
-              await settle();
-
-              expect(server.mealRows[vor.id]!['local_day'],
-                  localDayKey(vor.heute),
-                  reason: 'Vorbedingung: der PATCH ist durch');
-              expect(server.trackedDay, isNull,
-                  reason: 'Vorbedingung: die Antwort der Buchung steht aus');
-              expect((await a.cache.readOutbox())!.map((o) => o.kind),
-                  contains(SyncOpKind.trackingDay),
-                  reason: 'nur was VOR dem Absenden persistiert wurde, kann '
-                      'einen Kill in diesem Fenster ueberleben');
-
-              // Neustart auf demselben Geraet, gegen denselben Server. Die
-              // schon abgesetzte Anfrage der toten Sitzung bleibt haengen —
-              // nur neue bekommen wieder eine Antwort.
-              server.hangTrackingDay = false;
-              final b = setup(kv: kv, geteilterServer: server);
-              await boot(b.store);
-
-              expect(server.trackedDay, localDayKey(vor.heute),
-                  reason: 'sonst sieht der Server eine Luecke und die Streak '
-                      'reisst beim naechsten Log');
-              expect(
-                  b.store.pendingOutbox
-                      .where((o) => o.kind == SyncOpKind.trackingDay),
-                  isEmpty,
-                  reason: 'zugestellt heisst: die Op ist wieder raus');
-            }));
-
-    test(
-        'Streak bleibt sichtbar, solange der Tag nur in der Queue liegt',
-        () => anTag(() async {
-              final s = setup();
-              await boot(s.store);
-              final vor = await nachtragVonGestern(s.store);
-
-              s.server.offline = true;
-              s.store.updateLoggedMealDetails(vor.id, day: clock.now());
-              await settle();
-
-              expect(s.store.lifetimeStats.lastTrackedDate, vor.heute,
-                  reason: 'die optimistische Buchung darf nicht verschwinden, '
-                      'nur weil die Zustellung wartet');
-            }));
-  });
+  test(
+    'new successful tracked meal does not erase an older undelivered meal',
+    () => _today(() async {
+      final s = setup();
+      await bootUntilIdle(s.store);
+      s.server.rejectTrackingDay = true;
+      final oldId = await s.store.addResultToDailyTotal(mealResult('First'));
+      s.server.rejectTrackingDay = false;
+      final newId = await s.store.addResultToDailyTotal(mealResult('Second'));
+      expect(s.server.mealRows.keys, containsAll([oldId, newId]));
+      expect(s.server.mealsCounted, 2);
+      expect(s.server.trackedDay, localDayKey(_now));
+      expect(s.store.pendingOutbox, isEmpty);
+    }),
+  );
 }

@@ -1,4 +1,6 @@
 import 'support/food_navigation.dart';
+import 'support/recipe_read_fake.dart';
+import 'support/sync_operation_fake.dart';
 
 import 'dart:convert';
 
@@ -33,11 +35,25 @@ import 'package:eatova/src/theme/app_theme.dart';
 
 class _Recorder {
   final List<http.Request> requests = <http.Request>[];
+  Map<String, dynamic>? profile;
+  late final operations = SyncOperationFake(
+    meals: {}, weights: {}, favorites: {}, recipes: {},
+    readProfile: () => profile, writeProfile: (row) => profile = row,
+    readStats: () => {}, incrementStats: (_, _, _) {}, recordDay: (_) {},
+  );
 
   http.Client client() {
     return MockClient((req) async {
       requests.add(req);
       final path = req.url.path;
+      final recipeRead = emptyRecipeReadResponse(req);
+      if (recipeRead != null) return recipeRead;
+      if (path.endsWith('/rpc/apply_sync_operation')) {
+        return http.Response(jsonEncode(operations.apply(
+            (jsonDecode(req.body) as Map).cast<String, dynamic>())), 200,
+            headers: const {'content-type': 'application/json; charset=utf-8'},
+            request: req);
+      }
       final isWrite = req.method == 'POST' ||
           req.method == 'PATCH' ||
           req.method == 'PUT';
@@ -74,12 +90,16 @@ class _Recorder {
   }
 
   Iterable<http.Request> get profileWrites => requests.where((r) =>
-      r.url.path.contains('/profiles') &&
+      (r.url.path.contains('/profiles') ||
+          (r.url.path.endsWith('/rpc/apply_sync_operation') &&
+              (jsonDecode(r.body) as Map)['p_kind'] == 'profileUpsert')) &&
       (r.method == 'POST' || r.method == 'PATCH' || r.method == 'PUT'));
 
   int? _weightOf(http.Request r) {
     try {
-      final body = jsonDecode(r.body);
+      final decoded = jsonDecode(r.body);
+      final body = r.url.path.endsWith('/rpc/apply_sync_operation')
+          ? (decoded as Map)['p_payload']['row'] : decoded;
       if (body is Map && body['weight_kg'] is num) {
         return (body['weight_kg'] as num).toInt();
       }

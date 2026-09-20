@@ -92,7 +92,7 @@ Widget _einstellungenSeite() {
       authRepository: repo,
       onOpenGoals: () {},
       onSignOut: () async {},
-      onDeleteAccount: () async {},
+      onDeleteAccount: (deleteRemote, _) async => deleteRemote(),
       onExportData: () async => '{}',
     ),
   );

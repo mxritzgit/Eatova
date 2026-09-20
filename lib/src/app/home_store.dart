@@ -19,6 +19,7 @@ import '../models/macro_progress.dart';
 import '../models/meal_analysis_result.dart';
 import '../models/model_limits.dart' show isValidWeightLogKg;
 import '../models/training_plan.dart';
+import '../models/training_plan_head.dart';
 import '../models/training_session.dart';
 import '../models/training_history.dart';
 import '../models/user_profile.dart';
@@ -32,19 +33,22 @@ import '../services/local_cache.dart';
 import '../services/local_day.dart';
 import '../services/meal_totals.dart' as totals;
 import '../services/meals_sync.dart' show MealsSync;
-import '../services/meal_plans_sync.dart';
 import '../services/notification_service.dart';
 import '../services/recipe_image_store.dart';
+import '../services/recipe_save_result.dart';
 import '../services/search_credentials.dart';
 import '../services/secure_cache_store.dart';
 import '../services/stale_auth_retry.dart';
 import '../services/streak_reminder_planner.dart';
 import '../services/sync_error_messages.dart';
 import '../services/sync_outbox.dart';
+import '../services/sync_dispatcher.dart';
+import '../services/sync_execution_guard.dart';
 import '../services/trend_service.dart' show TrendTotalsCache;
 import '../services/training_plans_sync.dart';
 import '../services/training_history_sync.dart';
-import '../services/user_recipes_sync.dart' show UserRecipesSync;
+import '../services/training_session_source.dart';
+import '../services/user_recipe_reads.dart';
 import '../services/uuid.dart';
 import '../widgets/common/app_snack.dart';
 // P1-03: `signOutCleanup` is the only code that knows when the cleanup ended,
@@ -52,6 +56,7 @@ import '../widgets/common/app_snack.dart';
 import 'auth_gate.dart' show IntentionalSignOut;
 
 part 'home_store_meals.dart';
+part 'home_store_recipe_edits.dart';
 part 'home_store_meal_plan.dart';
 part 'home_store_profile.dart';
 part 'home_store_sync.dart';
@@ -63,13 +68,14 @@ part 'home_store_training_history.dart';
 ///
 /// The store never holds a BuildContext (ARCH-4 store seam); it only signals
 /// the message and `_EatovaHomePageState` turns it into a [showAppSnack].
-typedef SnackEmitter = void Function(
-  String message, {
-  IconData icon,
-  SnackTone tone,
-  Duration? duration,
-  SnackBarAction? action,
-});
+typedef SnackEmitter =
+    void Function(
+      String message, {
+      IconData icon,
+      SnackTone tone,
+      Duration? duration,
+      SnackBarAction? action,
+    });
 
 /// Hard boot budget: how long the network part of the start may hold the
 /// welcome gate ([HomeStore.profileReady]).
@@ -113,13 +119,32 @@ abstract class _HomeStoreBase extends ChangeNotifier {
     required this.initialUserName,
     required SnackEmitter emitSnack,
     this.debugCache,
-  }) : _emitSnack = emitSnack;
+    this.debugCacheFactory,
+  }) : _emitSnack = emitSnack,
+       _boundSyncSessionId = syncSessionIdFromAccessToken(
+         sync?.client.auth.currentSession?.accessToken ?? '',
+       );
 
   final EatovaSync? sync;
+  final String? _boundSyncSessionId;
   final HealthService health;
   final NotificationService notificationService;
   final String initialUserName;
   final LocalCache? debugCache;
+  @visibleForTesting
+  final Future<LocalCache?> Function(String userId)? debugCacheFactory;
+  final Set<Future<void>> _cacheUsers = {};
+
+  Future<T> _retainOwnedCache<T>(Future<T> Function() action) {
+    final result = Future<T>.sync(action);
+    late final Future<void> settled;
+    settled = result
+        .then<void>((_) {}, onError: (Object _, StackTrace __) {})
+        .whenComplete(() => _cacheUsers.remove(settled));
+    _cacheUsers.add(settled);
+    return result;
+  }
+
   final SnackEmitter _emitSnack;
 
   /// Strings for the few snack texts the store still builds itself.
@@ -170,8 +195,8 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   int _mealPlansVersion = 0;
   bool mealPlansLoading = false;
   bool mealPlansLoadFailed = false;
-  List<PlannedMeal> get plannedMeals => List.unmodifiable(
-    _plannedMeals.where((p) => !p.removed));
+  List<PlannedMeal> get plannedMeals =>
+      List.unmodifiable(_plannedMeals.where((p) => !p.removed));
   Map<String, bool> get shoppingChecks => Map.unmodifiable(_shoppingChecks);
   void _putPlannedMeal(PlannedMeal plan) {
     final existing = _plannedMeals.where((p) => p.id == plan.id).firstOrNull;
@@ -179,21 +204,30 @@ abstract class _HomeStoreBase extends ChangeNotifier {
     _plannedMeals = [plan, ..._plannedMeals.where((p) => p.id != plan.id)];
     _mealPlansVersion++;
   }
+
   List<TrainingHistoryEntry> _trainingHistoryState = const [];
   int _trainingHistoryVersion = 0;
   final Set<String> _trainingHistoryDeletedIds = {};
   bool _trainingHistoryDeletionsHydrated = false;
   bool _trainingHistoryDeletionReadFailed = false;
   bool _trainingHistoryKnown = false;
-  List<TrainingHistoryEntry> get trainingHistory => _trainingHistoryDeletionReadFailed ? const [] : _trainingHistoryState;
+  List<TrainingHistoryEntry> get trainingHistory =>
+      _trainingHistoryDeletionReadFailed ? const [] : _trainingHistoryState;
   set _trainingHistory(List<TrainingHistoryEntry> value) {
-    _trainingHistoryState = List.unmodifiable([...value.where((entry) => !_trainingHistoryDeletedIds.contains(entry.id))]..sort((a, b) => b.finishedAt.compareTo(a.finishedAt)));
+    _trainingHistoryState = List.unmodifiable(
+      [
+        ...value.where(
+          (entry) => !_trainingHistoryDeletedIds.contains(entry.id),
+        ),
+      ]..sort((a, b) => b.finishedAt.compareTo(a.finishedAt)),
+    );
     _trainingHistoryKnown = true;
     _trainingHistoryVersion++;
   }
-  bool _trainingHistoryLoadFailed = false;
-  bool get trainingHistoryLoadFailed => _trainingHistoryLoadFailed || _trainingHistoryDeletionReadFailed;
 
+  bool _trainingHistoryLoadFailed = false;
+  bool get trainingHistoryLoadFailed =>
+      _trainingHistoryLoadFailed || _trainingHistoryDeletionReadFailed;
 
   List<TrainingPlan> _trainingPlansState = const <TrainingPlan>[];
   bool _trainingPlansKnown = false;
@@ -206,12 +240,25 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   String? _protectedTrainingRecoveryId;
   TrainingSessionSnapshot? get trainingSession {
     final snapshot = _trainingSession;
-    if (_trainingHistoryDeletionReadFailed || snapshot == null || _trainingSessionRetired || _trainingHistoryDeletedIds.contains(snapshot.sessionId) || trainingHistory.any((entry) => entry.id == snapshot.sessionId)) return null;
+    if (_trainingHistoryDeletionReadFailed ||
+        snapshot == null ||
+        _trainingSessionRetired ||
+        _trainingHistoryDeletedIds.contains(snapshot.sessionId) ||
+        trainingHistory.any((entry) => entry.id == snapshot.sessionId)) {
+      return null;
+    }
     return _trainingSourceAllows(snapshot) ? snapshot : null;
   }
 
+  bool _trainingSourceBlocked(TrainingSessionSnapshot snapshot);
+
   bool _trainingSourceAllows(TrainingSessionSnapshot snapshot) {
-    if (snapshot.pendingCompletionAt != null) return true;
+    if (_trainingSession?.pendingCompletionAt != null &&
+        jsonEncode(_trainingSession?.toJson()) ==
+            jsonEncode(snapshot.toJson())) {
+      return true;
+    }
+    if (_trainingSourceBlocked(snapshot)) return false;
     // Best-effort mirrors can lag a durable full checkpoint. Only server data
     // or an observed source change can invalidate its embedded workout.
     if (!_trainingPlansAuthoritative &&
@@ -221,16 +268,15 @@ abstract class _HomeStoreBase extends ChangeNotifier {
     final source = trainingPlans
         .where((plan) => plan.id == snapshot.plan.id)
         .firstOrNull;
-    return _trainingSessionMatchesPlan(snapshot, source);
+    return trainingSessionMatchesPlan(snapshot, source);
   }
+
   int _trainingSessionGeneration = 0;
   final Map<String, int> _trainingSourceGenerations = {};
   // Player callbacks carry the generation from route creation. Retirement is
   // scoped by source plan, so deleting another plan cannot invalidate them.
   int get trainingSessionGeneration => _trainingSessionGeneration;
   int _trainingSessionVersion = 0;
-  final Set<SyncOp> _unconfirmedTrainingOps = {};
-  final Set<SyncOp> _deliveredTrainingOps = {};
   WeightLog _weightLogState = const WeightLog();
   LifetimeStats _lifetimeStatsState = LifetimeStats();
 
@@ -295,6 +341,9 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   }
 
   LocalCache? _cache;
+  bool _ownsCache = false;
+  Future<LocalCache?>? _cacheOpening;
+  Future<void>? _cacheReleaseFuture;
   bool _hydratedFromRealSource = false;
 
   /// B4: the calendar day the store last saw as "today".
@@ -324,8 +373,8 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   List<FitnessRecipe> get visibleUserRecipes => _pendingRecipeDeletes.isEmpty
       ? _userRecipes
       : _userRecipes
-          .where((r) => !_pendingRecipeDeletes.contains(r.slug))
-          .toList(growable: false);
+            .where((r) => !_pendingRecipeDeletes.contains(r.slug))
+            .toList(growable: false);
 
   /// The recipes tab reports a slug entering ([pending] true) or leaving
   /// (undo, commit) its undo window. Idempotent; notifies only on a change.
@@ -410,14 +459,16 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   String? _todaysSlotSummary() {
     final bySlot = totals.slotTotalsForFoodDate(loggedMeals, clock.now());
     if (bySlot.isEmpty) return null;
-    final parts = bySlot.entries.map((e) {
-      final m = e.value.macros;
-      final n = e.value.entries;
-      final count = n == 1 ? '1 Eintrag' : '$n Einträge';
-      return '${e.key.germanLabel} ${m.kcal} kcal '
-          '(P ${m.proteinG.round()} g, K ${m.carbsG.round()} g, '
-          'F ${m.fatG.round()} g, $count)';
-    }).join('; ');
+    final parts = bySlot.entries
+        .map((e) {
+          final m = e.value.macros;
+          final n = e.value.entries;
+          final count = n == 1 ? '1 Eintrag' : '$n Einträge';
+          return '${e.key.germanLabel} ${m.kcal} kcal '
+              '(P ${m.proteinG.round()} g, K ${m.carbsG.round()} g, '
+              'F ${m.fatG.round()} g, $count)';
+        })
+        .join('; ');
     return 'Pro Mahlzeit heute: $parts.';
   }
 
@@ -429,13 +480,16 @@ abstract class _HomeStoreBase extends ChangeNotifier {
     const maxFoods = 10;
     final meals = mealsForFoodDate(clock.now());
     if (meals.isEmpty) return null;
-    final shown = meals.take(maxFoods).map((m) {
-      final raw = m.result.mealName.trim();
-      final name = raw.isEmpty
-          ? 'Mahlzeit'
-          : (raw.length > 40 ? '${raw.substring(0, 39)}…' : raw);
-      return '${m.slot.germanLabel}: $name (${m.result.caloriesKcal} kcal)';
-    }).join(', ');
+    final shown = meals
+        .take(maxFoods)
+        .map((m) {
+          final raw = m.result.mealName.trim();
+          final name = raw.isEmpty
+              ? 'Mahlzeit'
+              : (raw.length > 40 ? '${raw.substring(0, 39)}…' : raw);
+          return '${m.slot.germanLabel}: $name (${m.result.caloriesKcal} kcal)';
+        })
+        .join(', ');
     final suffix = meals.length > maxFoods ? ' …' : '';
     return 'Heute gegessene Lebensmittel — $shown$suffix.';
   }
@@ -511,6 +565,7 @@ class HomeStore extends _HomeStoreBase
         _HomeStoreTrackingPart,
         _HomeStoreProfilePart,
         _HomeStoreMealsPart,
+        _HomeStoreRecipeEditsPart,
         _HomeStoreTrainingPart,
         _HomeStoreMealPlanPart,
         _HomeStoreTrainingHistoryPart {
@@ -521,6 +576,7 @@ class HomeStore extends _HomeStoreBase
     required super.initialUserName,
     required super.emitSnack,
     super.debugCache,
+    super.debugCacheFactory,
   }) {
     userName = initialUserName;
   }
@@ -569,9 +625,10 @@ class HomeStore extends _HomeStoreBase
       _bootBudgetTimer = null;
       if (_disposed) return;
       dev.log(
-          'Boot-Budget (${kBootNetworkBudget.inSeconds}s) aufgebraucht — die '
-          'App wird ohne Server-Antwort angezeigt, der Boot laeuft weiter',
-          name: 'eatova_sync');
+        'Boot-Budget (${kBootNetworkBudget.inSeconds}s) aufgebraucht — die '
+        'App wird ohne Server-Antwort angezeigt, der Boot laeuft weiter',
+        name: 'eatova_sync',
+      );
       _completeProfileReady();
     });
     unawaited(_hydrateThenBootGuarded());
@@ -591,8 +648,12 @@ class HomeStore extends _HomeStoreBase
     try {
       await _hydrateThenBoot();
     } catch (e, st) {
-      dev.log('Boot-Kette abgebrochen', error: e, stackTrace: st,
-          name: 'eatova_sync');
+      dev.log(
+        'Boot-Kette abgebrochen',
+        error: e,
+        stackTrace: st,
+        name: 'eatova_sync',
+      );
       unawaited(CrashReporter.captureSyncFailure(e, st, context: 'boot'));
       if (!_disposed) _completeProfileReady();
     } finally {
@@ -613,18 +674,10 @@ class HomeStore extends _HomeStoreBase
   /// The boot load of `user_recipes` has ANSWERED — a list, possibly empty.
   /// An error, a timeout or a still-running load is not an answer.
   bool _serverRecipesAnswered = false;
+  bool _serverRecipePhotosAnswered = false;
+  Set<String> _recipePhotoReferences = const {};
 
-  /// The answered recipe load came back with a FULL page
-  /// ([UserRecipesSync.userRecipesLimit] rows), so the account may hold older
-  /// recipes this list never saw (review 2026-08-31, A).
-  ///
-  /// An answer is not the same as a complete answer. `load()` reads the newest
-  /// 200 rows while the table itself allows 5000 (migration 20260829120000),
-  /// so above 200 recipes the boot list is a WINDOW. Everything that only
-  /// READS it survives that fine — but the orphan photo sweep draws a
-  /// conclusion from what is MISSING, and a window's missing entries are not
-  /// missing entries.
-  bool _serverRecipesPageFull = false;
+  Set<String> get recipePhotoReferences => _recipePhotoReferences;
 
   /// A server load is running ([_bootFromSupabase]); the shell shows progress
   /// instead of the retry button. Also the re-entry guard of that method.
@@ -662,34 +715,10 @@ class HomeStore extends _HomeStoreBase
   /// MISSING — the orphan photo sweep in `recipes_screen.dart` deletes files
   /// on exactly that conclusion.
   ///
-  /// Deliberately the recipe load, not the end of [_bootFromSupabase]: the six
-  /// loads answer independently, and a failed recipe load leaves the list as
-  /// provisional as it was before.
-  ///
-  /// An ANSWER alone is not enough (review 2026-08-31, A). Two more states
-  /// look like a complete list and are not, and both end in deleted photos
-  /// that exist nowhere else:
-  ///
-  ///   * [_serverRecipesPageFull] — the server page is exhausted, so recipe
-  ///     #201 and older are simply not in it. Whoever has more recipes than
-  ///     the page holds would lose every photo of the older ones on the first
-  ///     boot whose recipe cache slot fails to hydrate.
-  ///   * [_outboxHydrationFailed] — the outbox slot threw on read, so a queued
-  ///     `recipeUpsert` was never replayed into the list. That recipe exists
-  ///     (on this device, undelivered), its photo exists, and neither is in
-  ///     the list. The brake lifts by itself once [_repairOutboxHydration]
-  ///     recovers the ops and `_applyPendingOpsToState` puts them back.
-  ///
-  /// The page-full test says "possibly truncated", not "truncated": exactly
-  /// 200 recipes trips it too, and then the sweep never runs again for that
-  /// account. Deliberate — the cost of that mistake is uncollected bytes, the
-  /// cost of the opposite is the user's photos. Reading one row beyond the cap
-  /// would sharpen the test, but only for the exactly-200 case: above it the
-  /// list stays a window either way.
+  /// Both full snapshots must succeed: history can retain photos no longer
+  /// referenced by the current recipe. Pending local recipes must also hydrate.
   bool get userRecipesAuthoritative =>
-      _serverRecipesAnswered &&
-      !_serverRecipesPageFull &&
-      !_outboxHydrationFailed;
+      _serverRecipesAnswered && _serverRecipePhotosAnswered && !_outboxHydrationFailed;
 
   /// Retry button of the unanswered state: runs the server load again. No-op
   /// while the boot chain or a load is running — two taps are one load.
@@ -713,7 +742,15 @@ class HomeStore extends _HomeStoreBase
     } else {
       final userId = s.userId;
       if (userId.isNotEmpty) {
-        _cache = await LocalCache.create(userId);
+        _ownsCache = true;
+        final opening = (debugCacheFactory ?? LocalCache.create)(userId);
+        _cacheOpening = opening;
+        final opened = await opening;
+        if (_disposed || _trainingSessionEnded) {
+          await opened?.releaseStorage();
+          return;
+        }
+        _cache = opened;
       }
     }
     if (_cache != null) {
@@ -721,8 +758,8 @@ class HomeStore extends _HomeStoreBase
     } else {
       // Without a cache there is no persisted sync state an early logout
       // would have to preserve — the A2 window does not exist here.
-      _syncStateHydrated = true;
     }
+    if (_disposed || _trainingSessionEnded) return;
     unawaited(restoreHealthConnection());
     _outboxInitialHydrationComplete = true;
     // A real cached profile makes the state displayable, so the server load
@@ -739,14 +776,16 @@ class HomeStore extends _HomeStoreBase
     //
     // Not awaited: a hanging prefs access would otherwise stall the start
     // before the first frame. The flag is persisted, so a late snack is fine.
-    unawaited(CacheKeyProvider.consumeCacheResetNotice().then((liegtAn) {
-      if (!liegtAn || _disposed) return;
-      _emitSnack(
-        _l10n.commonCacheResetNotice,
-        icon: Icons.info_outline_rounded,
-        duration: const Duration(seconds: 6),
-      );
-    }));
+    unawaited(
+      CacheKeyProvider.consumeCacheResetNotice().then((liegtAn) {
+        if (!liegtAn || _disposed) return;
+        _emitSnack(
+          _l10n.commonCacheResetNotice,
+          icon: Icons.info_outline_rounded,
+          duration: const Duration(seconds: 6),
+        );
+      }),
+    );
     // Replay the outbox BEFORE the server load (best effort), so the refresh
     // already contains the caught-up writes. Offline the replay just fails;
     // the ops stay queued and _applyPendingOpsToState layers them on top.
@@ -783,16 +822,52 @@ class HomeStore extends _HomeStoreBase
       return await read();
     } catch (e, st) {
       onFehler?.call();
-      dev.log('LocalCache hydrate failed ($slot)',
-          error: e, stackTrace: st, name: 'local_cache');
+      dev.log(
+        'LocalCache hydrate failed ($slot)',
+        error: e,
+        stackTrace: st,
+        name: 'local_cache',
+      );
       unawaited(CrashReporter.capture(e, st, context: 'cache-hydrate-$slot'));
       return null;
     }
   }
 
+  @override
   Future<void> _hydrateFromCache() async {
-    final cache = _cache;
-    if (cache == null) return;
+    final persistedCache = _cache;
+    if (persistedCache == null) return;
+    late final LocalCache cache;
+    late final LocalMutationReceipt durable;
+    final commitGeneration = _localCommitGeneration;
+    var syncReadFailed = false;
+    try {
+      try {
+        await persistedCache.readSyncOperations();
+      } catch (_) {
+        syncReadFailed = true;
+      }
+      durable = await persistedCache.readMutationSnapshot(allowPartial: true);
+      cache = LocalCache(
+        InMemoryKeyValueStore({
+          for (final entry in durable.snapshot.values.entries)
+            if (entry.value != null &&
+                !durable.unreadableKeys.contains(entry.key))
+              entry.key: entry.value!,
+        }),
+        persistedCache.userId,
+      )..close();
+    } catch (error, stack) {
+      _outboxHydrationFailed = true;
+      unawaited(
+        CrashReporter.captureSyncFailure(
+          error,
+          stack,
+          context: 'atomic-hydration',
+        ),
+      );
+      return;
+    }
     final today = clock.now();
     final mealPlanVersion = _mealPlansVersion;
     final historyVersion = _trainingHistoryVersion;
@@ -800,10 +875,12 @@ class HomeStore extends _HomeStoreBase
     final selectionVersion = _trainingSelectionVersion;
     final sessionVersion = _trainingSessionVersion;
     final cachedMealPlans = await _leseSlot('meal_plans', cache.readMealPlans);
-    var outboxLesefehler = false;
-    var deltaLesefehler = false;
-    var trainingSessionReadFailed = false;
-    var trainingDeletionReadFailed = false;
+    bool unreadable(String slot) => durable.unreadableKeys.contains(
+      'eatova.v1.$slot.${persistedCache.userId}',
+    );
+    var outboxLesefehler = syncReadFailed || unreadable('outbox');
+    var trainingSessionReadFailed = unreadable('training_session');
+    var trainingDeletionReadFailed = unreadable('training_history_deletions');
     // The nine slot reads are independent, so they run concurrently and the
     // boot gate waits for the slowest decrypt instead of the sum (perf
     // finding 4, 2026-08-31). Waves of three, not one big Future.wait: each
@@ -821,27 +898,44 @@ class HomeStore extends _HomeStoreBase
     final (cachedFavorites, cachedWeightLog, cachedOutbox) = await (
       _leseSlot('favorites', cache.readFavorites),
       _leseSlot('weight_log', cache.readWeightLog),
-      _leseSlot('outbox', cache.readOutboxOrThrow,
-          onFehler: () => outboxLesefehler = true),
+      _leseSlot(
+        'outbox',
+        cache.readOutboxOrThrow,
+        onFehler: () => outboxLesefehler = true,
+      ),
     ).wait;
     final (cachedDeltas, cachedRecipes, cachedActivity) = await (
-      _leseSlot('pending_stats', cache.readPendingStatsDeltasOrThrow,
-          onFehler: () => deltaLesefehler = true),
+      _leseSlot('pending_stats', cache.readPendingStatsDeltasOrThrow),
       _leseSlot('user_recipes', cache.readUserRecipes),
       _leseSlot('daily_activity', cache.readDailyActivity),
     ).wait;
-    final (cachedTrainingPlans, cachedTrainingSelection, cachedTrainingSession, cachedTrainingHistory) = await (
+    final (
+      cachedTrainingPlans,
+      cachedTrainingSelection,
+      cachedTrainingSession,
+      cachedTrainingHistory,
+    ) = await (
       _leseSlot('training_plans', cache.readTrainingPlans),
       _leseSlot('training_selection', cache.readTrainingSelection),
-      _leseSlot('training_session',
-          () => cache.readTrainingSession(requireReadable: true),
-          onFehler: () => trainingSessionReadFailed = true),
+      _leseSlot(
+        'training_session',
+        () => cache.readTrainingSession(requireReadable: true),
+        onFehler: () => trainingSessionReadFailed = true,
+      ),
       _leseSlot('training_history', cache.readTrainingHistory),
     ).wait;
     final cachedTrainingDeletions = await _leseSlot(
-      'training_history_deletions', cache.readTrainingHistoryDeletions,
-      onFehler: () => trainingDeletionReadFailed = true);
+      'training_history_deletions',
+      cache.readTrainingHistoryDeletions,
+      onFehler: () => trainingDeletionReadFailed = true,
+    );
     if (_disposed) return;
+    if (commitGeneration != _localCommitGeneration) {
+      await _hydrateFromCache();
+      return;
+    }
+    _cacheObservedVersions = Map.of(durable.snapshot.versions);
+    _adoptTrainingHeads(durable);
     _trainingHistoryDeletedIds.addAll(cachedTrainingDeletions ?? <String>{});
     _trainingHistoryDeletionReadFailed = trainingDeletionReadFailed;
     _trainingHistoryDeletionsHydrated = !trainingDeletionReadFailed;
@@ -852,34 +946,17 @@ class HomeStore extends _HomeStoreBase
     // Same brake for the second half of the sync state (W7b): otherwise the
     // next flush restarts the deltas slot at 0 and the previous session's
     // meals are missing from the lifetime counters for good.
-    _statsHydrationFailed = deltaLesefehler;
     // From here the in-memory state mirrors the blob (the take-over below is
     // synchronous), so signOutCleanup may trust `_outbox.length` again. Tied
     // to the sync state only: an unreadable profile says nothing about pending
     // writes and must not stall the logout cleanup.
-    if (!outboxLesefehler && !deltaLesefehler) _syncStateHydrated = true;
     // Always adopt outbox + stats deltas — the kill-safe part of the sync
     // state, regardless of what else was cached.
     if (cachedOutbox != null) {
-      // Second entry point that bypasses enqueueing: a queue grown by an older
-      // uncapped build arrives unchecked, so the cap must run here too.
-      final capped = capOutbox(cachedOutbox);
-      _outbox = capped.queue;
-      if (capped.dropped.isNotEmpty) {
-        dev.log(
-            'Outbox-Hydration: ${capped.dropped.length} aelteste Op(s) '
-            'verworfen (Queue > $kOutboxMaxOps)',
-            name: 'eatova_sync');
-        CrashReporter.breadcrumb(
-            'outbox-hydrate-cap: ${capped.dropped.length} ops dropped');
-        _persistOutbox();
-        // The cap can hit delete ops too (writes are trimmed first, but a
-        // queue of pure deletions falls eventually). Report both loss kinds
-        // separately. No _restoreDroppedDeletes here: _bootFromSupabase runs
-        // right after hydration and its window load re-fetches those rows.
-        _notifyDroppedOps(capped.dropped);
-      }
+      // Preserve every confirmed legacy intent, even above the admission limit.
+      _outbox = cachedOutbox;
     }
+
     if (cachedDeltas != null) {
       _pendingMealsDelta += cachedDeltas.meals;
       _pendingWeightLogsDelta += cachedDeltas.weightLogs;
@@ -930,10 +1007,12 @@ class HomeStore extends _HomeStoreBase
         _shoppingChecks = Map.of(cachedMealPlans.checks);
         _mealPlansVersion++;
       }
-      if (cachedTrainingHistory != null && historyVersion == _trainingHistoryVersion) {
+      if (cachedTrainingHistory != null &&
+          historyVersion == _trainingHistoryVersion) {
         _trainingHistory = cachedTrainingHistory;
       }
-      if (cachedTrainingPlans != null && trainingVersion == _trainingPlansVersion) {
+      if (cachedTrainingPlans != null &&
+          trainingVersion == _trainingPlansVersion) {
         _trainingPlans = cachedTrainingPlans;
         _trainingPlansKnown = true;
       }
@@ -992,7 +1071,7 @@ class HomeStore extends _HomeStoreBase
     });
   }
 
-  Future<void> _bootFromSupabase() async {
+  Future<void> _bootFromSupabase({bool allowConflictRetry = true}) async {
     // Re-entry guard: a second concurrent load would reset the flag from the
     // first finished run and adopt a stale snapshot over a fresh one.
     if (_bootLoadInFlight || _disposed) return;
@@ -1019,11 +1098,14 @@ class HomeStore extends _HomeStoreBase
     // snapshot from before the write and gets MERGED (local wins, missing
     // server ids added, ids deleted locally in the window not revived).
     final vorher = _BootBaseline.of(this);
+    final cacheVersionsBeforeLoad = Map<String, int>.of(_cacheObservedVersions);
     // Sentry FLUTTER-9/-A/-B: at every cold start the server rejected ONE of
     // these six loads for its (freshly refreshed) token, and that load was
     // lost for the session. StaleAuthRetry waits and retries, refreshing
     // only on the second strike — see its doc for the edge-log evidence.
     final auth = StaleAuthRetry(() => s.client.auth.refreshSession());
+    final recipesLoad = _safeLoad('boot-user-recipes',
+        () => auth.run(s.userRecipes.load));
     final results = await Future.wait<Object?>([
       _safeLoad('boot-profile', () async {
         final loaded = await auth.run(s.profile.load);
@@ -1036,9 +1118,17 @@ class HomeStore extends _HomeStoreBase
       _safeLoad('boot-favorites', () => auth.run(s.meals.loadFavorites)),
       _safeLoad('boot-weight-log', () => auth.run(s.tracking.loadWeightLog)),
       _safeLoad('boot-lifetime-stats', () => auth.run(s.lifetimeStats.load)),
-      _safeLoad('boot-user-recipes', () => auth.run(s.userRecipes.load)),
+      recipesLoad,
       _safeLoad('boot-training-plans', () => auth.run(s.trainingPlans.load)),
-      _safeLoad('boot-training-history', () => auth.run(s.trainingHistory.load)),
+      _safeLoad(
+        'boot-training-history',
+        () => auth.run(s.trainingHistory.load),
+      ),
+      _safeLoad('boot-recipe-photo-refs', () async {
+        // A later watermark includes history retained during the recipe load.
+        await recipesLoad;
+        return auth.run(s.userRecipes.loadPhotoReferences);
+      }),
     ]);
     if (_disposed) {
       _bootLoadInFlight = false;
@@ -1087,13 +1177,15 @@ class HomeStore extends _HomeStoreBase
       if (loadedFavorites != null) {
         favorites = vorher.favoritesVersion == _favoritesVersion
             ? _cappedFavorites(loadedFavorites)
-            : _cappedFavorites(_mergeRacedLoad(
-                local: favorites,
-                server: loadedFavorites,
-                baseline: vorher.favorites,
-                keyOf: (f) => f.id,
-                sort: (a, b) => b.addedAt.compareTo(a.addedAt),
-              ));
+            : _cappedFavorites(
+                _mergeRacedLoad(
+                  local: favorites,
+                  server: loadedFavorites,
+                  baseline: vorher.favorites,
+                  keyOf: (f) => f.id,
+                  sort: (a, b) => b.addedAt.compareTo(a.addedAt),
+                ),
+              );
       }
 
       final loadedWeightLog = results[3] as WeightLog?;
@@ -1120,16 +1212,15 @@ class HomeStore extends _HomeStoreBase
       }
 
       final loadedRecipes = results[5] as List<FitnessRecipe>?;
+      final loadedPhotoRefs = results[8] as Set<String>?;
+      _serverRecipePhotosAnswered = loadedPhotoRefs != null;
+      if (loadedPhotoRefs != null) {
+        _recipePhotoReferences = Set.unmodifiable(loadedPhotoRefs);
+      }
       if (loadedRecipes != null) {
         // The server named the account's recipes; from here the list is a
         // statement, not a guess ([userRecipesAuthoritative], P3-04b).
         _serverRecipesAnswered = true;
-        // ... unless the page is exhausted, in which case it names only the
-        // NEWEST ones and says nothing about the rest (review 2026-08-31, A).
-        // Recomputed per answered load, so a shrinking library becomes
-        // authoritative again.
-        _serverRecipesPageFull =
-            loadedRecipes.length >= UserRecipesSync.userRecipesLimit;
         _userRecipes = vorher.userRecipesVersion == _userRecipesVersion
             ? _mergeUserRecipes(loadedRecipes)
             : _mergeRacedLoad(
@@ -1143,10 +1234,15 @@ class HomeStore extends _HomeStoreBase
       final loadedTrainingHistory = results[7] as List<TrainingHistoryEntry>?;
       _trainingHistoryLoadFailed = loadedTrainingHistory == null;
       if (loadedTrainingHistory != null) {
-        _trainingHistory = vorher.trainingHistoryVersion == _trainingHistoryVersion
+        _trainingHistory =
+            vorher.trainingHistoryVersion == _trainingHistoryVersion
             ? loadedTrainingHistory
-            : _mergeRacedLoad(local: _trainingHistoryState, server: loadedTrainingHistory,
-                baseline: vorher.trainingHistory, keyOf: (entry) => entry.id);
+            : _mergeRacedLoad(
+                local: _trainingHistoryState,
+                server: loadedTrainingHistory,
+                baseline: vorher.trainingHistory,
+                keyOf: (entry) => entry.id,
+              );
       }
       final loadedTrainingPlans = results[6] as List<TrainingPlan>?;
       trainingPlansLoadFailed = loadedTrainingPlans == null;
@@ -1178,13 +1274,16 @@ class HomeStore extends _HomeStoreBase
     }
     if (healSave) _queueHealedProfileSave();
     // Valid training data remains cacheable even if the profile did not load.
-    if (results[7] != null) _cacheTrainingHistory();
-    if (results[6] != null) _cacheTrainingPlans();
+
     if (results[6] != null && !_outboxHydrationFailed) {
       await _discardInvalidTrainingRecovery();
     }
-    unawaited(_writeCacheSnapshot());
+    final conflict = await _writeCacheSnapshot(cacheVersionsBeforeLoad);
     _completeProfileReady();
+    // Re-read once: an old response cannot safely rebase over a newer commit.
+    if (conflict && allowConflictRetry && !_disposed && !_trainingSessionEnded) {
+      await _bootFromSupabase(allowConflictRetry: false);
+    }
   }
 
   // --- Live-goal write-back (F7-01, boot hook) -----------------------------
@@ -1221,46 +1320,35 @@ class HomeStore extends _HomeStoreBase
     if (s == null || _disposed) return;
     final healed = profile;
     dev.log(
-        'Live-Ziele nach Boot-Heilung zurueckgeschrieben '
-        '(${healed.dailyKcalGoal} kcal)',
-        name: 'eatova_sync');
+      'Live-Ziele nach Boot-Heilung zurueckgeschrieben '
+      '(${healed.dailyKcalGoal} kcal)',
+      name: 'eatova_sync',
+    );
     // Silent: an automatic correction at cold start must not raise the
     // "queued, will retry" snack the user did nothing to cause; the outbox
     // still carries the op.
-    unawaited(_syncOrQueue(
-      'Profil-Sync (Heilung)',
-      () => s.profile.save(healed),
-      () => SyncOp.profileUpsert(healed),
-      aufruferMeldetAusgang: true,
-    ));
+    unawaited(
+      _commitSyncIntents([
+        SyncOp.profileUpsert(healed),
+      ], notifyQueued: false).catchError((Object error, StackTrace stack) {
+        _reportSyncError('profile-healing', error, stack);
+        return SyncDelivery.queuedRetry;
+      }),
+    );
   }
 
-  /// Gap C: layers the freshly loaded server list OVER the local one instead
-  /// of replacing it.
-  ///
-  /// Plain assignment lost an own recipe whenever its outbox op never existed
-  /// or had fallen at the queue cap — and `_writeCacheSnapshot` then made the
-  /// loss permanent ("airplane mode -> recipe -> restart online -> gone").
-  ///
-  /// Same pattern as [_HomeStoreMealsPart._mergeArchiveMeals]: only MISSING
-  /// slugs are added, the server row wins for shared ones;
-  /// `_applyPendingOpsToState` puts undelivered local state back on top.
-  ///
-  /// Source is the LIVE `_userRecipes`, not the raw cache blob: hydration has
-  /// already applied pending ops, so a local deletion is done. Merging from
-  /// the blob would resurrect a recipe deleted inside the 400 ms debounce
-  /// window.
-  ///
-  /// Accepted: a recipe deleted on ANOTHER device survives here until deleted
-  /// locally too — the opposite error (own recipe silently gone) is worse.
+  /// A complete server snapshot removes only previously versioned rows.
   List<FitnessRecipe> _mergeUserRecipes(List<FitnessRecipe> fromServer) {
-    final serverSlugs = fromServer.map((r) => r.slug).toSet();
-    final nurLokal =
-        _userRecipes.where((r) => !serverSlugs.contains(r.slug)).toList();
-    if (nurLokal.isEmpty) return fromServer;
-    // Local first: the list shows own recipes on top, and the one just
-    // created is what the user is looking at.
-    return <FitnessRecipe>[...nurLokal, ...fromServer];
+    // A missing versioned row was deleted remotely; preserve unversioned
+    // legacy drafts that have never established a server identity.
+    final known = fromServer.map((recipe) => recipe.slug).toSet();
+    return [
+      ...fromServer,
+      ..._userRecipes.where(
+        (recipe) =>
+            recipe.serverRevision == null && !known.contains(recipe.slug),
+      ),
+    ];
   }
 
   /// F1-01 merge for a collection mutated while its load was in flight.
@@ -1290,12 +1378,18 @@ class HomeStore extends _HomeStoreBase
   }
 
   Future<T?> _safeLoad<T>(
-      String operation, Future<T?> Function() loader) async {
+    String operation,
+    Future<T?> Function() loader,
+  ) async {
     try {
       return await loader();
     } catch (e, st) {
-      dev.log('Eatova load failed ($operation)',
-          error: e, stackTrace: st, name: 'eatova_sync');
+      dev.log(
+        'Eatova load failed ($operation)',
+        error: e,
+        stackTrace: st,
+        name: 'eatova_sync',
+      );
       // `captureSyncFailure`, not `capture`: a cold start offline is the
       // designed cache-then-network flow, not an incident — and since the
       // expired-JWT retry the refresh itself can fail offline here too.
@@ -1392,6 +1486,7 @@ class HomeStore extends _HomeStoreBase
 
   @override
   void dispose() {
+    _disposeRecipeSaveHandles();
     _disposed = true;
     _healthGeneration++;
     if (!_healthSessionEnded) health.reset();
@@ -1407,9 +1502,36 @@ class HomeStore extends _HomeStoreBase
     // store's mirror state after the session it belonged to is gone. Discard,
     // not close — the instance may still serve a purge.
     _cache?.discardPendingWrites();
+    unawaited(_releaseOwnedCache());
     sync?.dispose();
     super.dispose();
   }
+  @visibleForTesting
+  Future<void> get storageReleased =>
+      _cacheReleaseFuture ?? Future<void>.value();
+
+  Future<void> _releaseOwnedCache() => _cacheReleaseFuture ??= (() async {
+    if (!_ownsCache) return;
+    try {
+      final opened = await _cacheOpening;
+      while (_cacheUsers.isNotEmpty) {
+        await Future.wait(List<Future<void>>.of(_cacheUsers));
+      }
+      await _localMutationTail;
+      await _trainingSessionTail;
+      await _cacheSnapshotInFlight;
+      await _outboxReplayFuture;
+      await (_cache ?? opened)?.releaseStorage();
+    } catch (error, stack) {
+      unawaited(
+        CrashReporter.captureSyncFailure(
+          error,
+          stack,
+          context: 'local-cache-release',
+        ),
+      );
+    }
+  })();
 }
 
 /// Versions and contents of the mirrored collections at the moment the boot
@@ -1434,21 +1556,21 @@ class _BootBaseline {
   });
 
   factory _BootBaseline.of(_HomeStoreBase store) => _BootBaseline(
-        profileVersion: store._profileVersion,
-        loggedMealsVersion: store._loggedMealsVersion,
-        favoritesVersion: store._favoritesVersion,
-        weightLogVersion: store._weightLogVersion,
-        lifetimeStatsVersion: store._lifetimeStatsVersion,
-        userRecipesVersion: store._userRecipesVersion,
-        trainingPlansVersion: store._trainingPlansVersion,
-        trainingHistoryVersion: store._trainingHistoryVersion,
-        loggedMeals: store.loggedMeals,
-        favorites: store.favorites,
-        weightLog: store.weightLog,
-        userRecipes: store._userRecipes,
-        trainingPlans: store.trainingPlans,
-        trainingHistory: store._trainingHistoryState,
-      );
+    profileVersion: store._profileVersion,
+    loggedMealsVersion: store._loggedMealsVersion,
+    favoritesVersion: store._favoritesVersion,
+    weightLogVersion: store._weightLogVersion,
+    lifetimeStatsVersion: store._lifetimeStatsVersion,
+    userRecipesVersion: store._userRecipesVersion,
+    trainingPlansVersion: store._trainingPlansVersion,
+    trainingHistoryVersion: store._trainingHistoryVersion,
+    loggedMeals: store.loggedMeals,
+    favorites: store.favorites,
+    weightLog: store.weightLog,
+    userRecipes: store._userRecipes,
+    trainingPlans: store.trainingPlans,
+    trainingHistory: store._trainingHistoryState,
+  );
 
   final int profileVersion;
   final int loggedMealsVersion;

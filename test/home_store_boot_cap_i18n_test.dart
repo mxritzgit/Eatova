@@ -25,6 +25,8 @@ import 'package:eatova/src/services/secure_cache_store.dart'
     show CacheKeyProvider;
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
+import 'support/sync_operation_fake.dart';
+
 // Review 2026-08-19, "home store core": the welcome gate hung on the untimed
 // end of the network boot, so a silent socket stranded the app in the
 // WelcomeScreen; the 5-item recents cap was local only, so favorite_meals grew
@@ -43,12 +45,31 @@ class _FakeServer {
 
   /// Every favorite_key hit by a DELETE on favorite_meals.
   final List<String> geloeschteFavoriten = <String>[];
+  final _favoriteState = <String, Map<String, dynamic>>{};
+  late final operations = SyncOperationFake(
+    meals: {}, weights: {}, favorites: _favoriteState, recipes: {},
+    readProfile: () => null, writeProfile: (_) {}, readStats: () => _statsRow,
+    incrementStats: (_, _, _) {}, recordDay: (_) {},
+  );
 
   http.Client client() => MockClient((req) async {
         if (schweigt) return Completer<http.Response>().future;
         final path = req.url.path;
         http.Response ok(Object body) => http.Response(jsonEncode(body), 200,
-            headers: const {'Content-Type': 'application/json'}, request: req);
+            headers: const {'content-type': 'application/json; charset=utf-8'}, request: req);
+        if (path.endsWith('/rpc/apply_sync_operation')) {
+          for (final row in favoriteRows) {
+            _favoriteState.putIfAbsent(row['favorite_key'] as String, () => row);
+          }
+          final params = (jsonDecode(req.body) as Map).cast<String, dynamic>();
+          final repeated = operations.receipts.containsKey(params['p_operation_id']);
+          final receipt = operations.apply(params);
+          if (!repeated && params['p_kind'] == 'favoriteDelete') {
+            geloeschteFavoriten.add(params['p_entity_id'] as String);
+          }
+          favoriteRows..clear()..addAll(_favoriteState.values);
+          return ok(receipt);
+        }
         // A ROW, not `[]`: `.select().single()` throws on an empty answer.
         if (path.contains('/rpc/')) return ok(_statsRow);
         if (path.endsWith('/favorite_meals')) {
@@ -264,7 +285,7 @@ void main() {
 
       // Six distinct meals -> the oldest falls out of the 5-item cap.
       for (var i = 0; i < 6; i++) {
-        s.store.addResultToDailyTotal(_meal('Gericht $i'));
+        await s.store.addResultToDailyTotal(_meal('Gericht $i'));
         await pumpEventQueue(times: 60);
       }
 
@@ -282,10 +303,10 @@ void main() {
       await s.store.profileReady.timeout(const Duration(seconds: 3));
       await pumpEventQueue(times: 60);
 
-      s.store.toggleFavorite(_meal('Liebling'));
+      await s.store.toggleFavorite(_meal('Liebling'));
       await pumpEventQueue(times: 60);
       for (var i = 0; i < 6; i++) {
-        s.store.addResultToDailyTotal(_meal('Gericht $i'));
+        await s.store.addResultToDailyTotal(_meal('Gericht $i'));
         await pumpEventQueue(times: 60);
       }
 
@@ -300,49 +321,49 @@ void main() {
 
   group('Befund 3 — die Bestaetigungen folgen der App-Sprache', () {
     // Clock pinned past the spring DST switch — the edge B5 covers.
-    void mitUhr(void Function() body) =>
+    Future<void> mitUhr(Future<void> Function() body) =>
         withClock(Clock.fixed(DateTime(2026, 3, 30, 10)), body);
 
-    test('Deutsch bleibt zeichengleich zum hartkodierten Bestand', () {
-      mitUhr(() {
+    test('Deutsch bleibt zeichengleich zum hartkodierten Bestand', () async {
+      await mitUhr(() async {
         final s = _setupOhneSync();
-        final id = s.store.addResultToDailyTotal(_meal('Bowl'));
+        final id = await s.store.addResultToDailyTotal(_meal('Bowl'));
 
-        s.store.updateLoggedMealDetails(id, slot: MealSlot.snack);
+        await s.store.updateLoggedMealDetails(id, slot: MealSlot.snack);
         expect(s.snacks.messages.last, 'Mahlzeit aktualisiert.');
 
-        s.store.updateLoggedMealDetails(id, day: DateTime(2026, 3, 29));
+        await s.store.updateLoggedMealDetails(id, day: DateTime(2026, 3, 29));
         expect(s.snacks.messages.last, 'Mahlzeit auf gestern verschoben.');
 
-        s.store.updateLoggedMealDetails(id, day: DateTime(2026, 3, 28));
+        await s.store.updateLoggedMealDetails(id, day: DateTime(2026, 3, 28));
         expect(s.snacks.messages.last, 'Mahlzeit auf den 28.3. verschoben.',
             reason: 'das intl-Skeleton Md liefert unter `de` genau das alte '
                 '„28.3."');
 
-        s.store.updateLoggedMealDetails(id, day: DateTime(2026, 3, 30));
+        await s.store.updateLoggedMealDetails(id, day: DateTime(2026, 3, 30));
         expect(s.snacks.messages.last, 'Mahlzeit auf heute verschoben.');
       });
     });
 
     test('Englisch bekommt englische Texte UND ein englisches Datumsformat',
-        () {
-      mitUhr(() {
+        () async {
+      await mitUhr(() async {
         final s = _setupOhneSync();
         s.store.setLocalizations(enL10n);
-        final id = s.store.addResultToDailyTotal(_meal('Bowl'));
+        final id = await s.store.addResultToDailyTotal(_meal('Bowl'));
 
-        s.store.updateLoggedMealDetails(id, slot: MealSlot.snack);
+        await s.store.updateLoggedMealDetails(id, slot: MealSlot.snack);
         expect(s.snacks.messages.last, 'Meal updated.');
 
-        s.store.updateLoggedMealDetails(id, day: DateTime(2026, 3, 29));
+        await s.store.updateLoggedMealDetails(id, day: DateTime(2026, 3, 29));
         expect(s.snacks.messages.last, 'Meal moved to yesterday.');
 
-        s.store.updateLoggedMealDetails(id, day: DateTime(2026, 3, 28));
+        await s.store.updateLoggedMealDetails(id, day: DateTime(2026, 3, 28));
         expect(s.snacks.messages.last, 'Meal moved to 3/28.',
             reason: 'die deutsche Praeposition („den") steckt im ARB-Text, '
                 'das Datum kommt locale-bewusst aus intl');
 
-        s.store.updateLoggedMealDetails(id, day: DateTime(2026, 3, 30));
+        await s.store.updateLoggedMealDetails(id, day: DateTime(2026, 3, 30));
         expect(s.snacks.messages.last, 'Meal moved to today.');
       });
     });

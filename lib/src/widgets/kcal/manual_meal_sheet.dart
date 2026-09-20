@@ -6,6 +6,7 @@ import '../../models/meal_analysis_result.dart';
 import '../../models/logged_meal.dart';
 import '../../models/model_limits.dart';
 import '../../theme/app_tokens.dart';
+import '../common/persistence_action.dart';
 import '../design/sheets.dart';
 import 'meal_slot_picker.dart';
 
@@ -23,10 +24,12 @@ Future<MealAnalysisResult?> showManualMealSheet(
   MealSlot? initialSlot,
   ValueChanged<MealSlot>? onSlotChanged,
   String? contextLabel,
+  PersistValueChanged<MealAnalysisResult>? onSave,
 }) {
   return showModalBottomSheet<MealAnalysisResult>(
     context: context,
     isScrollControlled: true,
+    showDragHandle: false,
     backgroundColor: Colors.transparent,
     barrierColor: context.t.scrim,
     builder: (sheetContext) => ManualMealSheet(
@@ -34,6 +37,7 @@ Future<MealAnalysisResult?> showManualMealSheet(
       initialSlot: initialSlot,
       onSlotChanged: onSlotChanged,
       contextLabel: contextLabel,
+      onSave: onSave,
     ),
   );
 }
@@ -45,6 +49,7 @@ class ManualMealSheet extends StatefulWidget {
     this.initialSlot,
     this.onSlotChanged,
     this.contextLabel,
+    this.onSave,
   });
 
   /// Prefill from the product search (nothing found -> search term).
@@ -52,6 +57,7 @@ class ManualMealSheet extends StatefulWidget {
   final MealSlot? initialSlot;
   final ValueChanged<MealSlot>? onSlotChanged;
   final String? contextLabel;
+  final PersistValueChanged<MealAnalysisResult>? onSave;
 
   @override
   State<ManualMealSheet> createState() => _ManualMealSheetState();
@@ -183,10 +189,20 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
     return clampMealCaloriesKcal(kcal100 * gramm / 100);
   }
 
-  void _save() {
-    if (!_isValid) return;
+  bool _saving = false;
+
+  Future<void> _save() async {
+    if (!_isValid || _saving) return;
+    final result = _ergebnis();
+    setState(() => _saving = true);
+    final saved = await tryPersistChange(context, () async {
+      await widget.onSave?.call(result);
+    });
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (!saved) return;
     HapticFeedback.selectionClick();
-    Navigator.of(context).pop(_ergebnis());
+    Navigator.of(context).pop(result);
   }
 
   /// Builds the result from [MealAnalysisResult.manualEntry] and only patches
@@ -226,7 +242,12 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => CommitDismissGuard(
+    pending: _saving,
+    child: _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
     final mediaQuery = MediaQuery.of(context);
@@ -475,7 +496,7 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
                 width: double.infinity,
                 child: FilledButton.icon(
                   key: const ValueKey('manual-meal-save'),
-                  onPressed: _isValid ? _save : null,
+                  onPressed: _isValid && !_saving ? _save : null,
                   icon: const Icon(Icons.check_rounded, size: 18),
                   // No styleFrom: fill, ink, disabled tone and shape come from
                   // the app-wide filledButtonTheme (review F8-10).

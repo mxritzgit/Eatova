@@ -8,11 +8,22 @@ mixin _HomeStoreMealsPart
         _HomeStoreSyncPart,
         _HomeStoreTrackingPart,
         _HomeStoreProfilePart {
+  Future<void> _favoriteMutationTail = Future<void>.value();
+
+  Future<T> _serializeFavoriteMutation<T>(Future<T> Function() action) {
+    final future = _favoriteMutationTail.then((_) => action());
+    _favoriteMutationTail = future.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace __) {},
+    );
+    return future;
+  }
+
   // --- On-demand loading of days outside the boot window --------------------
   // Boot loads only the 35-day window (MealsSync.loggedMealsWindowDays);
   // picking an older day loads exactly that day and merges it into
   // loggedMeals. Such days stay in memory (session-local), never reach the
-  // durable LocalCache (see _cacheableLoggedMeals), and drop out on the next
+  // durable LocalCache during the read, and drop out on the next
   // window load — the merge source is always the server state.
   /// Archive days already loaded (localDayKey), to avoid repeat queries.
   /// Cleared on a window refresh.
@@ -58,7 +69,7 @@ mixin _HomeStoreMealsPart
       _loadedArchiveDays.add(key);
       _mutate(() => _mergeArchiveMeals(rows));
       // No _cacheLoggedMeals(): archive days stay in memory (see
-      // _cacheableLoggedMeals), the durable cache holds only the boot window.
+      // durable writes happen only for confirmed local changes or hydration.
     } catch (e, st) {
       // Read error with no outbox safety net (nothing to replay): classified
       // message via the existing pattern, raw error to dev.log/reporter.
@@ -76,8 +87,9 @@ mixin _HomeStoreMealsPart
   /// inside a _mutate block.
   void _mergeArchiveMeals(List<LoggedMeal> rows) {
     final known = loggedMeals.map((m) => m.id).toSet();
-    final missing =
-        rows.where((m) => !known.contains(m.id)).toList(growable: false);
+    final missing = rows
+        .where((m) => !known.contains(m.id))
+        .toList(growable: false);
     if (missing.isNotEmpty) {
       // Restore the server order (logged_at descending) after the merge.
       loggedMeals = [...loggedMeals, ...missing]
@@ -88,11 +100,11 @@ mixin _HomeStoreMealsPart
 
   // --- Meals ----------------------------------------------------------------
 
-  String addResultToDailyTotal(
+  Future<String> addResultToDailyTotal(
     MealAnalysisResult result, {
     MealSlot? slot,
     DateTime? foodDate,
-  }) {
+  }) => _serializeFavoriteMutation(() async {
     final targetDate = DateUtils.dateOnly(foodDate ?? selectedFoodDate);
     final entry = LoggedMeal(
       id: uuidV4(),
@@ -100,81 +112,52 @@ mixin _HomeStoreMealsPart
       loggedAt: _timestampForFoodDate(targetDate),
       forcedSlot: slot,
     );
-    final targetIsToday = _isSameFoodDate(targetDate, clock.now());
-    HapticFeedback.lightImpact();
-    _mutate(() {
-      lifetimeStats = lifetimeStats.incrementMeals();
-      if (targetIsToday) {
-        // Logging streak: today counts immediately (optimistic, idempotent
-        // per day). Back-fills for past days do not count.
-        lifetimeStats = lifetimeStats.recordTrackedDay(clock.now());
-      }
-      _rememberRecent(result);
-      loggedMeals = [entry, ...loggedMeals];
-      _invalidateTrendWindow();
-      if (targetIsToday) {
-        dailyConsumedKcal = consumedKcalForFoodDate(clock.now());
-        macroProgress = macroProgressForFoodDate(clock.now());
-      }
-    });
-    if (targetIsToday) {
-      // Today is tracked now: drop today's 20:00 reminder and re-open the
-      // 7-day window from tomorrow. The optimistic recordTrackedDay above is
-      // enough for the planner.
-      unawaited(_rescheduleStreakReminder());
-    }
-    _cacheLoggedMeals();
-    _cacheFavorites(); // _rememberRecent mutated favorites/recents
-    if (sync == null) return entry.id;
-    // DATA-7: NO rollback — the meal stays in the diary and is caught up as an
-    // outbox op (including stats/streak counting on replay success).
-    //
-    // Gap B: goes through the same op-first path as every other write; the
-    // former dedicated then/catchError never created an op on a hanging
-    // request.
-    _syncOrQueue(
-      'Mahlzeit',
-      () => sync!.meals.insertLoggedMeal(entry),
-      () => SyncOp.mealInsert(entry, trackDay: targetIsToday),
-      onDelivered: () {
-        // Exactly the side effects _performOp does itself on replay, so they
-        // run only after LIVE delivery.
-        _queueStatsDelta(meals: 1);
-        // The MEAL's day, not the delivery's: this callback runs after the
-        // network round trip. A log at 23:59:58 would otherwise book p_day =
-        // D+1, which has no source row in logged_meals —
-        // record_tracking_day throws EX_DAY_NOT_LOGGED, day D stays uncounted
-        // and the op retries until the drop deadline.
-        if (targetIsToday) _recordTrackingDay(day: targetDate);
+    final today = _isSameFoodDate(targetDate, clock.now());
+    final recentId = FavoriteMeal.idFor(result);
+    final old = favorites.where((f) => f.id == recentId).firstOrNull;
+    final recent = FavoriteMeal(
+      id: recentId,
+      result: result,
+      addedAt: clock.now(),
+      pinned: old?.pinned ?? false,
+    );
+    final before = [recent, ...favorites.where((f) => f.id != recentId)];
+    final after = _cappedFavorites(before);
+    final intents = [
+      SyncOp.mealInsert(entry, trackDay: today),
+      SyncOp.favoriteUpsert(recent),
+      for (final dropped in before)
+        if (!dropped.pinned && !after.any((f) => f.id == dropped.id))
+          SyncOp.favoriteDelete(dropped.id),
+    ];
+    await _commitSyncIntents(
+      intents,
+      publish: () {
+        lifetimeStats = lifetimeStats.incrementMeals();
+        if (today) lifetimeStats = lifetimeStats.recordTrackedDay(targetDate);
+        favorites = after;
+        loggedMeals = [entry, ...loggedMeals.where((m) => m.id != entry.id)];
+        _refreshMealTotals();
       },
     );
+    HapticFeedback.lightImpact();
+    if (today) unawaited(_rescheduleStreakReminder());
     return entry.id;
+  });
+
+  void _refreshMealTotals() {
+    _invalidateTrendWindow();
+    dailyConsumedKcal = consumedKcalForFoodDate(clock.now());
+    macroProgress = macroProgressForFoodDate(clock.now());
   }
 
-  void updateLoggedMealResult(String id, MealAnalysisResult scaled) {
-    final index = loggedMeals.indexWhere((m) => m.id == id);
-    if (index == -1) return;
-    final target = loggedMeals[index];
-    final updated = target.copyWith(result: scaled);
-    _mutate(() {
-      final nextMeals = [...loggedMeals];
-      nextMeals[index] = updated;
-      loggedMeals = nextMeals;
-      _invalidateTrendWindow();
-      if (selectedFoodDateIsToday) {
-        dailyConsumedKcal = consumedKcalForFoodDate(clock.now());
-        macroProgress = macroProgressForFoodDate(clock.now());
-      }
-    });
-    _cacheLoggedMeals();
-    // Queued, the update is a full upsert on the same client UUID, so it lands
-    // correctly even while the original insert is still queued (FIFO per
-    // entity).
-    _syncOrQueue(
-      'Mahlzeit-Update',
-      () => sync!.meals.updateLoggedMeal(updated),
-      () => SyncOp.mealUpsert(updated),
-    );
+  Future<void> updateLoggedMealResult(
+    String id,
+    MealAnalysisResult scaled,
+  ) async {
+    final target = loggedMeals.where((meal) => meal.id == id).firstOrNull;
+    if (target == null) throw StateError('Meal no longer exists');
+    await _applyLoggedMealDetails(target.copyWith(result: scaled));
   }
 
   /// Edit sheet: changes portion ([result]), slot ([slot]) and/or day ([day])
@@ -191,12 +174,12 @@ mixin _HomeStoreMealsPart
   /// accepted.
   ///
   /// Returns the updated meal, or null if [id] no longer exists.
-  LoggedMeal? updateLoggedMealDetails(
+  Future<LoggedMeal?> updateLoggedMealDetails(
     String id, {
     MealAnalysisResult? result,
     MealSlot? slot,
     DateTime? day,
-  }) {
+  }) async {
     final index = loggedMeals.indexWhere((m) => m.id == id);
     if (index == -1) return null;
     final previous = loggedMeals[index];
@@ -212,8 +195,13 @@ mixin _HomeStoreMealsPart
         // so the slot heuristic (loggedAt.hour) stays stable.
         final local = previous.loggedAt.toLocal();
         updated = updated.copyWith(
-          loggedAt: DateTime(targetDay.year, targetDay.month, targetDay.day,
-              local.hour, local.minute),
+          loggedAt: DateTime(
+            targetDay.year,
+            targetDay.month,
+            targetDay.day,
+            local.hour,
+            local.minute,
+          ),
           localDay: targetKey,
         );
         dayChanged = true;
@@ -223,7 +211,7 @@ mixin _HomeStoreMealsPart
     if (result == null && slot == null && !dayChanged) return previous;
 
     HapticFeedback.lightImpact();
-    _applyLoggedMealDetails(updated, recordToday: movedToToday);
+    await _applyLoggedMealDetails(updated, recordToday: movedToToday);
     final message = dayChanged
         ? _l10n.mealMovedTo(_moveDayLabel(updated.loggedAt))
         : _l10n.mealUpdated;
@@ -233,7 +221,7 @@ mixin _HomeStoreMealsPart
       tone: SnackTone.positive,
       action: SnackBarAction(
         label: _l10n.commonUndo,
-        onPressed: () => _revertLoggedMealUpdate(previous),
+        onPressed: () => _undoMutation(() => _revertLoggedMealUpdate(previous)),
       ),
     );
     return updated;
@@ -242,67 +230,37 @@ mixin _HomeStoreMealsPart
   /// Undo of the edit sheet: restores the previous meal state via the same
   /// outbox-safe upsert. No-op if the meal was deleted meanwhile. The streak
   /// is NOT rolled back (no server decrement, see updateLoggedMealDetails).
-  void _revertLoggedMealUpdate(LoggedMeal previous) {
-    _applyLoggedMealDetails(previous);
-  }
+  Future<void> _revertLoggedMealUpdate(LoggedMeal previous) =>
+      _applyLoggedMealDetails(previous);
 
   /// Shared apply core of update + undo: replaces the row, restores the server
   /// order, recomputes TODAY's counters/macros (a move can affect today even
   /// while another day is shown), mirrors into the LocalCache and syncs as an
   /// idempotent upsert.
-  void _applyLoggedMealDetails(LoggedMeal updated, {bool recordToday = false}) {
-    final index = loggedMeals.indexWhere((m) => m.id == updated.id);
-    if (index == -1) return;
-    _mutate(() {
-      final next = [...loggedMeals];
-      next[index] = updated;
-      next.sort((a, b) => b.loggedAt.compareTo(a.loggedAt));
-      loggedMeals = next;
-      _invalidateTrendWindow();
-      dailyConsumedKcal = consumedKcalForFoodDate(clock.now());
-      macroProgress = macroProgressForFoodDate(clock.now());
-      if (recordToday) {
-        // Optimistic like a fresh log; the trackingDay op queued below adopts
-        // the authoritative row when it is delivered.
-        lifetimeStats = lifetimeStats.recordTrackedDay(clock.now());
-      }
-    });
-    _cacheLoggedMeals();
-    if (recordToday) unawaited(_rescheduleStreakReminder());
-    // As in the live log and the replay: the day comes from the same source
-    // that goes into the server row (logged_meals.local_day), which is what
-    // the RPC's source proof compares against.
-    final trackedDay =
-        recordToday ? DateTime.parse(updated.effectiveLocalDay) : null;
-    // NO `onDelivered: _recordTrackingDay` here — the queued op below is the
-    // ONE path that books the day, live and offline alike. Both together fired
-    // record_tracking_day TWICE per live move (C-01): the callback runs in the
-    // PATCH's `then`, and the `_onSyncSuccess` two lines further down starts
-    // the replay of the queued twin in the SAME microtask. Two concurrent RPCs,
-    // two lifetimeStats adoptions — and the callback's answer then filtered the
-    // outbox (`_clearQueuedTrackingDay`) WHILE that replay was walking it,
-    // which cost the replay cursor the op that moved up.
-    _syncOrQueue(
-      'Mahlzeit-Update',
-      () => sync!.meals.updateLoggedMeal(updated),
-      () => SyncOp.mealUpsert(updated),
-    );
-    if (trackedDay != null) {
-      // The day gets its own op: SyncOp.mealUpsert carries no `trackDay` flag
-      // (unlike mealInsert), so nothing else would ever book it. Enqueued AFTER
-      // the upsert, so the FIFO replay writes the row first — P1-05:
-      // record_tracking_day needs a logged_meals row for the day
-      // (EX_DAY_NOT_LOGGED -> P0001), and a move ONTO today is exactly the case
-      // where today may still be empty.
-      //
-      // It carries the live path too, not just the offline one: the PATCH's
-      // success runs `_onSyncSuccess` -> `_replayOutbox`, which plays this op
-      // once the row exists — one RPC, in order. And it is the only form that
-      // survives what a delivery callback cannot reach: offline, entity already
-      // busy, a request that never answers, a kill in between. Coalesced per
-      // day.
-      _queueTrackingDay(trackedDay);
+  Future<void> _applyLoggedMealDetails(
+    LoggedMeal updated, {
+    bool recordToday = false,
+  }) async {
+    if (!loggedMeals.any((m) => m.id == updated.id)) {
+      throw StateError('Meal no longer exists');
     }
+    final update = SyncOp.mealUpsert(updated);
+    await _commitSyncIntents(
+      [
+        update,
+        if (recordToday) SyncOp.trackingDay(updated.effectiveLocalDay)
+            .withPredecessor(update.operationId),
+      ],
+      publish: () {
+        loggedMeals = [updated, ...loggedMeals.where((m) => m.id != updated.id)]
+          ..sort((a, b) => b.loggedAt.compareTo(a.loggedAt));
+        if (recordToday) {
+          lifetimeStats = lifetimeStats.recordTrackedDay(clock.now());
+        }
+        _refreshMealTotals();
+      },
+    );
+    if (recordToday) unawaited(_rescheduleStreakReminder());
   }
 
   /// Short label for the target day of the move confirmation.
@@ -324,47 +282,51 @@ mixin _HomeStoreMealsPart
     return _l10n.dayLabelOnDate(DateFormat.Md(_l10n.localeName).format(target));
   }
 
-  void removeLoggedMeal(String id) {
-    final matches = loggedMeals.where((m) => m.id == id);
-    final removed = matches.isEmpty ? null : matches.first;
-    HapticFeedback.lightImpact();
-    _mutate(() {
-      loggedMeals = loggedMeals.where((m) => m.id != id).toList();
-      _invalidateTrendWindow();
-      if (selectedFoodDateIsToday) {
-        dailyConsumedKcal = consumedKcalForFoodDate(clock.now());
-        macroProgress = macroProgressForFoodDate(clock.now());
-      }
-    });
-    _cacheLoggedMeals();
-    _syncOrQueue(
-      'Mahlzeit-Delete',
-      () => sync!.meals.deleteLoggedMeal(id),
-      () => SyncOp.mealDelete(id),
+  Future<void> removeLoggedMeal(String id) async {
+    final removed = loggedMeals.where((m) => m.id == id).firstOrNull;
+    await _commitSyncIntents(
+      [SyncOp.mealDelete(id)],
+      publish: () {
+        loggedMeals = loggedMeals.where((m) => m.id != id).toList();
+        _refreshMealTotals();
+      },
     );
-    if (removed != null) {
-      _showUndoSnackBar(_l10n.commonMealDeleted, () => _restoreLoggedMeal(removed));
-    }
+    HapticFeedback.lightImpact();
+    if (removed == null) return;
+    Future<void>? restore;
+    _showUndoSnackBar(
+      _l10n.commonMealDeleted,
+      () => _undoMutation(() => restore ??= _restoreLoggedMeal(removed)),
+    );
   }
 
-  void _restoreLoggedMeal(LoggedMeal meal) {
-    if (loggedMeals.any((m) => m.id == meal.id)) return;
-    _mutate(() {
-      loggedMeals = [meal, ...loggedMeals];
-      _invalidateTrendWindow();
-      if (selectedFoodDateIsToday) {
-        dailyConsumedKcal = consumedKcalForFoodDate(clock.now());
-        macroProgress = macroProgressForFoodDate(clock.now());
-      }
-    });
-    _cacheLoggedMeals();
-    // Restore counts NO stats again -> mealUpsert, not mealInsert. If the
-    // delete is still queued, FIFO puts the upsert behind it, so the row ends
-    // up existing again.
-    _syncOrQueue(
-      'Mahlzeit-Restore',
-      () => sync!.meals.insertLoggedMeal(meal),
-      () => SyncOp.mealUpsert(meal),
+  Future<void> _restoreLoggedMeal(LoggedMeal meal) async {
+    // A delivered delete is terminal for its UUID. Undo restores the content
+    // under a new identity without counting another lifetime logging event.
+    final restored = LoggedMeal(
+      id: uuidV4(),
+      result: meal.result,
+      loggedAt: meal.loggedAt,
+      forcedSlot: meal.forcedSlot,
+      localDay: meal.localDay,
+    );
+    await _commitSyncIntents(
+      [SyncOp.mealUpsert(restored)],
+      publish: () {
+        loggedMeals = [
+          restored,
+          ...loggedMeals.where((m) => m.id != meal.id && m.id != restored.id),
+        ];
+        _refreshMealTotals();
+      },
+    );
+  }
+
+  void _undoMutation(Future<void> Function() action) {
+    unawaited(
+      action().catchError((Object error, StackTrace stack) {
+        _reportSyncError('undo', error, stack);
+      }),
     );
   }
 
@@ -372,57 +334,12 @@ mixin _HomeStoreMealsPart
 
   static const int _maxAutoRecents = 5;
 
-  void _rememberRecent(MealAnalysisResult result) {
-    final id = FavoriteMeal.idFor(result);
-    final existing = favorites.where((f) => f.id == id);
-    final wasPinned = existing.isNotEmpty && existing.first.pinned;
-    final entry = FavoriteMeal(
-      id: id,
-      result: result,
-      addedAt: clock.now(),
-      pinned: wasPinned,
-    );
-    final vorDemDeckel = [entry, ...favorites.where((f) => f.id != id)];
-    final nachDemDeckel = _cappedFavorites(vorDemDeckel);
-    favorites = nachDemDeckel;
-    _syncOrQueue(
-      'Favorit',
-      () => sync!.meals.upsertFavorite(entry),
-      () => SyncOp.favoriteUpsert(entry),
-    );
-    _forgetDroppedRecents(vorDemDeckel, nachDemDeckel);
-  }
-
-  /// Propagates the local recents cap to the server (review 2026-08-19).
-  ///
-  /// [_cappedFavorites] only dropped the oldest auto-recent from the in-memory
-  /// list; the server row stayed and favorite_meals grew with every distinct
-  /// meal, so the next cold start brought the whole history back.
-  ///
-  /// Pinned favorites are outside the recents quota and cannot be hit by the
-  /// cap; the `pinned` filter is kept anyway — an unrequested deletion is the
-  /// costlier error.
-  ///
-  /// No undo snack: recents are an automatic suggestion list, not user
-  /// content, so their turnover is expected.
-  void _forgetDroppedRecents(
-      List<FavoriteMeal> vorher, List<FavoriteMeal> nachher) {
-    if (vorher.length == nachher.length) return;
-    final behalten = nachher.map((f) => f.id).toSet();
-    for (final gefallen in vorher) {
-      if (gefallen.pinned || behalten.contains(gefallen.id)) continue;
-      _syncOrQueue(
-        'Favorit-Delete',
-        () => sync!.meals.deleteFavorite(gefallen.id),
-        () => SyncOp.favoriteDelete(gefallen.id),
-      );
-    }
-  }
-
   List<FavoriteMeal> _cappedFavorites(List<FavoriteMeal> source) {
     final pinned = source.where((f) => f.pinned).toList(growable: false);
-    final recents =
-        source.where((f) => !f.pinned).take(_maxAutoRecents).toList();
+    final recents = source
+        .where((f) => !f.pinned)
+        .take(_maxAutoRecents)
+        .toList();
     return [...pinned, ...recents];
   }
 
@@ -432,88 +349,62 @@ mixin _HomeStoreMealsPart
     return matches.isNotEmpty && matches.first.pinned;
   }
 
-  void toggleFavorite(MealAnalysisResult result) {
-    HapticFeedback.selectionClick();
-    final id = FavoriteMeal.idFor(result);
-    final existing = favorites.where((f) => f.id == id);
-    final isPinned = existing.isNotEmpty && existing.first.pinned;
-
-    if (isPinned) {
-      final downgraded = existing.first.copyWith(pinned: false);
-      final next = _cappedFavorites(
-        [...favorites.where((f) => f.id != id), downgraded]
-          ..sort((a, b) => b.addedAt.compareTo(a.addedAt)),
-      );
-      final survived = next.any((f) => f.id == id);
-      _mutate(() => favorites = next);
-      _cacheFavorites();
-      if (survived) {
-        _syncOrQueue(
-          'Favorit',
-          () => sync!.meals.upsertFavorite(downgraded),
-          () => SyncOp.favoriteUpsert(downgraded),
+  Future<void> toggleFavorite(MealAnalysisResult result) =>
+      _serializeFavoriteMutation(() async {
+        final id = FavoriteMeal.idFor(result);
+        final old = favorites.where((f) => f.id == id).firstOrNull;
+        final entry =
+            old?.copyWith(pinned: !old.pinned) ??
+            FavoriteMeal(
+              id: id,
+              result: result,
+              addedAt: clock.now(),
+              pinned: true,
+            );
+        final next = _cappedFavorites(
+          [entry, ...favorites.where((f) => f.id != id)]
+            ..sort((a, b) => b.addedAt.compareTo(a.addedAt)),
         );
-      } else {
-        _syncOrQueue(
-          'Favorit-Delete',
-          () => sync!.meals.deleteFavorite(id),
-          () => SyncOp.favoriteDelete(id),
-        );
-      }
-    } else {
-      final entry = existing.isNotEmpty
-          ? existing.first.copyWith(pinned: true)
-          : FavoriteMeal(
-              id: id, result: result, addedAt: clock.now(), pinned: true);
-      _mutate(() {
-        favorites = [entry, ...favorites.where((f) => f.id != id)];
+        final survives = next.any((f) => f.id == id);
+        await _commitSyncIntents([
+          survives ? SyncOp.favoriteUpsert(entry) : SyncOp.favoriteDelete(id),
+          for (final old in favorites)
+            if (!old.pinned && old.id != id && !next.any((f) => f.id == old.id))
+              SyncOp.favoriteDelete(old.id),
+        ], publish: () => favorites = next);
+        HapticFeedback.selectionClick();
       });
-      _cacheFavorites();
-      _syncOrQueue(
-        'Favorit',
-        () => sync!.meals.upsertFavorite(entry),
-        () => SyncOp.favoriteUpsert(entry),
-      );
-    }
-  }
 
-  void removeFavorite(String id) {
-    final matches = favorites.where((f) => f.id == id);
-    final removed = matches.isEmpty ? null : matches.first;
-    _mutate(() {
-      favorites = favorites.where((f) => f.id != id).toList();
-    });
-    _cacheFavorites();
-    _syncOrQueue(
-      'Favorit-Delete',
-      () => sync!.meals.deleteFavorite(id),
-      () => SyncOp.favoriteDelete(id),
-    );
-    if (removed != null) {
-      _showUndoSnackBar(
-          _l10n.commonFavoriteRemoved, () => _restoreFavorite(removed));
-    }
-  }
+  Future<void> removeFavorite(String id) =>
+      _serializeFavoriteMutation(() async {
+        final removed = favorites.where((f) => f.id == id).firstOrNull;
+        if (removed == null) return;
+        await _commitSyncIntents(
+          [SyncOp.favoriteDelete(id)],
+          publish: () {
+            favorites = favorites.where((f) => f.id != id).toList();
+          },
+        );
+        _showUndoSnackBar(
+          _l10n.commonFavoriteRemoved,
+          () => _undoMutation(() => _restoreFavorite(removed)),
+        );
+      });
 
-  void _restoreFavorite(FavoriteMeal fav) {
-    if (favorites.any((f) => f.id == fav.id)) return;
-    _mutate(() {
-      favorites = fav.pinned
-          ? [fav, ...favorites]
-          : _cappedFavorites([fav, ...favorites]);
-    });
-    _cacheFavorites();
-    _syncOrQueue(
-      'Favorit-Restore',
-      () => sync!.meals.upsertFavorite(fav),
-      () => SyncOp.favoriteUpsert(fav),
-    );
-  }
+  Future<void> _restoreFavorite(FavoriteMeal favorite) =>
+      _serializeFavoriteMutation(() async {
+        await _commitSyncIntents(
+          [SyncOp.favoriteUpsert(favorite)],
+          publish: () {
+            favorites = [
+              favorite,
+              ...favorites.where((f) => f.id != favorite.id),
+            ];
+          },
+        );
+      });
 
   // --- Own recipes ----------------------------------------------------------
-
-  final Map<String, int> _recipeMutationVersions = {};
-  final Map<String, int> _recipeConfirmedVersions = {};
 
   /// Saves an editor draft only after delivery or durable outbox acceptance.
   Future<SyncDelivery> saveUserRecipe(FitnessRecipe recipe) =>
@@ -524,11 +415,18 @@ mixin _HomeStoreMealsPart
       _saveRecipeDraft(recipe, requireExisting: true);
 
   Future<SyncDelivery> _saveRecipeDraft(
-    FitnessRecipe recipe, {required bool requireExisting}
-  ) async {
-    if (_disposed || _trainingSessionEnded || !recipe.userCreated ||
-        !recipe.slug.startsWith('user_') || recipe.slug.length > 200 ||
-        recipe.title.trim().isEmpty || recipe.title.runes.length > 300 ||
+    FitnessRecipe recipe, {
+    required bool requireExisting,
+    int? expectedRevision,
+    void Function(SyncOp operation)? observeOperation,
+  }) async {
+    if (_disposed ||
+        _trainingSessionEnded ||
+        !recipe.userCreated ||
+        !recipe.slug.startsWith('user_') ||
+        recipe.slug.length > 200 ||
+        recipe.title.trim().isEmpty ||
+        recipe.title.runes.length > 300 ||
         recipe.description.runes.length > 4000 ||
         recipe.portion.runes.length > 1000 ||
         recipe.ingredients.runes.length > 20000 ||
@@ -536,41 +434,53 @@ mixin _HomeStoreMealsPart
         recipe.imageAsset.runes.length > 2048 ||
         recipe.categories.length > 32 ||
         recipe.categories.join(',').runes.length > 2000 ||
-        recipe.caloriesKcal < 0 || recipe.caloriesKcal > 10000 ||
-        recipe.estimatedGrams < 0 || recipe.estimatedGrams > 10000 ||
-        [recipe.proteinG, recipe.carbsG, recipe.fatG].any((n) => n < 0 || n > 1000)) {
+        recipe.caloriesKcal < 0 ||
+        recipe.caloriesKcal > 10000 ||
+        recipe.estimatedGrams < 0 ||
+        recipe.estimatedGrams > 10000 ||
+        [
+          recipe.proteinG,
+          recipe.carbsG,
+          recipe.fatG,
+        ].any((n) => n < 0 || n > 1000)) {
       throw StateError('Recipe cannot be saved');
     }
-    if (requireExisting && (!_userRecipes.any((r) => r.slug == recipe.slug && r.userCreated) ||
-        _pendingRecipeDeletes.contains(recipe.slug))) {
+    if (requireExisting &&
+        (!_userRecipes.any((r) => r.slug == recipe.slug && r.userCreated) ||
+            _pendingRecipeDeletes.contains(recipe.slug))) {
       throw StateError('Recipe is no longer available');
     }
-    final validated = FitnessRecipe.fromRow(recipe.toRow()).copyWith(
-      professionalHint: recipe.professionalHint,
+    final validated = FitnessRecipe.fromRow(
+      recipe.toRow(),
+    ).copyWith(professionalHint: recipe.professionalHint);
+    final cancelsPendingDelete =
+        !requireExisting && _pendingRecipeDeletes.contains(recipe.slug);
+    final pendingDeleteRevision = cancelsPendingDelete
+        ? _userRecipes.where((r) => r.slug == recipe.slug).firstOrNull?.serverRevision
+        : null;
+    final operation = SyncOp.recipeUpsert(
+      validated,
+      expectedRevision:
+          expectedRevision ??
+          recipe.serverRevision ??
+          pendingDeleteRevision ??
+          (_userRecipes.any((r) => r.slug == recipe.slug) ? null : 0),
     );
-    final version = (_recipeMutationVersions[recipe.slug] ?? 0) + 1;
-    _recipeMutationVersions[recipe.slug] = version;
-    final delivery = await _confirmMutation(
-      'Recipe', SyncOp.recipeUpsert(validated),
-      () => sync!.userRecipes.upsert(validated),
+    observeOperation?.call(operation);
+    return _commitSyncIntents(
+      [operation],
+      notifyQueued: false,
+      publish: () {
+        if (cancelsPendingDelete) {
+          _pendingRecipeDeletes = {..._pendingRecipeDeletes}..remove(recipe.slug);
+        }
+        _userRecipes = [
+          validated,
+          ..._userRecipes.where((r) => r.slug != recipe.slug),
+        ];
+      },
     );
-    if ((_recipeConfirmedVersions[recipe.slug] ?? 0) < version) {
-      _recipeConfirmedVersions[recipe.slug] = version;
-      _mutate(() {
-        _userRecipes = [validated, ..._userRecipes.where((r) => r.slug != recipe.slug)];
-      });
-      _cacheUserRecipes();
-    }
-    return delivery;
   }
-
-  // Gap A: own recipes were the only user collection WITHOUT a local
-  // write-through; the outbox was their only safety net. Both mutations
-  // therefore mirror into the cache BEFORE the network write.
-  //
-  // The cache stays the second, INDEPENDENT net: an outbox op can be
-  // delivered, dropped at the cap or unreadable, and the boot merge (gap C)
-  // keeps the server list from overwriting the cached state.
 
   /// Creates an own recipe and reports what happened to it.
   ///
@@ -578,51 +488,49 @@ mixin _HomeStoreMealsPart
   /// store's generic queue hint then wiped it. The screen now awaits this
   /// result and says both in ONE sentence, while the store withholds its own
   /// hint ([aufruferMeldetAusgang]).
-  Future<SyncDelivery> createUserRecipe(FitnessRecipe recipe) {
-    _recipeConfirmedVersions[recipe.slug] = (_recipeMutationVersions[recipe.slug] ?? 0) + 1;
-    _recipeMutationVersions[recipe.slug] = _recipeConfirmedVersions[recipe.slug]!;
-    _mutate(() {
-      _userRecipes = [
-        recipe,
-        ..._userRecipes.where((r) => r.slug != recipe.slug)
-      ];
-      // A fresh confirmation supersedes this recipe's pending deletion.
-      if (_pendingRecipeDeletes.contains(recipe.slug)) {
-        _pendingRecipeDeletes = <String>{..._pendingRecipeDeletes}
-          ..remove(recipe.slug);
-      }
-    });
-    _cacheUserRecipes();
-    return _syncOrQueue(
-      'Rezept',
-      () => sync!.userRecipes.upsert(recipe),
-      () => SyncOp.recipeUpsert(recipe),
-      aufruferMeldetAusgang: true,
-    );
+  Future<SyncDelivery> createUserRecipe(FitnessRecipe recipe) =>
+      saveUserRecipe(recipe);
+
+  Future<SyncDelivery> deleteUserRecipe(String slug) => _commitSyncIntents(
+    [
+      SyncOp.recipeDelete(
+        slug,
+        expectedRevision: _userRecipes
+            .where((r) => r.slug == slug)
+            .firstOrNull
+            ?.serverRevision,
+      ),
+    ],
+    notifyQueued: false,
+    publish: () {
+      _userRecipes = _userRecipes.where((r) => r.slug != slug).toList();
+      _pendingRecipeDeletes = {..._pendingRecipeDeletes}..remove(slug);
+    },
+  );
+
+  Future<RecipeHistoryPage> loadUserRecipeHistory({
+    String? slug,
+    int? beforeRevision,
+  }) async {
+    _ensureMutationActive();
+    final service = sync;
+    if (service == null) throw StateError('Recipe history unavailable');
+    final result = await UserRecipeReads(
+      service.client,
+      service.userId,
+    ).loadHistory(slug: slug, beforeRevision: beforeRevision);
+    _ensureMutationActive();
+    return result;
   }
 
-  /// Deletes an own recipe. Reports the outcome like [createUserRecipe] — an
-  /// unbacked "deleted" would be the same error in reverse.
-  Future<SyncDelivery> deleteUserRecipe(String slug) {
-    _recipeConfirmedVersions[slug] = (_recipeMutationVersions[slug] ?? 0) + 1;
-    _recipeMutationVersions[slug] = _recipeConfirmedVersions[slug]!;
-    _mutate(() {
-      _userRecipes = _userRecipes.where((r) => r.slug != slug).toList();
-      // The undo window is over once the delete is real: drop the flag with
-      // the row, so the set cannot fill up with stale slugs.
-      if (_pendingRecipeDeletes.contains(slug)) {
-        _pendingRecipeDeletes = <String>{..._pendingRecipeDeletes}
-          ..remove(slug);
-      }
-    });
-    _cacheUserRecipes();
-    return _syncOrQueue(
-      'Rezept-Delete',
-      () => sync!.userRecipes.delete(slug),
-      () => SyncOp.recipeDelete(slug),
-      aufruferMeldetAusgang: true,
-    );
-  }
+  Future<SyncDelivery> restoreUserRecipe(
+    FitnessRecipe recipe, {
+    required int expectedRevision,
+  }) => _saveRecipeDraft(
+    recipe,
+    requireExisting: false,
+    expectedRevision: expectedRevision,
+  );
 }
 
 /// One-time init of the `intl` date symbols; without it `DateFormat.Md('de')`

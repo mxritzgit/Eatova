@@ -146,6 +146,14 @@
 	     Status. UNUserNotificationCenter-Delegate wird im AppDelegate gesetzt. -->
 	<key>UNUserNotificationCenterDelegateConfigured</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>processing</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.eatova.app.sync</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -32,7 +32,7 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 `.github/workflows/security.yml`; die Bedienung steht in
 `supabase/SCHEMA_STATE_2026-06-07.md`.
 
-## Migrationen (46)
+## Migrationen (49)
 
 1. `20260516150000_create_profiles.sql`
 2. `20260516160000_app_data_schema.sql`
@@ -80,8 +80,11 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 44. `20260915090000_database_privilege_boundaries.sql`
 45. `20260915091000_ai_provider_budgets.sql`
 46. `20260915093000_ai_usage_export.sql`
+47. `20260920100000_offline_sync_versions.sql`
+48. `20260920100500_training_plan_incarnations.sql`
+49. `20260920101000_sync_operation_receipts.sql`
 
-## Tabellen in `public` (19)
+## Tabellen in `public` (24)
 
 | Tabelle | RLS | `authenticated` | `service_role` | Policies | angelegt in |
 |---|---|---|---|---|---|
@@ -98,9 +101,14 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 | `logged_meals` | an | `delete`, `insert`, `select`, `update` | `delete`, `insert`, `maintain`, `references`, `select`, `trigger`, `truncate`, `update` | 4 | `20260516160000_app_data_schema.sql` |
 | `planned_meals` | an | `select` | `delete`, `insert`, `maintain`, `references`, `select`, `trigger`, `truncate`, `update` | 1 | `20260910182000_meal_plans.sql` |
 | `profiles` | an | `select` | `delete`, `insert`, `maintain`, `references`, `select`, `trigger`, `truncate`, `update` | 3 | `20260516150000_create_profiles.sql` |
+| `recipe_revisions` | an | — | `delete`, `insert`, `maintain`, `references`, `select`, `trigger`, `truncate`, `update` | 0 | `20260920100000_offline_sync_versions.sql` |
+| `recipe_sync_heads` | an | — | `delete`, `insert`, `maintain`, `references`, `select`, `trigger`, `truncate`, `update` | 0 | `20260920100000_offline_sync_versions.sql` |
 | `shopping_checks` | an | `select` | `delete`, `insert`, `maintain`, `references`, `select`, `trigger`, `truncate`, `update` | 1 | `20260910182000_meal_plans.sql` |
+| `sync_entity_deletions` | an | — | `delete`, `insert`, `maintain`, `references`, `select`, `trigger`, `truncate`, `update` | 0 | `20260920100000_offline_sync_versions.sql` |
+| `sync_operation_receipts` | an | — | `delete`, `insert`, `maintain`, `references`, `select`, `trigger`, `truncate`, `update` | 0 | `20260920100000_offline_sync_versions.sql` |
 | `training_history` | an | `select` | `delete`, `insert`, `maintain`, `references`, `select`, `trigger`, `truncate`, `update` | 1 | `20260910181000_training_history.sql` |
 | `training_history_deletions` | an | `select` | `delete`, `insert`, `maintain`, `references`, `select`, `trigger`, `truncate`, `update` | 1 | `20260910181000_training_history.sql` |
+| `training_plan_heads` | an | — | `delete`, `insert`, `maintain`, `references`, `select`, `trigger`, `truncate`, `update` | 0 | `20260920100500_training_plan_incarnations.sql` |
 | `training_plans` | an | `delete`, `insert`, `select`, `update` | `delete`, `insert`, `maintain`, `references`, `select`, `trigger`, `truncate`, `update` | 4 | `20260908130000_training_plans.sql` |
 | `user_recipes` | an | `delete`, `insert`, `select`, `update` | `delete`, `insert`, `maintain`, `references`, `select`, `trigger`, `truncate`, `update` | 4 | `20260530091000_user_recipes.sql` |
 | `weight_log` | an | `delete`, `insert`, `select`, `update` | `delete`, `insert`, `maintain`, `references`, `select`, `trigger`, `truncate`, `update` | 4 | `20260516160000_app_data_schema.sql` |
@@ -185,33 +193,45 @@ Policies umzuschreiben. `normalisiereAusdruck` in
 `test/migrations/migration_schema.dart` liest beide Schreibweisen
 als dieselbe Bedingung; der Waechter prueft beide Varianten.
 
-## Funktionen in `public` (34)
+## Funktionen in `public` (49)
 
 | Funktion | Rechte des | `search_path` | EXECUTE fuer | aus |
 |---|---|---|---|---|
+| `apply_recipe_mutation` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260920100000_offline_sync_versions.sql` |
+| `apply_sync_operation` | **Eigentuemers** | `pg_catalog` | `authenticated`, `service_role` | `20260920101000_sync_operation_receipts.sql` |
+| `apply_training_plan_mutation` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260920100500_training_plan_incarnations.sql` |
 | `claim_chat_quota` | **Eigentuemers** | `public` | `service_role` | `20260908120000_chat_quota_refund_day.sql` |
 | `consume_edge_rate_limit` | **Eigentuemers** | `public, extensions` | `service_role` | `20260518000100_fix_edge_rate_limit_pgcrypto_search_path.sql` |
 | `consume_edge_rate_limits` | **Eigentuemers** | `public, extensions` | `service_role` | `20260901100000_batch_edge_rate_limits.sql` |
 | `create_chat_session` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260517170000_chat_sessions.sql` |
+| `create_training_plan_head` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260920100500_training_plan_incarnations.sql` |
 | `delete_account` | **Eigentuemers** | `''` | `authenticated`, `service_role` | `20260815120000_delete_account_reauth.sql` |
 | `delete_chat_session` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260517170000_chat_sessions.sql` |
 | `delete_training_history` | **Eigentuemers** | `pg_catalog` | `authenticated`, `service_role` | `20260910181000_training_history.sql` |
-| `eat_planned_meal` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260910182000_meal_plans.sql` |
+| `eat_planned_meal` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260920101000_sync_operation_receipts.sql` |
 | `enforce_user_row_cap` | **Eigentuemers** | `public` | `service_role` | `20260829120000_row_caps_and_hardening.sql` |
 | `ensure_default_chat_session` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260609120000_chat_rpc_least_privilege.sql` |
 | `get_chat_quota_today` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260808210000_chat_quota_honesty.sql` |
+| `guard_training_plan_incarnation` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260920100500_training_plan_incarnations.sql` |
 | `handle_new_user_profile` | **Eigentuemers** | `public` | `service_role` | `20260516150000_create_profiles.sql` |
 | `handle_new_user_stats` | **Eigentuemers** | `public` | `service_role` | `20260516160000_app_data_schema.sql` |
 | `increment_lifetime_stats` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260814120000_audit_rls_guard.sql` |
 | `is_valid_planned_meal` | Aufrufers | `public` | `authenticated`, `service_role` | `20260910182000_meal_plans.sql` |
 | `is_valid_training_exercise_ids` | Aufrufers | `pg_catalog` | `authenticated`, `service_role` | `20260910181000_training_history.sql` |
-| `is_valid_training_history` | Aufrufers | `pg_catalog` | `authenticated`, `service_role` | `20260910181000_training_history.sql` |
+| `is_valid_training_history` | Aufrufers | `pg_catalog` | `authenticated`, `service_role` | `20260920100500_training_plan_incarnations.sql` |
 | `is_valid_training_plan` | Aufrufers | `pg_catalog` | `authenticated`, `service_role` | `20260908130000_training_plans.sql` |
 | `list_chat_sessions` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260517170000_chat_sessions.sql` |
 | `load_meal_plan` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260910182000_meal_plans.sql` |
+| `load_recipe_history` | **Eigentuemers** | `pg_catalog` | `authenticated`, `service_role` | `20260920100000_offline_sync_versions.sql` |
+| `load_recipe_page` | **Eigentuemers** | `pg_catalog` | `authenticated`, `service_role` | `20260920100000_offline_sync_versions.sql` |
+| `load_recipe_photo_refs` | **Eigentuemers** | `pg_catalog` | `authenticated`, `service_role` | `20260920100000_offline_sync_versions.sql` |
+| `load_sync_operation_receipt` | **Eigentuemers** | `pg_catalog` | `authenticated`, `service_role` | `20260920101000_sync_operation_receipts.sql` |
+| `load_training_plan_head` | **Eigentuemers** | `pg_catalog` | `authenticated`, `service_role` | `20260920100500_training_plan_incarnations.sql` |
 | `prune_chat_quota_usage` | **Eigentuemers** | `public` | `service_role` | `20260901100200_chat_quota_usage_retention.sql` |
 | `prune_edge_rate_limits` | **Eigentuemers** | `public` | `service_role` | `20260901100200_chat_quota_usage_retention.sql` |
 | `recipe_ingredients_valid` | Aufrufers | `''` | `authenticated`, `service_role` | `20260910180000_recipe_ingredients.sql` |
+| `recipe_revision_after` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260920100000_offline_sync_versions.sql` |
+| `recipe_revision_before` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260920100000_offline_sync_versions.sql` |
 | `record_tracking_day` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260811120000_lifetime_stats_integrity.sql` |
 | `record_training_history` | **Eigentuemers** | `pg_catalog` | `authenticated`, `service_role` | `20260910181000_training_history.sql` |
 | `refund_chat_quota` | **Eigentuemers** | `public` | `service_role` | `20260808210000_chat_quota_honesty.sql` |
@@ -219,10 +239,13 @@ als dieselbe Bedingung; der Waechter prueft beide Varianten.
 | `rename_chat_session` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260517170000_chat_sessions.sql` |
 | `reserve_ai_provider_call` | **Eigentuemers** | `''` | `service_role` | `20260915091000_ai_provider_budgets.sql` |
 | `rls_auto_enable` | Aufrufers | `public` | `service_role` | `20260814120000_audit_rls_guard.sql` |
-| `save_planned_meal` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260910182000_meal_plans.sql` |
+| `save_planned_meal` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260920101000_sync_operation_receipts.sql` |
 | `save_shopping_check` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260910182000_meal_plans.sql` |
 | `set_updated_at` | Aufrufers | `public` | `service_role` | `20260516150000_create_profiles.sql` |
+| `sync_operation_current_state` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260920101000_sync_operation_receipts.sql` |
 | `touch_chat_session` | **Eigentuemers** | `public` | `service_role` | `20260517170000_chat_sessions.sql` |
+| `training_incarnation` | Aufrufers | `pg_catalog` | `service_role` | `20260920100500_training_plan_incarnations.sql` |
+| `training_plan_head_json` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260920100500_training_plan_incarnations.sql` |
 
 `security definer` heisst: der Rumpf laeuft mit den Rechten des
 Eigentuemers und damit an RLS vorbei. Jede solche Funktion pinnt

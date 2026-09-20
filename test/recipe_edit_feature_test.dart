@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
+import 'package:eatova/src/services/recipe_save_result.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -24,6 +25,8 @@ const original = FitnessRecipe(
   estimatedGrams: 340,
   categories: ['Eigene', 'Vegan'],
   userCreated: true,
+  serverRevision: 7,
+  conflictOf: 'user_original-version',
 );
 
 Finder field(String name) => find.byKey(ValueKey('recipe-create-$name'));
@@ -40,7 +43,10 @@ Future<void> openEditor(
     RecipeDetailScreen(
       recipe: original,
       onAddMeal: (_, _) {},
-      onEdit: save ?? (_) async => SyncDelivery.delivered,
+      onEdit: (recipe) async => RecipeSaveResult.detached(
+        recipe,
+        await (save?.call(recipe) ?? Future.value(SyncDelivery.delivered)),
+      ),
       isSessionCurrent: session,
     ),
     locale: const Locale('en'),
@@ -98,6 +104,8 @@ void main() {
       expect(saved.single.categories, original.categories);
       expect(saved.single.description, original.description);
       expect(saved.single.professionalHint, original.professionalHint);
+      expect(saved.single.serverRevision, original.serverRevision);
+      expect(saved.single.conflictOf, original.conflictOf);
       expect(saved.single.preparation, 'Steam rice.\nStir in beans.');
       expect(saved.single.caloriesKcal, 520);
       expect(previousDiarySnapshot.caloriesKcal, 480);

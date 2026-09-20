@@ -170,7 +170,7 @@ void main() {
         authRepository: repo,
         onOpenGoals: () {},
         onSignOut: () async {},
-        onDeleteAccount: () async {},
+        onDeleteAccount: (deleteRemote, _) async => deleteRemote(),
         onExportData: () async => '{}',
       ),
       brightness: Brightness.light,

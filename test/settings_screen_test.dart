@@ -77,7 +77,7 @@ void main() {
                   authRepository: authRepository,
                   onOpenGoals: onOpenGoals,
                   onSignOut: onSignOut,
-                  onDeleteAccount: onDeleteAccount,
+                  onDeleteAccount: onDeleteAccount == null ? null : (deleteRemote, _) async { await deleteRemote(); await onDeleteAccount(); },
                   onExportData: onExportData,
                 ),
               ),
@@ -324,7 +324,7 @@ void main() {
     // Without the word the button is not armed — not even a mail goes out.
     await tester.tap(find.text('Code anfordern'));
     await tester.pumpAndSettle();
-    expect(repo.passwordResets, isEmpty);
+    expect(repo.accountDeletionCodes, isEmpty);
     expect(geloescht, 0);
 
     // A WRONG word does not arm it either.
@@ -335,7 +335,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Code anfordern'));
     await tester.pumpAndSettle();
-    expect(repo.passwordResets, isEmpty);
+    expect(repo.accountDeletionCodes, isEmpty);
     expect(geloescht, 0);
 
     // With the word the code goes out (lowercase is enough: the hurdle
@@ -349,7 +349,7 @@ void main() {
     await tester.tap(find.text('Code anfordern'));
     await tester.pumpAndSettle();
 
-    expect(repo.passwordResets, <String>['jonas@example.com']);
+    expect(repo.accountDeletionCodes, <String>['jonas@example.com']);
     expect(geloescht, 0, reason: 'das getippte Wort allein loescht nichts');
     expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
     expect(

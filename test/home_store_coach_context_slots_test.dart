@@ -43,33 +43,57 @@ MealAnalysisResult _meal(
   required String protein,
   required String carbs,
   required String fat,
-}) =>
-    MealAnalysisResult(
-      mealName: name,
-      caloriesKcal: kcal,
-      estimatedGrams: 300,
-      kcalPer100G: kcal / 3,
-      protein: protein,
-      carbs: carbs,
-      fat: fat,
-      confidence: 'Mittel',
-      portionNotes: 'Test.',
-      sourceLabel: 'Foto-KI',
-    );
+}) => MealAnalysisResult(
+  mealName: name,
+  caloriesKcal: kcal,
+  estimatedGrams: 300,
+  kcalPer100G: kcal / 3,
+  protein: protein,
+  carbs: carbs,
+  fat: fat,
+  confidence: 'Mittel',
+  portionNotes: 'Test.',
+  sourceLabel: 'Foto-KI',
+);
 
 /// Five dinners summing to 980 kcal, P 62 g, C 90 g, F 35 g. Protein carries a
 /// decimal (5 x 12.4) so the rounding path is exercised.
 final List<MealAnalysisResult> _fuenfAbendessen = [
-  _meal('Hähnchenbrust mit Reis und Brokkoli',
-      kcal: 200, protein: '12.4 g', carbs: '18 g', fat: '7 g'),
-  _meal('Vollkornbrot mit Hüttenkäse und Tomate',
-      kcal: 200, protein: '12.4 g', carbs: '18 g', fat: '7 g'),
-  _meal('Lachsfilet mit Süßkartoffel und Spinat',
-      kcal: 200, protein: '12.4 g', carbs: '18 g', fat: '7 g'),
-  _meal('Griechischer Joghurt mit Honig und Walnüssen',
-      kcal: 200, protein: '12.4 g', carbs: '18 g', fat: '7 g'),
-  _meal('Proteinshake mit Banane',
-      kcal: 180, protein: '12.4 g', carbs: '18 g', fat: '7 g'),
+  _meal(
+    'Hähnchenbrust mit Reis und Brokkoli',
+    kcal: 200,
+    protein: '12.4 g',
+    carbs: '18 g',
+    fat: '7 g',
+  ),
+  _meal(
+    'Vollkornbrot mit Hüttenkäse und Tomate',
+    kcal: 200,
+    protein: '12.4 g',
+    carbs: '18 g',
+    fat: '7 g',
+  ),
+  _meal(
+    'Lachsfilet mit Süßkartoffel und Spinat',
+    kcal: 200,
+    protein: '12.4 g',
+    carbs: '18 g',
+    fat: '7 g',
+  ),
+  _meal(
+    'Griechischer Joghurt mit Honig und Walnüssen',
+    kcal: 200,
+    protein: '12.4 g',
+    carbs: '18 g',
+    fat: '7 g',
+  ),
+  _meal(
+    'Proteinshake mit Banane',
+    kcal: 180,
+    protein: '12.4 g',
+    carbs: '18 g',
+    fat: '7 g',
+  ),
 ];
 
 const _abendessenZeile =
@@ -86,25 +110,28 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('coachContext: Makros pro Mahlzeit-Slot', () {
-    test('fuenf Abendessen -> eine Slot-Zeile mit Summen und Eintragszahl', () {
-      withClock(Clock.fixed(_heute), () {
+    test(
+      'fuenf Abendessen -> eine Slot-Zeile mit Summen und Eintragszahl',
+      () async {
+        await withClock(Clock.fixed(_heute), () async {
+          final store = _store();
+          for (final m in _fuenfAbendessen) {
+            await store.addResultToDailyTotal(m, slot: MealSlot.dinner);
+          }
+
+          final ctx = store.coachContext;
+          // The line names ONLY the filled slot and runs straight into the food
+          // list: no zero-kcal slots, no empty sentence.
+          expect(ctx, contains('$_slotPrefix$_abendessenZeile. $_listePrefix'));
+        });
+      },
+    );
+
+    test('steht NACH den offenen Makros und VOR der Essensliste', () async {
+      await withClock(Clock.fixed(_heute), () async {
         final store = _store();
         for (final m in _fuenfAbendessen) {
-          store.addResultToDailyTotal(m, slot: MealSlot.dinner);
-        }
-
-        final ctx = store.coachContext;
-        // The line names ONLY the filled slot and runs straight into the food
-        // list: no zero-kcal slots, no empty sentence.
-        expect(ctx, contains('$_slotPrefix$_abendessenZeile. $_listePrefix'));
-      });
-    });
-
-    test('steht NACH den offenen Makros und VOR der Essensliste', () {
-      withClock(Clock.fixed(_heute), () {
-        final store = _store();
-        for (final m in _fuenfAbendessen) {
-          store.addResultToDailyTotal(m, slot: MealSlot.dinner);
+          await store.addResultToDailyTotal(m, slot: MealSlot.dinner);
         }
 
         final ctx = store.coachContext;
@@ -113,13 +140,16 @@ void main() {
         final liste = ctx.indexOf(_listePrefix);
         expect(makros, greaterThanOrEqualTo(0));
         expect(slots, greaterThan(makros));
-        expect(liste, greaterThan(slots),
-            reason: 'die Server-Kappung darf nur die Essensliste treffen');
+        expect(
+          liste,
+          greaterThan(slots),
+          reason: 'die Server-Kappung darf nur die Essensliste treffen',
+        );
       });
     });
 
-    test('ohne Mahlzeiten fehlt die Zeile komplett', () {
-      withClock(Clock.fixed(_heute), () {
+    test('ohne Mahlzeiten fehlt die Zeile komplett', () async {
+      await withClock(Clock.fixed(_heute), () async {
         final ctx = _store().coachContext;
         expect(ctx, isNot(contains(_slotPrefix)));
         expect(ctx, isNot(contains(_listePrefix)));
@@ -128,94 +158,136 @@ void main() {
       });
     });
 
-    test('mehrere Slots in Tagesreihenfolge, Singular bei einem Eintrag', () {
-      withClock(Clock.fixed(_heute), () {
-        final store = _store();
-        // In Tagesreihenfolge geloggt — und deshalb steht `loggedMeals`
-        // (newest first) genau ANDERSHERUM als die Zeile lesen soll.
-        //
-        // Der Fall lief bis 2026-09-01 in der umgekehrten Reihenfolge und war
-        // damit wertlos: das Abendessen zuerst zu loggen bringt das Fruehstueck
-        // in `loggedMeals` nach vorn, also entsprach die reine
-        // Einfuegereihenfolge zufaellig schon der Slot-Reihenfolge — die
-        // Sortierung nach `MealSlot.values` liess sich ersatzlos streichen,
-        // ohne dass der Fall rot wurde (Mutationslauf T4).
-        // 12.6 + 12.6 = 25.2 -> 25 g: grams are rounded.
-        store.addResultToDailyTotal(
-          _meal('Haferflocken mit Milch',
-              kcal: 220, protein: '12.6 g', carbs: '25 g', fat: '6 g'),
-          slot: MealSlot.breakfast,
-        );
-        store.addResultToDailyTotal(
-          _meal('Banane und Quark',
-              kcal: 200, protein: '12.6 g', carbs: '25 g', fat: '6 g'),
-          slot: MealSlot.breakfast,
-        );
-        store.addResultToDailyTotal(
-          _meal('Pasta Bolognese',
-              kcal: 610, protein: '38 g', carbs: '70 g', fat: '20 g'),
-          slot: MealSlot.lunch,
-        );
-        for (final m in _fuenfAbendessen) {
-          store.addResultToDailyTotal(m, slot: MealSlot.dinner);
-        }
-        expect(
-          store.loggedMeals.map((m) => m.slot).toSet().toList(),
-          <MealSlot>[MealSlot.dinner, MealSlot.lunch, MealSlot.breakfast],
-          reason: 'Vorbedingung: die Einfuegereihenfolge muss der '
-              'Slot-Reihenfolge WIDERSPRECHEN, sonst prueft die Zusicherung '
-              'unten nichts',
-        );
+    test(
+      'mehrere Slots in Tagesreihenfolge, Singular bei einem Eintrag',
+      () async {
+        await withClock(Clock.fixed(_heute), () async {
+          final store = _store();
+          // In Tagesreihenfolge geloggt — und deshalb steht `loggedMeals`
+          // (newest first) genau ANDERSHERUM als die Zeile lesen soll.
+          //
+          // Der Fall lief bis 2026-09-01 in der umgekehrten Reihenfolge und war
+          // damit wertlos: das Abendessen zuerst zu loggen bringt das Fruehstueck
+          // in `loggedMeals` nach vorn, also entsprach die reine
+          // Einfuegereihenfolge zufaellig schon der Slot-Reihenfolge — die
+          // Sortierung nach `MealSlot.values` liess sich ersatzlos streichen,
+          // ohne dass der Fall rot wurde (Mutationslauf T4).
+          // 12.6 + 12.6 = 25.2 -> 25 g: grams are rounded.
+          await store.addResultToDailyTotal(
+            _meal(
+              'Haferflocken mit Milch',
+              kcal: 220,
+              protein: '12.6 g',
+              carbs: '25 g',
+              fat: '6 g',
+            ),
+            slot: MealSlot.breakfast,
+          );
+          await store.addResultToDailyTotal(
+            _meal(
+              'Banane und Quark',
+              kcal: 200,
+              protein: '12.6 g',
+              carbs: '25 g',
+              fat: '6 g',
+            ),
+            slot: MealSlot.breakfast,
+          );
+          await store.addResultToDailyTotal(
+            _meal(
+              'Pasta Bolognese',
+              kcal: 610,
+              protein: '38 g',
+              carbs: '70 g',
+              fat: '20 g',
+            ),
+            slot: MealSlot.lunch,
+          );
+          for (final m in _fuenfAbendessen) {
+            await store.addResultToDailyTotal(m, slot: MealSlot.dinner);
+          }
+          expect(
+            store.loggedMeals.map((m) => m.slot).toSet().toList(),
+            <MealSlot>[MealSlot.dinner, MealSlot.lunch, MealSlot.breakfast],
+            reason:
+                'Vorbedingung: die Einfuegereihenfolge muss der '
+                'Slot-Reihenfolge WIDERSPRECHEN, sonst prueft die Zusicherung '
+                'unten nichts',
+          );
 
-        expect(
-          store.coachContext,
-          contains('${_slotPrefix}Frühstück 420 kcal (P 25 g, K 50 g, F 12 g, '
+          expect(
+            store.coachContext,
+            contains(
+              '${_slotPrefix}Frühstück 420 kcal (P 25 g, K 50 g, F 12 g, '
               '2 Einträge); Mittagessen 610 kcal (P 38 g, K 70 g, F 20 g, '
-              '1 Eintrag); $_abendessenZeile. $_listePrefix'),
-        );
-      });
-    });
-
-    test('Nachtrag fuer gestern zaehlt nicht in die heutigen Slot-Summen', () {
-      withClock(Clock.fixed(_heute), () {
-        final store = _store();
-        store.addResultToDailyTotal(
-          _meal('Pizza', kcal: 900, protein: '40 g', carbs: '100 g', fat: '35 g'),
-          slot: MealSlot.dinner,
-          foodDate: _gestern,
-        );
-        store.addResultToDailyTotal(
-          _meal('Müsli', kcal: 300, protein: '10 g', carbs: '50 g', fat: '8 g'),
-          slot: MealSlot.breakfast,
-        );
-
-        final ctx = store.coachContext;
-        expect(
-          ctx,
-          contains('${_slotPrefix}Frühstück 300 kcal (P 10 g, K 50 g, F 8 g, '
-              '1 Eintrag). $_listePrefix'),
-        );
-        expect(ctx, isNot(contains('Abendessen 900')));
-      });
-    });
-
-    test('typischer Kontext mit fuenf Abendessen bleibt unter dem Server-Cap',
-        () {
-      withClock(Clock.fixed(_heute), () {
-        final store = _store();
-        for (final m in _fuenfAbendessen) {
-          store.addResultToDailyTotal(m, slot: MealSlot.dinner);
-        }
-        final ctx = store.coachContext;
-        expect(ctx.length, lessThan(kCoachContextCapChars),
-            reason: 'Kontext hat ${ctx.length} Zeichen: $ctx');
-      });
-    });
+              '1 Eintrag); $_abendessenZeile. $_listePrefix',
+            ),
+          );
+        });
+      },
+    );
 
     test(
-        'auch mit vier vollen Slots und langer Essensliste ueberlebt die '
-        'Slot-Zeile die Server-Kappung', () {
-      withClock(Clock.fixed(_heute), () {
+      'Nachtrag fuer gestern zaehlt nicht in die heutigen Slot-Summen',
+      () async {
+        await withClock(Clock.fixed(_heute), () async {
+          final store = _store();
+          await store.addResultToDailyTotal(
+            _meal(
+              'Pizza',
+              kcal: 900,
+              protein: '40 g',
+              carbs: '100 g',
+              fat: '35 g',
+            ),
+            slot: MealSlot.dinner,
+            foodDate: _gestern,
+          );
+          await store.addResultToDailyTotal(
+            _meal(
+              'Müsli',
+              kcal: 300,
+              protein: '10 g',
+              carbs: '50 g',
+              fat: '8 g',
+            ),
+            slot: MealSlot.breakfast,
+          );
+
+          final ctx = store.coachContext;
+          expect(
+            ctx,
+            contains(
+              '${_slotPrefix}Frühstück 300 kcal (P 10 g, K 50 g, F 8 g, '
+              '1 Eintrag). $_listePrefix',
+            ),
+          );
+          expect(ctx, isNot(contains('Abendessen 900')));
+        });
+      },
+    );
+
+    test(
+      'typischer Kontext mit fuenf Abendessen bleibt unter dem Server-Cap',
+      () async {
+        await withClock(Clock.fixed(_heute), () async {
+          final store = _store();
+          for (final m in _fuenfAbendessen) {
+            await store.addResultToDailyTotal(m, slot: MealSlot.dinner);
+          }
+          final ctx = store.coachContext;
+          expect(
+            ctx.length,
+            lessThan(kCoachContextCapChars),
+            reason: 'Kontext hat ${ctx.length} Zeichen: $ctx',
+          );
+        });
+      },
+    );
+
+    test('auch mit vier vollen Slots und langer Essensliste ueberlebt die '
+        'Slot-Zeile die Server-Kappung', () async {
+      await withClock(Clock.fixed(_heute), () async {
         final store = _store();
         // Worst realistic case: all four slots filled, more entries than
         // `maxFoods`, over-long names, four-digit kcal.
@@ -223,9 +295,14 @@ void main() {
             'Überbackene Süßkartoffel-Gnocchi mit Gorgonzola und Rucola';
         for (final slot in MealSlot.values) {
           for (var i = 0; i < 3; i++) {
-            store.addResultToDailyTotal(
-              _meal(langerName,
-                  kcal: 1234, protein: '123.4 g', carbs: '234 g', fat: '99 g'),
+            await store.addResultToDailyTotal(
+              _meal(
+                langerName,
+                kcal: 1234,
+                protein: '123.4 g',
+                carbs: '234 g',
+                fat: '99 g',
+              ),
               slot: slot,
             );
           }
@@ -234,15 +311,21 @@ void main() {
         final ctx = store.coachContext;
         // Exactly what the server keeps after truncation.
         final behalten = ctx.substring(
-            0, ctx.length.clamp(0, kCoachContextCapChars));
+          0,
+          ctx.length.clamp(0, kCoachContextCapChars),
+        );
         final slotStart = ctx.indexOf(_slotPrefix);
         final slotEnde = ctx.indexOf('. $_listePrefix', slotStart);
         expect(slotStart, greaterThanOrEqualTo(0));
         expect(slotEnde, greaterThan(slotStart));
         final slotZeile = ctx.substring(slotStart, slotEnde + 1);
-        expect(behalten, contains(slotZeile),
-            reason: 'Slot-Zeile (${slotZeile.length} Zeichen, endet bei '
-                '${slotEnde + 1}) muss vollstaendig vor dem Cap stehen');
+        expect(
+          behalten,
+          contains(slotZeile),
+          reason:
+              'Slot-Zeile (${slotZeile.length} Zeichen, endet bei '
+              '${slotEnde + 1}) muss vollstaendig vor dem Cap stehen',
+        );
         expect(slotZeile, contains('Frühstück 3702 kcal'));
         expect(slotZeile, contains('Snacks 3702 kcal'));
         expect(slotZeile, contains('3 Einträge'));
@@ -251,11 +334,18 @@ void main() {
         // Ohne den Deckel waechst genau die Zeile, die dem Server-Cap am
         // naechsten steht (Mutationslauf T4: `maxFoods` liess sich beliebig
         // hochsetzen, ohne einen Fall rot zu machen).
-        expect(ctx, endsWith(' ….'),
-            reason: 'die gekuerzte Essensliste endet mit dem Auslassungs-'
-                'Zeichen; ohne Deckel stuende dort der letzte Name');
-        expect(RegExp(r'kcal\)').allMatches(ctx).length, 10,
-            reason: 'genau zehn Namen, nicht alle zwoelf');
+        expect(
+          ctx,
+          endsWith(' ….'),
+          reason:
+              'die gekuerzte Essensliste endet mit dem Auslassungs-'
+              'Zeichen; ohne Deckel stuende dort der letzte Name',
+        );
+        expect(
+          RegExp(r'kcal\)').allMatches(ctx).length,
+          10,
+          reason: 'genau zehn Namen, nicht alle zwoelf',
+        );
       });
     });
 

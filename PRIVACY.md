@@ -332,8 +332,21 @@ Exceptions:
   in the data export. Separate global counters contain only daily totals and no
   account identifier; the same request-triggered cleanup applies to them.
 
-No other data has an automatic expiry: everything else is kept until you delete
-it or delete your account.
+Recipe version history preserves previous versions and deleted recipes so you
+can inspect and restore them. Deleting the current recipe removes it from the
+active collection; its history remains until account deletion. Recipe history
+is included in the in-app data export. Recipe pictures remain on the device.
+
+Sync operation receipts retain request fingerprints, identifiers and original
+results to prevent duplicate changes after an uncertain connection. Depending
+on the operation, a result can include recipe content, a planned meal or
+counters. These records and deletion markers have no automatic expiry and are
+removed with the account. Operational replay metadata is available through an
+authorized data-access request; the in-app export contains the user-data sections
+described above and reports sections it could not fully retrieve.
+
+Other data has no automatic expiry and is kept until you delete it or delete
+your account.
 
 Training-history deletion receipts retain only the account/history identifiers
 needed to reject stale replays; they remain until account deletion. Local

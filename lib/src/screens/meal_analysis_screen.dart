@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
+
+import '../widgets/common/persistence_action.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
@@ -50,12 +54,12 @@ class MealAnalysisScreen extends StatelessWidget {
     DateTime? selectedDate,
     ValueChanged<DateTime>? onDateSelected,
     this.dayLoading = false,
-    String Function(MealAnalysisResult, MealSlot)? onAddMeal,
-    void Function(String id, MealAnalysisResult scaled)? onUpdateMeal,
+    FutureOr<String> Function(MealAnalysisResult, MealSlot)? onAddMeal,
+    FutureOr<void> Function(String id, MealAnalysisResult scaled)? onUpdateMeal,
     this.isFavorite,
     this.onToggleFavorite,
     ValueChanged<String>? onRemoveFavorite,
-    ValueChanged<String>? onRemoveMeal,
+    PersistValueChanged<String>? onRemoveMeal,
     this.trendTotalsLoader,
     this.trendBurnedKcalFor,
     this.addSlotRequest,
@@ -113,16 +117,17 @@ class MealAnalysisScreen extends StatelessWidget {
   /// True while a calendar-picked day outside the 35-day window loads; the
   /// diary then shows a spinner instead of a falsely empty day.
   final bool dayLoading;
-  final String Function(MealAnalysisResult, MealSlot) onAddMeal;
-  final void Function(String id, MealAnalysisResult scaled) onUpdateMeal;
+  final FutureOr<String> Function(MealAnalysisResult, MealSlot) onAddMeal;
+  final FutureOr<void> Function(String id, MealAnalysisResult scaled)
+  onUpdateMeal;
 
   /// Is the meal pinned as a favorite? Null -> no heart.
   final bool Function(MealAnalysisResult)? isFavorite;
 
   /// Favorite toggle. Null -> no heart.
-  final ValueChanged<MealAnalysisResult>? onToggleFavorite;
-  final ValueChanged<String> onRemoveFavorite;
-  final ValueChanged<String> onRemoveMeal;
+  final PersistValueChanged<MealAnalysisResult>? onToggleFavorite;
+  final PersistValueChanged<String> onRemoveFavorite;
+  final PersistValueChanged<String> onRemoveMeal;
 
   /// Data loader for the trends view (test injection). Null builds a
   /// TrendService on Supabase.instance lazily when opened; the constructor
@@ -219,6 +224,10 @@ class MealAnalysisScreen extends StatelessWidget {
       context,
       initialSlot: chooseSlot ? slot : null,
       onSlotChanged: (slot) => selectedSlot = slot,
+      onSave: (result) async {
+        if (!identity.isCurrent) throw StateError('Meal owner changed');
+        await onAddMeal(result, selectedSlot);
+      },
       contextLabel: foodHeaderDateLabel(selectedDate, context.l10n),
     );
     if (result == null || !context.mounted || !identity.isCurrent) return;
@@ -233,7 +242,6 @@ class MealAnalysisScreen extends StatelessWidget {
       );
       return;
     }
-    onAddMeal(result, selectedSlot);
     showAppSnack(
       context,
       l10n.commonKcalAddedToSlot(result.caloriesKcal, selectedSlot.label(l10n)),

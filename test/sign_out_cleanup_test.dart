@@ -103,10 +103,10 @@ class _SpyFotoStore extends RecipeImageStore {
   int clearCalls = 0;
 
   @override
-  Future<void> setActiveUser(String? userId) => Future<void>.value();
+  Future<void> setActiveUser(String? userId, {String? sessionId}) => Future<void>.value();
 
   @override
-  Future<void> clear({String? expectedUserId}) async => clearCalls++;
+  Future<void> clear({String? expectedUserId, String? expectedSessionId}) async => clearCalls++;
 }
 
 HomeStore _storeWith(

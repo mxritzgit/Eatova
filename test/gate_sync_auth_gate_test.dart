@@ -65,6 +65,9 @@ class _ScriptedAuthRepository implements AuthRepository {
   Stream<EatovaUser?> get authStateChanges => _controller.stream;
 
   @override
+  Future<void> sendAccountDeletionCode({required String userId, required String email}) async {}
+
+  @override
   Future<void> sendPasswordReset(String email) async {}
 
   @override
@@ -121,7 +124,7 @@ class _ScriptedAuthRepository implements AuthRepository {
 /// test/services/recipe_image_store_test.dart.
 class _StummerFotoStore extends RecipeImageStore {
   @override
-  Future<void> setActiveUser(String? userId) => Future<void>.value();
+  Future<void> setActiveUser(String? userId, {String? sessionId}) => Future<void>.value();
 }
 
 /// Same shell as EatovaApp: AuthGate as MaterialApp.home with a pushable route

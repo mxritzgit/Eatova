@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
+import '../common/persistence_action.dart';
+
 import '../../l10n/l10n.dart';
 import '../../models/logged_meal.dart';
 import '../../models/meal_analysis_request.dart';
@@ -71,44 +73,40 @@ String _mealAnalysisExceptionMessage(
           ? l10n.foodAnalysisRateLimitUntilMessage(_clockLabel(resetAt))
           : l10n.foodAnalysisRateLimitError,
     MealAnalysisServerError(:final code) => switch (code) {
-        'invalid_hint' => l10n.foodScanContextInvalid,
-        // `request_timeout` (408) is the server giving up on a body that
-        // trickles in; from the user's side that is the same situation as the
-        // provider taking too long, so it gets the same text.
-        'provider_timeout' ||
-        'request_timeout' =>
-          l10n.foodAnalysisTimeoutMessage,
-        'provider_error' ||
-        'provider_response_too_large' ||
-        'provider_invalid_response' ||
-        'provider_invalid_json' ||
-        'provider_empty_response' ||
-        // The model answered, but with nothing that could be logged.
-        'provider_unusable_result' ||
-        'invalid_result' =>
-          l10n.foodAnalysisProviderErrorMessage,
-        'provider_not_configured' ||
-        'ai_budget_exhausted' ||
-        'ai_disabled' ||
-        'ai_budget_unavailable' ||
-        'server_misconfigured' ||
-        'rate_limit_unavailable' ||
-        // 503 when the GoTrue lookup runs into its step deadline. The server
-        // answers 503 there on purpose instead of 401 (a 401 would sign the
-        // user out over an auth OUTAGE), so this belongs with the other
-        // outages — not on the fallback, which blames the user's connection.
-        'auth_unavailable' ||
-        'internal_error' =>
-          l10n.foodAnalysisServiceUnavailableMessage,
-        'missing_image' ||
-        'invalid_image_base64' ||
-        'image_too_small' =>
-          l10n.foodAnalysisImageUnusableMessage,
-        // Deliberately unmapped: unsupported_content_type, invalid_json,
-        // invalid_body, method_not_allowed are client bugs, not user
-        // situations — the flow's fallback is the honest text for them.
-        _ => fallback,
-      },
+      'invalid_hint' => l10n.foodScanContextInvalid,
+      // `request_timeout` (408) is the server giving up on a body that
+      // trickles in; from the user's side that is the same situation as the
+      // provider taking too long, so it gets the same text.
+      'provider_timeout' ||
+      'request_timeout' => l10n.foodAnalysisTimeoutMessage,
+      'provider_error' ||
+      'provider_response_too_large' ||
+      'provider_invalid_response' ||
+      'provider_invalid_json' ||
+      'provider_empty_response' ||
+      // The model answered, but with nothing that could be logged.
+      'provider_unusable_result' ||
+      'invalid_result' => l10n.foodAnalysisProviderErrorMessage,
+      'provider_not_configured' ||
+      'ai_budget_exhausted' ||
+      'ai_disabled' ||
+      'ai_budget_unavailable' ||
+      'server_misconfigured' ||
+      'rate_limit_unavailable' ||
+      // 503 when the GoTrue lookup runs into its step deadline. The server
+      // answers 503 there on purpose instead of 401 (a 401 would sign the
+      // user out over an auth OUTAGE), so this belongs with the other
+      // outages — not on the fallback, which blames the user's connection.
+      'auth_unavailable' ||
+      'internal_error' => l10n.foodAnalysisServiceUnavailableMessage,
+      'missing_image' ||
+      'invalid_image_base64' ||
+      'image_too_small' => l10n.foodAnalysisImageUnusableMessage,
+      // Deliberately unmapped: unsupported_content_type, invalid_json,
+      // invalid_body, method_not_allowed are client bugs, not user
+      // situations — the flow's fallback is the honest text for them.
+      _ => fallback,
+    },
   };
 }
 
@@ -177,7 +175,10 @@ MealPortionAdjustment? mealPortionAdjustment(
 /// meal's old macro strings — the very "nutrients OFF does not deliver, typed
 /// in by hand" case. The macro-free identical case stays weight-only, which
 /// changes no number.
-int? _weightOnlyGrams(MealAnalysisResult current, List<MealComponent> adjusted) {
+int? _weightOnlyGrams(
+  MealAnalysisResult current,
+  List<MealComponent> adjusted,
+) {
   if (current.hasItemizedBreakdown || adjusted.length != 1) return null;
   final single = adjusted.single;
   final rescaled = current.asSingleComponent.adjustedToGrams(single.grams);
@@ -211,11 +212,12 @@ Future<MealAnalysisSheetOutcome?> showMealAnalysisSheet(
   required MealSlot slot,
   required Future<MealAnalysisResult> resultFuture,
   required Uint8List? previewImage,
-  required String Function(MealAnalysisResult, MealSlot) onAdd,
-  required void Function(String id, MealAnalysisResult scaled) onUpdateMeal,
+  required FutureOr<String> Function(MealAnalysisResult, MealSlot) onAdd,
+  required FutureOr<void> Function(String id, MealAnalysisResult scaled)
+  onUpdateMeal,
   required String failureMessage,
   bool Function(MealAnalysisResult)? isFavorite,
-  ValueChanged<MealAnalysisResult>? onToggleFavorite,
+  PersistValueChanged<MealAnalysisResult>? onToggleFavorite,
   Future<MealAnalysisResult> Function()? retry,
   MealAnalysisCancellation? cancellation,
 }) {
@@ -266,19 +268,20 @@ class MealAnalysisSheet extends StatefulWidget {
 
   /// Logs the result into the daily total and returns the client UUID of the
   /// new row. The sheet keeps that id so a later re-portion hits exactly it.
-  final String Function(MealAnalysisResult, MealSlot) onAdd;
+  final FutureOr<String> Function(MealAnalysisResult, MealSlot) onAdd;
 
   /// Replaces the already logged row [id] with the rescaled [scaled] (kcal
   /// AND macros). Fixes the earlier bug where only a kcal delta flowed and
   /// the wrong meal was hit.
-  final void Function(String id, MealAnalysisResult scaled) onUpdateMeal;
+  final FutureOr<void> Function(String id, MealAnalysisResult scaled)
+  onUpdateMeal;
   final String failureMessage;
 
   /// Whether the current meal is pinned as a favorite (filled heart).
   final bool Function(MealAnalysisResult)? isFavorite;
 
   /// Favorite toggle. Null -> no heart button.
-  final ValueChanged<MealAnalysisResult>? onToggleFavorite;
+  final PersistValueChanged<MealAnalysisResult>? onToggleFavorite;
 
   /// Starts a fresh attempt from the same bytes. Null -> no retry button.
   final Future<MealAnalysisResult> Function()? retry;
@@ -327,10 +330,20 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
     return _favoriteOverride ?? widget.isFavorite?.call(result) ?? false;
   }
 
-  void _handleToggleFavorite(MealAnalysisResult result) {
+  bool _saving = false;
+
+  Future<void> _handleToggleFavorite(MealAnalysisResult result) async {
+    if (_saving) return;
+    setState(() => _saving = true);
     final next = !_isFavoriteNow;
-    widget.onToggleFavorite?.call(result);
-    setState(() => _favoriteOverride = next);
+    final saved = await tryPersistChange(context, () async {
+      await widget.onToggleFavorite?.call(result);
+    });
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      if (saved) _favoriteOverride = next;
+    });
   }
 
   Future<void> _run(Future<MealAnalysisResult> future) async {
@@ -391,9 +404,9 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
     Navigator.of(context).pop(MealAnalysisSheetOutcome.manualEntry);
   }
 
-  void _addToDaily() {
+  Future<void> _addToDaily() async {
     final result = _result;
-    if (result == null || _addedToDailyTotal) return;
+    if (result == null || _addedToDailyTotal || _saving) return;
 
     // Last guard before the diary (B7). Search and barcode already throw
     // [ProductWithoutNutritionException] in the service, but the photo AI path
@@ -417,7 +430,14 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
       return;
     }
 
-    final id = widget.onAdd(result, widget.slot);
+    setState(() => _saving = true);
+    String? id;
+    final saved = await tryPersistChange(context, () async {
+      id = await widget.onAdd(result, widget.slot);
+    });
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (!saved) return;
     setState(() {
       _addedToDailyTotal = true;
       _addedMealId = id;
@@ -432,7 +452,7 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
 
   Future<void> _adjustPortion() async {
     final current = _result;
-    if (current == null) return;
+    if (current == null || _saving) return;
 
     final adjustment = await showWeightAdjustmentSheet(context, current);
     if (!mounted) return;
@@ -444,15 +464,19 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
     final wasAdded = _addedToDailyTotal;
     final loggedId = _addedMealId;
 
-    setState(() {
-      _result = updated;
-    });
-
     // If already logged, hand the COMPLETE scaled result (kcal AND macros) to
     // exactly that row; a kcal-only delta froze macros and hit the wrong meal.
     if (wasAdded && loggedId != null) {
-      widget.onUpdateMeal(loggedId, updated);
+      setState(() => _saving = true);
+      final saved = await tryPersistChange(
+        context,
+        () => widget.onUpdateMeal(loggedId, updated),
+      );
+      if (!mounted) return;
+      setState(() => _saving = false);
+      if (!saved) return;
     }
+    setState(() => _result = updated);
 
     // The message names the WAY the portion changed; "via individual items"
     // over a product that has none is the very claim this distinction avoids.
@@ -702,11 +726,7 @@ class _Header extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   l10n.foodReviewAnalysisSubtitle,
-                  style: AppType.ui(
-                    12,
-                    weight: FontWeight.w500,
-                    color: t.ink2,
-                  ),
+                  style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
                 ),
               ],
             ),

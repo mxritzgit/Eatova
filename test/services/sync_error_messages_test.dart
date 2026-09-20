@@ -263,6 +263,8 @@ void main() {
         SyncOpKind.mealDelete,
         SyncOpKind.favoriteDelete,
         SyncOpKind.recipeDelete,
+        SyncOpKind.trainingPlanDelete,
+        SyncOpKind.trainingHistoryDelete,
       ]) {
         expect(
             classifyOutboxFailure(pg('500'), kOutboxMaxAttempts * 4,
@@ -316,6 +318,8 @@ void main() {
           SyncOpKind.mealDelete,
           SyncOpKind.favoriteDelete,
           SyncOpKind.recipeDelete,
+          SyncOpKind.trainingPlanDelete,
+          SyncOpKind.trainingHistoryDelete,
         ]) {
           expect(classifyOutboxFailure(pg(code), 0, kind: kind),
               OutboxVerdict.retryCounted,
@@ -338,6 +342,8 @@ void main() {
         SyncOpKind.mealDelete,
         SyncOpKind.favoriteDelete,
         SyncOpKind.recipeDelete,
+        SyncOpKind.trainingPlanDelete,
+        SyncOpKind.trainingHistoryDelete,
       ]) {
         expect(
             classifyOutboxFailure(pg('PGRST204'), kOutboxDeleteMaxAttempts - 2,

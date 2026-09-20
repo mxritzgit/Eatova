@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/auth_gate.dart';
@@ -22,31 +24,31 @@ import 'fixlauf_a_helpers.dart';
 //   4. `HomeStore.dispose()` discards pending debounced writes, and late
 //      live-op callbacks write nothing after dispose.
 
-/// Counts writes per key and can DELAY every setString.
-class _ZaehlenderStore implements KeyValueStore {
+/// Counts committed writes per key and can delay the real atomic batch.
+class _ZaehlenderStore extends InMemoryKeyValueStore {
   _ZaehlenderStore({this.writeDelay = Duration.zero});
 
   final Duration writeDelay;
-  final Map<String, String> _data = {};
   final Map<String, int> writes = {};
+  Completer<void>? holdProfile;
+  final profileWriteEntered = Completer<void>();
 
-  Map<String, String> get snapshot => Map.unmodifiable(_data);
   int writesFuer(String key) => writes[key] ?? 0;
   int get totalWrites => writes.values.fold(0, (a, b) => a + b);
 
   @override
-  Future<String?> getString(String key) async => _data[key];
-
-  @override
-  Future<void> setString(String key, String value) async {
+  Future<KeyValueCommit> writeBatch(Map<String, String?> changes,
+      {Map<String, int> expectedVersions = const {}}) async {
     if (writeDelay > Duration.zero) await Future<void>.delayed(writeDelay);
-    writes[key] = (writes[key] ?? 0) + 1;
-    _data[key] = value;
-  }
-
-  @override
-  Future<void> remove(String key) async {
-    _data.remove(key);
+    if (holdProfile != null && changes.keys.any((key) => key.contains('.profile.'))) {
+      if (!profileWriteEntered.isCompleted) profileWriteEntered.complete();
+      await holdProfile!.future;
+    }
+    final receipt = await super.writeBatch(changes, expectedVersions: expectedVersions);
+    for (final key in changes.keys) {
+      writes[key] = (writes[key] ?? 0) + 1;
+    }
+    return receipt;
   }
 }
 
@@ -130,17 +132,20 @@ void main() {
   group('HomeStore: Logout waehrend Snapshot/Debounce', () {
     test('signOutCleanup direkt nach dem Boot: jeder PII-Slot bleibt leer, '
         'auch nachdem der laufende Snapshot durch ist', () async {
-      // Slow store: the boot snapshot (6 sequential slot writes) is still
-      // running when the logout arrives.
-      final kv = _ZaehlenderStore(writeDelay: const Duration(milliseconds: 20));
+      // Hold the actual multi-slot transaction, not a now-obsolete sequence
+      // of per-slot writes or a completed profileReady future.
+      final kv = _ZaehlenderStore()..holdProfile = Completer<void>();
       final cache = LocalCache(kv, kFixlaufUser);
       final s = fixlaufSetup(cache: cache);
       s.server.profileRow = serverProfileRow(completedProfile);
       s.server.mealRows['m1'] = serverMealRow('m1');
       s.store.start();
-      await s.store.profileReady;
+      await kv.profileWriteEntered.future.timeout(const Duration(seconds: 3));
 
-      await s.store.signOutCleanup();
+      final cleanup = s.store.signOutCleanup();
+      await settle();
+      kv.holdProfile!.complete();
+      await cleanup;
       // Give every straggler the chance to land.
       await Future<void>.delayed(const Duration(milliseconds: 400));
       await settle();
@@ -159,7 +164,10 @@ void main() {
       s.server.profileRow = serverProfileRow(completedProfile);
       await bootStore(s.store);
 
-      s.store.addResultToDailyTotal(mealResult('Kurz vor Logout'));
+      await s.store.addResultToDailyTotal(mealResult('Kurz vor Logout'));
+      // Entity edits commit immediately; any residual mirror debounce must
+      // still respect the store's lifecycle fence.
+      cache.writeLoggedMealsDebounced(s.store.loggedMeals);
       expect(cache.hasPendingWrites, isTrue, reason: 'Vorbedingung');
       await s.store.signOutCleanup();
       await Future<void>.delayed(
@@ -184,7 +192,7 @@ void main() {
       // account deletion must not — there is no target left to replay to.
       // Without this the assertion never touched the slot at all.
       s.server.rejectMealWrites = true;
-      s.store.addResultToDailyTotal(mealResult('Nie zugestellt'));
+      await s.store.addResultToDailyTotal(mealResult('Nie zugestellt'));
       await settle();
       // This store delays every setString by 20 ms of REAL time, which
       // pumpEventQueue does not advance.
@@ -211,9 +219,9 @@ void main() {
       s.server.profileRow = serverProfileRow(completedProfile);
       await bootStore(s.store);
       const mealsKey = 'eatova.v1.logged_meals.$kFixlaufUser';
+      await s.store.addResultToDailyTotal(mealResult('Kurz vor Dispose'));
       final vorher = kv.writesFuer(mealsKey);
-
-      s.store.addResultToDailyTotal(mealResult('Kurz vor Dispose'));
+      cache.writeLoggedMealsDebounced(s.store.loggedMeals);
       expect(cache.hasPendingWrites, isTrue, reason: 'Vorbedingung');
       s.store.dispose();
       await Future<void>.delayed(
@@ -237,7 +245,9 @@ void main() {
       await bootStore(s.store);
 
       s.server.holdWrites = true;
-      s.store.addResultToDailyTotal(mealResult('Spaete Zustellung'));
+      final mutation = expectLater(
+          s.store.addResultToDailyTotal(mealResult('Spaete Zustellung')),
+          throwsStateError);
       await settle();
       expect(s.server.heldWrites, greaterThanOrEqualTo(1), reason: 'Vorbedingung');
       const outboxKey = 'eatova.v1.outbox.$kFixlaufUser';
@@ -247,6 +257,7 @@ void main() {
 
       s.store.dispose();
       s.server.releaseWrites();
+      await mutation;
       await settle();
       await Future<void>.delayed(const Duration(milliseconds: 700));
       await settle();

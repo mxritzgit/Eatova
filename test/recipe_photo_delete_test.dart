@@ -3,14 +3,14 @@ import 'support/recipe_navigation.dart';
 // Audit 2026-08-14: the recipe photo was deleted immediately, before it was
 // known whether the deletion would ever be delivered.
 //
-// The expensive case is a dropped delete: `_restoreDroppedDeletes` brings the
-// recipe back so the loss stays visible and repairable — but it came back with
+// A failed delete or an explicit history restore can bring the recipe back — but it came back with
 // a dangling `local:` reference, and the bytes existed only on this device.
 //
 // Both directions are pinned here:
 //   (a) delete NOT delivered + recipe restored -> the file still exists AND
 //       the tile shows it again;
-//   (b) delete delivered -> the file is gone (no PII left behind).
+//   (b) delivered tombstones preserve historical photos; only a complete
+//       current + history reference snapshot authorizes orphan collection.
 
 import 'dart:io';
 import 'dart:typed_data';
@@ -48,9 +48,9 @@ class _TestImageStore extends RecipeImageStore {
   bool get baseResolved => true;
 
   File _datei(String reference) => File(
-        '${ordner.path}/'
-        '${reference.substring(RecipeImageStore.referencePrefix.length)}',
-      );
+    '${ordner.path}/'
+    '${reference.substring(RecipeImageStore.referencePrefix.length)}',
+  );
 
   @override
   File? resolveSync(String imageAsset) {
@@ -70,7 +70,10 @@ class _TestImageStore extends RecipeImageStore {
   }
 
   @override
-  Future<void> clear({String? expectedUserId}) async {
+  Future<void> clear({
+    String? expectedUserId,
+    String? expectedSessionId,
+  }) async {
     if (ordner.existsSync()) ordner.deleteSync(recursive: true);
   }
 
@@ -115,7 +118,7 @@ FitnessRecipe _eigenes({required String slug, required String imageAsset}) =>
 /// Harness for the store slice the screen sees, without the sync shell:
 ///   * `onDeleteRecipe` reports [ausgang] and removes the recipe from the list;
 ///   * the restore button hands in a NEW list containing the recipe, exactly as
-///     `_restoreDroppedDeletes` does after a finally dropped delete.
+///     an explicit restoration of an earlier version does.
 class _StoreHarness extends StatefulWidget {
   const _StoreHarness({required this.rezept, required this.ausgang});
 
@@ -154,6 +157,8 @@ class _StoreHarnessState extends State<_StoreHarness> {
               onAddMeal: (MealAnalysisResult _, MealSlot __) {},
               onDeleteRecipe: _delete,
               initialUserRecipes: _rezepte,
+              recipePhotoReferences: {widget.rezept.imageAsset},
+              userRecipesAuthoritative: true,
             ),
           ),
         ),
@@ -203,54 +208,56 @@ class _HydrationHarness extends StatefulWidget {
 }
 
 class _HydrationHarnessState extends State<_HydrationHarness> {
-  late List<FitnessRecipe> _rezepte =
-      widget.sofort ? widget.rezepte : const <FitnessRecipe>[];
+  late List<FitnessRecipe> _rezepte = widget.sofort
+      ? widget.rezepte
+      : const <FitnessRecipe>[];
   late bool _bootFertig = widget.bootFertig;
 
   /// Der beantwortete Boot-Load ohne Tap — waehrend eines Undo-Fensters deckt
   /// der Snack den Knopf zu, und ein Tap darauf ginge ins Leere.
   void meldeBoot() => setState(() {
-        _rezepte = List<FitnessRecipe>.of(widget.rezepte);
-        _bootFertig = true;
-      });
+    _rezepte = List<FitnessRecipe>.of(widget.rezepte);
+    _bootFertig = true;
+  });
 
   @override
   Widget build(BuildContext context) => localizedApp(
-        Scaffold(
-          body: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-              child: RecipesScreen(
-                onAddMeal: (MealAnalysisResult _, MealSlot __) {},
-                onDeleteRecipe: widget.persistenz
-                    ? (_) async => SyncDelivery.delivered
-                    : null,
-                initialUserRecipes: _rezepte,
-                userRecipesAuthoritative: _bootFertig,
-              ),
-            ),
-          ),
-          bottomNavigationBar: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: <Widget>[
-              TextButton(
-                key: const ValueKey('harness-hydrate'),
-                // A NEW list each time, like every store mutation.
-                onPressed: () => setState(
-                    () => _rezepte = List<FitnessRecipe>.of(widget.rezepte)),
-                child: const Text('Hydrieren'),
-              ),
-              TextButton(
-                key: const ValueKey('harness-boot'),
-                onPressed: meldeBoot,
-                child: const Text('Boot'),
-              ),
-            ],
+    Scaffold(
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+          child: RecipesScreen(
+            onAddMeal: (MealAnalysisResult _, MealSlot __) {},
+            onDeleteRecipe: widget.persistenz
+                ? (_) async => SyncDelivery.delivered
+                : null,
+            initialUserRecipes: _rezepte,
+            userRecipesAuthoritative: _bootFertig,
           ),
         ),
-        scaffold: false,
-        safeArea: false,
-      );
+      ),
+      bottomNavigationBar: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: <Widget>[
+          TextButton(
+            key: const ValueKey('harness-hydrate'),
+            // A NEW list each time, like every store mutation.
+            onPressed: () => setState(
+              () => _rezepte = List<FitnessRecipe>.of(widget.rezepte),
+            ),
+            child: const Text('Hydrieren'),
+          ),
+          TextButton(
+            key: const ValueKey('harness-boot'),
+            onPressed: meldeBoot,
+            child: const Text('Boot'),
+          ),
+        ],
+      ),
+    ),
+    scaffold: false,
+    safeArea: false,
+  );
 }
 
 late Directory _temp;
@@ -313,8 +320,7 @@ void main() {
     if (_temp.existsSync()) await _temp.delete(recursive: true);
   });
 
-  testWidgets(
-      'verworfene Loeschung: die Datei bleibt liegen und das wieder '
+  testWidgets('verworfene Loeschung: die Datei bleibt liegen und das wieder '
       'eingeblendete Rezept zeigt sie', (tester) async {
     final referenz = _legeAb(_store, 'user_verworfen', _jpeg());
     final rezept = _eigenes(slug: 'user_verworfen', imageAsset: referenz);
@@ -335,13 +341,19 @@ void main() {
     );
 
     await _loescheUeberDetail(tester, 'user_verworfen');
-    expect(find.byKey(const ValueKey('recipe-tile-user_verworfen')),
-        findsNothing,
-        reason: 'Vorbedingung: lokal ist das Rezept weg.');
+    expect(
+      find.byKey(const ValueKey('recipe-tile-user_verworfen')),
+      findsNothing,
+      reason: 'Vorbedingung: lokal ist das Rezept weg.',
+    );
 
-    expect(_store.resolveSync(referenz), isNotNull,
-        reason: 'Solange die Loeschung nur in der Warteschlange liegt, darf '
-            'das Foto nicht fallen — es liegt ausschliesslich hier.');
+    expect(
+      _store.resolveSync(referenz),
+      isNotNull,
+      reason:
+          'Solange die Loeschung nur in der Warteschlange liegt, darf '
+          'das Foto nicht fallen — es liegt ausschliesslich hier.',
+    );
 
     await tester.tap(find.byKey(const ValueKey('harness-restore')));
     await tester.pumpAndSettle();
@@ -359,7 +371,9 @@ void main() {
     );
   });
 
-  testWidgets('zugestellte Loeschung nimmt die Bytes mit', (tester) async {
+  testWidgets('zugestellte Loeschung bewahrt das referenzierte Historienfoto', (
+    tester,
+  ) async {
     final referenz = _legeAb(_store, 'user_weg', _jpeg());
     final rezept = _eigenes(slug: 'user_weg', imageAsset: referenz);
 
@@ -369,14 +383,21 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(_store.resolveSync(referenz), isNotNull,
-        reason: 'Vorbedingung: die Datei muss vorher da sein.');
+    expect(
+      _store.resolveSync(referenz),
+      isNotNull,
+      reason: 'Vorbedingung: die Datei muss vorher da sein.',
+    );
 
     await _loescheUeberDetail(tester, 'user_weg');
 
-    expect(_store.resolveSync(referenz), isNull,
-        reason: 'Ein zugestellt geloeschtes Rezept darf sein Foto nicht auf '
-            'der Platte zuruecklassen — es ist PII.');
+    expect(
+      _store.resolveSync(referenz),
+      isNotNull,
+      reason: 'The complete history reference snapshot still owns this photo.',
+    );
+    expect(_store.abgleiche, isNotEmpty);
+    expect(_store.abgleiche.last, contains(referenz));
   });
 
   // Review 2026-08-29, P3-04: `deleteFor` is the ONLY release, and only for a
@@ -390,86 +411,114 @@ void main() {
       final referenz = _legeAb(_store, 'user_a', _jpeg());
       _pinViewport(tester);
 
-      await tester.pumpWidget(_HydrationHarness(
-        rezepte: <FitnessRecipe>[
-          _eigenes(slug: 'user_a', imageAsset: referenz),
-        ],
-      ));
+      await tester.pumpWidget(
+        _HydrationHarness(
+          rezepte: <FitnessRecipe>[
+            _eigenes(slug: 'user_a', imageAsset: referenz),
+          ],
+        ),
+      );
       await tester.pumpAndSettle();
 
-      expect(_store.abgleiche, isEmpty,
-          reason: 'Die leere Liste vor dem Cache-/Server-Load ist keine '
-              'Aussage ueber die Platte — ein Abgleich darauf loeschte jedes '
-              'Foto des Nutzers.');
+      expect(
+        _store.abgleiche,
+        isEmpty,
+        reason:
+            'Die leere Liste vor dem Cache-/Server-Load ist keine '
+            'Aussage ueber die Platte — ein Abgleich darauf loeschte jedes '
+            'Foto des Nutzers.',
+      );
     });
 
-    testWidgets(
-        'der beantwortete Boot-Load startet genau einen Abgleich — die '
+    testWidgets('der beantwortete Boot-Load startet genau einen Abgleich — die '
         'Hydration davor keinen', (tester) async {
       final referenz = _legeAb(_store, 'user_a', _jpeg());
       _pinViewport(tester);
 
-      await tester.pumpWidget(_HydrationHarness(
-        rezepte: <FitnessRecipe>[
-          _eigenes(slug: 'user_a', imageAsset: referenz),
-        ],
-      ));
+      await tester.pumpWidget(
+        _HydrationHarness(
+          rezepte: <FitnessRecipe>[
+            _eigenes(slug: 'user_a', imageAsset: referenz),
+          ],
+        ),
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.byKey(const ValueKey('harness-hydrate')));
       await tester.pumpAndSettle();
-      expect(_store.abgleiche, isEmpty,
-          reason: 'Der Cache-Slot ist eine Anzeige-Quelle, keine vollstaendige '
-              'Aussage: der Boot-Load laeuft noch.');
+      expect(
+        _store.abgleiche,
+        isEmpty,
+        reason:
+            'Der Cache-Slot ist eine Anzeige-Quelle, keine vollstaendige '
+            'Aussage: der Boot-Load laeuft noch.',
+      );
 
       await tester.tap(find.byKey(const ValueKey('harness-boot')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('harness-boot')));
       await tester.pumpAndSettle();
 
-      expect(_store.abgleiche, hasLength(1),
-          reason: 'Ein Verzeichnis-Scan pro Sitzung reicht; jede weitere '
-              'Store-Meldung waere reine Last.');
+      expect(
+        _store.abgleiche,
+        hasLength(1),
+        reason:
+            'Ein Verzeichnis-Scan pro Sitzung reicht; jede weitere '
+            'Store-Meldung waere reine Last.',
+      );
       expect(_store.abgleiche.single, contains(referenz));
     });
 
-    testWidgets('eine beim Aufbau schon fertige Liste wird abgeglichen',
-        (tester) async {
+    testWidgets('eine beim Aufbau schon fertige Liste wird abgeglichen', (
+      tester,
+    ) async {
       final referenz = _legeAb(_store, 'user_a', _jpeg());
       _pinViewport(tester);
 
-      await tester.pumpWidget(_HydrationHarness(
-        sofort: true,
-        bootFertig: true,
-        rezepte: <FitnessRecipe>[
-          _eigenes(slug: 'user_a', imageAsset: referenz),
-        ],
-      ));
+      await tester.pumpWidget(
+        _HydrationHarness(
+          sofort: true,
+          bootFertig: true,
+          rezepte: <FitnessRecipe>[
+            _eigenes(slug: 'user_a', imageAsset: referenz),
+          ],
+        ),
+      );
       await tester.pumpAndSettle();
 
-      expect(_store.abgleiche.single, contains(referenz),
-          reason: 'Der Tab wird auch nach abgeschlossenem Boot erst aufgebaut '
-              '(IndexedStack) — dann kommt die Liste ueber initState und ein '
-              'didUpdateWidget folgt nie.');
+      expect(
+        _store.abgleiche.single,
+        contains(referenz),
+        reason:
+            'Der Tab wird auch nach abgeschlossenem Boot erst aufgebaut '
+            '(IndexedStack) — dann kommt die Liste ueber initState und ein '
+            'didUpdateWidget folgt nie.',
+      );
     });
 
     testWidgets('ohne echte Persistenz wird nie abgeglichen', (tester) async {
       final referenz = _legeAb(_store, 'user_a', _jpeg());
       _pinViewport(tester);
 
-      await tester.pumpWidget(_HydrationHarness(
-        persistenz: false,
-        rezepte: <FitnessRecipe>[
-          _eigenes(slug: 'user_a', imageAsset: referenz),
-        ],
-      ));
+      await tester.pumpWidget(
+        _HydrationHarness(
+          persistenz: false,
+          rezepte: <FitnessRecipe>[
+            _eigenes(slug: 'user_a', imageAsset: referenz),
+          ],
+        ),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('harness-boot')));
       await tester.pumpAndSettle();
 
-      expect(_store.abgleiche, isEmpty,
-          reason: 'Vorschau und Tests halten ihre Rezepte nur in der Sitzung; '
-              'diese Liste darf nichts von der Platte nehmen.');
+      expect(
+        _store.abgleiche,
+        isEmpty,
+        reason:
+            'Vorschau und Tests halten ihre Rezepte nur in der Sitzung; '
+            'diese Liste darf nichts von der Platte nehmen.',
+      );
     });
 
     // P3-04b, der Datenverlustpfad des Pruefers. `_cacheUserRecipes` ist um
@@ -484,96 +533,129 @@ void main() {
     // Die beiden Faelle beschreiben zusammen die Regel: leer ist erlaubt,
     // unfertig nicht.
     testWidgets(
-        'veraltet-leerer Cache-Slot waehrend des Bootens: kein Abgleich',
-        (tester) async {
-      final referenz = _legeAb(_store, 'user_verwaist', _jpeg());
-      _pinViewport(tester);
+      'veraltet-leerer Cache-Slot waehrend des Bootens: kein Abgleich',
+      (tester) async {
+        final referenz = _legeAb(_store, 'user_verwaist', _jpeg());
+        _pinViewport(tester);
 
-      // Der Store liefert die leere Liste — der Boot-Load laeuft noch.
-      await tester.pumpWidget(const _HydrationHarness(
-        rezepte: <FitnessRecipe>[],
-      ));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('harness-hydrate')));
-      await tester.pumpAndSettle();
+        // Der Store liefert die leere Liste — der Boot-Load laeuft noch.
+        await tester.pumpWidget(
+          const _HydrationHarness(rezepte: <FitnessRecipe>[]),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('harness-hydrate')));
+        await tester.pumpAndSettle();
 
-      expect(_store.abgleiche, isEmpty,
-          reason: 'Ein Abgleich gegen die leere Liste haette hier jedes Foto '
+        expect(
+          _store.abgleiche,
+          isEmpty,
+          reason:
+              'Ein Abgleich gegen die leere Liste haette hier jedes Foto '
               'geloescht — der Boot-Load bringt das Rezept Sekunden spaeter '
-              'mit einer ins Leere zeigenden local:-Referenz zurueck.');
-      expect(_store.resolveSync(referenz), isNotNull,
-          reason: 'Und die Bytes liegen nur hier: kein Server hat eine Kopie.');
-    });
+              'mit einer ins Leere zeigenden local:-Referenz zurueck.',
+        );
+        expect(
+          _store.resolveSync(referenz),
+          isNotNull,
+          reason: 'Und die Bytes liegen nur hier: kein Server hat eine Kopie.',
+        );
+      },
+    );
 
     testWidgets(
-        'alle Rezepte geloescht: nach beantwortetem Boot-Load wird trotzdem '
-        'eingesammelt', (tester) async {
-      _legeAb(_store, 'user_verwaist', _jpeg());
-      _pinViewport(tester);
+      'alle Rezepte geloescht: nach beantwortetem Boot-Load wird trotzdem '
+      'eingesammelt',
+      (tester) async {
+        _legeAb(_store, 'user_verwaist', _jpeg());
+        _pinViewport(tester);
 
-      await tester.pumpWidget(const _HydrationHarness(
-        rezepte: <FitnessRecipe>[],
-      ));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('harness-boot')));
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(
+          const _HydrationHarness(rezepte: <FitnessRecipe>[]),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('harness-boot')));
+        await tester.pumpAndSettle();
 
-      // Die Loeschung selbst prueft test/services/recipe_image_store_test.dart;
-      // hier zaehlt, dass der Abgleich mit LEEREM Behalte-Satz laeuft.
-      expect(_store.abgleiche, hasLength(1),
-          reason: 'Eine leere Liste ist ein gueltiger Zustand — hat der Nutzer '
+        // Die Loeschung selbst prueft test/services/recipe_image_store_test.dart;
+        // hier zaehlt, dass der Abgleich mit LEEREM Behalte-Satz laeuft.
+        expect(
+          _store.abgleiche,
+          hasLength(1),
+          reason:
+              'Eine leere Liste ist ein gueltiger Zustand — hat der Nutzer '
               'alle Rezepte geloescht, muss das Aufraeumen laufen. Ein '
-              'isNotEmpty-Waechter waere die falsche Reparatur.');
-      expect(_store.abgleiche.single, isEmpty,
-          reason: 'Kein Rezept mehr = kein Foto behalten.');
-    });
+              'isNotEmpty-Waechter waere die falsche Reparatur.',
+        );
+        expect(
+          _store.abgleiche.single,
+          isEmpty,
+          reason: 'Kein Rezept mehr = kein Foto behalten.',
+        );
+      },
+    );
 
     testWidgets(
-        'ein Rezept IM Undo-Fenster zaehlt beim Abgleich als vorhanden',
-        (tester) async {
-      // Der Sweep uebergibt `_userRecipes`, nicht `_visibleUserRecipes`. Der
-      // Unterschied sind genau die Rezepte in ihrem Undo-Fenster: lokal schon
-      // unsichtbar, aber noch nicht persistiert. Faendet der Abgleich sie
-      // nicht in der Behalte-Liste, fielen ihre Bytes SOFORT — und ein Tap auf
-      // „Rueckgaengig" brachte ein Rezept mit toter local:-Referenz zurueck.
-      final referenz = _legeAb(_store, 'user_a', _jpeg());
-      _pinViewport(tester);
+      'ein Rezept IM Undo-Fenster zaehlt beim Abgleich als vorhanden',
+      (tester) async {
+        // Der Sweep uebergibt `_userRecipes`, nicht `_visibleUserRecipes`. Der
+        // Unterschied sind genau die Rezepte in ihrem Undo-Fenster: lokal schon
+        // unsichtbar, aber noch nicht persistiert. Faendet der Abgleich sie
+        // nicht in der Behalte-Liste, fielen ihre Bytes SOFORT — und ein Tap auf
+        // „Rueckgaengig" brachte ein Rezept mit toter local:-Referenz zurueck.
+        final referenz = _legeAb(_store, 'user_a', _jpeg());
+        _pinViewport(tester);
 
-      await tester.pumpWidget(_HydrationHarness(
-        sofort: true,
-        rezepte: <FitnessRecipe>[
-          _eigenes(slug: 'user_a', imageAsset: referenz),
-        ],
-      ));
-      await tester.pumpAndSettle();
-      expect(_store.abgleiche, isEmpty,
-          reason: 'Vorbedingung: der Boot-Load hat noch nicht geantwortet.');
+        await tester.pumpWidget(
+          _HydrationHarness(
+            sofort: true,
+            rezepte: <FitnessRecipe>[
+              _eigenes(slug: 'user_a', imageAsset: referenz),
+            ],
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          _store.abgleiche,
+          isEmpty,
+          reason: 'Vorbedingung: der Boot-Load hat noch nicht geantwortet.',
+        );
 
-      // Loeschen, aber die Frist NICHT ablaufen lassen.
-      await tester.tap(await _holeKachelInsBild(tester, 'user_a'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('recipe-detail-delete')));
-      await tester.pumpAndSettle();
-      expect(find.text('Rückgängig'), findsOneWidget,
-          reason: 'Vorbedingung: das Undo-Fenster laeuft noch.');
-      expect(find.byKey(const ValueKey('recipe-tile-user_a')), findsNothing,
-          reason: 'Vorbedingung: lokal ist das Rezept schon ausgeblendet.');
+        // Loeschen, aber die Frist NICHT ablaufen lassen.
+        await tester.tap(await _holeKachelInsBild(tester, 'user_a'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('recipe-detail-delete')));
+        await tester.pumpAndSettle();
+        expect(
+          find.text('Rückgängig'),
+          findsOneWidget,
+          reason: 'Vorbedingung: das Undo-Fenster laeuft noch.',
+        );
+        expect(
+          find.byKey(const ValueKey('recipe-tile-user_a')),
+          findsNothing,
+          reason: 'Vorbedingung: lokal ist das Rezept schon ausgeblendet.',
+        );
 
-      // Der Boot-Load antwortet jetzt — direkt am State, weil der Snack den
-      // Knopf verdeckt.
-      tester
-          .state<_HydrationHarnessState>(find.byType(_HydrationHarness))
-          .meldeBoot();
-      await tester.pumpAndSettle();
+        // Der Boot-Load antwortet jetzt — direkt am State, weil der Snack den
+        // Knopf verdeckt.
+        tester
+            .state<_HydrationHarnessState>(find.byType(_HydrationHarness))
+            .meldeBoot();
+        await tester.pumpAndSettle();
 
-      expect(_store.abgleiche, hasLength(1));
-      expect(_store.abgleiche.single, contains(referenz),
-          reason: 'Solange „Rueckgaengig" moeglich ist, braucht das Rezept '
-              'seine Bytes — sie liegen ausschliesslich auf diesem Geraet.');
+        expect(_store.abgleiche, hasLength(1));
+        expect(
+          _store.abgleiche.single,
+          contains(referenz),
+          reason:
+              'Solange „Rueckgaengig" moeglich ist, braucht das Rezept '
+              'seine Bytes — sie liegen ausschliesslich auf diesem Geraet.',
+        );
 
-      // Frist auslaufen lassen, sonst haengt am Testende ein Timer.
-      await tester.pump(kRecipeUndoWindow + const Duration(seconds: 1));
-      await tester.pumpAndSettle();
-    });
+        // Frist auslaufen lassen, sonst haengt am Testende ein Timer.
+        await tester.pump(kRecipeUndoWindow + const Duration(seconds: 1));
+        await tester.pumpAndSettle();
+      },
+    );
   });
 }

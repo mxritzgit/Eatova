@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/common/persistence_action.dart';
+
 import '../l10n/l10n.dart';
 import '../models/model_limits.dart';
 import '../models/user_profile.dart';
@@ -38,7 +40,7 @@ class OnboardingScreen extends StatefulWidget {
 
   /// Receives the finished profile with computed daily target and
   /// onboardingCompleted = true. The caller persists it and leaves the gate.
-  final ValueChanged<UserProfile> onComplete;
+  final PersistValueChanged<UserProfile> onComplete;
 
   @override
   State<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -183,6 +185,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   void _next() {
+    if (_saving) return;
     if (_index >= _steps.length - 1) {
       _finish();
       return;
@@ -198,6 +201,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   void _back() {
+    if (_saving) return;
     if (_editing) {
       setState(() {
         _index = _steps.indexOf(_Step.summary);
@@ -224,7 +228,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   /// Later groups step back; summary edits return to the plan. The first group
   /// releases system Back, preserving the existing root-route behavior.
   void _onPopInvoked(bool didPop, Object? result) {
-    if (didPop) return;
+    if (didPop || _saving) return;
     _back();
   }
 
@@ -248,7 +252,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     });
   }
 
-  void _finish() {
+  bool _saving = false;
+
+  Future<void> _finish() async {
+    if (_saving) return;
     final t = _targets;
     final finished = _draftProfile().copyWith(
       dailyKcalGoal: t.kcal,
@@ -257,11 +264,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       fatGoalG: t.fatG,
       onboardingCompleted: true,
     );
-    widget.onComplete(finished);
+    setState(() => _saving = true);
+    await tryPersistChange(context, () => widget.onComplete(finished));
+    if (mounted) setState(() => _saving = false);
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      CommitDismissGuard(pending: _saving, child: _buildContent(context));
+
+  Widget _buildContent(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
     final step = _steps[_index];
@@ -320,7 +332,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                             : step == _Step.diet && _diet == DietPreference.none
                             ? l10n.onboardingWithoutPreference
                             : l10n.onboardingNextCta,
-                        onTap: _next,
+                        onTap: _saving ? null : _next,
                       ),
                     ),
                   ],

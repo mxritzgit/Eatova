@@ -15,15 +15,18 @@ and deployment are separate from editing this documentation.
 | `search-key` | Authenticated product-index URL and limited search credentials |
 | Meilisearch / Open Food Facts | Public product data lookup; OFF fallback |
 
-There are **46 SQL migrations** in the reviewed source. Apply them in version
-order to a new project. The generated [schema access map](../supabase/SCHEMA_STATE.md)
+Apply the source migrations in version order to a new project. The generated
+[schema access map](../supabase/SCHEMA_STATE.md) records the current migration count and
 describes RLS, policies, grants and functions; table columns/constraints live in
 the [migration files](../supabase/migrations). Do not hand-edit the generated map.
 
-Client writes use an account-scoped encrypted cache and durable outbox. Important
+Client writes commit the account-scoped encrypted cache and durable outbox in
+one SQLite transaction. [Offline sync](OFFLINE_SYNC.md) defines the server
+receipt protocol, recipe version history, conflicts and rollout. Important
 contracts include explicit/idempotent planned-meal consumption, immutable
 completed workout snapshots and deletion receipts that prevent stale history
-from reappearing. Receipt rows retain identifiers rather than workout content.
+from reappearing. Training-history deletion markers retain identifiers rather
+than workout content; operation receipts may retain their original result data.
 Recipe and proposal image bytes stay on the device, not in Postgres.
 
 Sources: [store and sync](../lib/src/app/home_store_sync.dart),

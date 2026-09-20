@@ -8,20 +8,20 @@ import 'package:supabase/supabase.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/services/user_recipes_sync.dart';
 
-// INT-2 / PROD-2: verifies the observable persistence behaviour of
-// UserRecipesSync (boot load, create, delete) through the public API, using a
-// real SupabaseClient over a mock HTTP client.
+import '../outbox/outbox_test_helpers.dart' as h;
 
-UserRecipesSync _sync(
-  Future<http.Response> Function(http.Request request) handler,
-) {
+const _operation = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const _deletion = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+({UserRecipesSync sync, SupabaseClient client}) _sync(http.Client transport) {
   final client = SupabaseClient(
-    'https://example.supabase.co',
-    'test-anon-key',
-    httpClient: MockClient((req) => handler(req)),
+    'https://ci.invalid',
+    'ci-dummy-key',
+    httpClient: transport,
+    authOptions: const AuthClientOptions(autoRefreshToken: false),
   );
   addTearDown(client.dispose);
-  return UserRecipesSync(client, 'user-123');
+  return (sync: UserRecipesSync(client, 'user-outbox'), client: client);
 }
 
 const _recipe = FitnessRecipe(
@@ -43,77 +43,194 @@ const _recipe = FitnessRecipe(
 );
 
 void main() {
-  group('UserRecipesSync', () {
-    test('upsert nutzt Konflikt-Schluessel user_id,slug + sendet user_id + slug',
-        () async {
-      String? prefer;
-      Map<String, dynamic>? body;
-      final sync = _sync((req) async {
-        prefer = req.headers['Prefer'];
-        final decoded = jsonDecode(req.body);
-        body = (decoded is List ? decoded.first : decoded)
-            as Map<String, dynamic>;
-        return http.Response('', 201, request: req);
-      });
+  TestWidgetsFlutterBinding.ensureInitialized();
 
-      await sync.upsert(_recipe);
+  test(
+    'upsert sends exact intent, immutable UUID and observed revision to owner RPC',
+    () async {
+      final server = h.FakeServer();
+      final env = _sync(server.client());
+      final result = await env.sync.upsert(
+        _recipe,
+        operationId: _operation,
+        expectedRevision: 0,
+      );
+      final request = server.operations('recipeUpsert').single;
+      final body = jsonDecode(request.body) as Map<String, dynamic>;
+      expect(request.method, 'POST');
+      expect(request.url.path, '/rest/v1/rpc/apply_sync_operation');
+      expect(body['p_operation_id'], _operation);
+      expect(body['p_entity_id'], _recipe.slug);
+      expect(body['p_payload']['expected_revision'], 0);
+      expect(body['p_payload']['recipe'], containsPair('title', _recipe.title));
+      expect(body['p_payload']['recipe'], containsPair('calories_kcal', 600));
+      expect(
+        body['p_payload']['recipe'].containsKey('user_id'),
+        isFalse,
+        reason: 'The server derives owner from its authenticated JWT.',
+      );
+      expect(result.outcome, RecipeMutationOutcome.applied);
+      expect(result.savedRecipe?.serverRevision, 1);
+      await env.sync.upsert(
+        _recipe,
+        operationId: _operation,
+        expectedRevision: 0,
+      );
+      expect(server.recipeRows, hasLength(1));
+      expect(server.syncOperations.recipeHeads[_recipe.slug], 1);
+    },
+  );
 
-      expect(prefer, contains('resolution=merge-duplicates'));
-      expect(body, containsPair('user_id', 'user-123'));
-      expect(body, containsPair('slug', 'user_1717500000000'));
-      expect(body, containsPair('title', 'Eigene Protein-Bowl'));
-      expect(body, containsPair('calories_kcal', 600));
-    });
-
-    test('load liest Zeilen als FitnessRecipe (userCreated=true)', () async {
-      final sync = _sync((req) async {
-        final rows = [
-          {
-            'slug': 'user_1717500000000',
-            'title': 'Eigene Protein-Bowl',
-            'description': 'Eigenes Rezept',
-            'portion': '1 Teller',
-            'ingredients': 'Reis',
-            'preparation': 'x',
-            'image_asset': '',
-            'calories_kcal': 600,
-            'protein_g': 50,
-            'carbs_g': 60,
-            'fat_g': 15,
-            'estimated_g': 400,
-            'categories': ['Eigene'],
-          },
-        ];
-        return http.Response(
-          jsonEncode(rows),
-          200,
-          headers: const {'Content-Type': 'application/json'},
-          request: req,
-        );
-      });
-
-      final recipes = await sync.load();
-      expect(recipes.length, 1);
-      expect(recipes.first.slug, 'user_1717500000000');
-      expect(recipes.first.title, 'Eigene Protein-Bowl');
-      expect(recipes.first.caloriesKcal, 600);
-      expect(recipes.first.userCreated, isTrue);
-    });
-
-    test('delete filtert auf slug + user_id', () async {
-      String? method;
-      String? url;
-      final sync = _sync((req) async {
-        method = req.method;
-        url = req.url.toString();
-        return http.Response('', 204, request: req);
-      });
-
-      await sync.delete('user_1717500000000');
-
-      expect(method, 'DELETE');
-      expect(url, contains('slug=eq.user_1717500000000'));
-      expect(url, contains('user_id=eq.user-123'));
+  test('load uses a bounded snapshot and parses own recipe revision', () async {
+    final server = h.FakeServer()
+      ..recipeRows[_recipe.slug] = {..._recipe.toRow(), 'server_revision': 7};
+    final env = _sync(server.client());
+    final recipes = await env.sync.load();
+    expect(recipes, hasLength(1));
+    expect(recipes.single.slug, _recipe.slug);
+    expect(recipes.single.title, _recipe.title);
+    expect(recipes.single.caloriesKcal, 600);
+    expect(recipes.single.userCreated, isTrue);
+    expect(recipes.single.serverRevision, 7);
+    final read = server.requests.single;
+    expect(read.url.path, '/rest/v1/rpc/load_recipe_page');
+    expect(jsonDecode(read.body), {
+      'p_watermark': null,
+      'p_after_slug': null,
+      'p_limit': 200,
     });
   });
+
+  test(
+    'delete sends observed revision and receives a committed tombstone',
+    () async {
+      final server = h.FakeServer();
+      final env = _sync(server.client());
+      final saved = await env.sync.upsert(
+        _recipe,
+        operationId: _operation,
+        expectedRevision: 0,
+      );
+      final result = await env.sync.delete(
+        _recipe.slug,
+        operationId: _deletion,
+        expectedRevision: saved.currentRevision,
+      );
+      final body = jsonDecode(server.operations('recipeDelete').single.body);
+      expect(body, {
+        'p_operation_id': _deletion,
+        'p_kind': 'recipeDelete',
+        'p_entity_id': _recipe.slug,
+        'p_payload': {'expected_revision': 1},
+      });
+      expect(result.outcome, RecipeMutationOutcome.applied);
+      expect(result.currentDeleted, isTrue);
+      expect(result.currentRevision, 2);
+      expect(server.recipeRows, isEmpty);
+    },
+  );
+
+  test(
+    'missing revision RPC fails without falling back to unversioned table writes',
+    () async {
+      final requests = <http.Request>[];
+      final env = _sync(
+        MockClient((request) async {
+          requests.add(request);
+          return http.Response(
+            jsonEncode({'code': 'PGRST202', 'message': 'Function missing'}),
+            404,
+            request: request,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      );
+      await expectLater(
+        env.sync.upsert(_recipe, operationId: _operation, expectedRevision: 0),
+        throwsA(isA<Exception>()),
+      );
+      expect(requests, hasLength(1));
+      expect(requests.single.url.path, '/rest/v1/rpc/apply_sync_operation');
+    },
+  );
+
+  test(
+    'stale writer returns a recoverable conflict instead of overwriting',
+    () async {
+      final server = h.FakeServer();
+      final env = _sync(server.client());
+      await env.sync.upsert(
+        _recipe,
+        operationId: _operation,
+        expectedRevision: 0,
+      );
+      final result = await env.sync.upsert(
+        _recipe.copyWith(title: 'Other device'),
+        operationId: _deletion,
+        expectedRevision: 0,
+      );
+      expect(result.outcome, RecipeMutationOutcome.conflictSaved);
+      expect(result.currentRecipe?.title, _recipe.title);
+      expect(result.savedRecipe?.title, 'Other device');
+      expect(result.savedRecipe?.conflictOf, _recipe.slug);
+      expect(server.recipeRows, hasLength(2));
+    },
+  );
+
+  test('mismatched receipt identity cannot acknowledge a write', () async {
+    final server = h.FakeServer();
+    final env = _sync(
+      MockClient((request) async {
+        final response = server.syncOperations.apply(jsonDecode(request.body));
+        response['operation_id'] = _deletion;
+        return http.Response(
+          jsonEncode(response),
+          200,
+          request: request,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+    await expectLater(
+      env.sync.upsert(_recipe, operationId: _operation, expectedRevision: 0),
+      throwsFormatException,
+    );
+  });
+
+  test(
+    'another signed-in owner is rejected before any recipe request',
+    () async {
+      final server = h.FakeServer();
+      final env = _sync(server.client());
+      await env.client.auth.setInitialSession(
+        jsonEncode({
+          'access_token': 'synthetic-other',
+          'refresh_token': 'synthetic-refresh',
+          'token_type': 'bearer',
+          'expires_in': 3600,
+          'user': {
+            'id': 'other',
+            'aud': 'authenticated',
+            'created_at': '2026-09-20T00:00:00Z',
+            'app_metadata': <String, dynamic>{},
+            'user_metadata': <String, dynamic>{},
+          },
+        }),
+      );
+      await expectLater(
+        env.sync.upsert(_recipe, operationId: _operation, expectedRevision: 0),
+        throwsA(isA<AuthException>()),
+      );
+      await expectLater(env.sync.load(), throwsA(isA<AuthException>()));
+      await expectLater(
+        env.sync.delete(
+          _recipe.slug,
+          operationId: _deletion,
+          expectedRevision: 1,
+        ),
+        throwsA(isA<AuthException>()),
+      );
+      expect(server.requests, isEmpty);
+    },
+  );
 }

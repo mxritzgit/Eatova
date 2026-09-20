@@ -1,85 +1,105 @@
+import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/models/favorite_meal.dart';
-import 'package:eatova/src/models/fitness_recipe.dart';
-import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/user_profile.dart';
-import 'package:eatova/src/models/weight_log.dart';
 import 'package:eatova/src/services/local_cache.dart';
-import 'package:eatova/src/services/sync_outbox.dart';
 
 import 'outbox/outbox_test_helpers.dart';
 
-// Perf round 2026-08-31, finding 4: `_hydrateFromCache` read its nine slots
-// strictly sequentially, so the boot gate waited for the SUM of nine decrypt
-// latencies instead of the maximum (measured ~91.5 ms per big slot on desktop
-// JIT, 2-4x on mobile AOT). The reads have no ordering dependency; they now
-// run concurrently — capped, because every read hops through its own
-// `compute()` isolate and an unbounded spawn burst is exactly the memory
-// pressure the slot-repair paths anticipate failing under.
+// Preserve the cold-start latency guarantee at the current storage boundary:
+// one consistent disk snapshot supplies the collections. Subsequent decoding
+// uses that in-memory snapshot, without one storage round trip per slot.
+class _SlowSnapshots extends InMemoryKeyValueStore {
+  final requests = <Set<String>>[];
+  int scalarCollectionReads = 0;
+  int active = 0;
+  int maxActive = 0;
 
-/// Cache whose slot reads take real time and record how many run at once.
-class _LangsameLeseCache extends LocalCache {
-  _LangsameLeseCache(super.store, super.userId);
-
-  int _aktiv = 0;
-  int maxAktiv = 0;
-
-  Future<T> _mitProbe<T>(Future<T> Function() inner) async {
-    _aktiv++;
-    if (_aktiv > maxAktiv) maxAktiv = _aktiv;
+  @override
+  Future<KeyValueSnapshot> readSnapshot(Iterable<String> keys) async {
+    requests.add(keys.toSet());
+    active++;
+    if (active > maxActive) maxActive = active;
     try {
       await Future<void>.delayed(const Duration(milliseconds: 20));
-      return await inner();
+      return await super.readSnapshot(keys);
     } finally {
-      _aktiv--;
+      active--;
     }
   }
 
   @override
-  Future<UserProfile?> readProfile() => _mitProbe(super.readProfile);
-  @override
-  Future<LifetimeStats?> readLifetimeStats() =>
-      _mitProbe(super.readLifetimeStats);
-  @override
-  Future<List<LoggedMeal>?> readLoggedMeals() =>
-      _mitProbe(super.readLoggedMeals);
-  @override
-  Future<List<FavoriteMeal>?> readFavorites() => _mitProbe(super.readFavorites);
-  @override
-  Future<WeightLog?> readWeightLog() => _mitProbe(super.readWeightLog);
-  @override
-  Future<List<SyncOp>?> readOutbox() => _mitProbe(super.readOutbox);
-  @override
-  Future<({int meals, int weightLogs, String? requestId})?>
-      readPendingStatsDeltas() => _mitProbe(super.readPendingStatsDeltas);
-  @override
-  Future<List<FitnessRecipe>?> readUserRecipes() =>
-      _mitProbe(super.readUserRecipes);
-  @override
-  Future<Map<String, ({int steps, int kcal})>?> readDailyActivity() =>
-      _mitProbe(super.readDailyActivity);
+  Future<String?> getString(String key) {
+    if (_collectionKeys.contains(key)) scalarCollectionReads++;
+    return super.getString(key);
+  }
 }
+
+final _collectionKeys = {
+  for (final name in [
+    'profile',
+    'stats',
+    'logged_meals',
+    'favorites',
+    'weight_log',
+    'outbox',
+    'pending_stats',
+    'user_recipes',
+    'daily_activity',
+  ])
+    'eatova.v1.$name.user-outbox',
+};
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('Boot-Hydration liest die Slots nebenlaeufig, aber gedeckelt', () async {
-    final cache =
-        _LangsameLeseCache(InMemoryKeyValueStore(), 'user-outbox');
-    final env = setup(injizierterCache: cache);
+  test(
+    'Boot-Hydration liest die Collections in einem konsistenten Snapshot',
+    () async {
+      await withClock(Clock.fixed(DateTime(2026, 9, 20, 12)), () async {
+        final storage = _SlowSnapshots();
+        final cache = LocalCache(storage, 'user-outbox');
+        await cache.writeProfile(
+          const UserProfile(weightKg: 83, onboardingCompleted: true),
+        );
+        await cache.writeLoggedMeals([
+          LoggedMeal(
+            id: 'cached-meal',
+            result: mealResult('Cached', kcal: 420),
+            loggedAt: clock.now(),
+          ),
+        ]);
+        final env = setup(injizierterCache: cache);
+        env.server.offline = true;
+        env.store.start();
+        await env.store.profileReady;
 
-    env.store.start();
-    await env.store.profileReady;
-    await pumpEventQueue(times: 60);
-
-    expect(cache.maxAktiv, greaterThanOrEqualTo(2),
-        reason: 'Neun sequenzielle Slot-Reads summieren ihre Latenzen — der '
-            'Kaltstart wartet dann auf die Summe statt auf das Maximum.');
-    expect(cache.maxAktiv, lessThanOrEqualTo(3),
-        reason: 'Jeder Read entschluesselt in einem eigenen compute()-Isolate;'
-            ' mehr als 3 gleichzeitig ist der Spawn-Burst, den die '
-            'Slot-Reparaturpfade als OOM-Risiko behandeln.');
-  });
+        final collectionSnapshots = storage.requests.where(
+          (keys) => keys.contains('eatova.v1.profile.user-outbox'),
+        );
+        expect(
+          collectionSnapshots,
+          hasLength(1),
+          reason:
+              'The initial hydration must not pay one disk-read latency per collection',
+        );
+        expect(collectionSnapshots.single, containsAll(_collectionKeys));
+        expect(
+          storage.scalarCollectionReads,
+          0,
+          reason:
+              'Reading collections individually loses both snapshot consistency and latency bounds',
+        );
+        expect(
+          storage.maxActive,
+          1,
+          reason: 'Hydration must not fan out concurrent database reads',
+        );
+        expect(env.store.profile.weightKg, 83);
+        expect(env.store.loggedMeals.single.result.mealName, 'Cached');
+        expect(env.store.dailyConsumedKcal, 420);
+      });
+    },
+  );
 }

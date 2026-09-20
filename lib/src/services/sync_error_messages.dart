@@ -161,7 +161,7 @@ String outboxDeleteLossHint([AppLocalizations? l10n]) =>
 
 /// What should happen to a failed outbox op.
 enum OutboxVerdict {
-  /// Drop for good — a retry cannot work, or the budget is spent.
+  /// Stop automatic retry; the dispatcher retains the blocked durable intent.
   drop,
 
   /// Keep and count one delivery attempt.
@@ -179,18 +179,16 @@ enum OutboxVerdict {
 /// told apart by SHAPE (5 chars = SQLSTATE, `PGRST` prefix, 3 digits = HTTP).
 /// When in doubt, keep.
 ///
-/// Pass [kind] when known: dropping a DELETE is the only drop a cold start
-/// actively undoes, so deletes suspend both the write budget and the
-/// code-based drop (an empty payload cannot violate a payload constraint) and
-/// use [kOutboxDeleteMaxAttempts] instead — finite, because an immortal op
-/// holds retry timer, queue cap and logout cleanup hostage.
+/// Pass [kind] when known: deletion intents use [kOutboxDeleteMaxAttempts]
+/// instead of the write threshold or immediate code-based rejection. Reaching
+/// either threshold stops automatic retry without removing the durable intent.
 OutboxVerdict classifyOutboxFailure(
   Object error,
   int attempts, {
   SyncOpKind? kind,
 }) {
   if (isNetworkSyncError(error)) return OutboxVerdict.retryFree;
-  if (kind != null && _isDeleteKind(kind)) {
+  if (kind?.isDelete ?? false) {
     return attempts + 1 >= kOutboxDeleteMaxAttempts
         ? OutboxVerdict.drop
         : OutboxVerdict.retryCounted;
@@ -200,14 +198,6 @@ OutboxVerdict classifyOutboxFailure(
   // Budget spent: even a retryable error ends here.
   return attempts + 1 >= kOutboxMaxAttempts ? OutboxVerdict.drop : verdict;
 }
-
-/// Enum-level copy of `SyncOp.isDelete`: [classifyOutboxFailure] only gets the
-/// [SyncOpKind], not the op.
-bool _isDeleteKind(SyncOpKind kind) =>
-    kind == SyncOpKind.mealDelete ||
-    kind == SyncOpKind.favoriteDelete ||
-    kind == SyncOpKind.recipeDelete ||
-    kind == SyncOpKind.trainingPlanDelete;
 
 OutboxVerdict _verdictForCode(Object error) {
   // Anything that is not a PostgREST error is unclassified -> keep.

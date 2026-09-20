@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'support/recipe_read_fake.dart';
+import 'support/sync_operation_fake.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -29,6 +32,27 @@ const String kFixlaufUser = 'user-fixlauf-a';
 
 /// Stateful fake PostgREST with holdable reads.
 class FixlaufServer {
+  final recipeReads = RecipeReadFake();
+  late final syncOperations = SyncOperationFake(
+    meals: mealRows,
+    weights: weightRows,
+    favorites: favoriteRows,
+    recipes: recipeRows,
+    readProfile: () => profileRow,
+    writeProfile: (row) => profileRow = row,
+    readStats: statsRow,
+    incrementStats: (requestId, meals, weights) {
+      if (!_consumedSyncStats.add(requestId)) return;
+      mealsCounted += meals;
+      weightLogsCounted += weights;
+    },
+    recordDay: (day) => trackedDay = day,
+    keepPhoto: recipeReads.historicalPhotos.add,
+    trainingPlans: trainingRows,
+    trainingHistory: trainingHistoryRows,
+  );
+  final _consumedSyncStats = <String>{};
+
   /// Every request throws a [http.ClientException] (network error).
   bool offline = false;
 
@@ -58,9 +82,9 @@ class FixlaufServer {
 
   final List<http.Request> requests = <http.Request>[];
   final List<({Completer<http.Response> completer, http.Response snapshot})>
-      _held = [];
+  _held = [];
   final List<({Completer<http.Response> completer, http.Response snapshot})>
-      _heldWrites = [];
+  _heldWrites = [];
 
   Map<String, dynamic>? profileRow;
   final Map<String, Map<String, dynamic>> mealRows =
@@ -101,8 +125,10 @@ class FixlaufServer {
   }
 
   Iterable<http.Request> requestsTo(String path, {String? method}) =>
-      requests.where((r) =>
-          r.url.path.contains(path) && (method == null || r.method == method));
+      requests.where(
+        (r) =>
+            r.url.path.contains(path) && (method == null || r.method == method),
+      );
 
   http.Client client() => MockClient(_handle);
 
@@ -112,16 +138,19 @@ class FixlaufServer {
     if (offline) throw http.ClientException('offline', req.url);
     if (silent) return Completer<http.Response>().future;
     requests.add(req);
-    if (silentRpcs && req.url.path.contains('/rpc/')) {
+    if (silentRpcs &&
+        req.url.path.contains('/rpc/') &&
+        !req.url.path.contains('/rpc/load_')) {
       return Completer<http.Response>().future;
     }
     final answer = _answer(req);
-    if (holdReads && req.method == 'GET') {
+    final isRead = req.method == 'GET' || req.url.path.contains('/rpc/load_');
+    if (holdReads && isRead) {
       final c = Completer<http.Response>();
       _held.add((completer: c, snapshot: answer));
       return c.future;
     }
-    if (holdWrites && req.method != 'GET') {
+    if (holdWrites && !isRead) {
       final c = Completer<http.Response>();
       _heldWrites.add((completer: c, snapshot: answer));
       return c.future;
@@ -131,21 +160,31 @@ class FixlaufServer {
 
   http.Response _answer(http.Request req) {
     final path = req.url.path;
-    http.Response ok(Object body) => http.Response(jsonEncode(body), 200,
-        headers: const {'Content-Type': 'application/json'}, request: req);
-    http.Response fail() => http.Response(jsonEncode({'message': 'kaputt'}),
-        500,
-        headers: const {'Content-Type': 'application/json'}, request: req);
+    http.Response ok(Object? body) => http.Response(
+      jsonEncode(body),
+      200,
+      headers: const {'content-type': 'application/json; charset=utf-8'},
+      request: req,
+    );
+    http.Response fail() => http.Response(
+      jsonEncode({'message': 'kaputt'}),
+      500,
+      headers: const {'content-type': 'application/json; charset=utf-8'},
+      request: req,
+    );
 
     if (path.contains('/rpc/record_training_history')) {
       final body = jsonDecode(req.body) as Map<String, dynamic>;
       final id = body['p_id'] as String;
       if (trainingHistoryDeletions.contains(id)) return ok(false);
-      trainingHistoryRows.putIfAbsent(id, () => {
-        'id': id,
-        'finished_at': body['p_finished_at'],
-        'session': body['p_session'],
-      });
+      trainingHistoryRows.putIfAbsent(
+        id,
+        () => {
+          'id': id,
+          'finished_at': body['p_finished_at'],
+          'session': body['p_session'],
+        },
+      );
       return ok(true);
     }
     if (path.contains('/rpc/delete_training_history')) {
@@ -154,6 +193,46 @@ class FixlaufServer {
       trainingHistoryDeletions.add(id);
       trainingHistoryRows.remove(id);
       return ok(const <String, dynamic>{});
+    }
+    if (path.endsWith('/rpc/load_training_plan_head')) {
+      final params = jsonDecode(req.body) as Map<String, dynamic>;
+      return ok(
+        syncOperations.readTrainingHead(params['p_source_id'] as String),
+      );
+    }
+    if (path.endsWith('/rpc/load_sync_operation_receipt')) {
+      final params = jsonDecode(req.body) as Map<String, dynamic>;
+      return ok(syncOperations.readReceipt(params['p_operation_id'] as String));
+    }
+    if (path.endsWith('/rpc/apply_sync_operation')) {
+      final params = jsonDecode(req.body) as Map<String, dynamic>;
+      final kind = params['p_kind'] as String;
+      if (rejectMealWrites &&
+          (kind == 'mealInsert' ||
+              kind == 'mealUpsert' ||
+              kind == 'mealDelete')) {
+        return fail();
+      }
+      if (rejectRpcs &&
+          {
+            'mealInsert',
+            'weightInsert',
+            'trackingDay',
+            'statsIncrement',
+          }.contains(kind)) {
+        return fail();
+      }
+      try {
+        final receipt = syncOperations.apply(params);
+        return ok(receipt);
+      } on PostgrestException catch (error) {
+        return http.Response(
+          jsonEncode({'code': error.code, 'message': error.message}),
+          400,
+          request: req,
+          headers: {'content-type': 'application/json'},
+        );
+      }
     }
     if (path.contains('/rpc/increment_lifetime_stats')) {
       if (rejectRpcs) return fail();
@@ -187,27 +266,40 @@ class FixlaufServer {
         mealRows.remove(_eqParam(req, 'id'));
         return ok(const <dynamic>[]);
       }
-      return ok(mealRows.values
-          .map((r) => <String, dynamic>{
+      return ok(
+        mealRows.values
+            .map(
+              (r) => <String, dynamic>{
                 'id': r['id'],
                 'logged_at': r['logged_at'],
                 'forced_slot': r['forced_slot'],
                 'local_day': r['local_day'],
                 'payload': r['payload'],
-              })
-          .toList());
+              },
+            )
+            .toList(),
+      );
     }
     if (path.contains('/profiles')) {
       if (req.method == 'GET') {
         if (rejectProfileReads) return fail();
-        return ok(profileRow == null
-            ? const <dynamic>[]
-            : <Map<String, dynamic>>[profileRow!]);
+        return ok(
+          profileRow == null
+              ? const <dynamic>[]
+              : <Map<String, dynamic>>[profileRow!],
+        );
       }
       for (final row in _rowsOf(req.body)) {
         profileRow = <String, dynamic>{...?profileRow, ...row};
       }
       return ok(profileRow!);
+    }
+    if (path.endsWith('/rpc/load_recipe_photo_refs')) {
+      return ok(recipeReads.photoPage(req, recipeRows.values));
+    }
+    if (path.endsWith('/rpc/load_recipe_page')) {
+      syncOperations.seedRecipeHeads();
+      return ok(recipeReads.page(req, recipeRows.values));
     }
     if (path.contains('/user_recipes')) {
       if (req.method == 'POST') {
@@ -233,14 +325,18 @@ class FixlaufServer {
         favoriteRows.remove(_eqParam(req, 'favorite_key'));
         return ok(const <dynamic>[]);
       }
-      return ok(favoriteRows.values
-          .map((r) => <String, dynamic>{
+      return ok(
+        favoriteRows.values
+            .map(
+              (r) => <String, dynamic>{
                 'favorite_key': r['favorite_key'],
                 'added_at': r['added_at'],
                 'payload': r['payload'],
                 'pinned': r['pinned'],
-              })
-          .toList());
+              },
+            )
+            .toList(),
+      );
     }
     if (path.contains('/weight_log')) {
       if (req.method == 'POST') {
@@ -250,12 +346,16 @@ class FixlaufServer {
         }
         return http.Response('', 201, request: req);
       }
-      return ok(weightRows.values
-          .map((r) => <String, dynamic>{
+      return ok(
+        weightRows.values
+            .map(
+              (r) => <String, dynamic>{
                 'recorded_at': r['recorded_at'],
                 'weight_kg': r['weight_kg'],
-              })
-          .toList());
+              },
+            )
+            .toList(),
+      );
     }
     if (path.endsWith('/training_history_deletions')) {
       return ok(trainingHistoryDeletions.map((id) => {'id': id}).toList());
@@ -281,16 +381,16 @@ class FixlaufServer {
   }
 
   Map<String, dynamic> statsRow() => <String, dynamic>{
-        'workouts_completed': 0,
-        'meals_logged': mealsCounted,
-        'water_total_ml': 0,
-        'steps_recorded': 0,
-        'weight_logs': weightLogsCounted,
-        'current_streak': 1,
-        'longest_streak': 1,
-        'last_workout_date': trackedDay,
-        'session_start': '2026-08-01T00:00:00Z',
-      };
+    'workouts_completed': 0,
+    'meals_logged': mealsCounted,
+    'water_total_ml': 0,
+    'steps_recorded': 0,
+    'weight_logs': weightLogsCounted,
+    'current_streak': 1,
+    'longest_streak': 1,
+    'last_workout_date': trackedDay,
+    'session_start': '2026-08-01T00:00:00Z',
+  };
 
   static List<Map<String, dynamic>> _rowsOf(String body) {
     final decoded = jsonDecode(body);
@@ -357,7 +457,9 @@ FixlaufSetup fixlaufSetup({
   );
   if (disposeClient) addTearDown(client.dispose);
   final store = kv ?? InMemoryKeyValueStore();
-  final localCache = ohneCache ? null : (cache ?? LocalCache(store, kFixlaufUser));
+  final localCache = ohneCache
+      ? null
+      : (cache ?? LocalCache(store, kFixlaufUser));
   final snacks = SnackCapture();
   final home = HomeStore(
     sync: EatovaSync.forUser(client, kFixlaufUser),
@@ -368,17 +470,25 @@ FixlaufSetup fixlaufSetup({
     debugCache: localCache,
   );
   if (autoDispose) addTearDown(home.dispose);
-  return (store: home, server: srv, cache: localCache, kv: store, snacks: snacks);
+  return (
+    store: home,
+    server: srv,
+    cache: localCache,
+    kv: store,
+    snacks: snacks,
+  );
 }
 
 /// Photo store double without file IO: `signOutCleanup`/`deleteAccount` call
 /// `RecipeImageStore.instance.clear()`, which under FakeAsync never returns.
 class StummerFotoStore extends RecipeImageStore {
   @override
-  Future<void> setActiveUser(String? userId) => Future<void>.value();
+  Future<void> setActiveUser(String? userId, {String? sessionId}) =>
+      Future<void>.value();
 
   @override
-  Future<void> clear({String? expectedUserId}) => Future<void>.value();
+  Future<void> clear({String? expectedUserId, String? expectedSessionId}) =>
+      Future<void>.value();
 }
 
 /// A timestamp that is guaranteed to sit on TODAY's local calendar day, at
@@ -419,35 +529,37 @@ MealAnalysisResult mealResult(String name, {int kcal = 300}) =>
 
 /// Server row of public.profiles in the strict select shape.
 Map<String, dynamic> serverProfileRow(UserProfile p) => <String, dynamic>{
-      'id': kFixlaufUser,
-      'weight_kg': p.weightKg,
-      'height_cm': p.heightCm,
-      'age_years': p.ageYears,
-      'sex': p.sex.name,
-      'activity_level': p.activityLevel.name,
-      'target_weight_kg': p.targetWeightKg,
-      'daily_steps_goal': p.dailyStepsGoal,
-      'daily_kcal_goal': p.dailyKcalGoal,
-      'daily_water_goal_ml': p.dailyWaterGoalMl,
-      'daily_sleep_goal_minutes': p.dailySleepGoalMinutes,
-      'protein_goal_g': p.proteinGoalG,
-      'carbs_goal_g': p.carbsGoalG,
-      'fat_goal_g': p.fatGoalG,
-      'weight_goal': p.weightGoal.name,
-      'diet_preference': p.diet.name,
-      'onboarding_completed': p.onboardingCompleted,
-      'manual_energy': p.manualEnergy,
-    };
+  'id': kFixlaufUser,
+  'weight_kg': p.weightKg,
+  'height_cm': p.heightCm,
+  'age_years': p.ageYears,
+  'sex': p.sex.name,
+  'activity_level': p.activityLevel.name,
+  'target_weight_kg': p.targetWeightKg,
+  'daily_steps_goal': p.dailyStepsGoal,
+  'daily_kcal_goal': p.dailyKcalGoal,
+  'daily_water_goal_ml': p.dailyWaterGoalMl,
+  'daily_sleep_goal_minutes': p.dailySleepGoalMinutes,
+  'protein_goal_g': p.proteinGoalG,
+  'carbs_goal_g': p.carbsGoalG,
+  'fat_goal_g': p.fatGoalG,
+  'weight_goal': p.weightGoal.name,
+  'diet_preference': p.diet.name,
+  'onboarding_completed': p.onboardingCompleted,
+  'manual_energy': p.manualEnergy,
+};
 
 /// Server row of logged_meals (select shape of MealsSync.loadLoggedMeals).
-Map<String, dynamic> serverMealRow(String id, {String name = 'Server-Gericht'}) =>
-    <String, dynamic>{
-      'id': id,
-      'logged_at': DateTime.now().toUtc().toIso8601String(),
-      'forced_slot': null,
-      'local_day': null,
-      'payload': mealResultToJson(mealResult(name, kcal: 250)),
-    };
+Map<String, dynamic> serverMealRow(
+  String id, {
+  String name = 'Server-Gericht',
+}) => <String, dynamic>{
+  'id': id,
+  'logged_at': DateTime.now().toUtc().toIso8601String(),
+  'forced_slot': null,
+  'local_day': null,
+  'payload': mealResultToJson(mealResult(name, kcal: 250)),
+};
 
 /// The completed profile of a returning user.
 const UserProfile completedProfile = UserProfile(

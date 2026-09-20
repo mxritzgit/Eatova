@@ -131,3 +131,28 @@ inspected on 2026-09-15. A still-valid JWT signature is not evidence that a
 revoked token remains accepted by this version's `/user` endpoint. Conversely,
 these `/user` checks do not establish immediate revocation at a different service
 that validates only JWT signatures, such as a separately configured REST gateway.
+
+## Real recovery mail purpose and OTP
+
+Run `python scripts/security/local_email_template_probe.py --prove-detection`
+with Docker available. Pinned GoTrue 2.196.0, Postgres 17.6 and a small Python SMTP
+sink run on a disposable internal Docker network with no published ports. The
+sink stores synthetic messages only in RAM and has no relay implementation.
+Request bodies travel through stdin; tokens and rendered messages are never
+written to evidence or logs. All containers and their network are removed on exit.
+
+The probe submits account deletion, password reset, legacy/no-context, unknown
+context and deletion-again requests for the same synthetic user. It verifies
+request-specific headings, a neutral subject, one eight-digit OTP, absence of
+authentication links, and actual verification of each OTP with the same user ID.
+The final repeated request catches purpose state leaking across calls. The
+negative control changes only a temporary copy of the deletion branch and must
+fail the actual SMTP heading assertion. Sanitized results are in the ignored
+`.agents/email-template-probe/result.json`.
+
+This proves rendering and OTP behavior for the committed recovery template on
+the pinned local Auth server. It does not prove live template deployment, real
+mail delivery, or rendering in every mail client. Template fields are documented
+in [Supabase Email Templates](https://supabase.com/docs/guides/auth/auth-email-templates);
+the request-specific context uses
+[redirectTo](https://supabase.com/docs/guides/auth/redirect-urls).

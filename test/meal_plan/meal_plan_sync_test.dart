@@ -40,6 +40,7 @@ void main() {
       );
       addTearDown(client.dispose);
       await signIn(client, 'account-A');
+      final originalToken = client.auth.currentSession!.accessToken;
       final service = MealPlansSync(client, 'account-A');
       final plan = PlannedMeal.create(
         recipe: fitnessRecipes.first,
@@ -59,7 +60,7 @@ void main() {
       expect(requests.single.url.path, '/rest/v1/rpc/eat_planned_meal');
       expect(
         requests.single.headers['Authorization'],
-        'Bearer fixture-account-A',
+        'Bearer $originalToken',
       );
       final payload = jsonDecode(requests.single.body) as Map;
       expect(payload['p_plan']['id'], meal.id);

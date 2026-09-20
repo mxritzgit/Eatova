@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../support/recipe_read_fake.dart';
+
 import 'package:eatova/src/services/data_export.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -29,6 +31,8 @@ void main() {
         'dummy-anon-key',
         authOptions: const AuthClientOptions(autoRefreshToken: false),
         httpClient: MockClient((request) async {
+          final recipe = emptyRecipeReadResponse(request);
+          if (recipe != null) return recipe;
           var result = <Map<String, dynamic>>[];
           if (request.url.path.endsWith('/logged_meals')) {
             expect(request.url.queryParameters['user_id'], 'eq.owner-a');

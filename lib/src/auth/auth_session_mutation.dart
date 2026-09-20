@@ -2,9 +2,112 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
+import 'package:postgrest/postgrest.dart' as postgrest;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../config/supabase_config.dart';
+
 typedef _MutationResult = ({User? user, Session? session});
+
+typedef ScopedAccountDeleteAction =
+    Future<void> Function(
+      Future<void> Function() deleteRemote,
+      bool Function() isCurrentSession,
+    );
+
+/// Recovery authorizes only this deletion and never replaces the app session.
+Future<void> runAccountDeletionCode(
+  SupabaseClient client, {
+  required String userId,
+  required String email,
+  required String code,
+  required ScopedAccountDeleteAction performDeletion,
+  http.Client? httpClient,
+}) async {
+  if (kIsWeb) throw UnsupportedError('Account changes require the mobile app');
+  final original = client.auth.currentSession;
+  if (original == null ||
+      original.user.id != userId ||
+      original.user.email?.trim().toLowerCase() != email.trim().toLowerCase()) {
+    throw const AuthException('Authentication session changed');
+  }
+  final identity = _identity(original);
+  var changed = false;
+  var active = true;
+  bool isCurrent() =>
+      active && !changed && _identity(client.auth.currentSession) == identity;
+  void requireCurrent() {
+    if (!isCurrent()) {
+      throw const AuthException('Authentication session changed');
+    }
+  }
+
+  // Keep the synchronous observer through verification, RPC and local cleanup.
+  // ignore: invalid_use_of_internal_member
+  final subscription = client.auth.onAuthStateChangeSync.listen(
+    (event) {
+      if (_identity(event.session) != identity) changed = true;
+    },
+    onError: (Object _, StackTrace __) {
+      changed = true;
+    },
+  );
+  final transport = httpClient ?? http.Client();
+  final deadline =
+      client.rest.requestTimeout ??
+      EatovaSupabaseConfig.postgrestOptions.requestTimeout!;
+  final scoped = GoTrueClient(
+    url: client.rest.url.replaceFirst(RegExp(r'/rest/v1/?$'), '/auth/v1'),
+    headers: Map<String, String>.of(client.auth.headers),
+    httpClient: transport,
+    autoRefreshToken: false,
+    flowType: AuthFlowType.implicit,
+  );
+  try {
+    requireCurrent();
+    final response = await scoped
+        .verifyOTP(
+          type: OtpType.recovery,
+          email: email.trim(),
+          token: code.trim(),
+        )
+        .timeout(deadline);
+    requireCurrent();
+    final verified = response.session;
+    if (verified == null || verified.user.id != userId) {
+      throw const AuthException('Authentication session changed');
+    }
+    var used = false;
+    await performDeletion(() async {
+      requireCurrent();
+      if (used) {
+        throw const AuthException('Deletion authorization already used');
+      }
+      used = true;
+      // Use the scoped transport: the shared auth HTTP client may refresh the
+      // app login. This RPC only needs the newly verified, fixed bearer.
+      await postgrest.PostgrestBuilder<dynamic, dynamic, dynamic>(
+        url: Uri.parse('${client.rest.url}/rpc/delete_account'),
+        method: postgrest.HttpMethod.post,
+        headers: {
+          for (final entry in client.rest.headers.entries)
+            if (entry.key.toLowerCase() != 'authorization')
+              entry.key: entry.value,
+          'Authorization': 'Bearer ${verified.accessToken}',
+        },
+        httpClient: transport,
+        retryEnabled: false,
+        requestTimeout: deadline,
+      );
+    }, isCurrent);
+    if (!used) throw StateError('Deletion was not requested');
+  } finally {
+    active = false;
+    await subscription.cancel();
+    scoped.dispose();
+    if (httpClient == null) transport.close();
+  }
+}
 
 /// Isolates a credential exchange from other logins, including the time spent
 /// in a native account chooser. Signup may return a user without a session

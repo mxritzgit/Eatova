@@ -10,17 +10,20 @@ class RecipeDetailScreen extends StatefulWidget {
     required this.onAddMeal,
     this.onDelete,
     this.onEdit,
+    this.onOpenHistory,
     this.photoInput,
     this.isSessionCurrent,
     this.productService,
   });
 
   final FitnessRecipe recipe;
-  final void Function(MealAnalysisResult result, MealSlot slot) onAddMeal;
+  final FutureOr<void> Function(MealAnalysisResult result, MealSlot slot)
+  onAddMeal;
+  final Future<bool> Function(String slug)? onOpenHistory;
 
   /// Optional delete hook, set only for own recipes.
-  final VoidCallback? onDelete;
-  final Future<SyncDelivery> Function(FitnessRecipe)? onEdit;
+  final ValueChanged<String>? onDelete;
+  final Future<RecipeSaveResult> Function(FitnessRecipe)? onEdit;
   final MealPhotoInput? photoInput;
   final bool Function()? isSessionCurrent;
   final ProductLookupService? productService;
@@ -29,34 +32,96 @@ class RecipeDetailScreen extends StatefulWidget {
   State<RecipeDetailScreen> createState() => _RecipeDetailScreenState();
 }
 
-class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
+class _RecipeDetailScreenState extends State<RecipeDetailScreen>
+    with WidgetsBindingObserver {
   late FitnessRecipe recipe = widget.recipe;
-  VoidCallback? get onDelete => widget.onDelete;
+  ValueChanged<String>? get onDelete => widget.onDelete;
+  bool _adding = false;
+  bool _editing = false;
+  RecipeSaveHandle? _saveHandle;
+  bool get _canUseRecipe => _saveHandle?.value.canEdit ?? true;
+  String? get _historySlug => _saveHandle == null
+      ? recipe.slug
+      : _saveHandle!.value.recipe?.slug ?? _saveHandle!.value.targetSlug;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(_saveHandle?.refresh());
+  }
+
+  void _refreshSavedRecipe() {
+    if (!mounted || widget.isSessionCurrent?.call() == false) return;
+    setState(() {
+      final current = _saveHandle?.value.recipe;
+      if (current != null) recipe = current;
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _saveHandle?.removeListener(_refreshSavedRecipe);
+    _saveHandle?.dispose();
+    super.dispose();
+  }
 
   Future<void> _edit() async {
-    if (widget.isSessionCurrent?.call() == false) return;
+    if (_editing ||
+        !_canUseRecipe ||
+        widget.isSessionCurrent?.call() == false) {
+      return;
+    }
+    _editing = true;
+    final editingRecipe = recipe;
+    RecipeSaveResult? saved;
+    var sheetClosed = false;
     final result = await showModalBottomSheet<RezeptEntwurfErgebnis>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => _CreateRecipeSheet(
-        initialRecipe: recipe,
+        initialRecipe: editingRecipe,
         photoInput: widget.photoInput ?? DeviceMealPhotoInput(),
         productService: widget.productService,
-        onSave: widget.onEdit,
+        onSave: (draft) async {
+          final receipt = await widget.onEdit!(draft);
+          if (sheetClosed ||
+              !mounted ||
+              widget.isSessionCurrent?.call() == false) {
+            receipt.handle.dispose();
+            throw StateError('Recipe edit session ended');
+          }
+          saved = receipt;
+          return receipt.delivery;
+        },
         isSessionCurrent: widget.isSessionCurrent,
       ),
     );
+    sheetClosed = true;
+    _editing = false;
     if (!mounted ||
         result == null ||
         widget.isSessionCurrent?.call() == false) {
+      saved?.handle.dispose();
       return;
     }
-    setState(() => recipe = result.rezept);
+    _saveHandle?.removeListener(_refreshSavedRecipe);
+    _saveHandle?.dispose();
+    _saveHandle = saved?.handle;
+    _saveHandle?.addListener(_refreshSavedRecipe);
+    setState(() => recipe = _saveHandle?.value.recipe ?? result.rezept);
     showAppSnack(
       context,
       deliveryHint(
-        result.fotoFehlgeschlagen
+        _saveHandle?.value.conflictSaved == true
+            ? context.l10n.recipeEditConflictSaved
+            : result.fotoFehlgeschlagen
             ? context.l10n.recipeEditPhotoRetained
             : context.l10n.recipeEditSaved,
         result.delivery ?? SyncDelivery.delivered,
@@ -67,25 +132,51 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
   }
 
   Future<void> _showMealPicker(BuildContext context) async {
-    if (widget.isSessionCurrent?.call() == false) return;
+    if (_adding || !_canUseRecipe || widget.isSessionCurrent?.call() == false) {
+      return;
+    }
+    final selectedRecipe = recipe;
     final selection = await showEatovaSheet<({MealSlot slot, double servings})>(
       context,
-      _MealSlotPickerSheet(recipe: recipe),
+      _MealSlotPickerSheet(
+        recipe: selectedRecipe,
+        onSave: (slot, servings) =>
+            _add(context, selectedRecipe, slot, servings),
+      ),
+      enableDrag: false,
     );
     if (!context.mounted || selection == null) return;
-    _add(context, selection.slot, selection.servings);
   }
 
-  void _add(BuildContext context, MealSlot slot, double servings) {
+  Future<bool> _add(
+    BuildContext context,
+    FitnessRecipe selectedRecipe,
+    MealSlot slot,
+    double servings,
+  ) async {
+    if (_adding || !_canUseRecipe || widget.isSessionCurrent?.call() == false) {
+      return false;
+    }
     final l10n = context.l10n;
-    if (widget.isSessionCurrent?.call() == false) return;
-    final result = recipe.toMealResultForServings(servings, l10n);
-    widget.onAddMeal(result, slot);
+    final result = selectedRecipe.toMealResultForServings(servings, l10n);
+    setState(() => _adding = true);
+    final saved = await tryPersistChange(
+      context,
+      () => widget.onAddMeal(result, slot),
+    );
+    if (!mounted) return false;
+    setState(() => _adding = false);
+    if (!saved ||
+        !context.mounted ||
+        widget.isSessionCurrent?.call() == false) {
+      return false;
+    }
     showAppSnack(
       context,
       l10n.commonKcalAddedToSlot(result.caloriesKcal, slot.label(l10n)),
       icon: Icons.check_circle_rounded,
     );
+    return true;
   }
 
   @override
@@ -104,7 +195,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
                 child: _AddToMealCard(
                   recipe: recipe,
-                  onTap: () => _showMealPicker(context),
+                  onTap: _canUseRecipe ? () => _showMealPicker(context) : null,
                 ),
               ),
             )
@@ -130,14 +221,35 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                         key: const ValueKey('recipe-detail-delete'),
                         icon: Icons.delete_outline_rounded,
                         semanticLabel: l10n.recipesDeleteSemantics,
-                        onTap: () {
-                          // Pop first: the toast belongs on the recipe list.
-                          Navigator.of(context).pop();
-                          onDelete!();
-                        },
+                        onTap: !_canUseRecipe
+                            ? null
+                            : () {
+                                // Pop first: the toast belongs on the recipe list.
+                                Navigator.of(context).pop();
+                                onDelete!(recipe.slug);
+                              },
                       ),
               ),
               const SizedBox(height: 16),
+              if (!_canUseRecipe || recipe.conflictOf != null) ...[
+                Text(
+                  _saveHandle?.value.resolving == true
+                      ? l10n.recipeEditResolving
+                      : _saveHandle?.value.recipe == null && _saveHandle != null
+                      ? l10n.recipeEditUnavailable
+                      : l10n.recipeEditConflictSaved,
+                  key: const ValueKey('recipe-edit-current-state'),
+                  style: AppType.ui(14, color: t.ink2, height: 1.5),
+                ),
+                if (_saveHandle?.value.resolving == true)
+                  TextButton.icon(
+                    key: const ValueKey('recipe-edit-refresh-result'),
+                    onPressed: () => _saveHandle?.refresh(),
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: Text(l10n.commonBootUnansweredRetry),
+                  ),
+                const SizedBox(height: 16),
+              ],
               Container(
                 key: const ValueKey('recipe-detail-hero'),
                 clipBehavior: Clip.antiAlias,
@@ -216,9 +328,29 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
                 const SizedBox(height: 14),
                 TextButton.icon(
                   key: const ValueKey('recipe-detail-edit'),
-                  onPressed: _edit,
+                  onPressed: _canUseRecipe ? _edit : null,
                   icon: const Icon(Icons.edit_outlined),
                   label: Text(l10n.recipeEditTitle),
+                ),
+              ],
+              if (widget.onOpenHistory != null) ...[
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  key: const ValueKey('recipe-detail-history'),
+                  onPressed:
+                      _saveHandle?.value.resolving == true ||
+                          _historySlug == null
+                      ? null
+                      : () async {
+                          final restored = await widget.onOpenHistory!(
+                            _historySlug!,
+                          );
+                          if (restored && context.mounted) {
+                            Navigator.pop(context);
+                          }
+                        },
+                  icon: const Icon(Icons.history_rounded),
+                  label: Text(l10n.recipeHistoryTitle),
                 ),
               ],
               const SizedBox(height: 24),
@@ -238,7 +370,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
               if (!pinAction)
                 _AddToMealCard(
                   recipe: recipe,
-                  onTap: () => _showMealPicker(context),
+                  onTap: _canUseRecipe ? () => _showMealPicker(context) : null,
                 ),
               const SizedBox(height: 18),
               _RecipeInfoSection(
@@ -276,7 +408,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen> {
 class _AddToMealCard extends StatelessWidget {
   const _AddToMealCard({required this.recipe, required this.onTap});
   final FitnessRecipe recipe;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {

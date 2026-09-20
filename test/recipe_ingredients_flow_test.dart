@@ -3,6 +3,7 @@ import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
+import 'package:eatova/src/services/recipe_save_result.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -193,7 +194,7 @@ void main() {
           onAddMeal: (_, _) {},
           onEdit: (value) async {
             saved = value;
-            return SyncDelivery.delivered;
+            return RecipeSaveResult.detached(value, SyncDelivery.delivered);
           },
         ),
         locale: const Locale('en'),
