@@ -17,6 +17,8 @@ import tempfile
 import time
 from urllib.parse import urlencode
 
+from password_change_checks import PasswordChangeProbe
+
 
 ROOT = Path(__file__).resolve().parents[2]
 AUTH_IMAGE = 'supabase/gotrue:v2.196.0@sha256:c0c25187a6b835e65a6f6e6c6b39d090e832d40e6de5186f2c038e0411944232'
@@ -50,7 +52,7 @@ class ContainerClient:
     def __init__(self, runner, target, port):
         self.runner, self.target, self.port = runner, target, port
 
-    def request(self, path, data=None, token=None):
+    def request(self, path, data=None, token=None, method=None):
         source = """
 import json, sys, urllib.request, urllib.error
 value = json.load(sys.stdin)
@@ -60,7 +62,8 @@ opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect
 headers = {'Content-Type': 'application/json', 'X-Forwarded-For': '198.51.100.24'}
 if value['token']: headers['Authorization'] = 'Bearer ' + value['token']
 request = urllib.request.Request(value['url'], headers=headers,
-    data=None if value['data'] is None else json.dumps(value['data']).encode())
+    data=None if value['data'] is None else json.dumps(value['data']).encode(),
+    method=value['method'])
 try: response = opener.open(request, timeout=3)
 except urllib.error.HTTPError as error: response = error
 with response:
@@ -72,7 +75,7 @@ with response:
         if not path.startswith('/') or path.startswith('//'):
             raise ValueError('Unexpected local request path')
         payload = {'url': f'http://{self.target}:{self.port}' + path,
-                   'data': data, 'token': token}
+                   'data': data, 'token': token, 'method': method}
         return json.loads(command('docker', 'exec', '-i', self.runner,
                                   'python', '-c', source, input=json.dumps(payload)))
 
@@ -88,7 +91,7 @@ def wait_healthy(client):
     raise RuntimeError('Disposable service did not become healthy')
 
 
-def run(template_directory=None):
+def run(template_directory=None, *, require_reauthentication=True):
     template_directory = template_directory or ROOT / "supabase" / "email_templates"
     prefix = 'eatova-mail-purpose-' + secrets.token_hex(4)
     network, db, sink, auth = (prefix + name for name in ('-net', '-db', '-sink', '-auth'))
@@ -134,6 +137,9 @@ def run(template_directory=None):
             'GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED': 'false',
             'GOTRUE_DISABLE_SIGNUP': 'false', 'GOTRUE_LOG_LEVEL': 'error',
             'GOTRUE_MAILER_OTP_LENGTH': '8', 'GOTRUE_MAILER_OTP_EXP': '600',
+            'GOTRUE_SECURITY_UPDATE_PASSWORD_REQUIRE_REAUTHENTICATION':
+                str(require_reauthentication).lower(),
+            'GOTRUE_SECURITY_UPDATE_PASSWORD_REQUIRE_CURRENT_PASSWORD': 'false',
             'GOTRUE_RATE_LIMIT_EMAIL_SENT': '100', 'GOTRUE_RATE_LIMIT_VERIFY': '100',
             'GOTRUE_RATE_LIMIT_HEADER': 'X-Forwarded-For',
             'GOTRUE_SMTP_HOST': sink, 'GOTRUE_SMTP_PORT': '1025',
@@ -141,6 +147,8 @@ def run(template_directory=None):
             'GOTRUE_SMTP_MAX_FREQUENCY': '1ms',
             'GOTRUE_MAILER_TEMPLATES_RECOVERY': f'http://{sink}:8025/recovery.html',
             'GOTRUE_MAILER_SUBJECTS_RECOVERY': 'Dein Eatova-Sicherheitscode',
+            'GOTRUE_MAILER_TEMPLATES_REAUTHENTICATION': f'http://{sink}:8025/reauthentication.html',
+            'GOTRUE_MAILER_SUBJECTS_REAUTHENTICATION': 'Dein Eatova-Code: Passwort ändern',
         }
         args = ['docker', 'run', '--detach', '--name', auth, '--network', network]
         for key, value in env.items():
@@ -195,11 +203,18 @@ def run(template_directory=None):
             if not checks['otp_authenticates_original_user']:
                 raise RuntimeError(f'{name}: real OTP verification failed ({status})')
             evidence['checks'].append({'context': name, **checks})
+        def sql(statement):
+            return command('docker', 'exec', '-i', db, 'psql', '-U', 'postgres',
+                           '-v', 'ON_ERROR_STOP=1', input=statement)
+
+        evidence['password_checks'] = PasswordChangeProbe(
+            client.request, admin, sql, mailbox.request).run()
         evidence['passed'] = True
         out = ROOT / '.agents' / 'email-template-probe'
         out.mkdir(parents=True, exist_ok=True)
         (out / 'result.json').write_text(json.dumps(evidence, indent=2) + '\n', encoding='utf-8')
         print(json.dumps({'passed': True, 'contexts': len(cases), 'checks': len(cases) * 6,
+                          'password_checks': len(evidence['password_checks']),
                           'evidence': str(out / 'result.json')}))
     finally:
         for kind, name in reversed(created):
@@ -230,8 +245,17 @@ if __name__ == '__main__':
                     raise
             else:
                 raise RuntimeError('Missing deletion purpose routing was not detected')
+        try:
+            run(require_reauthentication=False)
+        except RuntimeError as error:
+            if str(error) != 'old_session_missing_nonce_denied failed (status=200)':
+                raise
+        else:
+            raise RuntimeError('Disabled password reauthentication was not detected')
         evidence_path = ROOT / '.agents' / 'email-template-probe' / 'result.json'
         evidence = json.loads(evidence_path.read_text(encoding='utf-8'))
         evidence['purpose_mutation_detected'] = True
+        evidence['password_reauthentication_mutation_detected'] = True
         evidence_path.write_text(json.dumps(evidence, indent=2) + '\n', encoding='utf-8')
-        print(json.dumps({'purpose_mutation_detected': True}))
+        print(json.dumps({'purpose_mutation_detected': True,
+                          'password_reauthentication_mutation_detected': True}))

@@ -17,9 +17,50 @@ Values retain AES-GCM encryption with the account/slot name authenticated as
 associated data. The key stays in the OS keystore. Existing account slots and
 key-lifecycle metadata migrate together in one transaction; only a successful
 commit permits preferences cleanup. An import marker prevents old preferences
-from restoring deleted data. Unreadable queues block mutation instead of being
+from restoring deleted data. An encrypted, authenticated cleanup receipt records
+the SHA-256 digest of each exact source value in the same transaction. Cleanup
+rechecks native preferences before removing only those values; the receipt is
+retained after interrupted cleanup and retired after success. Unreadable queues block mutation instead of being
 replaced with an empty queue. Appearance and other noncritical preferences still
 use SharedPreferences.
+
+### Client rollback contract
+
+The SQLite cutover is **forward-only**. Production client rollbacks must retain
+storage protocol 2, including this migration guard; a SharedPreferences-writing
+build is not a supported rollback. Rebuild a corrective release on the current
+storage implementation instead. The initial SQLite release
+`01acb77f2d6ab93450b42415e0ec6faac44e9ed2` is the ancestry floor, not itself an
+eligible rollback: it predates the guarded protocol declaration.
+
+The [client release eligibility workflow](../.github/workflows/client-release-eligibility.yml)
+must run **from protected main** before every signed release or rollback. Its
+trusted validator rejects pre-cutover, unmerged, undeclared or incompatible
+candidate commits and attests the exact candidate commit/tree. Retain the
+successful run and artifact with the signed build. The candidate never supplies
+its own validator. See [the release runbook](OPERATIONS.md#client-release-and-rollback-gate).
+There is currently no automated store publication pipeline: this gate governs
+the supported release process, not manual uploads or device sideloads.
+
+If an obsolete build is installed anyway and writes offline data after cutover,
+the next foreground bootstrap preserves both stores and blocks use with an
+actionable recovery message. New/changed preference values are never silently
+ignored, merged over newer SQLite data, or cleaned up. The recorded conflict
+also prevents new background acquisitions, including reused pooled connections,
+until foreground recovery succeeds. Already-running operations retain their
+existing account/session claims and operate only on authoritative SQLite data;
+this fence does not cancel in-flight requests. A completed
+marker from the initial SQLite release without a cleanup receipt cannot prove
+remaining preference bytes are obsolete; those bytes are preserved for explicit
+recovery too. Do not uninstall, clear app data, remove migration markers, or use
+logout as a recovery method. Support must preserve encrypted originals and
+reconcile operation IDs, receipts and tombstones in a reviewed recovery release;
+there is no automatic bidirectional merge or destructive reset shortcut.
+
+Supported mobile upgrades stop the older process before starting the new build.
+SharedPreferences has no atomic cross-process compare-and-delete: the native
+recheck catches a write observed before removal, but cannot guarantee safety
+against an unsupported concurrently running obsolete writer.
 
 Versioned snapshots and compare-and-swap commits coordinate foreground and
 background database connections. Confirmed source deletion fences training
@@ -69,7 +110,13 @@ rechecks permission before HTTP and acknowledgement. Follow-ups are bounded to
 three attempts after 15, 30 and 60 minutes for retryable runs. An accessible
 encryption key and completed foreground migration are prerequisites. An
 unavailable session/key/database does not schedule follow-ups; reopening the
-app allows authentication renewal and initialization. The OS controls execution timing;
+app allows authentication renewal and initialization. This includes exceptions
+and timeouts while reading prerequisites or rechecking permission during HTTP.
+A missing or changed foreground session also stops background retries; a busy
+claim for the same active session remains retryable. Network/server failures and
+transport timeouts can schedule a bounded retry. A failed local acknowledgement
+retains its frozen operation without spending a delivery attempt.
+The OS controls execution timing;
 this is not a promise of immediate synchronization while the app is suspended.
 Native registration/builds and simulated runner tests do not establish physical
 device scheduling behavior.

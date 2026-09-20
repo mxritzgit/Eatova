@@ -467,6 +467,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         _store.selectedTab,
         _store.bootUnanswered,
         _store.bootLoadInFlight,
+        _store.legacyStorageConflict,
         _store.needsOnboarding,
       ),
       builder: (context) {
@@ -474,10 +475,11 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         // profile and without a server answer. `needsOnboarding` would be
         // true from ctor defaults here — a returning user must see "slow
         // connection", not onboarding.
-        if (_store.bootUnanswered) {
+        if (_store.bootUnanswered || _store.legacyStorageConflict) {
           return _BootUnansweredScreen(
             loading: _store.bootLoadInFlight,
             onRetry: _store.retryBoot,
+            storageConflict: _store.legacyStorageConflict,
           );
         }
 
@@ -1179,10 +1181,15 @@ class _EatovaHomePageState extends State<EatovaHomePage>
 /// Boot without a server answer (F1-06): no cached profile, budget spent or
 /// load failed. Offers a retry; shows progress while a load is running.
 class _BootUnansweredScreen extends StatelessWidget {
-  const _BootUnansweredScreen({required this.loading, required this.onRetry});
+  const _BootUnansweredScreen({
+    required this.loading,
+    required this.onRetry,
+    this.storageConflict = false,
+  });
 
   final bool loading;
   final VoidCallback onRetry;
+  final bool storageConflict;
 
   @override
   Widget build(BuildContext context) {
@@ -1198,7 +1205,11 @@ class _BootUnansweredScreen extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                Icon(Icons.cloud_off_rounded, size: 40, color: t.ink2),
+                Icon(
+                  storageConflict ? Icons.lock_outline_rounded : Icons.cloud_off_rounded,
+                  size: 40,
+                  color: t.ink2,
+                ),
                 const SizedBox(height: 18),
                 // Screen title, so rank 1 — the shared widget adds the
                 // `header` trait AND the rank a hand-written Semantics
@@ -1207,14 +1218,18 @@ class _BootUnansweredScreen extends StatelessWidget {
                 HeadingSemantics(
                   level: 1,
                   child: Text(
-                    l10n.commonBootUnansweredTitle,
+                    storageConflict
+                        ? l10n.commonLegacyStorageConflictTitle
+                        : l10n.commonBootUnansweredTitle,
                     textAlign: TextAlign.center,
                     style: AppType.display(22, color: t.ink),
                   ),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  l10n.commonBootUnansweredBody,
+                  storageConflict
+                      ? l10n.commonLegacyStorageConflictBody
+                      : l10n.commonBootUnansweredBody,
                   textAlign: TextAlign.center,
                   style: AppType.ui(14, color: t.ink2, height: 1.4),
                 ),

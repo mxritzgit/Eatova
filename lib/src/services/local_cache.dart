@@ -186,6 +186,8 @@ class LocalCache {
       final cache = LocalCache(connection.store, userId)
         .._releaseStorage = connection.release;
       return cache;
+    } on LegacyStorageConflict {
+      rethrow;
     } catch (e, s) {
       dev.log('LocalCache.create failed', error: e, stackTrace: s,
           name: 'local_cache');

@@ -15,7 +15,7 @@ import secrets
 import subprocess
 import time
 
-from auth_lifecycle_checks import LifecycleFailure, LifecycleProbe
+from auth_lifecycle_checks import LifecycleFailure, LifecycleProbe, REFRESH_REUSE_SECONDS
 from local_auth_transport import LocalAuthClient, direct_subprocess_environment
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -40,8 +40,12 @@ request = LocalAuthClient(
     BASE, client_ip='198.51.100.23' if options.auth_lifecycle else None,
 ).request
 
-def cmd(*args, input=None):
-    result = subprocess.run(args, input=input, capture_output=True, text=True, check=False)
+def cmd(*args, input=None, timeout=None):
+    try:
+        result = subprocess.run(args, input=input, capture_output=True, text=True,
+                                check=False, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f'command {args[0]} {args[1]} timed out') from None
     if result.returncode:
         raise RuntimeError(f'command {args[0]} {args[1]} failed ({result.returncode})')
     return result.stdout.strip()
@@ -93,7 +97,7 @@ try:
             'GOTRUE_MAILER_SECURE_EMAIL_CHANGE_ENABLED': 'true',
             'GOTRUE_SECURITY_UPDATE_PASSWORD_REQUIRE_REAUTHENTICATION': 'true',
             'GOTRUE_SECURITY_REFRESH_TOKEN_ROTATION_ENABLED': 'true',
-            'GOTRUE_SECURITY_REFRESH_TOKEN_REUSE_INTERVAL': '10',
+            'GOTRUE_SECURITY_REFRESH_TOKEN_REUSE_INTERVAL': str(REFRESH_REUSE_SECONDS),
             'GOTRUE_RATE_LIMIT_VERIFY': '30',
             'GOTRUE_RATE_LIMIT_HEADER': 'X-Forwarded-For',
             'GOTRUE_RATE_LIMIT_EMAIL_SENT': '60',
@@ -147,7 +151,7 @@ try:
     if options.auth_lifecycle:
         def local_sql(statement):
             return cmd('docker', 'exec', '-i', db, 'psql', '-U', 'postgres',
-                       '-v', 'ON_ERROR_STOP=1', input=statement)
+                       '-tA', '-v', 'ON_ERROR_STOP=1', input=statement, timeout=10)
 
         probe = LifecycleProbe(request, admin_token, local_sql)
         try:

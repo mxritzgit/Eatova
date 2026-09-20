@@ -15,6 +15,8 @@ const _outbox = 'eatova.v1.outbox.account-a';
 const _profile = 'eatova.v1.profile.account-b';
 const _receipt = 'eatova.v1.training_history_deletions.account-b';
 const _marker = 'eatova.storage.preferences_imported.v1';
+const _cleanup = 'eatova.storage.preferences_cleanup.v1';
+const _conflict = 'eatova.storage.legacy_conflict.v1';
 
 class _Keys implements SecureKeyStore {
   String? value = base64Encode(_testKey);
@@ -41,6 +43,7 @@ class _Legacy implements LegacyCacheSource {
   final metadata = <String, String>{};
   bool failCleanup = false;
   bool failRead = false;
+  void Function()? beforeCleanup;
   int cleanups = 0;
   @override
   Future<Map<String, String>> readSlots() async {
@@ -51,11 +54,14 @@ class _Legacy implements LegacyCacheSource {
   @override
   Future<Map<String, String>> readKeyMetadata() async => Map.of(metadata);
   @override
-  Future<void> removeSlots(Iterable<String> keys) async {
+  Future<void> removeSlots(Map<String, String> expectedValues) async {
     cleanups++;
     if (failCleanup) throw StateError('cleanup failed');
-    for (final key in keys) {
-      slots.remove(key);
+    beforeCleanup?.call();
+    for (final entry in expectedValues.entries) {
+      if (!slots.containsKey(entry.key)) continue;
+      if (slots[entry.key] != entry.value) throw const LegacyStorageConflict();
+      slots.remove(entry.key);
     }
   }
 }
@@ -89,6 +95,43 @@ void main() {
     await database.close();
     await directory.delete(recursive: true);
   });
+
+  test(
+    'old storage upgrade downgrade offline write re-upgrade preserves both stores',
+    () async {
+      final cipher = AesGcmCacheCipher(_testKey);
+      legacy.slots[_outbox] = await cipher.encrypt(
+        _outbox,
+        '{"items":[{"operation_id":"original-operation"}]}',
+      );
+      final cache = (await migrate())!;
+      await cache.setString(
+        _outbox,
+        '{"items":[{"operation_id":"sqlite-operation"}]}',
+      );
+      final before = await database.readAll();
+      // An older installed binary has no knowledge of SQLite's cutover.
+      final rollbackWrite = await cipher.encrypt(
+        _outbox,
+        '{"items":[{"operation_id":"rollback-offline-operation"}]}',
+      );
+      legacy.slots[_outbox] = rollbackWrite;
+      await database.close();
+      CacheKeyProvider.debugReset();
+      database = await SqliteKeyValueStore.open(
+        '${directory.path}/cache.sqlite',
+      );
+
+      await expectLater(migrate(), throwsA(isA<LegacyStorageConflict>()));
+      expect(legacy.slots[_outbox], rollbackWrite);
+      final after = await database.readAll();
+      expect({...after.values}..remove(_conflict), before.values);
+      expect({...after.versions}..remove(_conflict), before.versions);
+      expect(after.values[_conflict], 'true');
+      expect(await migrate(background: true), isNull);
+      expect(legacy.slots[_outbox], rollbackWrite);
+    },
+  );
 
   test(
     'imports every account and authoritative slot without changing cipher AAD',
@@ -287,6 +330,126 @@ void main() {
   );
 
   test(
+    'failed conflict fence write preserves the actionable error and both stores',
+    () async {
+      legacy.slots[_outbox] = 'imported';
+      await migrate();
+      legacy.slots[_outbox] = 'rollback-offline';
+      final connection = sqlite3.open('${directory.path}/cache.sqlite');
+      connection.execute(
+        "CREATE TRIGGER reject_conflict BEFORE INSERT ON cache_slots "
+        "WHEN NEW.key = '$_conflict' BEGIN SELECT RAISE(ABORT, 'test failure'); END",
+      );
+      connection.close();
+      final before = await database.readAll();
+      await expectLater(migrate(), throwsA(isA<LegacyStorageConflict>()));
+      expect(legacy.slots[_outbox], 'rollback-offline');
+      expect((await database.readAll()).values, before.values);
+    },
+  );
+
+  test(
+    'cleanup receipt is encrypted and committed with the initial data',
+    () async {
+      legacy.slots[_outbox] = '{"items":["pending"]}';
+      legacy.failCleanup = true;
+      await migrate();
+      final raw = (await database.getString(_cleanup))!;
+      expect(raw, startsWith(cacheCipherMagic));
+      expect(raw, isNot(contains(_outbox)));
+      final receipt =
+          jsonDecode(await AesGcmCacheCipher(_testKey).decrypt(_cleanup, raw))
+              as Map;
+      expect(receipt.keys, [_outbox]);
+      legacy.failCleanup = false;
+      await migrate();
+      expect(legacy.slots, isEmpty);
+      expect(await database.getString(_cleanup), isNull);
+    },
+  );
+
+  test(
+    'first SQLite release without cleanup receipts never deletes remaining preferences',
+    () async {
+      legacy.slots[_outbox] = '{"items":["pending"]}';
+      legacy.failCleanup = true;
+      final cache = (await migrate())!;
+      await database.remove(_cleanup);
+      final original = Map.of(legacy.slots);
+      legacy.failCleanup = false;
+      await expectLater(migrate(), throwsA(isA<LegacyStorageConflict>()));
+      expect(legacy.slots, original);
+      expect(await cache.getString(_outbox), original[_outbox]);
+    },
+  );
+
+  test(
+    'write between import commit and cleanup survives and blocks background',
+    () async {
+      legacy.slots[_outbox] = 'imported';
+      legacy.beforeCleanup = () =>
+          legacy.slots[_outbox] = 'later-offline-write';
+      await expectLater(migrate(), throwsA(isA<LegacyStorageConflict>()));
+      expect(legacy.slots[_outbox], 'later-offline-write');
+      final raw = (await database.getString(_outbox))!;
+      expect(
+        await AesGcmCacheCipher(_testKey).decrypt(_outbox, raw),
+        'imported',
+      );
+      expect(await database.getString(_marker), 'true');
+      expect(await database.getString(_conflict), 'true');
+      expect(await migrate(background: true), isNull);
+    },
+  );
+
+  for (final corruptReceipt in [false, true]) {
+    test(
+      '${corruptReceipt ? 'corrupt receipt' : 'new account slot'} fails closed without deleting either account',
+      () async {
+        legacy.slots[_outbox] = 'account-a-pending';
+        legacy.failCleanup = true;
+        await migrate();
+        legacy.slots[_profile] = 'account-b-offline';
+        if (corruptReceipt) await database.setString(_cleanup, 'corrupt');
+        final original = Map.of(legacy.slots);
+        legacy.failCleanup = false;
+        await expectLater(migrate(), throwsA(isA<LegacyStorageConflict>()));
+        expect(legacy.slots, original);
+        expect(await database.getString(_profile), isNull);
+        expect(await database.getString(_outbox), isNotNull);
+      },
+    );
+  }
+
+  test(
+    'rollback data and cleanup evidence survive unreadable preferences and locked key',
+    () async {
+      legacy.slots[_outbox] = 'imported';
+      legacy.failCleanup = true;
+      await migrate();
+      final receipt = await database.getString(_cleanup);
+      legacy.failRead = true;
+      await migrate();
+      expect(await database.getString(_cleanup), receipt);
+      legacy.failRead = false;
+      legacy.slots[_outbox] = 'rollback-offline';
+      keys.locked = true;
+      final before = await database.readAll();
+      for (var i = 0; i < 4; i++) {
+        CacheKeyProvider.debugReset();
+        expect(await migrate(), isNull);
+      }
+      expect((await database.readAll()).values, before.values);
+      expect(legacy.slots[_outbox], 'rollback-offline');
+      expect(keys.writes, 0);
+      keys.locked = false;
+      await expectLater(migrate(), throwsA(isA<LegacyStorageConflict>()));
+      legacy.failRead = true;
+      await expectLater(migrate(), throwsA(isA<LegacyStorageConflict>()));
+    },
+  );
+
+  test(
     'production preference enumeration excludes auth and appearance settings',
     () async {
       SharedPreferences.setMockInitialValues({
@@ -302,10 +465,29 @@ void main() {
         _receipt,
         'eatova.v1.training_session.account-b',
       });
-      await source.removeSlots([_outbox]);
+      await source.removeSlots({_outbox: 'pending'});
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString('supabase.auth.token'), 'synthetic-session');
       expect(prefs.getString('eatova.v1.theme_mode'), 'dark');
+    },
+  );
+
+  test(
+    'production cleanup reloads and rejects a changed native value',
+    () async {
+      SharedPreferences.setMockInitialValues({_outbox: 'imported'});
+      final source = PreferencesCacheSource();
+      final expected = await source.readSlots();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_outbox, 'late-offline-write');
+      await expectLater(
+        source.removeSlots(expected),
+        throwsA(isA<LegacyStorageConflict>()),
+      );
+      expect(prefs.getString(_outbox), 'late-offline-write');
+      await prefs.remove(_outbox);
+      await source.removeSlots(expected);
+      expect(prefs.getString(_outbox), isNull);
     },
   );
 }

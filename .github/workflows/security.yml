@@ -21,6 +21,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0 # Release guard tests reject the real pre-SQLite build.
 
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
@@ -33,6 +35,9 @@ jobs:
 
       - name: Auth email template contracts
         run: python3 scripts/test_auth_email_templates.py
+
+      - name: Client storage release and rollback guard
+        run: python3 scripts/test_storage_release.py
 
       # --fatal-infos/--fatal-warnings keeps the clean analysis from eroding
       # silently (Audit 2026-06-09, L4).
@@ -366,6 +371,7 @@ jobs:
       - name: Isolated GoTrue lifecycle and handler boundaries
         run: |
           python3 test/tooling/local_auth_transport_test.py
+          python3 test/tooling/auth_lifecycle_timing_test.py
           python3 scripts/security/local_edge_auth_probe.py --auth-lifecycle --prove-detection --require-provider-budgets
           python3 scripts/security/local_email_template_probe.py --prove-detection
       # Befund P5-08b (Review 2026-08-29): the suite runs every test file in

@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:developer' as dev;
 
+import 'package:cryptography/cryptography.dart' show Sha256;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -33,14 +35,22 @@ bool isDurableCacheSlotKey(String key) {
 }
 
 const _migrationKey = 'eatova.storage.preferences_imported.v1';
+const _cleanupKey = 'eatova.storage.preferences_cleanup.v1';
+const _legacyConflictKey = 'eatova.storage.legacy_conflict.v1';
 const _metadataPrefix = 'eatova.storage.dek.';
+
+/// An obsolete binary wrote outside the authoritative SQLite database. Never
+/// guess a merge order or discard either store; recovery needs both originals.
+class LegacyStorageConflict extends DurableStorageException {
+  const LegacyStorageConflict() : super('legacy storage requires recovery');
+}
 
 /// Read-only until SQLite has committed the complete migration. A cleanup
 /// failure is retryable; it never makes stale preferences authoritative again.
 abstract interface class LegacyCacheSource {
   Future<Map<String, String>> readSlots();
   Future<Map<String, String>> readKeyMetadata();
-  Future<void> removeSlots(Iterable<String> keys);
+  Future<void> removeSlots(Map<String, String> expectedValues);
 }
 
 class PreferencesCacheSource implements LegacyCacheSource {
@@ -65,12 +75,20 @@ class PreferencesCacheSource implements LegacyCacheSource {
   }
 
   @override
-  Future<void> removeSlots(Iterable<String> keys) async {
+  Future<void> removeSlots(Map<String, String> expectedValues) async {
     final prefs = await SharedPreferences.getInstance();
-    for (final key in keys) {
+    for (final entry in expectedValues.entries) {
+      final key = entry.key;
       if (!isDurableCacheSlotKey(key)) {
         throw ArgumentError('Not an account cache slot');
       }
+      // Supported mobile upgrades stop the old process. Preferences has no
+      // cross-process CAS; still recheck the native value immediately before
+      // removal so an intervening write is never knowingly discarded.
+      await prefs.reload();
+      final current = prefs.get(key);
+      if (current == null) continue;
+      if (current != entry.value) throw const LegacyStorageConflict();
       if (!await prefs.remove(key)) {
         throw const DurableStorageException('legacy cleanup failed');
       }
@@ -193,14 +211,18 @@ Future<EncryptedKeyValueStore?> migrateDurableCache({
   SecureKeyStore? keyStore,
   bool background = false,
 }) async {
-  var cleanup = <String>[];
+  var cleanup = <String, String>{};
+  var legacyReadable = true;
   _DatabaseSentinel? sentinel;
   final EncryptedKeyValueStore? store;
   try {
     store = await database.initializeExclusively(() async {
       final migrated = await database.getString(_migrationKey) == 'true';
       if (background) {
-        if (!migrated) return null;
+        if (!migrated ||
+            await database.getString(_legacyConflictKey) == 'true') {
+          return null;
+        }
         final dek = await CacheKeyProvider.readExisting(keyStore: keyStore);
         return dek == null
             ? null
@@ -215,9 +237,20 @@ Future<EncryptedKeyValueStore?> migrateDurableCache({
         legacy = await legacySource.readSlots();
       } catch (_) {
         if (!migrated) rethrow;
+        if (await database.getString(_legacyConflictKey) == 'true') {
+          throw const LegacyStorageConflict();
+        }
+        legacyReadable = false;
         legacy = {};
       }
-      cleanup = legacy.keys.toList();
+      cleanup = legacy;
+      // Inspect with an existing key before recovery can spend strikes or
+      // purge unreadable data. Unknown legacy bytes are not obsolete bytes.
+      if (migrated && legacy.isNotEmpty) {
+        final dek = await CacheKeyProvider.readExisting(keyStore: keyStore);
+        if (dek == null) return null;
+        await _verifyCleanupReceipt(database, createCacheCipher(dek), legacy);
+      }
       final metadata = migrated
           ? <String, String>{}
           : await legacySource.readKeyMetadata();
@@ -267,7 +300,15 @@ Future<EncryptedKeyValueStore?> migrateDurableCache({
         imported['$_metadataPrefix${CacheKeyProvider.plaintextMigrationClosedKey}'] =
             'true';
         imported[_migrationKey] = 'true';
+        imported[_cleanupKey] = await cipher.encrypt(
+          _cleanupKey,
+          jsonEncode(await _cleanupDigests(legacy)),
+        );
         await database.writeBatch(imported);
+      }
+      if (legacyReadable &&
+          await database.getString(_legacyConflictKey) == 'true') {
+        await database.remove(_legacyConflictKey);
       }
       return EncryptedKeyValueStore(
         database,
@@ -275,6 +316,10 @@ Future<EncryptedKeyValueStore?> migrateDurableCache({
         acceptLegacyPlaintext: false,
       );
     });
+  } on LegacyStorageConflict {
+    CacheKeyProvider.invalidateRolledBackBootstrap();
+    await _recordLegacyConflict(database);
+    rethrow;
   } catch (_) {
     if (!background) CacheKeyProvider.invalidateRolledBackBootstrap();
     rethrow;
@@ -283,7 +328,12 @@ Future<EncryptedKeyValueStore?> migrateDurableCache({
   if (background) return store;
   CacheKeyProvider.setResetNoticeReader(sentinel!.consumeResetNotice);
   try {
+    if (!legacyReadable) return store;
     await legacySource.removeSlots(cleanup);
+    await database.remove(_cleanupKey);
+  } on LegacyStorageConflict {
+    await _recordLegacyConflict(database);
+    rethrow;
   } catch (error) {
     // Migration already committed. A later boot retries only cleanup.
     dev.log(
@@ -292,6 +342,48 @@ Future<EncryptedKeyValueStore?> migrateDurableCache({
     );
   }
   return store;
+}
+
+Future<void> _recordLegacyConflict(SqliteKeyValueStore database) async {
+  try {
+    // New background acquisitions observe this fence. Existing operations
+    // still follow their account/session claims and keep SQLite authoritative.
+    await database.setString(_legacyConflictKey, 'true');
+  } catch (error) {
+    dev.log(
+      'Legacy conflict fence unavailable (${error.runtimeType})',
+      name: 'local_cache',
+    );
+  }
+}
+
+Future<Map<String, String>> _cleanupDigests(Map<String, String> slots) async =>
+    {
+      for (final entry in slots.entries)
+        entry.key: base64Encode(
+          (await Sha256().hash(utf8.encode(entry.value))).bytes,
+        ),
+    };
+
+Future<void> _verifyCleanupReceipt(
+  SqliteKeyValueStore database,
+  CacheCipher cipher,
+  Map<String, String> legacy,
+) async {
+  final armored = await database.getString(_cleanupKey);
+  if (armored == null) throw const LegacyStorageConflict();
+  try {
+    final receipt = jsonDecode(await cipher.decrypt(_cleanupKey, armored));
+    if (receipt is! Map<String, dynamic>) throw const LegacyStorageConflict();
+    final digests = await _cleanupDigests(legacy);
+    for (final entry in digests.entries) {
+      if (receipt[entry.key] != entry.value) {
+        throw const LegacyStorageConflict();
+      }
+    }
+  } catch (_) {
+    throw const LegacyStorageConflict();
+  }
 }
 
 /// One database/cipher queue per app isolate. Other engines open their own
@@ -379,6 +471,11 @@ class DurableCacheStore {
     try {
       final entry = await pending;
       if (entry == null && identical(_open[path], pending)) _open.remove(path);
+      if (background &&
+          entry != null &&
+          await entry.database.getString(_legacyConflictKey) == 'true') {
+        return null;
+      }
       return entry;
     } catch (_) {
       if (identical(_open[path], pending)) _open.remove(path);

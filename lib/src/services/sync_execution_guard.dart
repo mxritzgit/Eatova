@@ -40,6 +40,24 @@ class SyncExecutionGuard {
   final AtomicKeyValueStore store;
   static const leaseDuration = Duration(seconds: 60);
 
+  /// A missing/mismatched foreground identity is not mere worker contention.
+  Future<bool> hasActiveSession(String userId, String sessionId) async {
+    final snapshot = await store.readSnapshot([syncSessionKey]);
+    final session = _object(snapshot.values[syncSessionKey]);
+    return _matchesSession(session, userId, sessionId);
+  }
+
+  static bool _matchesSession(
+    Map<String, dynamic>? session,
+    String userId,
+    String? expectedSessionId,
+  ) =>
+      session != null &&
+      session['owner'] == userId &&
+      session['generation'] is String &&
+      session['session'] is String &&
+      (expectedSessionId == null || session['session'] == expectedSessionId);
+
   Future<void> activate(
     String userId,
     String sessionId, {
@@ -106,7 +124,8 @@ class SyncExecutionGuard {
       final snapshot = await store.readSnapshot([syncSessionKey]);
       final current = _object(snapshot.values[syncSessionKey]);
       if (current?['owner'] != userId) return snapshot.versions;
-      if (expectedSessionId != null && current?['session'] != expectedSessionId) {
+      if (expectedSessionId != null &&
+          current?['session'] != expectedSessionId) {
         return null;
       }
       try {
@@ -128,16 +147,12 @@ class SyncExecutionGuard {
     final key = syncClaimKey(userId);
     final snapshot = await store.readSnapshot([syncSessionKey, key]);
     final session = _object(snapshot.values[syncSessionKey]);
-    if (session == null ||
-        session['owner'] != userId ||
-        session['generation'] is! String ||
-        session['session'] is! String ||
-        (expectedSessionId != null &&
-            session['session'] != expectedSessionId)) {
+    if (!_matchesSession(session, userId, expectedSessionId)) {
       return null;
     }
+    final activeSession = session!;
     final prior = _object(snapshot.values[key]);
-    if (prior != null && prior['generation'] == session['generation']) {
+    if (prior != null && prior['generation'] == activeSession['generation']) {
       final expiresAt = DateTime.tryParse(
         prior['expires_at']?.toString() ?? '',
       );
@@ -147,8 +162,8 @@ class SyncExecutionGuard {
     final claim = SyncExecutionClaim._(
       store,
       userId,
-      session['session'] as String,
-      session['generation'] as String,
+      activeSession['session'] as String,
+      activeSession['generation'] as String,
       uuidV4(),
       snapshot.versions[syncSessionKey]!,
       clock.now().toUtc().add(leaseDuration),

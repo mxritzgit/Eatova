@@ -997,6 +997,8 @@
   "commonOutboxLossHint": "Einige Änderungen konnten nicht gespeichert werden und wurden verworfen.",
   "commonOutboxDeleteLossHint": "Eine Löschung ließ sich nicht speichern — der Eintrag ist wieder da. Bitte lösch ihn noch einmal.",
   "commonCacheResetNotice": "Der Offline-Speicher musste neu angelegt werden. Deine Daten auf dem Server sind unberührt — nur noch nicht synchronisierte Einträge sind verloren.",
+  "commonLegacyStorageConflictTitle": "Offline-Daten brauchen Wiederherstellung",
+  "commonLegacyStorageConflictBody": "Auf diesem Gerät liegen Daten aus einer älteren Eatova-Version. Beide Datenstände bleiben erhalten; Änderungen sind vorerst gesperrt. Bitte kontaktiere support@eatova.de und lösche weder die App noch ihre Daten.",
   "commonBootUnansweredTitle": "Verbindung langsam",
   "commonBootUnansweredBody": "Deine Daten konnten noch nicht vom Server geladen werden. Prüf deine Verbindung und versuch es erneut.",
   "commonBootUnansweredRetry": "Erneut versuchen",
@@ -1185,13 +1187,13 @@
   "settingsAccountPasswordSameAsOld": "Das neue Passwort muss sich vom bisherigen unterscheiden.",
   "settingsAccountPasswordWeak": "Dieses Passwort ist zu schwach. Nimm ein längeres oder ungewöhnlicheres.",
 
-  "settingsPasswordChangeCodeSentTo": "Zur Sicherheit schicken wir dir zuerst einen 8-stelligen Code an {adresse}. Er ist 10 Minuten gültig — ohne ihn lässt sich das Passwort nicht ändern.",
+  "settingsPasswordChangeCodeSentTo": "Für diesen Ablauf schicken wir dir einen 8-stelligen Code an {adresse}. Er ist 10 Minuten gültig. Bei einer Anmeldung innerhalb der letzten 24 Stunden kann das Passwort auch ohne erneute E-Mail-Bestätigung geändert werden.",
   "@settingsPasswordChangeCodeSentTo": {
     "placeholders": {
       "adresse": { "type": "String" }
     }
   },
-  "settingsPasswordChangeCodeSentDefault": "Zur Sicherheit schicken wir dir zuerst einen 8-stelligen Code an deine hinterlegte Adresse. Er ist 10 Minuten gültig — ohne ihn lässt sich das Passwort nicht ändern.",
+  "settingsPasswordChangeCodeSentDefault": "Für diesen Ablauf schicken wir dir einen 8-stelligen Code an deine hinterlegte Adresse. Er ist 10 Minuten gültig. Bei einer Anmeldung innerhalb der letzten 24 Stunden kann das Passwort auch ohne erneute E-Mail-Bestätigung geändert werden.",
   "settingsPasswordChangeStep2Subtitle": "Trag den Code aus der E-Mail zusammen mit deinem neuen Passwort ein.",
   "settingsPasswordChangeCodeFieldLabel": "Bestätigungs-Code",
   "settingsPasswordChangeNewLabel": "Neues Passwort",

@@ -16,6 +16,11 @@ import 'sync_outbox.dart';
 
 enum BackgroundSyncOutcome { complete, retry, unavailable }
 
+/// Keeps local permission failures distinct even inside an HTTP auth callback.
+class _BackgroundPrerequisiteUnavailable implements Exception {
+  const _BackgroundPrerequisiteUnavailable();
+}
+
 typedef BackgroundCacheOpener = Future<LocalCache?> Function(String userId);
 typedef BackgroundSyncDispatch =
     Future<LocalSyncResult> Function(EatovaSync sync, SyncOp op);
@@ -49,6 +54,7 @@ class BackgroundSyncRunner {
   final Duration budget;
   final int maxOperations;
   bool _cancelled = false;
+  bool _awaitingTransport = false;
   BackgroundSyncClient? _client;
   Future<void>? _clientDisposal;
 
@@ -93,14 +99,20 @@ class BackgroundSyncRunner {
       return await _run(elapsed).timeout(
         budget,
         onTimeout: () {
+          final outcome = _awaitingTransport
+              ? BackgroundSyncOutcome.retry
+              : BackgroundSyncOutcome.unavailable;
           cancel();
           // Closing the owned transport interrupts pending client-side requests.
-          return BackgroundSyncOutcome.retry;
+          return outcome;
         },
       );
-    } catch (_) {
-      // Locked keystore, unreadable data and I/O failures retain all intents.
+    } on KeyValueConflict {
+      // Another engine won a local CAS; a later bounded pass can progress.
       return BackgroundSyncOutcome.retry;
+    } catch (_) {
+      // Local/session prerequisites need foreground recovery, not an OS chain.
+      return BackgroundSyncOutcome.unavailable;
     } finally {
       elapsed.stop();
     }
@@ -117,25 +129,41 @@ class BackgroundSyncRunner {
     SyncExecutionClaim? claim;
     BackgroundSyncClient? client;
     try {
-      if (!inBudget()) return BackgroundSyncOutcome.retry;
+      if (!inBudget()) return BackgroundSyncOutcome.unavailable;
       final storage = cache.atomicStore;
       if (storage == null) return BackgroundSyncOutcome.unavailable;
-      claim = await SyncExecutionGuard(
-        storage,
-      ).tryClaim(session.userId, expectedSessionId: session.sessionId);
-      if (claim == null) return BackgroundSyncOutcome.retry;
+      final guard = SyncExecutionGuard(storage);
+      claim = await guard.tryClaim(
+        session.userId,
+        expectedSessionId: session.sessionId,
+      );
+      if (claim == null) {
+        return await guard.hasActiveSession(session.userId, session.sessionId)
+            ? BackgroundSyncOutcome.retry
+            : BackgroundSyncOutcome.unavailable;
+      }
       final ownedClaim = claim;
       Future<bool> permitted() async {
-        if (!inBudget() || !session.isUsable || !await ownedClaim.isCurrent()) {
-          return false;
+        final wasAwaitingTransport = _awaitingTransport;
+        _awaitingTransport = false;
+        try {
+          if (!inBudget() ||
+              !session.isUsable ||
+              !await ownedClaim.isCurrent()) {
+            return false;
+          }
+          final current = BackgroundSyncSession.fromPersisted(
+            await _readSession(),
+          );
+          return inBudget() &&
+              current?.userId == session.userId &&
+              current?.sessionId == session.sessionId &&
+              await ownedClaim.isCurrent();
+        } catch (_) {
+          throw const _BackgroundPrerequisiteUnavailable();
+        } finally {
+          _awaitingTransport = wasAwaitingTransport;
         }
-        final current = BackgroundSyncSession.fromPersisted(
-          await _readSession(),
-        );
-        return inBudget() &&
-            current?.userId == session.userId &&
-            current?.sessionId == session.sessionId &&
-            await ownedClaim.isCurrent();
       }
 
       if (!await permitted()) return BackgroundSyncOutcome.unavailable;
@@ -173,17 +201,18 @@ class BackgroundSyncRunner {
         );
         if (op == null) continue;
         if (!await permitted()) return BackgroundSyncOutcome.unavailable;
+        final LocalSyncResult result;
         try {
-          final result = await _dispatch(sync, op);
-          if (!await permitted()) return BackgroundSyncOutcome.unavailable;
-          await cache.acknowledgeSyncOperation(
-            op.operationId,
-            result,
-            guards: claim.guards,
-          );
-        } on AuthException {
+          _awaitingTransport = true;
+          result = await _dispatch(sync, op);
+        } on _BackgroundPrerequisiteUnavailable {
           return BackgroundSyncOutcome.unavailable;
         } catch (error) {
+          _awaitingTransport = false;
+          if ((error is AuthException && !isNetworkSyncError(error)) ||
+              isStaleAuthError(error)) {
+            return BackgroundSyncOutcome.unavailable;
+          }
           if (!await permitted()) return BackgroundSyncOutcome.unavailable;
           await cache.recordSyncFailure(
             op.operationId,
@@ -196,7 +225,17 @@ class BackgroundSyncRunner {
             guards: claim.guards,
           );
           blockedEntities.add(op.entityKey);
+          continue;
+        } finally {
+          _awaitingTransport = false;
         }
+        if (!await permitted()) return BackgroundSyncOutcome.unavailable;
+        // A local ACK failure must not count or block a successful delivery.
+        await cache.acknowledgeSyncOperation(
+          op.operationId,
+          result,
+          guards: claim.guards,
+        );
       }
       return BackgroundSyncOutcome.retry;
     } finally {

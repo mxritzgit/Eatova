@@ -251,6 +251,33 @@ details outside this repository.
    affected interval, credential actions, remaining uncertainties and follow-up
    owner/date. Confirm alert delivery and backup freshness before closure.
 
+## Client release and rollback gate
+
+Before signing or uploading any client candidate, run **Client release
+eligibility** in GitHub Actions from the protected `main` branch with its full
+40-character merged commit SHA. The workflow runs the current trusted validator,
+not code supplied by the candidate. Keep the successful run URL and
+`storage-release-eligibility` artifact with the candidate's signed artifact
+checksum and the applicable successful build/test CI run. Confirm its
+`candidate_commit` and `candidate_tree` match the source being signed. A failed
+or missing eligibility result forbids using that candidate in the supported
+production release/rollback process.
+
+For a local equivalent, use a clean, freshly fetched protected-main checkout:
+
+```bash
+python scripts/check_storage_release.py --candidate <full-merged-commit-sha> --output storage-release-eligibility.json
+```
+
+Storage protocol 2 is forward-only. SharedPreferences-era builds and the first
+SQLite build without the recovery guard are not eligible rollback targets,
+even if their old CI was green. Port the corrective change onto a compatible
+SQLite build, review/test it and obtain fresh eligibility. The supported process
+does not allow reinstalling an obsolete binary over a migrated installation.
+There is no automated app-store publication pipeline in this repository; this
+gate attests eligibility and cannot physically prevent manual uploads, bypasses
+or sideloads. See the [data preservation and recovery contract](OFFLINE_SYNC.md#client-rollback-contract).
+
 Review this runbook after an incident or major platform change. A documented
 procedure must still be exercised; do not mark operational readiness complete
 on the strength of code tests alone.

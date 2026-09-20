@@ -6,9 +6,12 @@ Only check names/statuses leave this module, never credentials or responses.
 """
 import base64
 import json
+import math
 import secrets
 import time
 import uuid
+
+REFRESH_REUSE_SECONDS = 10
 
 
 class LifecycleFailure(RuntimeError):
@@ -72,6 +75,42 @@ class LifecycleProbe:
             'type': kind, 'email': email, 'token': code,
         }, **expected)
 
+    def wait_refresh_grace(self, label, actor_id, *, timeout=45):
+        """Observe expiry on the server clock, without changing token rows.
+
+        Host sleep is not proof that a Docker VM's database clock advanced.
+        This barrier only reads synthetic timestamps; each later HTTP denial
+        assertion still executes exactly once.
+        """
+        user_id = str(uuid.UUID(actor_id))
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            raw = self.sql(
+                "SELECT json_build_object('count', count(*), "
+                "'revoked_count', count(*) FILTER (WHERE revoked), "
+                "'min_age_seconds', min(extract(epoch FROM "
+                "clock_timestamp() - updated_at))) "
+                "FROM auth.refresh_tokens "
+                f"WHERE user_id = '{user_id}';")
+            try:
+                state = json.loads(raw)
+                count = state['count']
+                revoked = state['revoked_count']
+                age = state['min_age_seconds']
+                valid = (type(count) is int and count > 0 and
+                         type(revoked) is int and 0 <= revoked <= count and
+                         type(age) in (int, float) and math.isfinite(age))
+            except (ValueError, TypeError, KeyError):
+                valid = False
+            self.require(f'{label}_valid_server_state', valid)
+            if age > REFRESH_REUSE_SECONDS + 1:
+                self.checks.append({'name': label, 'passed': True,
+                                    'minimum_server_age_seconds': age,
+                                    'token_count': count, 'revoked_count': revoked})
+                return
+            time.sleep(.25)
+        raise LifecycleFailure(f'{label} server-clock deadline exceeded')
+
     def refresh_replay(self):
         actor = self.actor('rotation')
         original = actor['session']
@@ -84,14 +123,13 @@ class LifecycleProbe:
         latest = self.refresh('second_refresh_rotates', first)
         self.require('second_refresh_token_changed',
                      latest['refresh_token'] != first['refresh_token'])
-        # The service uses its real clock and the configured ten-second window.
-        # Do not fake an expired access token to claim refresh-family detection.
-        time.sleep(11)
+        # Read the server's real clock; do not backdate tokens or retry denials.
+        self.wait_refresh_grace('ancestor_reuse_grace_expired', actor['id'])
         self.refresh('old_ancestor_replay_denied', original, status=400,
                      error_code='refresh_token_already_used')
         # Revoking the family updates its timestamps; GoTrue applies the reuse
         # window to those tokens too. Assert denial after that grace interval.
-        time.sleep(11)
+        self.wait_refresh_grace('family_revocation_grace_expired', actor['id'])
         self.refresh('replay_revokes_active_family', latest, status=400,
                      error_code='refresh_token_already_used')
         return self.checks

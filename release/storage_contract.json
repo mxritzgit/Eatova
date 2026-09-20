@@ -1,0 +1,5 @@
+{
+  "format_version": 1,
+  "storage_protocol": 2,
+  "rollback_policy": "forward-only"
+}
