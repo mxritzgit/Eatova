@@ -120,6 +120,7 @@ void main() {
     await pump(tester, repo: repo);
     await tippe(tester, find.byKey(const ValueKey('settings-change-password')));
     await tippe(tester, find.text('Code anfordern'));
+    await schreibe(tester, 'password-change-current', 'CurrentPassword99');
   }
 
   /// Up to the double-code step of the email change.
@@ -201,9 +202,11 @@ void main() {
       expect(find.byKey(const ValueKey('password-change-new')), findsOneWidget);
     });
 
-    testWidgets('reicht Code UND neues Passwort durch', (tester) async {
+    testWidgets('reicht Code und beide Passwoerter unveraendert durch', (tester) async {
       final repo = baueRepo();
       await oeffnePasswortSchritt2(tester, repo);
+
+      await schreibe(tester, 'password-change-current', ' x ');
 
       await schreibe(tester, 'password-change-code', '12345678');
       await schreibe(tester, 'password-change-new', 'geheim99');
@@ -211,6 +214,7 @@ void main() {
       await tippe(tester, find.text('Passwort jetzt ändern'));
 
       expect(repo.usedNonces, <String>['12345678']);
+      expect(repo.usedCurrentPasswords, <String>[' x ']);
       expect(repo.passwordUpdates, <String>['geheim99']);
       expect(
         find.byKey(const ValueKey('password-change-sheet')),
@@ -218,6 +222,30 @@ void main() {
       );
       expect(find.text('Passwort geändert.'), findsOneWidget);
       await raeumeToastAb(tester);
+    });
+
+    testWidgets('fehlendes aktuelles Passwort blockt vor einem Serveraufruf', (
+      tester,
+    ) async {
+      final repo = baueRepo();
+      await oeffnePasswortSchritt2(tester, repo);
+      await schreibe(tester, 'password-change-current', '');
+      await schreibe(tester, 'password-change-code', '12345678');
+      await schreibe(tester, 'password-change-new', 'DifferentPassword99');
+      await schreibe(tester, 'password-change-repeat', 'DifferentPassword99');
+      await tippe(tester, find.text('Passwort jetzt ändern'));
+      expect(repo.passwordUpdates, isEmpty);
+      expect(repo.usedCurrentPasswords, isEmpty);
+      expect(repo.usedNonces, isEmpty);
+      expect(
+        find.text(deL10n.settingsPasswordChangeCurrentRequired),
+        findsOneWidget,
+      );
+      final field = find.descendant(
+        of: find.byKey(const ValueKey('password-change-current')),
+        matching: find.byType(TextField),
+      );
+      expect(tester.widget<TextField>(field).obscureText, isTrue);
     });
 
     testWidgets('eine abweichende Wiederholung blockt VOR dem Aufruf',

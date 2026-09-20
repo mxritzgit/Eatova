@@ -21,7 +21,7 @@ from password_change_checks import PasswordChangeProbe
 
 
 ROOT = Path(__file__).resolve().parents[2]
-AUTH_IMAGE = 'supabase/gotrue:v2.196.0@sha256:c0c25187a6b835e65a6f6e6c6b39d090e832d40e6de5186f2c038e0411944232'
+AUTH_IMAGE = 'supabase/gotrue:v2.197.0@sha256:1736a63078f5922b198c4cbe50f80ab9a2d3b54fe8b7b6cfb2e9dc5dbbc12c6b'
 POSTGRES_IMAGE = 'postgres:17.6@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929'
 PYTHON_IMAGE = 'python:3.12-slim@sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea'
 DELETE_CONTEXT = 'https://eatova.de/auth/email/account-deletion'
@@ -91,7 +91,8 @@ def wait_healthy(client):
     raise RuntimeError('Disposable service did not become healthy')
 
 
-def run(template_directory=None, *, require_reauthentication=True):
+def run(template_directory=None, *, require_reauthentication=True,
+        require_current_password=True, expected_current_password=True):
     template_directory = template_directory or ROOT / "supabase" / "email_templates"
     prefix = 'eatova-mail-purpose-' + secrets.token_hex(4)
     network, db, sink, auth = (prefix + name for name in ('-net', '-db', '-sink', '-auth'))
@@ -100,7 +101,8 @@ def run(template_directory=None, *, require_reauthentication=True):
     mailbox = ContainerClient(sink, sink, 8025)
     secret, password = secrets.token_urlsafe(40), secrets.token_urlsafe(24)
     created = []
-    evidence = {'gotrue': '2.196.0', 'postgres': '17.6',
+    evidence = {'gotrue': '2.197.0', 'postgres': '17.6',
+                'password_policy': 'current-password' if expected_current_password else 'legacy-session',
                 'isolation': 'internal Docker network; no published ports; SMTP memory only; synthetic users',
                 'checks': []}
     try:
@@ -139,8 +141,12 @@ def run(template_directory=None, *, require_reauthentication=True):
             'GOTRUE_MAILER_OTP_LENGTH': '8', 'GOTRUE_MAILER_OTP_EXP': '600',
             'GOTRUE_SECURITY_UPDATE_PASSWORD_REQUIRE_REAUTHENTICATION':
                 str(require_reauthentication).lower(),
-            'GOTRUE_SECURITY_UPDATE_PASSWORD_REQUIRE_CURRENT_PASSWORD': 'false',
+            'GOTRUE_SECURITY_UPDATE_PASSWORD_REQUIRE_CURRENT_PASSWORD':
+                str(require_current_password).lower(),
             'GOTRUE_RATE_LIMIT_EMAIL_SENT': '100', 'GOTRUE_RATE_LIMIT_VERIFY': '100',
+            # Credential-effect assertions intentionally make many logins.
+            # The separate lifecycle probe verifies the actual IP limiter.
+            'GOTRUE_RATE_LIMIT_TOKEN_REFRESH': '6000', 'GOTRUE_RATE_LIMIT_OTP': '6000',
             'GOTRUE_RATE_LIMIT_HEADER': 'X-Forwarded-For',
             'GOTRUE_SMTP_HOST': sink, 'GOTRUE_SMTP_PORT': '1025',
             'GOTRUE_SMTP_ADMIN_EMAIL': 'sender@example.test', 'GOTRUE_SMTP_SENDER_NAME': 'Eatova local probe',
@@ -208,9 +214,11 @@ def run(template_directory=None, *, require_reauthentication=True):
                            '-v', 'ON_ERROR_STOP=1', input=statement)
 
         evidence['password_checks'] = PasswordChangeProbe(
-            client.request, admin, sql, mailbox.request).run()
+            client.request, admin, sql, mailbox.request,
+            require_current_password=expected_current_password).run()
         evidence['passed'] = True
-        out = ROOT / '.agents' / 'email-template-probe'
+        out = ROOT / '.agents' / ('email-template-probe' if expected_current_password
+                                  else 'email-template-probe-legacy')
         out.mkdir(parents=True, exist_ok=True)
         (out / 'result.json').write_text(json.dumps(evidence, indent=2) + '\n', encoding='utf-8')
         print(json.dumps({'passed': True, 'contexts': len(cases), 'checks': len(cases) * 6,
@@ -227,9 +235,13 @@ def run(template_directory=None, *, require_reauthentication=True):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--prove-detection', action='store_true',
-                        help='Also require failure when deletion purpose routing is removed.')
+                        help='Require detection of template, current-password and reauthentication regressions.')
+    parser.add_argument('--legacy-policy', action='store_true',
+                        help='Test the former current-password-disabled configuration without changing live Auth.')
     options = parser.parse_args()
-    run()
+    policy = {'require_current_password': not options.legacy_policy,
+              'expected_current_password': not options.legacy_policy}
+    run(**policy)
     if options.prove_detection:
         original = (ROOT / 'supabase' / 'email_templates' / 'recovery.html').read_text(encoding='utf-8')
         if DELETE_CONTEXT not in original:
@@ -239,23 +251,35 @@ if __name__ == '__main__':
             (Path(directory) / 'recovery.html').write_text(
                 original.replace(DELETE_CONTEXT, DELETE_CONTEXT + '-mutated'), encoding='utf-8')
             try:
-                run(Path(directory))
+                run(Path(directory), **policy)
             except RuntimeError as error:
                 if str(error) != "deletion: failed checks ['purpose_heading']":
                     raise
             else:
                 raise RuntimeError('Missing deletion purpose routing was not detected')
         try:
-            run(require_reauthentication=False)
+            run(require_reauthentication=False, **policy)
         except RuntimeError as error:
             if str(error) != 'old_session_missing_nonce_denied failed (status=200)':
                 raise
         else:
             raise RuntimeError('Disabled password reauthentication was not detected')
-        evidence_path = ROOT / '.agents' / 'email-template-probe' / 'result.json'
+        if not options.legacy_policy:
+            try:
+                run(require_current_password=False)
+            except RuntimeError as error:
+                if str(error) != 'recent_session_missing_current_password_denied failed (status=200)':
+                    raise
+            else:
+                raise RuntimeError('Disabled current-password requirement was not detected')
+        evidence_path = ROOT / '.agents' / ('email-template-probe-legacy' if options.legacy_policy
+                                           else 'email-template-probe') / 'result.json'
         evidence = json.loads(evidence_path.read_text(encoding='utf-8'))
         evidence['purpose_mutation_detected'] = True
         evidence['password_reauthentication_mutation_detected'] = True
+        if not options.legacy_policy:
+            evidence['current_password_mutation_detected'] = True
         evidence_path.write_text(json.dumps(evidence, indent=2) + '\n', encoding='utf-8')
         print(json.dumps({'purpose_mutation_detected': True,
-                          'password_reauthentication_mutation_detected': True}))
+                          'password_reauthentication_mutation_detected': True,
+                          'current_password_mutation_detected': not options.legacy_policy}))

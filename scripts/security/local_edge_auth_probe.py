@@ -19,7 +19,7 @@ from auth_lifecycle_checks import LifecycleFailure, LifecycleProbe, REFRESH_REUS
 from local_auth_transport import LocalAuthClient, direct_subprocess_environment
 
 ROOT = Path(__file__).resolve().parents[2]
-AUTH_IMAGE = 'supabase/gotrue:v2.196.0@sha256:c0c25187a6b835e65a6f6e6c6b39d090e832d40e6de5186f2c038e0411944232'
+AUTH_IMAGE = 'supabase/gotrue:v2.197.0@sha256:1736a63078f5922b198c4cbe50f80ab9a2d3b54fe8b7b6cfb2e9dc5dbbc12c6b'
 POSTGRES_IMAGE = 'postgres:17.6@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929'
 secret = secrets.token_urlsafe(40)
 password = secrets.token_urlsafe(24)
@@ -27,6 +27,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--require-provider-budgets', action='store_true', help='Assert a distinct verified-user budget reservation before every stubbed paid call.')
 parser.add_argument('--auth-lifecycle', action='store_true', help='Also prove real refresh/revocation, signup/recovery and email-change boundaries without sending mail.')
 parser.add_argument('--prove-detection', action='store_true', help='With --auth-lifecycle, repeat refresh tests with rotation disabled and require detection.')
+parser.add_argument('--legacy-password-policy', action='store_true', help='Use the former current-password-disabled local Auth configuration.')
 options = parser.parse_args()
 if options.prove_detection and not options.auth_lifecycle:
     parser.error('--prove-detection requires --auth-lifecycle')
@@ -96,6 +97,7 @@ try:
             'GOTRUE_MAILER_OTP_LENGTH': '8', 'GOTRUE_MAILER_OTP_EXP': '600',
             'GOTRUE_MAILER_SECURE_EMAIL_CHANGE_ENABLED': 'true',
             'GOTRUE_SECURITY_UPDATE_PASSWORD_REQUIRE_REAUTHENTICATION': 'true',
+            'GOTRUE_SECURITY_UPDATE_PASSWORD_REQUIRE_CURRENT_PASSWORD': str(not options.legacy_password_policy).lower(),
             'GOTRUE_SECURITY_REFRESH_TOKEN_ROTATION_ENABLED': 'true',
             'GOTRUE_SECURITY_REFRESH_TOKEN_REUSE_INTERVAL': str(REFRESH_REUSE_SECONDS),
             'GOTRUE_RATE_LIMIT_VERIFY': '30',
@@ -146,14 +148,16 @@ try:
         'malformed': 'invalid.jwt.data',
     }
     outcomes = {name: request('/user', token=value)[0] for name, value in variants.items()}
-    evidence = {'gotrue_version': '2.196.0', 'auth_image_digest': cmd('docker', 'image', 'inspect', AUTH_IMAGE, '--format', '{{index .RepoDigests 0}}'), 'postgres': '17.6', 'postgres_image_digest': cmd('docker', 'image', 'inspect', POSTGRES_IMAGE, '--format', '{{index .RepoDigests 0}}'), 'isolation': 'separate Docker network, loopback-only Auth port, ephemeral DB tmpfs, synthetic users, no external requests', 'user_endpoint_statuses': outcomes}
+    evidence = {'gotrue_version': '2.197.0', 'auth_image_digest': cmd('docker', 'image', 'inspect', AUTH_IMAGE, '--format', '{{index .RepoDigests 0}}'), 'postgres': '17.6', 'postgres_image_digest': cmd('docker', 'image', 'inspect', POSTGRES_IMAGE, '--format', '{{index .RepoDigests 0}}'), 'isolation': 'separate Docker network, loopback-only Auth port, ephemeral DB tmpfs, synthetic users, no external requests', 'user_endpoint_statuses': outcomes}
     evidence['provider_budgets_required'] = options.require_provider_budgets
     if options.auth_lifecycle:
         def local_sql(statement):
             return cmd('docker', 'exec', '-i', db, 'psql', '-U', 'postgres',
                        '-tA', '-v', 'ON_ERROR_STOP=1', input=statement, timeout=10)
 
-        probe = LifecycleProbe(request, admin_token, local_sql)
+        probe = LifecycleProbe(request, admin_token, local_sql,
+                               require_current_password=not options.legacy_password_policy)
+        evidence['password_policy'] = 'legacy-session' if options.legacy_password_policy else 'current-password'
         try:
             evidence['auth_lifecycle_checks'] = probe.run()
             evidence['auth_lifecycle_passed'] = True

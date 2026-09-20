@@ -79,7 +79,7 @@ void main() {
   // --- (a) Wire: which token does the delete RPC carry? ---------------------
 
   group('Der RPC nach der Code-Bestaetigung', () {
-    test('traegt das NEUE Token aus verifyRecoveryCode, nicht das Login-Token',
+    test('traegt nur das isoliert verifizierte Token und behaelt die App-Sitzung',
         () async {
       final rpcAuth = <String>[];
       final transport = MockClient((req) async {
@@ -105,14 +105,23 @@ void main() {
       expect(client.auth.currentSession?.accessToken, 'login-jwt',
           reason: 'Ausgangslage: eine normale Passwort-Sitzung');
 
-      await repo.verifyRecoveryCode(email: 'jonas@eatova.de', code: '123456');
-      await EatovaSync.forUser(client, 'u1').deleteAccount();
+      await repo.withAccountDeletionCode(
+        userId: 'u1',
+        sessionId: repo.currentUser!.sessionId,
+        email: 'jonas@eatova.de',
+        code: '12345678',
+        performDeletion: (deleteRemote, isCurrent) async {
+          expect(isCurrent(), isTrue);
+          await deleteRemote();
+        },
+      );
+      expect(client.auth.currentSession?.accessToken, 'login-jwt');
 
       expect(rpcAuth, hasLength(1), reason: 'genau ein RPC-Aufruf');
       expect(
         rpcAuth.single,
         'Bearer reauth-jwt',
-        reason: 'nur die von verifyOTP gespeicherte NEUE Sitzung traegt den '
+        reason: 'nur die isoliert verifizierte Sitzung traegt den '
             'frischen amr-Eintrag — mit dem Login-Token lehnt die Migration '
             '20260815120000 ab (EX_REAUTH_REQUIRED), und die Loeschung waere '
             'im Feld tot',

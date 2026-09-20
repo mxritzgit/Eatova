@@ -95,12 +95,17 @@ class _StellbaresRepo extends InMemoryAuthRepository {
 
   @override
   Future<void> confirmPasswordChange({
+    required String currentPassword,
     required String code,
     required String newPassword,
   }) async {
     final fehler = confirmPasswordFehler;
     if (fehler != null) throw fehler;
-    await super.confirmPasswordChange(code: code, newPassword: newPassword);
+    await super.confirmPasswordChange(
+      currentPassword: currentPassword,
+      code: code,
+      newPassword: newPassword,
+    );
   }
 }
 
@@ -155,6 +160,44 @@ Future<void> _tippe(WidgetTester tester, String beschriftung) async {
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+
+  test(
+    'current-password failures are distinct from rejected mailbox proofs',
+    () {
+      for (final entry in {
+        'current_password_required': AuthErrorKind.currentPasswordRequired,
+        'current_password_invalid': AuthErrorKind.currentPasswordInvalid,
+      }.entries) {
+        final error = AuthApiException(
+          'Untrusted server detail must not reach the UI',
+          statusCode: '400',
+          code: entry.key,
+        );
+        expect(classifyAuthError(error).kind, entry.value);
+        for (final l10n in [deL10n, enL10n]) {
+          final message = accountChangeErrorMessage(error, l10n);
+          expect(
+            message,
+            entry.value == AuthErrorKind.currentPasswordRequired
+                ? l10n.settingsAccountCurrentPasswordRequired
+                : l10n.settingsAccountCurrentPasswordInvalid,
+          );
+          expect(message, isNot(l10n.settingsAccountCodeRejected));
+          expect(message, isNot(contains('Untrusted')));
+        }
+      }
+      expect(
+        classifyAuthError(
+          const AuthApiException(
+            'Reauthentication required',
+            code: 'reauthentication_needed',
+            statusCode: '400',
+          ),
+        ).kind,
+        AuthErrorKind.codeRejected,
+      );
+    },
+  );
 
   group('H2 — „Der Code stimmt nicht" nur, wenn es um den Code geht', () {
     test('ein kaputter Anon-Key ist kein abgelaufener Code', () {
@@ -410,6 +453,7 @@ void main() {
       repo.confirmPasswordFehler = _gotrue502();
 
       await _schreibe(tester, 'password-change-code', _code);
+      await _schreibe(tester, 'password-change-current', 'CurrentPassword99');
       await _schreibe(tester, 'password-change-new', 'geheim99');
       await _schreibe(tester, 'password-change-repeat', 'geheim99');
       await _tippe(tester, deL10n.settingsPasswordChangeSubmitCta);

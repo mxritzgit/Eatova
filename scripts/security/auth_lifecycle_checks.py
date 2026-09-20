@@ -19,12 +19,13 @@ class LifecycleFailure(RuntimeError):
 
 
 class LifecycleProbe:
-    def __init__(self, request, admin_token, sql):
+    def __init__(self, request, admin_token, sql, *, require_current_password=False):
         self.request = request
         self.admin_token = admin_token
         self.sql = sql
         self.checks = []
         self.denied_tokens = {}
+        self.require_current_password = require_current_password
 
     def require(self, name, condition, status=None):
         if not condition:
@@ -243,11 +244,16 @@ class LifecycleProbe:
         self.verify('expired_recovery_code_denied', 'recovery', recovery['email'],
                     code, status=403, error_code='otp_expired')
 
-        # Capture the provider's existing policy, not an invented strict nonce
-        # policy: a fresh session may update its password without a valid nonce.
+        # Current-password enforcement and nonce freshness are separate gates.
         actor = self.actor('password_reauth')
+        if self.require_current_password:
+            self.call('fresh_session_requires_current_password', '/user', {
+                'password': secrets.token_urlsafe(24),
+            }, actor['session']['access_token'], 'PUT', status=400,
+                      error_code='current_password_required')
         self.call('fresh_session_nonce_exception_observed', '/user', {
             'password': secrets.token_urlsafe(24), 'nonce': 'invalid',
+            **({'current_password': actor['password']} if self.require_current_password else {}),
         }, actor['session']['access_token'], 'PUT')
         raw = actor['session']['access_token'].split('.')[1]
         claims = json.loads(base64.urlsafe_b64decode(raw + '=' * (-len(raw) % 4)))
@@ -283,10 +289,33 @@ class LifecycleProbe:
         self.require('email_change_keeps_identity_and_changes_address',
                      changed['user']['id'] == actor['id'] and
                      changed['user']['email'] == new_email)
+        raw = changed['access_token'].split('.')[1]
+        claims = json.loads(base64.urlsafe_b64decode(raw + '=' * (-len(raw) % 4)))
+        self.require('email_change_session_has_otp_method',
+                     {claim['method'] for claim in claims['amr']} == {'otp'})
+        original = self.call('email_change_original_session_still_valid', '/user',
+                             token=actor['session']['access_token'])
+        self.require('email_change_original_session_reads_updated_email',
+                     original['id'] == actor['id'] and original['email'] == new_email)
+        actor['session'] = self.refresh('email_change_original_session_refreshes',
+                                        actor['session'])
         self.call('old_email_login_denied', '/token?grant_type=password', {
             'email': actor['email'], 'password': actor['password'],
         }, status=400, error_code='invalid_credentials')
-        self.login('new_email', new_email, actor['password'])
+        normal = self.login('new_email', new_email, actor['password'])
+        self.call('email_change_otp_local_logout', '/logout?scope=local', {},
+                  changed['access_token'], status=204)
+        self.call('email_change_logged_out_password_update_denied', '/user',
+                  {'password': secrets.token_urlsafe(24)},
+                  changed['access_token'], 'PUT', status=403,
+                  error_code='session_not_found')
+        self.refresh('email_change_logged_out_refresh_denied', changed,
+                     status=400, error_code='refresh_token_not_found')
+        self.call('email_change_local_logout_preserves_original_bearer', '/user',
+                  token=actor['session']['access_token'])
+        self.refresh('email_change_local_logout_preserves_original_refresh',
+                     actor['session'])
+        self.refresh('email_change_local_logout_preserves_normal_session', normal)
 
         # Last: a real IP limiter would also block subsequent legitimate OTPs.
         for _ in range(65):

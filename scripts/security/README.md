@@ -19,11 +19,11 @@ deployed budget. Its required-mode flag and reservation counts appear in the
 report, so an older baseline run cannot be confused with a budget enforcement
 check. Recipe/plan/image budget paths have separate handler/SQL regression tests.
 
-The script uses the real GoTrue **2.196.0** image (the version in the official
-[Supabase Compose](https://github.com/supabase/supabase/blob/master/docker/docker-compose.yml)
-checked on 2026-09-15) and PostgreSQL **17.6**. Both versions are explicit test
-targets with the tested registry digests pinned in the script; this does not
-establish the deployed Auth server version.
+The script uses the real GoTrue **2.197.0** image, matching the hosted health
+endpoint version observed read-only on 2026-09-20, and PostgreSQL **17.6**. Both
+versions are explicit test targets with registry digests pinned in the script.
+Local results establish that pinned implementation and configuration, not live
+password behavior; future hosted version changes need a fresh comparison.
 
 It creates a separate Docker network and two disposable containers named
 `eatova-r3-authority-db` / `eatova-r3-authority-auth`. Postgres uses tmpfs and has
@@ -106,9 +106,11 @@ The probe verifies these real server boundaries:
 - Existing/missing recovery requests return the same successful status. Recovery
   codes are account-bound, single-use and expire. A recovered user can replace
   the password; the old password and previous refresh session then fail.
-- Fresh-session password changes retain GoTrue's existing nonce exception.
-  A session backdated to 25 hours requires reauthentication. This documents the
-  policy; it does not impose a new current-password requirement on app users.
+- The default local configuration requires the current password for ordinary
+  password sessions, including fresh ones. The independent fresh-session nonce
+  exception remains; a session backdated to 25 hours also needs reauthentication.
+  `--legacy-password-policy` instead tests the former disabled-current-password
+  configuration. Neither local mode changes or establishes live configuration.
 - One email-change code leaves the old address and creates no session; replay
   fails. Both codes preserve the user ID while switching the login address.
 - Direct repeated invalid `/verify` requests reach 429. The fixture explicitly
@@ -126,12 +128,12 @@ mail addresses and response bodies stay in memory. Google/browser callbacks,
 real identity linking, security-mail delivery, app/device behavior, administrator
 MFA, HIBP entitlement and actual production Auth version remain separate checks.
 
-The expected semantics follow the pinned upstream [authentication middleware](https://github.com/supabase/auth/blob/v2.196.0/internal/api/auth.go),
-[refresh service](https://github.com/supabase/auth/blob/v2.196.0/internal/tokens/service.go),
-[token-family revocation](https://github.com/supabase/auth/blob/v2.196.0/internal/models/refresh_token.go),
-[OTP verification](https://github.com/supabase/auth/blob/v2.196.0/internal/api/verify.go)
-and [no-op mail selection](https://github.com/supabase/auth/blob/v2.196.0/internal/mailer/templatemailer/template.go),
-inspected on 2026-09-15. A still-valid JWT signature is not evidence that a
+The expected semantics follow the pinned upstream [authentication middleware](https://github.com/supabase/auth/blob/v2.197.0/internal/api/auth.go),
+[refresh service](https://github.com/supabase/auth/blob/v2.197.0/internal/tokens/service.go),
+[token-family revocation](https://github.com/supabase/auth/blob/v2.197.0/internal/models/refresh_token.go),
+[OTP verification](https://github.com/supabase/auth/blob/v2.197.0/internal/api/verify.go)
+and [no-op mail selection](https://github.com/supabase/auth/blob/v2.197.0/internal/mailer/templatemailer/template.go),
+inspected on 2026-09-20. A still-valid JWT signature is not evidence that a
 revoked token remains accepted by this version's `/user` endpoint. Conversely,
 these `/user` checks do not establish immediate revocation at a different service
 that validates only JWT signatures, such as a separately configured REST gateway.
@@ -139,7 +141,7 @@ that validates only JWT signatures, such as a separately configured REST gateway
 ## Real recovery mail purpose, OTP and password-change contract
 
 Run `python scripts/security/local_email_template_probe.py --prove-detection`
-with Docker available. Pinned GoTrue 2.196.0, Postgres 17.6 and a small Python SMTP
+with Docker available. Pinned GoTrue 2.197.0, Postgres 17.6 and a small Python SMTP
 sink run on a disposable internal Docker network with no published ports. The
 sink stores synthetic messages only in RAM and has no relay implementation.
 Request bodies travel through stdin; tokens and rendered messages are never
@@ -154,19 +156,51 @@ negative control changes only a temporary copy of the deletion branch and must
 fail the actual SMTP heading assertion. Sanitized results are in the ignored
 `.agents/email-template-probe/result.json`.
 
-The same isolated stack tests direct password updates with the production
-reauthentication policy: a recent session accepts missing/invalid nonces; a
-25-hour-old session rejects missing, invalid, expired, foreign-account and
-replayed proofs. A fresh eight-digit code captured from real local SMTP changes
-the password for its account. Real password login checks confirm each applied
-change and prove denied requests preserve the existing password. Session and
-code ages are backdated in disposable Postgres; no real-time expiry wait is
-needed. A second negative control disables the reauthentication setting in a new
-container and must catch an older session changing its password without proof.
-This pins the intentionally accepted
-[password contract](../../supabase/AUTH_EMAIL_OTP.md#passwortänderung-geltender-sicherheitsvertrag),
-not a universal mailbox-proof requirement. Account deletion's independent fresh
-OTP guard remains covered by the database/RLS and scoped-deletion suites.
+The same stack tests direct `PUT /user` requests with native current-password
+enforcement enabled. Young ordinary sessions reject missing or wrong current
+passwords, even with a valid mailbox nonce. The correct current password succeeds
+without an additional nonce for young sessions. A 25-hour-old session requires
+both proofs; missing, invalid, expired, foreign-account and replayed nonces fail.
+GoTrue consumes a valid old-session nonce **before** checking the current
+password: retrying a missing/wrong-current-password failure with that same nonce
+must fail. Real password logins confirm every accepted update and establish that
+denied updates preserve the old password. Three negative controls separately
+remove purpose routing, disable reauthentication, and disable current-password
+enforcement; each must fail its corresponding real HTTP/SMTP assertion.
+This credential matrix sets higher local token/user request refill rates so its
+many deliberate login attempts test password effects rather than exhaust the
+shared IP bucket. Limits are not changed live; the separate lifecycle probe
+retains its real IP rate-limit assertion.
+
+The suite deliberately also proves the native exceptions. A real email-recovery
+OTP creates a session that can change its password repeatedly without another
+proof, including after token refresh. A verified signup-OTP session has the same
+exception. A locally simulated OAuth session with no existing password can set
+its first password without an additional proof. That fixture clears the synthetic
+password hash, changes its stored AMR to OAuth, then obtains a real refreshed
+GoTrue token; it does not contact an identity provider or prove external OAuth
+login/identity linking. Once a password exists, ordinary OAuth sessions also
+require it. The SMTP matrix also verifies that a dual-email-change OTP
+session has this exception. These checks must not be described as universal
+fresh-mail protection. Local logout of the recovery/signup/email-change OTP
+session rejects subsequent password updates and refresh, preserving a separately
+established normal session. The lifecycle probe additionally preserves the
+original initiating password session across dual-email verification and local
+OTP logout, including its authenticated user read and refresh. This does not
+establish immediate JWT revocation
+at stateless services such as PostgREST.
+Account deletion's independent fresh OTP guard remains covered by the
+database/RLS and scoped-deletion suites.
+
+Run `python scripts/security/local_email_template_probe.py --legacy-policy` to
+check the former deployed policy while preparing or assessing a rollout. It
+expects recent-session and existing-password OAuth changes without the current
+password to succeed; the old-session nonce boundary remains required. This
+explicit baseline is also in CI, and writes separate sanitized evidence to
+`.agents/email-template-probe-legacy/result.json`. The default local policy is a
+target contract, not a live deployment claim. The separate read-only
+`auth_password_policy.py` audit checks actual server flags; source policy and
+delivery evidence remain in [Auth configuration](../../supabase/AUTH_EMAIL_OTP.md).
 
 This proves rendering and OTP behavior for the committed recovery template on
 the pinned local Auth server. It does not prove live template deployment, real

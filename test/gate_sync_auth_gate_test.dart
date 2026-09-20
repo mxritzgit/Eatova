@@ -71,8 +71,9 @@ class _ScriptedAuthRepository implements AuthRepository {
   Future<void> sendPasswordReset(String email) async {}
 
   @override
-  Future<void> verifyRecoveryCode(
-      {required String email, required String code}) async {}
+  Future<PasswordRecovery> verifyRecoveryCode(
+      {required String email, required String code}) async =>
+      throw UnimplementedError();
 
   @override
   Future<void> verifySignupCode(
@@ -82,13 +83,11 @@ class _ScriptedAuthRepository implements AuthRepository {
   Future<void> resendSignupCode(String email) async {}
 
   @override
-  Future<void> updatePassword(String newPassword) async {}
-
-  @override
   Future<void> startPasswordChange() async {}
 
   @override
   Future<void> confirmPasswordChange({
+    required String currentPassword,
     required String code,
     required String newPassword,
   }) async {}

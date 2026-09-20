@@ -57,7 +57,7 @@ class _ExistingAccountAuthRepository implements AuthRepository {
   Future<void> sendPasswordReset(String email) => throw UnimplementedError();
 
   @override
-  Future<void> verifyRecoveryCode(
+  Future<PasswordRecovery> verifyRecoveryCode(
           {required String email, required String code}) =>
       throw UnimplementedError();
 
@@ -70,13 +70,11 @@ class _ExistingAccountAuthRepository implements AuthRepository {
   Future<void> resendSignupCode(String email) => throw UnimplementedError();
 
   @override
-  Future<void> updatePassword(String newPassword) => throw UnimplementedError();
-
-  @override
   Future<void> startPasswordChange() => throw UnimplementedError();
 
   @override
   Future<void> confirmPasswordChange({
+    required String currentPassword,
     required String code,
     required String newPassword,
   }) =>

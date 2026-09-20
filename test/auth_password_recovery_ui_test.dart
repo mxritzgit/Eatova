@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:clock/clock.dart';
@@ -5,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/auth/auth_repository.dart';
+import 'package:eatova/src/app/auth_gate.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/auth_code_screen.dart';
 import 'package:eatova/src/screens/auth_screen.dart';
@@ -12,6 +14,56 @@ import 'package:eatova/src/screens/settings/account_change_messages.dart'
     show kAccountCodeLength;
 
 import 'support/harness.dart';
+
+class _RecoverySpy implements PasswordRecovery {
+  _RecoverySpy(this.onUpdate);
+  final void Function(String) onUpdate;
+  int closes = 0;
+  @override
+  bool isActive = true;
+  @override
+  Future<void> updatePassword(String password) async {
+    if (!isActive) throw StateError('Closed recovery');
+    onUpdate(password);
+    await close();
+  }
+
+  @override
+  Future<void> close() async {
+    closes++;
+    isActive = false;
+  }
+}
+
+class _RecoveryRepository extends InMemoryAuthRepository {
+  Completer<void>? release;
+  late final recovery = _RecoverySpy(passwordUpdates.add);
+  @override
+  Future<PasswordRecovery> verifyRecoveryCode({
+    required String email,
+    required String code,
+  }) async {
+    verifiedCodes.add('$email:$code');
+    await release?.future;
+    return recovery;
+  }
+}
+
+Future<void> _openRecovery(WidgetTester tester) async {
+  await tester.enterText(
+    find.byKey(const ValueKey('auth-email-field')),
+    'user@example.com',
+  );
+  await tester.ensureVisible(
+    find.byKey(const ValueKey('auth-forgot-password')),
+  );
+  await tester.tap(find.byKey(const ValueKey('auth-forgot-password')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const ValueKey('code-primary')));
+  await tester.pumpAndSettle();
+  await tester.enterText(find.byKey(const ValueKey('code-field')), '48291357');
+  await tester.tap(find.byKey(const ValueKey('code-primary')));
+}
 
 // 8-digit code flow (OTP instead of a mail link):
 //
@@ -44,11 +96,7 @@ Future<void> _pumpCode(
 }) async {
   await pumpLocalized(
     tester,
-    AuthCodeScreen(
-      authRepository: repo,
-      flow: flow,
-      initialEmail: email,
-    ),
+    AuthCodeScreen(authRepository: repo, flow: flow, initialEmail: email),
     // Motion as before the migration.
     reducedMotion: false,
     scaffold: false,
@@ -61,15 +109,93 @@ Future<void> _pumpCode(
 /// supabase/AUTH_EMAIL_OTP.md.
 int _serverEinstellung(String schluessel) {
   final doku = File('supabase/AUTH_EMAIL_OTP.md').readAsStringSync();
-  final treffer =
-      RegExp('`$schluessel`\\s*\\|\\s*`(\\d+)`').firstMatch(doku);
-  expect(treffer, isNotNull,
-      reason: 'ohne die Zeile `$schluessel` in supabase/AUTH_EMAIL_OTP.md '
-          'prueft dieser Abgleich nichts mehr');
+  final treffer = RegExp('`$schluessel`\\s*\\|\\s*`(\\d+)`').firstMatch(doku);
+  expect(
+    treffer,
+    isNotNull,
+    reason:
+        'ohne die Zeile `$schluessel` in supabase/AUTH_EMAIL_OTP.md '
+        'prueft dieser Abgleich nichts mehr',
+  );
   return int.parse(treffer!.group(1)!);
 }
 
 void main() {
+  testWidgets('reset returns to login without booting sync or purging outbox', (
+    tester,
+  ) async {
+    final repo = _RecoveryRepository();
+    addTearDown(repo.dispose);
+    var homeBuilds = 0;
+    var purges = 0;
+    await pumpLocalized(
+      tester,
+      AuthGate(
+        authRepository: repo,
+        debugPurgeCache: (_) async {
+          purges++;
+        },
+        builder: (_, user, fresh) {
+          homeBuilds++;
+          return const Text('signed-in-home');
+        },
+      ),
+      reducedMotion: false,
+      scaffold: false,
+      safeArea: false,
+      settle: true,
+    );
+    await _openRecovery(tester);
+    await tester.pumpAndSettle();
+    expect(repo.currentUser, isNull);
+    expect(homeBuilds, 0);
+    await tester.enterText(
+      find.byKey(const ValueKey('code-password-field')),
+      'new-synthetic-password',
+    );
+    await tester.tap(find.byKey(const ValueKey('code-primary')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
+    expect(find.text(deL10n.authCodePasswordUpdated), findsOneWidget);
+    expect(repo.passwordUpdates, ['new-synthetic-password']);
+    expect(repo.recovery.isActive, isFalse);
+    expect(repo.currentUser, isNull);
+    expect(homeBuilds, 0);
+    expect(purges, 0);
+    await tester.enterText(
+      find.byKey(const ValueKey('auth-password-field')),
+      'new-synthetic-password',
+    );
+    await tester.tap(find.byKey(const ValueKey('auth-submit')));
+    await tester.pumpAndSettle();
+    expect(find.text('signed-in-home'), findsOneWidget);
+    expect(purges, 0);
+  });
+
+  for (final late in [false, true]) {
+    testWidgets('leaving recovery closes ${late ? 'late' : 'verified'} proof', (
+      tester,
+    ) async {
+      final repo = _RecoveryRepository();
+      if (late) repo.release = Completer<void>();
+      await _pumpAuth(tester, repo);
+      await _openRecovery(tester);
+      if (!late) await tester.pumpAndSettle();
+      // OS Back remains safe even while the request is pending.
+      Navigator.of(
+        tester.element(find.byKey(const ValueKey('auth-code-screen'))),
+      ).pop();
+      await tester.pumpAndSettle();
+      repo.release?.complete();
+      await tester.pumpAndSettle();
+      expect(repo.recovery.isActive, isFalse);
+      expect(repo.recovery.closes, greaterThanOrEqualTo(1));
+      expect(repo.passwordUpdates, isEmpty);
+      expect(repo.currentUser, isNull);
+      expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
+    });
+  }
+
   // The 2026-08-18 incident: the code length was raised, and app and server
   // config were changed in the wrong order — an older build cut the input off
   // at six digits and stopped accepting ANY code. Nothing tied the two halves

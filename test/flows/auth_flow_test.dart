@@ -105,6 +105,16 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('code-primary')));
     await tester.pumpAndSettle();
 
+    expect(authRepository.currentUser, isNull);
+    expect(find.byKey(const ValueKey('screen-today')), findsNothing);
+    expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey('auth-password-field')),
+      'eatova123',
+    );
+    await tester.tap(find.byKey(const ValueKey('auth-submit')));
+    await tester.pumpAndSettle();
+
     expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
 
     await authRepository.signOut();
@@ -125,7 +135,8 @@ void main() {
     expect(find.byKey(const ValueKey('screen-today')), findsOneWidget);
     // Same for the login leg: address and password are the typed ones, and the
     // login did NOT run a second sign-up.
-    expect(authRepository.signIns, <String>['moritz@example.com:eatova123'],
+    expect(authRepository.signIns, <String>[
+      'moritz@example.com:eatova123', 'moritz@example.com:eatova123'],
         reason: 'der Login schickt genau die eingetippten Zugangsdaten');
     expect(authRepository.signUps, hasLength(1),
         reason: 'der Login darf kein zweites Konto anlegen');

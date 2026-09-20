@@ -89,10 +89,15 @@ void main() {
       addTearDown(repo.dispose);
 
       await repo.startPasswordChange();
-      await repo.confirmPasswordChange(code: '123456', newPassword: 'geheim99');
+      await repo.confirmPasswordChange(
+        currentPassword: 'CurrentPassword99',
+        code: '123456',
+        newPassword: 'geheim99',
+      );
 
       expect(repo.passwordUpdates, <String>['geheim99']);
       expect(repo.usedNonces, <String>['123456']);
+      expect(repo.usedCurrentPasswords, <String>['CurrentPassword99']);
     });
 
     test('ein serverseitig abgelehnter Code aendert nichts', () async {
@@ -105,7 +110,11 @@ void main() {
       repo.verifyFails = true;
 
       await expectLater(
-        repo.confirmPasswordChange(code: '000000', newPassword: 'geheim99'),
+        repo.confirmPasswordChange(
+          currentPassword: 'CurrentPassword99',
+          code: '000000',
+          newPassword: 'geheim99',
+        ),
         throwsA(isA<Exception>()),
       );
       expect(repo.passwordUpdates, isEmpty,

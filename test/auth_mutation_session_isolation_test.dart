@@ -76,11 +76,9 @@ class _AfterBodyClient extends http.BaseClient {
 
 void main() {
   for (final operation in <String>[
-    'recovery password',
     'password change',
     'email change',
     'email confirmation',
-    'recovery verification',
   ]) {
     test(
       '$operation cannot replace the next account with a late response',
@@ -100,8 +98,7 @@ void main() {
           await release.future;
           return http.Response(
             jsonEncode(
-              operation == 'email confirmation' ||
-                      operation == 'recovery verification'
+              operation == 'email confirmation'
                   ? _session('account-a')
                   : _user('account-a'),
             ),
@@ -129,18 +126,12 @@ void main() {
         );
 
         final pending = switch (operation) {
-          'recovery password' => repository.updatePassword(
-            'new-fixture-password',
-          ),
           'password change' => repository.confirmPasswordChange(
+            currentPassword: 'fixture-current-password',
             code: '12345678',
             newPassword: 'new-fixture-password',
           ),
           'email change' => repository.startEmailChange('new@example.com'),
-          'recovery verification' => repository.verifyRecoveryCode(
-            email: 'account-a@example.com',
-            code: '12345678',
-          ),
           _ => repository.confirmEmailChange(
             email: 'account-a@example.com',
             code: '12345678',
@@ -222,7 +213,11 @@ void main() {
         password: 'fixture-pass',
       );
       final pending = repo
-          .updatePassword('fixture-new-password')
+          .confirmPasswordChange(
+            currentPassword: 'fixture-current-password',
+            code: '12345678',
+            newPassword: 'fixture-new-password',
+          )
           .then<Object?>((_) => null, onError: (Object e) => e);
       await sent.future;
       if (transition != 'no change') await repo.signOut();
@@ -264,7 +259,11 @@ void main() {
         mutationHttpClient: transport,
       );
       await expectLater(
-        repo.updatePassword('fixture-new-password'),
+        repo.confirmPasswordChange(
+          currentPassword: 'fixture-current-password',
+          code: '12345678',
+          newPassword: 'fixture-new-password',
+        ),
         throwsA(isA<AuthException>()),
       );
       await switched;
@@ -316,7 +315,11 @@ void main() {
           client,
           mutationHttpClient: transport,
         );
-        final mutation = repo.updatePassword('fixture-new-password');
+        final mutation = repo.confirmPasswordChange(
+          currentPassword: 'fixture-current-password',
+          code: '12345678',
+          newPassword: 'fixture-new-password',
+        );
         await updateSent.future;
         final refresh = client.auth.refreshSession();
         await refreshSent.future;
@@ -392,7 +395,11 @@ void main() {
           mutationHttpClient: transport,
         );
         await expectLater(
-          repo.updatePassword('fixture-new-password'),
+          repo.confirmPasswordChange(
+            currentPassword: 'fixture-current-password',
+            code: '12345678',
+            newPassword: 'fixture-new-password',
+          ),
           throwsA(isA<AuthException>()),
         );
         expect(client.auth.currentSession, same(original));
@@ -415,7 +422,11 @@ void main() {
         client,
         mutationHttpClient: transport,
       );
-      final mutation = repo.updatePassword('fixture-new-password');
+      final mutation = repo.confirmPasswordChange(
+        currentPassword: 'fixture-current-password',
+        code: '12345678',
+        newPassword: 'fixture-new-password',
+      );
       final result = expectLater(mutation, throwsA(isA<AuthException>()));
       await repo.signOut();
       await result;

@@ -1477,3 +1477,55 @@ The user authorized push and merge through protected main after successful CI;
 the PR checks establish that delivery separately. These fixes require no new
 Supabase deployment. The previously deployed migrations and email templates are
 unchanged, and no app-store release or device installation was performed.
+## Password reauthentication and temporary OTP sessions, 2026-09-20
+
+This supersedes the password-policy decision in the earlier SQLite/background
+hardening review, while preserving its storage and background-sync fixes.
+The selected native contract requires the current password for ordinary
+authenticated password changes, including recent sessions. Older sessions also
+need Supabase's reauthentication nonce. The app sends the original password
+bytes, distinguishes credential rejection from mail-code rejection and permits
+a fresh code after GoTrue consumes a nonce before rejecting the current password.
+
+Signup and password recovery no longer become persistent app logins. A
+flow-owned, time-limited, unpersisted recovery capability can set the password;
+confirmation/reset returns to normal login. Completion, cancellation and account
+changes close the capability and attempt bounded, local-scope revocation.
+Email-change confirmation keeps the initiating normal login and updates only its
+user profile; the additional OTP session is revoked separately. No flow clears
+pending outbox data or replaces a newer login during cleanup. Account deletion
+keeps its existing isolated, account/session-bound fresh-proof flow.
+
+Native provider exceptions remain explicit: GoTrue exempts OTP/recovery/signup/
+email-change sessions and the first password on a passwordless OAuth account.
+A hostile client can retain an OTP bearer; client cleanup is not an unavoidable
+server gate. Existing OTP sessions from older builds are not retroactively
+revoked by this change. A universal fresh-mail requirement would need a separate
+Auth infrastructure decision. Offline revocation can fail; stateless JWT access
+can persist until expiry. The app never persists these temporary credentials or
+automatically retries an uncertain password mutation.
+
+The read-only live health check reported GoTrue **2.197.0**. Disposable probes now
+pin that official image by digest and verify the native contract and its
+exceptions through real HTTP and internal SMTP. Native/legacy matrices,
+nonce expiry/replay/account binding, email-confirmation session preservation,
+local revocation and deliberate disabled-control mutations are covered. Flutter
+regressions cover input/wire format, retry UI, normal-login routing, scoped
+cleanup, account switching/ABA and late responses. The config audit has offline
+failure/secret-redaction tests and runs live only from the protected `main`
+`supabase-drift` environment.
+
+Deployment changes only `security_update_password_require_current_password`
+to `true`, after the reviewed PR passes CI, with exact configuration readback.
+Older clients without the current-password field need an update for the settings
+dialog; normal sign-in and mail recovery remain available. The protection must
+not be disabled for rollback compatibility. No schema migration or app/device
+installation is implied by the source merge. The delivery PR records actual
+deployment and CI evidence separately from this implementation contract.
+
+Sources: [current password contract and rollout](../supabase/AUTH_EMAIL_OTP.md),
+[temporary credentials](../lib/src/auth/password_recovery.dart),
+[session mutations](../lib/src/auth/auth_session_mutation.dart),
+[password matrix](../scripts/security/password_change_checks.py),
+[Auth probe guide](../scripts/security/README.md),
+[production configuration audit](../scripts/security/auth_password_policy.py).

@@ -142,6 +142,16 @@ void main() {
             '8-stellige');
 
     // ---- 2. Boot gate, then mandatory onboarding ---------------------------
+    await settleFrames(tester);
+    expect(authRepository.currentUser, isNull);
+    expect(find.byKey(const ValueKey('screen-onboarding')), findsNothing);
+    await tester.enterText(
+      find.byKey(const ValueKey('auth-password-field')),
+      'eatova123',
+    );
+    await tester.ensureVisible(find.byKey(const ValueKey('auth-submit')));
+    await tester.tap(find.byKey(const ValueKey('auth-submit')));
+    await settleFrames(tester);
     await _waitGone(
       tester,
       find.byKey(const ValueKey('screen-welcome')),

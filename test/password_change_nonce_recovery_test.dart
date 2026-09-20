@@ -41,6 +41,7 @@ class _OldSessionAuth extends InMemoryAuthRepository {
 
   @override
   Future<void> confirmPasswordChange({
+    required String currentPassword,
     required String code,
     required String newPassword,
   }) async {
@@ -53,6 +54,13 @@ class _OldSessionAuth extends InMemoryAuthRepository {
       );
     }
     nonce = null;
+    if (currentPassword != 'CurrentPassword99') {
+      throw const AuthException(
+        'Current password is incorrect',
+        statusCode: '400',
+        code: 'current_password_invalid',
+      );
+    }
     if (newPassword == 'SamePassword99') {
       throw const AuthException(
         'New password should be different from the old password.',
@@ -65,97 +73,114 @@ class _OldSessionAuth extends InMemoryAuthRepository {
 }
 
 void main() {
-  for (final throttle in [false, true]) {
-    testWidgets(
-      'spent nonce can be renewed and password saved (throttle=$throttle)',
-      (tester) async {
-        var now = DateTime.utc(2026, 9, 7, 12);
-        await withClock(Clock(() => now), () async {
-          Future<void> advance(Duration duration) async {
-            now = now.add(duration);
-            await tester.pump(duration);
-          }
+  for (final incorrectCurrent in [false, true]) {
+    for (final throttle in [false, true]) {
+      testWidgets(
+        'spent nonce can be renewed after ${incorrectCurrent ? 'wrong current password' : 'same new password'} (throttle=$throttle)',
+        (tester) async {
+          var now = DateTime.utc(2026, 9, 7, 12);
+          await withClock(Clock(() => now), () async {
+            Future<void> advance(Duration duration) async {
+              now = now.add(duration);
+              await tester.pump(duration);
+            }
 
-          SharedPreferences.setMockInitialValues({});
-          final repo = _OldSessionAuth(throttleResend: throttle);
-          addTearDown(repo.dispose);
-          tester.view.physicalSize = const Size(1179, 2556);
-          tester.view.devicePixelRatio = 3;
-          addTearDown(tester.view.resetPhysicalSize);
-          addTearDown(tester.view.resetDevicePixelRatio);
-          await pumpLocalized(
-            tester,
-            SettingsScreen(
-              email: 'review@example.invalid',
-              authRepository: repo,
-            ),
-            scaffold: false,
-            safeArea: false,
-          );
-          Future<void> tap(Finder f) async {
-            await tester.ensureVisible(f);
-            await tester.tap(f);
-            await tester.pumpAndSettle();
-          }
+            SharedPreferences.setMockInitialValues({});
+            final repo = _OldSessionAuth(throttleResend: throttle);
+            addTearDown(repo.dispose);
+            tester.view.physicalSize = const Size(1179, 2556);
+            tester.view.devicePixelRatio = 3;
+            addTearDown(tester.view.resetPhysicalSize);
+            addTearDown(tester.view.resetDevicePixelRatio);
+            await pumpLocalized(
+              tester,
+              SettingsScreen(
+                email: 'review@example.invalid',
+                authRepository: repo,
+              ),
+              scaffold: false,
+              safeArea: false,
+            );
+            Future<void> tap(Finder f) async {
+              await tester.ensureVisible(f);
+              await tester.tap(f);
+              await tester.pumpAndSettle();
+            }
 
-          Future<void> enter(String key, String value) async {
-            final f = find.byKey(ValueKey(key));
-            await tester.ensureVisible(f);
-            await tester.enterText(f, value);
-          }
+            Future<void> enter(String key, String value) async {
+              final f = find.byKey(ValueKey(key));
+              await tester.ensureVisible(f);
+              await tester.enterText(f, value);
+            }
 
-          await tap(find.byKey(const ValueKey('settings-change-password')));
-          await tap(find.text('Code anfordern'));
-          await enter('password-change-code', '12345678');
-          await enter('password-change-new', 'SamePassword99');
-          await enter('password-change-repeat', 'SamePassword99');
-          final submit = tester
-              .element(find.byKey(const ValueKey('password-change-code')))
-              .l10n
-              .settingsPasswordChangeSubmitCta;
-          await tap(find.text(submit));
-          expect(repo.attempts, 1);
-          expect(
-            repo.sends,
-            1,
-            reason: 'No automatic extra email on password rejection',
-          );
-          final code = find.byKey(const ValueKey('password-change-code'));
-          expect(tester.widget<TextField>(code).controller!.text, isEmpty);
-          expect(
-            tester
-                .widget<SheetField>(
-                  find.byKey(const ValueKey('password-change-new')),
-                )
-                .controller!
-                .text,
-            'SamePassword99',
-          );
-          final resend = find.byKey(const ValueKey('password-change-resend'));
-          expect(tester.widget<TextButton>(resend).onPressed, isNull);
-          await advance(const Duration(seconds: 61));
-          await tap(resend);
-          if (throttle) {
-            expect(repo.sends, 2);
+            await tap(find.byKey(const ValueKey('settings-change-password')));
+            await tap(find.text('Code anfordern'));
+            await enter(
+              'password-change-current',
+              incorrectCurrent ? 'WrongPassword99' : 'CurrentPassword99',
+            );
+            await enter('password-change-code', '12345678');
+            await enter('password-change-new', 'SamePassword99');
+            await enter('password-change-repeat', 'SamePassword99');
+            final submit = tester
+                .element(find.byKey(const ValueKey('password-change-code')))
+                .l10n
+                .settingsPasswordChangeSubmitCta;
+            await tap(find.text(submit));
+            expect(repo.attempts, 1);
+            if (incorrectCurrent) {
+              expect(
+                find.text(deL10n.settingsAccountCurrentPasswordInvalid),
+                findsOneWidget,
+              );
+              expect(
+                find.text(deL10n.settingsAccountCodeRejected),
+                findsNothing,
+              );
+            }
+            expect(
+              repo.sends,
+              1,
+              reason: 'No automatic extra email on password rejection',
+            );
+            final code = find.byKey(const ValueKey('password-change-code'));
+            expect(tester.widget<TextField>(code).controller!.text, isEmpty);
+            expect(
+              tester
+                  .widget<SheetField>(
+                    find.byKey(const ValueKey('password-change-new')),
+                  )
+                  .controller!
+                  .text,
+              'SamePassword99',
+            );
+            final resend = find.byKey(const ValueKey('password-change-resend'));
             expect(tester.widget<TextButton>(resend).onPressed, isNull);
-            await advance(const Duration(seconds: 119));
-            expect(tester.widget<TextButton>(resend).onPressed, isNull);
-            await advance(const Duration(seconds: 2));
+            await advance(const Duration(seconds: 61));
             await tap(resend);
-          }
-          await enter('password-change-code', '87654321');
-          await enter('password-change-new', 'DifferentPassword99');
-          await enter('password-change-repeat', 'DifferentPassword99');
-          await tap(find.text(submit));
-          expect(repo.saved, 'DifferentPassword99');
-          expect(repo.attempts, 2);
-          expect(
-            code,
-            findsNothing,
-            reason: 'Successful flow closes the sheet',
-          );
-        });
-      },
-    );
+            if (throttle) {
+              expect(repo.sends, 2);
+              expect(tester.widget<TextButton>(resend).onPressed, isNull);
+              await advance(const Duration(seconds: 119));
+              expect(tester.widget<TextButton>(resend).onPressed, isNull);
+              await advance(const Duration(seconds: 2));
+              await tap(resend);
+            }
+            await enter('password-change-code', '87654321');
+            await enter('password-change-current', 'CurrentPassword99');
+            await enter('password-change-new', 'DifferentPassword99');
+            await enter('password-change-repeat', 'DifferentPassword99');
+            await tap(find.text(submit));
+            expect(repo.saved, 'DifferentPassword99');
+            expect(repo.attempts, 2);
+            expect(
+              code,
+              findsNothing,
+              reason: 'Successful flow closes the sheet',
+            );
+          });
+        },
+      );
+    }
   }
 }
