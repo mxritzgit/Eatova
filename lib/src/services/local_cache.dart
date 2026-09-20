@@ -10,66 +10,26 @@ import '../models/lifetime_stats.dart';
 import '../models/logged_meal.dart';
 import '../models/planned_meal.dart';
 import '../models/training_plan.dart';
+import '../models/training_plan_head.dart';
 import '../models/training_history.dart';
 import '../models/training_session.dart';
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
 import 'crash_reporter.dart';
+import 'durable_cache_store.dart';
+import 'key_value_store.dart';
 import 'secure_cache_store.dart';
 import 'sync_outbox.dart';
+import 'sync_operation_payload.dart';
+import 'training_session_source.dart';
 import 'uuid.dart';
 
-/// Minimal async key-value store behind [LocalCache]. Abstracts
-/// SharedPreferences so the cache is unit-testable without a plugin channel
-/// (see [InMemoryKeyValueStore]).
-abstract class KeyValueStore {
-  Future<String?> getString(String key);
-  Future<void> setString(String key, String value);
-  Future<void> remove(String key);
-}
+export 'key_value_store.dart';
 
-/// What the raw storage holds for a key — and, when it holds something the
-/// caller could not use, whether a later read can do better.
-///
-/// P3-02c: the two occupied cases look identical from the outside (both end in
-/// `null`) but call for opposite reactions, so they must not share a verdict.
-enum RawSlotState {
-  /// Nothing stored: overwriting or deleting loses nothing.
-  empty,
+part 'local_cache_mutations.dart';
 
-  /// Bytes are there and the last read HANDED THEM OVER. If the caller still
-  /// could not use them, the CONTENT is broken and no retry changes that.
-  brokenContent,
-
-  /// Bytes are there and the last read could not even EXECUTE the decryption
-  /// (isolate spawn, OOM, RemoteError). The bytes are intact; the next read
-  /// can succeed, so the slot must not be given up.
-  unreadableForNow,
-}
-
-/// Extra capability of a store that TRANSFORMS values on read (decryption):
-/// tells whether the underlying storage still holds bytes for a key, without
-/// decoding them.
-///
-/// P3-02: such a store has to answer "slot unreadable" with the same `null` as
-/// "slot empty" — a failed isolate spawn says nothing about the ciphertext, so
-/// the slot must stay. For the `OrThrow` readers those two cases are opposites:
-/// only "empty" allows overwriting and deleting the persisted blob. Asking the
-/// STORAGE instead of the cipher keeps the answer independent of which error
-/// class a future decryption failure falls into.
-abstract class RawSlotProbe {
-  /// State of [key] in the raw storage. Throws if the storage itself cannot
-  /// answer — the caller must not read that as "empty".
-  ///
-  /// P3-02c: the store also reports WHY a read failed, which only it knows.
-  /// Without that, [LocalCache._assertSlotEmpty] had to call every occupied
-  /// slot equally unreadable, and the repair path could only bound itself by
-  /// counting attempts.
-  Future<RawSlotState> rawSlotState(String key);
-}
-
-/// Platform default: SharedPreferences, built in production via
-/// [LocalCache.create]. Already a transitive dependency of supabase_flutter.
+/// Legacy adapter for migration and tests. Production uses SQLite through
+/// [LocalCache.create]; preferences cannot acknowledge a durable transaction.
 class SharedPreferencesStore implements KeyValueStore {
   SharedPreferencesStore(this._prefs);
 
@@ -98,39 +58,15 @@ class SharedPreferencesStore implements KeyValueStore {
   }
 }
 
-/// In-memory store for tests (no plugin channel needed).
-class InMemoryKeyValueStore implements KeyValueStore {
-  InMemoryKeyValueStore([Map<String, String>? initial])
-      : _data = {...?initial};
-
-  final Map<String, String> _data;
-
-  Map<String, String> get snapshot => Map.unmodifiable(_data);
-
-  @override
-  Future<String?> getString(String key) async => _data[key];
-
-  @override
-  Future<void> setString(String key, String value) async {
-    _data[key] = value;
-  }
-
-  @override
-  Future<void> remove(String key) async {
-    _data.remove(key);
-  }
-}
-
-/// Thin write-through cache (JSON in SharedPreferences) for one user's data
-/// (DATA-3).
+/// Encrypted, transactional cache for one user's data (DATA-3).
 ///
 /// An offline cold start must not show the bare ctor defaults, and a following
 /// save must not overwrite the real server row with them. HomePage hydrates
 /// from this cache first, then from the network; every persisted mutation
 /// writes here too.
 ///
-/// Keyed per user (SharedPreferences is global). All reads/writes are
-/// defensive: a corrupt entry yields null instead of crashing.
+/// Keyed per user. Hydration reads are defensive; authoritative mutation
+/// snapshots reject unreadable data instead of treating it as empty.
 class LocalCache {
   LocalCache(this._store, this._userId) {
     _open.add(this);
@@ -233,7 +169,7 @@ class LocalCache {
   /// state must not.
   void discardPendingWrites() => _discardPendingWrites();
 
-  /// Builds the production cache on SharedPreferences, encrypted with the OS
+  /// Builds the production cache on transactional SQLite, encrypted with the OS
   /// keystore DEK (SEC-1, secure_cache_store.dart). Returns null on plugin
   /// error or when the DEK is neither readable nor creatable, so the caller
   /// runs on without a cache. No plaintext fallback — no cache beats an
@@ -241,19 +177,39 @@ class LocalCache {
   ///
   /// The decorator is added only here; the public constructor still takes a
   /// bare [KeyValueStore] so tests can drive plaintext values.
-  static Future<LocalCache?> create(String userId) async {
+  static Future<LocalCache?> create(String userId, {bool background = false}) async {
     try {
-      final base = await SharedPreferencesStore.create();
-      final store = await EncryptedKeyValueStore.create(base);
-      if (store == null) return null;
-      final cache = LocalCache(store, userId);
-      await cache.dropLegacySlots();
+      final connection = await DurableCacheStore.acquire(
+        databasePath: debugDatabasePath, background: background,
+      );
+      if (connection == null) return null;
+      final cache = LocalCache(connection.store, userId)
+        .._releaseStorage = connection.release;
       return cache;
     } catch (e, s) {
       dev.log('LocalCache.create failed', error: e, stackTrace: s,
           name: 'local_cache');
       return null;
     }
+  }
+
+  /// File-backed production wiring tests use an isolated temporary directory.
+  static String? debugDatabasePath;
+
+  Future<void> Function()? _releaseStorage;
+  Future<void>? _storageRelease;
+
+  /// Headless task completion releases only this handle. Another foreground
+  /// owner keeps the shared database open. In-memory test stores need no IO.
+  Future<void> releaseStorage() => _storageRelease ??= _releaseStorageNow();
+
+  Future<void> _releaseStorageNow() async {
+    close();
+    // Physical teardown waits for accepted IO even after its UI wait expires.
+    await _settleWrites();
+    final release = _releaseStorage;
+    _releaseStorage = null;
+    await release?.call();
   }
 
   /// Deletes slots that only exist in old installations.
@@ -815,11 +771,43 @@ class LocalCache {
   /// next login. This retained sync state is encrypted and namespaced by user.
   ///
   /// Default `false` = account deletion clears everything.
-  Future<void> clear({bool preserveOutbox = false}) async {
+  Future<void> clear({bool preserveOutbox = false,
+      Map<String, int> guards = const {}}) async {
     // Close BEFORE clearing: drops pending debounced writes (G9b) and turns
     // every later write into a no-op, so nothing running past this point can
     // write the just-deleted PII straight back (F1-02).
     close();
+
+    final storage = _store;
+    if (storage is AtomicKeyValueStore) {
+      // One commit removes both the entity and its receipts. The receipt queue
+      // also orders already-started training writes before this namespace purge.
+      final retained = preserveOutbox
+          ? {'outbox', 'pending_stats', 'training_history_deletions'}
+          : const <String>{};
+      final changes = <String, String?>{
+        for (final slot in durableCacheSlotNames)
+          if (slot != 'sync_session' && !retained.contains(slot))
+            'eatova.v1.$slot.$_userId': null,
+      };
+      try {
+        Future<void> purge() async {
+          await storage.writeBatch(changes, expectedVersions: guards);
+        }
+        final pending = preserveOutbox ? purge() : _queueTrainingDeletion(purge);
+        // A timeout reports an unresolved purge; it never releases its ordered
+        // position or cancels a transaction that may already have committed.
+        await _trackWrite(pending).timeout(settleBudget);
+      } on KeyValueConflict {
+        rethrow;
+      } on TimeoutException {
+        rethrow;
+      } catch (error) {
+        throw UnwritableCacheSlot('account_cache', error.runtimeType.toString());
+      }
+      return;
+    }
+    if (guards.isNotEmpty) throw StateError('Atomic account cleanup unavailable');
 
     // Reserve the namespace now, but retain its authoritative receipt until
     // every dependent slot is gone. A failed cleanup must release the barrier

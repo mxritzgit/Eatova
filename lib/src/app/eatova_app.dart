@@ -9,14 +9,17 @@ import '../auth/auth_repository.dart';
 import '../widgets/common/app_interactions.dart';
 import '../l10n/l10n.dart';
 import '../services/crash_reporter.dart';
+import '../services/background_sync_scheduler.dart';
 import '../services/eatova_sync.dart';
 import '../services/health_service.dart';
+import '../services/local_cache.dart';
 import '../services/meal_analyzer.dart';
 import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_input.dart';
 import '../services/notification_service.dart';
 import '../services/open_food_facts_product_service.dart';
 import '../services/secure_screen.dart';
+import '../services/sync_connectivity.dart';
 import '../theme/app_theme.dart';
 import '../theme/theme_mode_controller.dart';
 import 'auth_gate.dart';
@@ -36,6 +39,9 @@ class EatovaApp extends StatefulWidget {
     this.themeModeController,
     this.localeController,
     this.syncBuilder,
+    this.syncConnectivity,
+    this.backgroundSyncScheduler,
+    this.debugCacheBuilder,
   });
 
   final MealAnalyzer? mealAnalyzer;
@@ -44,6 +50,11 @@ class EatovaApp extends StatefulWidget {
   final MealCameraLauncher? mealCameraLauncher;
   final HealthService? healthService;
   final AuthRepository? authRepository;
+  final SyncConnectivity? syncConnectivity;
+  final BackgroundSyncScheduler? backgroundSyncScheduler;
+
+  @visibleForTesting
+  final LocalCache Function(String userId)? debugCacheBuilder;
 
   /// On-device notification layer (PROD-1). Real [LocalNotificationService]
   /// in production; null in tests/preview, where EatovaHomePage falls back to
@@ -176,9 +187,10 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
       home: AuthGate(
         authRepository: repository,
         builder: (context, user, freshLogin) => EatovaHomePage(
-          // Keying on user.id rebuilds the page on sign-out/new login:
-          // fresh state, own sync instance.
-          key: ValueKey('home-${user.id}'),
+          debugCache: widget.debugCacheBuilder?.call(user.id),
+          // A new login gets a fresh store even for the same account.
+          // Refreshing a token keeps the session ID and the existing store.
+          key: ValueKey((user.id, user.sessionId)),
           mealAnalyzer: widget.mealAnalyzer,
           productService: widget.productService,
           photoInput: widget.photoInput,
@@ -193,6 +205,8 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
           authRepository: repository,
           onSignOut: repository.signOut,
           sync: _syncFor(user.id),
+          syncConnectivity: widget.syncConnectivity,
+          backgroundSyncScheduler: widget.backgroundSyncScheduler,
           showWelcome: freshLogin,
         ),
       ),

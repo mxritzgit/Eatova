@@ -98,9 +98,9 @@ class _TestImageStore extends RecipeImageStore {
   bool get baseResolved => true;
 
   File _datei(String reference) => File(
-        '${ordner.path}/'
-        '${reference.substring(RecipeImageStore.referencePrefix.length)}',
-      );
+    '${ordner.path}/'
+    '${reference.substring(RecipeImageStore.referencePrefix.length)}',
+  );
 
   @override
   Future<String?> save({required Uint8List bytes}) async {
@@ -131,7 +131,10 @@ class _TestImageStore extends RecipeImageStore {
   }
 
   @override
-  Future<void> clear({String? expectedUserId}) async {
+  Future<void> clear({
+    String? expectedUserId,
+    String? expectedSessionId,
+  }) async {
     if (ordner.existsSync()) ordner.deleteSync(recursive: true);
   }
 }
@@ -175,29 +178,23 @@ Widget _tab({
   MealPhotoInput? photoInput,
   _CreateCapture? capture,
   List<FitnessRecipe> userRecipes = const <FitnessRecipe>[],
-}) =>
-    RecipesScreen(
-      onAddMeal: (MealAnalysisResult _, MealSlot __) {},
-      onCreateRecipe: capture?.add,
-      photoInput: photoInput,
-      initialUserRecipes: userRecipes,
-    );
+}) => RecipesScreen(
+  onAddMeal: (MealAnalysisResult _, MealSlot __) {},
+  onCreateRecipe: capture?.add,
+  photoInput: photoInput,
+  initialUserRecipes: userRecipes,
+);
 
 Widget _app(
   Brightness brightness, {
   MealPhotoInput? photoInput,
   _CreateCapture? capture,
   List<FitnessRecipe> userRecipes = const <FitnessRecipe>[],
-}) =>
-    localizedApp(
-      _tab(
-        photoInput: photoInput,
-        capture: capture,
-        userRecipes: userRecipes,
-      ),
-      brightness: brightness,
-      padding: _schalenrand,
-    );
+}) => localizedApp(
+  _tab(photoInput: photoInput, capture: capture, userRecipes: userRecipes),
+  brightness: brightness,
+  padding: _schalenrand,
+);
 
 Future<void> _openSheet(WidgetTester tester) async {
   await tester.tap(find.byKey(const ValueKey('recipe-create-button')));
@@ -223,29 +220,40 @@ void main() {
   });
 
   group('Foto aufnehmen oder waehlen', () {
-    testWidgets('Kamera-Knopf holt das Foto und zeigt die Vorschau',
-        (tester) async {
+    testWidgets('Kamera-Knopf holt das Foto und zeigt die Vorschau', (
+      tester,
+    ) async {
       pinPhoneViewport(tester);
       final quelle = _FakeFotoquelle(bytes: _jpeg());
       await tester.pumpWidget(_app(Brightness.dark, photoInput: quelle));
       await tester.pumpAndSettle();
       await _openSheet(tester);
 
-      expect(find.byKey(const ValueKey('recipe-create-photo-preview')),
-          findsNothing);
+      expect(
+        find.byKey(const ValueKey('recipe-create-photo-preview')),
+        findsNothing,
+      );
 
-      await tester.tap(find.byKey(const ValueKey('recipe-create-photo-camera')));
+      await tester.tap(
+        find.byKey(const ValueKey('recipe-create-photo-camera')),
+      );
       await tester.pumpAndSettle();
 
       expect(quelle.gefragt, <ImageSource>[ImageSource.camera]);
-      expect(find.byKey(const ValueKey('recipe-create-photo-preview')),
-          findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('recipe-create-photo-preview')),
+        findsOneWidget,
+      );
       // Perf round 2026-08-31, finding 5: the 60-px thumbnail decoded the
       // freshly scrubbed photo (up to 1600 px) at full size.
       final vorschau = tester.widget<Image>(
-          find.byKey(const ValueKey('recipe-create-photo-preview')));
-      expect(vorschau.image, isA<ResizeImage>(),
-          reason: 'das 60-px-Thumbnail muss auf Slotgroesse decodieren');
+        find.byKey(const ValueKey('recipe-create-photo-preview')),
+      );
+      expect(
+        vorschau.image,
+        isA<ResizeImage>(),
+        reason: 'das 60-px-Thumbnail muss auf Slotgroesse decodieren',
+      );
     });
 
     testWidgets('Galerie-Knopf fragt die Galerie', (tester) async {
@@ -255,13 +263,16 @@ void main() {
       await tester.pumpAndSettle();
       await _openSheet(tester);
 
-      await tester
-          .tap(find.byKey(const ValueKey('recipe-create-photo-gallery')));
+      await tester.tap(
+        find.byKey(const ValueKey('recipe-create-photo-gallery')),
+      );
       await tester.pumpAndSettle();
 
       expect(quelle.gefragt, <ImageSource>[ImageSource.gallery]);
-      expect(find.byKey(const ValueKey('recipe-create-photo-preview')),
-          findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('recipe-create-photo-preview')),
+        findsOneWidget,
+      );
     });
 
     testWidgets('Entfernen nimmt die Vorschau wieder weg', (tester) async {
@@ -272,22 +283,33 @@ void main() {
       await tester.pumpAndSettle();
       await _openSheet(tester);
 
-      await tester.tap(find.byKey(const ValueKey('recipe-create-photo-camera')));
+      await tester.tap(
+        find.byKey(const ValueKey('recipe-create-photo-camera')),
+      );
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('recipe-create-photo-remove')),
-          findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('recipe-create-photo-remove')),
+        findsOneWidget,
+      );
 
-      await tester.tap(find.byKey(const ValueKey('recipe-create-photo-remove')));
+      await tester.tap(
+        find.byKey(const ValueKey('recipe-create-photo-remove')),
+      );
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const ValueKey('recipe-create-photo-preview')),
-          findsNothing);
-      expect(find.byKey(const ValueKey('recipe-create-photo-remove')),
-          findsNothing);
+      expect(
+        find.byKey(const ValueKey('recipe-create-photo-preview')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('recipe-create-photo-remove')),
+        findsNothing,
+      );
     });
 
-    testWidgets('ein abgebrochener Griff zur Kamera aendert nichts',
-        (tester) async {
+    testWidgets('ein abgebrochener Griff zur Kamera aendert nichts', (
+      tester,
+    ) async {
       pinPhoneViewport(tester);
       await tester.pumpWidget(
         _app(Brightness.dark, photoInput: _FakeFotoquelle()),
@@ -295,20 +317,25 @@ void main() {
       await tester.pumpAndSettle();
       await _openSheet(tester);
 
-      await tester.tap(find.byKey(const ValueKey('recipe-create-photo-camera')));
+      await tester.tap(
+        find.byKey(const ValueKey('recipe-create-photo-camera')),
+      );
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
-      expect(find.byKey(const ValueKey('recipe-create-photo-preview')),
-          findsNothing);
+      expect(
+        find.byKey(const ValueKey('recipe-create-photo-preview')),
+        findsNothing,
+      );
       // Untouched: the sheet still closes without a dialog.
       await tester.tapAt(const Offset(10, 10));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('recipe-create-sheet')), findsNothing);
     });
 
-    testWidgets('ein gewaehltes Foto zaehlt als „ausgefuellt" (D5)',
-        (tester) async {
+    testWidgets('ein gewaehltes Foto zaehlt als „ausgefuellt" (D5)', (
+      tester,
+    ) async {
       pinPhoneViewport(tester);
       await tester.pumpWidget(
         _app(Brightness.dark, photoInput: _FakeFotoquelle(bytes: _jpeg())),
@@ -316,20 +343,25 @@ void main() {
       await tester.pumpAndSettle();
       await _openSheet(tester);
 
-      await tester.tap(find.byKey(const ValueKey('recipe-create-photo-camera')));
+      await tester.tap(
+        find.byKey(const ValueKey('recipe-create-photo-camera')),
+      );
       await tester.pumpAndSettle();
 
       await tester.tapAt(const Offset(10, 10));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const ValueKey('discard-changes-dialog')),
-          findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('discard-changes-dialog')),
+        findsOneWidget,
+      );
     });
   });
 
   group('Das Bild haengt am Rezept und ueberlebt', () {
-    testWidgets('Speichern legt die Bytes ab und setzt die local:-Referenz',
-        (tester) async {
+    testWidgets('Speichern legt die Bytes ab und setzt die local:-Referenz', (
+      tester,
+    ) async {
       pinPhoneViewport(tester);
       final capture = _CreateCapture();
       await tester.pumpWidget(
@@ -344,7 +376,9 @@ void main() {
 
       await _tippe(tester, 'recipe-create-name', 'Protein-Bowl');
       await _tippe(tester, 'recipe-create-kcal', '520');
-      await tester.tap(find.byKey(const ValueKey('recipe-create-photo-camera')));
+      await tester.tap(
+        find.byKey(const ValueKey('recipe-create-photo-camera')),
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.byKey(const ValueKey('recipe-create-save')));
@@ -360,67 +394,78 @@ void main() {
     });
 
     testWidgets(
-        'scheitert die Ablage, wird OHNE Bild gespeichert — nie mit einer '
-        'ins Leere zeigenden Referenz', (tester) async {
-      // Der Store gibt null zurueck (kein Ablageort, undekodierbare Bytes,
-      // Purge waehrend des Scrubs). Eine trotzdem gesetzte `local:`-Referenz
-      // waere schlimmer als gar kein Bild: die Kachel zeigte dauerhaft den
-      // Platzhalter, der Foto-Abgleich hielte den Namen fuer ein lebendes
-      // Foto, und die Zeile ginge so auch noch an den Server.
-      pinPhoneViewport(tester);
-      _store.speicherFehler = true;
-      final capture = _CreateCapture();
-      await tester.pumpWidget(
-        _app(
-          Brightness.dark,
-          photoInput: _FakeFotoquelle(bytes: _jpeg()),
-          capture: capture,
-        ),
-      );
-      await tester.pumpAndSettle();
-      await _openSheet(tester);
+      'scheitert die Ablage, wird OHNE Bild gespeichert — nie mit einer '
+      'ins Leere zeigenden Referenz',
+      (tester) async {
+        // Der Store gibt null zurueck (kein Ablageort, undekodierbare Bytes,
+        // Purge waehrend des Scrubs). Eine trotzdem gesetzte `local:`-Referenz
+        // waere schlimmer als gar kein Bild: die Kachel zeigte dauerhaft den
+        // Platzhalter, der Foto-Abgleich hielte den Namen fuer ein lebendes
+        // Foto, und die Zeile ginge so auch noch an den Server.
+        pinPhoneViewport(tester);
+        _store.speicherFehler = true;
+        final capture = _CreateCapture();
+        await tester.pumpWidget(
+          _app(
+            Brightness.dark,
+            photoInput: _FakeFotoquelle(bytes: _jpeg()),
+            capture: capture,
+          ),
+        );
+        await tester.pumpAndSettle();
+        await _openSheet(tester);
 
-      await _tippe(tester, 'recipe-create-name', 'Protein-Bowl');
-      await _tippe(tester, 'recipe-create-kcal', '520');
-      await tester.tap(find.byKey(const ValueKey('recipe-create-photo-camera')));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('recipe-create-photo-preview')),
+        await _tippe(tester, 'recipe-create-name', 'Protein-Bowl');
+        await _tippe(tester, 'recipe-create-kcal', '520');
+        await tester.tap(
+          find.byKey(const ValueKey('recipe-create-photo-camera')),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey('recipe-create-photo-preview')),
           findsOneWidget,
-          reason: 'Vorbedingung: das Foto liegt im Sheet, nur die Ablage '
-              'scheitert.');
+          reason:
+              'Vorbedingung: das Foto liegt im Sheet, nur die Ablage '
+              'scheitert.',
+        );
 
-      await tester.tap(find.byKey(const ValueKey('recipe-create-save')));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('recipe-create-save')));
+        await tester.pumpAndSettle();
 
-      expect(capture.created, hasLength(1),
-          reason: 'Das Rezept selbst geht nicht verloren.');
-      expect(capture.created.single.imageAsset, isEmpty);
-      expect(
-        RecipeImageStore.isLocalReference(capture.created.single.imageAsset),
-        isFalse,
-      );
-      expect(_store.abgelegt, isEmpty);
+        expect(
+          capture.created,
+          hasLength(1),
+          reason: 'Das Rezept selbst geht nicht verloren.',
+        );
+        expect(capture.created.single.imageAsset, isEmpty);
+        expect(
+          RecipeImageStore.isLocalReference(capture.created.single.imageAsset),
+          isFalse,
+        );
+        expect(_store.abgelegt, isEmpty);
 
-      // Und der Nutzer ERFAEHRT es. Frueher meldete das Sheet den Fehlschlag
-      // selbst, poppte sofort danach, und `_openCreateSheet` legte seine
-      // Erfolgsmeldung darueber — der Nutzer las „gespeichert", waehrend sein
-      // Foto fehlte (Befund T6, behoben 2026-09-01). Das Scheitern reist jetzt
-      // im Ergebnis mit, und der Aufrufer sagt es in EINER Meldung.
-      final l10n = await AppLocalizations.delegate.load(const Locale('de'));
-      expect(
-        find.textContaining(l10n.recipesSavedWithoutPhoto('Protein-Bowl')),
-        findsOneWidget,
-        reason: 'die Meldung nennt beides: gespeichert, aber ohne Foto',
-      );
-      expect(
-        find.text(l10n.recipesSavedSuccess('Protein-Bowl')),
-        findsNothing,
-        reason: 'die beruhigende Fassung darf hier nicht erscheinen',
-      );
-    });
+        // Und der Nutzer ERFAEHRT es. Frueher meldete das Sheet den Fehlschlag
+        // selbst, poppte sofort danach, und `_openCreateSheet` legte seine
+        // Erfolgsmeldung darueber — der Nutzer las „gespeichert", waehrend sein
+        // Foto fehlte (Befund T6, behoben 2026-09-01). Das Scheitern reist jetzt
+        // im Ergebnis mit, und der Aufrufer sagt es in EINER Meldung.
+        final l10n = await AppLocalizations.delegate.load(const Locale('de'));
+        expect(
+          find.textContaining(l10n.recipesSavedWithoutPhoto('Protein-Bowl')),
+          findsOneWidget,
+          reason: 'die Meldung nennt beides: gespeichert, aber ohne Foto',
+        );
+        expect(
+          find.text(l10n.recipesSavedSuccess('Protein-Bowl')),
+          findsNothing,
+          reason: 'die beruhigende Fassung darf hier nicht erscheinen',
+        );
+      },
+    );
 
-    testWidgets('gelingt die Ablage, bleibt die Meldung die normale',
-        (tester) async {
+    testWidgets('gelingt die Ablage, bleibt die Meldung die normale', (
+      tester,
+    ) async {
       // Gegenprobe zum Fall darueber: ohne sie wuerde auch eine Fassung
       // durchgehen, die IMMER „ohne Foto" sagt.
       pinPhoneViewport(tester);
@@ -438,20 +483,27 @@ void main() {
 
       await _tippe(tester, 'recipe-create-name', 'Protein-Bowl');
       await _tippe(tester, 'recipe-create-kcal', '520');
-      await tester.tap(find.byKey(const ValueKey('recipe-create-photo-camera')));
+      await tester.tap(
+        find.byKey(const ValueKey('recipe-create-photo-camera')),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('recipe-create-save')));
       await tester.pumpAndSettle();
 
       final l10n = await AppLocalizations.delegate.load(const Locale('de'));
-      expect(find.textContaining(l10n.recipesSavedSuccess('Protein-Bowl')),
-          findsOneWidget);
-      expect(find.textContaining(l10n.recipesSavedWithoutPhoto('Protein-Bowl')),
-          findsNothing);
+      expect(
+        find.textContaining(l10n.recipesSavedSuccess('Protein-Bowl')),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining(l10n.recipesSavedWithoutPhoto('Protein-Bowl')),
+        findsNothing,
+      );
     });
 
-    testWidgets('ohne Foto bleibt imageAsset leer (Abwaertskompatibilitaet)',
-        (tester) async {
+    testWidgets('ohne Foto bleibt imageAsset leer (Abwaertskompatibilitaet)', (
+      tester,
+    ) async {
       pinPhoneViewport(tester);
       final capture = _CreateCapture();
       await tester.pumpWidget(
@@ -473,8 +525,9 @@ void main() {
       expect(FitnessRecipe.fromRow(zeile).imageAsset, '');
     });
 
-    testWidgets('eine alte Zeile ganz OHNE image_asset liest sich weiterhin',
-        (tester) async {
+    testWidgets('eine alte Zeile ganz OHNE image_asset liest sich weiterhin', (
+      tester,
+    ) async {
       // No widget needed — same assurance as above: the wire format gets NO new
       // field, the marker lives in the existing `image_asset`.
       final alt = FitnessRecipe.fromRow(<String, dynamic>{
@@ -498,8 +551,7 @@ void main() {
       await tester.pumpAndSettle();
 
       await selectRecipeSection(tester, 'own');
-      final kachel =
-          find.byKey(const ValueKey('recipe-tile-user_mit_bild'));
+      final kachel = find.byKey(const ValueKey('recipe-tile-user_mit_bild'));
       await tester.dragUntilVisible(
         kachel,
         find.byKey(const ValueKey('screen-recipes')),
@@ -518,8 +570,9 @@ void main() {
       );
     });
 
-    testWidgets('ein zweites Geraet ohne die Bytes bekommt den Platzhalter',
-        (tester) async {
+    testWidgets('ein zweites Geraet ohne die Bytes bekommt den Platzhalter', (
+      tester,
+    ) async {
       // Reference present (comes from the server row), file not.
       final rezept = _eigenes(
         slug: 'user_fremd',
@@ -566,14 +619,18 @@ void main() {
       await tester.tap(kachel);
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const ValueKey('recipe-detail-user_detail')),
-          findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('recipe-detail-user_detail')),
+        findsOneWidget,
+      );
       expect(find.byType(Image), findsWidgets);
       expect(find.byType(ImagePlaceholder), findsNothing);
     });
   });
 
-  testWidgets('Loeschen des Rezepts nimmt die Bytes mit', (tester) async {
+  testWidgets('Loeschen ohne vollstaendigen Referenzbestand bewahrt die Bytes', (
+    tester,
+  ) async {
     final referenz = _legeAb(_store, 'user_weg', _jpeg());
     final rezept = _eigenes(slug: 'user_weg', imageAsset: referenz);
 
@@ -592,22 +649,31 @@ void main() {
     await tester.tap(kachel);
     await tester.pumpAndSettle();
 
-    expect(_store.resolveSync(referenz), isNotNull,
-        reason: 'Vorbedingung: die Datei muss vorher da sein.');
+    expect(
+      _store.resolveSync(referenz),
+      isNotNull,
+      reason: 'Vorbedingung: die Datei muss vorher da sein.',
+    );
 
     await tester.tap(find.byKey(const ValueKey('recipe-detail-delete')));
     await tester.pumpAndSettle();
 
     // F6-03: inside the undo window nothing is committed yet, so the bytes
     // must still be there — the recipe could come back.
-    expect(_store.resolveSync(referenz), isNotNull,
-        reason: 'Solange „Rueckgaengig" moeglich ist, bleibt das Foto.');
+    expect(
+      _store.resolveSync(referenz),
+      isNotNull,
+      reason: 'Solange „Rueckgaengig" moeglich ist, bleibt das Foto.',
+    );
     await tester.pump(kRecipeUndoWindow + const Duration(milliseconds: 100));
     await tester.pumpAndSettle();
 
-    expect(_store.resolveSync(referenz), isNull,
-        reason: 'Ein geloeschtes Rezept darf sein Foto nicht auf der Platte '
-            'zuruecklassen.');
+    expect(
+      _store.resolveSync(referenz),
+      isNotNull,
+      reason:
+          'Recipe deletion alone does not prove that no historical version uses the photo.',
+    );
   });
 
   group('Das Sheet bleibt heil', () {
@@ -630,31 +696,34 @@ void main() {
 
     // Mode loop plus the separate 2.0 case, folded into one matrix: both
     // modes x normal and double system font, so hell@2.0 is covered too.
-    renderMatrix(
-      'Das Anlege-Sheet mit Foto rendert overflow-frei',
-      (tester, c) async {
-        pinPhoneViewport(tester);
-        await c.pump(
-          tester,
-          _tab(photoInput: _FakeFotoquelle(bytes: _jpeg())),
-          padding: _schalenrand,
-          settle: true,
-        );
-        await _openSheet(tester);
-        final camera = find.byKey(const ValueKey('recipe-create-photo-camera'));
-        await tester.ensureVisible(camera);
-        await tester.pumpAndSettle();
-        await tester.tap(camera);
-        await tester.pumpAndSettle();
+    renderMatrix('Das Anlege-Sheet mit Foto rendert overflow-frei', (
+      tester,
+      c,
+    ) async {
+      pinPhoneViewport(tester);
+      await c.pump(
+        tester,
+        _tab(photoInput: _FakeFotoquelle(bytes: _jpeg())),
+        padding: _schalenrand,
+        settle: true,
+      );
+      await _openSheet(tester);
+      final camera = find.byKey(const ValueKey('recipe-create-photo-camera'));
+      await tester.ensureVisible(camera);
+      await tester.pumpAndSettle();
+      await tester.tap(camera);
+      await tester.pumpAndSettle();
 
-        expect(tester.takeException(), isNull);
-        expect(find.byKey(const ValueKey('recipe-create-photo-preview')),
-            findsOneWidget);
-      },
-      textScales: const <double>[1.0, 2.0],
-    );
+      expect(tester.takeException(), isNull);
+      expect(
+        find.byKey(const ValueKey('recipe-create-photo-preview')),
+        findsOneWidget,
+      );
+    }, textScales: const <double>[1.0, 2.0]);
 
-    testWidgets('save and close stay reachable while the form scrolls', (tester) async {
+    testWidgets('save and close stay reachable while the form scrolls', (
+      tester,
+    ) async {
       pinPhoneViewport(tester);
       await tester.pumpWidget(_app(Brightness.dark));
       await tester.pumpAndSettle();
@@ -662,7 +731,9 @@ void main() {
       final save = find.byKey(const ValueKey('recipe-create-save'));
       final close = find.byKey(const ValueKey('recipe-create-close'));
       final before = tester.getRect(save);
-      await tester.ensureVisible(find.byKey(const ValueKey('recipe-create-ingredients')));
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('recipe-create-ingredients')),
+      );
       await tester.pumpAndSettle();
       expect(tester.getRect(save), before);
       expect(save.hitTestable(), findsOneWidget);
@@ -677,58 +748,64 @@ void main() {
     //
     // This measures the FIELDS, not the headers: headers may differ in height,
     // the boxes below must not jump.
-    renderMatrix(
-      'Die vier Naehrwert-Felder beginnen buendig',
-      (tester, c) async {
-        pinPhoneViewport(tester);
-        await c.pump(
-          tester,
-          _tab(photoInput: _FakeFotoquelle()),
-          padding: _schalenrand,
-          settle: true,
+    renderMatrix('Die vier Naehrwert-Felder beginnen buendig', (
+      tester,
+      c,
+    ) async {
+      pinPhoneViewport(tester);
+      await c.pump(
+        tester,
+        _tab(photoInput: _FakeFotoquelle()),
+        padding: _schalenrand,
+        settle: true,
+      );
+      await _openSheet(tester);
+
+      double obenVon(String key) {
+        final feld = find.byKey(ValueKey(key));
+        expect(feld, findsOneWidget, reason: key);
+        return tester.getRect(feld).top;
+      }
+
+      final kanten = <String, double>{
+        for (final k in const <String>[
+          'recipe-create-kcal',
+          'recipe-create-protein',
+          'recipe-create-carbs',
+          'recipe-create-fat',
+        ])
+          k: obenVon(k),
+      };
+
+      // Two readable columns at normal size; a full-width field at enlarged sizes.
+      final paare = c.textScale == 1
+          ? <List<String>>[
+              ['recipe-create-kcal', 'recipe-create-protein'],
+              ['recipe-create-carbs', 'recipe-create-fat'],
+            ]
+          : <List<String>>[
+              ['recipe-create-kcal'],
+              ['recipe-create-protein'],
+              ['recipe-create-carbs'],
+              ['recipe-create-fat'],
+            ];
+      for (var i = 1; i < paare.length; i++) {
+        expect(
+          kanten[paare[i].first]!,
+          greaterThan(kanten[paare[i - 1].first]!),
         );
-        await _openSheet(tester);
+      }
 
-        double obenVon(String key) {
-          final feld = find.byKey(ValueKey(key));
-          expect(feld, findsOneWidget, reason: key);
-          return tester.getRect(feld).top;
-        }
-
-        final kanten = <String, double>{
-          for (final k in const <String>[
-            'recipe-create-kcal',
-            'recipe-create-protein',
-            'recipe-create-carbs',
-            'recipe-create-fat',
-          ])
-            k: obenVon(k),
-        };
-
-        // Two readable columns at normal size; a full-width field at enlarged sizes.
-        final paare = c.textScale == 1
-            ? <List<String>>[
-                ['recipe-create-kcal', 'recipe-create-protein'],
-                ['recipe-create-carbs', 'recipe-create-fat'],
-              ]
-            : <List<String>>[
-                ['recipe-create-kcal'], ['recipe-create-protein'],
-                ['recipe-create-carbs'], ['recipe-create-fat'],
-              ];
-        for (var i = 1; i < paare.length; i++) {
-          expect(kanten[paare[i].first]!, greaterThan(kanten[paare[i-1].first]!));
-        }
-
-        for (final zeile in paare) {
-          final tops = zeile.map((k) => kanten[k]!).toSet();
-          expect(tops.length, 1,
-              reason: 'Felder derselben Zeile (${zeile.join(", ")}) muessen '
-                  'buendig beginnen, gemessen: $tops');
-        }
-      },
-      textScales: const <double>[1.0, 1.3, 2.0],
-    );
+      for (final zeile in paare) {
+        final tops = zeile.map((k) => kanten[k]!).toSet();
+        expect(
+          tops.length,
+          1,
+          reason:
+              'Felder derselben Zeile (${zeile.join(", ")}) muessen '
+              'buendig beginnen, gemessen: $tops',
+        );
+      }
+    }, textScales: const <double>[1.0, 1.3, 2.0]);
   });
-
-
 }

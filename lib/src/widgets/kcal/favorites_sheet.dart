@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../common/persistence_action.dart';
+
 import '../../l10n/l10n.dart';
 import '../../models/favorite_meal.dart';
 import '../../models/logged_meal.dart';
@@ -30,8 +32,9 @@ Future<void> showFavoritesSheet(
   BuildContext context, {
   required List<FavoriteMeal> favorites,
   required MealSlot slot,
-  required String Function(MealAnalysisResult result, MealSlot slot) onAdd,
-  required ValueChanged<MealAnalysisResult> onUnpin,
+  required FutureOr<String> Function(MealAnalysisResult result, MealSlot slot)
+  onAdd,
+  required PersistValueChanged<MealAnalysisResult> onUnpin,
 }) {
   return showEatovaSheet<void>(
     context,
@@ -60,10 +63,11 @@ class FavoritesSheet extends StatefulWidget {
   final MealSlot slot;
 
   /// Same contract as `AddMealSheet.onAdd`; returns the logged meal id.
-  final String Function(MealAnalysisResult result, MealSlot slot) onAdd;
+  final FutureOr<String> Function(MealAnalysisResult result, MealSlot slot)
+  onAdd;
 
   /// The parent toggles the store; the row disappears here locally.
-  final ValueChanged<MealAnalysisResult> onUnpin;
+  final PersistValueChanged<MealAnalysisResult> onUnpin;
 
   @override
   State<FavoritesSheet> createState() => _FavoritesSheetState();
@@ -105,7 +109,9 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
     setState(() => _expandedItemKey = _expandedItemKey == key ? null : key);
   }
 
-  void _handleAdd(String itemKey, MealAnalysisResult result) {
+  final Set<String> _savingItems = {};
+
+  Future<void> _handleAdd(String itemKey, MealAnalysisResult result) async {
     // Same last guard as AddMealSheet._handleAdd: legacy rows with the
     // "0 = unknown" sentinel stay visible but unloggable; a measured 0
     // (explicitZeroKcal) passes.
@@ -120,8 +126,12 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
       return;
     }
 
-    widget.onAdd(result, widget.slot);
-    if (!mounted) return;
+    if (!_savingItems.add(itemKey)) return;
+    final saved = await tryPersistChange(context, () async {
+      await widget.onAdd(result, widget.slot);
+    });
+    _savingItems.remove(itemKey);
+    if (!saved || !mounted) return;
     final l10n = context.l10n;
     showAppSnack(
       context,
@@ -140,9 +150,15 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
     });
   }
 
-  void _handleUnpin(FavoriteMeal favorite) {
-    widget.onUnpin(favorite.result);
-    if (!mounted) return;
+  Future<void> _handleUnpin(FavoriteMeal favorite) async {
+    final savingKey = 'unpin:${favorite.id}';
+    if (!_savingItems.add(savingKey)) return;
+    final saved = await tryPersistChange(
+      context,
+      () => widget.onUnpin(favorite.result),
+    );
+    _savingItems.remove(savingKey);
+    if (!saved || !mounted) return;
     final key = _itemKey(favorite);
     _justAddedTimers.remove(key)?.cancel();
     setState(() {

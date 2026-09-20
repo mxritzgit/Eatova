@@ -48,6 +48,7 @@ void main() {
             reason: 'ohne Server-Antwort weiss der Store nichts — kein '
                 'Onboarding auf Ctor-Defaults');
 
+        s.server.holdReads = false;
         s.server.releaseReads();
         async.flushMicrotasks();
         async.elapse(Duration.zero);
@@ -71,6 +72,7 @@ void main() {
         async.flushMicrotasks();
         expect(s.store.bootUnanswered, isTrue);
 
+        s.server.holdReads = false;
         s.server.releaseReads();
         async.flushMicrotasks();
         async.elapse(Duration.zero);
@@ -145,7 +147,7 @@ void main() {
       await s.cache!.writeOutbox([
         SyncOp.mealInsert(
           LoggedMeal(
-            id: 'm-haengt',
+            id: '00000000-0000-4000-8000-00000000000a',
             result: mealResult('Haengt'),
             loggedAt: DateTime.now(),
           ),
@@ -212,6 +214,7 @@ void main() {
           findsNothing);
 
       // The server finally answers with the bootstrap row -> onboarding.
+      server.holdReads = false;
       server.releaseReads();
       await _drain(tester);
       expect(find.byKey(const ValueKey('screen-boot-unanswered')),

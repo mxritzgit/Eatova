@@ -21,16 +21,20 @@ import '../../models/meal_analysis_result.dart';
 import '../../models/user_profile.dart';
 import '../../services/meal_photo_input.dart';
 import '../../services/recipe_image_store.dart';
+import '../../services/recipe_save_result.dart';
 import '../../services/open_food_facts_product_service.dart';
 import '../../services/sync_error_messages.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
 import '../../widgets/common/app_snack.dart';
+import '../../widgets/common/persistence_action.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/recipes/recipe_ingredient_editor.dart';
 import '../../widgets/recipes/recipe_portion_selector.dart';
 import '../../widgets/recipes/recipe_photo.dart';
 import '../../widgets/recipes/recipe_navigation.dart';
+
+import 'recipe_history_screen.dart';
 
 part 'recipes_header.dart';
 part 'recipe_cards.dart';
@@ -47,6 +51,8 @@ class RecipesScreen extends StatefulWidget {
     this.diet = DietPreference.none,
     this.onCreateRecipe,
     this.onUpdateRecipe,
+    this.onLoadRecipeHistory,
+    this.onRestoreRecipe,
     this.isSessionCurrent,
     this.onOpenMealPlan,
     this.productService,
@@ -55,10 +61,12 @@ class RecipesScreen extends StatefulWidget {
     this.isDeletePending,
     this.initialUserRecipes = const <FitnessRecipe>[],
     this.userRecipesAuthoritative = false,
+    this.recipePhotoReferences = const <String>{},
     this.photoInput,
   });
 
-  final void Function(MealAnalysisResult result, MealSlot slot) onAddMeal;
+  final FutureOr<void> Function(MealAnalysisResult result, MealSlot slot)
+  onAddMeal;
 
   /// Remaining daily macros (target minus consumed). When set, the screen
   /// shows a goal-match section ranking recipes by macro fit; null hides it.
@@ -75,7 +83,9 @@ class RecipesScreen extends StatefulWidget {
   /// via user_recipes); null keeps the recipe local to this session. Returns
   /// what actually happened (Gap E), which drives the success text.
   final Future<SyncDelivery> Function(FitnessRecipe recipe)? onCreateRecipe;
-  final Future<SyncDelivery> Function(FitnessRecipe recipe)? onUpdateRecipe;
+  final Future<RecipeSaveResult> Function(FitnessRecipe recipe)? onUpdateRecipe;
+  final RecipeHistoryLoader? onLoadRecipeHistory;
+  final RecipeVersionRestorer? onRestoreRecipe;
   final bool Function()? isSessionCurrent;
   final VoidCallback? onOpenMealPlan;
   final ProductLookupService? productService;
@@ -113,6 +123,9 @@ class RecipesScreen extends StatefulWidget {
   /// there, finished or not. Default false: without a store saying otherwise,
   /// no list is authoritative.
   final bool userRecipesAuthoritative;
+
+  /// Complete historical references, loaded before the authority gate opens.
+  final Set<String> recipePhotoReferences;
 
   /// Source for the recipe photo. Null uses the real [DeviceMealPhotoInput],
   /// which already returns EXIF-free bytes. Exists purely as a test seam.
@@ -506,7 +519,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
     _photoSweepDone = true;
     unawaited(
       RecipeImageStore.instance.reconcileRecipePhotos(
-        _userRecipes.map((r) => r.imageAsset).toList(growable: false),
+        {...widget.recipePhotoReferences, ..._userRecipes.map((r) => r.imageAsset)},
       ),
     );
   }
@@ -565,6 +578,12 @@ class _RecipesScreenState extends State<RecipesScreen> {
           recipe: recipe,
           onAddMeal: widget.onAddMeal,
           onEdit: recipe.userCreated ? _editRecipe : null,
+          onOpenHistory:
+              recipe.userCreated &&
+                  widget.onLoadRecipeHistory != null &&
+                  widget.onRestoreRecipe != null
+              ? (slug) => _openHistory(slug: slug)
+              : null,
           photoInput: widget.photoInput,
           productService: widget.productService,
           isSessionCurrent: () =>
@@ -573,14 +592,14 @@ class _RecipesScreenState extends State<RecipesScreen> {
               (widget.isSessionCurrent?.call() ?? true),
           // Offer delete only for self-created recipes.
           onDelete: recipe.userCreated
-              ? () {
+              ? (slug) {
                   if (!mounted ||
                       _disposing ||
                       widget.isSessionCurrent?.call() == false) {
                     return;
                   }
                   final current = _userRecipes
-                      .where((r) => r.slug == recipe.slug)
+                      .where((r) => r.slug == slug)
                       .firstOrNull;
                   if (current != null) _deleteUserRecipe(current);
                 }
@@ -590,22 +609,62 @@ class _RecipesScreenState extends State<RecipesScreen> {
     );
   }
 
-  Future<SyncDelivery> _editRecipe(FitnessRecipe recipe) async {
+  Future<bool> _openHistory({String? slug}) async {
+    final load = widget.onLoadRecipeHistory;
+    final restore = widget.onRestoreRecipe;
+    if (load == null ||
+        restore == null ||
+        widget.isSessionCurrent?.call() == false) {
+      return false;
+    }
+    final delivery = await Navigator.of(context).push<SyncDelivery>(
+      MaterialPageRoute(
+        builder: (_) => RecipeHistoryScreen(
+          slug: slug,
+          loadHistory: load,
+          restoreVersion: restore,
+          isSessionCurrent: () =>
+              mounted &&
+              !_disposing &&
+              (widget.isSessionCurrent?.call() ?? true),
+        ),
+      ),
+    );
+    if (!mounted ||
+        delivery == null ||
+        widget.isSessionCurrent?.call() == false) {
+      return false;
+    }
+    showAppSnack(
+      context,
+      deliveryHint(context.l10n.recipeHistoryRestored, delivery, context.l10n),
+      icon: Icons.restore_rounded,
+    );
+    return true;
+  }
+
+  Future<RecipeSaveResult> _editRecipe(FitnessRecipe recipe) async {
     if (!mounted || _disposing || !(widget.isSessionCurrent?.call() ?? true)) {
       throw StateError('Recipe session ended');
     }
-    final persist = widget.onUpdateRecipe ?? widget.onCreateRecipe;
-    final delivery = await _melde(persist?.call(recipe));
+    final persist = widget.onUpdateRecipe;
+    final result = persist != null
+        ? await persist(recipe)
+        : RecipeSaveResult.detached(
+            recipe, await _melde(widget.onCreateRecipe?.call(recipe)));
     if (!mounted || _disposing || !(widget.isSessionCurrent?.call() ?? true)) {
+      result.handle.dispose();
       throw StateError('Recipe session ended');
     }
-    setState(() {
-      _userRecipes = [
-        for (final current in _userRecipes)
-          current.slug == recipe.slug ? recipe : current,
-      ];
-    });
-    return delivery;
+    if (persist == null) {
+      setState(() {
+        _userRecipes = [
+          for (final current in _userRecipes)
+            current.slug == recipe.slug ? recipe : current,
+        ];
+      });
+    }
+    return result;
   }
 
   /// Hides a user recipe and opens its undo window. Called from the detail
@@ -665,17 +724,9 @@ class _RecipesScreenState extends State<RecipesScreen> {
       widget.onDeletePendingChanged?.call(recipe.slug, pending: false);
     }
     final ausgang = await _melde(lieferung);
-    // The photo goes too, but only once the delete is actually delivered: a
-    // dropped delete makes `_restoreDroppedDeletes` bring the recipe back, and
-    // the device-only bytes would already be gone. No-op for catalog recipes
-    // and user recipes without an image.
-    //
-    // The price is the other direction: a delete the outbox delivers LATER
-    // leaves the file behind, since neither store nor screen hears about it.
-    // `RecipeImageStore.clear()` on logout cleans that up.
-    if (ausgang == SyncDelivery.delivered) {
-      await RecipeImageStore.instance.deleteFor(recipe.imageAsset);
-    }
+    // A delivered deletion is retained in version history. Its device-local
+    // image belongs to that version until a complete reference sweep says
+    // otherwise; deleting it here would make restoration lose the photo.
     // Delivered is what the undo toast already implied; only a queued outcome
     // needs the honest follow-up (Gap E).
     if (!mounted || ausgang == SyncDelivery.delivered) return;
@@ -799,6 +850,18 @@ class _RecipesScreenState extends State<RecipesScreen> {
                 : 1,
             onSelected: _selectSection,
           ),
+          if (own &&
+              widget.onLoadRecipeHistory != null &&
+              widget.onRestoreRecipe != null)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                key: const ValueKey('recipe-history-open'),
+                onPressed: () => _openHistory(),
+                icon: const Icon(Icons.history_rounded),
+                label: Text(l10n.recipeHistoryTitle),
+              ),
+            ),
           const SizedBox(height: 18),
           if (_forYou && recommended.isNotEmpty) ...[
             _RecipeSpotlight(

@@ -25,9 +25,9 @@ class _LangsamerVersand extends InMemoryAuthRepository {
   void freigeben() => _tor.complete();
 
   @override
-  Future<void> sendPasswordReset(String email) async {
+  Future<void> sendAccountDeletionCode({required String userId, required String email}) async {
     await _tor.future;
-    return super.sendPasswordReset(email);
+    return super.sendAccountDeletionCode(userId: userId, email: email);
   }
 }
 
@@ -66,7 +66,7 @@ void main() {
                 builder: (_) => SettingsScreen(
                   email: email,
                   authRepository: repo,
-                  onDeleteAccount: onDeleteAccount,
+                  onDeleteAccount: onDeleteAccount == null ? null : (deleteRemote, _) async { await deleteRemote(); await onDeleteAccount(); },
                 ),
               ),
             ),
@@ -126,7 +126,7 @@ void main() {
     await tippe(tester, find.text('Code anfordern'));
 
     expect(geloescht, 0, reason: 'das Wort allein loescht nichts');
-    expect(repo.passwordResets, <String>['jonas@eatova.de']);
+    expect(repo.accountDeletionCodes, <String>['jonas@eatova.de']);
     expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('settings-delete-code-field')),
@@ -157,7 +157,7 @@ void main() {
     await tester.tap(find.text('Code anfordern'));
     await tester.pumpAndSettle();
 
-    expect(repo.passwordResets, isEmpty);
+    expect(repo.accountDeletionCodes, isEmpty);
     expect(geloescht, 0);
     expect(
       find.byKey(const ValueKey('settings-delete-code-field')),
@@ -168,7 +168,7 @@ void main() {
     await tester.tap(find.text('Code anfordern'));
     await tester.pumpAndSettle();
 
-    expect(repo.passwordResets, isEmpty);
+    expect(repo.accountDeletionCodes, isEmpty);
     expect(geloescht, 0);
     expect(
       find.byKey(const ValueKey('settings-delete-code-field')),
@@ -182,7 +182,7 @@ void main() {
             'sonst prüfte die Zusicherung oben nichts');
     await tippe(tester, find.text('Code anfordern'));
 
-    expect(repo.passwordResets, <String>['jonas@eatova.de']);
+    expect(repo.accountDeletionCodes, <String>['jonas@eatova.de']);
     expect(geloescht, 0);
   });
 
@@ -205,7 +205,7 @@ void main() {
     await tester.tap(find.text('Code anfordern'));
     await tester.pumpAndSettle();
 
-    expect(repo.passwordResets, isEmpty,
+    expect(repo.accountDeletionCodes, isEmpty,
         reason: 'der scharfe Knopf aus dem alten Frame darf keine Mail an eine '
             'fremde Adresse auslösen');
     expect(
@@ -271,6 +271,42 @@ void main() {
 
   // --- Latch and visibility -------------------------------------------------
 
+  testWidgets('deletion cannot close or repeat while its result is pending', (tester) async {
+    final repo = baueRepo();
+    final release = Completer<void>();
+    var calls = 0;
+    await oeffneCodeSchritt(tester, repo, () async {
+      calls++;
+      await release.future;
+    });
+    await schreibe(tester, 'settings-delete-code-field', '12345678');
+    await tester.tap(find.text('Konto endgültig löschen'));
+    await tester.tap(find.text('Konto endgültig löschen'));
+    await tester.pumpAndSettle();
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('settings-delete-code-field')), findsOneWidget);
+    await tester.drag(find.byKey(const ValueKey('delete-account-sheet')), const Offset(0, 500));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('settings-delete-code-field')), findsOneWidget);
+    expect(calls, 1);
+    release.complete();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('settings-delete-code-field')), findsNothing);
+  });
+
+  testWidgets('repository without isolated deletion capability fails closed', (tester) async {
+    var deletions = 0;
+    await pump(tester, repo: const PreviewAuthRepository(), email: 'moritz@example.com',
+      onDeleteAccount: () async { deletions++; });
+    await tippe(tester, find.byKey(const ValueKey('settings-delete-account')));
+    await schreibe(tester, 'settings-delete-confirm-field', 'LÖSCHEN');
+    await tippe(tester, find.text('Code anfordern'));
+    expect(find.byKey(const ValueKey('settings-delete-error')), findsOneWidget);
+    expect(find.byKey(const ValueKey('settings-delete-code-field')), findsNothing);
+    expect(deletions, 0);
+  });
+
   testWidgets('zwei Taps auf „Code anfordern" fordern nur EINEN Code an',
       (tester) async {
     final repo = _LangsamerVersand(
@@ -293,7 +329,7 @@ void main() {
     repo.freigeben();
     await tester.pumpAndSettle();
 
-    expect(repo.passwordResets, hasLength(1));
+    expect(repo.accountDeletionCodes, hasLength(1));
     expect(
       find.byKey(const ValueKey('settings-delete-code-field')),
       findsOneWidget,

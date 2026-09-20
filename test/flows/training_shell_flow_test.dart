@@ -17,6 +17,7 @@ import 'package:supabase/supabase.dart';
 
 import '../fixlauf_a_helpers.dart';
 import '../support/harness.dart';
+import '../support/atomic_store_faults.dart';
 import 'flow_test_helpers.dart' show pumpUntil;
 
 final _now = DateTime(2026, 9, 8, 12);
@@ -42,35 +43,40 @@ TrainingPlan _plan() => TrainingPlan(
 );
 
 class _FailSessionCache extends LocalCache {
-  _FailSessionCache() : super(InMemoryKeyValueStore(), kFixlaufUser);
+  _FailSessionCache() : this._(AtomicStoreFaults(InMemoryKeyValueStore()));
+  _FailSessionCache._(AtomicStoreFaults storage) : super(storage, kFixlaufUser) {
+    storage.beforeWrite = (changes) async {
+      if (fail && changes.keys.any((key) => key.contains('.training_session.'))) {
+        throw StateError('Simulated encrypted storage error');
+      }
+    };
+  }
   bool fail = false;
-
-  @override
-  Future<bool> writeTrainingSession(TrainingSessionSnapshot? snapshot) async =>
-      fail ? false : super.writeTrainingSession(snapshot);
 }
 
 class _FailRecoveryReadCache extends LocalCache {
-  _FailRecoveryReadCache() : super(InMemoryKeyValueStore(), kFixlaufUser);
+  _FailRecoveryReadCache() : this._(AtomicStoreFaults(InMemoryKeyValueStore()));
+  _FailRecoveryReadCache._(AtomicStoreFaults storage)
+      : super(storage, kFixlaufUser) {
+    storage.beforeRead = (keys) async {
+      if (!keys.any((key) => key.contains('.training_history_deletions.'))) return;
+      deletionReads++;
+      if (failDeletionReads) throw StateError('Simulated encrypted storage error');
+      await repairGate?.future;
+    };
+    storage.beforeWrite = (changes) async {
+      if (changes.entries.any((entry) =>
+          entry.key.contains('.training_session.') && entry.value != null)) {
+        sessionWrites++;
+      }
+    };
+  }
 
   bool failDeletionReads = true;
   Completer<void>? repairGate;
   int deletionReads = 0;
   int sessionWrites = 0;
 
-  @override
-  Future<Set<String>> readTrainingHistoryDeletions() async {
-    deletionReads++;
-    if (failDeletionReads) throw StateError('Simulated encrypted storage error');
-    await repairGate?.future;
-    return super.readTrainingHistoryDeletions();
-  }
-
-  @override
-  Future<bool> writeTrainingSession(TrainingSessionSnapshot? snapshot) {
-    sessionWrites++;
-    return super.writeTrainingSession(snapshot);
-  }
 }
 
 TrainingSessionSnapshot _savedRecovery(TrainingPlan plan) =>
@@ -428,6 +434,7 @@ void main() {
       await _frames(tester);
       await _tap(tester, 'training-resume');
       cache.fail = true;
+      await _tap(tester, 'training-timer-forward');
       await _tap(tester, 'training-timer-back');
       await _tap(tester, 'training-timer-confirm-exit');
       await pumpUntil(

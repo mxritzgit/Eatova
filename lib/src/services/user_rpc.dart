@@ -1,5 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'background_sync_client.dart';
+
 /// Pins the bearer before the SDK's asynchronous HTTP authentication step.
 /// A queued RPC must never inherit the next account's token from a shared client.
 Future<dynamic> userRpc(
@@ -9,6 +11,14 @@ Future<dynamic> userRpc(
   Map<String, dynamic>? params,
   bool single = false,
 }) async {
+  if (client is BackgroundSyncClient) {
+    final authorization = await client.authorizationFor(userId);
+    final request = client.rpc(function, params: params);
+    if (single) {
+      return request.select().single().setHeader('Authorization', authorization);
+    }
+    return request.setHeader('Authorization', authorization);
+  }
   var session = client.auth.currentSession;
   if (session != null && session.user.id != userId) {
     throw const AuthException('Session changed');

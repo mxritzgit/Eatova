@@ -10,6 +10,7 @@ import 'training_plans_sync.dart';
 import 'training_history_sync.dart';
 import 'user_recipes_sync.dart';
 import 'user_rpc.dart';
+import 'sync_operation_sync.dart';
 
 /// Bundles all Supabase sync services for one authenticated user; built per
 /// user in EatovaApp and released when the home page disposes. Workout
@@ -27,6 +28,7 @@ class EatovaSync {
     required this.trainingPlans,
     required this.mealPlans,
     required this.trainingHistory,
+    required this.operations,
   });
 
   /// [coachChat] is a test seam: [CoachChatService] talks to an edge function,
@@ -49,6 +51,7 @@ class EatovaSync {
       trainingPlans: TrainingPlansSync(client, userId),
       mealPlans: MealPlansSync(client, userId),
       trainingHistory: TrainingHistorySync(client, userId),
+      operations: SyncOperationSync(client, userId),
     );
   }
 
@@ -66,6 +69,7 @@ class EatovaSync {
   final TrainingPlansSync trainingPlans;
   final MealPlansSync mealPlans;
   final TrainingHistorySync trainingHistory;
+  final SyncOperationSync operations;
 
   /// GDPR Art. 17: deletes the user's auth.users row, app tables cascade, and
   /// the client must log out afterwards. Not freely movable — the RPC needs a

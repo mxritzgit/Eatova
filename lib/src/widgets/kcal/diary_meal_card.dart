@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../common/persistence_action.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 
@@ -41,7 +43,7 @@ class DiaryMealCard extends StatefulWidget {
   final MealSlot slot;
   final List<DiaryEntry> entries;
   final ValueChanged<MealSlot>? onAddToSlot, onMealTap;
-  final ValueChanged<String>? onRemoveMeal;
+  final PersistValueChanged<String>? onRemoveMeal;
 
   @override
   State<DiaryMealCard> createState() => _DiaryMealCardState();
@@ -236,7 +238,7 @@ String _macroLine(AppLocalizations l10n, MacroProgress m) =>
 /// while opening (and on to 1 on dismiss).
 const double _deleteExtent = 0.26;
 
-class _SlidableEntry extends StatelessWidget {
+class _SlidableEntry extends StatefulWidget {
   const _SlidableEntry({
     super.key,
     required this.entry,
@@ -248,10 +250,32 @@ class _SlidableEntry extends StatelessWidget {
   final DiaryEntry entry;
   final Color accent;
   final ValueChanged<MealSlot>? onMealTap;
-  final ValueChanged<String>? onRemoveMeal;
+  final PersistValueChanged<String>? onRemoveMeal;
+
+  @override
+  State<_SlidableEntry> createState() => _SlidableEntryState();
+}
+
+class _SlidableEntryState extends State<_SlidableEntry> {
+  bool _deleting = false;
+  final _rowKey = GlobalKey();
+
+  Future<void> _delete(BuildContext actionContext) async {
+    if (_deleting) return;
+    _deleting = true;
+    await tryPersistChange(context, () async {
+      await widget.onRemoveMeal?.call(widget.entry.meal.id);
+    });
+    _deleting = false;
+    if (actionContext.mounted) await Slidable.of(actionContext)?.close();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final entry = widget.entry;
+    final accent = widget.accent;
+    final onMealTap = widget.onMealTap;
+    final onRemoveMeal = widget.onRemoveMeal;
     final meal = entry.meal;
     // Edit sheet when the home shell provides a MealEditScope: a tap edits
     // THIS meal. Without a scope (preview/standalone) a tap opens the slot's
@@ -266,7 +290,7 @@ class _SlidableEntry extends StatelessWidget {
         onRemoveMeal: editScope.onRemoveMeal,
       );
     } else if (onMealTap != null) {
-      tap = () => onMealTap!(meal.slot);
+      tap = () => onMealTap(meal.slot);
     } else {
       tap = null;
     }
@@ -282,8 +306,8 @@ class _SlidableEntry extends StatelessWidget {
     // Without a delete callback: a plain row, no swipe.
     if (onRemoveMeal == null) return row;
 
-    // Swipe left: row and delete button move together (ScrollMotion). A full
-    // swipe deletes directly; a tap on the button animates the row out first.
+    // Commit before removing the row. A failed write closes the action pane
+    // and keeps the existing entry available for retry.
     return ClipRect(
       key: ValueKey('food-history-clip-${meal.id}'),
       child: Slidable(
@@ -293,16 +317,21 @@ class _SlidableEntry extends StatelessWidget {
           motion: const ScrollMotion(),
           extentRatio: _deleteExtent,
           dismissible: DismissiblePane(
-            onDismissed: () => onRemoveMeal!(meal.id),
+            confirmDismiss: () async {
+              await _delete(_rowKey.currentContext ?? context);
+              // The committed store change owns removal from the list.
+              return false;
+            },
+            onDismissed: () {},
           ),
           children: <Widget>[
             _DeleteMealAction(
               key: ValueKey('food-history-delete-${entry.index}'),
-              onDelete: () => onRemoveMeal!(meal.id),
+              onDelete: _delete,
             ),
           ],
         ),
-        child: row,
+        child: Builder(key: _rowKey, builder: (_) => row),
       ),
     );
   }
@@ -311,7 +340,7 @@ class _SlidableEntry extends StatelessWidget {
 class _DeleteMealAction extends StatelessWidget {
   const _DeleteMealAction({super.key, required this.onDelete});
 
-  final VoidCallback onDelete;
+  final Future<void> Function(BuildContext) onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -328,26 +357,11 @@ class _DeleteMealAction extends StatelessWidget {
             ),
           );
     return CustomSlidableAction(
-      // No autoClose: it would fire close() right after the tap and kill the
-      // dismiss() animation, so onDelete would never run.
+      // Keep the row visible while its durable deletion is pending.
       autoClose: false,
-      onPressed: (actionContext) {
+      onPressed: (actionContext) async {
         HapticFeedback.mediumImpact();
-        final slidable = Slidable.of(actionContext);
-        if (slidable == null) {
-          onDelete();
-          return;
-        }
-        // Slide the row out and collapse the gap before deleting, otherwise
-        // the list jumps when the store rebuilds.
-        //
-        // Deliberately NOT via `motionDuration`: with `Duration.zero`
-        // flutter_slidable's resize controller is already `completed` in the
-        // next build and its debug assert about a dismissed Slidable fires
-        // before `onDelete` removed the row from the tree.
-        slidable.dismiss(
-          ResizeRequest(const Duration(milliseconds: 220), onDelete),
-        );
+        await onDelete(actionContext);
       },
       backgroundColor: Colors.transparent,
       foregroundColor: t.danger,

@@ -49,7 +49,7 @@ class _ScriptedAuth extends Fake implements AuthRepository {
 
 class _NoPhotoFiles extends RecipeImageStore {
   @override
-  Future<void> setActiveUser(String? userId) async {}
+  Future<void> setActiveUser(String? userId, {String? sessionId}) async {}
 }
 
 TrainingPlan _plan(String id, String title) => TrainingPlan(

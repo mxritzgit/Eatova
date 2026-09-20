@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:clock/clock.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -25,9 +26,10 @@ void main() {
       ]);
       await settle();
 
-      expect(setup.store.profile, _finished);
+      expect(setup.store.profile.weightKg, _finished.weightKg);
+      expect(setup.store.profile.onboardingCompleted, isTrue);
       expect(setup.store.needsOnboarding, isFalse);
-      expect(setup.server.requestsTo('/profiles', method: 'POST'), hasLength(1));
+      expect(setup.server.requests.where((req) => req.url.path.endsWith('/rpc/apply_sync_operation') && (jsonDecode(req.body) as Map)['p_kind'] == 'profileUpsert'), hasLength(1));
       expect(setup.store.pendingOutbox, isEmpty);
     });
   });
@@ -40,7 +42,7 @@ void main() {
       setup.store.dispose();
       setup.server.requests.clear();
 
-      await setup.store.completeOnboarding(_finished);
+      await expectLater(setup.store.completeOnboarding(_finished), throwsStateError);
       await settle();
 
       expect(setup.store.profile, previous);

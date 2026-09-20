@@ -56,8 +56,12 @@ HomeStore _syncedStore({bool autoDispose = true}) {
     'test-anon-key',
     httpClient: MockClient((req) async {
       if (req.method == 'GET') {
-        return http.Response(jsonEncode(const <dynamic>[]), 200,
-            headers: const {'Content-Type': 'application/json'}, request: req);
+        return http.Response(
+          jsonEncode(const <dynamic>[]),
+          200,
+          headers: const {'Content-Type': 'application/json'},
+          request: req,
+        );
       }
       return http.Response('', 201, request: req);
     }),
@@ -77,17 +81,17 @@ HomeStore _syncedStore({bool autoDispose = true}) {
 }
 
 MealAnalysisResult _meal(String name, {int kcal = 300}) => MealAnalysisResult(
-      mealName: name,
-      caloriesKcal: kcal,
-      estimatedGrams: 300,
-      kcalPer100G: kcal / 3,
-      protein: '30 g',
-      carbs: '40 g',
-      fat: '10 g',
-      confidence: 'Mittel',
-      portionNotes: 'Test.',
-      sourceLabel: 'Foto-KI',
-    );
+  mealName: name,
+  caloriesKcal: kcal,
+  estimatedGrams: 300,
+  kcalPer100G: kcal / 3,
+  protein: '30 g',
+  carbs: '40 g',
+  fat: '10 g',
+  confidence: 'Mittel',
+  portionNotes: 'Test.',
+  sourceLabel: 'Foto-KI',
+);
 
 /// Monday 21:00 and Tuesday 08:00, inside a plain month; DST has its own
 /// cases below.
@@ -100,40 +104,56 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('durationUntilNextLocalMidnight', () {
-    test('landet exakt auf dem Beginn des Folgetages (zonenunabhaengig)', () {
-      for (final now in <DateTime>[
-        DateTime(2026, 6, 1, 21, 0),
-        DateTime(2026, 3, 28, 23, 30),
-        DateTime(2026, 3, 29, 0, 30), // Umstellungstag, 23 Stunden
-        DateTime(2026, 3, 29, 12, 0),
-        DateTime(2026, 10, 25, 12, 0), // Herbst, 25 Stunden
-        DateTime(2026, 10, 25, 23, 30),
-        DateTime(2026, 12, 31, 23, 59),
-      ]) {
-        final ziel = now.add(durationUntilNextLocalMidnight(now));
-        expect(
-          (ziel.year, ziel.month, ziel.day),
-          (addDays(now, 1).year, addDays(now, 1).month, addDays(now, 1).day),
-          reason: 'von $now aus ist die naechste Mitternacht der Folgetag',
-        );
-        expect(startOfDay(ziel), ziel,
-            reason: 'von $now aus wird nicht exakt Mitternacht getroffen');
-      }
-    });
+    test(
+      'landet exakt auf dem Beginn des Folgetages (zonenunabhaengig)',
+      () async {
+        for (final now in <DateTime>[
+          DateTime(2026, 6, 1, 21, 0),
+          DateTime(2026, 3, 28, 23, 30),
+          DateTime(2026, 3, 29, 0, 30), // Umstellungstag, 23 Stunden
+          DateTime(2026, 3, 29, 12, 0),
+          DateTime(2026, 10, 25, 12, 0), // Herbst, 25 Stunden
+          DateTime(2026, 10, 25, 23, 30),
+          DateTime(2026, 12, 31, 23, 59),
+        ]) {
+          final ziel = now.add(durationUntilNextLocalMidnight(now));
+          expect(
+            (ziel.year, ziel.month, ziel.day),
+            (addDays(now, 1).year, addDays(now, 1).month, addDays(now, 1).day),
+            reason: 'von $now aus ist die naechste Mitternacht der Folgetag',
+          );
+          expect(
+            startOfDay(ziel),
+            ziel,
+            reason: 'von $now aus wird nicht exakt Mitternacht getroffen',
+          );
+        }
+      },
+    );
 
-    test('ist nie <= 0 (sonst laeuft der Timer heiss)', () {
+    test('ist nie <= 0 (sonst laeuft der Timer heiss)', () async {
       // Old bug: adding a Duration across the autumn DST switch lands at 23:00
       // the same day, so the self-rearming timer spun in a loop.
       var cursor = DateTime.utc(2025, 1, 1);
       final ende = DateTime.utc(2030, 12, 31);
       while (!cursor.isAfter(ende)) {
         for (final stunde in const [0, 1, 2, 12, 22, 23]) {
-          final now =
-              DateTime(cursor.year, cursor.month, cursor.day, stunde, 30);
-          expect(durationUntilNextLocalMidnight(now), greaterThan(Duration.zero),
-              reason: 'nicht-positive Restdauer bei $now');
-          expect(durationUntilNextLocalMidnight(now),
-              lessThanOrEqualTo(const Duration(hours: 25)));
+          final now = DateTime(
+            cursor.year,
+            cursor.month,
+            cursor.day,
+            stunde,
+            30,
+          );
+          expect(
+            durationUntilNextLocalMidnight(now),
+            greaterThan(Duration.zero),
+            reason: 'nicht-positive Restdauer bei $now',
+          );
+          expect(
+            durationUntilNextLocalMidnight(now),
+            lessThanOrEqualTo(const Duration(hours: 25)),
+          );
         }
         cursor = cursor.add(const Duration(days: 1));
       }
@@ -141,37 +161,47 @@ void main() {
   });
 
   group('maybeRollOverToToday', () {
-    test(
-        'B4-Szenario: nach dem Tageswechsel landet das Fruehstueck auf HEUTE, '
-        'die Streak zaehlt heute und die Tageswerte sind heutige', () {
+    test('B4-Szenario: nach dem Tageswechsel landet das Fruehstueck auf HEUTE, '
+        'die Streak zaehlt heute und die Tageswerte sind heutige', () async {
       late HomeStore store;
-      withClock(Clock.fixed(_montagAbend), () {
+      await withClock(Clock.fixed(_montagAbend), () async {
         store = _store();
-        store.addResultToDailyTotal(_meal('Abendessen', kcal: 2100));
+        await store.addResultToDailyTotal(_meal('Abendessen', kcal: 2100));
         // Monday evening state, as backgrounding freezes it.
         expect(store.selectedFoodDate, _montag);
         expect(store.dailyConsumedKcal, 2100);
         expect(store.lifetimeStats.currentStreak, 1);
       });
 
-      withClock(Clock.fixed(_dienstagFrueh), () {
+      await withClock(Clock.fixed(_dienstagFrueh), () async {
         // Without the rollover the store would still hold Monday.
         final gewechselt = store.maybeRollOverToToday();
 
         expect(gewechselt, isTrue);
         expect(store.selectedFoodDate, _dienstag);
-        expect(store.dailyConsumedKcal, 0,
-            reason: 'Dienstag ist noch ungeloggt — Montags 2100 sind weg');
+        expect(
+          store.dailyConsumedKcal,
+          0,
+          reason: 'Dienstag ist noch ungeloggt — Montags 2100 sind weg',
+        );
         expect(store.macroProgress, MacroProgress.empty);
 
-        final id = store.addResultToDailyTotal(_meal('Fruehstueck', kcal: 400));
+        final id = await store.addResultToDailyTotal(
+          _meal('Fruehstueck', kcal: 400),
+        );
         final gebucht = store.loggedMeals.firstWhere((m) => m.id == id);
 
-        expect(gebucht.effectiveLocalDay, localDayKey(_dienstag),
-            reason: 'Dienstags Fruehstueck darf nicht auf Montag landen');
+        expect(
+          gebucht.effectiveLocalDay,
+          localDayKey(_dienstag),
+          reason: 'Dienstags Fruehstueck darf nicht auf Montag landen',
+        );
         expect(store.dailyConsumedKcal, 400);
-        expect(store.lifetimeStats.currentStreak, 2,
-            reason: 'Montag + Dienstag geloggt -> Streak 2, nicht gerissen');
+        expect(
+          store.lifetimeStats.currentStreak,
+          2,
+          reason: 'Montag + Dienstag geloggt -> Streak 2, nicht gerissen',
+        );
         expect(store.lifetimeStats.lastTrackedDate, _dienstag);
         // Coach context and its own food list no longer contradict.
         expect(store.coachContext, contains('Heute gegessen: 400'));
@@ -179,58 +209,67 @@ void main() {
       });
     });
 
-    test('bewusst gewaehlter Archivtag springt NICHT weg', () {
+    test('bewusst gewaehlter Archivtag springt NICHT weg', () async {
       final archiv = DateTime(2026, 5, 12);
       late HomeStore store;
-      withClock(Clock.fixed(_montagAbend), () {
+      await withClock(Clock.fixed(_montagAbend), () async {
         store = _store();
-        store.addResultToDailyTotal(_meal('Abendessen', kcal: 2100));
+        await store.addResultToDailyTotal(_meal('Abendessen', kcal: 2100));
         store.setFoodDate(archiv); // user browses the archive
         expect(store.selectedFoodDate, archiv);
       });
 
-      withClock(Clock.fixed(_dienstagFrueh), () {
+      await withClock(Clock.fixed(_dienstagFrueh), () async {
         final gewechselt = store.maybeRollOverToToday();
 
         expect(gewechselt, isTrue, reason: 'der Kalendertag hat gewechselt');
-        expect(store.selectedFoodDate, archiv,
-            reason: 'die bewusste Auswahl bleibt stehen');
+        expect(
+          store.selectedFoodDate,
+          archiv,
+          reason: 'die bewusste Auswahl bleibt stehen',
+        );
         // The day values always describe today, not selectedFoodDate.
         expect(store.dailyConsumedKcal, 0);
         expect(store.macroProgress, MacroProgress.empty);
       });
     });
 
-    test('„Heute"-Tap zaehlt als aktueller Tag und wandert wieder mit', () {
-      late HomeStore store;
-      withClock(Clock.fixed(_montagAbend), () {
-        store = _store();
-        store.setFoodDate(DateTime(2026, 5, 12)); // Archiv
-        store.setFoodDate(_montagAbend); // back to "today"
-      });
+    test(
+      '„Heute"-Tap zaehlt als aktueller Tag und wandert wieder mit',
+      () async {
+        late HomeStore store;
+        await withClock(Clock.fixed(_montagAbend), () async {
+          store = _store();
+          store.setFoodDate(DateTime(2026, 5, 12)); // Archiv
+          store.setFoodDate(_montagAbend); // back to "today"
+        });
 
-      withClock(Clock.fixed(_dienstagFrueh), () {
-        expect(store.maybeRollOverToToday(), isTrue);
-        expect(store.selectedFoodDate, _dienstag);
-      });
-    });
+        await withClock(Clock.fixed(_dienstagFrueh), () async {
+          expect(store.maybeRollOverToToday(), isTrue);
+          expect(store.selectedFoodDate, _dienstag);
+        });
+      },
+    );
 
-    test('mehrtaegiger Hintergrund-Aufenthalt springt direkt auf heute', () {
-      late HomeStore store;
-      withClock(Clock.fixed(_montagAbend), () {
-        store = _store();
-        store.addResultToDailyTotal(_meal('Abendessen', kcal: 2100));
-      });
+    test(
+      'mehrtaegiger Hintergrund-Aufenthalt springt direkt auf heute',
+      () async {
+        late HomeStore store;
+        await withClock(Clock.fixed(_montagAbend), () async {
+          store = _store();
+          await store.addResultToDailyTotal(_meal('Abendessen', kcal: 2100));
+        });
 
-      withClock(Clock.fixed(DateTime(2026, 6, 9, 10)), () {
-        expect(store.maybeRollOverToToday(), isTrue);
-        expect(store.selectedFoodDate, DateTime(2026, 6, 9));
-        expect(store.dailyConsumedKcal, 0);
-      });
-    });
+        await withClock(Clock.fixed(DateTime(2026, 6, 9, 10)), () async {
+          expect(store.maybeRollOverToToday(), isTrue);
+          expect(store.selectedFoodDate, DateTime(2026, 6, 9));
+          expect(store.dailyConsumedKcal, 0);
+        });
+      },
+    );
 
-    test('kein Tageswechsel -> No-op ohne notifyListeners', () {
-      withClock(Clock.fixed(_montagAbend), () {
+    test('kein Tageswechsel -> No-op ohne notifyListeners', () async {
+      await withClock(Clock.fixed(_montagAbend), () async {
         final store = _store();
         var notifies = 0;
         store.addListener(() => notifies++);
@@ -240,44 +279,52 @@ void main() {
       });
     });
 
-    test('Tageswechsel benachrichtigt die UI genau einmal, danach No-op', () {
-      late HomeStore store;
-      withClock(Clock.fixed(_montagAbend), () => store = _store());
+    test(
+      'Tageswechsel benachrichtigt die UI genau einmal, danach No-op',
+      () async {
+        late HomeStore store;
+        await withClock(
+          Clock.fixed(_montagAbend),
+          () async => store = _store(),
+        );
 
-      withClock(Clock.fixed(_dienstagFrueh), () {
-        var notifies = 0;
-        store.addListener(() => notifies++);
+        await withClock(Clock.fixed(_dienstagFrueh), () async {
+          var notifies = 0;
+          store.addListener(() => notifies++);
 
-        expect(store.maybeRollOverToToday(), isTrue);
-        expect(notifies, 1);
+          expect(store.maybeRollOverToToday(), isTrue);
+          expect(notifies, 1);
 
-        // Idempotent: a second resume on the same day changes nothing.
-        expect(store.maybeRollOverToToday(), isFalse);
-        expect(notifies, 1);
-      });
-    });
+          // Idempotent: a second resume on the same day changes nothing.
+          expect(store.maybeRollOverToToday(), isFalse);
+          expect(notifies, 1);
+        });
+      },
+    );
 
-    test('dailySteps bleibt unangetastet (Health-Zustaendigkeit, B3)', () {
+    test('dailySteps bleibt unangetastet (Health-Zustaendigkeit, B3)', () async {
       // Unverified readSnapshot() returns null, not 0 steps; the rollover must
       // not cement a zero.
       late HomeStore store;
-      withClock(Clock.fixed(_montagAbend), () {
+      await withClock(Clock.fixed(_montagAbend), () async {
         store = _store();
         store.dailySteps = 8421;
       });
-      withClock(Clock.fixed(_dienstagFrueh), () {
+      await withClock(Clock.fixed(_dienstagFrueh), () async {
         expect(store.maybeRollOverToToday(), isTrue);
         expect(store.dailySteps, 8421);
       });
     });
 
-    test('nach dispose ist der Rollover ein No-op', () {
+    test('nach dispose ist der Rollover ein No-op', () async {
       late HomeStore store;
-      withClock(
-          Clock.fixed(_montagAbend), () => store = _store(autoDispose: false));
+      await withClock(
+        Clock.fixed(_montagAbend),
+        () async => store = _store(autoDispose: false),
+      );
       store.dispose();
 
-      withClock(Clock.fixed(_dienstagFrueh), () {
+      await withClock(Clock.fixed(_dienstagFrueh), () async {
         expect(store.maybeRollOverToToday(), isFalse);
         expect(store.selectedFoodDate, _montag);
       });
@@ -285,19 +332,21 @@ void main() {
   });
 
   group('Mitternachts-Timer', () {
-    test('start() armiert genau einen Timer, dispose() raeumt ihn ab',
-        () async {
-      final store = _syncedStore(autoDispose: false);
-      expect(store.debugMidnightTimerIsActive, isFalse);
+    test(
+      'start() armiert genau einen Timer, dispose() raeumt ihn ab',
+      () async {
+        final store = _syncedStore(autoDispose: false);
+        expect(store.debugMidnightTimerIsActive, isFalse);
 
-      store.start();
-      await store.profileReady;
+        store.start();
+        await store.profileReady;
 
-      expect(store.debugMidnightTimerIsActive, isTrue);
+        expect(store.debugMidnightTimerIsActive, isTrue);
 
-      store.dispose();
-      expect(store.debugMidnightTimerIsActive, isFalse);
-    });
+        store.dispose();
+        expect(store.debugMidnightTimerIsActive, isFalse);
+      },
+    );
 
     test('ein verarbeiteter Tageswechsel setzt den Timer neu', () async {
       final store = _syncedStore();
@@ -307,43 +356,45 @@ void main() {
 
       // Resume the next day: the timer did not fire while suspended and must
       // rearm for the coming midnight.
-      withClock(Clock.fixed(addDays(clock.now(), 1)), () {
+      await withClock(Clock.fixed(addDays(clock.now(), 1)), () async {
         expect(store.maybeRollOverToToday(), isTrue);
       });
       expect(store.debugMidnightTimerIsActive, isTrue);
     });
 
-    test('ohne Sync (Preview/Test) laeuft kein Timer, der Resume greift aber',
-        () {
-      late HomeStore store;
-      withClock(Clock.fixed(_montagAbend), () {
-        store = _store();
-        store.start();
-        expect(store.debugMidnightTimerIsActive, isFalse);
-      });
-      withClock(Clock.fixed(_dienstagFrueh), () {
-        expect(store.maybeRollOverToToday(), isTrue);
-        expect(store.selectedFoodDate, _dienstag);
-        expect(store.debugMidnightTimerIsActive, isFalse);
-      });
-    });
+    test(
+      'ohne Sync (Preview/Test) laeuft kein Timer, der Resume greift aber',
+      () async {
+        late HomeStore store;
+        await withClock(Clock.fixed(_montagAbend), () async {
+          store = _store();
+          store.start();
+          expect(store.debugMidnightTimerIsActive, isFalse);
+        });
+        await withClock(Clock.fixed(_dienstagFrueh), () async {
+          expect(store.maybeRollOverToToday(), isTrue);
+          expect(store.selectedFoodDate, _dienstag);
+          expect(store.debugMidnightTimerIsActive, isFalse);
+        });
+      },
+    );
   });
 
   group('B5 — Tageswechsel ueber die Fruehjahrsumstellung 29.03.2026', () {
-    test('vom 29.03. (23-Stunden-Tag) auf den 30.03.', () {
+    test('vom 29.03. (23-Stunden-Tag) auf den 30.03.', () async {
       late HomeStore store;
-      withClock(Clock.fixed(DateTime(2026, 3, 29, 21)), () {
+      await withClock(Clock.fixed(DateTime(2026, 3, 29, 21)), () async {
         store = _store();
-        store.addResultToDailyTotal(_meal('Abendessen', kcal: 2100));
+        await store.addResultToDailyTotal(_meal('Abendessen', kcal: 2100));
         expect(store.lifetimeStats.currentStreak, 1);
       });
 
-      withClock(Clock.fixed(DateTime(2026, 3, 30, 8)), () {
+      await withClock(Clock.fixed(DateTime(2026, 3, 30, 8)), () async {
         expect(store.maybeRollOverToToday(), isTrue);
         expect(store.selectedFoodDate, DateTime(2026, 3, 30));
         expect(store.dailyConsumedKcal, 0);
 
-        store.addResultToDailyTotal(_meal('Fruehstueck', kcal: 400));
+        await store.addResultToDailyTotal(_meal('Fruehstueck', kcal: 400));
         // The old absolute-time check counted this day as already tracked.
         expect(store.lifetimeStats.currentStreak, 2);
         expect(store.lifetimeStats.lastTrackedDate, DateTime(2026, 3, 30));

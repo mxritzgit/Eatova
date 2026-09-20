@@ -10,9 +10,11 @@ import '../../auth/auth_repository.dart';
 import '../../l10n/l10n.dart';
 import '../../services/crash_reporter.dart';
 import '../../services/secure_screen.dart';
+import '../../services/sync_outbox.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/theme_mode_controller.dart';
 import '../../widgets/common/app_snack.dart';
+import '../../widgets/common/persistence_action.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/shared/data_export_sheet.dart';
 import 'account_change_messages.dart';
@@ -47,6 +49,10 @@ class SettingsScreen extends StatefulWidget {
     this.onSignOut,
     this.onDeleteAccount,
     this.onExportData,
+    this.pendingSyncCount = 0,
+    this.syncStatusReadable = true,
+    this.syncBlockedReason,
+    this.onSyncNow,
   });
 
   /// Session mail address. Null in previews/tests without auth — the row is
@@ -62,11 +68,16 @@ class SettingsScreen extends StatefulWidget {
   final VoidCallback? onOpenGoals;
 
   final Future<void> Function()? onSignOut;
-  final Future<void> Function()? onDeleteAccount;
+  final ScopedAccountDeleteAction? onDeleteAccount;
 
   /// Supplies the full data export as JSON (GDPR Art. 15). Null without sync,
   /// in which case the entry drops out.
   final Future<String> Function()? onExportData;
+
+  final int pendingSyncCount;
+  final bool syncStatusReadable;
+  final SyncBlockedReason? syncBlockedReason;
+  final Future<void> Function()? onSyncNow;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -88,6 +99,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// itself (contract in `test/auth_account_change_test.dart`).
   String? _sessionEmail;
   StreamSubscription<EatovaUser?>? _sessionSub;
+  bool _syncing = false;
 
   @override
   void initState() {
@@ -152,6 +164,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(height: 30),
                 ..._kontoGruppe(t, l10n),
                 ..._praeferenzenGruppe(l10n),
+                ..._syncGruppe(t, l10n),
                 ..._datenGruppe(l10n),
                 ..._gefahrenzone(t, l10n),
               ],
@@ -175,6 +188,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // --- ACCOUNT --------------------------------------------------------------
+
+  List<Widget> _syncGruppe(AppTokens t, AppLocalizations l10n) {
+    if (widget.onSyncNow == null) return const [];
+    final detail = !widget.syncStatusReadable ? l10n.settingsSyncUnreadableDetail : switch (widget.syncBlockedReason) {
+      SyncBlockedReason.capacity => l10n.settingsSyncCapacity,
+      SyncBlockedReason.backendUnavailable => l10n.settingsSyncUnavailable,
+      SyncBlockedReason.rejected => l10n.settingsSyncRejected,
+      SyncBlockedReason.trainingHeadConflict => l10n.settingsSyncTrainingConflict,
+      null => widget.pendingSyncCount == 0
+          ? l10n.settingsSyncNoPending
+          : l10n.settingsSyncPendingDetail,
+    };
+    return _gruppe(l10n.settingsSyncTitle, [
+      SettingsStudioRow(
+        key: const ValueKey('settings-sync-status'),
+        leading: IconTile(icon: Icons.cloud_sync_outlined, color: t.accent),
+        title: widget.syncStatusReadable
+            ? l10n.settingsSyncPendingCount(widget.pendingSyncCount)
+            : l10n.settingsSyncUnreadableTitle,
+        subtitle: detail,
+        chevron: false,
+        trailing: Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: TextButton.icon(
+            key: const ValueKey('settings-sync-retry'),
+            onPressed: _syncing || (widget.syncStatusReadable && widget.pendingSyncCount == 0) ? null : _syncNow,
+            icon: _syncing
+                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.sync_rounded),
+            label: Text(_syncing ? l10n.settingsSyncRunning : l10n.settingsSyncRetry),
+          ),
+        ),
+      ),
+    ]);
+  }
+
+  Future<void> _syncNow() async {
+    if (_syncing) return;
+    setState(() => _syncing = true);
+    try {
+      await widget.onSyncNow?.call();
+    } catch (_) {
+      if (mounted) showAppSnack(context, context.l10n.settingsSyncFailed, tone: SnackTone.error);
+    } finally {
+      if (mounted) setState(() => _syncing = false);
+    }
+  }
 
   List<Widget> _kontoGruppe(AppTokens t, AppLocalizations l10n) {
     final email = _adresse;
@@ -482,7 +542,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // enforces the second one too — `delete_account()` rejects any JWT whose
     // `amr` claim lacks an 'otp'/'recovery' entry from the last 5 minutes
     // (EX_REAUTH_REQUIRED, migration 20260815120000_delete_account_reauth.sql),
-    // and `verifyRecoveryCode` creates exactly such a session. The UI hurdles
+    // and a scoped recovery verification creates that token. The UI hurdles
     // still matter: they act BEFORE any mail goes out.
     final bestaetigt = await showEatovaSheet<bool>(
       context,
@@ -490,12 +550,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
         key: const ValueKey<String>('delete-account-sheet'),
         authRepository: repo,
         email: email,
+        onDeleteAccount: loeschen,
       ),
+      dragHandle: false,
     );
     if (bestaetigt != true || !mounted) return;
     final navigator = Navigator.of(context);
     await navigator.maybePop();
-    await loeschen();
   }
 }
 
@@ -714,9 +775,8 @@ enum _LoeschSchritt { wort, code }
 ///
 /// Why the recovery code and not `startPasswordChange()`: GoTrue's reauth
 /// nonce can only be redeemed TOGETHER with a new password, and silently
-/// swapping the password is not an option. `sendPasswordReset` +
-/// `verifyRecoveryCode` is the only pair where the SERVER really checks the
-/// code.
+/// swapping the password is not an option. `sendAccountDeletionCode` and
+/// [ScopedAccountDeletion] verify recovery without replacing the app login.
 ///
 /// The database enforces it too: `delete_account()` requires a JWT whose `amr`
 /// claim carries an 'otp'/'recovery' entry younger than 5 minutes (migration
@@ -728,9 +788,11 @@ class _DeleteAccountSheet extends StatefulWidget {
     super.key,
     required this.authRepository,
     required this.email,
+    required this.onDeleteAccount,
   });
 
   final AuthRepository authRepository;
+  final ScopedAccountDeleteAction onDeleteAccount;
 
   /// Address the code goes to — required, because it is verified against
   /// exactly this one.
@@ -741,6 +803,8 @@ class _DeleteAccountSheet extends StatefulWidget {
 }
 
 class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
+  late final String? _ownerId;
+  late final String? _sessionId;
   final TextEditingController _confirm = TextEditingController();
   final TextEditingController _code = TextEditingController();
 
@@ -748,6 +812,13 @@ class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
   bool _busy = false;
   String? _fehler;
   String? _codeFehler;
+
+  @override
+  void initState() {
+    super.initState();
+    _ownerId = widget.authRepository.currentUser?.id;
+    _sessionId = widget.authRepository.currentUser?.sessionId;
+  }
 
   @override
   void dispose() {
@@ -771,7 +842,16 @@ class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
       _fehler = null;
     });
     try {
-      await widget.authRepository.sendPasswordReset(widget.email);
+      final ownerId = _ownerId;
+      if (ownerId == null ||
+          widget.authRepository is! ScopedAccountDeletion ||
+          widget.authRepository.currentUser?.sessionId != _sessionId) {
+        throw const AuthUnavailableException();
+      }
+      await widget.authRepository.sendAccountDeletionCode(
+        userId: ownerId,
+        email: widget.email,
+      );
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -807,8 +887,20 @@ class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
       _codeFehler = null;
     });
     try {
-      await widget.authRepository
-          .verifyRecoveryCode(email: widget.email, code: code);
+      final repo = widget.authRepository;
+      if (repo is! ScopedAccountDeletion ||
+          _ownerId == null ||
+          repo.currentUser?.id != _ownerId ||
+          repo.currentUser?.sessionId != _sessionId) {
+        throw const AuthUnavailableException();
+      }
+      await (repo as ScopedAccountDeletion).withAccountDeletionCode(
+        userId: _ownerId,
+        sessionId: _sessionId,
+        email: widget.email,
+        code: code,
+        performDeletion: widget.onDeleteAccount,
+      );
     } catch (error) {
       if (!mounted) return;
       // Do not clear the field: a typo should be correctable, not restarted.
@@ -829,45 +921,49 @@ class _DeleteAccountSheetState extends State<_DeleteAccountSheet> {
     final ersterSchritt = _schritt == _LoeschSchritt.wort;
     // The scroller lives in [SheetScaffold] itself: large system fonts can
     // overflow any sheet, not just this one.
-    return SheetScaffold(
-      title: l10n.settingsDeleteAccountTitle,
-      subtitle: ersterSchritt
-          ? l10n.settingsDeleteAccountSheetSubtitle
-          : l10n.settingsDeleteAccountCodeSentTo(widget.email),
-      destructive: true,
-      actionLabel: _aktionsBeschriftung(l10n, ersterSchritt),
-      actionEnabled: ersterSchritt ? !_busy && _scharf(wort) : !_busy,
-      onAction:
-          ersterSchritt ? () => _codeAnfordern(wort) : _loeschenBestaetigen,
-      children: <Widget>[
-        if (ersterSchritt)
-          SheetField(
-            key: const ValueKey('settings-delete-confirm-field'),
-            label: l10n.settingsDeleteAccountFieldLabel(wort),
-            hint: wort,
-            controller: _confirm,
-            enabled: !_busy,
-            onChanged: (_) => setState(() {}),
-          )
-        else
-          SheetField(
-            key: const ValueKey('settings-delete-code-field'),
-            label: l10n.settingsDeleteAccountCodeFieldLabel,
-            hint: '••••••••',
-            controller: _code,
-            enabled: !_busy,
-            keyboardType: TextInputType.number,
-            errorText: _codeFehler,
-          ),
-        if (_fehler != null)
-          SettingsNote(
-            key: const ValueKey('settings-delete-error'),
-            _fehler!,
-            tone: context.t.danger,
-            icon: Icons.error_outline_rounded,
-            boxed: true,
-          ),
-      ],
+    return CommitDismissGuard(
+      pending: _busy && !ersterSchritt,
+      child: SheetScaffold(
+        title: l10n.settingsDeleteAccountTitle,
+        subtitle: ersterSchritt
+            ? l10n.settingsDeleteAccountSheetSubtitle
+            : l10n.settingsDeleteAccountCodeSentTo(widget.email),
+        destructive: true,
+        actionLabel: _aktionsBeschriftung(l10n, ersterSchritt),
+        actionEnabled: ersterSchritt ? !_busy && _scharf(wort) : !_busy,
+        onAction: ersterSchritt
+            ? () => _codeAnfordern(wort)
+            : _loeschenBestaetigen,
+        children: <Widget>[
+          if (ersterSchritt)
+            SheetField(
+              key: const ValueKey('settings-delete-confirm-field'),
+              label: l10n.settingsDeleteAccountFieldLabel(wort),
+              hint: wort,
+              controller: _confirm,
+              enabled: !_busy,
+              onChanged: (_) => setState(() {}),
+            )
+          else
+            SheetField(
+              key: const ValueKey('settings-delete-code-field'),
+              label: l10n.settingsDeleteAccountCodeFieldLabel,
+              hint: '••••••••',
+              controller: _code,
+              enabled: !_busy,
+              keyboardType: TextInputType.number,
+              errorText: _codeFehler,
+            ),
+          if (_fehler != null)
+            SettingsNote(
+              key: const ValueKey('settings-delete-error'),
+              _fehler!,
+              tone: context.t.danger,
+              icon: Icons.error_outline_rounded,
+              boxed: true,
+            ),
+        ],
+      ),
     );
   }
 

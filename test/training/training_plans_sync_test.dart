@@ -38,6 +38,7 @@ void main() {
         );
         addTearDown(sessionClient.dispose);
         await signIn(sessionClient, 'A');
+        final pinnedAToken = sessionClient.auth.currentSession!.accessToken;
         final entered = Completer<void>();
         final release = Completer<void>();
         final requests = <http.Request>[];
@@ -67,9 +68,10 @@ void main() {
         };
         await entered.future;
         await signIn(sessionClient, 'B');
+        expect(sessionClient.auth.currentSession!.accessToken, isNot(pinnedAToken));
         release.complete();
         await pending;
-        expect(requests.single.headers['authorization'], 'Bearer fixture-A');
+        expect(requests.single.headers['authorization'], 'Bearer $pinnedAToken');
         if (operation == 'upsert') {
           final decoded = jsonDecode(requests.single.body);
           final row = decoded is List ? decoded.single : decoded;

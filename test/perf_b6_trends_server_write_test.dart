@@ -54,14 +54,16 @@ void main() {
   tearDown(TrendTotalsCache.instance.invalidate);
 
   test('LIVE: die Zustellung an den Server verwirft das Trendfenster', () async {
-    final s = setupOhneCache();
+    final s = setup();
     await bootUntilIdle(s.store);
 
-    s.store.addResultToDailyTotal(_meal('Bowl'));
+    s.server.holdMealWrites();
+    await s.store.addResultToDailyTotal(_meal('Bowl'));
     // ERST JETZT fuellen: die optimistische Verwerfung ist damit schon
     // vorbei, und nur der Haken an der Zustellung kann noch greifen.
     await _fuelleCache();
-    await settle();
+    s.server.releaseMealWrites();
+    await s.store.syncPendingWrites();
 
     expect(TrendTotalsCache.instance.debugHasEntry, isFalse,
         reason: 'nach der Zustellung muss das Fenster erneut fallen');
@@ -70,11 +72,11 @@ void main() {
   test(
       'REPLAY: ein spaet gelandeter Outbox-Lauf verwirft es ebenfalls — der '
       'Insert wie der Delete', () async {
-    final s = setupOhneCache();
+    final s = setup();
     // Offline geloggt: der Schreibvorgang scheitert und die Op bleibt liegen.
     s.server.offline = true;
     await bootUntilIdle(s.store);
-    final id = s.store.addResultToDailyTotal(_meal('Bowl'));
+    final id = await s.store.addResultToDailyTotal(_meal('Bowl'));
     await settle();
     expect(s.store.pendingOutbox, isNotEmpty,
         reason: 'Vorbedingung: die Op muss wirklich in der Outbox liegen');
@@ -85,8 +87,7 @@ void main() {
 
     // Wieder online: der Replay stellt zu.
     s.server.offline = false;
-    s.store.flushPendingWrites();
-    await settle();
+    await s.store.syncPendingWrites();
 
     expect(TrendTotalsCache.instance.debugHasEntry, isFalse,
         reason: 'der Replay schreibt die Zeile, also muss das Fenster fallen');
@@ -97,7 +98,7 @@ void main() {
     // rot wurde (Mutationslauf T4, 2026-09-01). Eine offline geloeschte
     // Mahlzeit blieb dann bis zum Ablauf der TTL in der Kurve stehen.
     s.server.offline = true;
-    s.store.removeLoggedMeal(id);
+    await s.store.removeLoggedMeal(id);
     await settle();
     expect(s.store.pendingOutbox, isNotEmpty,
         reason: 'Vorbedingung: der Delete muss in der Outbox liegen');
@@ -105,8 +106,7 @@ void main() {
     await _fuelleCache();
 
     s.server.offline = false;
-    s.store.flushPendingWrites();
-    await settle();
+    await s.store.syncPendingWrites();
 
     expect(TrendTotalsCache.instance.debugHasEntry, isFalse,
         reason: 'der Replay loescht die Zeile, also muss das Fenster ebenso '

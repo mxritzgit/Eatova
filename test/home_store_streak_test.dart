@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -20,64 +21,79 @@ void _noopSnack(
 }) {}
 
 HomeStore _store() => HomeStore(
-      sync: null,
-      health: const NoopHealthService(),
-      notificationService: const NoopNotificationService(),
-      initialUserName: 'Test',
-      emitSnack: _noopSnack,
-    );
+  sync: null,
+  health: const NoopHealthService(),
+  notificationService: const NoopNotificationService(),
+  initialUserName: 'Test',
+  emitSnack: _noopSnack,
+);
 
 MealAnalysisResult _meal(String name) => MealAnalysisResult(
-      mealName: name,
-      caloriesKcal: 300,
-      estimatedGrams: 300,
-      kcalPer100G: 100,
-      protein: '30 g',
-      carbs: '50 g',
-      fat: '20 g',
-      confidence: 'Mittel',
-      portionNotes: 'Test-Mahlzeit.',
-      sourceLabel: 'Foto-KI',
-    );
+  mealName: name,
+  caloriesKcal: 300,
+  estimatedGrams: 300,
+  kcalPer100G: 100,
+  protein: '30 g',
+  carbs: '50 g',
+  fat: '20 g',
+  confidence: 'Mittel',
+  portionNotes: 'Test-Mahlzeit.',
+  sourceLabel: 'Foto-KI',
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  final today = DateTime(2026, 9, 20, 12);
 
-  test('Mahlzeit fuer HEUTE loggen fuehrt die Streak — 0 -> 1', () {
-    final store = _store();
-    expect(store.lifetimeStats.currentStreak, 0);
+  test('Mahlzeit fuer HEUTE loggen fuehrt die Streak — 0 -> 1', () async {
+    await withClock(Clock.fixed(today), () async {
+      final store = _store();
+      addTearDown(store.dispose);
+      expect(store.lifetimeStats.currentStreak, 0);
 
-    store.addResultToDailyTotal(_meal('Bowl'));
+      await store.addResultToDailyTotal(_meal('Bowl'));
 
-    expect(store.lifetimeStats.currentStreak, 1);
-    expect(store.lifetimeStats.effectiveStreakOn(DateTime.now()), 1);
-    final today = DateUtils.dateOnly(DateTime.now());
-    expect(store.lifetimeStats.lastTrackedDate, today);
+      expect(store.lifetimeStats.currentStreak, 1);
+      expect(store.lifetimeStats.effectiveStreakOn(clock.now()), 1);
+      final today = DateUtils.dateOnly(clock.now());
+      expect(store.lifetimeStats.lastTrackedDate, today);
+    });
   });
 
-  test('zweite Mahlzeit am selben Tag zaehlt nicht doppelt', () {
-    final store = _store();
-    store.addResultToDailyTotal(_meal('Fruehstueck'));
-    store.addResultToDailyTotal(_meal('Mittag'));
+  test('zweite Mahlzeit am selben Tag zaehlt nicht doppelt', () async {
+    await withClock(Clock.fixed(today), () async {
+      final store = _store();
+      addTearDown(store.dispose);
+      await store.addResultToDailyTotal(_meal('Fruehstueck'));
+      await store.addResultToDailyTotal(_meal('Mittag'));
 
-    expect(store.lifetimeStats.currentStreak, 1);
-    expect(store.lifetimeStats.mealsLogged, 2);
+      expect(store.lifetimeStats.currentStreak, 1);
+      expect(store.lifetimeStats.mealsLogged, 2);
+    });
   });
 
-  test('Nachtrag fuer einen vergangenen Tag laesst die Streak unangetastet',
-      () {
-    final store = _store();
-    store.addResultToDailyTotal(_meal('Heute'));
-    expect(store.lifetimeStats.currentStreak, 1);
+  test(
+    'Nachtrag fuer einen vergangenen Tag laesst die Streak unangetastet',
+    () async {
+      await withClock(Clock.fixed(today), () async {
+        final store = _store();
+        addTearDown(store.dispose);
+        await store.addResultToDailyTotal(_meal('Heute'));
+        expect(store.lifetimeStats.currentStreak, 1);
 
-    final yesterday = DateUtils.dateOnly(
-      DateTime.now().subtract(const Duration(days: 1)),
-    );
-    store.addResultToDailyTotal(_meal('Nachtrag'), foodDate: yesterday);
+        final yesterday = DateUtils.dateOnly(
+          clock.now().subtract(const Duration(days: 1)),
+        );
+        await store.addResultToDailyTotal(
+          _meal('Nachtrag'),
+          foodDate: yesterday,
+        );
 
-    expect(store.lifetimeStats.currentStreak, 1);
-    final today = DateUtils.dateOnly(DateTime.now());
-    expect(store.lifetimeStats.lastTrackedDate, today);
-    expect(store.lifetimeStats.mealsLogged, 2);
-  });
+        expect(store.lifetimeStats.currentStreak, 1);
+        final today = DateUtils.dateOnly(clock.now());
+        expect(store.lifetimeStats.lastTrackedDate, today);
+        expect(store.lifetimeStats.mealsLogged, 2);
+      });
+    },
+  );
 }

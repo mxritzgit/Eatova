@@ -9,6 +9,7 @@ import '../screens/auth_screen.dart';
 import '../services/crash_reporter.dart';
 import '../services/local_cache.dart';
 import '../services/recipe_image_store.dart';
+import '../services/sync_execution_guard.dart';
 import '../widgets/common/app_snack.dart';
 
 /// Marker for a DELIBERATE sign-out.
@@ -65,8 +66,12 @@ abstract final class IntentionalSignOut {
 /// `HomeStore.signOutCleanup` hangs off the sign-out button, which an
 /// involuntary session end and a direct A -> B switch never reach (audit M-1).
 /// The outbox is kept: pending writes replay on the next login (A2).
-Future<void> purgePersonalCacheFor(String userId) async {
-  if (userId.isEmpty) return;
+Future<void> purgePersonalCacheFor(
+  String userId, {
+  String? expectedSessionId,
+  bool Function()? isInactive,
+}) async {
+  if (userId.isEmpty || (isInactive != null && !isInactive())) return;
   // F1-02: silence the store's OWN instance first — its debounce timer and
   // late live-op callbacks would otherwise write into the slots this purge
   // clears. Independent of whether the second instance can be built.
@@ -78,8 +83,15 @@ Future<void> purgePersonalCacheFor(String userId) async {
   // never throwing, so it stays outside the catch below.
   await LocalCache.closeInstancesFor(userId);
   try {
+    if (isInactive != null && !isInactive()) return;
     final cache = await LocalCache.create(userId);
-    if (cache != null) await purgePersonalCache(cache);
+    if (cache == null) return;
+    try {
+      await purgePersonalCache(cache,
+          expectedSessionId: expectedSessionId, isInactive: isInactive);
+    } finally {
+      await cache.releaseStorage();
+    }
   } catch (e, st) {
     // Best effort: an unpurgeable cache must not block the auth transition,
     // but it is why health data stays behind, so report it.
@@ -90,8 +102,23 @@ Future<void> purgePersonalCacheFor(String userId) async {
 /// Split from building the cache so it stays testable without
 /// SharedPreferences and the OS keystore.
 @visibleForTesting
-Future<void> purgePersonalCache(LocalCache cache) =>
-    cache.clear(preserveOutbox: true);
+Future<void> purgePersonalCache(
+  LocalCache cache, {
+  String? expectedSessionId,
+  bool Function()? isInactive,
+}) async {
+  if (isInactive != null && !isInactive()) return;
+  final store = cache.atomicStore;
+  final guards = store == null ? const <String, int>{} :
+      await SyncExecutionGuard(store).invalidateForPurge(cache.userId,
+          expectedSessionId: expectedSessionId);
+  if (guards == null || (isInactive != null && !isInactive())) return;
+  try {
+    await cache.clear(preserveOutbox: true, guards: guards);
+  } on KeyValueConflict {
+    // A new session activated while old cleanup was in flight. Its data wins.
+  }
+}
 
 class AuthGate extends StatefulWidget {
   const AuthGate({
@@ -134,7 +161,7 @@ class _AuthGateState extends State<AuthGate> {
     _freshLogin = false;
     // Finding 5: the recipe photo store is bound to the active user id. Cold
     // start binds the restored user; later transitions go via _onAuthEvent.
-    unawaited(RecipeImageStore.instance.setActiveUser(initial?.id));
+    unawaited(RecipeImageStore.instance.setActiveUser(initial?.id, sessionId: initial?.sessionId));
     _subscription = widget.authRepository.authStateChanges
         .listen(_onAuthEvent, onError: _onAuthStreamError);
   }
@@ -155,15 +182,17 @@ class _AuthGateState extends State<AuthGate> {
     // Finding 5: the gate is the ONE place every auth transition passes.
     // Bound before the mounted check (a teardown event must still purge) and
     // before setState (no frame of the new account sees the old namespace).
-    unawaited(RecipeImageStore.instance.setActiveUser(user?.id));
+    unawaited(RecipeImageStore.instance.setActiveUser(user?.id, sessionId: user?.sessionId));
     final previous = _user;
     // Only on a real identity change: a token refresh delivers the same user.
     final identityChanged =
         previous != null && (user == null || user.id != previous.id);
+    final sessionChanged = previous != null && user != null &&
+        previous.id == user.id && previous.sessionId != user.sessionId;
     if (identityChanged) {
       // Same reason as the photo store, for the durable cache: unawaited and
       // before the mounted check, so a teardown event still purges.
-      unawaited((widget.debugPurgeCache ?? purgePersonalCacheFor)(previous.id));
+      _purgePrevious(previous);
     }
     if (!mounted) return;
     final wasLoggedOut = previous == null;
@@ -172,7 +201,7 @@ class _AuthGateState extends State<AuthGate> {
     // D8: AuthGate is MaterialApp.home, so an auth change swapped only that
     // content and anything pushed on top stayed usable, showing data of a dead
     // session. Real identity changes only — a refresh must keep the open view.
-    if (identityChanged) {
+    if (identityChanged || sessionChanged) {
       // ALWAYS consumed, not only in the notify branch: one intent covers
       // exactly one transition.
       final gewollt = IntentionalSignOut.consume();
@@ -200,6 +229,17 @@ class _AuthGateState extends State<AuthGate> {
     });
   }
 
+  void _purgePrevious(EatovaUser previous) {
+    final debugPurge = widget.debugPurgeCache;
+    if (debugPurge != null) {
+      unawaited(debugPurge(previous.id));
+      return;
+    }
+    unawaited(purgePersonalCacheFor(previous.id,
+        expectedSessionId: previous.sessionId,
+        isInactive: () => widget.authRepository.currentUser?.id != previous.id));
+  }
+
   /// Pops everything above the root route. `maybeOf` hits the right navigator
   /// because MaterialApp builds `home` into its own navigator's default route;
   /// `isFirst` also covers unnamed routes, and dialogs pop with `null`.
@@ -212,9 +252,11 @@ class _AuthGateState extends State<AuthGate> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.authRepository == widget.authRepository) return;
     _subscription?.cancel();
+    final previous = _user;
     _user = widget.authRepository.currentUser;
+    if (previous != null && previous.id != _user?.id) _purgePrevious(previous);
     // A repository swap is a potential identity change too.
-    unawaited(RecipeImageStore.instance.setActiveUser(_user?.id));
+    unawaited(RecipeImageStore.instance.setActiveUser(_user?.id, sessionId: _user?.sessionId));
     _freshLogin = false;
     _subscription = widget.authRepository.authStateChanges
         .listen(_onAuthEvent, onError: _onAuthStreamError);

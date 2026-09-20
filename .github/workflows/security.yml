@@ -31,6 +31,9 @@ jobs:
       - name: pub get
         run: flutter pub get
 
+      - name: Auth email template contracts
+        run: python3 scripts/test_auth_email_templates.py
+
       # --fatal-infos/--fatal-warnings keeps the clean analysis from eroding
       # silently (Audit 2026-06-09, L4).
       - name: analyze
@@ -364,6 +367,7 @@ jobs:
         run: |
           python3 test/tooling/local_auth_transport_test.py
           python3 scripts/security/local_edge_auth_probe.py --auth-lifecycle --prove-detection --require-provider-budgets
+          python3 scripts/security/local_email_template_probe.py --prove-detection
       # Befund P5-08b (Review 2026-08-29): the suite runs every test file in
       # ONE isolate, so a file that forgets its own `Deno.env.set` block or
       # leaves a `globalThis.fetch` stub behind can be carried by a sibling and
@@ -498,6 +502,12 @@ jobs:
 
       - name: Providerbudgets unter gleichzeitiger Last pruefen
         run: python3 test/migrations/ai_provider_budget_concurrency.py
+
+      - name: Offline-Sync unter gleichzeitiger Last pruefen
+        run: python3 test/migrations/offline_sync_concurrency.py
+
+      - name: Rezept-Upgrade mit vorhandenem Datenbestand pruefen
+        run: python3 test/migrations/offline_sync_upgrade.py
 
       - name: Backup und Restore mit synthetischen Daten pruefen
         run: python3 test/operations/backup_restore.py --prove-detection

@@ -1,4 +1,9 @@
 {
+  "recipeHistoryDeletionOnlyTitle": "Deletion without an earlier version",
+  "recipeHistoryDeletionOnlyDetail": "No recipe content was saved on the server for this deletion. There is no version to restore.",
+  "recipeEditConflictSaved": "Your changes were saved as a separate conflict copy. The other version is preserved.",
+  "recipeEditUnavailable": "This recipe version is no longer available. You can restore earlier versions from its history.",
+  "recipeEditResolving": "Your changes are saved on this device. The current recipe version is being checked.",
   "@@locale": "en",
   "commonSlotBreakfast": "Breakfast",
   "commonSlotLunch": "Lunch",
@@ -2318,5 +2323,61 @@
   "profileStudioOverview": "Your overview",
   "profileStudioFocus": "Your goal",
   "profileStudioActivity": "Your routine",
-  "profileStudioBodyDetails": "Body details"
+  "profileStudioBodyDetails": "Body details",
+  "commonLocalSaveFailed": "The change could not be saved on this device. Please try again.",
+  "recipeHistoryTitle": "Recipe history",
+  "recipeHistoryExplanation": "Find previous versions and deleted recipes here. Restoring a version saves a new change.",
+  "recipeHistoryRestore": "Restore version",
+  "recipeHistoryRestoreConfirm": "Restore this version of “{title}”? The current version stays in the history. If another change arrives at the same time, your version is saved as a separate recipe.",
+  "recipeHistoryRestored": "Recipe version saved.",
+  "recipeHistoryVersion": "Version {revision}",
+  "recipeHistoryDeleted": "Deleted",
+  "recipeHistoryEmpty": "No recipe history yet.",
+  "recipeHistoryLoadMore": "Load earlier versions",
+  "@recipeHistoryRestoreConfirm": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "@recipeHistoryVersion": {
+    "placeholders": {
+      "revision": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsSyncTitle": "Sync",
+  "syncTrainingReviewRequired": "Your training draft is saved. Review its adoption in Training.",
+  "settingsSyncPendingCount": "{count, plural, =0{Everything saved locally} =1{1 pending change} other{{count} pending changes}}",
+  "settingsSyncNoPending": "No pending local changes.",
+  "settingsSyncUnreadableTitle": "Sync status unknown",
+  "settingsSyncUnreadableDetail": "Locally saved changes could not be read yet. Retry sync or reopen Eatova. If the problem persists, contact support.",
+  "settingsSyncPendingDetail": "Your changes are saved on this device. Eatova will send them when a connection is available.",
+  "settingsSyncCapacity": "The server cannot accept more changes right now. Your data remains saved on this device. Please contact support.",
+  "settingsSyncUnavailable": "The server is not ready for this sync yet. Your data remains saved on this device. Try again later.",
+  "settingsSyncRejected": "Some changes could not be sent. They remain saved on this device. Try again or contact support.",
+  "settingsSyncTrainingConflict": "A training plan adoption needs your review. Your draft remains saved. Open Training and choose “Review adoption” on the affected plan.",
+  "settingsSyncRetry": "Retry sync",
+  "settingsSyncRunning": "Syncing…",
+  "settingsSyncFailed": "Sync could not start. Your local changes remain saved.",
+  "@settingsSyncPendingCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingAdoptionReviewAction": "Review adoption",
+  "trainingAdoptionReviewBody": "The plan “{planTitle}” was changed or deleted on another device. Your draft is safe. Review it before confirming it as the current plan.",
+  "@trainingAdoptionReviewBody": {
+    "placeholders": {
+      "planTitle": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingAdoptionDiscardAction": "Discard draft",
+  "trainingAdoptionDiscardBody": "Only your rejected draft will be removed from this device. The current plan on the server will be kept."
 }

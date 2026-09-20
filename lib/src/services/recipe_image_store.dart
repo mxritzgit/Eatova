@@ -69,6 +69,7 @@ class RecipeImageStore {
   /// User ID the store is bound to; null means nobody is signed in and
   /// resolve/save/deleteFor refuse (fail-closed).
   String? _activeUserId;
+  String? _activeSessionId;
   Object _scopeToken = Object();
 
   /// Capture before external work; identity changes and purges invalidate it.
@@ -81,6 +82,7 @@ class RecipeImageStore {
   String? _namespaceUserId;
   Future<Directory?>? _namespaceInFlight;
   String? _namespaceInFlightUserId;
+  Object? _namespaceInFlightScope;
 
   /// Maintenance chain: purge (identity change), legacy migration and [clear]
   /// run strictly one after another. Otherwise an A→B migration could pull the
@@ -130,7 +132,8 @@ class RecipeImageStore {
 
   // --- Identity binding -----------------------------------------------------
 
-  /// Binds the store to [userId]; null means nobody is signed in.
+  /// Binds the store to [userId] and its stable auth [sessionId]. Token refresh
+  /// keeps the session; a same-account login starts a new scope.
   ///
   /// The namespace switch happens synchronously (before the first await), so
   /// once this returns no resolve reaches the old namespace even while the
@@ -144,15 +147,17 @@ class RecipeImageStore {
   ///
   /// A cold start with session restore goes `null -> <uid>` and purges
   /// nothing, otherwise no photo would survive a restart.
-  Future<void> setActiveUser(String? userId) {
+  Future<void> setActiveUser(String? userId, {String? sessionId}) {
     final previous = _activeUserId;
-    if (previous == userId) return Future<void>.value();
+    final nextSession = userId == null ? null : sessionId;
+    if (previous == userId && _activeSessionId == nextSession) {
+      return Future<void>.value();
+    }
     _scopeToken = Object();
     _activeUserId = userId;
-    if (_namespaceUserId != userId) {
-      _namespace = null;
-      _namespaceUserId = null;
-    }
+    _activeSessionId = nextSession;
+    _namespace = null;
+    _namespaceUserId = null;
     // First bound user of this process: nothing to purge. The flat legacy
     // files stay until his migration inherits them.
     if (previous == null) return Future<void>.value();
@@ -263,9 +268,10 @@ class RecipeImageStore {
   Future<String?> save({required Uint8List bytes}) async {
     final uid = _activeUserId;
     if (uid == null) return null;
-    final epoch = _purgeEpoch;
+    final scope = _scopeToken;
     final namespace = await _ensureNamespace();
-    if (namespace == null) return null;
+    if (namespace == null || !identical(scope, _scopeToken)) return null;
+    final epoch = _purgeEpoch;
 
     final Uint8List scrubbed;
     try {
@@ -286,7 +292,7 @@ class RecipeImageStore {
     // saved therefore left exactly that photo on a disk that had just been
     // wiped.
     return _afterMaintenance<String?>(() async {
-      if (_activeUserId != uid || _purgeEpoch != epoch) {
+      if (!identical(scope, _scopeToken) || _activeUserId != uid || _purgeEpoch != epoch) {
         dev.log(
             'RecipeImageStore: Ablage verworfen — der Namensraum wurde '
             'waehrend des Scrubs gepurgt',
@@ -352,13 +358,14 @@ class RecipeImageStore {
   }) async {
     final uid = _activeUserId;
     if (uid == null) return false;
-    final epoch = _purgeEpoch;
+    final scope = _scopeToken;
     final namespace = await _ensureNamespace();
-    if (namespace == null) return false;
+    if (namespace == null || !identical(scope, _scopeToken)) return false;
+    final epoch = _purgeEpoch;
     // Same chain and same recheck as [save] (P3-03): this path creates the
     // folder too, so it could revive a purged namespace just as well.
     return _afterMaintenance<bool>(() async {
-      if (_activeUserId != uid || _purgeEpoch != epoch) {
+      if (!identical(scope, _scopeToken) || _activeUserId != uid || _purgeEpoch != epoch) {
         dev.log(
             'RecipeImageStore: Vorschlagsbild verworfen — der Namensraum '
             'wurde waehrend der Ablage gepurgt',
@@ -431,17 +438,21 @@ class RecipeImageStore {
   /// Deletes the image for [imageAsset] in the active user's namespace. No-op
   /// for bundle assets, empty references and without a signed-in user.
   Future<void> deleteFor(String imageAsset) async {
+    final scope = _scopeToken;
     final name = _fileNameFor(imageAsset);
     if (name == null) return;
     final namespace = await _ensureNamespace();
     if (namespace == null) return;
-    try {
-      final file = File('${namespace.path}/$name');
-      if (await file.exists()) await file.delete();
-    } catch (e) {
-      dev.log('RecipeImageStore: Loeschen fehlgeschlagen',
-          error: e, name: 'recipe_image_store');
-    }
+    await _afterMaintenance(() async {
+      if (!identical(scope, _scopeToken)) return;
+      try {
+        final file = File('${namespace.path}/$name');
+        if (await file.exists()) await file.delete();
+      } catch (e) {
+        dev.log('RecipeImageStore: Loeschen fehlgeschlagen',
+            error: e, name: 'recipe_image_store');
+      }
+    });
   }
 
   /// Releases photos whose recipe no longer exists, and returns how many
@@ -479,9 +490,10 @@ class RecipeImageStore {
   Future<int> reconcileRecipePhotos(Iterable<String> liveReferences) async {
     final uid = _activeUserId;
     if (uid == null) return 0;
-    final epoch = _purgeEpoch;
+    final scope = _scopeToken;
     final namespace = await _ensureNamespace();
-    if (namespace == null) return 0;
+    if (namespace == null || !identical(scope, _scopeToken)) return 0;
+    final epoch = _purgeEpoch;
     final keep = <String>{};
     for (final reference in liveReferences) {
       final name = _fileNameFor(reference);
@@ -490,7 +502,7 @@ class RecipeImageStore {
     // On the maintenance chain like every other bulk operation, so no purge or
     // legacy migration is running while the folder is being walked.
     return _afterMaintenance<int>(() async {
-      if (_activeUserId != uid || _purgeEpoch != epoch) return 0;
+      if (!identical(scope, _scopeToken) || _activeUserId != uid || _purgeEpoch != epoch) return 0;
       var removed = 0;
       try {
         if (!await namespace.exists()) return 0;
@@ -522,14 +534,18 @@ class RecipeImageStore {
   }
 
   /// Wipes the root when no owner is supplied. Delayed account cleanup must
-  /// pass [expectedUserId] to erase only its namespace and legacy flat files.
-  Future<void> clear({String? expectedUserId}) {
+  /// pass its initiating [expectedUserId] and [expectedSessionId]. A later
+  /// login of that account must retain its new photos.
+  Future<void> clear({String? expectedUserId, String? expectedSessionId}) {
     if (expectedUserId != null) {
-      // Delayed cleanup belongs to the initiating store's pinned identity. A
-      // previous user's cleanup must not invalidate the new user's photos.
-      if (_activeUserId == expectedUserId) _scopeToken = Object();
-      return _afterMaintenance(() => _purgeNamespace(expectedUserId,
-          invalidateActive: _activeUserId == expectedUserId));
+      return _afterMaintenance(() async {
+        // Checked on the same queue as writes, not before waiting for IO.
+        // A new login of the same account owns the shared directory now.
+        final active = _activeUserId == expectedUserId;
+        if (active && _activeSessionId != expectedSessionId) return;
+        if (active) _scopeToken = Object();
+        await _purgeNamespace(expectedUserId, invalidateActive: active);
+      });
     }
     _scopeToken = Object();
     // Via the maintenance chain, so no concurrent migration moves a file into
@@ -586,36 +602,44 @@ class RecipeImageStore {
   Future<Directory?> _ensureNamespace() {
     final uid = _activeUserId;
     if (uid == null) return Future<Directory?>.value();
+    final scope = _scopeToken;
     final known = _namespace;
     if (known != null && _namespaceUserId == uid) {
       return Future<Directory?>.value(known);
     }
     if (_rootUnavailable) return Future<Directory?>.value();
     final inFlight = _namespaceInFlight;
-    if (inFlight != null && _namespaceInFlightUserId == uid) return inFlight;
-    final future = _openNamespace(uid);
+    if (inFlight != null && _namespaceInFlightUserId == uid &&
+        identical(_namespaceInFlightScope, scope)) {
+      return inFlight;
+    }
+    final future = _openNamespace(uid, scope);
     _namespaceInFlight = future;
     _namespaceInFlightUserId = uid;
+    _namespaceInFlightScope = scope;
     return future;
   }
 
-  Future<Directory?> _openNamespace(String uid) async {
+  Future<Directory?> _openNamespace(String uid, Object scope) async {
     try {
       final root = await _ensureRoot();
       if (root == null) return null;
       final namespace = Directory('${root.path}/${_sanitize(uid)}');
       // In the maintenance chain after any pending purge: a new user's
       // migration must not inherit files the switch is removing.
-      await _afterMaintenance(() => _migrateLegacyInto(root, namespace));
+      await _afterMaintenance(() async {
+        if (identical(scope, _scopeToken)) await _migrateLegacyInto(root, namespace);
+      });
       // Identity changed meanwhile: the result belongs to nobody.
-      if (_activeUserId != uid) return null;
+      if (_activeUserId != uid || !identical(scope, _scopeToken)) return null;
       _namespace = namespace;
       _namespaceUserId = uid;
       return namespace;
     } finally {
-      if (_namespaceInFlightUserId == uid) {
+      if (_namespaceInFlightUserId == uid && identical(_namespaceInFlightScope, scope)) {
         _namespaceInFlight = null;
         _namespaceInFlightUserId = null;
+        _namespaceInFlightScope = null;
       }
     }
   }

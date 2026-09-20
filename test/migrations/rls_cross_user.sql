@@ -216,9 +216,8 @@ begin
   end loop;
 
   -- Moving an OWN row over to B must fail on WITH CHECK, not silently
-  -- succeed. `favorite_meals` stays out of the loop: A and B hold the same
-  -- favorite_key, so the move would trip the unique index (23505) before RLS
-  -- ever gets asked, and a green run would then prove nothing.
+  -- succeed. Favorites need a fresh key as well because A and B deliberately
+  -- share their original key; a uniqueness rejection would not prove RLS.
   foreach t in array array[
     'logged_meals', 'weight_log', 'user_recipes', 'chat_sessions'
   ] loop
@@ -226,6 +225,14 @@ begin
       format('update public.%I set user_id = %L', t, b),
       format('UPDATE, das die eigene Zeile in %s B unterschiebt', t));
   end loop;
+  perform rlstest.erwarte_zeilen(
+    'select * from public.favorite_meals where favorite_key = ''name:test''',
+    1, 'Eigener Favorit fuer Owner-Reassignment vorhanden');
+  perform rlstest.erwarte_sqlstate(
+    format($sql$update public.favorite_meals
+      set user_id = %L, favorite_key = 'name:owner-reassignment-test'
+      where user_id = auth.uid() and favorite_key = 'name:test'$sql$, b),
+    '42501', 'UPDATE, das den eigenen Favoriten B unterschiebt');
   perform rlstest.erwarte_ablehnung(
     format('update public.profiles set id = %L', b),
     'UPDATE, das das eigene Profil B unterschiebt');
@@ -874,3 +881,7 @@ rollback;
 \ir privacy_deletion.sql
 
 select 'RLS-Kreuzzugriffe: alle Erwartungen erfuellt' as ergebnis;
+
+\ir offline_sync_versions.sql
+\ir offline_sync_receipts.sql
+\ir training_incarnations.sql

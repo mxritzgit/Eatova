@@ -7,7 +7,6 @@ import 'package:supabase/supabase.dart';
 
 import 'package:eatova/src/services/meals_sync.dart';
 import 'package:eatova/src/services/tracking_sync.dart';
-import 'package:eatova/src/services/user_recipes_sync.dart';
 
 // PERF/DATA: the four boot reads were unbounded — after a year of tracking
 // every cold start pulls thousands of JSONB rows, and a db-max-rows setting
@@ -67,13 +66,6 @@ final _gedeckelteReads =
     'recorded_at',
     TrackingSync.weightLogLimit,
     (c) => TrackingSync(c, 'user-1').loadWeightLog()
-  ),
-  (
-    'UserRecipesSync.load',
-    '/user_recipes',
-    'created_at',
-    UserRecipesSync.userRecipesLimit,
-    (c) => UserRecipesSync(c, 'user-1').load()
   ),
 ];
 

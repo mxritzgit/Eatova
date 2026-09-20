@@ -47,7 +47,7 @@ class _ObservedImages extends StummerFotoStore {
   int clearCalls = 0;
 
   @override
-  Future<void> clear({String? expectedUserId}) async => clearCalls++;
+  Future<void> clear({String? expectedUserId, String? expectedSessionId}) async => clearCalls++;
 }
 
 Future<void> _tapLogout(WidgetTester tester) async {

@@ -1,36 +1,11 @@
 part of 'home_store.dart';
 
-// Workouts have no independent IDs. Preserve an unchanged workout across
-// reordering, but invalidate changed/removed sources. Duplicate removal is
-// ambiguous, so a reduced count conservatively retires the checkpoint.
-bool _trainingSessionMatchesPlan(
-  TrainingSessionSnapshot snapshot,
-  TrainingPlan? plan,
-) {
-  if (plan == null || plan.id != snapshot.plan.id) return false;
-  final source = jsonEncode(snapshot.workout.toJson());
-  int matches(TrainingPlan value) => value.workouts
-      .where((workout) => jsonEncode(workout.toJson()) == source)
-      .length;
-  final identities = jsonEncode(
-    snapshot.workout.exercises.map((e) => e.id).toList(),
-  );
-  return matches(plan) >= matches(snapshot.plan) &&
-      plan.workouts.any((workout) =>
-          jsonEncode(workout.toJson()) == source &&
-          jsonEncode(workout.exercises.map((e) => e.id).toList()) == identities);
-}
-
 mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
   Future<void> _trainingSessionTail = Future<void>.value();
-  int _trainingSessionWorkCount = 0;
   final Set<SyncOp> _trainingSourceChanges = {};
 
   Future<T> _serializeTrainingSession<T>(Future<T> Function() action) {
-    _trainingSessionWorkCount++;
-    final result = _trainingSessionTail.then((_) => action()).whenComplete(() {
-      _trainingSessionWorkCount--;
-    });
+    final result = _trainingSessionTail.then((_) => action());
     _trainingSessionTail = result.then<void>(
       (_) {},
       onError: (Object _, StackTrace __) {},
@@ -43,10 +18,11 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
       (op.kind == SyncOpKind.trainingPlanUpsert ||
           op.kind == SyncOpKind.trainingPlanDelete) &&
       op.entityId == snapshot.plan.id &&
+      op.trainingIncarnation >= snapshot.plan.incarnation &&
       ((identical(snapshot, _trainingSession) &&
               (_trainingSessionRetired || !_trainingSourceAllows(snapshot))) ||
           op.isDelete ||
-          !_trainingSessionMatchesPlan(snapshot, op.trainingPlan));
+          !trainingSessionMatchesPlan(snapshot, op.trainingPlan));
 
   bool _sourceDeliveryInvalidates(TrainingSessionSnapshot snapshot) {
     if (_inFlightOps.values.any(
@@ -136,12 +112,16 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
       await _repairTrainingSessionRead();
       if (_trainingSession?.pendingCompletionAt != null &&
           !_trainingHistoryDeletedIds.contains(_trainingSession!.sessionId) &&
-          !trainingHistory.any((entry) => entry.id == _trainingSession!.sessionId) &&
-          jsonEncode(validated?.toJson()) != jsonEncode(_trainingSession?.toJson())) {
+          !trainingHistory.any(
+            (entry) => entry.id == _trainingSession!.sessionId,
+          ) &&
+          jsonEncode(validated?.toJson()) !=
+              jsonEncode(_trainingSession?.toJson())) {
         throw StateError('Pending training completion must be retried');
       }
       final active = trainingSession;
-      if (validated != null && active != null &&
+      if (validated != null &&
+          active != null &&
           active.sessionId == _protectedTrainingRecoveryId &&
           validated.sessionId != active.sessionId) {
         throw StateError('Existing training recovery must be resolved');
@@ -161,10 +141,16 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
         throw StateError('Training session source changed');
       }
       final cache = _cache;
-      if (cache == null || !await cache.writeTrainingSession(validated)) {
+      if (cache == null) {
         throw StateError('Training session could not be saved');
       }
+      final receipt = await cache.commitTrainingCheckpoint(
+        validated,
+        expectedSnapshot: _trainingSession,
+        guards: sync == null ? const {} : await _localSessionGuards(cache),
+      );
       _ensureTrainingSessionActive();
+      _observeLocalCommit(receipt);
       _mutate(() {
         _trainingSession = validated;
         if (validated == null) _protectedTrainingRecoveryId = null;
@@ -174,25 +160,43 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
     });
   }
 
-  Future<void> _discardInvalidTrainingRecovery() =>
-      _serializeTrainingSession(() async {
-        if (_disposed || _trainingSessionEnded || _trainingHistoryDeletionReadFailed) return;
-        final snapshot = _trainingSession;
-        if (snapshot == null || trainingSession != null) return;
-        _mutate(() {
-          _trainingSessionRetired = true;
-          _trainingSessionVersion++;
-          _retireTrainingSource(snapshot.plan.id);
-        });
-        final cleared = await _cache?.writeTrainingSession(null);
-        if (cleared == true && !_disposed && !_trainingSessionEnded) {
-          _mutate(() {
-            _trainingSession = null;
-            _trainingSessionRetired = false;
-            _trainingSessionVersion++;
-          });
-        }
+  Future<void> _discardInvalidTrainingRecovery() => _serializeTrainingSession(
+    () async {
+      if (_disposed ||
+          _trainingSessionEnded ||
+          _trainingHistoryDeletionReadFailed) {
+        return;
+      }
+      final snapshot = _trainingSession;
+      if (snapshot == null || trainingSession != null) return;
+      _mutate(() {
+        _trainingSessionRetired = true;
+        _trainingSessionVersion++;
+        _retireTrainingSource(snapshot.plan.id);
       });
+      LocalMutationReceipt? cleared;
+      try {
+        final cache = _cache;
+        if (cache != null) {
+          cleared = await cache.commitTrainingCheckpoint(
+            null,
+            expectedSnapshot: snapshot,
+            guards: sync == null ? const {} : await _localSessionGuards(cache),
+          );
+        }
+      } catch (_) {
+        return;
+      }
+      if (cleared != null && !_disposed && !_trainingSessionEnded) {
+        _observeLocalCommit(cleared);
+        _mutate(() {
+          _trainingSession = null;
+          _trainingSessionRetired = false;
+          _trainingSessionVersion++;
+        });
+      }
+    },
+  );
 
   void _retireTrainingSource(String id) {
     _trainingSourceGenerations[id] = ++_trainingSessionGeneration;
@@ -200,24 +204,137 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
 
   /// Saves only after an explicit confirmation. Stable IDs make adoption
   /// idempotent; edits replace the same plan without creating another row.
-  Future<SyncDelivery> saveTrainingPlan(TrainingPlan plan) {
+  Future<SyncDelivery> saveTrainingPlan(TrainingPlan plan) =>
+      _persistTrainingPlan(plan);
+
+  Future<SyncDelivery> adoptTrainingPlan(TrainingPlan plan) {
+    final source = plan.coachSourceId;
+    if (source == null || trainingPlanIdForMessage(source) != plan.id) {
+      throw const FormatException('Invalid coach training source');
+    }
+    return _persistTrainingPlan(
+      TrainingPlan(
+        id: plan.id,
+        proposal: plan.proposal,
+        sourceId: source,
+        incarnation: plan.incarnation,
+      ),
+      adoption: true,
+    );
+  }
+
+  Future<TrainingPlanHead?> loadTrainingPlanHead(String sourceId) async {
+    _ensureMutationActive();
+    final service = sync;
+    if (service == null) throw StateError('Training source unavailable');
+    final head = await service.operations
+        .loadTrainingPlanHead(sourceId)
+        .timeout(kSyncOperationTimeout);
+    _ensureMutationActive();
+    return head;
+  }
+
+  Future<SyncDelivery> resolveTrainingAdoption(
+    String operationId, {
+    required TrainingPlanHead? expectedHead,
+    required TrainingPlan reviewedDraft,
+    String? expectedDraftOperationId,
+  }) {
+    _ensureMutationActive();
+    if (expectedHead != null &&
+        (expectedHead.planId != reviewedDraft.id ||
+            expectedHead.sourceId != reviewedDraft.coachSourceId)) {
+      throw const FormatException('Mismatched training source');
+    }
+    final incarnation = expectedHead == null
+        ? 0
+        : expectedHead.incarnation + (expectedHead.deleted ? 1 : 0);
+    return _persistTrainingPlan(
+      reviewedDraft.copyWith(incarnation: incarnation),
+      adoption: true,
+      replacingTrainingAdoption: operationId,
+      expectedTrainingDraftOperationId: expectedDraftOperationId,
+      resolvedTrainingHead: expectedHead,
+    );
+  }
+
+  Future<SyncDelivery> _persistTrainingPlan(
+    TrainingPlan plan, {
+    bool adoption = false,
+    String? replacingTrainingAdoption,
+    String? expectedTrainingDraftOperationId,
+    TrainingPlanHead? resolvedTrainingHead,
+  }) {
     _ensureTrainingSessionActive();
     final validated = TrainingPlan.fromRow(plan.toRow());
     _ensureTrainingPlanCapacity(validated.id);
-    final op = SyncOp.trainingPlanUpsert(validated);
+    final op = SyncOp.trainingPlanUpsert(validated, adoption: adoption);
     return _saveTrainingMutation(
       op,
       () => sync!.trainingPlans.upsert(validated),
       () {
+        final effective =
+            _outbox
+                .where((entry) => entry.operationId == op.operationId)
+                .firstOrNull ??
+            op;
+        if (!_trainingIntentApplies(effective)) return;
+        final committed = effective.trainingPlan ?? validated;
         _trainingPlans = [
-          validated,
+          committed,
           ...trainingPlans.where((entry) => entry.id != validated.id),
         ];
         _selectedTrainingPlanId = validated.id;
         _trainingSelectionVersion++;
       },
+      replacingTrainingAdoption: replacingTrainingAdoption,
+      expectedTrainingDraftOperationId: expectedTrainingDraftOperationId,
+      resolvedTrainingHead: resolvedTrainingHead,
     );
   }
+
+  Future<void> discardTrainingAdoption(
+    String operationId, {
+    TrainingPlanHead? verifiedHead,
+  }) => _serializeTrainingSession(() async {
+    _ensureMutationActive();
+    final cache = _cache;
+    if (cache == null) throw StateError('Training storage unavailable');
+    final discarded = _outbox
+        .where((op) => op.operationId == operationId)
+        .firstOrNull;
+    final receipt = await cache.discardTrainingAdoption(
+      operationId,
+      verifiedHead: verifiedHead,
+      guards: await _localSessionGuards(cache),
+    );
+    _ensureMutationActive();
+    _observeLocalCommit(receipt);
+    Map<String, dynamic>? slot(String name) {
+      final raw = receipt.snapshot.values['eatova.v1.$name.${cache.userId}'];
+      return raw == null ? null : jsonDecode(raw) as Map<String, dynamic>;
+    }
+
+    _mutate(() {
+      _outbox = receipt.operations;
+      _trainingPlans = ((slot('training_plans')?['items'] as List?) ?? const [])
+          .map((row) => TrainingPlan.fromRow(row as Map))
+          .toList();
+      _selectedTrainingPlanId = slot('training_selection')?['id'] as String?;
+      final raw = slot('training_session')?['snapshot'];
+      _trainingSession = raw is Map
+          ? TrainingSessionSnapshot.fromJson(raw)
+          : null;
+      if (discarded != null &&
+          (_trainingSession == null ||
+              _trainingSession!.plan.incarnation <=
+                  discarded.trainingIncarnation)) {
+        _retireTrainingSource(discarded.entityId);
+      }
+      _trainingSessionVersion++;
+      _trainingSelectionVersion++;
+    });
+  });
 
   void _ensureTrainingPlanCapacity(String id) {
     final reservedIds = {
@@ -234,11 +351,19 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
 
   Future<SyncDelivery> deleteTrainingPlan(String id) {
     _ensureTrainingSessionActive();
+    if (pendingTrainingAdoptions.any((op) => op.entityId == id)) {
+      throw StateError('Training adoption must be reviewed');
+    }
     if (!RegExp(r'^[A-Za-z0-9_-]{1,100}$').hasMatch(id)) {
       throw const FormatException('Invalid training plan ID');
     }
-    final op = SyncOp.trainingPlanDelete(id);
+    final incarnation =
+        trainingPlans.where((plan) => plan.id == id).firstOrNull?.incarnation ??
+        _trainingHeads[id]?.incarnation ??
+        0;
+    final op = SyncOp.trainingPlanDelete(id, incarnation: incarnation);
     return _saveTrainingMutation(op, () => sync!.trainingPlans.delete(id), () {
+      if (!_trainingIntentApplies(op)) return;
       _trainingPlans = trainingPlans.where((entry) => entry.id != id).toList();
       if (_selectedTrainingPlanId == id) {
         _selectedTrainingPlanId = trainingPlans.firstOrNull?.id;
@@ -247,187 +372,76 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
     });
   }
 
-  final Map<String, int> _trainingMutationVersions = {};
-  final Map<String, int> _trainingConfirmedVersions = {};
-
   Future<SyncDelivery> _saveTrainingMutation(
     SyncOp op,
     Future<void> Function() send,
-    VoidCallback publish,
-  ) {
+    VoidCallback publish, {
+    String? replacingTrainingAdoption,
+    String? expectedTrainingDraftOperationId,
+    TrainingPlanHead? resolvedTrainingHead,
+  }) {
     _trainingSourceChanges.add(op);
-    final snapshot = _trainingSession;
-    if (!_trainingSessionHydrationFailed &&
-        _trainingSessionWorkCount == 0 &&
-        (snapshot == null || !_sourceChangeInvalidates(op, snapshot))) {
-      return _deliverTrainingMutation(op, send, publish).whenComplete(() {
-        _trainingSourceChanges.remove(op);
-      });
-    }
-    return _serializeTrainingSession<({Future<SyncDelivery> delivery})>(
-      () async {
-        _ensureTrainingSessionActive();
-        await _repairTrainingSessionRead();
-        final snapshot = _trainingSession;
-        if (snapshot == null || !_sourceChangeInvalidates(op, snapshot)) {
-          // Unrelated mutations retain the existing concurrent delivery rules.
-          return (delivery: _deliverTrainingMutation(op, send, publish));
-        }
-        final cache = _cache;
-        if (cache == null || !await cache.suspendTrainingSession(snapshot)) {
-          throw StateError('Training session could not be saved');
-        }
-        _ensureTrainingSessionActive();
-        final wasRetired = _trainingSessionRetired;
-        _mutate(() {
-          _trainingSession = null;
-          _trainingSessionRetired = false;
-          _trainingSessionVersion++;
-          _retireTrainingSource(op.entityId);
-        });
-        SyncDelivery delivery;
-        try {
-          delivery = await _deliverTrainingMutation(op, send, publish);
-        } catch (_) {
-          // A timed-out live request can still delete the source. Only an
-          // explicit failure with no pending delivery permits rollback.
-          if (!wasRetired &&
-              !_disposed &&
-              !_trainingSessionEnded &&
-              !_inFlightOps.containsKey(op.entityKey) &&
-              !_outbox.any((entry) => identical(entry, op)) &&
-              await cache.writeTrainingSession(snapshot)) {
-            _ensureTrainingSessionActive();
-            _mutate(() {
-              _trainingSession = snapshot;
-              _trainingSessionVersion++;
-            });
+    return _serializeTrainingSession(() async {
+      _ensureTrainingSessionActive();
+      await _repairTrainingSessionRead();
+      if (op.kind == SyncOpKind.trainingPlanUpsert) {
+        _ensureTrainingPlanCapacity(op.entityId);
+      }
+      return _commitSyncIntents(
+        [op],
+        notifyQueued: false,
+        replacingTrainingAdoption: replacingTrainingAdoption,
+        expectedTrainingDraftOperationId: expectedTrainingDraftOperationId,
+        resolvedTrainingHead: resolvedTrainingHead,
+        retireTrainingSessionId:
+            _trainingSession != null &&
+                _sourceChangeInvalidates(op, _trainingSession!)
+            ? _trainingSession!.sessionId
+            : null,
+        publish: () {
+          final effective =
+              _outbox
+                  .where((entry) => entry.operationId == op.operationId)
+                  .firstOrNull ??
+              op;
+          if (!_trainingIntentApplies(effective)) return;
+          final snapshot = _trainingSession;
+          if (snapshot != null &&
+              _sourceChangeInvalidates(effective, snapshot)) {
+            _trainingSession = null;
+            _trainingSessionRetired = true;
+            _trainingSessionVersion++;
           }
-          rethrow;
-        }
-        // Suspension already durably removed recovery. A failed cleanup must
-        // not report an acknowledged source deletion as failed or restore it.
-        await cache.writeTrainingSession(null);
-        _ensureTrainingSessionActive();
-        return (delivery: Future.value(delivery));
-      },
-    ).then((result) => result.delivery).whenComplete(() {
-      _trainingSourceChanges.remove(op);
-    });
-  }
-
-  Future<SyncDelivery> _deliverTrainingMutation(
-    SyncOp op,
-    Future<void> Function() send,
-    VoidCallback publish,
-  ) async {
-    if (op.kind == SyncOpKind.trainingPlanUpsert) {
-      _ensureTrainingPlanCapacity(op.entityId);
-    }
-    final version = (_trainingMutationVersions[op.entityId] ?? 0) + 1;
-    _trainingMutationVersions[op.entityId] = version;
-    _unconfirmedTrainingOps.add(op);
-    try {
-      final delivery = await _trainingDelivery(
-        _syncOrQueue(
-          op.isDelete ? 'Training-plan-delete' : 'Training-plan',
-          send,
-          () => op,
-          onDelivered: () {
-            if (_unconfirmedTrainingOps.contains(op)) {
-              _deliveredTrainingOps.add(op);
-            }
-          },
-          aufruferMeldetAusgang: true,
-        ),
-        op,
-      );
-      _compactConfirmedTrainingUpserts(op);
-      // Failed newer intent must not suppress a real earlier success; only a
-      // newer CONFIRMED change may supersede this result.
-      if ((_trainingConfirmedVersions[op.entityId] ?? 0) < version) {
-        _trainingConfirmedVersions[op.entityId] = version;
-        final previous = trainingPlans
-            .where((plan) => plan.id == op.entityId)
-            .firstOrNull;
-        if (op.isDelete ||
-            (_trainingSession?.plan.id != op.entityId &&
-                previous != null &&
-                jsonEncode(previous.toJson()) !=
-                    jsonEncode(op.trainingPlan?.toJson()))) {
           _retireTrainingSource(op.entityId);
-        }
-        _mutate(() {
           _trainingSourceIdsKnown.add(op.entityId);
           publish();
-        });
-        _cacheTrainingPlans();
-        unawaited(
-          _cache?.writeTrainingSelection(_selectedTrainingPlanId) ??
-              Future<void>.value(),
-        );
-      }
-      return delivery;
-    } catch (_) {
-      // Retirement can reject the UI result while persistence is still pending.
-      // Keep cap protection until receipts prove whether this exact op survived.
-      await _settleTrainingOutboxReceipts(op);
-      final acknowledged =
-          _deliveredTrainingOps.contains(op) ||
-          _durableOutboxSnapshot.any((entry) => identical(entry, op));
-      if (!_disposed && !acknowledged) {
-        final remaining = _outbox
-            .where((entry) => !identical(entry, op))
-            .toList();
-        if (remaining.length != _outbox.length) {
-          _outbox = remaining;
-          // Logout may still be draining other writes in this account's cache.
-          if (!(_cache?.isClosed ?? true)) _persistOutbox();
-        }
-      }
-      rethrow;
-    } finally {
-      _unconfirmedTrainingOps.remove(op);
-      _deliveredTrainingOps.remove(op);
-      _trainingOutboxReceipts.remove(op);
-      _settleTrainingOutboxCapacity();
-    }
+        },
+      );
+    }).whenComplete(() => _trainingSourceChanges.remove(op));
   }
 
-  void _compactConfirmedTrainingUpserts(SyncOp op) {
-    if (op.kind != SyncOpKind.trainingPlanUpsert ||
-        _outboxReplayInFlight ||
-        _inFlightOps.containsKey(op.entityKey)) {
-      return;
-    }
-    final current = _outbox.indexWhere((entry) => identical(entry, op));
-    final superseded = <SyncOp>{};
-    for (var index = current - 1; index >= 0; index--) {
-      final previous = _outbox[index];
-      if (previous.entityKey != op.entityKey) continue;
-      if (!previous.isUpsert || _unconfirmedTrainingOps.contains(previous)) {
-        break;
-      }
-      superseded.add(previous);
-    }
-    if (superseded.isEmpty) return;
-    // Keep the acknowledged predecessor until its replacement is durable.
-    // A failed compaction write leaves both full upserts on disk, in order.
-    _outbox = _outbox.where((entry) => !superseded.contains(entry)).toList();
-    _persistOutbox();
-  }
-
-  void selectTrainingPlan(String id) {
+  Future<void> selectTrainingPlan(String id) async {
     _ensureTrainingSessionActive();
     if (!trainingPlans.any((plan) => plan.id == id) ||
         _selectedTrainingPlanId == id) {
       return;
     }
+    final cache = _cache;
+    if (sync != null && cache == null) {
+      throw StateError('Local storage is not ready');
+    }
+    if (cache != null) {
+      await cache.commitTrainingSelection(
+        id,
+        guards: sync == null ? const {} : await _localSessionGuards(cache),
+      );
+      _localCommitGeneration++;
+    }
+    _ensureTrainingSessionActive();
     _mutate(() {
       _selectedTrainingPlanId = id;
       _trainingSelectionVersion++;
     });
-    unawaited(_cache?.writeTrainingSelection(id) ?? Future<void>.value());
   }
 
   void _ensureTrainingSessionActive() {
@@ -438,34 +452,5 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
     if (currentUser != null && currentUser.id != sync?.userId) {
       throw StateError('Training session ended');
     }
-  }
-
-  Future<SyncDelivery> _trainingDelivery(
-    Future<SyncDelivery> pending,
-    SyncOp op,
-  ) async {
-    final result = await pending;
-    _ensureTrainingSessionActive();
-    if (result == SyncDelivery.delivered ||
-        _deliveredTrainingOps.contains(op)) {
-      return SyncDelivery.delivered;
-    }
-    // Unlike a mirror write, this is the only durable copy while offline.
-    // Never overwrite an outbox whose previous contents remain unreadable.
-    final cache = _cache;
-    if (!_outbox.any((entry) => identical(entry, op)) ||
-        cache == null ||
-        _outboxHydrationFailed) {
-      throw StateError('Training change could not be saved');
-    }
-    await _writeOutboxWithReceipt(_outbox);
-    await _settleTrainingOutboxReceipts(op);
-    _ensureTrainingSessionActive();
-    if (_deliveredTrainingOps.contains(op)) return SyncDelivery.delivered;
-    if (!_outbox.any((entry) => identical(entry, op)) ||
-        !_durableOutboxSnapshot.any((entry) => identical(entry, op))) {
-      throw StateError('Training change could not be saved');
-    }
-    return result;
   }
 }

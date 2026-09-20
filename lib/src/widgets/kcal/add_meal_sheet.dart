@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
+
+import '../common/persistence_action.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -100,14 +102,15 @@ Future<void> showAddMealSheet(
   required ProductLookupService productService,
   required MealPhotoInput photoInput,
   required List<FavoriteMeal> favorites,
-  required String Function(MealAnalysisResult, MealSlot) onAdd,
-  required void Function(String id, MealAnalysisResult scaled) onUpdateMeal,
-  required ValueChanged<String> onRemoveFavorite,
+  required FutureOr<String> Function(MealAnalysisResult, MealSlot) onAdd,
+  required FutureOr<void> Function(String id, MealAnalysisResult scaled)
+  onUpdateMeal,
+  required PersistValueChanged<String> onRemoveFavorite,
   bool Function(MealAnalysisResult)? isFavorite,
-  ValueChanged<MealAnalysisResult>? onToggleFavorite,
+  PersistValueChanged<MealAnalysisResult>? onToggleFavorite,
   List<LoggedMeal> existingMeals = const <LoggedMeal>[],
   DateTime? foodDate,
-  ValueChanged<String>? onRemoveMeal,
+  PersistValueChanged<String>? onRemoveMeal,
   UpdateMealDetails? onUpdateMealDetails,
 }) {
   // Resolve the edit callback from the scope BEFORE the route change: the
@@ -249,24 +252,25 @@ class AddMealSheet extends StatefulWidget {
 
   /// Logs the result and returns the client UUID (see MealAnalysisSheet) for
   /// later re-portioning.
-  final String Function(MealAnalysisResult, MealSlot) onAdd;
+  final FutureOr<String> Function(MealAnalysisResult, MealSlot) onAdd;
 
   /// Replaces a logged row's result by id (kcal + macros).
-  final void Function(String id, MealAnalysisResult scaled) onUpdateMeal;
-  final ValueChanged<String> onRemoveFavorite;
+  final FutureOr<void> Function(String id, MealAnalysisResult scaled)
+  onUpdateMeal;
+  final PersistValueChanged<String> onRemoveFavorite;
 
   /// Is the meal currently pinned? Null -> no heart.
   final bool Function(MealAnalysisResult)? isFavorite;
 
   /// Favorite toggle (pin/unpin). Null -> no heart.
-  final ValueChanged<MealAnalysisResult>? onToggleFavorite;
+  final PersistValueChanged<MealAnalysisResult>? onToggleFavorite;
   final List<LoggedMeal> existingMeals;
 
   /// The diary day the sheet logs into (null = today). Only the mirror rows
   /// need it: the store books an archive-day log on that day, and the sheet's
   /// copy must say the same or an edit would drop the row as "moved".
   final DateTime? foodDate;
-  final ValueChanged<String>? onRemoveMeal;
+  final PersistValueChanged<String>? onRemoveMeal;
 
   /// Details update for the edit sheet (portion/slot/day). Null -> already
   /// added rows are not tappable.
@@ -489,11 +493,12 @@ class _AddMealSheetState extends State<AddMealSheet> {
   /// snack that lands in THIS sheet's SnackHost; tapping it restores the row in
   /// the store, and the restored list reaches [didUpdateWidget] from there
   /// (P8-01 — the local removal used to be a one-way street).
-  void _removeExisting(String id) {
+  Future<void> _removeExisting(String id) async {
+    await widget.onRemoveMeal?.call(id);
+    if (!mounted) return;
     setState(() {
       _existing = _existing.where((m) => m.id != id).toList();
     });
-    widget.onRemoveMeal?.call(id);
   }
 
   /// Tap on an already-added row: open the edit sheet, then bring the sheet's
@@ -525,20 +530,23 @@ class _AddMealSheetState extends State<AddMealSheet> {
 
   /// Same shape as [_removeExisting], second list: the store's undo snack
   /// restores the favorite and [didUpdateWidget] brings it back here (P8-05).
-  void _removeFavorite(String id) {
+  Future<void> _removeFavorite(String id) async {
+    if (!await tryPersistChange(context, () => widget.onRemoveFavorite(id)) ||
+        !mounted) {
+      return;
+    }
     setState(() {
       _favorites = _favorites.where((f) => f.id != id).toList();
       _justAddedKeys.remove('favorite:$id');
     });
-    widget.onRemoveFavorite(id);
   }
 
   /// The one logging path of this sheet (review F3-01): logs via
   /// [AddMealSheet.onAdd] and mirrors the new row into the local day copy, so
   /// "already added" and the slot total change on the spot instead of on the
   /// next open. Also bumps the favorite's recency like the store does.
-  String _logAndMirror(MealAnalysisResult result, MealSlot slot) {
-    final id = widget.onAdd(result, slot);
+  Future<String> _logAndMirror(MealAnalysisResult result, MealSlot slot) async {
+    final id = await widget.onAdd(result, slot);
     if (!mounted) return id;
     final day = widget.foodDate;
     final mirrored = LoggedMeal(
@@ -556,8 +564,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
   /// Re-portioning from the analysis sheet ("adjust" after adding): forwards
   /// to the store AND updates the mirror row, so "already added" and the slot
   /// total show the new kcal at once.
-  void _updateAndMirror(String id, MealAnalysisResult scaled) {
-    widget.onUpdateMeal(id, scaled);
+  Future<void> _updateAndMirror(String id, MealAnalysisResult scaled) async {
+    await widget.onUpdateMeal(id, scaled);
     if (!mounted) return;
     setState(() {
       _existing = [
@@ -930,6 +938,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
       initialName: initialName,
       initialSlot: _selectedSlot,
       onSlotChanged: (value) => slot = value,
+      onSave: (result) async {
+        await _logAndMirror(result, slot);
+      },
       contextLabel: widget.foodDate == null
           ? null
           : MaterialLocalizations.of(
@@ -938,12 +949,21 @@ class _AddMealSheetState extends State<AddMealSheet> {
     );
     if (result == null || !mounted) return;
     _selectSlot(slot);
-    _handleAdd('manual:${FavoriteMeal.idFor(result)}', result);
+    showAppSnack(
+      context,
+      context.l10n.commonKcalAddedToSlot(
+        result.caloriesKcal,
+        slot.label(context.l10n),
+      ),
+      icon: Icons.check_circle_rounded,
+    );
   }
 
   // ─── Adding ───────────────────────────────────────────────────────────
 
-  void _handleAdd(String itemKey, MealAnalysisResult result) {
+  final Set<String> _savingItems = {};
+
+  Future<void> _handleAdd(String itemKey, MealAnalysisResult result) async {
     // Last guard before the diary (B1/B7), the role
     // `MealAnalysisSheet._addToDaily` plays for the photo path: legacy
     // `favorite_meals` rows with `calories_kcal = 0` must not be loggable.
@@ -965,15 +985,18 @@ class _AddMealSheetState extends State<AddMealSheet> {
       return;
     }
 
-    _logAndMirror(result, _selectedSlot);
-    if (mounted) {
+    if (!_savingItems.add(itemKey)) return;
+    final slot = _selectedSlot;
+    final saved = await tryPersistChange(context, () async {
+      await _logAndMirror(result, slot);
+    });
+    _savingItems.remove(itemKey);
+    if (!saved || !mounted) return;
+    {
       final l10n = context.l10n;
       showAppSnack(
         context,
-        l10n.commonKcalAddedToSlot(
-          result.caloriesKcal,
-          _selectedSlot.label(l10n),
-        ),
+        l10n.commonKcalAddedToSlot(result.caloriesKcal, slot.label(l10n)),
         icon: Icons.check_circle_rounded,
       );
     }
@@ -1085,7 +1108,10 @@ class _AddMealSheetState extends State<AddMealSheet> {
                     slot: _selectedSlot,
                     onRemove: widget.onRemoveMeal == null
                         ? null
-                        : _removeExisting,
+                        : (id) => tryPersistChange(
+                            context,
+                            () => _removeExisting(id),
+                          ),
                     onEdit: widget.onUpdateMealDetails == null
                         ? null
                         : _editExisting,
@@ -1305,9 +1331,19 @@ class _AddMealSheetState extends State<AddMealSheet> {
   // the recents cap there and can DELETE the row instead of demoting it. That
   // outcome arrives via [FoodStoreScope]; the sheet used to keep showing a row
   // the store had dropped (P8-06).
-  void _handleToggleFavorite(MealAnalysisResult result) {
-    widget.onToggleFavorite?.call(result);
+  Future<void> _handleToggleFavorite(MealAnalysisResult result) async {
+    final key = 'toggle:${FavoriteMeal.idFor(result)}';
+    if (!_savingItems.add(key)) return;
+    await tryPersistChange(context, () => _toggleAndMirror(result));
+    _savingItems.remove(key);
+  }
+
+  Future<void> _toggleAndMirror(MealAnalysisResult result) async {
     final id = FavoriteMeal.idFor(result);
+    final before = _favorites.indexWhere((f) => f.id == id);
+    final pinned = before == -1 || !_favorites[before].pinned;
+    await widget.onToggleFavorite?.call(result);
+    if (!mounted) return;
     setState(() {
       final idx = _favorites.indexWhere((f) => f.id == id);
       if (idx == -1) {
@@ -1316,14 +1352,14 @@ class _AddMealSheetState extends State<AddMealSheet> {
             id: id,
             result: result,
             addedAt: clock.now(),
-            pinned: true,
+            pinned: pinned,
           ),
           ..._favorites,
         ];
       } else {
         final current = _favorites[idx];
         final next = [..._favorites];
-        next[idx] = current.copyWith(pinned: !current.pinned);
+        next[idx] = current.copyWith(pinned: pinned);
         _favorites = next;
       }
     });
@@ -1332,11 +1368,11 @@ class _AddMealSheetState extends State<AddMealSheet> {
   /// Unpin-only path for the favorites sheet: the heart there never re-pins,
   /// so a row that is already unpinned locally (or unknown) is left alone
   /// instead of being toggled back on.
-  void _unpinFavorite(MealAnalysisResult result) {
+  Future<void> _unpinFavorite(MealAnalysisResult result) async {
     final id = FavoriteMeal.idFor(result);
     final idx = _favorites.indexWhere((f) => f.id == id);
     if (idx == -1 || !_favorites[idx].pinned) return;
-    _handleToggleFavorite(result);
+    await _toggleAndMirror(result);
   }
 
   /// Opens the favorites sheet on top of this one. Adds go through

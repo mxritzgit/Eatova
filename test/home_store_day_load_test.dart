@@ -20,6 +20,7 @@ import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
 import 'support/postgrest_filters.dart';
+import 'support/sync_operation_fake.dart';
 
 // On-demand loading of old days: the boot loads only the 35-day window, and
 // picking an older day loads exactly that day and merges it by id. Driven
@@ -38,6 +39,17 @@ class _FakeServer {
       <String, Map<String, dynamic>>{};
   int mealsCounted = 0;
   int weightLogsCounted = 0;
+  final _counted = <String>{};
+  late final operations = SyncOperationFake(
+    meals: mealRows, weights: {}, favorites: {}, recipes: {},
+    readProfile: () => null, writeProfile: (_) {}, readStats: _statsRow,
+    incrementStats: (id, meals, weights) {
+      if (_counted.add(id)) {
+        mealsCounted += meals;
+        weightLogsCounted += weights;
+      }
+    }, recordDay: (_) {},
+  );
 
   http.Client client() => MockClient(_handle);
 
@@ -60,7 +72,17 @@ class _FakeServer {
     final path = req.url.path;
 
     http.Response ok(Object body) => http.Response(jsonEncode(body), 200,
-        headers: const {'Content-Type': 'application/json'}, request: req);
+        headers: const {'content-type': 'application/json; charset=utf-8'}, request: req);
+
+    if (path.endsWith('/rpc/apply_sync_operation')) {
+      final receipt = operations.apply(
+          (jsonDecode(req.body) as Map).cast<String, dynamic>());
+      // The real RPC derives ownership from auth.uid(), not its payload.
+      for (final row in mealRows.values) {
+        row.putIfAbsent('user_id', () => 'user-dayload');
+      }
+      return ok(receipt);
+    }
 
     if (path.contains('/rpc/increment_lifetime_stats')) {
       final body = jsonDecode(req.body) as Map<String, dynamic>;
@@ -388,9 +410,9 @@ void main() {
 
     // Offline: a late entry plus a delete of the never-booted server row.
     s.server.offline = true;
-    final localId = s.store
+    final localId = await s.store
         .addResultToDailyTotal(_result('Nachtrag', kcal: 200), foodDate: oldDay);
-    s.store.removeLoggedMeal('old-srv');
+    await s.store.removeLoggedMeal('old-srv');
     await _settle();
 
     // The day load merges the server state, then the pending ops go on top.
@@ -423,7 +445,7 @@ void main() {
 
     // Trigger a write-through by logging something for today.
     s.store.setFoodDate(DateTime.now());
-    final todayId = s.store.addResultToDailyTotal(_result('Heute-Bowl'));
+    final todayId = await s.store.addResultToDailyTotal(_result('Heute-Bowl'));
     await _settle();
 
     final cached = await s.cache.readLoggedMeals();
@@ -572,11 +594,10 @@ void main() {
         // out of the durable cache — and the next offline cold start showed
         // the day empty although nobody ever left the window.
         //
-        // A logged meal is what triggers the write-through; the boot snapshot
-        // stays out because this fake server answers /profiles empty and the
-        // store writes no snapshot without a real hydration source.
+        // The local commit must retain the complete hydrated window even when
+        // the profile endpoint has no row for this account.
         s.store.setFoodDate(DateTime(2026, 4, 20));
-        final heuteId = s.store.addResultToDailyTotal(_result('Fenster-Bowl'));
+        final heuteId = await s.store.addResultToDailyTotal(_result('Fenster-Bowl'));
         await _settle();
         s.store.flushPendingWrites();
         await _settle();

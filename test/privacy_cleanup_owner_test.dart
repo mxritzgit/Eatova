@@ -4,6 +4,9 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:eatova/src/services/local_cache.dart';
+import 'package:eatova/src/services/durable_cache_store.dart';
+import 'package:eatova/src/services/secure_cache_store.dart';
+import 'package:eatova/src/services/sqlite_key_value_store.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/recipe_image_store.dart';
@@ -18,12 +21,14 @@ class _PausedClear extends InMemoryKeyValueStore {
   final release = Completer<void>();
 
   @override
-  Future<void> remove(String key) async {
-    if (key == 'eatova.v1.profile.$kFixlaufUser') {
+  Future<KeyValueCommit> writeBatch(Map<String, String?> changes,
+      {Map<String, int> expectedVersions = const {}}) async {
+    if (changes.containsKey('eatova.v1.profile.$kFixlaufUser') &&
+        changes['eatova.v1.profile.$kFixlaufUser'] == null) {
       if (!started.isCompleted) started.complete();
       await release.future;
     }
-    await super.remove(key);
+    return super.writeBatch(changes, expectedVersions: expectedVersions);
   }
 }
 
@@ -54,10 +59,21 @@ Map<String, dynamic> _session(String id) => {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  late Directory databaseDirectory;
 
-  setUp(() {
+  setUp(() async {
+    CacheKeyProvider.debugReset();
     SharedPreferences.setMockInitialValues({});
     FlutterSecureStorage.setMockInitialValues({});
+    databaseDirectory = await Directory.systemTemp.createTemp('eatova_owner_');
+    LocalCache.debugDatabasePath = '${databaseDirectory.path}/cache.sqlite';
+  });
+
+  tearDown(() async {
+    await DurableCacheStore.closeAll();
+    CacheKeyProvider.debugReset();
+    LocalCache.debugDatabasePath = null;
+    await databaseDirectory.delete(recursive: true);
   });
 
   for (final deletion in [false, true]) {
@@ -65,12 +81,13 @@ void main() {
         'even when the shared client has switched to B', () async {
       final a = (await LocalCache.create(kFixlaufUser))!;
       final b = (await LocalCache.create('account-b'))!;
-      addTearDown(a.close);
-      addTearDown(b.close);
+      addTearDown(a.releaseStorage);
+      addTearDown(b.releaseStorage);
       await a.writeProfile(const UserProfile(weightKg: 70));
       await b.writeProfile(const UserProfile(weightKg: 80));
-      final prefs = await SharedPreferences.getInstance();
-      final beforeB = prefs.getString('eatova.v1.profile.account-b');
+      final raw = await SqliteKeyValueStore.open(LocalCache.debugDatabasePath!);
+      addTearDown(raw.close);
+      final beforeB = await raw.getString('eatova.v1.profile.account-b');
       expect(beforeB, isNotNull);
       final notifications = _PausedNotifications();
       final setup = fixlaufSetup(ohneCache: true, notifications: notifications);
@@ -91,9 +108,9 @@ void main() {
       notifications.release.complete();
       await pending;
 
-      expect(prefs.getString('eatova.v1.profile.account-b') == beforeB, isTrue,
+      expect(await raw.getString('eatova.v1.profile.account-b'), beforeB,
           reason: 'The fallback must not erase the new account cache.');
-      expect(prefs.getString('eatova.v1.profile.$kFixlaufUser'), isNull,
+      expect(await raw.getString('eatova.v1.profile.$kFixlaufUser'), isNull,
           reason: 'The initiating account cache still needs deletion.');
     });
 

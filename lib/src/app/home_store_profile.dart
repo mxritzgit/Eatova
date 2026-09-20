@@ -21,6 +21,7 @@ enum ReminderState {
 mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
   ReminderState _reminderState = ReminderState.off;
   bool _onboardingDone = false;
+  Future<void>? _onboardingCompletion;
   int _notificationRevision = 0;
   int? _notificationOptInRevision;
 
@@ -275,25 +276,12 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     if (notificationsEnabled != this.notificationsEnabled) {
       unawaited(_setNotificationsEnabled(notificationsEnabled));
     }
-    final canPersistProfile = _hydratedFromRealSource;
-    _mutate(() => profile = newProfile);
-    if (sync == null) return;
-    if (!canPersistProfile) {
-      // Clobber guard (A1): without a real hydration source `profile` is just
-      // ctor defaults. A queued default op would even retry them onto the
-      // server — worse than the old direct save.
-      dev.log(
-          'ProfileSync.save uebersprungen: profile basiert auf Ctor-Defaults '
-          '(kein Server-/Cache-Hydrate) — Clobber-Schutz',
-          name: 'eatova_sync');
-      return;
+    if (sync != null && !_hydratedFromRealSource) {
+      throw StateError('Profile storage is not ready');
     }
-    unawaited(_cache?.writeProfile(newProfile) ?? Future<void>.value());
-    _syncOrQueue(
-      'Profil-Sync',
-      () => sync!.profile.save(newProfile),
-      () => SyncOp.profileUpsert(newProfile),
-    );
+    await _commitSyncIntents([
+      SyncOp.profileUpsert(newProfile),
+    ], publish: () => profile = newProfile);
   }
 
   // `resetTodayData()`/`_clearTodayState()` were removed with "reset day
@@ -307,22 +295,28 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
   /// onboarding was not just forgotten — boot read the bootstrap row, dropped
   /// the entered body data and sent the user through onboarding again. Runs
   /// through the outbox now.
-  Future<void> completeOnboarding(UserProfile finished) async {
-    if (_disposed || _onboardingDone) return;
-    _mutate(() {
-      profile = finished;
-      _onboardingDone = true;
-      // Data came from the user, not from ctor defaults — the state is a real
-      // source from here on, and so is the op below.
-      _hydratedFromRealSource = true;
-    });
-    if (sync == null) return;
-    unawaited(_cache?.writeProfile(finished) ?? Future<void>.value());
-    // Reminders are an explicit Settings opt-in, separate from profile setup.
-    _syncOrQueue(
-      'Profil-Sync (Onboarding)',
-      () => sync!.profile.save(finished),
-      () => SyncOp.profileUpsert(finished),
-    );
+  Future<void> completeOnboarding(UserProfile finished) {
+    final pending = _onboardingCompletion;
+    if (pending != null) return pending;
+    late final Future<void> completion;
+    completion =
+        Future<void>.sync(() async {
+          _ensureMutationActive();
+          if (_onboardingDone) return;
+          await _commitSyncIntents(
+            [SyncOp.profileUpsert(finished)],
+            publish: () {
+              profile = finished;
+              _onboardingDone = true;
+              _hydratedFromRealSource = true;
+            },
+          );
+        }).whenComplete(() {
+          if (identical(_onboardingCompletion, completion)) {
+            _onboardingCompletion = null;
+          }
+        });
+    _onboardingCompletion = completion;
+    return completion;
   }
 }

@@ -42,15 +42,11 @@ mixin _HomeStoreMealPlanPart
               500) {
         throw StateError('Meal plan limit reached');
       }
-      final delivery = await _confirmMutation(
-        'meal-plan',
-        SyncOp.mealPlanUpsert(validated),
-        () => sync!.mealPlans.save(validated),
+      return _commitSyncIntents(
+        [SyncOp.mealPlanUpsert(validated)],
+        notifyQueued: false,
+        publish: () => _putPlannedMeal(validated),
       );
-      _ensureMealPlanActive();
-      _mutate(() => _putPlannedMeal(validated));
-      _cacheMealPlans();
-      return delivery;
     },
   );
 
@@ -61,66 +57,58 @@ mixin _HomeStoreMealPlanPart
       _serializeMealPlan(() async {
         _ensureMealPlanActive();
         final validated = ShoppingCheck.fromJson(check.toJson());
-        final delivery = await _confirmMutation(
-          'shopping-check',
-          SyncOp.shoppingCheck(validated),
-          () => sync!.mealPlans.check(validated),
+        return _commitSyncIntents(
+          [SyncOp.shoppingCheck(validated)],
+          notifyQueued: false,
+          publish: () {
+            _shoppingChecks = {
+              ..._shoppingChecks,
+              validated.id: validated.checked,
+            };
+            _mealPlansVersion++;
+          },
         );
-        _ensureMealPlanActive();
-        _mutate(() {
-          _shoppingChecks = {
-            ..._shoppingChecks,
-            validated.id: validated.checked,
-          };
-          _mealPlansVersion++;
-        });
-        _cacheMealPlans();
-        return delivery;
       });
 
   /// One outbox intent owns the recipe snapshot, conversion receipt, diary row
   /// and server counters. Subsequent diary changes follow this UUID in FIFO.
-  Future<SyncDelivery> eatPlannedMeal(
-    String id,
-  ) => _serializeMealPlan(() async {
-    _ensureMealPlanActive();
-    final plan = _plannedMeals.where((p) => p.id == id).firstOrNull;
-    if (plan == null || plan.removed) {
-      throw StateError('Meal no longer planned');
-    }
-    if (plan.isEaten) return SyncDelivery.delivered;
-    final now = clock.now();
-    final converted = plan.copyWith(eatenAt: now);
-    final meal = LoggedMeal(
-      id: plan.id,
-      result: plan.recipe.toMealResultForServings(plan.servings, _l10n),
-      loggedAt: now,
-      localDay: localDayKey(now),
-      forcedSlot: plan.slot,
-    );
-    final op = SyncOp.mealPlanConvert(converted, meal, trackDay: true);
-    MealPlanConversion? receipt;
-    final delivery = await _confirmMutation('meal-plan-eaten', op, () async {
-      receipt = await sync!.mealPlans.convert(converted, meal, trackDay: true);
-      _reconcileMealPlanConversion(receipt!, op);
-    });
-    _ensureMealPlanActive();
-    _mutate(() {
-      if (receipt == null) _putPlannedMeal(converted);
-      if (receipt == null && !loggedMeals.any((m) => m.id == meal.id)) {
-        loggedMeals = [meal, ...loggedMeals];
-        lifetimeStats = lifetimeStats.incrementMeals().recordTrackedDay(now);
-      }
-      dailyConsumedKcal = consumedKcalForFoodDate(now);
-      macroProgress = macroProgressForFoodDate(now);
-      _invalidateTrendWindow();
-    });
-    _cacheMealPlans();
-    _cacheLoggedMeals();
-    _cacheLifetimeStats();
-    unawaited(_rescheduleStreakReminder());
-    return delivery;
-  });
+  Future<SyncDelivery> eatPlannedMeal(String id) =>
+      _serializeMealPlan(() async {
+        _ensureMealPlanActive();
+        final plan = _plannedMeals.where((p) => p.id == id).firstOrNull;
+        if (plan == null || plan.removed) {
+          throw StateError('Meal no longer planned');
+        }
+        if (plan.isEaten) return SyncDelivery.delivered;
+        final now = clock.now();
+        final converted = plan.copyWith(eatenAt: now);
+        final meal = LoggedMeal(
+          id: plan.id,
+          result: plan.recipe.toMealResultForServings(plan.servings, _l10n),
+          loggedAt: now,
+          localDay: localDayKey(now),
+          forcedSlot: plan.slot,
+        );
+        final op = SyncOp.mealPlanConvert(converted, meal, trackDay: true);
+        final delivery = await _commitSyncIntents(
+          [op],
+          notifyQueued: false,
+          publish: () {
+            _putPlannedMeal(converted);
+            if (!loggedMeals.any((m) => m.id == meal.id)) {
+              loggedMeals = [meal, ...loggedMeals];
+              lifetimeStats = lifetimeStats.incrementMeals().recordTrackedDay(
+                now,
+              );
+            }
+            dailyConsumedKcal = consumedKcalForFoodDate(now);
+            macroProgress = macroProgressForFoodDate(now);
+            _invalidateTrendWindow();
+          },
+        );
+        unawaited(_rescheduleStreakReminder());
+        return delivery;
+      });
 
   Future<void> retryMealPlans() async {
     _ensureMealPlanActive();
@@ -128,12 +116,14 @@ mixin _HomeStoreMealPlanPart
     await _loadMealPlans();
   }
 
-  Future<void> _loadMealPlans() async {
+  Future<void> _loadMealPlans({bool allowConflictRetry = true}) async {
     final s = sync;
     if (s == null || _disposed || _trainingSessionEnded) return;
     final baselinePlans = _plannedMeals;
     final baselineChecks = _shoppingChecks;
     final version = _mealPlansVersion;
+    final cacheVersionsBeforeLoad = Map<String, int>.of(_cacheObservedVersions);
+    var conflict = false;
     _mutate(() => mealPlansLoading = true);
     try {
       final data = await s.mealPlans.load();
@@ -166,7 +156,7 @@ mixin _HomeStoreMealPlanPart
         _applyPendingOpsToState();
         mealPlansLoadFailed = false;
       });
-      _cacheMealPlans();
+      conflict = await _cacheMealPlans(cacheVersionsBeforeLoad);
     } catch (_) {
       if (!_disposed && !_trainingSessionEnded) {
         _mutate(() => mealPlansLoadFailed = true);
@@ -175,6 +165,9 @@ mixin _HomeStoreMealPlanPart
       if (!_disposed && !_trainingSessionEnded) {
         _mutate(() => mealPlansLoading = false);
       }
+    }
+    if (conflict && allowConflictRetry && !_disposed && !_trainingSessionEnded) {
+      await _loadMealPlans(allowConflictRetry: false);
     }
   }
 }

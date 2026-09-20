@@ -7,6 +7,7 @@ import '../../models/user_profile.dart';
 import '../../services/kcal_calculator.dart';
 import '../../services/secure_screen.dart';
 import '../../theme/app_tokens.dart';
+import '../../widgets/common/persistence_action.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/shared/settings_sheet.dart' show SettingsResult;
 import '../../widgets/shared/target_bmi_hint.dart';
@@ -29,9 +30,11 @@ class GoalsScreen extends StatefulWidget {
     this.notificationsEnabled = false,
     this.reminderState,
     this.onOpenSystemSettings,
+    this.onSave,
   });
 
   final UserProfile profile;
+  final PersistValueChanged<SettingsResult>? onSave;
 
   /// Callers that do not know the full state pass only this flag; it maps to
   /// [ReminderState.off]/[ReminderState.active] — "blocked by the system" can
@@ -84,7 +87,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
   @override
   void initState() {
     super.initState();
-    _reminder = widget.reminderState ??
+    _reminder =
+        widget.reminderState ??
         (widget.notificationsEnabled
             ? ReminderState.active
             : ReminderState.off);
@@ -142,16 +146,16 @@ class _GoalsScreenState extends State<GoalsScreen> {
   }
 
   List<TextEditingController> get _alleFelder => <TextEditingController>[
-        _weight,
-        _height,
-        _age,
-        _steps,
-        _kcal,
-        _protein,
-        _carbs,
-        _fat,
-        _targetWeight,
-      ];
+    _weight,
+    _height,
+    _age,
+    _steps,
+    _kcal,
+    _protein,
+    _carbs,
+    _fat,
+    _targetWeight,
+  ];
 
   @override
   void dispose() {
@@ -182,22 +186,38 @@ class _GoalsScreenState extends State<GoalsScreen> {
   // The `_bereichXxx` getters interpolate their numbers from [ProfileLimits]
   // (deliberately, do NOT inline literals) via ARB keys with {min}/{max}
   // placeholders, so they can reach `context.l10n`.
-  String get _bereichKg => context.l10n
-      .settingsRangeErrorKg(ProfileLimits.weightKgMin, ProfileLimits.weightKgMax);
-  String get _bereichCm => context.l10n
-      .settingsRangeErrorCm(ProfileLimits.heightCmMin, ProfileLimits.heightCmMax);
+  String get _bereichKg => context.l10n.settingsRangeErrorKg(
+    ProfileLimits.weightKgMin,
+    ProfileLimits.weightKgMax,
+  );
+  String get _bereichCm => context.l10n.settingsRangeErrorCm(
+    ProfileLimits.heightCmMin,
+    ProfileLimits.heightCmMax,
+  );
   String get _bereichAlter => context.l10n.settingsRangeErrorYears(
-      ProfileLimits.ageYearsMin, ProfileLimits.ageYearsMax);
+    ProfileLimits.ageYearsMin,
+    ProfileLimits.ageYearsMax,
+  );
   String get _bereichSchritte => context.l10n.settingsRangeErrorSteps(
-      ProfileLimits.dailyStepsGoalMin, ProfileLimits.dailyStepsGoalMax);
+    ProfileLimits.dailyStepsGoalMin,
+    ProfileLimits.dailyStepsGoalMax,
+  );
   String get _bereichKcal => context.l10n.settingsRangeErrorKcal(
-      ProfileLimits.dailyKcalGoalMin, ProfileLimits.dailyKcalGoalMax);
+    ProfileLimits.dailyKcalGoalMin,
+    ProfileLimits.dailyKcalGoalMax,
+  );
   String get _bereichProtein => context.l10n.settingsRangeErrorGrams(
-      ProfileLimits.proteinGoalGMin, ProfileLimits.proteinGoalGMax);
+    ProfileLimits.proteinGoalGMin,
+    ProfileLimits.proteinGoalGMax,
+  );
   String get _bereichCarbs => context.l10n.settingsRangeErrorGrams(
-      ProfileLimits.carbsGoalGMin, ProfileLimits.carbsGoalGMax);
-  String get _bereichFett => context.l10n
-      .settingsRangeErrorGrams(ProfileLimits.fatGoalGMin, ProfileLimits.fatGoalGMax);
+    ProfileLimits.carbsGoalGMin,
+    ProfileLimits.carbsGoalGMax,
+  );
+  String get _bereichFett => context.l10n.settingsRangeErrorGrams(
+    ProfileLimits.fatGoalGMin,
+    ProfileLimits.fatGoalGMax,
+  );
 
   /// Error text for the field, or `null` if the value may go to the DB.
   String? _fehler(
@@ -284,18 +304,18 @@ class _GoalsScreenState extends State<GoalsScreen> {
   /// Hidden fields do not count: in live mode kcal and macros come from the
   /// calculation, which respects its own bounds.
   bool get _hatFehler => <String?>[
-        _weightError,
-        _heightError,
-        _ageError,
-        _targetWeightError,
-        _stepsError,
-        if (_manualEnergy) ...<String?>[
-          _kcalError,
-          _proteinError,
-          _carbsError,
-          _fatError,
-        ],
-      ].any((f) => f != null);
+    _weightError,
+    _heightError,
+    _ageError,
+    _targetWeightError,
+    _stepsError,
+    if (_manualEnergy) ...<String?>[
+      _kcalError,
+      _proteinError,
+      _carbsError,
+      _fatError,
+    ],
+  ].any((f) => f != null);
 
   /// The field value if valid, else [fallback].
   ///
@@ -368,8 +388,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
     // Through the same derivation as the plan hero (calculate() reads the
     // effective goal): while the target is reached, picking a pace changes
     // nothing, and a row promising a deficit would be a button that lies.
-    final t = const KcalCalculator()
-        .calculate(_draftForCalc().copyWith(weightGoal: option));
+    final t = const KcalCalculator().calculate(
+      _draftForCalc().copyWith(weightGoal: option),
+    );
     return l10n.commonKcalOutcomeLabel(t.kcal, t.effectivePaceLabel(l10n));
   }
 
@@ -399,19 +420,25 @@ class _GoalsScreenState extends State<GoalsScreen> {
     // Water and sleep goals are no longer editable (F7-06: nothing reads
     // them), so they pass through unchanged as well.
     return _draftForCalc().copyWith(
-      dailyStepsGoal: _wertOder(_steps, isValidDailyStepsGoal, p.dailyStepsGoal),
+      dailyStepsGoal: _wertOder(
+        _steps,
+        isValidDailyStepsGoal,
+        p.dailyStepsGoal,
+      ),
       // Explicit in both directions: live -> false, manual -> true.
       manualEnergy: _manualEnergy,
-      dailyKcalGoal:
-          _manualEnergy ? _wertOder(_kcal, isValidDailyKcalGoal, t.kcal) : t.kcal,
+      dailyKcalGoal: _manualEnergy
+          ? _wertOder(_kcal, isValidDailyKcalGoal, t.kcal)
+          : t.kcal,
       proteinGoalG: _manualEnergy
           ? _wertOder(_protein, isValidProteinGoalG, t.proteinG)
           : t.proteinG,
       carbsGoalG: _manualEnergy
           ? _wertOder(_carbs, isValidCarbsGoalG, t.carbsG)
           : t.carbsG,
-      fatGoalG:
-          _manualEnergy ? _wertOder(_fat, isValidFatGoalG, t.fatG) : t.fatG,
+      fatGoalG: _manualEnergy
+          ? _wertOder(_fat, isValidFatGoalG, t.fatG)
+          : t.fatG,
     );
   }
 
@@ -424,7 +451,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
   /// device setting, is persisted immediately and cannot be discarded.
   bool get _dirty {
     final p = widget.profile;
-    if (_sex != p.sex || _activity != p.activityLevel || _goal != p.weightGoal) {
+    if (_sex != p.sex ||
+        _activity != p.activityLevel ||
+        _goal != p.weightGoal) {
       return true;
     }
     if (_manualEnergy != _manualStart) return true;
@@ -438,6 +467,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
   bool _discardDialogOpen = false;
 
   Future<void> _askDiscard() async {
+    if (_saving) return;
     if (_discardDialogOpen) return;
     _discardDialogOpen = true;
     final verwerfen = await _confirmDiscardChanges(context);
@@ -451,10 +481,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
   /// Text for the current reminder state (D11). Three states, three sentences;
   /// "blocked" is a system setting, not an error.
   String get _reminderText => switch (_reminder) {
-        ReminderState.off => context.l10n.goalsReminderTextOff,
-        ReminderState.active => context.l10n.goalsReminderTextActive,
-        ReminderState.blocked => context.l10n.goalsReminderTextBlocked,
-      };
+    ReminderState.off => context.l10n.goalsReminderTextOff,
+    ReminderState.active => context.l10n.goalsReminderTextActive,
+    ReminderState.blocked => context.l10n.goalsReminderTextBlocked,
+  };
 
   /// In live mode, refill the energy fields from the fresh calculation to keep
   /// the page consistent, then redraw.
@@ -482,15 +512,22 @@ class _GoalsScreenState extends State<GoalsScreen> {
     });
   }
 
-  void _save() {
-    Navigator.pop(
-      context,
-      SettingsResult(
-        profile: _buildProfile(),
-        // D11: only "active" means a reminder actually fires in the evening.
-        notificationsEnabled: _reminder == ReminderState.active,
-      ),
+  bool _saving = false;
+
+  Future<void> _save() async {
+    if (_saving || _hatFehler) return;
+    final result = SettingsResult(
+      profile: _buildProfile(),
+      // D11: only "active" means a reminder actually fires in the evening.
+      notificationsEnabled: _reminder == ReminderState.active,
     );
+    setState(() => _saving = true);
+    final saved = await tryPersistChange(context, () async {
+      await widget.onSave?.call(result);
+    });
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (saved) Navigator.pop(context, result);
   }
 
   Future<void> _pickSex() async {
@@ -519,7 +556,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => CommitDismissGuard(
+    pending: _saving,
+    child: _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
     final ziele = _liveTargets;
@@ -532,8 +574,9 @@ class _GoalsScreenState extends State<GoalsScreen> {
     final heroCarbs = _manualEnergy
         ? _wertOder(_carbs, isValidCarbsGoalG, ziele.carbsG)
         : ziele.carbsG;
-    final heroFat =
-        _manualEnergy ? _wertOder(_fat, isValidFatGoalG, ziele.fatG) : ziele.fatG;
+    final heroFat = _manualEnergy
+        ? _wertOder(_fat, isValidFatGoalG, ziele.fatG)
+        : ziele.fatG;
 
     return PopScope<SettingsResult>(
       // D5: back button and system back both go through Navigator.maybePop and
@@ -608,7 +651,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                         key: const ValueKey('settings-save'),
                         label: l10n.commonSave,
                         icon: Icons.check_rounded,
-                        onTap: _hatFehler ? null : _save,
+                        onTap: _hatFehler || _saving ? null : _save,
                       ),
                     ),
                   ),
@@ -682,10 +725,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
     // Soft, non-blocking BMI hint — same bounds as the onboarding goal step
     // (below 18.5 / above 35). Visibility is decided here so SettingsGroup
     // does not draw a divider around an empty child.
-    final zeigtBmiHinweis = targetBmiHintText(
-          heightCm: bmiHeight,
-          targetWeightKg: bmiTarget,
-        ) !=
+    final zeigtBmiHinweis =
+        targetBmiHintText(heightCm: bmiHeight, targetWeightKg: bmiTarget) !=
         null;
     final abweichung = _zielAbweichung(tagesziel: heroKcal, t: ziele);
     final zielErreicht = _zielErreichtHinweis;
@@ -698,7 +739,8 @@ class _GoalsScreenState extends State<GoalsScreen> {
             key: const ValueKey('settings-activity'),
             title: l10n.goalsFieldActivity,
             subtitle: l10n.goalsFieldActivitySubtitle,
-            value: '${_activity.label(l10n)} · ×${formatPalFactor(_activity, l10n)}',
+            value:
+                '${_activity.label(l10n)} · ×${formatPalFactor(_activity, l10n)}',
             onTap: _pickActivity,
           ),
           SettingsNumberRow(
@@ -874,10 +916,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
             onTap: _reminder == ReminderState.blocked
                 ? null
                 : () => setState(
-                      () => _reminder = _reminder == ReminderState.active
-                          ? ReminderState.off
-                          : ReminderState.active,
-                    ),
+                    () => _reminder = _reminder == ReminderState.active
+                        ? ReminderState.off
+                        : ReminderState.active,
+                  ),
             trailing: AppToggle(
               key: const ValueKey('settings-notifications'),
               value: _reminder == ReminderState.active,
@@ -889,8 +931,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
                   ? l10n.goalsReminderBlockedSemantics
                   : l10n.goalsReminderActiveSemantics,
               onChanged: (v) => setState(
-                () => _reminder =
-                    v ? ReminderState.active : ReminderState.off,
+                () => _reminder = v ? ReminderState.active : ReminderState.off,
               ),
             ),
           ),

@@ -12,6 +12,7 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:eatova/src/services/trend_service.dart';
+import 'package:eatova/src/services/sync_outbox.dart';
 
 import 'fixlauf_a_helpers.dart' show StummerFotoStore;
 import 'outbox/outbox_test_helpers.dart';
@@ -23,9 +24,9 @@ const _profile = UserProfile(
 );
 final _now = DateTime(2026, 9, 8, 12);
 
-/// Holds only the first stats response; the shared server retains RPC dedup.
-class _HeldStatsServer extends FakeServer {
-  _HeldStatsServer({this.applyBeforeReply = false});
+/// Holds the first atomic meal/counter response; receipts stay on the server.
+class _HeldInsertServer extends FakeServer {
+  _HeldInsertServer({this.applyBeforeReply = false});
 
   final bool applyBeforeReply;
   final Completer<bool> reply = Completer<bool>();
@@ -42,10 +43,11 @@ class _HeldStatsServer extends FakeServer {
         return http.Response.fromStream(await delegate.send(copy));
       }
 
-      if (request.url.path.endsWith('/rpc/increment_lifetime_stats') &&
+      if (request.url.path.endsWith('/rpc/apply_sync_operation') &&
+          (jsonDecode(request.body) as Map)['p_kind'] == 'mealInsert' &&
           heldRequestId == null) {
         heldRequestId =
-            (jsonDecode(request.body) as Map)['p_request_id'] as String;
+            (jsonDecode(request.body) as Map)['p_operation_id'] as String;
         final landed = applyBeforeReply ? await forward() : null;
         if (!await reply.future) throw http.ClientException('connection lost');
         return landed ?? await forward();
@@ -72,28 +74,40 @@ void main() {
   tearDown(TrendTotalsCache.instance.invalidate);
 
   for (final alreadyLanded in [false, true]) {
-    test('laufender Stats-Flush bleibt beim Logout bis zur Deadline erhalten '
+    test('Logout behaelt atomaren Meal/Counter-Intent bis zum bestaetigten Ack '
         '(serverseitig gebucht: $alreadyLanded)', () {
       fakeAsync((async) {
-        final server = _HeldStatsServer(applyBeforeReply: alreadyLanded)
+        final server = _HeldInsertServer(applyBeforeReply: alreadyLanded)
           ..profileRow = serverProfileRow(_profile);
         final kv = InMemoryKeyValueStore();
         final first = setup(
           kv: kv,
           geteilterServer: server,
           disposeClient: false,
+          disposeStore: false,
         );
         _bootInFakeTime(first.store, async);
-        first.store.addResultToDailyTotal(mealResult('Bowl'));
+        String? mealId;
+        first.store
+            .addResultToDailyTotal(mealResult('Bowl'))
+            .then((id) => mealId = id);
         async.flushMicrotasks();
-        async.elapse(const Duration(milliseconds: 600));
+        async.elapse(kSyncDeliveryWindow);
         async.flushMicrotasks();
         expect(
-          server.heldRequestId,
+          mealId,
           isNotNull,
-          reason: 'der Debounce hat den Flush VOR dem Logout gestartet',
+          reason: 'lokal bestaetigtes Speichern wartet nicht auf HTTP',
         );
-        expect(first.store.pendingOutbox, isEmpty);
+        expect(server.heldRequestId, isNotNull);
+        final queuedIds = first.store.pendingOutbox
+            .map((op) => op.operationId)
+            .toSet();
+        expect(first.store.pendingOutbox.map((op) => op.kind), [
+          SyncOpKind.mealInsert,
+          SyncOpKind.favoriteUpsert,
+        ]);
+        expect(server.mealsCounted, alreadyLanded ? 1 : 0);
 
         var signedOut = false;
         first.store.signOutCleanup().then((_) => signedOut = true);
@@ -101,70 +115,86 @@ void main() {
         async.elapse(kSignOutDeliveryBudget + const Duration(milliseconds: 1));
         async.flushMicrotasks();
         expect(signedOut, isTrue, reason: 'Logout bleibt zeitlich begrenzt');
-
-        ({int meals, int weightLogs, String? requestId})? pending;
-        first.cache.readPendingStatsDeltas().then((value) => pending = value);
+        List<SyncOp>? pending;
+        first.cache.readOutbox().then((value) => pending = value);
         async.flushMicrotasks();
-        expect(pending?.meals, 1);
-        expect(pending?.requestId, server.heldRequestId);
+        expect(pending!.map((op) => op.operationId).toSet(), queuedIds);
+        expect(
+          pending!
+              .singleWhere((op) => op.kind == SyncOpKind.mealInsert)
+              .operationId,
+          server.heldRequestId,
+        );
         expect(
           kv.snapshot.keys,
           isNot(contains('eatova.v1.profile.user-outbox')),
         );
 
-        // A late failed response must not re-add the deadline's bundle.
         server.reply.complete(false);
         async.flushMicrotasks();
-        first.cache.readPendingStatsDeltas().then((value) => pending = value);
+        first.cache.readOutbox().then((value) => pending = value);
         async.flushMicrotasks();
-        expect(pending?.meals, 1);
-
+        expect(
+          pending!.map((op) => op.operationId).toSet(),
+          queuedIds,
+          reason: 'spaeter Fehler dupliziert den Intent nicht',
+        );
+        first.store.dispose();
         final second = setup(
           kv: kv,
           geteilterServer: server,
           disposeClient: false,
         );
         _bootInFakeTime(second.store, async);
+        expect(server.mealRows.keys, [mealId]);
         expect(
           server.mealsCounted,
           1,
-          reason: 'Restart liefert genau einmal, auch bei verlorener Antwort',
+          reason:
+              'Restart liefert Meal und Counter genau einmal, auch bei verlorenem Ack',
         );
-        expect(server.statsRequestIds.last, server.heldRequestId);
+        final ids = server
+            .operations('mealInsert')
+            .map((r) => (jsonDecode(r.body) as Map)['p_operation_id'])
+            .toSet();
+        expect(ids, {server.heldRequestId});
+        expect(second.store.pendingOutbox, isEmpty);
       }, initialTime: _now);
     });
   }
 
-  test('laufender Stats-Flush wird vor Logout erfolgreich bestaetigt', () {
-    fakeAsync((async) {
-      final server = _HeldStatsServer()
-        ..profileRow = serverProfileRow(_profile);
-      final s = setup(geteilterServer: server, disposeClient: false);
-      _bootInFakeTime(s.store, async);
-      s.store.addResultToDailyTotal(mealResult('Bowl'));
-      async.flushMicrotasks();
-      async.elapse(const Duration(milliseconds: 600));
-      async.flushMicrotasks();
-      expect(server.heldRequestId, isNotNull);
-
-      var signedOut = false;
-      s.store.signOutCleanup().then((_) => signedOut = true);
-      async.flushMicrotasks();
-      expect(signedOut, isFalse);
-      server.reply.complete(true);
-      async.flushMicrotasks();
-      expect(signedOut, isTrue);
-      expect(server.mealsCounted, 1);
-      ({int meals, int weightLogs, String? requestId})? pending;
-      s.cache.readPendingStatsDeltas().then((value) => pending = value);
-      async.flushMicrotasks();
-      expect(
-        pending,
-        isNull,
-        reason: 'bestaetigte Deltas brauchen beim Logout keinen Sync-Slot',
-      );
-    }, initialTime: _now);
-  });
+  test(
+    'vor Logout bestaetigter atomarer Meal/Counter-Commit braucht kein Replay',
+    () {
+      fakeAsync((async) {
+        final server = _HeldInsertServer()
+          ..profileRow = serverProfileRow(_profile);
+        final s = setup(geteilterServer: server, disposeClient: false);
+        _bootInFakeTime(s.store, async);
+        var saved = false;
+        s.store
+            .addResultToDailyTotal(mealResult('Bowl'))
+            .then((_) => saved = true);
+        async.flushMicrotasks();
+        expect(server.heldRequestId, isNotNull);
+        expect(saved, isFalse);
+        server.reply.complete(true);
+        async.flushMicrotasks();
+        expect(saved, isTrue);
+        expect(server.mealsCounted, 1);
+        expect(s.store.pendingOutbox, isEmpty);
+        var signedOut = false;
+        s.store.signOutCleanup().then((_) => signedOut = true);
+        async.flushMicrotasks();
+        expect(signedOut, isTrue);
+        List<SyncOp>? pending;
+        s.cache.readOutbox().then((value) => pending = value);
+        async.flushMicrotasks();
+        expect(pending, isEmpty);
+        expect(server.operations('mealInsert'), hasLength(1));
+      }, initialTime: _now);
+    },
+  );
 
   for (final deletion in [false, true]) {
     test('Trend-Cache aus laufendem Replay wird nach Zustellung verworfen '
@@ -174,33 +204,20 @@ void main() {
         final s = setup(geteilterServer: server);
         await bootUntilIdle(s.store);
         server.offline = !deletion;
-        final id = s.store.addResultToDailyTotal(mealResult('Bowl'));
+        final id = await s.store.addResultToDailyTotal(mealResult('Bowl'));
         await settle();
         if (deletion) {
           server.offline = true;
-          s.store.removeLoggedMeal(id);
+          await s.store.removeLoggedMeal(id);
           await settle();
         }
         expect(s.store.pendingOutbox, isNotEmpty);
-        final previousWrites = server.requests
-            .where(
-              (r) => r.url.path.endsWith('/logged_meals') && r.method != 'GET',
-            )
-            .length;
+        final kind = deletion ? 'mealDelete' : 'mealInsert';
+        final previousWrites = server.operations(kind).length;
         server.offline = false;
         server.holdMealWrites();
         s.store.flushPendingWrites();
-        await pumpUntil(
-          () =>
-              server.requests
-                  .where(
-                    (r) =>
-                        r.url.path.endsWith('/logged_meals') &&
-                        r.method != 'GET',
-                  )
-                  .length >
-              previousWrites,
-        );
+        await pumpUntil(() => server.operations(kind).length > previousWrites);
         expect(
           server.mealRows.containsKey(id),
           deletion,

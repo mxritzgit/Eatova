@@ -1,4 +1,5 @@
 import '../l10n/l10n.dart';
+import '../services/uuid.dart';
 import 'macro_progress.dart';
 import 'meal_analysis_result.dart';
 import 'model_limits.dart';
@@ -72,9 +73,14 @@ class FitnessRecipe {
     this.userCreated = false,
     this.structuredIngredients = const [],
     this.batchServings = 1,
+    this.serverRevision,
+    this.conflictOf,
   });
 
   final String slug;
+  /// Null is an unversioned legacy draft; zero is an explicit new identity.
+  final int? serverRevision;
+  final String? conflictOf;
   final String title;
   final String description;
   final String portion;
@@ -111,6 +117,9 @@ class FitnessRecipe {
   }
 
   FitnessRecipe copyWith({
+    String? slug,
+    int? serverRevision,
+    String? conflictOf,
     String? title,
     String? description,
     String? portion,
@@ -127,7 +136,9 @@ class FitnessRecipe {
     List<RecipeIngredient>? structuredIngredients,
     double? batchServings,
   }) => FitnessRecipe(
-    slug: slug,
+    slug: slug ?? this.slug,
+    serverRevision: serverRevision ?? this.serverRevision,
+    conflictOf: conflictOf ?? this.conflictOf,
     title: title ?? this.title,
     description: description ?? this.description,
     portion: portion ?? this.portion,
@@ -236,10 +247,8 @@ class FitnessRecipe {
     };
   }
 
-  /// Stable slug for a newly created user recipe: `user_<ms>`, same convention
-  /// as the create sheet.
-  static String userRecipeSlug() =>
-      'user_${DateTime.now().millisecondsSinceEpoch}';
+  /// Random identity also separates simultaneous creations on two devices.
+  static String userRecipeSlug() => 'user_${uuidV4()}';
 
   /// Slug for a recipe adopted from a /recipe card, derived deterministically
   /// from the chat message id so the "added" state survives restart and sync,
@@ -260,6 +269,8 @@ class FitnessRecipe {
     final known = calculated?.knownNutrition;
     return <String, dynamic>{
       'slug': slug,
+      if (serverRevision != null) 'server_revision': serverRevision,
+      if (conflictOf != null) 'conflict_of': conflictOf,
       'title': title,
       'description': description,
       'portion': portion,
@@ -285,6 +296,12 @@ class FitnessRecipe {
   /// at render time, rather than a hardcoded German placeholder.
   /// userCreated is true by definition: every row here is user-made.
   factory FitnessRecipe.fromRow(Map<String, dynamic> row) {
+    final revision = row['server_revision'];
+    final conflict = row['conflict_of'];
+    if ((revision != null && (revision is! int || revision < 0)) ||
+        (conflict != null && (conflict is! String || conflict.isEmpty))) {
+      throw const FormatException('Invalid recipe revision');
+    }
     final ingredients = RecipeIngredient.listFromJson(
       row.containsKey('structured_ingredients')
           ? row['structured_ingredients'] ?? false
@@ -316,6 +333,8 @@ class FitnessRecipe {
     }
     return FitnessRecipe(
       slug: slug,
+      serverRevision: revision as int?,
+      conflictOf: conflict as String?,
       title: row['title']?.toString() ?? 'Eigenes Rezept',
       description: row['description']?.toString() ?? '',
       portion: row['portion']?.toString() ?? '',

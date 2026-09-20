@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -21,8 +22,36 @@ import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
 import '../outbox/outbox_test_helpers.dart' as h;
-import '../services/user_rpc_test.dart' show signIn;
+import '../support/sync_session_fixture.dart';
+import '../support/sync_operation_fake.dart';
+import '../support/atomic_store_faults.dart';
 import 'training_timer_fixtures.dart';
+
+class _ScopedRows extends MapBase<String, Map<String, dynamic>> {
+  _ScopedRows(this.rows, this.owner);
+  final Map<String, Map<String, dynamic>> rows;
+  final String owner;
+
+  @override
+  Map<String, dynamic>? operator [](Object? key) => rows['$owner:$key'];
+  @override
+  void operator []=(String key, Map<String, dynamic> value) {
+    rows['$owner:$key'] = {...value, 'user_id': owner};
+  }
+
+  @override
+  Iterable<String> get keys => rows.keys
+      .where((key) => key.startsWith('$owner:'))
+      .map((key) => key.substring(owner.length + 1));
+  @override
+  Map<String, dynamic>? remove(Object? key) => rows.remove('$owner:$key');
+  @override
+  void clear() {
+    for (final key in keys.toList()) {
+      remove(key);
+    }
+  }
+}
 
 class _Server {
   bool offline = false;
@@ -36,6 +65,22 @@ class _Server {
   final rows = <String, Map<String, dynamic>>{};
   final requests = <http.Request>[];
   final deleted = <String>{};
+  final operations = <String, SyncOperationFake>{};
+  SyncOperationFake _operations(String owner) => operations.putIfAbsent(
+    owner,
+    () => SyncOperationFake(
+      meals: {},
+      weights: {},
+      favorites: {},
+      recipes: {},
+      trainingHistory: _ScopedRows(rows, owner),
+      readProfile: () => null,
+      writeProfile: (_) {},
+      readStats: () => {},
+      incrementStats: (_, _, _) {},
+      recordDay: (_) {},
+    ),
+  );
   Future<http.Response> handle(http.Request request) async {
     requests.add(request);
     if (failLoads && request.method == 'GET') {
@@ -47,10 +92,18 @@ class _Server {
       );
     }
     if (offline) throw http.ClientException('fixture offline');
+    final params = request.url.path.endsWith('/rpc/apply_sync_operation')
+        ? (jsonDecode(request.body) as Map).cast<String, dynamic>()
+        : null;
+    final kind = params?['p_kind'];
     Object? result = [];
     final isHistory = request.url.path.endsWith('/training_history');
-    final isRecord = request.url.path.endsWith('/rpc/record_training_history');
-    final isDelete = request.url.path.endsWith('/rpc/delete_training_history');
+    final isRecord =
+        request.url.path.endsWith('/rpc/record_training_history') ||
+        kind == 'trainingHistoryInsert';
+    final isDelete =
+        request.url.path.endsWith('/rpc/delete_training_history') ||
+        kind == 'trainingHistoryDelete';
     if (isRecord || isDelete) {
       if (offline) throw http.ClientException('fixture offline');
       if (rejectHistory) {
@@ -63,7 +116,7 @@ class _Server {
       }
       if (!entered.isCompleted) entered.complete();
       await hold?.future;
-      final params = jsonDecode(request.body) as Map<String, dynamic>;
+      final body = params ?? jsonDecode(request.body) as Map<String, dynamic>;
       final bearer =
           request.headers['Authorization'] ??
           request.headers['authorization'] ??
@@ -78,17 +131,31 @@ class _Server {
                     as Map)['sub']
                 as String
           : 'A';
-      final key = '$owner:${params['p_id']}';
-      if (isRecord) {
+      final key = '$owner:${body[params == null ? 'p_id' : 'p_entity_id']}';
+      if (params != null) {
+        final sync = _operations(owner);
+        for (final deletedKey in deleted.where(
+          (key) => key.startsWith('$owner:'),
+        )) {
+          sync.deleted.add(
+            'training_history:${deletedKey.substring(owner.length + 1)}',
+          );
+        }
+        result = sync.apply(params);
+        if (isDelete) deleted.add(key);
+        if (isRecord && ambiguous) {
+          throw http.ClientException('fixture lost response');
+        }
+      } else if (isRecord) {
         result = !deleted.contains(key);
         if (result == true) {
           rows.putIfAbsent(
             key,
             () => {
               'user_id': owner,
-              'id': params['p_id'],
-              'finished_at': params['p_finished_at'],
-              'session': params['p_session'],
+              'id': body['p_id'],
+              'finished_at': body['p_finished_at'],
+              'session': body['p_session'],
             },
           );
         }
@@ -100,6 +167,8 @@ class _Server {
         rows.remove(key);
         result = null;
       }
+    } else if (params != null) {
+      result = _operations('A').apply(params);
     } else if (isHistory) {
       final owner = request.url.queryParameters['user_id']!.substring(3);
       result = hideHistory
@@ -117,14 +186,57 @@ class _Server {
     return http.Response(
       jsonEncode(result),
       200,
-      headers: {'content-type': 'application/json'},
+      headers: {'content-type': 'application/json; charset=utf-8'},
       request: request,
     );
   }
 }
 
 class _Cache extends LocalCache {
-  _Cache(super.store, super.userId);
+  _Cache(KeyValueStore store, String userId)
+    : this._(AtomicStoreFaults(store), userId);
+  _Cache._(this.faults, String userId) : super(faults, userId) {
+    faults.beforeRead = (keys) async {
+      if (keys.any((key) => key.contains('.training_history_deletions.'))) {
+        if (failDeletionRead) {
+          throw StateError('fixture receipt read unavailable');
+        }
+        await holdDeletionRead?.future;
+      }
+      if (failSessionRead &&
+          keys.any((key) => key.contains('.training_session.'))) {
+        throw StateError('fixture checkpoint read unavailable');
+      }
+    };
+    faults.beforeWrite = (changes) async {
+      final outbox = changes['eatova.v1.outbox.$userId'];
+      final pending = outbox == null
+          ? <dynamic>[]
+          : (jsonDecode(outbox) as Map)['items'] as List;
+      if (pending.any(
+        (op) =>
+            op['kind'] == 'trainingHistoryInsert' ||
+            op['kind'] == 'trainingHistoryDelete',
+      )) {
+        if (!entered.isCompleted) entered.complete();
+        await holdOutbox?.future;
+        if (failOutbox) throw StateError('fixture transaction unavailable');
+      }
+      if (failDeletionReceipt &&
+          changes.containsKey('eatova.v1.training_history_deletions.$userId')) {
+        throw StateError('fixture deletion receipt unavailable');
+      }
+      if (failClear &&
+          changes.containsKey('eatova.v1.training_session.$userId') &&
+          (changes['eatova.v1.training_session.$userId'] == null ||
+              (jsonDecode(changes['eatova.v1.training_session.$userId']!)
+                      as Map)['snapshot'] ==
+                  null)) {
+        throw StateError('fixture checkpoint retirement unavailable');
+      }
+    };
+  }
+  final AtomicStoreFaults faults;
   bool failOutbox = false;
   bool failClear = false;
   bool failDeletionReceipt = false;
@@ -149,49 +261,26 @@ class _Cache extends LocalCache {
     return super.readTrainingSession(requireReadable: requireReadable);
   }
 
-  bool failHistoryMirror = false;
-
-  @override
-  Future<bool> rememberTrainingHistoryDeletion(String id) => failDeletionReceipt
-      ? Future.value(false)
-      : super.rememberTrainingHistoryDeletion(id);
-
-  @override
-  Future<void> writeTrainingHistory(List<TrainingHistoryEntry> value) =>
-      failHistoryMirror ? Future.value() : super.writeTrainingHistory(value);
-
   Completer<void>? holdOutbox;
   final entered = Completer<void>();
-  @override
-  Future<bool> writeOutbox(List<SyncOp> ops) async {
-    if (ops.any(
-      (op) =>
-          op.kind == SyncOpKind.trainingHistoryInsert ||
-          op.kind == SyncOpKind.trainingHistoryDelete,
-    )) {
-      if (!entered.isCompleted) entered.complete();
-      await holdOutbox?.future;
-      if (failOutbox) return false;
-    }
-    return super.writeOutbox(ops);
-  }
-
-  @override
-  Future<bool> writeTrainingSession(TrainingSessionSnapshot? value) =>
-      value == null && failClear
-      ? Future.value(false)
-      : super.writeTrainingSession(value);
 }
 
 class _Harness {
-  _Harness(this.server, {required KeyValueStore storage, this.owner = 'A'}) {
+  _Harness(
+    this.server, {
+    required KeyValueStore storage,
+    this.owner = 'A',
+    SupabaseClient? clientOverride,
+  }) {
     cache = _Cache(storage, owner);
-    client = SupabaseClient(
-      'https://ci.invalid',
-      'ci-dummy-key',
-      httpClient: MockClient(server.handle),
-      authOptions: const AuthClientOptions(autoRefreshToken: false),
-    );
+    client =
+        clientOverride ??
+        SupabaseClient(
+          'https://ci.invalid',
+          'ci-dummy-key',
+          httpClient: MockClient(server.handle),
+          authOptions: const AuthClientOptions(autoRefreshToken: false),
+        );
     store = HomeStore(
       sync: EatovaSync.forUser(client, owner),
       health: const NoopHealthService(),
@@ -211,6 +300,7 @@ class _Harness {
   late final SupabaseClient client;
   late final HomeStore store;
   bool _disposed = false;
+  int generation = 0;
   void dispose() {
     if (!_disposed) {
       _disposed = true;
@@ -222,6 +312,7 @@ class _Harness {
     await cache.writeProfile(const UserProfile(onboardingCompleted: true));
     await h.bootUntilIdle(store);
     await store.saveTrainingPlan(timerPlan());
+    generation = store.trainingSessionGeneration;
   }
 
   Future<void> settle() async {
@@ -286,7 +377,7 @@ void main() {
       final entry = _entry();
       final delivery = await first.store.completeTrainingSession(
         entry,
-        generation: 0,
+        generation: first.generation,
       );
       expect(delivery, isNot(SyncDelivery.delivered));
       expect(first.store.trainingHistory.single.id, entry.id);
@@ -307,11 +398,11 @@ void main() {
       expect(reboot.store.trainingSession, isNull);
       server.offline = false;
       server.ambiguous = true;
-      reboot.store.flushPendingWrites();
+      await reboot.store.syncPendingWrites();
       await reboot.settle();
       expect(server.rows.length, 1);
       server.ambiguous = false;
-      reboot.store.flushPendingWrites();
+      await reboot.store.syncPendingWrites();
       await reboot.settle();
       expect(server.rows.length, 1);
       expect(reboot.store.trainingHistory.length, 1);
@@ -331,45 +422,47 @@ void main() {
         ..hideHistory = true;
       final env = _Harness(server, storage: raw);
       await env.boot();
-      env.cache.failOutbox = true;
       final original = _entry();
       final entry = TrainingHistoryEntry(
         snapshot: original.snapshot,
         finishedAt: original.finishedAt,
         note: 'Keep these exact values',
       );
-      await expectLater(
-        env.store.completeTrainingSession(entry, generation: 0),
-        throwsStateError,
+      final delivery = await env.store.completeTrainingSession(
+        entry,
+        generation: env.generation,
       );
-      final recovery = (await env.cache.readTrainingSession())!;
+      expect(delivery, isNot(SyncDelivery.delivered));
       expect(
-        TrainingHistoryEntry.fromRecovery(recovery).toRow(),
+        (await env.cache.readTrainingHistory())!.single.toRow(),
         entry.toRow(),
       );
+      final pending = (await env.cache.readOutbox())!.singleWhere(
+        (op) => op.kind == SyncOpKind.trainingHistoryInsert,
+      );
+      expect(pending.trainingHistory!.toRow(), entry.toRow());
       expect(server.rows.values.single['session'], entry.toRow()['session']);
-      await expectLater(env.store.saveTrainingSession(null), throwsStateError);
+      await env.store.saveTrainingSession(null);
       await env.store.deleteTrainingPlan(entry.snapshot.plan.id);
-      expect(env.store.trainingSession?.sessionId, entry.id);
+      expect(env.store.trainingSession, isNull);
       await env.settle();
       env.dispose();
       final reboot = _Harness(server, storage: raw);
       await reboot.boot();
-      final restored = TrainingHistoryEntry.fromRecovery(
-        reboot.store.trainingSession!,
-      );
+      final restored = reboot.store.trainingHistory.single;
       expect(restored.toRow(), entry.toRow());
       final changed = TrainingHistoryEntry(
         snapshot: original.snapshot,
         finishedAt: original.finishedAt,
         note: 'Changed after request',
       );
-      await expectLater(
-        reboot.store.completeTrainingSession(changed, generation: 0),
-        throwsStateError,
+      await reboot.store.completeTrainingSession(
+        changed,
+        generation: reboot.generation,
       );
+      expect(reboot.store.trainingHistory.single.toRow(), entry.toRow());
       server.ambiguous = false;
-      await reboot.store.completeTrainingSession(restored, generation: 0);
+      await reboot.store.syncPendingWrites();
       expect(reboot.store.trainingHistory.single.toRow(), entry.toRow());
       expect(server.rows.length, 1);
       expect(await reboot.cache.readTrainingSession(), isNull);
@@ -377,13 +470,17 @@ void main() {
   );
 
   test(
-    'acknowledged history with failed cleanup permits the next workout',
+    'completion atomically retires recovery and permits the next workout',
     () async {
       final env = _Harness(_Server(), storage: InMemoryKeyValueStore());
       await env.boot();
-      env.cache.failClear = true;
       final first = _entry();
-      await env.store.completeTrainingSession(first, generation: 0);
+      await env.store.saveTrainingSession(first.snapshot);
+      await env.store.completeTrainingSession(
+        first,
+        generation: env.generation,
+      );
+      expect(await env.cache.readTrainingSession(), isNull);
       final next = _entry();
       await env.store.saveTrainingSession(next.snapshot);
       expect(env.store.trainingSession?.sessionId, next.id);
@@ -403,7 +500,10 @@ void main() {
       final deviceA = _Harness(server, storage: storageA);
       await deviceA.boot();
       final entry = _entry();
-      await deviceA.store.completeTrainingSession(entry, generation: 0);
+      await deviceA.store.completeTrainingSession(
+        entry,
+        generation: deviceA.generation,
+      );
       expect(
         (await deviceA.cache.readOutbox())!.where(
           (op) => op.kind == SyncOpKind.trainingHistoryInsert,
@@ -418,7 +518,7 @@ void main() {
       await deviceB.store.deleteTrainingHistory(entry.id);
       expect(server.rows, isEmpty);
       expect(server.deleted, {'A:${entry.id}'});
-      deviceA.store.flushPendingWrites();
+      await deviceA.store.syncPendingWrites();
       await deviceA.settle();
       expect(server.rows, isEmpty);
       expect(deviceA.store.trainingHistory, isEmpty);
@@ -445,27 +545,28 @@ void main() {
         ..seedPlan = true;
       final a = _Harness(server, storage: storage);
       await a.boot();
-      a.cache.failClear = true;
       final entry = _entry();
-      await a.store.completeTrainingSession(entry, generation: 0);
+      await a.store.completeTrainingSession(entry, generation: a.generation);
       await a.settle();
+      // Imported legacy mirrors can still contain an already completed player.
+      await a.cache.writeTrainingSession(entry.recoverySnapshot());
       expect((await a.cache.readTrainingSession())?.sessionId, entry.id);
       expect((await a.cache.readTrainingHistory())!.single.id, entry.id);
       server.ambiguous = false;
       final b = _Harness(server, storage: InMemoryKeyValueStore());
       await b.boot();
       await b.store.deleteTrainingHistory(entry.id);
-      a.cache.failHistoryMirror = true;
-      a.store.flushPendingWrites();
+      await a.store.syncPendingWrites();
       await a.settle();
       expect(await a.cache.readOutbox(), isEmpty);
-      // Both old payloads deliberately remain on disk: the receipt is the guard.
+      // Simulate stale pre-migration payloads next to the durable deletion fence.
+      await a.cache.writeTrainingSession(entry.recoverySnapshot());
+      await a.cache.writeTrainingHistory([entry]);
       expect((await a.cache.readTrainingSession())?.sessionId, entry.id);
       expect((await a.cache.readTrainingHistory())!.single.id, entry.id);
       a.dispose();
       server.offline = true;
       final reboot = _Harness(server, storage: storage);
-      reboot.cache.failClear = true;
       await h.bootUntilIdle(reboot.store);
       expect(reboot.store.trainingSession, isNull);
       expect(reboot.store.trainingHistory, isEmpty);
@@ -475,7 +576,10 @@ void main() {
       );
 
       await expectLater(
-        reboot.store.completeTrainingSession(entry, generation: 0),
+        reboot.store.completeTrainingSession(
+          entry,
+          generation: reboot.generation,
+        ),
         throwsA(isA<TrainingCompletionDeleted>()),
       );
       await expectLater(
@@ -487,7 +591,10 @@ void main() {
       final other = _Harness(server, storage: storage, owner: 'B');
       await other.boot();
       expect(await other.cache.readTrainingHistoryDeletions(), isEmpty);
-      await other.store.completeTrainingSession(entry, generation: 0);
+      await other.store.completeTrainingSession(
+        entry,
+        generation: other.generation,
+      );
       expect(other.store.trainingHistory.single.id, entry.id);
     },
   );
@@ -501,15 +608,15 @@ void main() {
         ..seedPlan = true;
       final a = _Harness(server, storage: storage);
       await a.boot();
-      a.cache.failClear = true;
       final entry = _entry();
-      await a.store.completeTrainingSession(entry, generation: 0);
+      await a.store.completeTrainingSession(entry, generation: a.generation);
+      await a.cache.writeTrainingSession(entry.recoverySnapshot());
       server.ambiguous = false;
       final b = _Harness(server, storage: InMemoryKeyValueStore());
       await b.boot();
       await b.store.deleteTrainingHistory(entry.id);
       a.cache.failDeletionReceipt = true;
-      a.store.flushPendingWrites();
+      await a.store.syncPendingWrites();
       await a.settle();
       expect(server.rows, isEmpty);
       expect(
@@ -521,7 +628,7 @@ void main() {
       expect(await a.cache.readTrainingHistoryDeletions(), isEmpty);
       expect((await a.cache.readTrainingSession())?.sessionId, entry.id);
       a.cache.failDeletionReceipt = false;
-      a.store.flushPendingWrites();
+      await a.store.syncPendingWrites();
       await a.settle();
       expect(await a.cache.readOutbox(), isEmpty);
       expect(await a.cache.readTrainingHistoryDeletions(), {entry.id});
@@ -543,15 +650,16 @@ void main() {
       final entry = _entry();
       server.deleted.add('A:${entry.id}');
       env.cache.failDeletionReceipt = true;
-      await expectLater(
-        env.store.completeTrainingSession(entry, generation: 0),
-        throwsStateError,
-      );
-      expect(env.store.trainingHistory, isEmpty);
       expect(
-        (await env.cache.readTrainingSession())?.toJson(),
-        entry.recoverySnapshot().toJson(),
+        await env.store.completeTrainingSession(
+          entry,
+          generation: env.generation,
+        ),
+        SyncDelivery.queuedRetry,
       );
+      // Local intent remains durable until the tombstone and ack commit together.
+      expect(env.store.trainingHistory.single.id, entry.id);
+      expect(await env.cache.readTrainingSession(), isNull);
       expect(
         (await env.cache.readOutbox())!.where(
           (op) => op.kind == SyncOpKind.trainingHistoryInsert,
@@ -559,7 +667,7 @@ void main() {
         hasLength(1),
       );
       env.cache.failDeletionReceipt = false;
-      env.store.flushPendingWrites();
+      await env.store.syncPendingWrites();
       await env.settle();
       expect(await env.cache.readTrainingHistoryDeletions(), {entry.id});
       expect(await env.cache.readOutbox(), isEmpty);
@@ -584,7 +692,7 @@ void main() {
       expect(env.store.trainingSession, isNull);
       expect(env.store.trainingHistory, isEmpty);
       await expectLater(
-        env.store.completeTrainingSession(entry, generation: 0),
+        env.store.completeTrainingSession(entry, generation: env.generation),
         throwsStateError,
       );
       expect(
@@ -602,7 +710,7 @@ void main() {
         }),
       );
       await expectLater(
-        env.store.completeTrainingSession(entry, generation: 0),
+        env.store.completeTrainingSession(entry, generation: env.generation),
         throwsA(isA<TrainingCompletionDeleted>()),
       );
     },
@@ -784,7 +892,7 @@ void main() {
         (await env.store.prepareTrainingSessionRecovery())!.toJson(),
         snapshot.toJson(),
       );
-      await signIn(env.client, 'B');
+      await signInSyncFixture(env.client, 'B');
       await expectLater(
         env.store.prepareTrainingSessionRecovery(),
         throwsStateError,
@@ -813,7 +921,7 @@ void main() {
       env.cache.holdDeletionRead = gate;
       final preparing = env.store.prepareTrainingSessionRecovery();
       await h.settle();
-      await signIn(env.client, 'B');
+      await signInSyncFixture(env.client, 'B');
       final rejected = expectLater(preparing, throwsStateError);
       gate.complete();
       await rejected;
@@ -834,7 +942,7 @@ void main() {
       final entry = _entry();
       server.deleted.add('A:${entry.id}');
       await expectLater(
-        env.store.completeTrainingSession(entry, generation: 0),
+        env.store.completeTrainingSession(entry, generation: env.generation),
         throwsA(isA<TrainingCompletionDeleted>()),
       );
       expect(env.store.trainingHistory, isEmpty);
@@ -853,15 +961,19 @@ void main() {
       await env.boot();
       env.cache.failOutbox = true;
       final entry = _entry();
+      await env.store.saveTrainingSession(entry.snapshot);
       await expectLater(
-        env.store.completeTrainingSession(entry, generation: 0),
+        env.store.completeTrainingSession(entry, generation: env.generation),
         throwsStateError,
       );
       expect(env.store.trainingHistory, isEmpty);
       expect((await env.cache.readTrainingSession())?.sessionId, entry.id);
       expect(env.store.trainingSession?.sessionId, entry.id);
       env.cache.failOutbox = false;
-      await env.store.completeTrainingSession(entry, generation: 0);
+      await env.store.completeTrainingSession(
+        entry,
+        generation: env.generation,
+      );
       expect(env.store.trainingHistory.single.id, entry.id);
     },
   );
@@ -876,9 +988,10 @@ void main() {
       await env.boot();
       env.cache.holdOutbox = Completer<void>();
       final entry = _entry();
+      await env.store.saveTrainingSession(entry.snapshot);
       var done = false;
       final save = env.store
-          .completeTrainingSession(entry, generation: 0)
+          .completeTrainingSession(entry, generation: env.generation)
           .then((_) => done = true);
       await env.cache.entered.future;
       expect(done, isFalse);
@@ -892,35 +1005,49 @@ void main() {
   );
 
   test(
-    'late server callback after A to B rejects publication and retains A recovery',
+    'late server callback after A to B cannot ack A durable intent into B',
     () async {
       final server = _Server()..hold = Completer<void>();
       final raw = InMemoryKeyValueStore();
-      final env = _Harness(server, storage: raw);
+      final client = SupabaseClient(
+        'https://ci.invalid',
+        'ci-dummy-key',
+        httpClient: MockClient(server.handle),
+        authOptions: const AuthClientOptions(autoRefreshToken: false),
+      );
+      await signInSyncFixture(client, 'A');
+      final env = _Harness(server, storage: raw, clientOverride: client);
       await env.boot();
-      await signIn(env.client, 'A');
       final entry = _entry();
       final save = expectLater(
-        env.store.completeTrainingSession(entry, generation: 0),
+        env.store.completeTrainingSession(entry, generation: env.generation),
         throwsStateError,
       );
       await server.entered.future;
-      await signIn(env.client, 'B');
+      await signInSyncFixture(env.client, 'B');
       server.hold!.complete();
       await save;
-      expect(env.store.trainingHistory, isEmpty);
-      expect((await env.cache.readTrainingSession())?.sessionId, entry.id);
+      expect((await env.cache.readTrainingHistory())!.single.id, entry.id);
+      expect(await env.cache.readTrainingSession(), isNull);
+      expect(
+        (await env.cache.readOutbox())!.any(
+          (op) => op.kind == SyncOpKind.trainingHistoryInsert,
+        ),
+        isTrue,
+      );
       expect(server.rows.values.single['user_id'], 'A');
       expect(
         server.requests
             .where(
               (r) =>
                   r.method == 'POST' &&
-                  r.url.path.endsWith('/rpc/record_training_history'),
+                  r.url.path.endsWith('/rpc/apply_sync_operation') &&
+                  (jsonDecode(r.body) as Map)['p_kind'] ==
+                      'trainingHistoryInsert',
             )
             .single
             .headers['authorization'],
-        'Bearer fixture-A',
+        'Bearer ${syncFixtureToken('A')}',
       );
       final b = _Harness(server, storage: raw, owner: 'B');
       await b.boot();
@@ -934,7 +1061,10 @@ void main() {
       final env = _Harness(_Server(), storage: InMemoryKeyValueStore());
       await env.boot();
       final entry = _entry();
-      await env.store.completeTrainingSession(entry, generation: 0);
+      await env.store.completeTrainingSession(
+        entry,
+        generation: env.generation,
+      );
       await env.store.saveTrainingPlan(
         entry.snapshot.plan.copyWith(
           proposal: entry.snapshot.plan.proposal.copyWith(title: 'Edited'),
@@ -949,7 +1079,7 @@ void main() {
       expect(env.store.trainingHistory.length, 1);
       final duplicate = await env.store.completeTrainingSession(
         entry,
-        generation: 0,
+        generation: env.generation,
       );
       expect(duplicate, SyncDelivery.delivered);
       expect(env.server.rows.length, 1);
@@ -965,10 +1095,15 @@ void main() {
       final env = _Harness(_Server(), storage: InMemoryKeyValueStore());
       await env.boot();
       final entry = _entry();
-      env.cache.failClear = true;
-      await env.store.completeTrainingSession(entry, generation: 0);
+      await env.store.completeTrainingSession(
+        entry,
+        generation: env.generation,
+      );
       expect(env.store.trainingSession, isNull);
+      // Explicit legacy stale recovery exercises deletion's atomic retirement.
+      await env.cache.writeTrainingSession(entry.recoverySnapshot());
       expect((await env.cache.readTrainingSession())?.sessionId, entry.id);
+      env.cache.failClear = true;
       await expectLater(
         env.store.deleteTrainingHistory(entry.id),
         throwsStateError,
@@ -999,7 +1134,10 @@ void main() {
       final first = _Harness(server, storage: raw);
       await first.boot();
       final entry = _entry();
-      await first.store.completeTrainingSession(entry, generation: 0);
+      await first.store.completeTrainingSession(
+        entry,
+        generation: first.generation,
+      );
       await first.settle();
       first.dispose();
       final cache = LocalCache(raw, 'A');
@@ -1052,11 +1190,13 @@ void main() {
         ..offline = true
         ..seedPlan = true;
       final env = _Harness(server, storage: raw);
-      await cache.writeProfile(const UserProfile(onboardingCompleted: true));
-      await h.bootUntilIdle(env.store);
       final entry = _entry();
+      await cache.writeProfile(const UserProfile(onboardingCompleted: true));
+      await cache.writeTrainingPlans([entry.snapshot.plan]);
+      await cache.writeTrainingSession(entry.snapshot);
+      await h.bootUntilIdle(env.store);
       await expectLater(
-        env.store.completeTrainingSession(entry, generation: 0),
+        env.store.completeTrainingSession(entry, generation: env.generation),
         throwsStateError,
       );
       expect((await env.cache.readTrainingSession())?.sessionId, entry.id);

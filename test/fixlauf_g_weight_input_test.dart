@@ -22,14 +22,14 @@ import 'support/harness.dart';
 // weigh-in after boot moved the baseline and every derived number jumped.
 
 WeightLog _log(int n, {double start = 90}) => WeightLog(
-      entries: <WeightLogEntry>[
-        for (var i = 0; i < n; i++)
-          WeightLogEntry(
-            timestamp: DateTime(2026, 1, 1).add(Duration(days: i)),
-            weightKg: start - i * 0.1,
-          ),
-      ],
-    );
+  entries: <WeightLogEntry>[
+    for (var i = 0; i < n; i++)
+      WeightLogEntry(
+        timestamp: DateTime(2026, 1, 1).add(Duration(days: i)),
+        weightKg: start - i * 0.1,
+      ),
+  ],
+);
 
 Future<void> _pumpCard(
   WidgetTester tester, {
@@ -81,18 +81,28 @@ void main() {
     testWidgets('7.55 (verrutschtes Komma) wird abgelehnt', (tester) async {
       double? empfangen;
       await _pumpCard(tester, onLogWeight: (kg) => empfangen = kg);
-      expect(_saveHandler(tester), isNotNull, reason: 'Vorbelegung ist gueltig');
+      expect(
+        _saveHandler(tester),
+        isNotNull,
+        reason: 'Vorbelegung ist gueltig',
+      );
 
       await _tippe(tester, '7.55');
 
-      expect(find.byKey(const ValueKey('profile-weight-error')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('profile-weight-error')),
+        findsOneWidget,
+      );
       expect(find.text('20–400 kg'), findsOneWidget);
       expect(_saveHandler(tester), isNull);
       // Enter on the keyboard must not sneak past the button either.
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('profile-weight-input')), findsOneWidget,
-          reason: 'das Sheet bleibt offen');
+      expect(
+        find.byKey(const ValueKey('profile-weight-input')),
+        findsOneWidget,
+        reason: 'das Sheet bleibt offen',
+      );
       expect(empfangen, isNull);
     });
 
@@ -107,8 +117,9 @@ void main() {
       expect(empfangen, isNull);
     });
 
-    testWidgets('75,5 geht durch (Komma erlaubt), Fehlzeile verschwindet',
-        (tester) async {
+    testWidgets('75,5 geht durch (Komma erlaubt), Fehlzeile verschwindet', (
+      tester,
+    ) async {
       double? empfangen;
       await _pumpCard(tester, onLogWeight: (kg) => empfangen = kg);
 
@@ -136,33 +147,33 @@ void main() {
     TestWidgetsFlutterBinding.ensureInitialized();
 
     HomeStore store() => HomeStore(
-          sync: null,
-          health: const NoopHealthService(),
-          notificationService: const NoopNotificationService(),
-          initialUserName: 'Test',
-          emitSnack: _noopSnack,
-        );
+      sync: null,
+      health: const NoopHealthService(),
+      notificationService: const NoopNotificationService(),
+      initialUserName: 'Test',
+      emitSnack: _noopSnack,
+    );
 
-    test('7.55 -> 20 kg, 755 -> 400 kg, 0/NaN -> nichts', () {
+    test('7.55 -> 20 kg, 755 -> 400 kg, 0/NaN -> nichts', () async {
       final s = store();
       addTearDown(s.dispose);
 
-      s.logWeight(7.55);
+      await s.logWeight(7.55);
       expect(s.weightLog.latest!.weightKg, 20.0);
 
-      s.logWeight(755);
+      await s.logWeight(755);
       expect(s.weightLog.latest!.weightKg, 400.0);
 
       final vorher = s.weightLog.entries.length;
-      s.logWeight(0);
-      s.logWeight(double.nan);
+      await expectLater(s.logWeight(0), throwsFormatException);
+      await expectLater(s.logWeight(double.nan), throwsFormatException);
       expect(s.weightLog.entries.length, vorher);
     });
 
-    test('gueltige Werte bleiben unveraendert (2 Nachkommastellen)', () {
+    test('gueltige Werte bleiben unveraendert (2 Nachkommastellen)', () async {
       final s = store();
       addTearDown(s.dispose);
-      s.logWeight(75.456);
+      await s.logWeight(75.456);
       expect(s.weightLog.latest!.weightKg, 75.46);
     });
   });
@@ -173,18 +184,23 @@ void main() {
       expect(TrackingSync.weightLogLimit, WeightLog.maxEntries);
     });
 
-    test('45 Eintraege -> wiegen -> Basis, Delta und Fortschritt unveraendert',
-        () {
-      final vorher = _log(45);
-      final basisVorher = vorher.baseline!;
-      final nachher = vorher.add(85.0);
+    test(
+      '45 Eintraege -> wiegen -> Basis, Delta und Fortschritt unveraendert',
+      () {
+        final vorher = _log(45);
+        final basisVorher = vorher.baseline!;
+        final nachher = vorher.add(85.0);
 
-      expect(nachher.entries.length, 46);
-      expect(identical(nachher.baseline, basisVorher), isTrue,
-          reason: 'frueher fiel der Puffer auf 30 und die Basis sprang');
-      expect(nachher.trendDelta, closeTo(85.0 - 90.0, 1e-9));
-      expect(vorher.baseline!.timestamp, DateTime(2026, 1, 1));
-    });
+        expect(nachher.entries.length, 46);
+        expect(
+          identical(nachher.baseline, basisVorher),
+          isTrue,
+          reason: 'frueher fiel der Puffer auf 30 und die Basis sprang',
+        );
+        expect(nachher.trendDelta, closeTo(85.0 - 90.0, 1e-9));
+        expect(vorher.baseline!.timestamp, DateTime(2026, 1, 1));
+      },
+    );
 
     test('ab 366 faellt der aelteste Eintrag — auf beiden Seiten gleich', () {
       var log = const WeightLog();

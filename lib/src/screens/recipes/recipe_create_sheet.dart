@@ -526,6 +526,8 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
       estimatedGrams: estimatedGrams,
       categories: original?.categories ?? const <String>['Eigene'],
       userCreated: true,
+      serverRevision: original?.serverRevision ?? (original == null ? 0 : null),
+      conflictOf: original?.conflictOf,
       structuredIngredients: structuredIngredients,
       batchServings: batchServings,
     );

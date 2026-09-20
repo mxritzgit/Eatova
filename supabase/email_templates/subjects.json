@@ -1,0 +1,15 @@
+{
+  "confirmation": "Dein Eatova-Code: E-Mail bestätigen",
+  "recovery": "Dein Eatova-Sicherheitscode",
+  "reauthentication": "Dein Eatova-Code: Passwort ändern",
+  "email_change": "Dein Eatova-Code: E-Mail-Adresse ändern",
+  "magic_link": "Eatova: Hinweis zu deiner Anmeldung",
+  "invite": "Deine Einladung zu Eatova",
+  "password_changed_notification": "Eatova: Dein Passwort wurde geändert",
+  "email_changed_notification": "Eatova: Deine E-Mail-Adresse wurde geändert",
+  "phone_changed_notification": "Eatova: Deine Telefonnummer wurde geändert",
+  "mfa_factor_enrolled_notification": "Eatova: Zusätzliche Bestätigung eingerichtet",
+  "mfa_factor_unenrolled_notification": "Eatova: Zusätzliche Bestätigung entfernt",
+  "identity_linked_notification": "Eatova: Anmeldemethode hinzugefügt",
+  "identity_unlinked_notification": "Eatova: Anmeldemethode entfernt"
+}

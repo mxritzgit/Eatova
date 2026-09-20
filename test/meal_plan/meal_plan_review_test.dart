@@ -1,3 +1,5 @@
+import '../support/recipe_read_fake.dart';
+import '../support/sync_session_fixture.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:clock/clock.dart';
@@ -36,6 +38,7 @@ Future<HomeStore> fixture(
     authOptions: const AuthClientOptions(autoRefreshToken: false),
     httpClient: MockClient(handler),
   );
+  await signInSyncFixture(client, 'A');
   final store = HomeStore(
     sync: EatovaSync.forUser(client, 'A'),
     debugCache: cache,
@@ -57,7 +60,7 @@ http.Response respond(http.Request req, Object? body) => http.Response(
   headers: {'content-type': 'application/json'},
   request: req,
 );
-http.Response defaults(http.Request req) => respond(
+http.Response defaults(http.Request req) => emptyRecipeReadResponse(req) ?? respond(
   req,
   req.url.path.endsWith('/profiles')
       ? null
@@ -74,9 +77,11 @@ void main() {
       await withClock(Clock.fixed(now), () async {
         final old = plan(), fresh = plan();
         final started = Completer<void>(), release = Completer<void>();
+        var loads = 0;
         final store = await fixture((req) async {
           if (req.url.path.endsWith('/rpc/load_meal_plan')) {
-            started.complete();
+            loads++;
+            if (!started.isCompleted) started.complete();
             await release.future;
             return respond(req, {
               'plans': [old.toJson()],
@@ -92,6 +97,7 @@ void main() {
         await h.pumpUntil(() => !store.mealPlansLoading);
         expect(store.mealPlansLoadFailed, isFalse);
         expect(store.plannedMeals.map((p) => p.id).toSet(), {old.id, fresh.id});
+        expect(loads, 2);
       });
     },
   );
@@ -147,8 +153,9 @@ void main() {
               'checks': [],
             });
           }
-          if (req.url.path.endsWith('/rpc/eat_planned_meal')) {
-            return respond(req, {
+          if (req.url.path.endsWith('/rpc/apply_sync_operation')) {
+            final body = (jsonDecode(req.body) as Map).cast<String, dynamic>();
+            final conversion = <String, dynamic>{
               'plan': remoteReceipt.toJson(),
               'created': false,
               'stats': {
@@ -163,6 +170,13 @@ void main() {
                 'forced_slot': 'dinner',
                 'payload': mealResultToJson(p.recipe.toMealResult()),
               },
+            };
+            return respond(req, {
+              'operation_id': body['p_operation_id'],
+              'kind': body['p_kind'],
+              'entity_id': body['p_entity_id'],
+              'result': {'meal_plan_conversion': conversion},
+              'current_state': {'planned_meal': remoteReceipt.toJson(), 'meal_deleted': false, 'lifetime_stats': conversion['stats']},
             });
           }
           return defaults(req);

@@ -392,6 +392,67 @@ void main() {
 
   group('saved plan boundary', () {
     test(
+      'Coach provenance survives storage and edits independently from identity',
+      () {
+        final plan = TrainingPlan(
+          id: 'coach_chat-message',
+          proposal: _draft(),
+          sourceId: 'chat-message',
+          incarnation: 3,
+        );
+        expect(plan.coachSourceId, 'chat-message');
+        expect(plan.toJson()['source_id'], 'chat-message');
+        expect(plan.toJson()['incarnation'], 3);
+        expect(TrainingPlan.fromJson(plan.toJson()).sourceId, 'chat-message');
+        expect(TrainingPlan.fromRow(plan.toRow()).toJson(), plan.toJson());
+        expect(
+          plan.copyWith(proposal: _draft().copyWith(title: 'Edited')).sourceId,
+          'chat-message',
+        );
+        expect(plan.copyWith().incarnation, 3);
+        expect(plan.copyWith(incarnation: 4).incarnation, 4);
+        final legacy = _draft().toTrainingPlan(
+          id: trainingPlanIdForMessage('old-message'),
+        );
+        expect(legacy.sourceId, isNull);
+        expect(legacy.coachSourceId, 'old-message');
+        expect(legacy.toJson().containsKey('source_id'), isFalse);
+        expect(legacy.toJson().containsKey('incarnation'), isFalse);
+        expect(TrainingPlan.fromJson(legacy.toJson()).incarnation, 0);
+        expect(_draft().toTrainingPlan(id: 'manual').coachSourceId, isNull);
+        expect(
+          () => TrainingPlan(id: 'manual', proposal: _draft(), incarnation: 1),
+          throwsFormatException,
+        );
+        expect(legacy.copyWith(incarnation: 1).incarnation, 1);
+        for (final invalid in ['', 42, true, 'invalid/source', 'x' * 95]) {
+          expect(
+            () =>
+                TrainingPlan.fromJson({...plan.toJson(), 'source_id': invalid}),
+            throwsFormatException,
+          );
+        }
+        expect(
+          () => TrainingPlan(
+            id: 'different-plan',
+            proposal: _draft(),
+            sourceId: 'chat-message',
+          ),
+          throwsFormatException,
+        );
+        for (final invalid in [null, '1', true, -1, 1.5, 0x80000000]) {
+          expect(
+            () => TrainingPlan.fromJson({
+              ...plan.toJson(),
+              'incarnation': invalid,
+            }),
+            throwsFormatException,
+          );
+        }
+      },
+    );
+
+    test(
       'explicit adoption retains content and uses deterministic identity',
       () {
         final draft = _draft();

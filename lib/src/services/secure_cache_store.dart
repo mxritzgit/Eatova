@@ -18,13 +18,11 @@ import 'package:pointycastle/block/modes/gcm.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'crash_reporter.dart';
-import 'local_cache.dart';
+import 'key_value_store.dart';
 
-// SEC-1: encryption layer under LocalCache, which holds health data in
-// plaintext in SharedPreferences (GDPR Art. 9). Envelope encryption: only a
-// 32-byte DEK lives in the OS keystore, the blobs stay in prefs under
-// AES-256-GCM, because every meal edit rewrites the whole ~78 kB blob and
-// writes overlap — the plugin's weak spot.
+// SEC-1: envelope encryption below LocalCache. Only a 32-byte DEK lives in
+// the OS keystore; health data in SQLite retains the existing AES-256-GCM
+// envelope and per-slot AAD, including data imported from preferences.
 
 /// Wire format: `"EATOVA1:" + base64(nonce ‖ ct ‖ tag)`. A positive magic,
 /// since a `{`-vs-base64 heuristic would misclassify a non-object write and
@@ -961,6 +959,21 @@ class CacheKeyProvider {
   /// the migrating run sees `true`.
   static bool get legacyPlaintextAccepted => _legacyPlaintextAccepted;
 
+  /// SQLite rolled back the metadata associated with this bootstrap. Keep
+  /// any OS-stored key, but reread its provenance on the next attempt. A
+  /// rollback is not a new app start and must not reset the strike budget.
+  static void invalidateRolledBackBootstrap() {
+    _pending = null;
+    _legacyPlaintextAccepted = false;
+  }
+
+  static Future<bool> Function()? _resetNoticeReader;
+
+  /// Production SQLite bootstrap supplies its durable metadata reader.
+  static void setResetNoticeReader(Future<bool> Function() reader) {
+    _resetNoticeReader = reader;
+  }
+
   /// Returns the DEK (32 bytes), or null if it could be neither read nor
   /// created. SINGLE-FLIGHT, not optional: boot and logout both reach
   /// `LocalCache.create` and can overlap, and two unmemoized bootstraps would
@@ -985,6 +998,17 @@ class CacheKeyProvider {
     return started;
   }
 
+  /// Headless workers may use an existing key only. A locked keystore is not
+  /// a new app start and must never spend recovery strikes or rotate a DEK.
+  static Future<Uint8List?> readExisting({SecureKeyStore? keyStore}) async {
+    try {
+      final stored = await (keyStore ?? const PluginSecureKeyStore()).read(dekStorageKey);
+      return stored == null ? null : _tryDecodeDek(stored);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Reads and clears the "cache abandoned" notice; the caller shows it once.
   ///
   /// WIRED UP: `HomeStore._hydrateThenBoot` (home_store.dart) is the sole
@@ -993,6 +1017,8 @@ class CacheKeyProvider {
   /// still there. Reading clears the flag, hence exactly one showing.
   static Future<bool> consumeCacheResetNotice() async {
     try {
+      final durableReader = _resetNoticeReader;
+      if (durableReader != null) return await durableReader();
       final prefs = await SharedPreferences.getInstance();
       if (prefs.getBool(cacheResetNoticeKey) != true) return false;
       await prefs.remove(cacheResetNoticeKey);
@@ -1010,6 +1036,7 @@ class CacheKeyProvider {
     _pending = null;
     _vanishStrikeCounted = false;
     _legacyPlaintextAccepted = false;
+    _resetNoticeReader = null;
   }
 
   static Future<Uint8List?> _bootstrap(
@@ -1327,7 +1354,7 @@ class CacheKeyProvider {
 /// Decorator over a [KeyValueStore]: writes encrypted only, reads encrypted
 /// AND (migrating once) plaintext. Sits BELOW [LocalCache], wired only in
 /// `LocalCache.create`, so the cache and its serializers stay unchanged.
-class EncryptedKeyValueStore implements KeyValueStore, RawSlotProbe {
+class EncryptedKeyValueStore implements AtomicKeyValueStore, RawSlotProbe {
   /// [acceptLegacyPlaintext] is the migration path from
   /// [CacheKeyProvider.plaintextMigrationClosedKey]. `true` by default, since
   /// production only builds via [create].
@@ -1392,9 +1419,58 @@ class EncryptedKeyValueStore implements KeyValueStore, RawSlotProbe {
     return store;
   }
 
-  /// PERF-G9: with encryption in an isolate, overlapping writes to the SAME
-  /// slot could land in reverse order. Serialized PER KEY only.
-  final Map<String, Future<void>> _writeQueue = <String, Future<void>>{};
+  // Batch and individual writes share one queue: a slow encryption must not
+  // land after a newer atomic commit. SQLite CAS also fences other instances.
+  Future<void> _writeTail = Future<void>.value();
+
+  AtomicKeyValueStore get _atomicInner {
+    final inner = _inner;
+    if (inner is! AtomicKeyValueStore) {
+      throw UnsupportedError('Atomic storage is required');
+    }
+    return inner;
+  }
+
+  @override
+  Future<KeyValueSnapshot> readSnapshot(Iterable<String> keys) {
+    final requested = keys.toSet().toList();
+    return _enqueue(() async {
+      final snapshot = await _atomicInner.readSnapshot(requested);
+      final clear = <String, String?>{};
+      for (final entry in snapshot.values.entries) {
+        final value = entry.value;
+        if (value == null) {
+          clear[entry.key] = null;
+        } else {
+          // Authoritative reads never turn corrupt/unavailable data into an
+          // empty slot, and never delete it as a side effect of reading.
+          clear[entry.key] = await _cipher.decrypt(entry.key, value);
+        }
+      }
+      return KeyValueSnapshot(clear, snapshot.versions);
+    });
+  }
+
+  @override
+  Future<KeyValueCommit> writeBatch(
+    Map<String, String?> changes, {
+    Map<String, int> expectedVersions = const {},
+  }) {
+    final immutableChanges = Map<String, String?>.of(changes);
+    final expected = Map<String, int>.of(expectedVersions);
+    return _enqueue(() async {
+      final inner = _atomicInner;
+      final encrypted = <String, String?>{};
+      for (final entry in immutableChanges.entries) {
+        encrypted[entry.key] = entry.value == null
+            ? null
+            : await _cipher.encrypt(entry.key, entry.value!);
+      }
+      final commit = await inner.writeBatch(encrypted, expectedVersions: expected);
+      _cipherUnavailableKeys.removeAll(immutableChanges.keys);
+      return commit;
+    });
+  }
 
   /// Keys whose LAST read failed at executing the decryption (P3-02c).
   ///
@@ -1411,6 +1487,7 @@ class EncryptedKeyValueStore implements KeyValueStore, RawSlotProbe {
 
   @override
   Future<String?> getString(String key) async {
+    await _writeTail;
     final raw = await _inner.getString(key);
     if (raw == null || (raw.isEmpty && !_preserveBrokenSlot(key))) {
       _cipherUnavailableKeys.remove(key);
@@ -1558,28 +1635,18 @@ class EncryptedKeyValueStore implements KeyValueStore, RawSlotProbe {
         await _inner.setString(key, await _cipher.encrypt(key, value));
       });
 
-  /// Appends [task] to the chain for [key]. A predecessor's failure reaches
-  /// its own caller but does NOT block successors, which one plugin error
-  /// would otherwise stall for the process.
+  /// A predecessor's failure reaches its caller but does not stall the queue.
   Future<void> _enqueueWrite(String key, Future<void> Function() task) {
     // Any write (or remove) replaces what the last read stumbled over, so its
     // verdict no longer describes this slot (P3-02c).
     _cipherUnavailableKeys.remove(key);
-    final previous = _writeQueue[key];
-    final Future<void> queued = previous == null
-        ? task()
-        : previous.then<void>((_) => task(),
-            onError: (Object _, StackTrace __) => task());
-    _writeQueue[key] = queued;
-    unawaited(queued.then<void>(
-      (_) => _releaseWriteSlot(key, queued),
-      onError: (Object _, StackTrace __) => _releaseWriteSlot(key, queued),
-    ));
-    return queued;
+    return _enqueue(task);
   }
 
-  void _releaseWriteSlot(String key, Future<void> queued) {
-    if (identical(_writeQueue[key], queued)) _writeQueue.remove(key);
+  Future<T> _enqueue<T>(Future<T> Function() task) {
+    final queued = _writeTail.then((_) => task());
+    _writeTail = queued.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    return queued;
   }
 
   /// Runs on the SAME chain as [setString], or a `remove` could overtake an

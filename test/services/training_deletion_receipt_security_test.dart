@@ -100,6 +100,19 @@ class _FailingRemovalStorage extends InMemoryKeyValueStore {
   int receiptRemoves = 0;
 
   @override
+  Future<KeyValueCommit> writeBatch(Map<String, String?> changes,
+      {Map<String, int> expectedVersions = const {}}) async {
+    if (changes.containsKey(failingKey) && changes[failingKey] == null) {
+      if (!entered.isCompleted) entered.complete();
+      await release.future;
+      throw StateError('private fixture payload must not leave the cache');
+    }
+    final result = await super.writeBatch(changes, expectedVersions: expectedVersions);
+    if (changes.containsKey(_receiptKey) && changes[_receiptKey] == null) receiptRemoves++;
+    return result;
+  }
+
+  @override
   Future<void> remove(String key) async {
     if (key == _receiptKey) receiptRemoves++;
     if (key == failingKey) {
@@ -511,15 +524,16 @@ void main() {
       old.close();
       raw.failingKey = 'eatova.v1.profile.$_owner';
       raw.release.complete();
-      await expectLater(
+      final cleanup = expectLater(
         _cache(raw).clear(),
-        throwsA(isA<UnwritableCacheSlot>()),
+        throwsA(isA<TimeoutException>()),
       );
       final next = _cache(raw);
       final nextWrite = next.rememberTrainingHistoryDeletion(third);
       await tester.pump(
         LocalCache.settleBudget + const Duration(milliseconds: 1),
       );
+      await cleanup;
       expect(await oldWrite, isFalse);
       expect(await nextWrite, isFalse);
       expect(raw.receiptRemoves, 0);

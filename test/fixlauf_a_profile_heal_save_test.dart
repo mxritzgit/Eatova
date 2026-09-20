@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/user_profile.dart';
@@ -29,7 +31,9 @@ UserProfile get _stale => _current.copyWith(
     );
 
 int _profileWrites(FixlaufServer server) =>
-    server.requestsTo('/profiles', method: 'POST').length;
+    server.requestsTo('/rpc/apply_sync_operation', method: 'POST')
+        .where((request) => (jsonDecode(request.body) as Map)['p_kind'] == 'profileUpsert')
+        .length;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

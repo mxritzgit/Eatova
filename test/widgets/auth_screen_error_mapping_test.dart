@@ -22,6 +22,9 @@ class _CancelingAuthRepository implements AuthRepository {
   Stream<EatovaUser?> get authStateChanges => const Stream.empty();
 
   @override
+  Future<void> sendAccountDeletionCode({required String userId, required String email}) async {}
+
+  @override
   Future<void> sendPasswordReset(String email) => throw UnimplementedError();
 
   @override

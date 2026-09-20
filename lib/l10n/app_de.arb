@@ -1,4 +1,9 @@
 {
+  "recipeHistoryDeletionOnlyTitle": "Löschung ohne frühere Version",
+  "recipeHistoryDeletionOnlyDetail": "Für diesen Löschvermerk wurde auf dem Server kein Rezeptinhalt gespeichert. Es gibt keine Version zum Wiederherstellen.",
+  "recipeEditConflictSaved": "Deine Änderungen wurden als eigene Konfliktkopie gespeichert. Die andere Version bleibt erhalten.",
+  "recipeEditUnavailable": "Diese Rezeptversion ist nicht mehr verfügbar. Im Versionsverlauf kannst du frühere Versionen wiederherstellen.",
+  "recipeEditResolving": "Deine Änderungen sind lokal gespeichert. Der aktuelle Rezeptstand wird abgeglichen.",
   "@@locale": "de",
   "commonSlotBreakfast": "Frühstück",
   "commonSlotLunch": "Mittagessen",
@@ -2346,5 +2351,61 @@
   "profileStudioOverview": "Dein Überblick",
   "profileStudioFocus": "Dein Ziel",
   "profileStudioActivity": "Dein Alltag",
-  "profileStudioBodyDetails": "Körperdaten"
+  "profileStudioBodyDetails": "Körperdaten",
+  "commonLocalSaveFailed": "Die Änderung konnte nicht auf diesem Gerät gespeichert werden. Bitte versuche es erneut.",
+  "recipeHistoryTitle": "Rezeptverlauf",
+  "recipeHistoryExplanation": "Hier findest du frühere Versionen und gelöschte Rezepte. Eine Wiederherstellung wird als neue Änderung gespeichert.",
+  "recipeHistoryRestore": "Version wiederherstellen",
+  "recipeHistoryRestoreConfirm": "Diese Version von „{title}“ wiederherstellen? Der aktuelle Stand bleibt im Verlauf erhalten. Falls gleichzeitig eine andere Änderung eintrifft, wird deine Version als separates Rezept gesichert.",
+  "recipeHistoryRestored": "Rezeptversion gespeichert.",
+  "recipeHistoryVersion": "Version {revision}",
+  "recipeHistoryDeleted": "Gelöscht",
+  "recipeHistoryEmpty": "Noch kein Rezeptverlauf vorhanden.",
+  "recipeHistoryLoadMore": "Ältere Versionen laden",
+  "@recipeHistoryRestoreConfirm": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "@recipeHistoryVersion": {
+    "placeholders": {
+      "revision": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsSyncTitle": "Synchronisierung",
+  "syncTrainingReviewRequired": "Dein Trainingsentwurf ist gespeichert. Prüfe die Übernahme unter Training.",
+  "settingsSyncPendingCount": "{count, plural, =0{Alles lokal gespeichert} =1{1 ausstehende Änderung} other{{count} ausstehende Änderungen}}",
+  "settingsSyncNoPending": "Keine offenen lokalen Änderungen.",
+  "settingsSyncUnreadableTitle": "Synchronisierungsstatus unbekannt",
+  "settingsSyncUnreadableDetail": "Die lokal gespeicherten Änderungen konnten noch nicht gelesen werden. Versuche den Abgleich erneut oder öffne Eatova neu. Falls das Problem bleibt, kontaktiere den Support.",
+  "settingsSyncPendingDetail": "Deine Änderungen sind auf diesem Gerät gespeichert. Eatova überträgt sie, sobald die Verbindung wieder verfügbar ist.",
+  "settingsSyncCapacity": "Der Server kann gerade keine weiteren Änderungen annehmen. Deine Daten bleiben auf diesem Gerät gespeichert. Bitte kontaktiere den Support.",
+  "settingsSyncUnavailable": "Der Server ist noch nicht für diesen Abgleich bereit. Deine Daten bleiben auf diesem Gerät gespeichert. Versuche es später erneut.",
+  "settingsSyncRejected": "Einige Änderungen konnten nicht übertragen werden. Sie bleiben auf diesem Gerät gespeichert. Versuche es erneut oder kontaktiere den Support.",
+  "settingsSyncTrainingConflict": "Eine Trainingsplan-Übernahme muss geprüft werden. Dein Entwurf bleibt gespeichert. Öffne Training und wähle beim betroffenen Plan „Übernahme prüfen“.",
+  "settingsSyncRetry": "Erneut synchronisieren",
+  "settingsSyncRunning": "Wird synchronisiert…",
+  "settingsSyncFailed": "Der Abgleich konnte nicht gestartet werden. Deine lokalen Änderungen bleiben gespeichert.",
+  "@settingsSyncPendingCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingAdoptionReviewAction": "Übernahme prüfen",
+  "trainingAdoptionReviewBody": "Der Plan „{planTitle}“ wurde auf einem anderen Gerät geändert oder gelöscht. Dein Entwurf bleibt erhalten. Prüfe ihn erneut, bevor du ihn als aktuellen Plan übernimmst.",
+  "@trainingAdoptionReviewBody": {
+    "placeholders": {
+      "planTitle": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingAdoptionDiscardAction": "Entwurf verwerfen",
+  "trainingAdoptionDiscardBody": "Nur dein abgelehnter Entwurf wird von diesem Gerät entfernt. Der aktuelle Plan auf dem Server bleibt erhalten."
 }

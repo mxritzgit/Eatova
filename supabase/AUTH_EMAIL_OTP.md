@@ -1,5 +1,76 @@
 # E-Mail-OTP-Konfiguration (GoTrue)
 
+## Aktueller Vorlagenstand: 2026-09-20
+
+Alle 13 Auth- und Sicherheitsvorlagen sind unter
+[`email_templates/`](email_templates/) versioniert. Gemeinsames Layout und Texte
+werden mit `python scripts/auth_email_templates.py` erzeugt. Der Generator nutzt
+die aktuelle violette Eatova-Palette, lesbare Codes, schmale mobile Ansichten und
+einen dunklen Modus. Es gibt keine Trackingbilder oder extern geladenen Schriften.
+
+Die 13 Vorlagen und ihre Betreffzeilen wurden am 2026-09-20 im verifizierten
+Projekt veröffentlicht und per Management-API exakt zurückgelesen. Die
+Benachrichtigungsschalter, achtstelligen Codes, 600 Sekunden Gültigkeit und
+bestehenden Sicherheitsoptionen blieben unverändert. Es wurde keine echte
+E-Mail an Nutzer versendet. Die visuelle Prüfung umfasste 320/390/640 Pixel und
+den dunklen Modus im Browser; native E-Mail-Clients wurden nicht einzeln geprüft.
+
+Die Kontolöschung verwendet weiterhin einen **Recovery-OTP** als serverseitig
+geprüfte erneute Anmeldung. `reauthenticate()` liefert eine Passwortänderungs-Nonce
+und ersetzt diesen Vertrag nicht. Ein eigener Repository-Aufruf
+`sendAccountDeletionCode(userId:, email:)` prüft das gebundene Konto vor dem Versand.
+Er übergibt einen ausschließlich pro Anfrage geltenden HTTPS-Kontext:
+
+| Aufruf | `redirect_to` / Vorlagenvariable `.RedirectTo` | E-Mail-Überschrift |
+|---|---|---|
+| Kontolöschung | `https://eatova.de/auth/email/account-deletion` | Kontolöschung bestätigen |
+| Passwort vergessen | `https://eatova.de/auth/email/password-reset` | Passwort zurücksetzen |
+| Ältere App / fehlender oder unbekannter Kontext | neutraler Fallback | Deine Identität bestätigen |
+
+Beide exakten HTTPS-Adressen stehen zusätzlich in der Redirect-Allowlist.
+Die Vorlage rendert daraus **keinen Link**. Der gemeinsame Betreff lautet
+„Dein Eatova-Sicherheitscode“, damit auch ältere installierte Apps keine falsche
+Passwort-Aussage mehr erhalten. Die präzise Löschüberschrift setzt den neuen
+App-Aufruf voraus; das Veröffentlichen der Vorlage installiert keinen App-Build.
+Der Kontext steuert Text, nicht die Berechtigung des Recovery-OTP. Er wird nicht
+in gemeinsam genutzten Benutzer-Metadaten gespeichert und kann deshalb nicht
+zwischen parallelen Anforderungen hängenbleiben.
+
+Die Magic-Link-Vorlage enthält weiterhin weder Token noch Bestätigungslink.
+Nur die bestehende, administrativ ausgelöste Einladung behält ihren Link.
+
+Die Codeprüfung zur Löschung läuft über `ScopedAccountDeletion` in einem
+isolierten Auth-Client. Sein verifizierter Bearer autorisiert ausschließlich
+den gebundenen Löschaufruf; die App übernimmt diese Recovery-Sitzung nicht.
+Konto und Sitzungskennung bleiben vom Öffnen des Dialogs bis zum lokalen
+Cleanup gebunden. Ein zwischenzeitlicher Kontowechsel sperrt die weitere Aktion,
+auch wenn danach dasselbe Konto erneut angemeldet ist. Verifikation und RPC
+haben begrenzte Wartezeiten; während der endgültigen Löschung bleibt der Dialog
+gegen wiederholte Aktionen und Schließen geschützt. Eine bestätigte
+Serverlöschung führt auch bei lokalem Cleanup-Fehler zur Abmeldung genau dieser
+Sitzung. `verifyRecoveryCode` bleibt dem Passwort-Reset vorbehalten.
+
+Prüfung und Aktualisierung:
+
+```sh
+python scripts/auth_email_templates.py --check
+python scripts/test_auth_email_templates.py
+python scripts/security/local_email_template_probe.py --prove-detection
+```
+
+CI prüft generierte Dateien, Zweckzuordnung und Link-/OTP-Verträge. Die lokale
+GoTrue-/SMTP-Probe prüft fünf aufeinanderfolgende Kontexte für dasselbe synthetische
+Konto, den tatsächlichen Mailinhalt und die Verifikation jedes versendeten Codes.
+Eine absichtlich entfernte Löschzuordnung muss erkannt werden. Die Probe braucht
+keine Live-Zugangsdaten und sendet ausschließlich in ihr internes Docker-Netz.
+Bei einer Veröffentlichung werden nur die passenden `mailer_subjects_*` und
+`mailer_templates_*_content` aus den versionierten Dateien gesetzt. Bestehende
+Allowlist-Einträge werden erhalten; SMTP-Zugangsdaten und Benachrichtigungsschalter
+gehören nicht in diesen Patch. Danach ist der exakte Konfigurations-Readback nötig.
+
+Die folgenden Abschnitte dokumentieren historische Entscheidungen und Werte.
+Für Vorlagentexte gilt der aktuelle versionierte Stand oben.
+
 > Einordnung, 2026-09-14: Der aktuelle App-Code erwartet weiterhin achtstellige
 > Codes. Anmeldung, Recovery und Konto-Seiten sind inzwischen Deutsch/Englisch
 > lokalisiert. Die Tabellen unten dokumentieren die bisher gesetzte Auth-Konfiguration;
@@ -14,7 +85,7 @@ zusammen mit der tatsaechlichen Projektkonfiguration.
 
 Die Anmelde-Mails laufen seit 2026-08-09 ueber **Ziffern-Codes** statt
 Mail-Links (`AuthCodeScreen` in der App); seit 2026-08-18 sind es **8 Stellen**. Die zugehoerige Konfiguration lebt
-NICHT im Repo, sondern in der Supabase-Auth-Config des Projekts
+als wirksame Dienstkonfiguration in der Supabase-Auth-Config des Projekts
 `ftoozzvmduptrvrrrshb` — gesetzt per Management API
 (`PATCH /v1/projects/{ref}/config/auth`, User-Agent-Falle beachten:
 Default-Python-UAs blockt Cloudflare, `curl/8.0` mitschicken).

@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
+
+import '../common/persistence_action.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 
@@ -20,7 +24,7 @@ import 'slot_selector.dart';
 /// day of a logged meal (null = unchanged) and returns the new state, or null
 /// if the id no longer exists.
 typedef UpdateMealDetails =
-    LoggedMeal? Function(
+    FutureOr<LoggedMeal?> Function(
       String id, {
       MealAnalysisResult? result,
       MealSlot? slot,
@@ -43,7 +47,7 @@ class MealEditScope extends InheritedWidget {
   });
 
   final UpdateMealDetails onUpdateMeal;
-  final ValueChanged<String> onRemoveMeal;
+  final PersistValueChanged<String> onRemoveMeal;
 
   /// Deliberately without dependency registration (getInherited…): the
   /// callbacks are stable store tear-offs and the lookup also happens outside
@@ -74,9 +78,10 @@ Future<MealEditOutcome?> showEditMealSheet(
   BuildContext context, {
   required LoggedMeal meal,
   required UpdateMealDetails onUpdateMeal,
-  ValueChanged<String>? onRemoveMeal,
+  PersistValueChanged<String>? onRemoveMeal,
 }) {
   return showModalBottomSheet<MealEditOutcome>(
+    showDragHandle: false,
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
@@ -194,7 +199,7 @@ class EditMealSheet extends StatefulWidget {
 
   final LoggedMeal meal;
   final UpdateMealDetails onUpdateMeal;
-  final ValueChanged<String>? onRemoveMeal;
+  final PersistValueChanged<String>? onRemoveMeal;
 
   @override
   State<EditMealSheet> createState() => _EditMealSheetState();
@@ -266,22 +271,37 @@ class _EditMealSheetState extends State<EditMealSheet> {
     setState(() => _day = DateUtils.dateOnly(picked));
   }
 
-  void _save() {
-    final updated = widget.onUpdateMeal(
-      widget.meal.id,
-      result: _resultChanged ? _result : null,
-      slot: _slotChanged ? _slot : null,
-      day: _dayChanged ? _day : null,
-    );
+  bool _saving = false;
+
+  Future<void> _save() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    LoggedMeal? updated;
+    final saved = await tryPersistChange(context, () async {
+      updated = await widget.onUpdateMeal(
+        widget.meal.id,
+        result: _resultChanged ? _result : null,
+        slot: _slotChanged ? _slot : null,
+        day: _dayChanged ? _day : null,
+      );
+    });
     if (!mounted) return;
+    setState(() => _saving = false);
+    if (!saved) return;
     Navigator.of(
       context,
-    ).pop(updated == null ? null : MealEditOutcome.saved(updated));
+    ).pop(updated == null ? null : MealEditOutcome.saved(updated!));
   }
 
-  void _delete() {
-    widget.onRemoveMeal?.call(widget.meal.id);
+  Future<void> _delete() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    final saved = await tryPersistChange(context, () async {
+      await widget.onRemoveMeal?.call(widget.meal.id);
+    });
     if (!mounted) return;
+    setState(() => _saving = false);
+    if (!saved) return;
     Navigator.of(context).pop(const MealEditOutcome.deleted());
   }
 
@@ -291,6 +311,7 @@ class _EditMealSheetState extends State<EditMealSheet> {
   bool _discardDialogOpen = false;
 
   Future<void> _askDiscard() async {
+    if (_saving) return;
     if (_discardDialogOpen) return;
     _discardDialogOpen = true;
     final verwerfen = await _confirmDiscardChanges(context);
@@ -302,7 +323,12 @@ class _EditMealSheetState extends State<EditMealSheet> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => CommitDismissGuard(
+    pending: _saving,
+    child: _buildContent(context),
+  );
+
+  Widget _buildContent(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
     // Safe-area aware instead of a fixed 92 %: the sheet must never reach
     // under the status bar or Dynamic Island.
@@ -334,9 +360,7 @@ class _EditMealSheetState extends State<EditMealSheet> {
       constraints: BoxConstraints(maxHeight: maxHeight),
       decoration: BoxDecoration(
         color: t.bg,
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(rSheet),
-        ),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(rSheet)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -367,29 +391,30 @@ class _EditMealSheetState extends State<EditMealSheet> {
                       key: const ValueKey('edit-meal-no-cooked-weight'),
                       style: AppType.ui(13.5, color: t.ink2, height: 1.4),
                     )
-                  else SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      key: const ValueKey('edit-meal-adjust-button'),
-                      onPressed: _adjustPortion,
-                      icon: const Icon(Icons.tune_rounded, size: 17),
-                      label: Text(
-                        l10n.foodAdjustPortionButton,
-                        style: AppType.ui(13.5, weight: FontWeight.w600),
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: t.ink,
-                        side: BorderSide(color: t.line),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
+                  else
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        key: const ValueKey('edit-meal-adjust-button'),
+                        onPressed: _adjustPortion,
+                        icon: const Icon(Icons.tune_rounded, size: 17),
+                        label: Text(
+                          l10n.foodAdjustPortionButton,
+                          style: AppType.ui(13.5, weight: FontWeight.w600),
                         ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(rControl),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: t.ink,
+                          side: BorderSide(color: t.line),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(rControl),
+                          ),
                         ),
                       ),
                     ),
-                  ),
                   const SizedBox(height: 18),
                   _SectionLabel(l10n.foodSectionMeal),
                   const SizedBox(height: 8),
@@ -413,7 +438,7 @@ class _EditMealSheetState extends State<EditMealSheet> {
                     width: double.infinity,
                     child: FilledButton.icon(
                       key: const ValueKey('edit-meal-save-button'),
-                      onPressed: _dirty ? _save : null,
+                      onPressed: _dirty && !_saving ? _save : null,
                       icon: const Icon(Icons.check_rounded, size: 17),
                       // No styleFrom: fill, ink and shape come from the
                       // app-wide filledButtonTheme (review F8-10).
@@ -505,11 +530,7 @@ class _Header extends StatelessWidget {
                   mealName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: AppType.ui(
-                    12,
-                    weight: FontWeight.w500,
-                    color: t.ink2,
-                  ),
+                  style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
                 ),
               ],
             ),
@@ -542,11 +563,7 @@ class _SummaryCard extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       child: Row(
         children: [
-          Icon(
-            Icons.local_fire_department_outlined,
-            color: t.accent,
-            size: 18,
-          ),
+          Icon(Icons.local_fire_department_outlined, color: t.accent, size: 18),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -712,8 +729,10 @@ class _DayPicker extends StatelessWidget {
               onTap: () => onSelected(date),
               borderRadius: BorderRadius.circular(rControl),
               child: AnimatedContainer(
-                duration:
-                    motionDuration(context, const Duration(milliseconds: 160)),
+                duration: motionDuration(
+                  context,
+                  const Duration(milliseconds: 160),
+                ),
                 curve: Curves.easeOut,
                 width: 64,
                 padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
@@ -733,7 +752,11 @@ class _DayPicker extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      editMealDayChipLabel(today: today, date: date, l10n: l10n),
+                      editMealDayChipLabel(
+                        today: today,
+                        date: date,
+                        l10n: l10n,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: AppType.ui(

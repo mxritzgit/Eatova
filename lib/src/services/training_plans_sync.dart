@@ -31,7 +31,7 @@ class TrainingPlansSync {
     final authorization = await _authorization();
     final rows = await _client
         .from('training_plans')
-        .select('id,plan,exercise_ids')
+        .select('id,plan,exercise_ids,source_id,incarnation')
         .eq('user_id', _userId)
         .order('updated_at', ascending: false)
         .order('id')

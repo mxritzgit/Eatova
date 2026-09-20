@@ -96,7 +96,7 @@ void main() {
     final store = s.store;
     await _fillCache();
 
-    store.addResultToDailyTotal(_meal('Bowl'));
+    await store.addResultToDailyTotal(_meal('Bowl'));
 
     expect(TrendTotalsCache.instance.debugHasEntry, isFalse);
   });
@@ -106,11 +106,11 @@ void main() {
       'zieht die Tagessumme nach', () async {
     final s = _store();
     final store = s.store;
-    final id = store.addResultToDailyTotal(_meal('Bowl'));
+    final id = await store.addResultToDailyTotal(_meal('Bowl'));
     expect(store.dailyConsumedKcal, 300);
     await _fillCache();
 
-    store.updateLoggedMealResult(id, _meal('Bowl', kcal: 600));
+    await store.updateLoggedMealResult(id, _meal('Bowl', kcal: 600));
 
     expect(TrendTotalsCache.instance.debugHasEntry, isFalse);
     expect(store.dailyConsumedKcal, 600,
@@ -122,10 +122,10 @@ void main() {
   test('das Bearbeiten der Details verwirft es', () async {
     final s = _store();
     final store = s.store;
-    final id = store.addResultToDailyTotal(_meal('Bowl'));
+    final id = await store.addResultToDailyTotal(_meal('Bowl'));
     await _fillCache();
 
-    store.updateLoggedMealDetails(id, slot: MealSlot.snack);
+    await store.updateLoggedMealDetails(id, slot: MealSlot.snack);
 
     expect(TrendTotalsCache.instance.debugHasEntry, isFalse);
   });
@@ -133,11 +133,11 @@ void main() {
   test('das Loeschen verwirft es und nimmt die Kalorien vom Tag', () async {
     final s = _store();
     final store = s.store;
-    final id = store.addResultToDailyTotal(_meal('Bowl'));
+    final id = await store.addResultToDailyTotal(_meal('Bowl'));
     expect(store.dailyConsumedKcal, 300);
     await _fillCache();
 
-    store.removeLoggedMeal(id);
+    await store.removeLoggedMeal(id);
 
     expect(TrendTotalsCache.instance.debugHasEntry, isFalse);
     expect(store.dailyConsumedKcal, 0,
@@ -154,14 +154,15 @@ void main() {
     // Serversicht genauso wie das Loeschen davor.
     final s = _store();
     final store = s.store;
-    final id = store.addResultToDailyTotal(_meal('Bowl'));
-    store.removeLoggedMeal(id);
+    final id = await store.addResultToDailyTotal(_meal('Bowl'));
+    await store.removeLoggedMeal(id);
     final undo = s.snacks.letzteAktion;
     expect(undo, isNotNull, reason: 'das Loeschen muss einen Undo-Snack werfen');
     expect(store.dailyConsumedKcal, 0);
     await _fillCache();
 
     undo!.onPressed();
+    await pumpEventQueue(times: 20);
 
     expect(TrendTotalsCache.instance.debugHasEntry, isFalse);
     expect(store.dailyConsumedKcal, 300,
@@ -173,8 +174,11 @@ void main() {
     // _restoreLoggedMeal muss halten, sonst steht die Mahlzeit doppelt im
     // Tagebuch und der Tag zaehlt 600 kcal.
     undo.onPressed();
+    await pumpEventQueue(times: 20);
 
-    expect(store.loggedMeals.where((m) => m.id == id), hasLength(1));
+    expect(store.loggedMeals, hasLength(1));
+    expect(store.loggedMeals.single.id, isNot(id));
+    expect(store.loggedMeals.single.result.mealName, 'Bowl');
     expect(store.dailyConsumedKcal, 300);
   });
 
@@ -184,7 +188,7 @@ void main() {
     // reiner Lesezugriff darf ihn nicht anfassen.
     final s = _store();
     final store = s.store;
-    store.addResultToDailyTotal(_meal('Bowl'));
+    await store.addResultToDailyTotal(_meal('Bowl'));
     await _fillCache();
 
     store.consumedKcalForFoodDate(DateTime.now());

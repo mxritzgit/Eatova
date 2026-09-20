@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 
+import '../support/recipe_read_fake.dart';
+import '../support/sync_operation_fake.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -30,6 +33,25 @@ import 'package:eatova/src/widgets/common/app_snack.dart';
 /// Stateful fake PostgREST: records requests, applies upserts and deletes to
 /// in-memory tables, and can be switched offline.
 class FakeServer {
+  final recipeReads = RecipeReadFake();
+  late final syncOperations = SyncOperationFake(
+    meals: mealRows,
+    weights: weightRows,
+    favorites: favoriteRows,
+    recipes: recipeRows,
+    readProfile: () => profileRow,
+    writeProfile: (row) => profileRow = row,
+    readStats: _statsRow,
+    incrementStats: (requestId, meals, weights) {
+      statsRequestIds.add(requestId);
+      if (!verbrauchteStatsIds.add(requestId)) return;
+      mealsCounted += meals;
+      weightLogsCounted += weights;
+    },
+    recordDay: (day) => trackedDay = day,
+    keepPhoto: recipeReads.historicalPhotos.add,
+  );
+
   /// Everything fails; such requests are NOT recorded, so [requests] holds
   /// only what reached the "server".
   bool offline = false;
@@ -55,6 +77,20 @@ class FakeServer {
   /// user_recipes writes NEVER answer. PostgREST has no timeout, so a hanging
   /// request neither resolves nor throws and NO outbox op is created.
   bool hangRecipeWrites = false;
+  Completer<void>? _recipeWriteGate;
+  void holdRecipeWrites() => _recipeWriteGate ??= Completer<void>();
+  void releaseRecipeWrites() {
+    _recipeWriteGate?.complete();
+    _recipeWriteGate = null;
+  }
+
+  List<http.Request> operations(String kind) => requests
+      .where(
+        (request) =>
+            request.url.path.endsWith('/rpc/apply_sync_operation') &&
+            (jsonDecode(request.body) as Map)['p_kind'] == kind,
+      )
+      .toList();
 
   /// user_recipes writes fail with 500, i.e. the server ANSWERS (gap E:
   /// "offline" would be a lie there).
@@ -146,25 +182,107 @@ class FakeServer {
     requests.add(req);
     final path = req.url.path;
 
-    http.Response ok(Object body) => http.Response(jsonEncode(body), 200,
-        headers: const {'Content-Type': 'application/json'}, request: req);
+    http.Response ok(Object? body) => http.Response(
+      jsonEncode(body),
+      200,
+      headers: const {'content-type': 'application/json; charset=utf-8'},
+      request: req,
+    );
     http.Response fail() => http.Response(
-        jsonEncode({'message': 'kaputt'}), 500,
-        headers: const {'Content-Type': 'application/json'}, request: req);
+      jsonEncode({'message': 'kaputt'}),
+      500,
+      headers: const {'content-type': 'application/json; charset=utf-8'},
+      request: req,
+    );
     // The body carries the SQLSTATE, so PostgrestException.code is
     // '$poisonCode', not '400'. ASCII-only: http.Response encodes as latin1.
     http.Response poison() => http.Response(
-        jsonEncode({
-          'code': poisonCode,
-          'message': 'null value in column "payload" of relation '
-              '"logged_meals" violates not-null constraint',
-          'details': 'Failing row contains (...).',
-          'hint': null,
-        }),
-        400,
-        headers: const {'Content-Type': 'application/json'},
-        request: req);
+      jsonEncode({
+        'code': poisonCode,
+        'message':
+            'null value in column "payload" of relation '
+            '"logged_meals" violates not-null constraint',
+        'details': 'Failing row contains (...).',
+        'hint': null,
+      }),
+      400,
+      headers: const {'content-type': 'application/json; charset=utf-8'},
+      request: req,
+    );
 
+    if (path.endsWith('/rpc/load_sync_operation_receipt')) {
+      final params = jsonDecode(req.body) as Map<String, dynamic>;
+      return ok(syncOperations.readReceipt(params['p_operation_id'] as String));
+    }
+    if (path.endsWith('/rpc/load_training_plan_head')) {
+      final params = jsonDecode(req.body) as Map<String, dynamic>;
+      return ok(
+        syncOperations.readTrainingHead(params['p_source_id'] as String),
+      );
+    }
+    if (path.endsWith('/rpc/apply_sync_operation')) {
+      final params = jsonDecode(req.body) as Map<String, dynamic>;
+      final kind = params['p_kind'] as String;
+      final payload = (params['p_payload'] as Map).cast<String, dynamic>();
+      final mealWrite = kind == 'mealInsert' || kind == 'mealUpsert';
+      if ((mealWrite || kind == 'mealDelete') && _mealWriteGate != null) {
+        await _mealWriteGate!.future;
+      }
+      if ((mealWrite || kind == 'mealDelete') && poisonMealWrites) {
+        return poison();
+      }
+      if (mealWrite && rejectMealWrites) return fail();
+      if (kind.startsWith('recipe') && _recipeWriteGate != null) {
+        await _recipeWriteGate!.future;
+      }
+      if (kind.startsWith('recipe') && hangRecipeWrites) {
+        return Completer<http.Response>().future;
+      }
+      if (kind.startsWith('recipe') && rejectRecipeWrites) return fail();
+      if ((kind == 'trackingDay' ||
+              kind == 'mealInsert' && payload['track_day'] == true) &&
+          hangTrackingDay) {
+        return Completer<http.Response>().future;
+      }
+      if ((kind == 'trackingDay' ||
+              kind == 'mealInsert' && payload['track_day'] == true) &&
+          rejectTrackingDay) {
+        return fail();
+      }
+      if (statsOffline &&
+          (kind == 'mealInsert' ||
+              kind == 'weightInsert' ||
+              kind == 'statsIncrement')) {
+        return fail();
+      }
+      if (kind == 'trackingDay' &&
+          enforceTrackingDaySourceProof &&
+          !mealRows.values.any(
+            (row) => row['local_day'] == params['p_entity_id'],
+          )) {
+        trackingDayRejections.add(params['p_entity_id'] as String);
+        return http.Response(
+          jsonEncode({'code': 'P0001', 'message': 'EX_DAY_NOT_LOGGED'}),
+          400,
+          request: req,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      try {
+        final receipt = syncOperations.apply(params);
+        if (ambiguousWrites && (mealWrite || kind == 'weightInsert')) {
+          return fail();
+        }
+        return ok(receipt);
+      } on PostgrestException catch (error) {
+        return http.Response(
+          jsonEncode({'code': error.code, 'message': error.message}),
+          400,
+          request: req,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+    }
     if (path.contains('/rpc/increment_lifetime_stats')) {
       final body = jsonDecode(req.body) as Map<String, dynamic>;
       // Recorded before the failure switch: the failed attempt is the one the
@@ -190,15 +308,16 @@ class FakeServer {
           !mealRows.values.any((r) => r['local_day'] == day)) {
         trackingDayRejections.add(day ?? '');
         return http.Response(
-            jsonEncode({
-              'code': 'P0001',
-              'message': 'EX_DAY_NOT_LOGGED',
-              'details': null,
-              'hint': null,
-            }),
-            400,
-            headers: const {'Content-Type': 'application/json'},
-            request: req);
+          jsonEncode({
+            'code': 'P0001',
+            'message': 'EX_DAY_NOT_LOGGED',
+            'details': null,
+            'hint': null,
+          }),
+          400,
+          headers: const {'content-type': 'application/json; charset=utf-8'},
+          request: req,
+        );
       }
       trackedDay = day;
       return ok(_statsRow());
@@ -212,9 +331,7 @@ class FakeServer {
         for (final row in rowsOf(req.body)) {
           mealRows[row['id'] as String] = row;
         }
-        return ambiguousWrites
-            ? fail()
-            : http.Response('', 201, request: req);
+        return ambiguousWrites ? fail() : http.Response('', 201, request: req);
       }
       if (req.method == 'PATCH') {
         final id = _eqParam(req, 'id');
@@ -230,19 +347,24 @@ class FakeServer {
       // GET: select shape, WITH PostgREST-like filters. A fake returning every
       // row hid the 35-day hole in the re-display path.
       Iterable<Map<String, dynamic>> rows = mealRows.values;
-      for (final p in req.url.queryParametersAll['logged_at'] ?? const <String>[]) {
+      for (final p
+          in req.url.queryParametersAll['logged_at'] ?? const <String>[]) {
         if (p.startsWith('gte.')) {
           final cutoff = DateTime.parse(p.substring(4));
-          rows = rows.where((r) =>
-              !DateTime.parse(r['logged_at'] as String).isBefore(cutoff));
+          rows = rows.where(
+            (r) => !DateTime.parse(r['logged_at'] as String).isBefore(cutoff),
+          );
         } else if (p.startsWith('lt.')) {
           final end = DateTime.parse(p.substring(3));
           rows = rows.where(
-              (r) => DateTime.parse(r['logged_at'] as String).isBefore(end));
+            (r) => DateTime.parse(r['logged_at'] as String).isBefore(end),
+          );
         }
       }
       final idParam = req.url.queryParameters['id'];
-      if (idParam != null && idParam.startsWith('in.(') && idParam.endsWith(')')) {
+      if (idParam != null &&
+          idParam.startsWith('in.(') &&
+          idParam.endsWith(')')) {
         final ids = idParam
             .substring(4, idParam.length - 1)
             .split(',')
@@ -250,22 +372,28 @@ class FakeServer {
             .toSet();
         rows = rows.where((r) => ids.contains(r['id']));
       }
-      return ok(rows
-          .map((r) => <String, dynamic>{
+      return ok(
+        rows
+            .map(
+              (r) => <String, dynamic>{
                 'id': r['id'],
                 'logged_at': r['logged_at'],
                 'forced_slot': r['forced_slot'],
                 'local_day': r['local_day'],
                 'payload': r['payload'],
-              })
-          .toList());
+              },
+            )
+            .toList(),
+      );
     }
     if (path.contains('/profiles')) {
       if (req.method == 'GET') {
         // maybeSingle() on a GET expects a LIST of 0 or 1 rows.
-        return ok(profileRow == null
-            ? const <dynamic>[]
-            : <Map<String, dynamic>>[profileRow!]);
+        return ok(
+          profileRow == null
+              ? const <dynamic>[]
+              : <Map<String, dynamic>>[profileRow!],
+        );
       }
       // ProfileSync.save is an upsert with .single(): PostgREST returns ONE
       // object, not a list.
@@ -273,6 +401,21 @@ class FakeServer {
         profileRow = <String, dynamic>{...?profileRow, ...row};
       }
       return ok(profileRow!);
+    }
+    if (path.endsWith('/rpc/load_recipe_photo_refs')) {
+      if (rejectRecipeReads ||
+          recipeReads.photoPageCalls + 1 == recipeReads.failPhotoPage) {
+        return fail();
+      }
+      return ok(recipeReads.photoPage(req, recipeRows.values));
+    }
+    if (path.endsWith('/rpc/load_recipe_page')) {
+      if (rejectRecipeReads ||
+          recipeReads.pageCalls + 1 == recipeReads.failPage) {
+        return fail();
+      }
+      syncOperations.seedRecipeHeads();
+      return ok(recipeReads.page(req, recipeRows.values));
     }
     if (path.contains('/user_recipes')) {
       if (hangRecipeWrites && req.method != 'GET') {
@@ -305,14 +448,18 @@ class FakeServer {
         return ok(const <dynamic>[]);
       }
       // GET in the select shape of MealsSync.loadFavorites.
-      return ok(favoriteRows.values
-          .map((r) => <String, dynamic>{
+      return ok(
+        favoriteRows.values
+            .map(
+              (r) => <String, dynamic>{
                 'favorite_key': r['favorite_key'],
                 'added_at': r['added_at'],
                 'payload': r['payload'],
                 'pinned': r['pinned'],
-              })
-          .toList());
+              },
+            )
+            .toList(),
+      );
     }
     if (path.contains('/weight_log')) {
       if (req.method == 'POST') {
@@ -323,12 +470,16 @@ class FakeServer {
         return ambiguousWrites ? fail() : http.Response('', 201, request: req);
       }
       // GET in the select shape of TrackingSync.loadWeightLog.
-      return ok(weightRows.values
-          .map((r) => <String, dynamic>{
+      return ok(
+        weightRows.values
+            .map(
+              (r) => <String, dynamic>{
                 'recorded_at': r['recorded_at'],
                 'weight_kg': r['weight_kg'],
-              })
-          .toList());
+              },
+            )
+            .toList(),
+      );
     }
     // Remaining reads: empty, which _safeLoad treats as "nothing there".
     if (req.method == 'GET') return ok(const <dynamic>[]);
@@ -337,16 +488,16 @@ class FakeServer {
   }
 
   Map<String, dynamic> _statsRow() => <String, dynamic>{
-        'workouts_completed': 0,
-        'meals_logged': mealsCounted,
-        'water_total_ml': 0,
-        'steps_recorded': 0,
-        'weight_logs': weightLogsCounted,
-        'current_streak': 1,
-        'longest_streak': 1,
-        'last_workout_date': trackedDay,
-        'session_start': '2026-08-01T00:00:00Z',
-      };
+    'workouts_completed': 0,
+    'meals_logged': mealsCounted,
+    'water_total_ml': 0,
+    'steps_recorded': 0,
+    'weight_logs': weightLogsCounted,
+    'current_streak': 1,
+    'longest_streak': 1,
+    'last_workout_date': trackedDay,
+    'session_start': '2026-08-01T00:00:00Z',
+  };
 
   /// Rows of a PostgREST request body, single object or list.
   static List<Map<String, dynamic>> rowsOf(String body) {
@@ -462,23 +613,20 @@ class DeltaLesefehlerCache extends LocalCache {
 
   @override
   Future<({int meals, int weightLogs, String? requestId})?>
-      readPendingStatsDeltas() {
+  readPendingStatsDeltas() {
     leseversuche++;
     if (leseversuche <= kaputteVersuche) {
       return Future<({int meals, int weightLogs, String? requestId})?>.error(
-          StateError('Deltas-Slot unlesbar'));
+        StateError('Deltas-Slot unlesbar'),
+      );
     }
     return super.readPendingStatsDeltas();
   }
 }
 
 /// A real HomeStore over a fake PostgREST and an in-memory cache.
-({
-  HomeStore store,
-  FakeServer server,
-  LocalCache cache,
-  SnackCapture snacks,
-}) setup({
+({HomeStore store, FakeServer server, LocalCache cache, SnackCapture snacks})
+setup({
   InMemoryKeyValueStore? kv,
   LocalCache? injizierterCache,
   // Two sessions sharing one server (kill simulation): dedup state and tables
@@ -487,6 +635,7 @@ class DeltaLesefehlerCache extends LocalCache {
   // Off under fakeAsync: the teardown runs outside the fake zone, where a
   // request that never answers would hang the dispose.
   bool disposeClient = true,
+  bool disposeStore = true,
 }) {
   final server = geteilterServer ?? FakeServer();
   final client = SupabaseClient(
@@ -498,7 +647,8 @@ class DeltaLesefehlerCache extends LocalCache {
   );
   if (disposeClient) addTearDown(client.dispose);
   final cache =
-      injizierterCache ?? LocalCache(kv ?? InMemoryKeyValueStore(), 'user-outbox');
+      injizierterCache ??
+      LocalCache(kv ?? InMemoryKeyValueStore(), 'user-outbox');
   final snacks = SnackCapture();
   final store = HomeStore(
     sync: EatovaSync.forUser(client, 'user-outbox'),
@@ -508,7 +658,7 @@ class DeltaLesefehlerCache extends LocalCache {
     emitSnack: snacks.call,
     debugCache: cache,
   );
-  addTearDown(store.dispose);
+  if (disposeStore) addTearDown(store.dispose);
   return (store: store, server: server, cache: cache, snacks: snacks);
 }
 
@@ -571,23 +721,24 @@ FitnessRecipe userRecipe(String slug, {String title = 'Eigene Bowl'}) =>
     );
 
 /// Server row of public.user_recipes (select shape of UserRecipesSync.load).
-Map<String, dynamic> serverRecipeRow(String slug,
-        {String title = 'Server-Rezept'}) =>
-    <String, dynamic>{
-      'slug': slug,
-      'title': title,
-      'description': 'Eigenes Rezept',
-      'portion': '1 Teller',
-      'ingredients': 'Reis',
-      'preparation': 'Kochen.',
-      'image_asset': '',
-      'calories_kcal': 600,
-      'protein_g': 50,
-      'carbs_g': 60,
-      'fat_g': 15,
-      'estimated_g': 400,
-      'categories': <String>['Eigene'],
-    };
+Map<String, dynamic> serverRecipeRow(
+  String slug, {
+  String title = 'Server-Rezept',
+}) => <String, dynamic>{
+  'slug': slug,
+  'title': title,
+  'description': 'Eigenes Rezept',
+  'portion': '1 Teller',
+  'ingredients': 'Reis',
+  'preparation': 'Kochen.',
+  'image_asset': '',
+  'calories_kcal': 600,
+  'protein_g': 50,
+  'carbs_g': 60,
+  'fat_g': 15,
+  'estimated_g': 400,
+  'categories': <String>['Eigene'],
+};
 
 /// A completed profile, as it looks after onboarding.
 UserProfile testProfile({
@@ -595,35 +746,34 @@ UserProfile testProfile({
   int dailyKcalGoal = 2200,
   DietPreference diet = DietPreference.none,
   bool onboardingCompleted = true,
-}) =>
-    UserProfile(
-      weightKg: weightKg,
-      dailyKcalGoal: dailyKcalGoal,
-      diet: diet,
-      onboardingCompleted: onboardingCompleted,
-    );
+}) => UserProfile(
+  weightKg: weightKg,
+  dailyKcalGoal: dailyKcalGoal,
+  diet: diet,
+  onboardingCompleted: onboardingCompleted,
+);
 
 /// Server row of public.profiles, spelled out rather than derived: a missing
 /// column makes `ProfileSync.load` throw and the boot hydrate nothing.
 Map<String, dynamic> serverProfileRow(UserProfile p) => <String, dynamic>{
-      'id': 'user-outbox',
-      'weight_kg': p.weightKg,
-      'height_cm': p.heightCm,
-      'age_years': p.ageYears,
-      'sex': p.sex.name,
-      'activity_level': p.activityLevel.name,
-      'target_weight_kg': p.targetWeightKg,
-      'daily_steps_goal': p.dailyStepsGoal,
-      'daily_kcal_goal': p.dailyKcalGoal,
-      'daily_water_goal_ml': p.dailyWaterGoalMl,
-      'daily_sleep_goal_minutes': p.dailySleepGoalMinutes,
-      'protein_goal_g': p.proteinGoalG,
-      'carbs_goal_g': p.carbsGoalG,
-      'fat_goal_g': p.fatGoalG,
-      'weight_goal': p.weightGoal.name,
-      'diet_preference': p.diet.name,
-      'onboarding_completed': p.onboardingCompleted,
-    };
+  'id': 'user-outbox',
+  'weight_kg': p.weightKg,
+  'height_cm': p.heightCm,
+  'age_years': p.ageYears,
+  'sex': p.sex.name,
+  'activity_level': p.activityLevel.name,
+  'target_weight_kg': p.targetWeightKg,
+  'daily_steps_goal': p.dailyStepsGoal,
+  'daily_kcal_goal': p.dailyKcalGoal,
+  'daily_water_goal_ml': p.dailyWaterGoalMl,
+  'daily_sleep_goal_minutes': p.dailySleepGoalMinutes,
+  'protein_goal_g': p.proteinGoalG,
+  'carbs_goal_g': p.carbsGoalG,
+  'fat_goal_g': p.fatGoalG,
+  'weight_goal': p.weightGoal.name,
+  'diet_preference': p.diet.name,
+  'onboarding_completed': p.onboardingCompleted,
+};
 
 /// Server row of public.logged_meals (select shape of MealsSync.load).
 Map<String, dynamic> serverMealRow(String id, {int kcal = 250}) =>
@@ -693,6 +843,7 @@ Future<void> bootUntilIdle(
 Future<void> seedRawOutbox(
   InMemoryKeyValueStore kv,
   List<Map<String, dynamic>> items,
-) =>
-    kv.setString('eatova.v1.outbox.user-outbox',
-        jsonEncode(<String, dynamic>{'items': items}));
+) => kv.setString(
+  'eatova.v1.outbox.user-outbox',
+  jsonEncode(<String, dynamic>{'items': items}),
+);

@@ -108,6 +108,16 @@ const Set<String> _voll = {'select', 'insert', 'update', 'delete'};
 
 /// The tables `supabase/migrations/` must leave behind — no more, no fewer.
 const Map<String, Erwartung> _erwartet = {
+  'training_plan_heads': Erwartung.nurServer(
+    grund: 'Permanent owner source generations fence delayed plan mutations.'),
+  'recipe_sync_heads': Erwartung.nurServer(
+    grund: 'Owner-revision clock and bounded durable-sync storage accounting.'),
+  'recipe_revisions': Erwartung.nurServer(
+    grund: 'Immutable recipe versions, exposed only through owner-scoped RPCs.'),
+  'sync_operation_receipts': Erwartung.nurServer(
+    grund: 'Permanent operation fingerprints and committed receipts.'),
+  'sync_entity_deletions': Erwartung.nurServer(
+    grund: 'Permanent identities prevent delayed operation resurrection.'),
   'profiles': Erwartung(
     besitzerSpalte: 'id',
     clientBefehle: {'select', 'insert', 'update'},
@@ -250,6 +260,36 @@ class FunktionsErwartung {
 /// fewer. Hand-written for the same reason as [_erwartet]: derived from the
 /// migrations, a newly granted role would define its own expectation.
 const Map<String, FunktionsErwartung> _erwarteteFunktionen = {
+  'training_incarnation': FunktionsErwartung.nurServer(
+      definer: false, grund: 'Strict generation validation inside the private mutation.'),
+  'create_training_plan_head': FunktionsErwartung.nurServer(
+      definer: true, grund: 'Bounds permanent source metadata inside the owner transaction.'),
+  'guard_training_plan_incarnation': FunktionsErwartung.nurServer(
+      definer: true, grund: 'Legacy writes cannot affect a later source generation.'),
+  'training_plan_head_json': FunktionsErwartung.nurServer(
+      definer: true, grund: 'Private current-generation projection scoped by the caller RPC.'),
+  'load_training_plan_head': FunktionsErwartung.client(
+      definer: true, grund: 'Reads only one source head of the authenticated owner.'),
+  'apply_training_plan_mutation': FunktionsErwartung.nurServer(
+      definer: true, grund: 'Pinned-generation writes run only inside an operation receipt.'),
+  'recipe_revision_before': FunktionsErwartung.nurServer(
+      definer: true, grund: 'Orders and bounds recipe versions, including legacy writes.'),
+  'recipe_revision_after': FunktionsErwartung.nurServer(
+      definer: true, grund: 'Retains committed recipe content for recovery and snapshots.'),
+  'apply_recipe_mutation': FunktionsErwartung.nurServer(
+      definer: true, grund: 'Private recipe CAS invoked only inside the receipt transaction.'),
+  'apply_sync_operation': FunktionsErwartung.client(
+      definer: true, grund: 'Owner-scoped mutation and immutable operation receipt are atomic.'),
+  'load_sync_operation_receipt': FunktionsErwartung.client(
+      definer: true, grund: 'Reads only the owner receipt and its current state without replay.'),
+  'sync_operation_current_state': FunktionsErwartung.nurServer(
+      definer: true, grund: 'Current owner projection prevents replay of stale cached existence.'),
+  'load_recipe_page': FunktionsErwartung.client(
+      definer: true, grund: 'Bounded owner snapshot at a fixed revision watermark.'),
+  'load_recipe_history': FunktionsErwartung.client(
+      definer: true, grund: 'Bounded recovery history of the authenticated owner.'),
+  'load_recipe_photo_refs': FunktionsErwartung.client(
+      definer: true, grund: 'Bounded historical image markers protect local recipe recovery.'),
   'record_training_history': FunktionsErwartung.client(
       definer: true, grund: 'Bestaetigt eigene unveraenderliche Abschluesse oder vorhandene Loeschung.'),
   'delete_training_history': FunktionsErwartung.client(

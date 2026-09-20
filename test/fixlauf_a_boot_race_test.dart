@@ -58,13 +58,14 @@ void main() {
       'Write', () async {
     final s = await _bootMitAngehaltenenReads();
 
-    final liveId = s.store.addResultToDailyTotal(mealResult('Live-Bowl'));
+    final liveId = await s.store.addResultToDailyTotal(mealResult('Live-Bowl'));
     await settle();
     expect(s.store.pendingOutbox, isEmpty,
         reason: 'Vorbedingung: der Live-Write wurde zugestellt, die Op hat '
             'die Outbox verlassen — _applyPendingOpsToState kann sie nicht '
             'mehr retten');
 
+    s.server.holdReads = false;
     s.server.releaseReads();
     await settle();
 
@@ -82,10 +83,11 @@ void main() {
       'wiederbelebt', () async {
     final s = await _bootMitAngehaltenenReads();
 
-    s.store.removeLoggedMeal('m2');
+    await s.store.removeLoggedMeal('m2');
     await settle();
     expect(s.store.pendingOutbox, isEmpty, reason: 'Vorbedingung');
 
+    s.server.holdReads = false;
     s.server.releaseReads();
     await settle();
 
@@ -104,15 +106,34 @@ void main() {
     // request time.
     final s = await _bootMitAngehaltenenReads(extraServerRow: 'm9');
 
-    final liveId = s.store.addResultToDailyTotal(mealResult('Live'));
+    final liveId = await s.store.addResultToDailyTotal(mealResult('Live'));
     await settle();
 
+    s.server.holdReads = false;
     s.server.releaseReads();
     await settle();
 
     expect(s.store.loggedMeals.map((m) => m.id),
         containsAll([liveId, 'm1', 'm2', 'm9']),
         reason: 'lokal gewinnt, aber fehlende Server-Ids werden ergaenzt');
+  });
+
+  test('Ein online geloeschter, lokal unbekannter Eintrag bleibt nach dem Load geloescht',
+      () async {
+    final s = await _bootMitAngehaltenenReads(extraServerRow: 'm9');
+    expect(s.store.loggedMeals.any((meal) => meal.id == 'm9'), isFalse);
+
+    await s.store.removeLoggedMeal('m9');
+    expect(s.store.pendingOutbox, isEmpty);
+    expect(s.server.mealRows.containsKey('m9'), isFalse);
+
+    s.server.holdReads = false;
+    s.server.releaseReads();
+    await settle(times: 200);
+
+    expect(s.store.loggedMeals.map((meal) => meal.id), isNot(contains('m9')));
+    expect((await s.cache!.readLoggedMeals())!.map((meal) => meal.id),
+        isNot(contains('m9')));
   });
 
   test('Kontrolle: ohne Mutation im Ladefenster ersetzt der Server-Load die '
@@ -140,11 +161,12 @@ void main() {
       () async {
     final s = await _bootMitAngehaltenenReads();
 
-    s.store.toggleFavorite(mealResult('Pin-Bowl'));
-    s.store.logWeight(83.5);
+    await s.store.toggleFavorite(mealResult('Pin-Bowl'));
+    await s.store.logWeight(83.5);
     await settle();
     expect(s.store.pendingOutbox, isEmpty, reason: 'Vorbedingung');
 
+    s.server.holdReads = false;
     s.server.releaseReads();
     await settle();
 
@@ -175,6 +197,7 @@ void main() {
     await settle();
     expect(s.store.pendingOutbox, isEmpty, reason: 'Vorbedingung: zugestellt');
 
+    s.server.holdReads = false;
     s.server.releaseReads();
     await settle();
 

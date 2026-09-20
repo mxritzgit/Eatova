@@ -119,10 +119,17 @@ class _Fixture {
   }
 }
 
-class _BrokenCache extends LocalCache {
-  _BrokenCache() : super(InMemoryKeyValueStore(), 'A');
+class _BrokenStorage extends InMemoryKeyValueStore {
+  bool fail = false;
+
   @override
-  Future<bool> writeOutbox(List<SyncOp> ops) async => false;
+  Future<KeyValueCommit> writeBatch(Map<String, String?> changes,
+      {Map<String, int> expectedVersions = const {}}) {
+    if (fail && changes.keys.any((key) => key.contains('.outbox.'))) {
+      return Future.error(StateError('fixture commit failed'));
+    }
+    return super.writeBatch(changes, expectedVersions: expectedVersions);
+  }
 }
 
 void main() {
@@ -358,8 +365,10 @@ void main() {
   );
 
   test('storage failure does not publish an unacknowledged plan', () async {
-    final f = _Fixture(cache: _BrokenCache());
+    final raw = _BrokenStorage();
+    final f = _Fixture(raw: raw);
     await f.boot();
+    raw.fail = true;
     await expectLater(f.store.savePlannedMeal(plan()), throwsStateError);
     expect(f.store.plannedMeals, isEmpty);
     expect(f.store.pendingOutbox, isEmpty);

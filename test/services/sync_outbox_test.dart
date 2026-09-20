@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/fitness_recipe.dart';
@@ -33,30 +35,28 @@ MealAnalysisResult _result({String name = 'Bowl', int kcal = 300}) =>
     testResult(
       name: name,
       kcal: kcal,
-      items: const [
-        MealComponent(name: 'Reis', grams: 150, caloriesKcal: 195),
-      ],
+      items: const [MealComponent(name: 'Reis', grams: 150, caloriesKcal: 195)],
       barcode: '4001234',
       brand: 'Testmarke',
     );
 
 FitnessRecipe _recipe() => const FitnessRecipe(
-      slug: 'user_123',
-      title: 'Eigenes Rezept',
-      description: 'Test',
-      portion: '1 Portion',
-      ingredients: '- 100 g Test',
-      preparation: '1. Testen.',
-      professionalHint: 'Selbst angelegt.',
-      imageAsset: '',
-      caloriesKcal: 420,
-      proteinG: 33,
-      carbsG: 44,
-      fatG: 11,
-      estimatedGrams: 350,
-      categories: <String>['Eigene'],
-      userCreated: true,
-    );
+  slug: 'user_123',
+  title: 'Eigenes Rezept',
+  description: 'Test',
+  portion: '1 Portion',
+  ingredients: '- 100 g Test',
+  preparation: '1. Testen.',
+  professionalHint: 'Selbst angelegt.',
+  imageAsset: '',
+  caloriesKcal: 420,
+  proteinG: 33,
+  carbsG: 44,
+  fatG: 11,
+  estimatedGrams: 350,
+  categories: <String>['Eigene'],
+  userCreated: true,
+);
 
 LoggedMeal _meal(String id, {int kcal = 300}) =>
     testMeal(id, result: _result(kcal: kcal));
@@ -83,7 +83,9 @@ void main() {
     });
 
     test('mealUpsert/mealDelete roundtrippen', () {
-      final upsert = SyncOp.tryFromJson(SyncOp.mealUpsert(_meal('m-2')).toJson());
+      final upsert = SyncOp.tryFromJson(
+        SyncOp.mealUpsert(_meal('m-2')).toJson(),
+      );
       expect(upsert!.kind, SyncOpKind.mealUpsert);
       expect(upsert.trackDay, isFalse);
       expect(upsert.meal!.id, 'm-2');
@@ -107,8 +109,11 @@ void main() {
     });
 
     test('favoriteUpsert/-Delete roundtrippen inkl. pinned', () {
-      final fav =
-          testFavorite('barcode:4001234', result: _result(), pinned: true);
+      final fav = testFavorite(
+        'barcode:4001234',
+        result: _result(),
+        pinned: true,
+      );
       final back = SyncOp.tryFromJson(SyncOp.favoriteUpsert(fav).toJson());
       expect(back!.kind, SyncOpKind.favoriteUpsert);
       expect(back.favorite!.id, 'barcode:4001234');
@@ -116,7 +121,8 @@ void main() {
       expect(back.favorite!.addedAt, DateTime(2026, 8, 5, 13));
 
       final del = SyncOp.tryFromJson(
-          SyncOp.favoriteDelete('barcode:4001234').toJson());
+        SyncOp.favoriteDelete('barcode:4001234').toJson(),
+      );
       expect(del!.entityKey, 'favorite:barcode:4001234');
     });
 
@@ -192,37 +198,50 @@ void main() {
       expect(p.onboardingCompleted, isTrue);
     });
 
-    test(
-        'alle Profil-Ops teilen EINEN Entitaets-Schluessel — das Profil ist '
+    test('alle Profil-Ops teilen EINEN Entitaets-Schluessel — das Profil ist '
         'eine einzige Zeile', () {
-      expect(SyncOp.profileUpsert(const UserProfile()).entityKey,
-          'profile:self');
-      expect(SyncOp.profileUpsert(const UserProfile(weightKg: 91)).entityKey,
-          'profile:self',
-          reason: 'sonst koaleszieren zwei Offline-Aenderungen nicht und '
-              'ueberholen sich beim Replay');
+      expect(
+        SyncOp.profileUpsert(const UserProfile()).entityKey,
+        'profile:self',
+      );
+      expect(
+        SyncOp.profileUpsert(const UserProfile(weightKg: 91)).entityKey,
+        'profile:self',
+        reason:
+            'sonst koaleszieren zwei Offline-Aenderungen nicht und '
+            'ueberholen sich beim Replay',
+      );
     });
 
     test(
-        'ein unvollstaendiges Profil in der Payload ist UNLESBAR (null), nicht '
-        'halb erfunden', () {
-      // Counter-check to sentinel finding 3: missing numeric fields used to
-      // fall back to ctor defaults, so a replay would write invented values
-      // over the real server row. Null means the replay drops the op instead.
-      final vollstaendig =
-          SyncOp.profileUpsert(const UserProfile(weightKg: 91)).toJson();
-      final payload = (vollstaendig['payload'] as Map)
-          .cast<String, dynamic>();
-      final profil = (payload['profile'] as Map).cast<String, dynamic>();
-      profil.remove('daily_kcal_goal');
+      'ein unvollstaendiges Profil in der Payload ist UNLESBAR (null), nicht '
+      'halb erfunden',
+      () {
+        // Counter-check to sentinel finding 3: missing numeric fields used to
+        // fall back to ctor defaults, so a replay would write invented values
+        // over the real server row. Replay retains a blocked invalid operation.
+        final vollstaendig =
+            jsonDecode(
+                  jsonEncode(
+                    SyncOp.profileUpsert(
+                      const UserProfile(weightKg: 91),
+                    ).toJson(),
+                  ),
+                )
+                as Map<String, dynamic>;
+        final payload = (vollstaendig['payload'] as Map)
+            .cast<String, dynamic>();
+        final profil = (payload['profile'] as Map).cast<String, dynamic>();
+        profil.remove('daily_kcal_goal');
 
-      final op = SyncOp.tryFromJson(<String, dynamic>{
-        ...vollstaendig,
-        'payload': <String, dynamic>{'profile': profil},
-      });
-      expect(op, isNotNull, reason: 'die Op selbst bleibt lesbar');
-      expect(op!.profile, isNull);
-    });
+        final op = SyncOp.tryFromJson(<String, dynamic>{
+          ...vollstaendig,
+          'payload': <String, dynamic>{'profile': profil},
+        });
+        expect(op, isNotNull, reason: 'die Op selbst bleibt lesbar');
+        expect(op!.profile, isNull);
+      },
+    );
 
     test('korrupte Eintraege liefern null statt Crash', () {
       expect(SyncOp.tryFromJson(const {}), isNull);
@@ -248,32 +267,44 @@ void main() {
     test('Roundtrip: der Tag steckt im entityId, die Payload bleibt leer', () {
       final op = SyncOp.trackingDay('2026-08-10');
       expect(op.entityKey, 'tracking:2026-08-10');
-      expect(op.payload, isEmpty,
-          reason: 'der Tag IST die ganze Information — eine Payload waere nur '
-              'eine zweite Stelle, an der er falsch stehen kann');
+      expect(
+        op.payload,
+        isEmpty,
+        reason:
+            'der Tag IST die ganze Information — eine Payload waere nur '
+            'eine zweite Stelle, an der er falsch stehen kann',
+      );
       final back = SyncOp.tryFromJson(op.toJson())!;
       expect(back.kind, SyncOpKind.trackingDay);
       expect(back.entityId, '2026-08-10');
     });
 
-    test(
-        'zwei Ops fuer denselben Tag koaleszieren zu einer, zwei Tage bleiben '
+    test('zwei Ops fuer denselben Tag koaleszieren zu einer, zwei Tage bleiben '
         'zwei', () {
       final eins = enqueueCoalesced(
-          const <SyncOp>[], SyncOp.trackingDay('2026-08-10'));
-      final nochmal =
-          enqueueCoalesced(eins, SyncOp.trackingDay('2026-08-10'));
-      expect(nochmal, hasLength(1),
-          reason: 'sonst haengt sich bei jedem Log desselben Tages eine '
-              'voellig identische Op an');
-      final zweiTage =
-          enqueueCoalesced(nochmal, SyncOp.trackingDay('2026-08-11'));
-      expect(zweiTage.map((o) => o.entityId).toList(),
-          <String>['2026-08-10', '2026-08-11'],
-          reason: 'verschiedene Tage sind verschiedene Entitaeten und muessen '
-              'in chronologischer Reihenfolge nachgespielt werden');
+        const <SyncOp>[],
+        SyncOp.trackingDay('2026-08-10'),
+      );
+      final nochmal = enqueueCoalesced(eins, SyncOp.trackingDay('2026-08-10'));
+      expect(
+        nochmal,
+        hasLength(1),
+        reason:
+            'sonst haengt sich bei jedem Log desselben Tages eine '
+            'voellig identische Op an',
+      );
+      final zweiTage = enqueueCoalesced(
+        nochmal,
+        SyncOp.trackingDay('2026-08-11'),
+      );
+      expect(
+        zweiTage.map((o) => o.entityId).toList(),
+        <String>['2026-08-10', '2026-08-11'],
+        reason:
+            'verschiedene Tage sind verschiedene Entitaeten und muessen '
+            'in chronologischer Reihenfolge nachgespielt werden',
+      );
     });
-
   });
 
   group('SyncOp.attempts (Zustellversuchs-Budget)', () {
@@ -281,55 +312,113 @@ void main() {
       final now = DateTime.utc(2026, 9, 10, 12);
       const id = '20260910-0000-4000-8000-000000000001';
       final planned = PlannedMeal.create(
-        id: id, recipe: _recipe(), day: now, slot: MealSlot.lunch,
+        id: id,
+        recipe: _recipe(),
+        day: now,
+        slot: MealSlot.lunch,
       );
       final history = TrainingHistoryEntry(
         snapshot: TrainingSessionSnapshot(
-          sessionId: id, startedAt: now,
-          plan: TrainingPlan(id: 'history-plan', proposal: CoachTrainingProposal(
-            title: 'Plan', workouts: [TrainingWorkout(title: 'A', exercises: [
-              TrainingExercise(name: 'Squat', sets: 1, reps: 8, restSeconds: 0),
-            ])],
-          )),
-          workoutIndex: 0, exerciseIndex: 0, setIndex: 0,
-          phase: TrainingSessionPhase.review, remainingMilliseconds: 0,
-          completedSets: const [TrainingSetReference(exerciseIndex: 0, setIndex: 0)],
-          actualSets: [TrainingSetActual(
-            reference: const TrainingSetReference(exerciseIndex: 0, setIndex: 0),
-            reps: 8, completedAt: now,
-          )],
+          sessionId: id,
+          startedAt: now,
+          plan: TrainingPlan(
+            id: 'history-plan',
+            proposal: CoachTrainingProposal(
+              title: 'Plan',
+              workouts: [
+                TrainingWorkout(
+                  title: 'A',
+                  exercises: [
+                    TrainingExercise(
+                      name: 'Squat',
+                      sets: 1,
+                      reps: 8,
+                      restSeconds: 0,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          workoutIndex: 0,
+          exerciseIndex: 0,
+          setIndex: 0,
+          phase: TrainingSessionPhase.review,
+          remainingMilliseconds: 0,
+          completedSets: const [
+            TrainingSetReference(exerciseIndex: 0, setIndex: 0),
+          ],
+          actualSets: [
+            TrainingSetActual(
+              reference: const TrainingSetReference(
+                exerciseIndex: 0,
+                setIndex: 0,
+              ),
+              reps: 8,
+              completedAt: now,
+            ),
+          ],
         ),
         finishedAt: now,
       );
       final ops = <SyncOp>[
         SyncOp.mealPlanUpsert(planned),
-        SyncOp.mealPlanConvert(planned.copyWith(eatenAt: now), LoggedMeal(
-          id: id, result: _recipe().toMealResult(), loggedAt: now,
-          localDay: '2026-09-10', forcedSlot: MealSlot.lunch,
-        ), trackDay: true),
-        SyncOp.shoppingCheck(ShoppingCheck(id: '2026-09-07:${'a' * 64}', checked: true)),
+        SyncOp.mealPlanConvert(
+          planned.copyWith(eatenAt: now),
+          LoggedMeal(
+            id: id,
+            result: _recipe().toMealResult(),
+            loggedAt: now,
+            localDay: '2026-09-10',
+            forcedSlot: MealSlot.lunch,
+          ),
+          trackDay: true,
+        ),
+        SyncOp.shoppingCheck(
+          ShoppingCheck(id: '2026-09-07:${'a' * 64}', checked: true),
+        ),
         SyncOp.trainingHistoryInsert(history),
         SyncOp.trainingHistoryDelete(id),
         SyncOp.mealInsert(_meal('m-1'), trackDay: true),
         SyncOp.mealUpsert(_meal('m-1')),
         SyncOp.mealDelete('m-1'),
         SyncOp.weightInsert(
-            id: 'w-1', weightKg: 80, recordedAt: DateTime(2026, 8, 6)),
+          id: 'w-1',
+          weightKg: 80,
+          recordedAt: DateTime(2026, 8, 6),
+        ),
         SyncOp.favoriteUpsert(testFavorite('fav-1', result: _result())),
         SyncOp.favoriteDelete('fav-1'),
         SyncOp.recipeUpsert(_recipe()),
         SyncOp.recipeDelete('user_123'),
-        SyncOp.trainingPlanUpsert(TrainingPlan(id: 'training', proposal:
-            CoachTrainingProposal(title: 'Plan', workouts: [
-              TrainingWorkout(title: 'A', exercises: [
-                TrainingExercise(name: 'Squat', sets: 3, reps: 8, restSeconds: 60),
-              ]),
-            ]))),
+        SyncOp.trainingPlanUpsert(
+          TrainingPlan(
+            id: 'training',
+            proposal: CoachTrainingProposal(
+              title: 'Plan',
+              workouts: [
+                TrainingWorkout(
+                  title: 'A',
+                  exercises: [
+                    TrainingExercise(
+                      name: 'Squat',
+                      sets: 3,
+                      reps: 8,
+                      restSeconds: 60,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
         SyncOp.trainingPlanDelete('training'),
         SyncOp.profileUpsert(const UserProfile()),
         SyncOp.trackingDay('2026-08-10'),
         SyncOp.statsIncrement(
-            requestId: '6561746f-7661-6d73-f461-74732d726964', meals: 1),
+          requestId: '6561746f-7661-6d73-f461-74732d726964',
+          meals: 1,
+        ),
       ];
       expect(ops.map((o) => o.attempts), everyElement(0));
       // Completeness instead of a number in the test name: adding an op family
@@ -337,8 +426,7 @@ void main() {
       expect(ops.map((o) => o.kind).toSet(), SyncOpKind.values.toSet());
     });
 
-    test(
-        'Delete-Ops zaehlen ihre Versuche MIT — ohne Zaehler waeren sie '
+    test('Delete-Ops zaehlen ihre Versuche MIT — ohne Zaehler waeren sie '
         'unsterblich und die Outbox nie leer', () {
       // A dropped delete is the one loss the next cold start actively
       // reverses: the meal comes back from the server. Deletes therefore get a
@@ -353,10 +441,16 @@ void main() {
         SyncOp.trainingPlanDelete('training'),
       ];
       for (final op in deletes) {
-        expect(op.incrementAttempt().incrementAttempt().attempts, 2,
-            reason: '${op.kind.name} muss zaehlbar sein');
-        expect(op.incrementAttempt().toJson()['attempts'], 1,
-            reason: '${op.kind.name}: der Zaehler ueberlebt den App-Neustart');
+        expect(
+          op.incrementAttempt().incrementAttempt().attempts,
+          2,
+          reason: '${op.kind.name} muss zaehlbar sein',
+        );
+        expect(
+          op.incrementAttempt().toJson()['attempts'],
+          1,
+          reason: '${op.kind.name}: der Zaehler ueberlebt den App-Neustart',
+        );
         expect(op.attempts, 0, reason: 'das Original bleibt unangetastet');
       }
       // Counter-check: write ops keep counting as before.
@@ -370,32 +464,39 @@ void main() {
 
       // A dropped streak day costs a counter; a dropped delete resurrects user
       // data. capOutbox's ordering rests on that distinction.
-      expect(SyncOp.trackingDay('2026-08-10').isDelete, isFalse,
-          reason: 'ein Streak-Tag ist KEIN Delete — er faellt am Cap zuerst');
+      expect(
+        SyncOp.trackingDay('2026-08-10').isDelete,
+        isFalse,
+        reason: 'ein Streak-Tag ist KEIN Delete — er faellt am Cap zuerst',
+      );
       expect(SyncOp.mealInsert(_meal('m-1'), trackDay: true).isDelete, isFalse);
       expect(SyncOp.mealUpsert(_meal('m-1')).isDelete, isFalse);
       expect(
-          SyncOp.weightInsert(
-                  id: 'w-1', weightKg: 80, recordedAt: DateTime(2026, 8, 6))
-              .isDelete,
-          isFalse);
+        SyncOp.weightInsert(
+          id: 'w-1',
+          weightKg: 80,
+          recordedAt: DateTime(2026, 8, 6),
+        ).isDelete,
+        isFalse,
+      );
       expect(SyncOp.favoriteUpsert(testFavorite('fav-1')).isDelete, isFalse);
       expect(SyncOp.recipeUpsert(_recipe()).isDelete, isFalse);
       expect(SyncOp.profileUpsert(const UserProfile()).isDelete, isFalse);
     });
 
-    test(
-        'profileUpsert ist ein Upsert — sonst koaleszieren zwei Aenderungen '
+    test('profileUpsert ist ein Upsert — sonst koaleszieren zwei Aenderungen '
         'derselben Profilzeile nicht', () {
-      final queue = enqueueCoalesced(
-        <SyncOp>[SyncOp.profileUpsert(const UserProfile(weightKg: 84))],
-        SyncOp.profileUpsert(const UserProfile(weightKg: 86)),
-      );
+      final queue = enqueueCoalesced(<SyncOp>[
+        SyncOp.profileUpsert(const UserProfile(weightKg: 84)),
+      ], SyncOp.profileUpsert(const UserProfile(weightKg: 86)));
 
       expect(SyncOp.profileUpsert(const UserProfile()).isUpsert, isTrue);
       expect(queue, hasLength(1));
-      expect(queue.single.profile!.weightKg, 86,
-          reason: 'die letzte Aenderung gewinnt');
+      expect(
+        queue.single.profile!.weightKg,
+        86,
+        reason: 'die letzte Aenderung gewinnt',
+      );
     });
 
     test('incrementAttempt zaehlt hoch und behaelt alles andere', () {
@@ -409,8 +510,11 @@ void main() {
       expect(next.entityKey, 'meal:m-1');
       expect(next.trackDay, isTrue);
       expect(next.meal!.result.caloriesKcal, 300);
-      expect(next.queuedAt, op.queuedAt,
-          reason: 'queuedAt ist die FIFO-Position, kein Versuchs-Merkmal');
+      expect(
+        next.queuedAt,
+        op.queuedAt,
+        reason: 'queuedAt ist die FIFO-Position, kein Versuchs-Merkmal',
+      );
 
       // The counter survives the blob: toJson carries it, tryFromJson reads it
       // back — without that the budget restarts at every app start.
@@ -419,13 +523,21 @@ void main() {
       expect(SyncOp.tryFromJson(json)!.attempts, 2);
     });
 
-    test('attempts == 0 taucht im JSON gar nicht auf (Wire-Format bleibt '
-        'byte-identisch zum alten Build)', () {
-      final json = SyncOp.mealUpsert(_meal('m-1')).toJson();
-      expect(json.containsKey('attempts'), isFalse);
-      expect(json.keys.toSet(),
-          {'kind', 'entity_id', 'queued_at', 'payload'});
-    });
+    test(
+      'attempts == 0 bleibt optional, operation_id bleibt beim Roundtrip',
+      () {
+        final json = SyncOp.mealUpsert(_meal('m-1')).toJson();
+        expect(json.containsKey('attempts'), isFalse);
+        expect(json.keys.toSet(), {
+          'operation_id',
+          'kind',
+          'entity_id',
+          'queued_at',
+          'payload',
+        });
+        expect(SyncOp.tryFromJson(json)!.operationId, json['operation_id']);
+      },
+    );
 
     test('Legacy-JSON ohne attempts-Key laedt als 0 (Migrations-Beweis)', () {
       // Hand-written 4-key format from a build before this fix.
@@ -447,11 +559,11 @@ void main() {
 
     test('korrupte attempts fallen auf die sichere Seite (0)', () {
       Map<String, dynamic> withAttempts(Object? raw) => <String, dynamic>{
-            'kind': 'mealDelete',
-            'entity_id': 'm-1',
-            'payload': const <String, dynamic>{},
-            'attempts': raw,
-          };
+        'kind': 'mealDelete',
+        'entity_id': 'm-1',
+        'payload': const <String, dynamic>{},
+        'attempts': raw,
+      };
 
       expect(SyncOp.tryFromJson(withAttempts(-3))!.attempts, 0);
       expect(SyncOp.tryFromJson(withAttempts('viele'))!.attempts, 0);
@@ -464,8 +576,14 @@ void main() {
   group('enqueueCoalesced', () {
     test('wiederholtes Upsert derselben Entitaet ersetzt den Payload', () {
       var queue = <SyncOp>[];
-      queue = enqueueCoalesced(queue, SyncOp.mealUpsert(_meal('m-1', kcal: 300)));
-      queue = enqueueCoalesced(queue, SyncOp.mealUpsert(_meal('m-1', kcal: 500)));
+      queue = enqueueCoalesced(
+        queue,
+        SyncOp.mealUpsert(_meal('m-1', kcal: 300)),
+      );
+      queue = enqueueCoalesced(
+        queue,
+        SyncOp.mealUpsert(_meal('m-1', kcal: 500)),
+      );
 
       expect(queue, hasLength(1));
       expect(queue.single.meal!.result.caloriesKcal, 500);
@@ -474,12 +592,20 @@ void main() {
     test('mealUpsert auf pendenden mealInsert behaelt Kind + track_day', () {
       var queue = <SyncOp>[];
       queue = enqueueCoalesced(
-          queue, SyncOp.mealInsert(_meal('m-1', kcal: 300), trackDay: true));
-      queue = enqueueCoalesced(queue, SyncOp.mealUpsert(_meal('m-1', kcal: 500)));
+        queue,
+        SyncOp.mealInsert(_meal('m-1', kcal: 300), trackDay: true),
+      );
+      queue = enqueueCoalesced(
+        queue,
+        SyncOp.mealUpsert(_meal('m-1', kcal: 500)),
+      );
 
       expect(queue, hasLength(1));
-      expect(queue.single.kind, SyncOpKind.mealInsert,
-          reason: 'die Stats-Zaehlung des Erst-Inserts darf nicht verlorengehen');
+      expect(
+        queue.single.kind,
+        SyncOpKind.mealInsert,
+        reason: 'die Stats-Zaehlung des Erst-Inserts darf nicht verlorengehen',
+      );
       expect(queue.single.trackDay, isTrue);
       expect(queue.single.meal!.result.caloriesKcal, 500);
     });
@@ -487,11 +613,15 @@ void main() {
     test('Delete wird angehaengt, nie koalesziert (FIFO pro Entitaet)', () {
       var queue = <SyncOp>[];
       queue = enqueueCoalesced(
-          queue, SyncOp.mealInsert(_meal('m-1'), trackDay: false));
+        queue,
+        SyncOp.mealInsert(_meal('m-1'), trackDay: false),
+      );
       queue = enqueueCoalesced(queue, SyncOp.mealDelete('m-1'));
 
-      expect(queue.map((o) => o.kind),
-          [SyncOpKind.mealInsert, SyncOpKind.mealDelete]);
+      expect(queue.map((o) => o.kind), [
+        SyncOpKind.mealInsert,
+        SyncOpKind.mealDelete,
+      ]);
     });
 
     test('Upsert NACH Delete (Undo) wird dahinter angehaengt', () {
@@ -499,8 +629,10 @@ void main() {
       queue = enqueueCoalesced(queue, SyncOp.mealDelete('m-1'));
       queue = enqueueCoalesced(queue, SyncOp.mealUpsert(_meal('m-1')));
 
-      expect(queue.map((o) => o.kind),
-          [SyncOpKind.mealDelete, SyncOpKind.mealUpsert]);
+      expect(queue.map((o) => o.kind), [
+        SyncOpKind.mealDelete,
+        SyncOpKind.mealUpsert,
+      ]);
     });
 
     test('fremde Entitaeten bleiben unberuehrt', () {
@@ -513,46 +645,66 @@ void main() {
 
     test('appendOnly (Replay laeuft) haengt IMMER an', () {
       var queue = <SyncOp>[];
-      queue = enqueueCoalesced(queue, SyncOp.mealUpsert(_meal('m-1', kcal: 300)));
+      queue = enqueueCoalesced(
+        queue,
+        SyncOp.mealUpsert(_meal('m-1', kcal: 300)),
+      );
       queue = enqueueCoalesced(
         queue,
         SyncOp.mealUpsert(_meal('m-1', kcal: 500)),
         appendOnly: true,
       );
 
-      expect(queue, hasLength(2),
-          reason: 'die gerade abgespielte Op darf nicht mutiert werden');
+      expect(
+        queue,
+        hasLength(2),
+        reason: 'die gerade abgespielte Op darf nicht mutiert werden',
+      );
     });
 
-    test(
-        'Koaleszenz SETZT attempts ZURUECK — die korrigierte Eingabe darf '
+    test('Koaleszenz SETZT attempts ZURUECK — die korrigierte Eingabe darf '
         'nicht am Budget der kaputten sterben', () {
       // Scenario: 200000 kcal typed -> check constraint, counter climbs.
-      var poisoned =
-          SyncOp.mealInsert(_meal('m-1', kcal: 200000), trackDay: true);
-      poisoned = poisoned.incrementAttempt().incrementAttempt().incrementAttempt();
+      var poisoned = SyncOp.mealInsert(
+        _meal('m-1', kcal: 200000),
+        trackDay: true,
+      );
+      poisoned = poisoned
+          .incrementAttempt()
+          .incrementAttempt()
+          .incrementAttempt();
       expect(poisoned.attempts, 3);
 
       // The user corrects to 500, a perfectly valid payload.
-      final queue = enqueueCoalesced(
-          <SyncOp>[poisoned], SyncOp.mealUpsert(_meal('m-1', kcal: 500)));
+      final queue = enqueueCoalesced(<SyncOp>[
+        poisoned,
+      ], SyncOp.mealUpsert(_meal('m-1', kcal: 500)));
 
       expect(queue, hasLength(1));
-      expect(queue.single.attempts, 0,
-          reason: 'der Zaehler misst die alte Payload, nicht die neue');
-      expect(queue.single.kind, SyncOpKind.mealInsert,
-          reason: 'die Stats-Zaehlung des Erst-Inserts bleibt erhalten');
+      expect(
+        queue.single.attempts,
+        0,
+        reason: 'der Zaehler misst die alte Payload, nicht die neue',
+      );
+      expect(
+        queue.single.kind,
+        SyncOpKind.mealInsert,
+        reason: 'die Stats-Zaehlung des Erst-Inserts bleibt erhalten',
+      );
       expect(queue.single.trackDay, isTrue);
       expect(queue.single.meal!.result.caloriesKcal, 500);
-      expect(queue.single.queuedAt, poisoned.queuedAt,
-          reason: 'queuedAt = FIFO-Position, unabhaengig von der Payload');
+      expect(
+        queue.single.queuedAt,
+        poisoned.queuedAt,
+        reason: 'queuedAt = FIFO-Position, unabhaengig von der Payload',
+      );
     });
 
     test('appendOnly haengt eine frische Op mit attempts 0 an und laesst die '
         'in-flight-Op unberuehrt', () {
-      final inFlight = SyncOp.mealUpsert(_meal('m-1', kcal: 300))
-          .incrementAttempt()
-          .incrementAttempt();
+      final inFlight = SyncOp.mealUpsert(
+        _meal('m-1', kcal: 300),
+      ).incrementAttempt().incrementAttempt();
       final queue = enqueueCoalesced(
         <SyncOp>[inFlight],
         SyncOp.mealUpsert(_meal('m-1', kcal: 500)),
@@ -568,30 +720,31 @@ void main() {
   });
 
   group('capOutbox', () {
-    test('unter dem Cap bleibt der INHALT gleich, die Liste ist aber eine neue',
-        () {
-      // Frueher stand hier `same(queue)`. Das ist seit dem Review 2026-09-01
-      // (L1) genau falsch herum: der Replay-Kursor in home_store_sync.dart
-      // erkennt eine fremde Aenderung an der Listen-IDENTITAET, und das traegt
-      // nur, solange JEDER Schreibvorgang auf `_outbox` eine frische Liste
-      // anlegt. Gab capOutbox seine Eingabe zurueck, stimmte das bloss zufaellig
-      // fuer die heutigen Aufrufer — ein kuenftiges
-      // `_outbox = capOutbox(_outbox).queue` nach einer In-Place-Aenderung
-      // haette Ops uebersprungen, ohne dass ein Test rot wird.
-      final queue = <SyncOp>[
-        SyncOp.mealDelete('a'),
-        SyncOp.mealDelete('b'),
-      ];
-      final capped = capOutbox(queue, maxOps: 5);
+    test(
+      'unter dem Cap bleibt der INHALT gleich, die Liste ist aber eine neue',
+      () {
+        // Frueher stand hier `same(queue)`. Das ist seit dem Review 2026-09-01
+        // (L1) genau falsch herum: der Replay-Kursor in home_store_sync.dart
+        // erkennt eine fremde Aenderung an der Listen-IDENTITAET, und das traegt
+        // nur, solange JEDER Schreibvorgang auf `_outbox` eine frische Liste
+        // anlegt. Gab capOutbox seine Eingabe zurueck, stimmte das bloss zufaellig
+        // fuer die heutigen Aufrufer — ein kuenftiges
+        // `_outbox = capOutbox(_outbox).queue` nach einer In-Place-Aenderung
+        // haette Ops uebersprungen, ohne dass ein Test rot wird.
+        final queue = <SyncOp>[SyncOp.mealDelete('a'), SyncOp.mealDelete('b')];
+        final capped = capOutbox(queue, maxOps: 5);
 
-      expect(capped.queue, isNot(same(queue)), reason: 'copy-on-write (L1)');
-      expect(capped.queue.map((o) => o.entityId).toList(),
-          queue.map((o) => o.entityId).toList());
-      expect(capped.dropped, isEmpty);
+        expect(capped.queue, isNot(same(queue)), reason: 'copy-on-write (L1)');
+        expect(
+          capped.queue.map((o) => o.entityId).toList(),
+          queue.map((o) => o.entityId).toList(),
+        );
+        expect(capped.dropped, isEmpty);
 
-      // Exactly at the cap nothing is dropped either.
-      expect(capOutbox(queue, maxOps: 2).dropped, isEmpty);
-    });
+        // Exactly at the cap nothing is dropped either.
+        expect(capOutbox(queue, maxOps: 2).dropped, isEmpty);
+      },
+    );
 
     // Same head trim for both op families: the ONLY difference is whether the
     // queue holds writes or deletes. "Never cap deletes" would disable the cap
@@ -607,17 +760,20 @@ void main() {
         final capped = capOutbox(queue, maxOps: 4);
 
         expect(capped.queue, hasLength(4));
-        expect(capped.queue.map((o) => o.entityId).toList(),
-            <String>['m-2', 'm-3', 'm-4', 'm-5'],
-            reason: 'das Neueste — worauf der User gerade schaut — bleibt');
-        expect(capped.dropped.map((o) => o.entityId).toList(),
-            <String>['m-0', 'm-1'],
-            reason: 'aeltestes zuerst');
+        expect(capped.queue.map((o) => o.entityId).toList(), <String>[
+          'm-2',
+          'm-3',
+          'm-4',
+          'm-5',
+        ], reason: 'das Neueste — worauf der User gerade schaut — bleibt');
+        expect(capped.dropped.map((o) => o.entityId).toList(), <String>[
+          'm-0',
+          'm-1',
+        ], reason: 'aeltestes zuerst');
       });
     }
 
-    test(
-        'Deletes ueberleben den Kopf-Trim — sonst kehrt die geloeschte '
+    test('Deletes ueberleben den Kopf-Trim — sonst kehrt die geloeschte '
         'Mahlzeit beim naechsten Kaltstart vom Server zurueck', () {
       final queue = <SyncOp>[
         SyncOp.mealUpsert(_meal('m-0')),
@@ -631,22 +787,21 @@ void main() {
       final capped = capOutbox(queue, maxOps: 4);
 
       // Trimming happens only from the head, oldest first.
-      expect(capped.dropped.map((o) => o.entityId).toList(),
-          <String>['m-0', 'm-1', 'm-2']);
+      expect(capped.dropped.map((o) => o.entityId).toList(), <String>[
+        'm-0',
+        'm-1',
+        'm-2',
+      ]);
       expect(capped.dropped.map((o) => o.isDelete), everyElement(isFalse));
-      expect(
-          capped.queue.map((o) => o.entityKey).toList(),
-          <String>[
-            'meal:m-del',
-            'favorite:barcode:4001234',
-            'recipe:user_123',
-            'meal:m-3',
-          ],
-          reason: 'FIFO-Reihenfolge bleibt, alle drei Loeschungen bleiben');
+      expect(capped.queue.map((o) => o.entityKey).toList(), <String>[
+        'meal:m-del',
+        'favorite:barcode:4001234',
+        'recipe:user_123',
+        'meal:m-3',
+      ], reason: 'FIFO-Reihenfolge bleibt, alle drei Loeschungen bleiben');
     });
 
-    test(
-        'gemischte Queue ueber dem Cap: erst fallen ALLE Schreib-Ops, '
+    test('gemischte Queue ueber dem Cap: erst fallen ALLE Schreib-Ops, '
         'Deletes erst danach', () {
       final queue = <SyncOp>[
         SyncOp.mealUpsert(_meal('m-0')),
@@ -657,20 +812,30 @@ void main() {
       ];
       final capped = capOutbox(queue, maxOps: 2);
 
-      expect(capped.dropped.map((o) => o.entityId).toList(),
-          <String>['m-0', 'm-1', 'd-0'],
-          reason: 'die zwei Schreib-Ops zuerst, dann der aelteste Delete');
-      expect(capped.queue.map((o) => o.entityId).toList(),
-          <String>['d-1', 'd-2']);
-      expect(capped.queue.length + capped.dropped.length, queue.length,
-          reason: 'nichts geht unterwegs verloren');
+      expect(capped.dropped.map((o) => o.entityId).toList(), <String>[
+        'm-0',
+        'm-1',
+        'd-0',
+      ], reason: 'die zwei Schreib-Ops zuerst, dann der aelteste Delete');
+      expect(capped.queue.map((o) => o.entityId).toList(), <String>[
+        'd-1',
+        'd-2',
+      ]);
+      expect(
+        capped.queue.length + capped.dropped.length,
+        queue.length,
+        reason: 'nichts geht unterwegs verloren',
+      );
     });
 
     test('massiv uebergrosse Legacy-Queue kollabiert in EINEM Durchlauf', () {
       final queue = <SyncOp>[
         for (var i = 0; i < kOutboxMaxOps * 3; i++)
           SyncOp.weightInsert(
-              id: 'w-$i', weightKg: 80, recordedAt: DateTime(2026, 8, 6)),
+            id: 'w-$i',
+            weightKg: 80,
+            recordedAt: DateTime(2026, 8, 6),
+          ),
       ];
       final capped = capOutbox(queue);
 
@@ -696,14 +861,22 @@ void main() {
 
     test('Roundtrip: Id, Zahlen und Klassifizierung ueberleben den Blob', () {
       final op = SyncOp.statsIncrement(requestId: rid, meals: 1);
-      expect(op.entityId, rid,
-          reason: 'die entityId IST die Request-Id — daran haengt der '
-              'Server-Dedup');
+      expect(
+        op.entityId,
+        rid,
+        reason:
+            'die entityId IST die Request-Id — daran haengt der '
+            'Server-Dedup',
+      );
       expect(op.entityKey, 'stats:$rid');
       expect(op.isDelete, isFalse);
-      expect(op.isUpsert, isFalse,
-          reason: 'jeder Eintrag ist eine eigene idempotente Einheit und wird '
-              'immer angehaengt, nie ersetzt');
+      expect(
+        op.isUpsert,
+        isFalse,
+        reason:
+            'jeder Eintrag ist eine eigene idempotente Einheit und wird '
+            'immer angehaengt, nie ersetzt',
+      );
 
       final back = SyncOp.tryFromJson(op.toJson())!;
       expect(back.kind, SyncOpKind.statsIncrement);
@@ -714,16 +887,21 @@ void main() {
 
       // The weight entry takes the same path with the fields swapped.
       final gewicht = SyncOp.tryFromJson(
-          SyncOp.statsIncrement(requestId: rid, weightLogs: 1).toJson())!;
+        SyncOp.statsIncrement(requestId: rid, weightLogs: 1).toJson(),
+      )!;
       expect(gewicht.statsWeightLogs, 1);
       expect(gewicht.statsMeals, 0);
     });
 
     test('Wire-Sparsamkeit: nur gesetzte Schluessel stehen im Blob', () {
       final op = SyncOp.statsIncrement(requestId: rid, meals: 1);
-      expect(op.payload, <String, dynamic>{'meals': 1},
-          reason: 'ein 0-Schluessel waere Ballast in jedem persistierten '
-              'Eintrag');
+      expect(
+        op.payload,
+        <String, dynamic>{'meals': 1},
+        reason:
+            'ein 0-Schluessel waere Ballast in jedem persistierten '
+            'Eintrag',
+      );
     });
 
     test('korrupte/fehlende Zahlen liefern 0 statt zu werfen', () {
@@ -739,21 +917,30 @@ void main() {
       expect(kaputt.statsWeightLogs, 0);
     });
 
-    test(
-        'enqueueCoalesced haengt IMMER an — auch beim zweiten Eintrag mit '
+    test('enqueueCoalesced haengt IMMER an — auch beim zweiten Eintrag mit '
         'demselben entityKey', () {
       final erste = enqueueCoalesced(
-          const <SyncOp>[], SyncOp.statsIncrement(requestId: rid, meals: 1));
+        const <SyncOp>[],
+        SyncOp.statsIncrement(requestId: rid, meals: 1),
+      );
       final zweite = enqueueCoalesced(
-          erste, SyncOp.statsIncrement(requestId: rid, meals: 1));
-      expect(zweite, hasLength(2),
-          reason: 'Ersetzen wuerde einen Zaehler verschlucken; ein Duplikat '
-              'ist dagegen serverseitig ein No-op (gleiche Id)');
+        erste,
+        SyncOp.statsIncrement(requestId: rid, meals: 1),
+      );
+      expect(
+        zweite,
+        hasLength(2),
+        reason:
+            'Ersetzen wuerde einen Zaehler verschlucken; ein Duplikat '
+            'ist dagegen serverseitig ein No-op (gleiche Id)',
+      );
       final fremde = enqueueCoalesced(
-          zweite,
-          SyncOp.statsIncrement(
-              requestId: '00000000-0000-4000-8000-000000000000',
-              weightLogs: 1));
+        zweite,
+        SyncOp.statsIncrement(
+          requestId: '00000000-0000-4000-8000-000000000000',
+          weightLogs: 1,
+        ),
+      );
       expect(fremde, hasLength(3));
     });
 
@@ -814,8 +1001,11 @@ void main() {
           'payload': <String, dynamic>{},
         },
       ];
-      expect(alt.every((e) => !e.containsKey('attempts')), isTrue,
-          reason: 'die Fixture waere sonst keine Vor-Fix-3-Fixture');
+      expect(
+        alt.every((e) => !e.containsKey('attempts')),
+        isTrue,
+        reason: 'die Fixture waere sonst keine Vor-Fix-3-Fixture',
+      );
 
       final gelesen = alt.map(SyncOp.tryFromJson).toList();
       expect(gelesen.every((o) => o != null), isTrue);
@@ -824,16 +1014,26 @@ void main() {
         SyncOpKind.trackingDay,
         SyncOpKind.mealDelete,
       ]);
-      expect(gelesen.map((o) => o!.entityId).toList(),
-          <String>['m-alt', '2026-08-10', 'm-weg']);
+      expect(gelesen.map((o) => o!.entityId).toList(), <String>[
+        'm-alt',
+        '2026-08-10',
+        'm-weg',
+      ]);
       expect(gelesen.map((o) => o!.attempts).toList(), <int>[0, 0, 0]);
 
       final erste = gelesen.first!;
-      expect(erste.trackDay, isTrue,
-          reason: 'eine Alt-Op behaelt alles, was der neue Replay fuer ihren '
-              'Folgeeintrag braucht — es gibt keinen Migrationspfad');
-      expect(erste.queuedAt, DateTime(2026, 8, 5, 12, 30),
-          reason: 'die FIFO-Position ueberlebt den Versionswechsel');
+      expect(
+        erste.trackDay,
+        isTrue,
+        reason:
+            'eine Alt-Op behaelt alles, was der neue Replay fuer ihren '
+            'Folgeeintrag braucht — es gibt keinen Migrationspfad',
+      );
+      expect(
+        erste.queuedAt,
+        DateTime(2026, 8, 5, 12, 30),
+        reason: 'die FIFO-Position ueberlebt den Versionswechsel',
+      );
       // Not just the envelope: the nested meal payload is readable too.
       expect(erste.meal!.id, 'm-alt');
       expect(erste.meal!.forcedSlot, MealSlot.lunch);

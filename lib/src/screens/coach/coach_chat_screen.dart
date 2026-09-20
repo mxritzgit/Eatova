@@ -65,7 +65,9 @@ class CoachChatScreen extends StatefulWidget {
     this.onCreateRecipe,
     this.userRecipeSlugs = const <String>{},
     this.onCreateTrainingPlan,
+    this.hasTrainingAdoptionConflict,
     this.userTrainingPlanIds = const <String>{},
+    this.userTrainingPlanSourceIds = const <String>{},
     this.onOpenTraining,
     this.planDraftRequest = 0,
     this.selectedPlanForCoach,
@@ -86,7 +88,9 @@ class CoachChatScreen extends StatefulWidget {
 
   /// Runs only after the user confirms a reviewed or edited plan.
   final Future<SyncDelivery> Function(TrainingPlan plan)? onCreateTrainingPlan;
+  final bool Function(String planId)? hasTrainingAdoptionConflict;
   final Set<String> userTrainingPlanIds;
+  final Set<String> userTrainingPlanSourceIds;
   final VoidCallback? onOpenTraining;
 
   /// Increment to open a training brief without sending a request.
@@ -1327,6 +1331,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   }
 
   bool _isTrainingPlanAdded(ChatMessage message) {
+    if (widget.userTrainingPlanSourceIds.contains(message.id)) return true;
     if (message.trainingPlanProposal == null) return false;
     try {
       return widget.userTrainingPlanIds.contains(
@@ -1376,6 +1381,10 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         context,
         initialDraft: proposal,
         submitLabel: context.l10n.coachPlanAdoptButton,
+        confirmationMessage: () =>
+            widget.hasTrainingAdoptionConflict?.call(planId) == true
+            ? context.l10n.settingsSyncTrainingConflict
+            : null,
         onSave: (draft) async {
           // Sheet routes can outlive their original account or conversation.
           // Recheck at the write boundary, not only when opening the sheet.
@@ -1383,7 +1392,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
             throw StateError('Training draft is no longer active');
           }
           if (_isTrainingPlanAdded(message)) return SyncDelivery.delivered;
-          final result = await onCreate(draft.toTrainingPlan(id: planId));
+          final result = await onCreate(
+            TrainingPlan(id: planId, proposal: draft, sourceId: message.id),
+          );
           if (!isCurrentDraft()) {
             throw StateError('Training draft is no longer active');
           }

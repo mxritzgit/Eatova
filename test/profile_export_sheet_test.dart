@@ -18,6 +18,8 @@
 // between code and database.
 
 import 'dart:convert';
+
+import 'support/recipe_read_fake.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -66,6 +68,12 @@ const Set<String> _nichtExportierbar = <String>{
   'lifetime_stats_requests',
   'ai_provider_limits',
   'ai_provider_daily_usage',
+  // Recipe history is exported through an owner-bound RPC, not private tables.
+  'training_plan_heads', // Internal source identity; plan content exports above.
+  'recipe_sync_heads',
+  'recipe_revisions',
+  'sync_operation_receipts',
+  'sync_entity_deletions',
 };
 
 /// PostgREST fake that behaves like the REAL server: a table that no longer
@@ -85,6 +93,8 @@ class _StrengerPostgrest {
   http.Client client() => MockClient(_handle);
 
   Future<http.Response> _handle(http.Request req) async {
+    final recipe = emptyRecipeReadResponse(req);
+    if (recipe != null) return recipe;
     final tabelle = req.url.path.split('/').last;
     // Only PostgREST paths are table queries; an auth call must not pollute the
     // assertion below as an "unknown table".
@@ -214,7 +224,7 @@ void main() {
         'weniger', () {
       expect(
         DataExportService.alleExportTabellen.toSet(),
-        _tabellenLautMigrationen,
+        {..._tabellenLautMigrationen, 'user_recipe_history'},
         reason: 'Zuviel abgefragt heisst 404 und ein Dauer-`unvollstaendig`, '
             'das niemanden mehr warnt; zuwenig abgefragt heisst eine '
             'unvollstaendige Auskunft nach Art. 15 DSGVO, die sich als '

@@ -1,10 +1,13 @@
+import 'package:eatova/src/services/local_cache.dart';
+import '../support/sync_operation_fake.dart';
+import '../support/recipe_read_fake.dart';
+import '../support/sync_session_fixture.dart';
 import 'dart:convert';
 
 import 'package:eatova/main.dart';
 import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/notification_service.dart';
-import 'package:eatova/src/services/secure_cache_store.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -94,23 +97,7 @@ void main() {
     'signup confirmation, onboarding save and returning login share one account',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
-      // Exercise server persistence with explicitly unavailable native storage.
-      // Unmocked keystore I/O never resolves in a widget's fake-async zone.
-      CacheKeyProvider.debugReset();
-      addTearDown(CacheKeyProvider.debugReset);
-      const secureStorage = MethodChannel(
-        'plugins.it_nomads.com/flutter_secure_storage',
-      );
-      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        secureStorage,
-        (_) async => throw PlatformException(code: 'keystore-unavailable'),
-      );
-      addTearDown(
-        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-          secureStorage,
-          null,
-        ),
-      );
+      final localData = InMemoryKeyValueStore();
       tester.view.physicalSize = const Size(390, 844);
       tester.view.devicePixelRatio = 1;
       tester.platformDispatcher.accessibilityFeaturesTestValue =
@@ -125,9 +112,15 @@ void main() {
       final notifications = _NotificationSpy();
       Map<String, dynamic>? savedProfile;
       var profileWrites = 0;
+      final operations = SyncOperationFake(meals: {}, weights: {}, favorites: {}, recipes: {}, readProfile: () => savedProfile, writeProfile: (row) { savedProfile = {...row, 'id': 'test-user'}; profileWrites++; }, readStats: () => {}, incrementStats: (_, _, _) {}, recordDay: (_) {});
       final transport = MockClient((request) async {
+        final recipeResponse = emptyRecipeReadResponse(request);
+        if (recipeResponse != null) return recipeResponse;
         Object response = <dynamic>[];
-        if (request.url.path.endsWith('/profiles')) {
+        if (request.url.path.endsWith('/rpc/apply_sync_operation')) {
+          response = operations.apply((jsonDecode(request.body) as Map).cast<String, dynamic>());
+
+        } else if (request.url.path.endsWith('/profiles')) {
           if (request.method == 'POST') {
             final decoded = jsonDecode(request.body);
             savedProfile = Map<String, dynamic>.from(
@@ -153,6 +146,7 @@ void main() {
         httpClient: transport,
         authOptions: const AuthClientOptions(autoRefreshToken: false),
       );
+      await signInSyncFixture(client, 'test-user');
       addTearDown(() async {
         await tester.pumpWidget(const SizedBox.shrink());
         await _drain(tester);
@@ -165,6 +159,7 @@ void main() {
       await tester.pumpWidget(
         EatovaApp(
           authRepository: auth,
+          debugCacheBuilder: (id) => LocalCache(localData, id),
           notificationService: notifications,
           syncBuilder: (userId) => EatovaSync.forUser(client, userId),
         ),

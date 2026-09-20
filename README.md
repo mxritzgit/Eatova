@@ -57,9 +57,11 @@ separate delivery steps. See the [backend guide](docs/BACKEND.md) and dated
 - **Profile and Settings:** body values, daily goals, weight history, lifetime
   statistics, health connection, language/theme, JSON export, account changes
   and account deletion with email verification.
-- **Offline use:** account-scoped encrypted local data and a durable sync outbox
-  preserve supported edits across restarts. AI and fresh remote lookups require
-  a connection. Recipe pictures stay on the device.
+- **Offline use:** encrypted SQLite commits each supported edit and its sync
+  intent together. Reconnection and bounded background work replay pending
+  changes; recipe revisions preserve conflicting edits and restorable history.
+  See [sync guarantees and rollout](docs/OFFLINE_SYNC.md). AI and fresh remote
+  lookups require a connection. Recipe pictures stay on the device.
 - **Health and reminders:** Apple HealthKit steps and weight on iOS; read-only
   Health Connect steps on Android. One local evening reminder helps protect the
   logging streak.
@@ -93,7 +95,7 @@ effective model independently of a client build. See
 | Backend | Supabase Auth, Postgres with RLS, Deno Edge Functions |
 | Product lookup | Self-hosted Meilisearch/Open Food Facts index; public OFF fallback |
 | AI | OpenRouter with separate Gemini text/vision and image models |
-| Local persistence | Encrypted cache, OS-keystore key, durable account-scoped outbox |
+| Local persistence | Encrypted SQLite, OS-keystore key, transactional account-scoped outbox |
 | Health | HealthKit on iOS; Health Connect steps on Android |
 | Diagnostics | Optional Sentry, enabled by build configuration and sanitized before sending |
 

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../widgets/common/persistence_action.dart';
+
 import '../../l10n/l10n.dart';
 import '../../models/coach_training_proposal.dart';
 import '../../models/training_plan.dart';
@@ -32,6 +34,9 @@ class TrainingScreen extends StatefulWidget {
     this.onOpenHistory,
     this.onDiscussPlan,
     this.discussPlanLabel,
+    this.adoptionConflicts = const [],
+    this.onReviewAdoption,
+    this.onDiscardAdoption,
   });
 
   final List<TrainingPlan> plans;
@@ -39,7 +44,7 @@ class TrainingScreen extends StatefulWidget {
   final Future<SyncDelivery> Function(TrainingPlan, CoachTrainingProposal)
   onUpdatePlan;
   final String? selectedPlanId;
-  final ValueChanged<String> onSelectPlan;
+  final PersistValueChanged<String> onSelectPlan;
   final Future<SyncDelivery> Function(String) onDeletePlan;
   final void Function(TrainingPlan, int workoutIndex) onStartWorkout;
   final VoidCallback onOpenCoach;
@@ -51,6 +56,9 @@ class TrainingScreen extends StatefulWidget {
   final VoidCallback? onOpenHistory;
   final ValueChanged<TrainingPlan>? onDiscussPlan;
   final String? discussPlanLabel;
+  final List<TrainingPlan> adoptionConflicts;
+  final Future<void> Function(TrainingPlan)? onReviewAdoption;
+  final Future<void> Function(TrainingPlan)? onDiscardAdoption;
 
   @override
   State<TrainingScreen> createState() => _TrainingScreenState();
@@ -59,6 +67,7 @@ class TrainingScreen extends StatefulWidget {
 class _TrainingScreenState extends State<TrainingScreen> {
   int _workoutIndex = 0;
   bool _deleting = false;
+  bool _reviewingAdoption = false;
   final _scroll = ScrollController();
 
   TrainingPlan? get _plan {
@@ -96,6 +105,10 @@ class _TrainingScreenState extends State<TrainingScreen> {
   }
 
   Future<void> _edit(BuildContext context, [TrainingPlan? plan]) async {
+    if (plan != null && widget.adoptionConflicts.any((p) => p.id == plan.id)) {
+      await _reviewAdoption(plan);
+      return;
+    }
     // Capture the account-bound callback before opening the route.
     final create = widget.onCreatePlan;
     final update = widget.onUpdatePlan;
@@ -109,8 +122,23 @@ class _TrainingScreenState extends State<TrainingScreen> {
     );
   }
 
+  Future<void> _reviewAdoption(TrainingPlan plan) async {
+    final review = widget.onReviewAdoption;
+    if (_reviewingAdoption || _deleting || review == null) return;
+    setState(() => _reviewingAdoption = true);
+    try {
+      await review(plan);
+    } finally {
+      if (mounted) setState(() => _reviewingAdoption = false);
+    }
+  }
+
   Future<void> _delete(BuildContext context, TrainingPlan plan) async {
     if (_deleting) return;
+    if (widget.adoptionConflicts.any((entry) => entry.id == plan.id)) {
+      await _discardAdoption(plan);
+      return;
+    }
     final delete = widget.onDeletePlan;
     final l10n = context.l10n;
     final confirmed = await showEatovaDialog<bool>(
@@ -148,6 +176,17 @@ class _TrainingScreenState extends State<TrainingScreen> {
     }
   }
 
+  Future<void> _discardAdoption(TrainingPlan plan) async {
+    final discard = widget.onDiscardAdoption;
+    if (_deleting || _reviewingAdoption || discard == null) return;
+    setState(() => _deleting = true);
+    try {
+      await discard(plan);
+    } finally {
+      if (mounted) setState(() => _deleting = false);
+    }
+  }
+
   Future<void> _choosePlan(BuildContext context) async {
     final select = widget.onSelectPlan;
     final coach = widget.onOpenCoach;
@@ -162,7 +201,9 @@ class _TrainingScreenState extends State<TrainingScreen> {
       coach();
     } else if (result is String &&
         widget.plans.any((plan) => plan.id == result)) {
-      select(result);
+      if (!await tryPersistChange(context, () => select(result)) || !mounted) {
+        return;
+      }
       setState(() => _workoutIndex = 0);
       if (_scroll.hasClients) _scroll.jumpTo(0);
     }
@@ -185,7 +226,19 @@ class _TrainingScreenState extends State<TrainingScreen> {
     final l10n = context.l10n;
     final plan = _plan;
     final workout = plan?.workouts[_workoutIndex];
-    final action = widget.hasActiveSession
+    final selectedConflict = widget.adoptionConflicts
+        .where((entry) => entry.id == plan?.id)
+        .firstOrNull;
+    final conflict = selectedConflict ?? widget.adoptionConflicts.firstOrNull;
+    final action = selectedConflict != null
+        ? TrainingStartButton(
+            key: const ValueKey('training-review-adoption-primary'),
+            label: l10n.trainingAdoptionReviewAction,
+            onPressed: _reviewingAdoption
+                ? null
+                : () => _reviewAdoption(selectedConflict),
+          )
+        : widget.hasActiveSession
         ? TrainingStartButton(
             key: const ValueKey('training-resume'),
             label: l10n.trainingPageResume,
@@ -235,6 +288,46 @@ class _TrainingScreenState extends State<TrainingScreen> {
                             children: [
                               _header(context),
                               const SizedBox(height: 18),
+                              if (conflict != null) ...[
+                                _notice(
+                                  context,
+                                  l10n.trainingAdoptionReviewBody(
+                                    conflict.title,
+                                  ),
+                                  icon: Icons.sync_problem_rounded,
+                                  action: Wrap(
+                                    children: [
+                                      TextButton(
+                                        key: const ValueKey(
+                                          'training-review-adoption',
+                                        ),
+                                        onPressed:
+                                            _reviewingAdoption || _deleting
+                                            ? null
+                                            : () => _reviewAdoption(conflict),
+                                        child: Text(
+                                          l10n.trainingAdoptionReviewAction,
+                                        ),
+                                      ),
+                                      if (widget.onDiscardAdoption != null)
+                                        TextButton(
+                                          key: const ValueKey(
+                                            'training-discard-adoption',
+                                          ),
+                                          onPressed:
+                                              _reviewingAdoption || _deleting
+                                              ? null
+                                              : () =>
+                                                    _discardAdoption(conflict),
+                                          child: Text(
+                                            l10n.trainingAdoptionDiscardAction,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 16),
+                              ],
                               if (widget.hasActiveSession) ...[
                                 _notice(
                                   context,
@@ -376,7 +469,11 @@ class _TrainingScreenState extends State<TrainingScreen> {
                 ),
                 PopupMenuItem(
                   value: 'delete',
-                  child: Text(l10n.trainingPageDelete),
+                  child: Text(
+                    widget.adoptionConflicts.any((entry) => entry.id == plan.id)
+                        ? l10n.trainingAdoptionDiscardAction
+                        : l10n.trainingPageDelete,
+                  ),
                 ),
               ],
               icon: _deleting

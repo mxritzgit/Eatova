@@ -13,6 +13,8 @@
 // than `db-max-rows` allows.
 
 import 'dart:convert';
+
+import '../support/recipe_read_fake.dart';
 import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -63,6 +65,9 @@ class _ZaehlenderPostgrest {
         request: req,
       );
     }
+
+    final recipe = emptyRecipeReadResponse(req);
+    if (recipe != null) return recipe;
 
     final gesamt = vorhanden[tabelle] ?? 0;
     final offset = int.tryParse(req.url.queryParameters['offset'] ?? '') ?? 0;

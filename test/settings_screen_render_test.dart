@@ -49,7 +49,7 @@ Widget _seite({
     authRepository: mitAuth ? _auth(email) : null,
     onOpenGoals: () {},
     onSignOut: () async {},
-    onDeleteAccount: () async {},
+    onDeleteAccount: (deleteRemote, _) async => deleteRemote(),
     onExportData: () async => '{}',
   );
   // [ThemeModeScope] sits inside `home`, which is enough: only the page

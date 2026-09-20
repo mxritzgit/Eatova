@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:clock/clock.dart';
+import 'package:cryptography/dart.dart' show DartSha256;
 
 import '../models/favorite_meal.dart';
 import '../models/fitness_recipe.dart';
@@ -8,66 +11,25 @@ import '../models/training_plan.dart';
 import '../models/training_history.dart';
 import '../models/user_profile.dart';
 import 'meals_sync.dart' show mealResultFromJson, mealResultToJson;
+import 'uuid.dart';
 
 /// DATA-7 write outbox: failed sync writes are persisted as a [SyncOp]
 /// instead of rolled back, then replayed idempotently. This file holds only
 /// the serializable op model and the pure enqueue logic — replay lives in
 /// HomeStore, persistence in LocalCache.
 
-/// Hard cap of the persisted outbox.
-///
-/// Under a systemic failure (e.g. a check constraint rejecting every write)
-/// each action queues its own entity, coalescing never kicks in, and the
-/// SharedPreferences blob grows without bound.
-///
-/// Why 500: a meal op is ~0.3–1 kB JSON, so the blob stays in the low
-/// hundreds of kB and still writes in milliseconds — while 500 pending
-/// writes far exceed any realistic offline phase. Hitting the cap means a
-/// systemic failure, not offline use.
+/// Admission limit: an overflowing new transaction fails without dropping
+/// any previously confirmed operation.
 const int kOutboxMaxOps = 500;
 
-/// Max delivery attempts per op before it is dropped for good.
-///
-/// Counts only active server rejections (5xx, 429, unclear codes); network
-/// errors are free (classifyOutboxFailure), otherwise an offline weekend
-/// would burn the budget and destroy valid user data. Deletes use the much
-/// larger [kOutboxDeleteMaxAttempts] instead.
-///
-/// Why 8: backoff runs 30s → 1m → 2m → 4m (cap), so eight counted attempts
-/// outlive a half-hour outage and several app starts, yet a truly unwritable
-/// op does not burn battery and traffic for months.
+/// Active-rejection thresholds used by the shared failure classifier.
+/// Exhausted requests stay durable and require explicit retry.
 const int kOutboxMaxAttempts = 8;
-
-/// Max delivery attempts for a DELETE op ([SyncOp.isDelete]).
-///
-/// Deletes get their own budget because dropping one is worse than dropping a
-/// write: the next cold start does not merely fail to heal it, it undoes it —
-/// the server row survives, the local state does not, and the deleted meal is
-/// back and counts again.
-///
-/// Why a budget at all: an op without one is immortal — the retry timer fires
-/// forever, the outbox never empties (so `signOutCleanup` pins
-/// `preserveOutbox` to true, breaking audit M-1), and [capOutbox] can no
-/// longer shed an all-delete overflow. Tolerable only because the store
-/// restores a dropped delete locally and reports it (`_restoreDroppedDeletes`).
-///
-/// Why 64 (8x the write budget): only active server rejections count and the
-/// backoff sits at 4 minutes, so 64 means at least half a working day of
-/// continuous rejection. It only bites together with `kOutboxDeleteMinAge`
-/// (AND condition in the store), since lifecycle churn inflates the counter.
 const int kOutboxDeleteMaxAttempts = 64;
 
-/// Kind of pending operation. Every op is idempotently repeatable:
-///  * mealInsert/mealUpsert -> upsert on the client UUID (onConflict:'id').
-///  * weightInsert -> upsert on the client UUID.
-///  * favoriteUpsert -> upsert on (user_id, favorite_key).
-///  * recipeUpsert -> upsert on (user_id, slug).
-///  * profileUpsert -> upsert on the user id.
-///  * *Delete -> inherently idempotent (0 rows on retry).
-/// mealInsert vs. mealUpsert: only a replayed first insert counts lifetime
-/// stats; update/restore run as mealUpsert without counting, as online. The
-/// counting itself happens via a separate [SyncOpKind.statsIncrement] entry
-/// that replay creates atomically with removing the source op.
+/// Server effects use stable operation receipts. Meal/weight insert receipts
+/// include their counters in the same server transaction. statsIncrement is
+/// retained for migration of legacy pending counter bundles.
 enum SyncOpKind {
   mealPlanUpsert,
   mealPlanConvert,
@@ -103,20 +65,58 @@ enum SyncOpKind {
   /// from the source UUID so every repetition books as one event. Created
   /// only in the replay loop, atomically with removing the source op — that
   /// closes the kill window that could push meals_logged permanently +1.
-  statsIncrement,
+  statsIncrement;
+
+  bool get isDelete => switch (this) {
+    mealDelete ||
+    favoriteDelete ||
+    recipeDelete ||
+    trainingPlanDelete ||
+    trainingHistoryDelete => true,
+    _ => false,
+  };
 }
 
 /// A persistable, replayable sync operation.
+enum SyncBlockedReason {
+  capacity,
+  backendUnavailable,
+  rejected,
+  trainingHeadConflict,
+}
+
 class SyncOp {
   SyncOp._({
     required this.kind,
     required this.entityId,
-    required this.payload,
+    required Map<String, dynamic> payload,
     DateTime? queuedAt,
     this.attempts = 0,
-    // clock.now(), not DateTime.now(): [queuedAt] is half the drop deadline
-    // (kOutboxMinAgeBeforeDrop / kOutboxDeleteMinAge) and must be testable.
-  }) : queuedAt = queuedAt ?? clock.now();
+    String? operationId,
+    this.expectedRevision,
+    this.deliveryStarted = false,
+    this.predecessorId,
+    this.blockedReason,
+    Map<String, dynamic>? wirePayload,
+    this.wireSchema,
+    // Use the injected clock for deterministic ordering and diagnostics.
+  }) : payload = _immutableJson(payload) as Map<String, dynamic>,
+       wirePayload = wirePayload == null
+           ? null
+           : _immutableJson(wirePayload) as Map<String, dynamic>,
+       queuedAt = queuedAt ?? clock.now(),
+       operationId = operationId ?? uuidV4();
+
+  /// Stable across retries, restarts and background workers.
+  final String operationId;
+  final int? expectedRevision;
+  final bool deliveryStarted;
+  final String? predecessorId;
+  final SyncBlockedReason? blockedReason;
+
+  /// Normalized server request frozen in the start transaction.
+  final Map<String, dynamic>? wirePayload;
+  final int? wireSchema;
 
   final SyncOpKind kind;
 
@@ -130,123 +130,291 @@ class SyncOp {
   /// How often the server actively rejected THIS payload. Factories start at
   /// 0; only the replay loop increments, and only on a counted verdict
   /// (classifyOutboxFailure) — network errors are free. At
-  /// [kOutboxMaxAttempts] the op is dropped.
+  /// [kOutboxMaxAttempts] automatic delivery stops; the op remains durable.
   final int attempts;
 
   /// Copy with one delivery attempt spent. Everything else — notably
   /// [queuedAt], the entity's FIFO position — is preserved.
   ///
-  /// Applies to [isDelete] ops too: not counting them made an op immortal
-  /// (queue never empties, retry timer runs forever, `preserveOutbox` pinned
-  /// true, [capOutbox] unable to shed). Deletes count against the much larger
-  /// [kOutboxDeleteMaxAttempts].
-  ///
-  /// Price: the counter is persisted for deletes, so a downgrade to a build
-  /// without the delete rule reads it as a write budget and drops earlier —
-  /// acceptable, since that build would drop after eight passes anyway.
+  /// Deletes have a larger automatic retry budget. Exhaustion never removes
+  /// the confirmed intent; explicit retry can resume delivery.
   SyncOp incrementAttempt() => SyncOp._(
-        kind: kind,
-        entityId: entityId,
-        payload: payload,
-        queuedAt: queuedAt,
-        attempts: attempts + 1,
-      );
+    kind: kind,
+    entityId: entityId,
+    payload: payload,
+    queuedAt: queuedAt,
+    attempts: attempts + 1,
+    operationId: operationId,
+    expectedRevision: expectedRevision,
+    deliveryStarted: deliveryStarted,
+    predecessorId: predecessorId,
+    blockedReason: blockedReason,
+    wirePayload: wirePayload,
+    wireSchema: wireSchema,
+  );
+
+  SyncOp markDeliveryStarted() => _copy(deliveryStarted: true);
+
+  SyncOp freezeWirePayload(Map<String, dynamic> value) {
+    if (wirePayload != null) return markDeliveryStarted();
+    return SyncOp._(
+      kind: kind,
+      entityId: entityId,
+      payload: payload,
+      queuedAt: queuedAt,
+      attempts: attempts,
+      operationId: operationId,
+      expectedRevision: expectedRevision,
+      deliveryStarted: true,
+      predecessorId: predecessorId,
+      blockedReason: blockedReason,
+      wirePayload: value,
+      wireSchema: 1,
+    );
+  }
+
+  SyncOp withPredecessor(String id) => _copy(predecessorId: id);
+
+  SyncOp withoutPredecessor() => SyncOp._(
+    kind: kind,
+    entityId: entityId,
+    payload: payload,
+    queuedAt: queuedAt,
+    attempts: attempts,
+    operationId: operationId,
+    expectedRevision: expectedRevision,
+    deliveryStarted: deliveryStarted,
+    blockedReason: blockedReason,
+    wirePayload: wirePayload,
+    wireSchema: wireSchema,
+  );
+
+  SyncOp withBlockedReason(SyncBlockedReason? reason) => SyncOp._(
+    kind: kind,
+    entityId: entityId,
+    payload: payload,
+    queuedAt: queuedAt,
+    attempts: attempts,
+    operationId: operationId,
+    expectedRevision: expectedRevision,
+    deliveryStarted: deliveryStarted,
+    predecessorId: predecessorId,
+    blockedReason: reason,
+    wirePayload: wirePayload,
+    wireSchema: wireSchema,
+  );
+
+  SyncOp rebaseRecipe({required int revision, String? slug}) {
+    if (deliveryStarted || wirePayload != null) {
+      throw StateError('A sent operation is immutable');
+    }
+    return SyncOp._(
+      kind: kind,
+      entityId: slug ?? entityId,
+      payload: {
+        ...payload,
+        if (slug != null && payload['recipe'] is Map)
+          'recipe': {...(payload['recipe'] as Map), 'slug': slug},
+      },
+      queuedAt: queuedAt,
+      attempts: attempts,
+      operationId: operationId,
+      expectedRevision: revision,
+    );
+  }
+
+  SyncOp _copy({bool? deliveryStarted, String? predecessorId}) => SyncOp._(
+    kind: kind,
+    entityId: entityId,
+    payload: payload,
+    queuedAt: queuedAt,
+    attempts: attempts,
+    operationId: operationId,
+    expectedRevision: expectedRevision,
+    deliveryStarted: deliveryStarted ?? this.deliveryStarted,
+    predecessorId: predecessorId ?? this.predecessorId,
+    blockedReason: blockedReason,
+    wirePayload: wirePayload,
+    wireSchema: wireSchema,
+  );
 
   factory SyncOp.mealPlanUpsert(PlannedMeal plan) => SyncOp._(
-    kind: SyncOpKind.mealPlanUpsert, entityId: plan.id,
-    payload: {'planned_meal': plan.toJson()});
+    kind: SyncOpKind.mealPlanUpsert,
+    entityId: plan.id,
+    payload: {'planned_meal': plan.toJson()},
+  );
 
-  factory SyncOp.mealPlanConvert(PlannedMeal plan, LoggedMeal meal,
-      {required bool trackDay}) => SyncOp._(
-    kind: SyncOpKind.mealPlanConvert, entityId: plan.id,
-    payload: {'planned_meal': plan.toJson(), 'meal': loggedMealToJson(meal),
-      'track_day': trackDay});
+  factory SyncOp.mealPlanConvert(
+    PlannedMeal plan,
+    LoggedMeal meal, {
+    required bool trackDay,
+  }) => SyncOp._(
+    kind: SyncOpKind.mealPlanConvert,
+    entityId: plan.id,
+    payload: {
+      'planned_meal': plan.toJson(),
+      'meal': loggedMealToJson(meal),
+      'track_day': trackDay,
+    },
+  );
 
   factory SyncOp.shoppingCheck(ShoppingCheck check) => SyncOp._(
-    kind: SyncOpKind.shoppingCheck, entityId: check.id,
-    payload: {'shopping_check': check.toJson()});
+    kind: SyncOpKind.shoppingCheck,
+    entityId: check.id,
+    payload: {'shopping_check': check.toJson()},
+  );
 
   PlannedMeal? get plannedMeal {
     try {
       final plan = PlannedMeal.fromJson(
-        (payload['planned_meal'] as Map).cast<String, dynamic>());
+        (payload['planned_meal'] as Map).cast<String, dynamic>(),
+      );
       return plan.id == entityId ? plan : null;
-    } catch (_) { return null; }
+    } catch (_) {
+      return null;
+    }
   }
 
   ShoppingCheck? get shoppingCheckValue {
     try {
       final check = ShoppingCheck.fromJson(
-        (payload['shopping_check'] as Map).cast<String, dynamic>());
+        (payload['shopping_check'] as Map).cast<String, dynamic>(),
+      );
       return check.id == entityId ? check : null;
-    } catch (_) { return null; }
+    } catch (_) {
+      return null;
+    }
   }
 
   // Conversion is one durable transaction. Neither capacity nor a prolonged
   // outage may discard half of the user's accepted action.
-  bool get isMealPlanIntent => kind == SyncOpKind.mealPlanConvert ||
-      kind == SyncOpKind.mealPlanUpsert || kind == SyncOpKind.shoppingCheck;
+  bool get isMealPlanIntent =>
+      kind == SyncOpKind.mealPlanConvert ||
+      kind == SyncOpKind.mealPlanUpsert ||
+      kind == SyncOpKind.shoppingCheck;
 
   factory SyncOp.mealInsert(LoggedMeal meal, {required bool trackDay}) =>
-      SyncOp._(kind: SyncOpKind.mealInsert, entityId: meal.id, payload: {
-        'meal': loggedMealToJson(meal),
-        'track_day': trackDay,
-      });
+      SyncOp._(
+        kind: SyncOpKind.mealInsert,
+        entityId: meal.id,
+        payload: {'meal': loggedMealToJson(meal), 'track_day': trackDay},
+      );
 
-  factory SyncOp.mealUpsert(LoggedMeal meal) =>
-      SyncOp._(kind: SyncOpKind.mealUpsert, entityId: meal.id, payload: {
-        'meal': loggedMealToJson(meal),
-      });
+  factory SyncOp.mealUpsert(LoggedMeal meal) => SyncOp._(
+    kind: SyncOpKind.mealUpsert,
+    entityId: meal.id,
+    payload: {'meal': loggedMealToJson(meal)},
+  );
 
-  factory SyncOp.mealDelete(String id) => SyncOp._(
-      kind: SyncOpKind.mealDelete, entityId: id, payload: const {});
+  factory SyncOp.mealDelete(String id) =>
+      SyncOp._(kind: SyncOpKind.mealDelete, entityId: id, payload: const {});
 
   factory SyncOp.weightInsert({
     required String id,
     required double weightKg,
     required DateTime recordedAt,
-  }) =>
-      SyncOp._(kind: SyncOpKind.weightInsert, entityId: id, payload: {
-        'weight_kg': weightKg,
-        'recorded_at': recordedAt.toIso8601String(),
-      });
+  }) => SyncOp._(
+    kind: SyncOpKind.weightInsert,
+    entityId: id,
+    payload: {
+      'weight_kg': weightKg,
+      'recorded_at': recordedAt.toUtc().toIso8601String(),
+    },
+  );
 
-  factory SyncOp.favoriteUpsert(FavoriteMeal fav) =>
-      SyncOp._(kind: SyncOpKind.favoriteUpsert, entityId: fav.id, payload: {
-        'favorite': favoriteMealToJson(fav),
-      });
+  factory SyncOp.favoriteUpsert(FavoriteMeal fav) => SyncOp._(
+    kind: SyncOpKind.favoriteUpsert,
+    entityId: fav.id,
+    payload: {'favorite': favoriteMealToJson(fav)},
+  );
 
   factory SyncOp.favoriteDelete(String favoriteKey) => SyncOp._(
-      kind: SyncOpKind.favoriteDelete, entityId: favoriteKey,
-      payload: const {});
+    kind: SyncOpKind.favoriteDelete,
+    entityId: favoriteKey,
+    payload: const {},
+  );
 
-  factory SyncOp.recipeUpsert(FitnessRecipe recipe) =>
-      SyncOp._(kind: SyncOpKind.recipeUpsert, entityId: recipe.slug, payload: {
-        'recipe': recipe.toRow(),
-      });
+  factory SyncOp.recipeUpsert(FitnessRecipe recipe, {int? expectedRevision}) =>
+      SyncOp._(
+        kind: SyncOpKind.recipeUpsert,
+        entityId: recipe.slug,
+        payload: {'recipe': recipe.toRow()},
+        expectedRevision: expectedRevision,
+      );
 
-  factory SyncOp.recipeDelete(String slug) => SyncOp._(
-      kind: SyncOpKind.recipeDelete, entityId: slug, payload: const {});
+  factory SyncOp.recipeDelete(String slug, {int? expectedRevision}) => SyncOp._(
+    kind: SyncOpKind.recipeDelete,
+    entityId: slug,
+    payload: const {},
+    expectedRevision: expectedRevision,
+  );
 
   factory SyncOp.trainingHistoryInsert(TrainingHistoryEntry entry) => SyncOp._(
-    kind: SyncOpKind.trainingHistoryInsert, entityId: entry.id,
+    kind: SyncOpKind.trainingHistoryInsert,
+    entityId: entry.id,
     payload: {'training_history': entry.toRow()},
   );
   factory SyncOp.trainingHistoryDelete(String id) => SyncOp._(
-    kind: SyncOpKind.trainingHistoryDelete, entityId: id, payload: const {},
+    kind: SyncOpKind.trainingHistoryDelete,
+    entityId: id,
+    payload: const {},
   );
 
-  factory SyncOp.trainingPlanUpsert(TrainingPlan plan) => SyncOp._(
-        kind: SyncOpKind.trainingPlanUpsert,
-        entityId: plan.id,
-        payload: {'training_plan': plan.toRow()},
-      );
+  factory SyncOp.trainingPlanUpsert(
+    TrainingPlan plan, {
+    bool adoption = false,
+  }) => SyncOp._(
+    kind: SyncOpKind.trainingPlanUpsert,
+    entityId: plan.id,
+    payload: {'training_plan': plan.toRow(), if (adoption) 'adoption': true},
+  );
 
-  factory SyncOp.trainingPlanDelete(String id) => SyncOp._(
+  factory SyncOp.trainingPlanDelete(String id, {int incarnation = 0}) =>
+      SyncOp._(
         kind: SyncOpKind.trainingPlanDelete,
         entityId: id,
-        payload: const {},
+        payload: {if (incarnation != 0) 'incarnation': incarnation},
       );
+
+  bool get trainingAdoption =>
+      kind == SyncOpKind.trainingPlanUpsert && payload['adoption'] == true;
+
+  int get trainingIncarnation {
+    final container = kind == SyncOpKind.trainingPlanUpsert
+        ? payload['training_plan'] as Map?
+        : payload;
+    if (container == null || !container.containsKey('incarnation')) return 0;
+    final raw = container['incarnation'];
+    if (raw is! int || raw < 0 || raw > 0x7fffffff) {
+      throw const FormatException('Invalid training incarnation');
+    }
+    return raw;
+  }
+
+  SyncOp withTrainingIncarnation(int incarnation) {
+    if (deliveryStarted || wirePayload != null) {
+      throw StateError('A sent operation is immutable');
+    }
+    return SyncOp._(
+      kind: kind,
+      entityId: entityId,
+      payload: {
+        ...payload,
+        if (kind == SyncOpKind.trainingPlanUpsert)
+          'training_plan': {
+            ...(payload['training_plan'] as Map).cast<String, dynamic>(),
+            'incarnation': incarnation,
+          }
+        else
+          'incarnation': incarnation,
+      },
+      queuedAt: queuedAt,
+      attempts: attempts,
+      operationId: operationId,
+      predecessorId: predecessorId,
+      blockedReason: blockedReason,
+    );
+  }
 
   /// The profile is ONE row per user (public.profiles.id = auth user), so a
   /// fixed [entityId]: all profile ops share an [entityKey], coalesce into a
@@ -254,10 +422,10 @@ class SyncOp {
   static const String profileEntityId = 'self';
 
   factory SyncOp.profileUpsert(UserProfile profile) => SyncOp._(
-        kind: SyncOpKind.profileUpsert,
-        entityId: profileEntityId,
-        payload: {'profile': userProfileToJson(profile)},
-      );
+    kind: SyncOpKind.profileUpsert,
+    entityId: profileEntityId,
+    payload: {'profile': userProfileToJson(profile)},
+  );
 
   /// A tracked logging day ([LifetimeStatsSync.recordTrackingDay]).
   ///
@@ -269,10 +437,10 @@ class SyncOp {
   /// before the last counted one, so replay can neither double-count nor
   /// rewind the streak.
   factory SyncOp.trackingDay(String localDay) => SyncOp._(
-        kind: SyncOpKind.trackingDay,
-        entityId: localDay,
-        payload: const <String, dynamic>{},
-      );
+    kind: SyncOpKind.trackingDay,
+    entityId: localDay,
+    payload: const <String, dynamic>{},
+  );
 
   /// Counter follow-up of a replayed counting op
   /// ([SyncOpKind.statsIncrement]).
@@ -284,38 +452,37 @@ class SyncOp {
     required String requestId,
     int meals = 0,
     int weightLogs = 0,
-  }) =>
-      SyncOp._(kind: SyncOpKind.statsIncrement, entityId: requestId, payload: {
-        if (meals > 0) 'meals': meals,
-        if (weightLogs > 0) 'weight_logs': weightLogs,
-      });
+  }) => SyncOp._(
+    kind: SyncOpKind.statsIncrement,
+    entityId: requestId,
+    payload: {
+      if (meals > 0) 'meals': meals,
+      if (weightLogs > 0) 'weight_logs': weightLogs,
+    },
+  );
 
   /// Collision-free entity key across all op families (`meal:<id>`,
   /// `weight:<id>`, `favorite:<key>`, `recipe:<slug>`, `profile:self`,
   /// `tracking:<YYYY-MM-DD>`, `stats:<request-uuid>`).
   String get entityKey => switch (kind) {
-        SyncOpKind.mealPlanUpsert ||
-        SyncOpKind.mealPlanConvert ||
-        SyncOpKind.mealInsert ||
-        SyncOpKind.mealUpsert ||
-        SyncOpKind.mealDelete =>
-          'meal:$entityId',
-        SyncOpKind.shoppingCheck => 'shopping_check:$entityId',
-        SyncOpKind.weightInsert => 'weight:$entityId',
-        SyncOpKind.favoriteUpsert ||
-        SyncOpKind.favoriteDelete =>
-          'favorite:$entityId',
-        SyncOpKind.recipeUpsert ||
-        SyncOpKind.recipeDelete =>
-          'recipe:$entityId',
-        SyncOpKind.trainingPlanUpsert ||
-        SyncOpKind.trainingPlanDelete =>
-          'training_plan:$entityId',
-        SyncOpKind.trainingHistoryInsert || SyncOpKind.trainingHistoryDelete => 'training_history:$entityId',
-        SyncOpKind.profileUpsert => 'profile:$entityId',
-        SyncOpKind.trackingDay => 'tracking:$entityId',
-        SyncOpKind.statsIncrement => 'stats:$entityId',
-      };
+    SyncOpKind.mealPlanUpsert ||
+    SyncOpKind.mealPlanConvert ||
+    SyncOpKind.mealInsert ||
+    SyncOpKind.mealUpsert ||
+    SyncOpKind.mealDelete => 'meal:$entityId',
+    SyncOpKind.shoppingCheck => 'shopping_check:$entityId',
+    SyncOpKind.weightInsert => 'weight:$entityId',
+    SyncOpKind.favoriteUpsert ||
+    SyncOpKind.favoriteDelete => 'favorite:$entityId',
+    SyncOpKind.recipeUpsert || SyncOpKind.recipeDelete => 'recipe:$entityId',
+    SyncOpKind.trainingPlanUpsert ||
+    SyncOpKind.trainingPlanDelete => 'training_plan:$entityId',
+    SyncOpKind.trainingHistoryInsert ||
+    SyncOpKind.trainingHistoryDelete => 'training_history:$entityId',
+    SyncOpKind.profileUpsert => 'profile:$entityId',
+    SyncOpKind.trackingDay => 'tracking:$entityId',
+    SyncOpKind.statsIncrement => 'stats:$entityId',
+  };
 
   /// True for the three delete families.
   ///
@@ -327,15 +494,11 @@ class SyncOp {
   /// op is left. Not undroppable though — that would be an immortal op; where
   /// it falls, the store restores the entry locally and reports it.
   /// History is the only copy after its recovery checkpoint is retired.
-  bool get isTrainingHistoryIntent => kind == SyncOpKind.trainingHistoryInsert ||
+  bool get isTrainingHistoryIntent =>
+      kind == SyncOpKind.trainingHistoryInsert ||
       kind == SyncOpKind.trainingHistoryDelete;
 
-  bool get isDelete =>
-      kind == SyncOpKind.mealDelete ||
-      kind == SyncOpKind.favoriteDelete ||
-      kind == SyncOpKind.recipeDelete ||
-      kind == SyncOpKind.trainingPlanDelete ||
-      kind == SyncOpKind.trainingHistoryDelete;
+  bool get isDelete => kind.isDelete;
 
   /// True for upsert-like ops — only those may be coalesced (payload
   /// replaced) on enqueue.
@@ -379,7 +542,7 @@ class SyncOp {
 
   DateTime? get recordedAt {
     final raw = payload['recorded_at'];
-    return raw is String ? DateTime.tryParse(raw) : null;
+    return raw is String ? DateTime.tryParse(raw)?.toLocal() : null;
   }
 
   FavoriteMeal? get favorite {
@@ -408,7 +571,9 @@ class SyncOp {
     try {
       final entry = TrainingHistoryEntry.fromRow(raw);
       return entry.id == entityId ? entry : null;
-    } catch (_) { return null; }
+    } catch (_) {
+      return null;
+    }
   }
 
   TrainingPlan? get trainingPlan {
@@ -438,7 +603,7 @@ class SyncOp {
   /// The op's profile — null if the payload is unreadable or incomplete.
   /// Incomplete counts as unreadable on purpose (see [userProfileFromJson]):
   /// an op on half-invented numbers would overwrite a real server row.
-  /// Replay throws and drops the op (A8 path).
+  /// Replay retains invalid payloads for recovery.
   UserProfile? get profile {
     final raw = payload['profile'];
     if (raw is! Map) return null;
@@ -451,20 +616,36 @@ class SyncOp {
 
   // ---- Wire format ---------------------------------------------------------
 
-  /// [attempts] is written only when > 0, so a freshly queued op stays
-  /// byte-identical to the old 4-key format: a downgrade still reads the
-  /// queue, and the blob does not grow without need.
+  /// Durable request metadata is preserved across restarts and workers.
   Map<String, dynamic> toJson() => <String, dynamic>{
-        'kind': kind.name,
-        'entity_id': entityId,
-        'queued_at': queuedAt.toIso8601String(),
-        'payload': payload,
-        if (attempts > 0) 'attempts': attempts,
-      };
+    'operation_id': operationId,
+    'kind': kind.name,
+    'entity_id': entityId,
+    'queued_at': queuedAt.toIso8601String(),
+    'payload': payload,
+    if (attempts > 0) 'attempts': attempts,
+    if (expectedRevision != null) 'expected_revision': expectedRevision,
+    if (deliveryStarted) 'delivery_started': true,
+    if (predecessorId != null) 'predecessor_id': predecessorId,
+    if (blockedReason != null) 'blocked_reason': blockedReason!.name,
+    if (wirePayload != null) 'wire_payload': wirePayload,
+    if (wireSchema != null) 'wire_schema': wireSchema,
+  };
 
   /// Defensive: unknown kinds and broken entries return null, so one corrupt
   /// op does not take the whole queue down.
   static SyncOp? tryFromJson(Map<String, dynamic> json) {
+    final wire = json['wire_payload'];
+    final schema = json['wire_schema'];
+    if ((wire == null) != (schema == null) ||
+        (wire != null && (wire is! Map<String, dynamic> || schema != 1))) {
+      return null;
+    }
+    final rawOperationId = json['operation_id'];
+    if (rawOperationId != null &&
+        (rawOperationId is! String || !isUuidShape(rawOperationId))) {
+      return null;
+    }
     final rawKind = json['kind'];
     if (rawKind is! String) return null;
     SyncOpKind? kind;
@@ -486,16 +667,141 @@ class SyncOp {
     // direction, since a low counter costs a few extra attempts while an
     // inflated one would drop valid user writes immediately.
     final rawAttempts = json['attempts'];
-    final attempts =
-        rawAttempts is num && rawAttempts > 0 ? rawAttempts.toInt() : 0;
+    final attempts = rawAttempts is num && rawAttempts > 0
+        ? rawAttempts.toInt()
+        : 0;
     return SyncOp._(
       kind: kind,
       entityId: entityId,
       payload: payload,
-      queuedAt:
-          queuedAt is String ? DateTime.tryParse(queuedAt) : null,
+      queuedAt: queuedAt is String ? DateTime.tryParse(queuedAt) : null,
       attempts: attempts,
+      operationId:
+          json['operation_id'] is String &&
+              isUuidShape(json['operation_id'] as String)
+          ? json['operation_id'] as String
+          : _legacyOperationId(json),
+      expectedRevision: json['expected_revision'] is int
+          ? json['expected_revision'] as int
+          : null,
+      deliveryStarted: json['delivery_started'] == true,
+      wirePayload: wire as Map<String, dynamic>?,
+      wireSchema: schema as int?,
+      predecessorId: json['predecessor_id'] as String?,
+      blockedReason: SyncBlockedReason.values
+          .where((reason) => reason.name == json['blocked_reason'])
+          .firstOrNull,
     );
+  }
+
+  static String _legacyOperationId(Map<String, dynamic> wire) {
+    Object? canonical(Object? value) {
+      if (value is Map) {
+        final keys = value.keys.cast<String>().toList()..sort();
+        return {for (final key in keys) key: canonical(value[key])};
+      }
+      if (value is List) return value.map(canonical).toList();
+      return value;
+    }
+
+    final original = {...wire}..remove('attempts');
+    final digest = const DartSha256()
+        .hashSync(
+          utf8.encode('eatova-legacy-op-v1:${jsonEncode(canonical(original))}'),
+        )
+        .bytes
+        .take(16)
+        .toList();
+    digest[6] = (digest[6] & 15) | 0x50;
+    digest[8] = (digest[8] & 63) | 0x80;
+    final hex = digest.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
+        '${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
+  }
+}
+
+Object? _immutableJson(Object? value) {
+  if (value is Map) {
+    return Map<String, dynamic>.unmodifiable({
+      for (final entry in value.entries)
+        entry.key as String: _immutableJson(entry.value),
+    });
+  }
+  if (value is List) {
+    return List<Object?>.unmodifiable(value.map(_immutableJson));
+  }
+  return value;
+}
+
+/// The explicit review covers exactly this unsent same-generation frontier.
+/// A sent or different-generation successor requires a separate decision.
+List<SyncOp> trainingAdoptionReviewOps(
+  Iterable<SyncOp> operations,
+  String blockedOperationId, {
+  bool requireResolvable = true,
+}) {
+  final queue = operations.toList();
+  final at = queue.indexWhere((op) => op.operationId == blockedOperationId);
+  if (at < 0 ||
+      !queue[at].trainingAdoption ||
+      queue[at].blockedReason != SyncBlockedReason.trainingHeadConflict) {
+    throw StateError('Training adoption changed');
+  }
+  final blocked = queue[at];
+  final reviewed = <SyncOp>[blocked];
+  for (final op in queue.skip(at + 1)) {
+    if (op.entityKey != blocked.entityKey) continue;
+    if (op.kind != SyncOpKind.trainingPlanUpsert ||
+        op.trainingIncarnation != blocked.trainingIncarnation ||
+        op.deliveryStarted ||
+        op.wirePayload != null) {
+      if (!requireResolvable) break;
+      throw StateError('Training adoption has a separate pending change');
+    }
+    reviewed.add(op);
+  }
+  return List.unmodifiable(reviewed);
+}
+
+/// Keep confirmed follow-up drafts visible while their adoption needs review.
+/// These copies are for projection only; durable flags and wire stay intact.
+Iterable<SyncOp> trainingProjectionOps(Iterable<SyncOp> operations) sync* {
+  final conflicts = <String, int>{};
+  for (final op in operations) {
+    if (op.trainingAdoption &&
+        op.blockedReason == SyncBlockedReason.trainingHeadConflict) {
+      conflicts[op.entityKey] = op.trainingIncarnation;
+    } else if (conflicts.containsKey(op.entityKey)) {
+      if (op.kind == SyncOpKind.trainingPlanUpsert &&
+          op.trainingIncarnation == conflicts[op.entityKey] &&
+          !op.deliveryStarted &&
+          op.wirePayload == null) {
+        yield op.withBlockedReason(SyncBlockedReason.trainingHeadConflict);
+        continue;
+      }
+      conflicts.remove(op.entityKey);
+    }
+    yield op;
+  }
+}
+
+/// Preview descendants at an acknowledged conflict copy without changing
+/// their immutable wire basis before their own predecessor is acknowledged.
+Iterable<SyncOp> recipeProjectionOps(Iterable<SyncOp> operations) sync* {
+  final projected = <String, SyncOp>{};
+  for (final op in operations) {
+    final predecessor =
+        op.kind == SyncOpKind.recipeUpsert || op.kind == SyncOpKind.recipeDelete
+        ? projected[op.predecessorId]
+        : null;
+    final effective = predecessor != null && predecessor.entityId != op.entityId
+        ? op.rebaseRecipe(
+            revision: op.expectedRevision ?? 0,
+            slug: predecessor.entityId,
+          )
+        : op;
+    projected[op.operationId] = effective;
+    yield effective;
   }
 }
 
@@ -528,7 +834,8 @@ List<SyncOp> enqueueCoalesced(
       final existing = queue[i];
       if (existing.entityKey != op.entityKey) continue;
       if (!existing.isUpsert) break; // Delete in between -> append.
-      final merged = existing.kind == SyncOpKind.mealInsert &&
+      final merged =
+          existing.kind == SyncOpKind.mealInsert &&
               op.kind == SyncOpKind.mealUpsert
           ? SyncOp._(
               kind: SyncOpKind.mealInsert,
@@ -592,7 +899,10 @@ List<SyncOp> enqueueCoalesced(
   final dropped = <SyncOp>[];
   // Pass 1: write ops, oldest first.
   for (final op in queue) {
-    if (overflow > 0 && !op.isDelete && !op.isMealPlanIntent && !op.isTrainingHistoryIntent) {
+    if (overflow > 0 &&
+        !op.isDelete &&
+        !op.isMealPlanIntent &&
+        !op.isTrainingHistoryIntent) {
       dropped.add(op);
       overflow--;
     } else {
@@ -622,17 +932,17 @@ List<SyncOp> enqueueCoalesced(
 // format. Also used by LocalCache for the diary/favorites snapshots.
 
 Map<String, dynamic> loggedMealToJson(LoggedMeal m) => <String, dynamic>{
-      'id': m.id,
-      'logged_at': m.loggedAt.toIso8601String(),
-      'forced_slot': m.forcedSlot?.name,
-      'local_day': m.effectiveLocalDay,
-      'result': mealResultToJson(m.result),
-    };
+  'id': m.id,
+  'logged_at': m.loggedAt.toUtc().toIso8601String(),
+  'forced_slot': m.slot.name,
+  'local_day': m.effectiveLocalDay,
+  'result': mealResultToJson(m.result),
+};
 
 LoggedMeal loggedMealFromJson(Map<String, dynamic> j) {
   return LoggedMeal(
     id: j['id'] as String,
-    loggedAt: DateTime.parse(j['logged_at'] as String),
+    loggedAt: DateTime.parse(j['logged_at'] as String).toLocal(),
     forcedSlot: _parseSlot(j['forced_slot']?.toString()),
     localDay: j['local_day']?.toString(),
     result: mealResultFromJson((j['result'] as Map).cast<String, dynamic>()),
@@ -640,16 +950,16 @@ LoggedMeal loggedMealFromJson(Map<String, dynamic> j) {
 }
 
 Map<String, dynamic> favoriteMealToJson(FavoriteMeal f) => <String, dynamic>{
-      'id': f.id,
-      'added_at': f.addedAt.toIso8601String(),
-      'pinned': f.pinned,
-      'result': mealResultToJson(f.result),
-    };
+  'id': f.id,
+  'added_at': f.addedAt.toUtc().toIso8601String(),
+  'pinned': f.pinned,
+  'result': mealResultToJson(f.result),
+};
 
 FavoriteMeal favoriteMealFromJson(Map<String, dynamic> j) {
   return FavoriteMeal(
     id: j['id'] as String,
-    addedAt: DateTime.parse(j['added_at'] as String),
+    addedAt: DateTime.parse(j['added_at'] as String).toLocal(),
     pinned: j['pinned'] == true,
     result: mealResultFromJson((j['result'] as Map).cast<String, dynamic>()),
   );
@@ -670,32 +980,32 @@ MealSlot? _parseSlot(String? raw) {
 // on every existing install) and follow the public.profiles columns.
 
 Map<String, dynamic> userProfileToJson(UserProfile p) => <String, dynamic>{
-      'weight_kg': p.weightKg,
-      'height_cm': p.heightCm,
-      'age_years': p.ageYears,
-      'sex': p.sex.name,
-      'activity_level': p.activityLevel.name,
-      'target_weight_kg': p.targetWeightKg,
-      'daily_steps_goal': p.dailyStepsGoal,
-      'daily_kcal_goal': p.dailyKcalGoal,
-      'daily_water_goal_ml': p.dailyWaterGoalMl,
-      'daily_sleep_goal_minutes': p.dailySleepGoalMinutes,
-      'protein_goal_g': p.proteinGoalG,
-      'carbs_goal_g': p.carbsGoalG,
-      'fat_goal_g': p.fatGoalG,
-      'weight_goal': p.weightGoal.name,
-      // A7: MUST be written. The cache is the first hydration source and sets
-      // the clobber lock (_hydratedFromRealSource); without this key `diet`
-      // silently fell back to none on cold start and the next profile.save()
-      // wrote that none to the server for good. Key name mirrors the column
-      // profiles.diet_preference.
-      'diet_preference': p.diet.name,
-      'onboarding_completed': p.onboardingCompleted,
-      // F7-01: the manual/live switch must survive the cache and the outbox,
-      // or an offline goal edit would be healed back to the calculator on the
-      // next load. Mirrors profiles.manual_energy.
-      'manual_energy': p.manualEnergy,
-    };
+  'weight_kg': p.weightKg,
+  'height_cm': p.heightCm,
+  'age_years': p.ageYears,
+  'sex': p.sex.name,
+  'activity_level': p.activityLevel.name,
+  'target_weight_kg': p.targetWeightKg,
+  'daily_steps_goal': p.dailyStepsGoal,
+  'daily_kcal_goal': p.dailyKcalGoal,
+  'daily_water_goal_ml': p.dailyWaterGoalMl,
+  'daily_sleep_goal_minutes': p.dailySleepGoalMinutes,
+  'protein_goal_g': p.proteinGoalG,
+  'carbs_goal_g': p.carbsGoalG,
+  'fat_goal_g': p.fatGoalG,
+  'weight_goal': p.weightGoal.name,
+  // A7: MUST be written. The cache is the first hydration source and sets
+  // the clobber lock (_hydratedFromRealSource); without this key `diet`
+  // silently fell back to none on cold start and the next profile.save()
+  // wrote that none to the server for good. Key name mirrors the column
+  // profiles.diet_preference.
+  'diet_preference': p.diet.name,
+  'onboarding_completed': p.onboardingCompleted,
+  // F7-01: the manual/live switch must survive the cache and the outbox,
+  // or an offline goal edit would be healed back to the calculator on the
+  // next load. Mirrors profiles.manual_energy.
+  'manual_energy': p.manualEnergy,
+};
 
 /// Sentinel finding 3 (2026-08-08): missing numeric fields used to be filled
 /// with invented values, which set the clobber lock and let the next
@@ -735,7 +1045,10 @@ UserProfile? userProfileFromJson(Map<String, dynamic> j) {
     ageYears: ageYears,
     sex: _profileEnum(BiologicalSex.values, j['sex'], BiologicalSex.neutral),
     activityLevel: _profileEnum(
-        ActivityLevel.values, j['activity_level'], ActivityLevel.sedentary),
+      ActivityLevel.values,
+      j['activity_level'],
+      ActivityLevel.sedentary,
+    ),
     targetWeightKg: targetWeightKg,
     dailyStepsGoal: dailyStepsGoal,
     dailyKcalGoal: dailyKcalGoal,
@@ -744,12 +1057,18 @@ UserProfile? userProfileFromJson(Map<String, dynamic> j) {
     proteinGoalG: proteinGoalG,
     carbsGoalG: carbsGoalG,
     fatGoalG: fatGoalG,
-    weightGoal:
-        _profileEnum(WeightGoal.values, j['weight_goal'], WeightGoal.maintain),
+    weightGoal: _profileEnum(
+      WeightGoal.values,
+      j['weight_goal'],
+      WeightGoal.maintain,
+    ),
     // Counterpart to 'diet_preference' above; unknown or missing values
     // fall back to none.
     diet: _profileEnum(
-        DietPreference.values, j['diet_preference'], DietPreference.none),
+      DietPreference.values,
+      j['diet_preference'],
+      DietPreference.none,
+    ),
     onboardingCompleted: j['onboarding_completed'] == true,
     // Missing (blob from an older build) counts as live, like the column
     // default — never reconstructed from the numbers.

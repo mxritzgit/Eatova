@@ -4,7 +4,7 @@
 // Vorher: Mülleimer → sofort weg, kein Dialog, kein Undo — und die
 // Foto-Bytes liegen nur auf diesem Gerät. Jetzt: das Rezept verschwindet
 // lokal, der Snack bietet „Rückgängig"; erst nach Ablauf der Frist
-// ([kRecipeUndoWindow]) wird der Store-Hook gerufen und das Bild gelöscht.
+// ([kRecipeUndoWindow]) wird der Store-Hook gerufen. Historische Fotos bleiben wiederherstellbar.
 
 import 'dart:io';
 
@@ -23,7 +23,7 @@ import 'support/harness.dart';
 /// Bildspeicher-Double: merkt sich nur, was gelöscht werden sollte.
 class _RecordingImageStore extends RecipeImageStore {
   _RecordingImageStore()
-      : super(baseDirectory: () async => Directory.systemTemp);
+    : super(baseDirectory: () async => Directory.systemTemp);
 
   final List<String> deleted = <String>[];
 
@@ -82,14 +82,14 @@ class _Host extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => TickerMode(
-        enabled: visible,
-        child: RecipesScreen(
-          onAddMeal: (MealAnalysisResult _, MealSlot __) {},
-          initialUserRecipes: recipes,
-          onDeleteRecipe: onDelete,
-          onDeletePendingChanged: onPendingChanged,
-        ),
-      );
+    enabled: visible,
+    child: RecipesScreen(
+      onAddMeal: (MealAnalysisResult _, MealSlot __) {},
+      initialUserRecipes: recipes,
+      onDeleteRecipe: onDelete,
+      onDeletePendingChanged: onPendingChanged,
+    ),
+  );
 }
 
 /// [_Host] in the localized harness (dark, de) — same tree as before.
@@ -144,13 +144,16 @@ void main() {
       'persistiert, solange die Frist läuft', (tester) async {
     final calls = <String>[];
     _pinViewport(tester);
-    await _pumpHost(tester, _Host(
-      recipes: [_rezept('user_weg')],
-      onDelete: (slug) async {
-        calls.add(slug);
-        return SyncDelivery.delivered;
-      },
-    ));
+    await _pumpHost(
+      tester,
+      _Host(
+        recipes: [_rezept('user_weg')],
+        onDelete: (slug) async {
+          calls.add(slug);
+          return SyncDelivery.delivered;
+        },
+      ),
+    );
     await tester.pumpAndSettle();
 
     await _loesche(tester, 'user_weg');
@@ -159,21 +162,28 @@ void main() {
     expect(find.text('„Weg-Bowl" gelöscht.'), findsOneWidget);
     expect(find.text('Rückgängig'), findsOneWidget);
     expect(calls, isEmpty, reason: 'Der Hook darf erst nach der Frist laufen.');
-    expect(_store.deleted, isEmpty,
-        reason: 'Die Foto-Bytes sind unwiederbringlich — nicht vor der Frist.');
+    expect(
+      _store.deleted,
+      isEmpty,
+      reason: 'Die Foto-Bytes sind unwiederbringlich — nicht vor der Frist.',
+    );
   });
 
-  testWidgets('„Rückgängig" holt das Rezept zurück; der Hook läuft nie',
-      (tester) async {
+  testWidgets('„Rückgängig" holt das Rezept zurück; der Hook läuft nie', (
+    tester,
+  ) async {
     final calls = <String>[];
     _pinViewport(tester);
-    await _pumpHost(tester, _Host(
-      recipes: [_rezept('user_weg')],
-      onDelete: (slug) async {
-        calls.add(slug);
-        return SyncDelivery.delivered;
-      },
-    ));
+    await _pumpHost(
+      tester,
+      _Host(
+        recipes: [_rezept('user_weg')],
+        onDelete: (slug) async {
+          calls.add(slug);
+          return SyncDelivery.delivered;
+        },
+      ),
+    );
     await tester.pumpAndSettle();
 
     await _loesche(tester, 'user_weg');
@@ -190,59 +200,85 @@ void main() {
     expect(find.byKey(const ValueKey('recipe-tile-user_weg')), findsOneWidget);
   });
 
-  testWidgets('nach der Frist: Hook genau einmal, Bild weg, kein zweiter '
-      'Snack bei Zustellung', (tester) async {
-    final calls = <String>[];
-    _pinViewport(tester);
-    await _pumpHost(tester, _Host(
-      recipes: [_rezept('user_weg')],
-      onDelete: (slug) async {
-        calls.add(slug);
-        return SyncDelivery.delivered;
-      },
-    ));
-    await tester.pumpAndSettle();
+  testWidgets(
+    'nach der Frist: Hook genau einmal, Historienfoto bleibt, kein zweiter '
+    'Snack bei Zustellung',
+    (tester) async {
+      final calls = <String>[];
+      _pinViewport(tester);
+      await _pumpHost(
+        tester,
+        _Host(
+          recipes: [_rezept('user_weg')],
+          onDelete: (slug) async {
+            calls.add(slug);
+            return SyncDelivery.delivered;
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    await _loesche(tester, 'user_weg');
-    await _fristAblaufen(tester);
+      await _loesche(tester, 'user_weg');
+      await _fristAblaufen(tester);
 
-    expect(calls, ['user_weg']);
-    expect(_store.deleted, ['${RecipeImageStore.referencePrefix}user_weg.jpg']);
-    expect(find.byKey(const ValueKey('recipe-tile-user_weg')), findsNothing);
-    expect(find.byType(SnackBar), findsNothing,
-        reason: 'Zugestellt ist, was der Undo-Snack schon sagte.');
-  });
+      expect(calls, ['user_weg']);
+      expect(
+        _store.deleted,
+        isEmpty,
+        reason:
+            'A delivered tombstone still retains recoverable recipe versions.',
+      );
+      expect(find.byKey(const ValueKey('recipe-tile-user_weg')), findsNothing);
+      expect(
+        find.byType(SnackBar),
+        findsNothing,
+        reason: 'Zugestellt ist, was der Undo-Snack schon sagte.',
+      );
+    },
+  );
 
   testWidgets('nur eingereiht: nach der Frist folgt die ehrliche Meldung, '
       'das Bild bleibt', (tester) async {
     _pinViewport(tester);
-    await _pumpHost(tester, _Host(
-      recipes: [_rezept('user_weg')],
-      onDelete: (_) async => SyncDelivery.queuedOffline,
-    ));
+    await _pumpHost(
+      tester,
+      _Host(
+        recipes: [_rezept('user_weg')],
+        onDelete: (_) async => SyncDelivery.queuedOffline,
+      ),
+    );
     await tester.pumpAndSettle();
 
     await _loesche(tester, 'user_weg');
     await _fristAblaufen(tester);
 
     expect(
-      find.text('„Weg-Bowl" gelöscht — wird synchronisiert, sobald du '
-          'wieder online bist.'),
+      find.text(
+        '„Weg-Bowl" gelöscht — wird synchronisiert, sobald du '
+        'wieder online bist.',
+      ),
       findsOneWidget,
     );
     expect(find.byType(SnackBar), findsOneWidget);
-    expect(_store.deleted, isEmpty,
-        reason: 'Eine verworfene Löschung bringt das Rezept zurück — dann '
-            'muss das Bild noch da sein.');
+    expect(
+      _store.deleted,
+      isEmpty,
+      reason:
+          'Eine verworfene Löschung bringt das Rezept zurück — dann '
+          'muss das Bild noch da sein.',
+    );
   });
 
   testWidgets('Undo-Snack ist Ausnahme des Gap-E-Prinzips: nach Ablauf '
       'genau eine Folge-Meldung', (tester) async {
     _pinViewport(tester);
-    await _pumpHost(tester, _Host(
-      recipes: [_rezept('user_weg')],
-      onDelete: (_) async => SyncDelivery.queuedRetry,
-    ));
+    await _pumpHost(
+      tester,
+      _Host(
+        recipes: [_rezept('user_weg')],
+        onDelete: (_) async => SyncDelivery.queuedRetry,
+      ),
+    );
     await tester.pumpAndSettle();
 
     await _loesche(tester, 'user_weg');
@@ -250,8 +286,10 @@ void main() {
     await _fristAblaufen(tester);
     expect(find.byType(SnackBar), findsOneWidget);
     expect(
-      find.text('„Weg-Bowl" gelöscht — die Übertragung wird automatisch '
-          'wiederholt.'),
+      find.text(
+        '„Weg-Bowl" gelöscht — die Übertragung wird automatisch '
+        'wiederholt.',
+      ),
       findsOneWidget,
     );
   });
@@ -261,13 +299,16 @@ void main() {
       'persistiert', (tester) async {
     final calls = <String>[];
     _pinViewport(tester);
-    await _pumpHost(tester, _Host(
-      recipes: [_rezept('user_weg')],
-      onDelete: (slug) async {
-        calls.add(slug);
-        return SyncDelivery.delivered;
-      },
-    ));
+    await _pumpHost(
+      tester,
+      _Host(
+        recipes: [_rezept('user_weg')],
+        onDelete: (slug) async {
+          calls.add(slug);
+          return SyncDelivery.delivered;
+        },
+      ),
+    );
     await tester.pumpAndSettle();
 
     await _loesche(tester, 'user_weg');
@@ -280,30 +321,45 @@ void main() {
     expect(calls, ['user_weg']);
   });
 
-  testWidgets('„Eigene" bleibt nach dem letzten Löschen leer und wird per Undo wieder gefüllt', (tester) async {
-    _pinViewport(tester);
-    await _pumpHost(tester, _Host(
-      recipes: [_rezept('user_weg')],
-      onDelete: (_) async => SyncDelivery.delivered,
-    ));
-    await tester.pumpAndSettle();
+  testWidgets(
+    '„Eigene" bleibt nach dem letzten Löschen leer und wird per Undo wieder gefüllt',
+    (tester) async {
+      _pinViewport(tester);
+      await _pumpHost(
+        tester,
+        _Host(
+          recipes: [_rezept('user_weg')],
+          onDelete: (_) async => SyncDelivery.delivered,
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('recipes-tab-own')));
-    await tester.pumpAndSettle();
-    expect(find.text('1 Treffer'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('recipes-tab-own')));
+      await tester.pumpAndSettle();
+      expect(find.text('1 Treffer'), findsOneWidget);
 
-    await _loesche(tester, 'user_weg');
+      await _loesche(tester, 'user_weg');
 
-    expect(find.byKey(const ValueKey('recipes-tab-own')), findsOneWidget);
-    expect(tester.widget<Semantics>(find.byKey(const ValueKey('recipes-tab-own'))).properties.selected, isTrue);
-    expect(find.text('0 Treffer'), findsOneWidget);
+      expect(find.byKey(const ValueKey('recipes-tab-own')), findsOneWidget);
+      expect(
+        tester
+            .widget<Semantics>(find.byKey(const ValueKey('recipes-tab-own')))
+            .properties
+            .selected,
+        isTrue,
+      );
+      expect(find.text('0 Treffer'), findsOneWidget);
 
-    await tester.tap(find.text('Rückgängig'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Rückgängig'));
+      await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('recipes-tab-own')), findsOneWidget);
-    expect(find.byKey(const ValueKey('recipe-tile-user_weg')), findsOneWidget);
-  });
+      expect(find.byKey(const ValueKey('recipes-tab-own')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('recipe-tile-user_weg')),
+        findsOneWidget,
+      );
+    },
+  );
 
   testWidgets('versteckter Tab (TickerMode aus): Commit läuft, aber kein '
       'Folge-Snack ins Leere', (tester) async {
@@ -326,11 +382,16 @@ void main() {
     );
     await _fristAblaufen(tester);
 
-    expect(calls, ['user_weg'],
-        reason: 'Der Commit hängt nicht am Sichtbarsein.');
-    expect(find.byType(SnackBar), findsNothing,
-        reason: 'Ein queued-Hinweis auf einem versteckten Tab tauchte sonst '
-            'später an falscher Stelle auf.');
+    expect(calls, [
+      'user_weg',
+    ], reason: 'Der Commit hängt nicht am Sichtbarsein.');
+    expect(
+      find.byType(SnackBar),
+      findsNothing,
+      reason:
+          'Ein queued-Hinweis auf einem versteckten Tab tauchte sonst '
+          'später an falscher Stelle auf.',
+    );
 
     // Zurück auf den Tab: das Rezept ist weg, kein nachgeholter Snack.
     await _pumpHost(tester, _Host(recipes: rezepte, onDelete: onDelete));
@@ -340,20 +401,24 @@ void main() {
   });
 
   testWidgets('zweites Löschen während der Frist: der zweite Snack ersetzt '
-      'den ersten, der erste Commit läuft trotzdem, Undo gilt dem zweiten',
-      (tester) async {
+      'den ersten, der erste Commit läuft trotzdem, Undo gilt dem zweiten', (
+    tester,
+  ) async {
     final calls = <String>[];
     _pinViewport(tester);
-    await _pumpHost(tester, _Host(
-      recipes: [
-        _rezept('user_a', title: 'A-Bowl'),
-        _rezept('user_b', title: 'B-Bowl'),
-      ],
-      onDelete: (slug) async {
-        calls.add(slug);
-        return SyncDelivery.delivered;
-      },
-    ));
+    await _pumpHost(
+      tester,
+      _Host(
+        recipes: [
+          _rezept('user_a', title: 'A-Bowl'),
+          _rezept('user_b', title: 'B-Bowl'),
+        ],
+        onDelete: (slug) async {
+          calls.add(slug);
+          return SyncDelivery.delivered;
+        },
+      ),
+    );
     await tester.pumpAndSettle();
 
     await _loesche(tester, 'user_a');
@@ -362,17 +427,24 @@ void main() {
     }
     await _loesche(tester, 'user_b');
     expect(find.text('„B-Bowl" gelöscht.'), findsOneWidget);
-    expect(find.text('„A-Bowl" gelöscht.'), findsNothing,
-        reason: 'showAppSnack ersetzt den aktuellen Snack — das Undo von A '
-            'ist ab jetzt nicht mehr tippbar (dokumentiert).');
+    expect(
+      find.text('„A-Bowl" gelöscht.'),
+      findsNothing,
+      reason:
+          'showAppSnack ersetzt den aktuellen Snack — das Undo von A '
+          'ist ab jetzt nicht mehr tippbar (dokumentiert).',
+    );
 
     // Frist von A läuft ab, während der Snack von B noch steht.
     for (var i = 0; i < 40 && !calls.contains('user_a'); i++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
     expect(calls, ['user_a']);
-    expect(find.text('Rückgängig'), findsOneWidget,
-        reason: 'Vorbedingung: der Snack von B ist noch da.');
+    expect(
+      find.text('Rückgängig'),
+      findsOneWidget,
+      reason: 'Vorbedingung: der Snack von B ist noch da.',
+    );
 
     await tester.tap(find.text('Rückgängig'));
     await tester.pumpAndSettle();
@@ -384,30 +456,39 @@ void main() {
   });
 
   testWidgets('nach Ablauf gibt es nichts mehr rückgängig zu machen: der '
-      'Commit läuft genau einmal, auch wenn der Screen danach verschwindet',
-      (tester) async {
+      'Commit läuft genau einmal, auch wenn der Screen danach verschwindet', (
+    tester,
+  ) async {
     final calls = <String>[];
     _pinViewport(tester);
-    await _pumpHost(tester, _Host(
-      recipes: [_rezept('user_weg')],
-      onDelete: (slug) async {
-        calls.add(slug);
-        return SyncDelivery.delivered;
-      },
-    ));
+    await _pumpHost(
+      tester,
+      _Host(
+        recipes: [_rezept('user_weg')],
+        onDelete: (slug) async {
+          calls.add(slug);
+          return SyncDelivery.delivered;
+        },
+      ),
+    );
     await tester.pumpAndSettle();
 
     await _loesche(tester, 'user_weg');
     await _fristAblaufen(tester);
     expect(calls, ['user_weg']);
-    expect(find.text('Rückgängig'), findsNothing,
-        reason: 'Der Undo-Snack ist vor dem Commit verschwunden — die Frist '
-            'endet bewusst NACH seiner Dismiss-Zeit.');
+    expect(
+      find.text('Rückgängig'),
+      findsNothing,
+      reason:
+          'Der Undo-Snack ist vor dem Commit verschwunden — die Frist '
+          'endet bewusst NACH seiner Dismiss-Zeit.',
+    );
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
-    expect(calls, ['user_weg'],
-        reason: 'dispose() findet keine offene Löschung mehr vor.');
+    expect(calls, [
+      'user_weg',
+    ], reason: 'dispose() findet keine offene Löschung mehr vor.');
   });
 
   // 2026-09-02: the coach card kept "Hinzugefügt" while the undo toast was up,
@@ -419,47 +500,61 @@ void main() {
       _pinViewport(tester);
       final calls = <String>[];
       final meldungen = <String>[];
-      await _pumpHost(tester, _Host(
-        recipes: [_rezept('user_weg')],
-        onDelete: (slug) async {
-          calls.add(slug);
-          return SyncDelivery.delivered;
-        },
-        onPendingChanged: (slug, {required bool pending}) =>
-            meldungen.add('$slug:$pending'),
-      ));
+      await _pumpHost(
+        tester,
+        _Host(
+          recipes: [_rezept('user_weg')],
+          onDelete: (slug) async {
+            calls.add(slug);
+            return SyncDelivery.delivered;
+          },
+          onPendingChanged: (slug, {required bool pending}) =>
+              meldungen.add('$slug:$pending'),
+        ),
+      );
 
       await _loesche(tester, 'user_weg');
-      expect(meldungen, ['user_weg:true'],
-          reason: 'die Shell muss das Rezept ab jetzt als weg behandeln');
+      expect(meldungen, [
+        'user_weg:true',
+      ], reason: 'die Shell muss das Rezept ab jetzt als weg behandeln');
 
       await tester.tap(find.text('Rückgängig'));
       await tester.pumpAndSettle();
       expect(meldungen, ['user_weg:true', 'user_weg:false']);
       expect(calls, isEmpty);
-      expect(find.byKey(const ValueKey('recipe-tile-user_weg')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('recipe-tile-user_weg')),
+        findsOneWidget,
+      );
     });
 
     testWidgets('nach der Frist: erst der Store-Hook, dann die Freigabe — '
         'kein Frame, in dem das Rezept zurückkommt', (tester) async {
       _pinViewport(tester);
       final reihenfolge = <String>[];
-      await _pumpHost(tester, _Host(
-        recipes: [_rezept('user_weg')],
-        onDelete: (slug) async {
-          reihenfolge.add('hook');
-          return SyncDelivery.delivered;
-        },
-        onPendingChanged: (slug, {required bool pending}) =>
-            reihenfolge.add('pending:$pending'),
-      ));
+      await _pumpHost(
+        tester,
+        _Host(
+          recipes: [_rezept('user_weg')],
+          onDelete: (slug) async {
+            reihenfolge.add('hook');
+            return SyncDelivery.delivered;
+          },
+          onPendingChanged: (slug, {required bool pending}) =>
+              reihenfolge.add('pending:$pending'),
+        ),
+      );
 
       await _loesche(tester, 'user_weg');
       await _fristAblaufen(tester);
 
-      expect(reihenfolge, ['pending:true', 'hook', 'pending:false'],
-          reason: 'die Freigabe darf erst kommen, wenn der Store die Zeile '
-              'selbst schon los ist');
+      expect(
+        reihenfolge,
+        ['pending:true', 'hook', 'pending:false'],
+        reason:
+            'die Freigabe darf erst kommen, wenn der Store die Zeile '
+            'selbst schon los ist',
+      );
     });
   });
 }

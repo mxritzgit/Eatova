@@ -7,6 +7,7 @@ import 'package:supabase/supabase.dart' hide AuthException;
 
 import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/config/supabase_config.dart';
+import 'package:eatova/src/config/auth_email_purpose.dart';
 
 // Password reset contract of the repository layer:
 //  * [AuthRepository.sendPasswordReset] triggers the recovery mail
@@ -45,11 +46,9 @@ void main() {
     final body = jsonDecode(captured!.body) as Map<String, dynamic>;
     expect(body['email'], 'user@example.com',
         reason: 'getrimmt wie bei signIn');
-    // NO redirect_to: the reset runs through the 8-digit code. One would
-    // reactivate the hijackable eatova:// deep-link path if the server
-    // template ever fell back to {{ .ConfirmationURL }}.
-    expect(captured!.url.queryParameters.containsKey('redirect_to'), isFalse,
-        reason: 'kein Deep-Link im Reset — nur der Code');
+    expect(captured!.url.queryParameters['redirect_to'],
+        AuthEmailPurpose.passwordReset);
+    expect(Uri.parse(AuthEmailPurpose.passwordReset).scheme, 'https');
     expect(captured!.body.contains(EatovaSupabaseConfig.oauthRedirectUrl),
         isFalse);
   });

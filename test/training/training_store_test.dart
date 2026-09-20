@@ -22,6 +22,8 @@ import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
 import '../outbox/outbox_test_helpers.dart' as h;
+import '../support/atomic_store_faults.dart';
+import '../support/sync_operation_fake.dart';
 
 TrainingPlan plan([String id = 'coach_message', String title = 'Strength']) =>
     TrainingPlan(
@@ -61,10 +63,27 @@ class _Server {
   final writeEntered = Completer<void>();
   final rows = <String, Map<String, dynamic>>{};
   final requests = <http.Request>[];
+  late final operations = SyncOperationFake(
+    meals: {},
+    weights: {},
+    favorites: {},
+    recipes: {},
+    trainingPlans: rows,
+    readProfile: () => null,
+    writeProfile: (_) {},
+    readStats: () => {},
+    incrementStats: (_, _, _) {},
+    recordDay: (_) {},
+  );
 
   Future<http.Response> handle(http.Request request) async {
     requests.add(request);
-    if (request.url.path.endsWith('/rpc/record_tracking_day') &&
+    final params = request.url.path.endsWith('/rpc/apply_sync_operation')
+        ? (jsonDecode(request.body) as Map).cast<String, dynamic>()
+        : null;
+    final kind = params?['p_kind'];
+    if ((request.url.path.endsWith('/rpc/record_tracking_day') ||
+            kind == 'trackingDay') &&
         holdTracking != null) {
       if (!trackingEntered.isCompleted) trackingEntered.complete();
       await holdTracking!.future;
@@ -75,7 +94,8 @@ class _Server {
         request: request,
       );
     }
-    if (request.url.path.endsWith('/rpc/increment_lifetime_stats') &&
+    if ((request.url.path.endsWith('/rpc/increment_lifetime_stats') ||
+            kind == 'statsIncrement') &&
         holdStats != null) {
       if (!statsEntered.isCompleted) statsEntered.complete();
       await holdStats!.future;
@@ -87,7 +107,10 @@ class _Server {
       );
     }
     if (offline) throw http.ClientException('offline');
-    final training = request.url.path.endsWith('/training_plans');
+    final training =
+        request.url.path.endsWith('/training_plans') ||
+        kind == 'trainingPlanUpsert' ||
+        kind == 'trainingPlanDelete';
     if (training && trainingOffline && request.method != 'GET') {
       throw http.ClientException('fixture training offline');
     }
@@ -117,20 +140,24 @@ class _Server {
       }
       if (!writeEntered.isCompleted) writeEntered.complete();
       await holdWrite?.future;
-      if (request.method == 'DELETE') {
+      if (params != null) {
+        body = operations.apply(params);
+      } else if (_isTrainingWrite(request, 'trainingPlanDelete')) {
         rows.remove(request.url.queryParameters['id']!.substring(3));
       } else {
         final decoded = jsonDecode(request.body);
         final row = (decoded is List ? decoded.single : decoded) as Map;
         rows[row['id'] as String] = row.cast<String, dynamic>();
       }
+    } else if (params != null) {
+      body = operations.apply(params);
     }
     if (request.url.path.endsWith('/profiles')) body = null;
     if (request.url.path.endsWith('/lifetime_stats')) body = {};
     return http.Response(
       jsonEncode(body),
       200,
-      headers: {'content-type': 'application/json'},
+      headers: {'content-type': 'application/json; charset=utf-8'},
       request: request,
     );
   }
@@ -195,43 +222,62 @@ class _Harness {
   }
 }
 
-class _FailOutboxCache extends LocalCache {
+bool _isTrainingWrite(http.Request request, [String? kind]) =>
+    request.url.path.endsWith('/rpc/apply_sync_operation') &&
+    (kind == null
+        ? (jsonDecode(request.body)['p_kind'] as String).startsWith(
+            'trainingPlan',
+          )
+        : jsonDecode(request.body)['p_kind'] == kind);
+
+class _FailOutboxCache extends _TransientOutboxFailureCache {
   _FailOutboxCache([KeyValueStore? storage])
-    : super(storage ?? InMemoryKeyValueStore(), 'user-training');
-  @override
-  Future<bool> writeOutbox(List<SyncOp> ops) async => false;
+    : super(storage ?? InMemoryKeyValueStore());
 }
 
 class _TransientOutboxFailureCache extends LocalCache {
   _TransientOutboxFailureCache(KeyValueStore storage)
-    : super(storage, 'user-training');
+    : this._(AtomicStoreFaults(storage));
+
+  _TransientOutboxFailureCache._(this.faults) : super(faults, 'user-training') {
+    faults.beforeWrite = beforeWrite;
+  }
+
+  final AtomicStoreFaults faults;
 
   int failuresRemaining = 0;
 
-  @override
-  Future<bool> writeOutbox(List<SyncOp> ops) async {
-    if (ops.isNotEmpty && failuresRemaining > 0) {
+  Future<void> beforeWrite(Map<String, String?> changes) async {
+    if (changes.keys.any((key) => key.contains('.outbox.')) &&
+        failuresRemaining > 0) {
       failuresRemaining--;
-      return false;
+      throw StateError('fixture outbox transaction failure');
     }
-    return super.writeOutbox(ops);
   }
 }
 
-class _HeldOutboxCache extends LocalCache {
-  _HeldOutboxCache() : super(InMemoryKeyValueStore(), 'user-training');
+class _HeldOutboxCache extends _TransientOutboxFailureCache {
+  _HeldOutboxCache() : super(InMemoryKeyValueStore());
   final gate = Completer<void>();
   bool hold = false;
   @override
-  Future<bool> writeOutbox(List<SyncOp> ops) async {
-    if (!hold) return super.writeOutbox(ops);
+  Future<void> beforeWrite(Map<String, String?> changes) async {
+    if (!hold || !changes.keys.any((key) => key.contains('.outbox.'))) return;
     await gate.future;
-    return false;
+    throw StateError('fixture outbox transaction failure');
   }
 }
 
 class _RecoveringOutboxCache extends _TransientOutboxFailureCache {
-  _RecoveringOutboxCache(super.storage);
+  _RecoveringOutboxCache(super.storage) {
+    faults.beforeRead = (keys) async {
+      if (!keys.any((key) => key.contains('.outbox.'))) return;
+      if (unreadable) {
+        throw const UnreadableCacheSlot('outbox', 'fixture unavailable');
+      }
+      await holdRepair?.future;
+    };
+  }
 
   bool unreadable = true;
   Completer<void>? holdRepair;
@@ -255,28 +301,29 @@ class _RecoveringOutboxCache extends _TransientOutboxFailureCache {
   }
 
   @override
-  Future<bool> writeOutbox(List<SyncOp> ops) async {
-    final result = await super.writeOutbox(ops);
-    if (!result && !failedWrite.isCompleted) failedWrite.complete();
-    return result;
+  Future<void> beforeWrite(Map<String, String?> changes) async {
+    try {
+      await super.beforeWrite(changes);
+    } catch (_) {
+      if (!failedWrite.isCompleted) failedWrite.complete();
+      rethrow;
+    }
   }
 }
 
-class _HeldInitialOutboxCache extends LocalCache {
-  _HeldInitialOutboxCache(KeyValueStore store) : super(store, 'user-training');
+class _HeldInitialOutboxCache extends _TransientOutboxFailureCache {
+  _HeldInitialOutboxCache(super.store) {
+    faults.beforeRead = (keys) async {
+      if (!keys.any((key) => key.contains('.outbox.')) || entered.isCompleted) {
+        return;
+      }
+      entered.complete();
+      await release.future;
+    };
+  }
 
   final entered = Completer<void>();
   final release = Completer<void>();
-
-  @override
-  Future<List<SyncOp>?> readOutboxOrThrow() async {
-    final value = await super.readOutboxOrThrow();
-    if (!entered.isCompleted) {
-      entered.complete();
-      await release.future;
-    }
-    return value;
-  }
 }
 
 class _HeldOutboxStorage extends InMemoryKeyValueStore {
@@ -288,8 +335,11 @@ class _HeldOutboxStorage extends InMemoryKeyValueStore {
   final release = Completer<void>();
 
   @override
-  Future<void> setString(String key, String value) async {
-    if (key.contains('.outbox.')) {
+  Future<KeyValueCommit> writeBatch(
+    Map<String, String?> changes, {
+    Map<String, int> expectedVersions = const {},
+  }) async {
+    if (changes.keys.any((key) => key.contains('.outbox.'))) {
       final attempt = ++writes;
       if (attempt == holdAt) {
         entered.complete();
@@ -300,24 +350,23 @@ class _HeldOutboxStorage extends InMemoryKeyValueStore {
         throw StateError('fixture outbox write failure');
       }
     }
-    await super.setString(key, value);
+    return super.writeBatch(changes, expectedVersions: expectedVersions);
   }
 }
 
-class _AcknowledgmentHeldCache extends LocalCache {
-  _AcknowledgmentHeldCache() : super(InMemoryKeyValueStore(), 'user-training');
+class _AcknowledgmentHeldCache extends _TransientOutboxFailureCache {
+  _AcknowledgmentHeldCache() : super(InMemoryKeyValueStore());
 
   final entered = Completer<void>();
   final release = Completer<void>();
   int writes = 0;
 
   @override
-  Future<bool> writeOutbox(List<SyncOp> ops) async {
-    if (ops.isNotEmpty && ++writes == 2) {
+  Future<void> beforeWrite(Map<String, String?> changes) async {
+    if (changes.keys.any((key) => key.contains('.outbox.')) && ++writes == 2) {
       entered.complete();
       await release.future;
     }
-    return super.writeOutbox(ops);
   }
 }
 
@@ -327,15 +376,18 @@ class _SessionStorage extends InMemoryKeyValueStore {
   int? failFromWrite;
   int sessionWrites = 0;
   @override
-  Future<void> setString(String key, String value) async {
-    if (key.contains('.training_session.')) {
+  Future<KeyValueCommit> writeBatch(
+    Map<String, String?> changes, {
+    Map<String, int> expectedVersions = const {},
+  }) async {
+    if (changes.keys.any((key) => key.contains('.training_session.'))) {
       sessionWrites++;
       await gate?.future;
       if (fail || (failFromWrite != null && sessionWrites >= failFromWrite!)) {
         throw StateError('fixture storage failure');
       }
     }
-    await super.setString(key, value);
+    return super.writeBatch(changes, expectedVersions: expectedVersions);
   }
 }
 
@@ -443,11 +495,9 @@ void main() {
           TrainingSetReference(exerciseIndex: 0, setIndex: 0),
         ],
       );
-      cipher.blockPlanWrite = true;
-      await env.store.saveTrainingPlan(updated);
-      await env.store.saveTrainingSession(checkpoint);
-      await env.flush();
-      expect(env.server.rows[updated.id]?['plan'], updated.toRow()['plan']);
+      await env.cache.writeTrainingSession(checkpoint);
+      env.server.rows[updated.id] = updated.toRow();
+      await env.cache.settle();
       expect(raw.snapshot[planKey], oldMirror);
       env.dispose();
       env.server.offline = true;
@@ -498,10 +548,36 @@ void main() {
       );
       expect(env.store.trainingSession, isNull);
       expect(await env.cache.readTrainingSession(), isNull);
-      await env.store.saveTrainingPlan(plan());
+      cipher.blockPlanRead = false;
+      await expectLater(
+        env.store.saveTrainingSession(_snapshot()),
+        throwsStateError,
+      );
+      await env.store.adoptTrainingPlan(plan());
+      final adopted = env.store.trainingPlans.single;
+      expect(adopted.id, plan().id);
+      expect(adopted.incarnation, 1);
       expect(env.store.trainingSession, isNull);
-      await env.store.saveTrainingSession(_snapshot());
-      expect(env.store.trainingSession?.toJson(), _snapshot().toJson());
+      await expectLater(
+        env.store.saveTrainingSession(_snapshot()),
+        throwsStateError,
+      );
+      final checkpoint = TrainingSessionSnapshot(
+        sessionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        startedAt: DateTime.utc(2026, 9, 20),
+        plan: adopted,
+        workoutIndex: 0,
+        exerciseIndex: 0,
+        setIndex: 0,
+        phase: TrainingSessionPhase.exercise,
+        remainingMilliseconds: 0,
+      );
+      await env.store.saveTrainingSession(checkpoint);
+      expect(env.store.trainingSession?.toJson(), checkpoint.toJson());
+      expect(
+        (await env.cache.readTrainingSession())?.toJson(),
+        checkpoint.toJson(),
+      );
     },
   );
 
@@ -576,7 +652,13 @@ void main() {
       final env = _Harness(_Server(), storage: storage);
       await env.boot();
       final source = plan().workouts.single;
-      final other = source.copyWith(title: 'Other day', exercises: [for (var i = 0; i < source.exercises.length; i++) source.exercises[i].copyWith(id: 'other-$i')]);
+      final other = source.copyWith(
+        title: 'Other day',
+        exercises: [
+          for (var i = 0; i < source.exercises.length; i++)
+            source.exercises[i].copyWith(id: 'other-$i'),
+        ],
+      );
       final original = multiPlan([other, source]);
       final snapshot = snapshotFor(original, workout: 1);
       await env.store.saveTrainingPlan(original);
@@ -601,10 +683,23 @@ void main() {
       final env = _Harness(_Server());
       await env.boot();
       final source = plan().workouts.single;
-      final other = source.copyWith(title: 'Other day', exercises: [for (var i = 0; i < source.exercises.length; i++) source.exercises[i].copyWith(id: 'other-$i')]);
+      final other = source.copyWith(
+        title: 'Other day',
+        exercises: [
+          for (var i = 0; i < source.exercises.length; i++)
+            source.exercises[i].copyWith(id: 'other-$i'),
+        ],
+      );
       final original = multiPlan([
         source,
-        change == 'duplicate removal' ? source.copyWith(exercises: [for (var i = 0; i < source.exercises.length; i++) source.exercises[i].copyWith(id: 'duplicate-$i')]) : other,
+        change == 'duplicate removal'
+            ? source.copyWith(
+                exercises: [
+                  for (var i = 0; i < source.exercises.length; i++)
+                    source.exercises[i].copyWith(id: 'duplicate-$i'),
+                ],
+              )
+            : other,
       ]);
       await env.store.saveTrainingPlan(original);
       await env.store.saveTrainingSession(snapshotFor(original));
@@ -633,7 +728,9 @@ void main() {
         throwsStateError,
       );
       expect(
-        env.server.requests.where((request) => request.method == 'DELETE'),
+        env.server.requests.where(
+          (request) => _isTrainingWrite(request, 'trainingPlanDelete'),
+        ),
         isEmpty,
       );
       expect(env.store.trainingPlans.single.id, plan().id);
@@ -653,6 +750,7 @@ void main() {
       await env.store.saveTrainingPlan(plan());
       await env.store.saveTrainingSession(_snapshot());
       env.server.offline = true;
+      (env.cache as _FailOutboxCache).failuresRemaining = 1;
       await expectLater(
         env.store.deleteTrainingPlan(plan().id),
         throwsStateError,
@@ -668,78 +766,55 @@ void main() {
   );
 
   test(
-    'failed final clear cannot resurrect a confirmed deletion after restart',
+    'committed source deletion clears checkpoint in the same transaction',
     () async {
       final storage = _SessionStorage();
       final env = _Harness(_Server(), storage: storage);
       await env.boot();
       await env.store.saveTrainingPlan(plan());
       await env.store.saveTrainingSession(_snapshot());
-      storage.failFromWrite = storage.sessionWrites + 2;
-      expect(
-        await env.store.deleteTrainingPlan(plan().id),
-        SyncDelivery.delivered,
-      );
+      env.server.offline = true;
+      final before = storage.sessionWrites;
+      await env.store.deleteTrainingPlan(plan().id);
+      expect(storage.sessionWrites, before + 1);
       expect(env.store.trainingSession, isNull);
       expect(await env.cache.readTrainingSession(), isNull);
-      final backup =
-          jsonDecode(
-                storage.snapshot.entries
-                    .singleWhere(
-                      (entry) => entry.key.contains('.training_session.'),
-                    )
-                    .value,
-              )
-              as Map;
-      expect(backup['source_change_pending'], isTrue);
-      expect(backup['snapshot'], _snapshot().toJson());
-      env.dispose();
-      // Even a stale mirror or an identical re-adoption cannot prove rollback.
-      final reboot = _Harness(
-        _Server()..rows[plan().id] = plan().toRow(),
-        storage: storage,
+      expect(
+        env.store.pendingOutbox.single.kind,
+        SyncOpKind.trainingPlanDelete,
       );
+      env.dispose();
+      final reboot = _Harness(_Server()..offline = true, storage: storage);
       await reboot.boot();
       expect(reboot.store.trainingSession, isNull);
-      storage.failFromWrite = null;
-      await reboot.store.saveTrainingSession(_snapshot());
-      expect(reboot.store.trainingSession, isNotNull);
+      expect(reboot.store.trainingPlans, isEmpty);
     },
   );
 
   test(
-    'failed delete and failed rollback retain hidden backup across crash',
+    'failed atomic deletion preserves plan and checkpoint across crash',
     () async {
       final storage = _SessionStorage();
-      final env = _Harness(_Server(), cacheOverride: _FailOutboxCache(storage));
+      final env = _Harness(_Server(), storage: storage);
       await env.boot();
       await env.store.saveTrainingPlan(plan());
       await env.store.saveTrainingSession(_snapshot());
-      storage.failFromWrite = storage.sessionWrites + 2;
-      env.server.offline = true;
+      final writes = env.server.requests.where(_isTrainingWrite).length;
+      storage.fail = true;
       await expectLater(
         env.store.deleteTrainingPlan(plan().id),
         throwsStateError,
       );
-      expect(env.store.trainingSession, isNull);
+      expect(env.server.requests.where(_isTrainingWrite), hasLength(writes));
+      expect(env.store.trainingSession?.toJson(), _snapshot().toJson());
       expect(env.store.trainingPlans.single.id, plan().id);
-      final backup =
-          jsonDecode(
-                storage.snapshot.entries
-                    .singleWhere(
-                      (entry) => entry.key.contains('.training_session.'),
-                    )
-                    .value,
-              )
-              as Map;
-      expect(backup['snapshot'], _snapshot().toJson());
       env.dispose();
-      final reboot = _Harness(
-        _Server()..rows[plan().id] = plan().toRow(),
-        storage: storage,
-      );
+      storage.fail = false;
+      final reboot = _Harness(_Server()..offline = true, storage: storage);
       await reboot.boot();
-      expect(reboot.store.trainingSession, isNull);
+      expect(reboot.store.trainingSession?.toJson(), _snapshot().toJson());
+      expect(reboot.store.trainingPlans.single.id, plan().id);
+      expect(reboot.store.pendingOutbox, isEmpty);
     },
   );
 
@@ -769,7 +844,10 @@ void main() {
       await lateCheckpoint;
       expect(env.store.trainingSession, isNull);
       expect(await env.cache.readTrainingSession(), isNull);
-      await env.store.saveTrainingPlan(plan());
+      await env.store.adoptTrainingPlan(plan());
+      final replacement = env.store.trainingPlans.single;
+      expect(replacement.id, plan().id);
+      expect(replacement.incarnation, 1);
       await expectLater(
         env.store.saveTrainingSession(_snapshot(), generation: generation),
         throwsStateError,
@@ -782,7 +860,7 @@ void main() {
         ),
         throwsStateError,
       );
-      await env.store.saveTrainingSession(_snapshot());
+      await env.store.saveTrainingSession(snapshotFor(replacement));
       expect(env.store.trainingSession, isNotNull);
     },
   );
@@ -820,32 +898,23 @@ void main() {
   );
 
   test(
-    'timed-out undurable source deletion blocks a fresh checkpoint while still in flight',
+    'failed local deletion never starts HTTP or retires confirmed recovery',
     () async {
-      final server = _Server();
-      final env = _Harness(server, cacheOverride: _FailOutboxCache());
+      final cache = _FailOutboxCache();
+      final env = _Harness(_Server(), cacheOverride: cache);
       await env.boot();
       await env.store.saveTrainingPlan(plan());
-      await env.store.saveTrainingPlan(plan('other'));
       await env.store.saveTrainingSession(_snapshot());
-      server.holdWrite = Completer<void>();
-      try {
-        await expectLater(
-          env.store.deleteTrainingPlan(plan().id),
-          throwsStateError,
-        );
-        expect(env.store.pendingOutbox, isEmpty);
-        expect(env.store.trainingSession, isNull);
-        await expectLater(
-          env.store.saveTrainingSession(_snapshot()),
-          throwsStateError,
-        );
-        await env.store.saveTrainingSession(snapshotFor(plan('other')));
-      } finally {
-        server.holdWrite!.complete();
-        await h.settle();
-      }
-      expect((await env.cache.readTrainingSession())?.plan.id, 'other');
+      final requests = env.server.requests.length;
+      cache.failuresRemaining = 1;
+      await expectLater(
+        env.store.deleteTrainingPlan(plan().id),
+        throwsStateError,
+      );
+      expect(env.server.requests, hasLength(requests));
+      expect(env.store.pendingOutbox, isEmpty);
+      expect(env.store.trainingSession?.toJson(), _snapshot().toJson());
+      await env.store.saveTrainingSession(_snapshot());
     },
   );
 
@@ -858,8 +927,11 @@ void main() {
       await env.store.saveTrainingSession(_snapshot());
       env.server.offline = true;
       await env.store.deleteTrainingPlan(plan().id);
-      await env.store.saveTrainingPlan(plan());
-      await env.store.saveTrainingSession(_snapshot());
+      await env.store.adoptTrainingPlan(plan());
+      final replacement = env.store.trainingPlans.single;
+      expect(replacement.id, plan().id);
+      expect(replacement.incarnation, 1);
+      await env.store.saveTrainingSession(snapshotFor(replacement));
       expect(env.store.trainingSession, isNotNull);
       expect(await env.cache.readTrainingSession(), isNotNull);
     },
@@ -905,7 +977,9 @@ void main() {
         acknowledged = true;
       } on StateError {
         expect(
-          env.server.requests.where((request) => request.method == 'DELETE'),
+          env.server.requests.where(
+            (request) => _isTrainingWrite(request, 'trainingPlanDelete'),
+          ),
           isEmpty,
         );
       }
@@ -992,7 +1066,10 @@ void main() {
       await env.store.saveTrainingPlan(plan());
       final generation = env.store.trainingSessionGeneration;
       await env.store.deleteTrainingPlan(plan().id);
-      await env.store.saveTrainingPlan(plan());
+      await env.store.adoptTrainingPlan(plan());
+      final replacement = env.store.trainingPlans.single;
+      expect(replacement.id, plan().id);
+      expect(replacement.incarnation, 1);
       await expectLater(
         env.store.saveTrainingSession(
           _snapshot(),
@@ -1001,7 +1078,7 @@ void main() {
         ),
         throwsStateError,
       );
-      await env.store.saveTrainingSession(_snapshot());
+      await env.store.saveTrainingSession(snapshotFor(replacement));
       expect(env.store.trainingSession, isNotNull);
     },
   );
@@ -1101,123 +1178,44 @@ void main() {
     },
   );
 
-  for (final mode in ['undurable', 'durable', 'pending durable']) {
+  for (final committed in [false, true]) {
     test(
-      'logout cleanup handles $mode draft before late tracking failure',
+      'logout waits for atomic training decision (committed=$committed)',
       () async {
-        await withClock(Clock.fixed(DateTime.utc(2026, 9, 8, 12)), () async {
-          final raw = _HeldOutboxStorage();
-          final encrypted = EncryptedKeyValueStore(
-            raw,
-            AesGcmCacheCipher(Uint8List(32)),
-          );
-          final server = _Server()
-            ..trainingOffline = true
-            ..holdTracking = Completer<void>()
-            ..holdStats = Completer<void>();
-          server.rows['retired_draft'] = plan('retired_draft').toRow();
-          final env = _Harness(server, storage: encrypted);
-          await env.cache.writeOutbox([
-            SyncOp.trainingPlanUpsert(plan('prior', 'Acknowledged prior')),
-            ...List.generate(
-              kOutboxMaxOps - 3,
-              (index) => SyncOp.trainingPlanDelete('deleted_$index'),
-            ),
-          ]);
-          await env.boot();
-          expect(
-            env.store.trainingPlans.any((plan) => plan.id == 'retired_draft'),
-            isTrue,
-          );
-          env.store.addResultToDailyTotal(h.mealResult('Fixture meal'));
-          await server.trackingEntered.future.timeout(
-            const Duration(seconds: 3),
-          );
-          await env.cache.settle();
-          // Meal and recent-food delivery briefly reserve two outbox entries.
-          // Fill the last slot only once both live sends have settled.
-          expect(env.store.pendingOutbox, hasLength(kOutboxMaxOps - 2));
-          await env.store.deleteTrainingPlan('acknowledged_extra');
-          await env.cache.settle();
-          expect(env.store.pendingOutbox, hasLength(kOutboxMaxOps - 1));
-          expect(
-            env.store.pendingOutbox.any((op) => op.entityId == 'prior'),
-            isTrue,
-          );
-          raw.writes = 0;
-          raw.holdAt = mode == 'pending durable' ? 1 : 2;
-          if (mode == 'undurable') raw.failAt.addAll([1, 2]);
-          if (mode == 'durable') raw.failAt.add(2);
-          var rejected = false;
-          final deletion = expectLater(
-            env.store.deleteTrainingPlan('retired_draft'),
-            throwsStateError,
-          ).then((_) => rejected = true);
-          Future<void>? logout;
-          try {
-            if (mode == 'pending durable') logout = env.store.signOutCleanup();
-            await raw.entered.future.timeout(const Duration(seconds: 3));
-            logout ??= env.store.signOutCleanup();
-            await server.statsEntered.future.timeout(
-              const Duration(seconds: 3),
-            );
-            expect(env.cache.isClosed, isFalse);
-            if (mode == 'pending durable') {
-              await h.settle();
-              expect(
-                rejected,
-                isFalse,
-                reason:
-                    'A pending receipt still owns the draft during retirement',
-              );
-              server.holdTracking!.complete();
-            }
-            raw.release.complete();
-            await deletion;
-            if (!server.holdTracking!.isCompleted) {
-              server.holdTracking!.complete();
-            }
-            await h.pumpUntil(
-              () => env.store.pendingOutbox.any(
-                (op) => op.kind == SyncOpKind.trackingDay,
-              ),
-            );
-            await env.cache.settle();
-            final durable = (await env.cache.readOutbox())!;
-            final draftSurvives = mode != 'undurable';
-            expect(
-              env.store.trainingPlans.any((plan) => plan.id == 'retired_draft'),
-              isTrue,
-              reason: 'A retired mutation cannot publish its deletion',
-            );
-            expect(
-              env.store.pendingOutbox.any(
-                (op) => op.entityId == 'retired_draft',
-              ),
-              draftSurvives,
-            );
-            expect(
-              durable.any((op) => op.entityId == 'retired_draft'),
-              draftSurvives,
-            );
-            if (!draftSurvives) {
-              expect(env.store.pendingOutbox, hasLength(kOutboxMaxOps));
-              expect(
-                env.store.pendingOutbox.any((op) => op.entityId == 'prior'),
-                isTrue,
-              );
-              expect(durable.any((op) => op.entityId == 'prior'), isTrue);
-            }
-          } finally {
-            if (!raw.release.isCompleted) raw.release.complete();
-            if (!server.holdTracking!.isCompleted) {
-              server.holdTracking!.complete();
-            }
-            if (!server.holdStats!.isCompleted) server.holdStats!.complete();
-            await logout?.timeout(const Duration(seconds: 5));
-          }
-          expect(env.cache.isClosed, isTrue);
-        });
+        final raw = _HeldOutboxStorage();
+        final encrypted = EncryptedKeyValueStore(
+          raw,
+          AesGcmCacheCipher(Uint8List(32)),
+        );
+        final server = _Server()..offline = true;
+        final env = _Harness(server, storage: encrypted);
+        await env.cache.writeTrainingPlans([plan()]);
+        await env.boot();
+        raw.writes = 0;
+        raw.holdAt = 1;
+        if (!committed) raw.failAt.add(1);
+        final outcome = expectLater(
+          env.store.deleteTrainingPlan(plan().id),
+          throwsStateError,
+        );
+        await raw.entered.future;
+        var closed = false;
+        final logout = env.store.signOutCleanup().then((_) => closed = true);
+        await h.settle();
+        expect(closed, isFalse);
+        raw.release.complete();
+        await outcome;
+        await logout;
+        expect(env.cache.isClosed, isTrue);
+        final reopened = LocalCache(encrypted, 'user-training');
+        addTearDown(reopened.close);
+        final pending = await reopened.readOutbox() ?? [];
+        expect(pending, hasLength(committed ? 1 : 0));
+        if (committed) {
+          expect(pending.single.kind, SyncOpKind.trainingPlanDelete);
+        }
+        expect(server.requests.where(_isTrainingWrite), isEmpty);
+        expect(raw.snapshot.values.join(), isNot(contains('Strength')));
       },
     );
   }
@@ -1240,7 +1238,7 @@ void main() {
       raw.failFrom = 2;
       expect(
         await env.store.saveTrainingPlan(plan('coach_message', 'Replacement')),
-        SyncDelivery.queuedRetry,
+        SyncDelivery.queuedOffline,
       );
       await env.cache.settle();
       expect(env.store.trainingPlans.single.title, 'Replacement');
@@ -1264,212 +1262,93 @@ void main() {
   );
 
   test(
-    'late server acknowledgment wins over a failed pending durability write',
+    'failed acknowledgment retains the same operation for receipt replay',
     () async {
-      final raw = _HeldOutboxStorage();
-      final encrypted = EncryptedKeyValueStore(
-        raw,
-        AesGcmCacheCipher(Uint8List(32)),
-      );
-      final server = _Server();
-      final env = _Harness(server, storage: encrypted);
+      final cache = _TransientOutboxFailureCache(InMemoryKeyValueStore());
+      final server = _Server()..holdWrite = Completer<void>();
+      final env = _Harness(server, cacheOverride: cache);
       await env.boot();
-      raw.writes = 0;
-      raw.failAt.addAll([1, 2]);
-      raw.holdAt = 2;
-      final response = Completer<void>();
-      server.holdWrite = response;
-      final outcome = expectLater(
-        env.store.saveTrainingPlan(plan('coach_message', 'Server confirmed')),
-        completion(SyncDelivery.delivered),
+      final save = env.store.saveTrainingPlan(
+        plan('coach_message', 'Committed'),
       );
-      try {
-        await raw.entered.future.timeout(const Duration(seconds: 5));
-        response.complete();
-        await h.pumpUntil(() => server.rows.containsKey('coach_message'));
-        await h.settle();
-      } finally {
-        if (!response.isCompleted) response.complete();
-        raw.release.complete();
-      }
-      await outcome;
-      await env.cache.settle();
-      expect(env.store.trainingPlans.single.title, 'Server confirmed');
+      await server.writeEntered.future;
+      final id = env.store.pendingOutbox.single.operationId;
+      cache.failuresRemaining = 1;
+      server.holdWrite!.complete();
+      expect(await save, SyncDelivery.queuedRetry);
+      expect(env.store.pendingOutbox.single.operationId, id);
+      expect((await cache.readOutbox())!.single.operationId, id);
+      expect((server.rows.values.single['plan'] as Map)['title'], 'Committed');
+      await env.store.syncPendingWrites();
       expect(env.store.pendingOutbox, isEmpty);
-      expect(await env.cache.readOutbox(), isEmpty);
-      expect(
-        (server.rows['coach_message']!['plan'] as Map)['title'],
-        'Server confirmed',
-      );
+      final writes = server.requests.where(_isTrainingWrite).toList();
+      expect(writes, hasLength(2));
+      expect(jsonDecode(writes.first.body), jsonDecode(writes.last.body));
     },
   );
 
-  for (final repair in [false, true]) {
+  for (final firstWriteSucceeds in [false, true]) {
     test(
-      'mixed queue cap settles the durable training replacement before trimming (repair=$repair)',
+      'mixed cap retains every accepted intent (commit=$firstWriteSucceeds)',
       () async {
-        final storage = _HeldOutboxStorage();
-        final encrypted = EncryptedKeyValueStore(
-          storage,
-          AesGcmCacheCipher(Uint8List(32)),
-        );
-        final cache = repair
-            ? _RecoveringOutboxCache(encrypted)
-            : LocalCache(encrypted, 'user-training');
+        final cache = _TransientOutboxFailureCache(InMemoryKeyValueStore());
         final env = _Harness(_Server()..offline = true, cacheOverride: cache);
         final prior = [
-          SyncOp.trainingPlanUpsert(plan('coach_message', 'Confirmed')),
+          SyncOp.trainingPlanUpsert(plan('coach_message', 'Previous')),
           ...List.generate(
             kOutboxMaxOps - 2,
-            (index) => SyncOp.trainingPlanDelete('deleted_$index'),
+            (i) => SyncOp.trainingPlanDelete('deleted_$i'),
           ),
         ];
         await cache.writeOutbox(prior);
         await env.boot();
-        if (repair) {
-          (cache as _RecoveringOutboxCache).unreadable = false;
-          cache.immediateRecovery = prior;
-        } else {
-          storage.writes = 0;
-          storage.holdAt = 2;
-        }
-        final outcome = expectLater(
-          env.store.saveTrainingPlan(plan('coach_message', 'Unconfirmed')),
-          completion(SyncDelivery.queuedRetry),
-        );
-        if (!repair) {
-          await storage.entered.future.timeout(const Duration(seconds: 3));
-        }
-        await env.store.applySettings(
-          newProfile: env.store.profile,
-          notificationsEnabled: false,
-        );
-        if (!repair) storage.release.complete();
-        await outcome;
-        await cache.settle();
-        expect(env.store.pendingOutbox, hasLength(kOutboxMaxOps));
-        expect(
-          env.store.pendingOutbox
-              .where((op) => op.trainingPlan != null)
-              .single
-              .trainingPlan
-              ?.title,
-          'Unconfirmed',
-        );
-        expect(env.store.pendingOutbox.last.kind, SyncOpKind.profileUpsert);
-        final durable = (await cache.readOutbox())!;
-        expect(durable, hasLength(kOutboxMaxOps));
-        expect(
-          durable
-              .where((op) => op.trainingPlan != null)
-              .single
-              .trainingPlan
-              ?.title,
-          'Unconfirmed',
-        );
-        expect(durable.last.kind, SyncOpKind.profileUpsert);
-        expect(env.store.trainingPlans.single.title, 'Unconfirmed');
-      },
-    );
-  }
-
-  for (final firstWriteSucceeds in [false, true]) {
-    test(
-      'mixed cap uses actual durability when later writes fail (first=$firstWriteSucceeds)',
-      () async {
-        final raw = _HeldOutboxStorage();
-        final encrypted = EncryptedKeyValueStore(
-          raw,
-          AesGcmCacheCipher(Uint8List(32)),
-        );
-        final env = _Harness(_Server()..offline = true, storage: encrypted);
-        await env.cache.writeOutbox([
-          SyncOp.trainingPlanUpsert(plan('coach_message', 'Previous')),
-          ...List.generate(
-            kOutboxMaxOps - 2,
-            (index) => SyncOp.trainingPlanDelete('deleted_$index'),
-          ),
-        ]);
-        await env.boot();
-        raw.writes = 0;
-        raw.holdAt = 2;
-        if (firstWriteSucceeds) {
-          raw.failFrom = 2;
-        } else {
-          raw.failAt.addAll([1, 2, 3]);
-        }
-        final outcome = expectLater(
+        if (!firstWriteSucceeds) cache.failuresRemaining = 1;
+        await expectLater(
           env.store.saveTrainingPlan(plan('coach_message', 'Replacement')),
           firstWriteSucceeds
-              ? completion(SyncDelivery.queuedRetry)
+              ? completion(
+                  anyOf(SyncDelivery.queuedRetry, SyncDelivery.queuedOffline),
+                )
               : throwsStateError,
         );
-        try {
-          await raw.entered.future.timeout(const Duration(seconds: 3));
-          await env.store.applySettings(
-            newProfile: env.store.profile,
-            notificationsEnabled: false,
+        if (firstWriteSucceeds) {
+          await expectLater(
+            env.store.saveTrainingPlan(plan('additional')),
+            throwsStateError,
           );
-        } finally {
-          raw.release.complete();
         }
-        await outcome;
-        await env.cache.settle();
-        expect(env.store.pendingOutbox, hasLength(kOutboxMaxOps));
-        final expectedTitle = firstWriteSucceeds ? 'Replacement' : 'Previous';
-        expect(env.store.trainingPlans.single.title, expectedTitle);
+        final durable = (await cache.readOutbox())!;
+        expect(durable, hasLength(prior.length + (firstWriteSucceeds ? 1 : 0)));
         expect(
-          (await env.cache.readOutbox())!
-              .where((op) => op.trainingPlan != null)
-              .last
-              .trainingPlan
-              ?.title,
-          expectedTitle,
+          durable.take(prior.length).map((op) => op.operationId),
+          prior.map((op) => op.operationId),
         );
+        expect(
+          env.store.trainingPlans.single.title,
+          firstWriteSucceeds ? 'Replacement' : 'Previous',
+        );
+        expect(env.server.requests.where(_isTrainingWrite), isNotEmpty);
+        expect(env.server.rows, isEmpty);
       },
     );
   }
 
-  test(
-    'failed acknowledgment keeps a late live request ahead of its replacement',
-    () async {
-      final server = _Server();
-      final cache = _TransientOutboxFailureCache(InMemoryKeyValueStore());
-      final env = _Harness(server, cacheOverride: cache);
-      await env.boot();
-      final olderResponse = Completer<void>();
-      server.holdWrite = olderResponse;
-      cache.failuresRemaining = 2;
-      await expectLater(
-        env.store.saveTrainingPlan(plan('coach_message', 'Unconfirmed older')),
-        throwsStateError,
-      );
-      expect(env.store.pendingOutbox, isEmpty);
-      server.holdWrite = null;
-      try {
-        expect(
-          await env.store.saveTrainingPlan(
-            plan('coach_message', 'Confirmed newer'),
-          ),
-          SyncDelivery.queuedRetry,
-        );
-        expect(
-          server.requests.where(
-            (r) => r.method == 'POST' && r.url.path.endsWith('/training_plans'),
-          ),
-          hasLength(1),
-        );
-      } finally {
-        olderResponse.complete();
-      }
-      await h.pumpUntil(() => env.store.pendingOutbox.isEmpty);
-      expect(env.store.trainingPlans.single.title, 'Confirmed newer');
-      expect(
-        (server.rows['coach_message']!['plan'] as Map)['title'],
-        'Confirmed newer',
-      );
-    },
-  );
+  test('a late request cannot overtake its accepted successor', () async {
+    final server = _Server()..holdWrite = Completer<void>();
+    final env = _Harness(server);
+    await env.boot();
+    final first = env.store.saveTrainingPlan(plan('coach_message', 'Older'));
+    await server.writeEntered.future;
+    await env.store.saveTrainingPlan(plan('coach_message', 'Newer'));
+    expect(server.requests.where(_isTrainingWrite), hasLength(1));
+    expect(env.store.pendingOutbox, hasLength(2));
+    server.holdWrite!.complete();
+    await first;
+    await env.store.syncPendingWrites();
+    expect(env.store.pendingOutbox, isEmpty);
+    expect((server.rows.values.single['plan'] as Map)['title'], 'Newer');
+    expect(env.store.trainingPlans.single.title, 'Newer');
+  });
 
   test(
     'refused full-queue admission never starts a live training request',
@@ -1490,7 +1369,7 @@ void main() {
         await expectLater(env.store.saveTrainingPlan(plan()), throwsStateError);
         expect(
           server.requests.where(
-            (r) => r.method == 'POST' && r.url.path.endsWith('/training_plans'),
+            (r) => _isTrainingWrite(r, 'trainingPlanUpsert'),
           ),
           isEmpty,
         );
@@ -1540,7 +1419,9 @@ void main() {
           ),
           throwsStateError,
         );
-        await cache.failedWrite.future.timeout(const Duration(seconds: 3));
+        if (!atCapacity) {
+          await cache.failedWrite.future.timeout(const Duration(seconds: 3));
+        }
         release.complete();
         await outcome;
         await cache.settle();
@@ -1566,26 +1447,22 @@ void main() {
     cache.unreadable = false;
     cache.holdRepair = Completer<void>();
     server.offline = false;
+    final save = env.store.saveTrainingPlan(plan('coach_message', 'Unconfirmed'));
     try {
-      await expectLater(
-        env.store.saveTrainingPlan(plan('coach_message', 'Unconfirmed')),
-        throwsStateError,
-      );
+      await h.settle();
       expect(
-        server.requests.where(
-          (r) => r.method == 'POST' && r.url.path.endsWith('/training_plans'),
-        ),
+        server.requests.where((r) => _isTrainingWrite(r, 'trainingPlanUpsert')),
         isEmpty,
       );
     } finally {
       cache.holdRepair!.complete();
-      await h.settle();
     }
+    await save;
     await env.flush();
     await h.pumpUntil(() => env.store.pendingOutbox.isEmpty);
     expect(
       (server.rows['coach_message']!['plan'] as Map)['title'],
-      'Confirmed',
+      'Unconfirmed',
     );
   });
 
@@ -1632,11 +1509,9 @@ void main() {
     cache.release.complete();
     await outcome;
     expect(env.store.trainingPlans.single.id, 'coach_message');
-    expect(env.store.pendingOutbox.single.attempts, 0);
+    expect(env.store.pendingOutbox.single.attempts, 1);
     expect(
-      server.requests.where(
-        (r) => r.method == 'POST' && r.url.path.endsWith('/training_plans'),
-      ),
+      server.requests.where((r) => _isTrainingWrite(r, 'trainingPlanUpsert')),
       hasLength(1),
     );
     server.retryTrainingWrites = false;
@@ -1735,7 +1610,7 @@ void main() {
   }
 
   test(
-    'successful offline replacements compact only after confirmation',
+    'successful offline replacements retain every accepted operation until replay',
     () async {
       final env = _Harness(_Server());
       await env.boot();
@@ -1749,11 +1624,15 @@ void main() {
         );
       }
       await env.cache.settle();
-      expect(env.store.pendingOutbox, hasLength(1));
+      expect(env.store.pendingOutbox, hasLength(6));
       expect(
-        (await env.cache.readOutbox())!.single.trainingPlan?.title,
-        'Edit 5',
+        (await env.cache.readOutbox())!.map((op) => op.trainingPlan?.title),
+        List.generate(6, (revision) => 'Edit $revision'),
       );
+      env.server.offline = false;
+      await env.store.syncPendingWrites();
+      expect(env.store.pendingOutbox, isEmpty);
+      expect((env.server.rows.values.single['plan'] as Map)['title'], 'Edit 5');
     },
   );
 
@@ -1783,14 +1662,20 @@ void main() {
         plan('coach_message', 'Confirmed'),
       );
       await server.writeEntered.future;
+      (env.cache as _FailOutboxCache).failuresRemaining = 1;
+      final acceptedId = env.store.pendingOutbox.single.operationId;
       await expectLater(
         env.store.saveTrainingPlan(plan('coach_message', 'Failed')),
         throwsStateError,
       );
       server.holdWrite!.complete();
-      expect(await older, SyncDelivery.delivered);
+      expect(await older, SyncDelivery.queuedRetry);
       expect(env.store.trainingPlans.single.title, 'Confirmed');
       expect((server.rows.values.single['plan'] as Map)['title'], 'Confirmed');
+      expect(env.store.pendingOutbox.single.operationId, acceptedId);
+      await env.store.syncPendingWrites();
+      expect(env.store.pendingOutbox, isEmpty);
+      expect(env.store.trainingPlans.single.title, 'Confirmed');
     },
   );
 
@@ -1841,15 +1726,16 @@ void main() {
       cache.hold = true;
       final older = expectLater(
         env.store.saveTrainingPlan(plan()),
-        completion(SyncDelivery.queuedOffline),
+        throwsStateError,
       );
       await h.settle();
       expect(env.store.trainingPlans, isEmpty);
       server.offline = false;
       cache.hold = false;
-      await env.store.saveTrainingPlan(plan('coach_message', 'Newer'));
+      final newer = env.store.saveTrainingPlan(plan('coach_message', 'Newer'));
       cache.gate.complete();
       await older;
+      expect(await newer, SyncDelivery.delivered);
       expect(env.store.trainingPlans.single.title, 'Newer');
       await env.flush();
       expect((server.rows.values.single['plan'] as Map)['title'], 'Newer');
@@ -1913,9 +1799,10 @@ void main() {
     final cache = LocalCache(kv, 'A');
     final write = cache.writeTrainingSession(_snapshot());
     await h.settle();
-    await cache.clear(preserveOutbox: true);
+    final clear = cache.clear(preserveOutbox: true);
     kv.gate!.complete();
-    expect(await write, isFalse);
+    await write;
+    await clear;
     expect(kv.snapshot, isEmpty);
   });
 
@@ -1927,6 +1814,7 @@ void main() {
       await env.boot();
       await env.store.saveTrainingPlan(plan());
       server.offline = true;
+      (env.cache as _FailOutboxCache).failuresRemaining = 1;
       await expectLater(
         env.store.deleteTrainingPlan('coach_message'),
         throwsStateError,
@@ -2025,11 +1913,14 @@ void main() {
       final first = env.store.saveTrainingPlan(plan());
       await server.writeEntered.future;
       await env.store.deleteTrainingPlan('coach_message');
-      await env.store.saveTrainingPlan(plan('coach_message', 'Re-adopted'));
+      await env.store.adoptTrainingPlan(plan('coach_message', 'Re-adopted'));
+      expect(env.store.trainingPlans.single.incarnation, 1);
       server.holdWrite!.complete();
       await first;
       await h.pumpUntil(() => env.store.pendingOutbox.isEmpty);
       expect(server.rows, hasLength(1));
+      expect(server.rows.keys, ['coach_message']);
+      expect(server.rows.values.single['incarnation'], 1);
       expect((server.rows.values.single['plan'] as Map)['title'], 'Re-adopted');
     },
   );
@@ -2041,6 +1932,7 @@ void main() {
       final env = _Harness(server, cacheOverride: _FailOutboxCache());
       await env.boot();
       server.offline = true;
+      (env.cache as _FailOutboxCache).failuresRemaining = 1;
       await expectLater(env.store.saveTrainingPlan(plan()), throwsStateError);
       expect(env.store.pendingOutbox, isEmpty);
       expect(env.store.trainingPlans, isEmpty);
