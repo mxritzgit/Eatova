@@ -1,12 +1,12 @@
 name: ios
 
-# Native compile/configuration gate. Flutter 3.47.2 uses the committed
+# Native compile/configuration and simulator XCTest gate. Flutter 3.47.2 uses the committed
 # Swift Package Manager integration; Flutter + health remain in Podfile.lock.
 # The app and Podfile both target iOS 15.
 #
 # --- Triggers and cost -------------------------------------------------------
 # macOS runners cost 10x a Linux runner, so this runs only on ios/**,
-# pubspec.yaml, pubspec.lock and this file; weekly to catch drift no file shows
+# pubspec.yaml, pubspec.lock, scripts/ci/** and this file; weekly to catch drift no file shows
 # (Xcode image changes, withdrawn pod versions); and manually before a release.
 # lib/** is excluded — the ubuntu job catches Dart errors at a tenth of the cost.
 #
@@ -20,6 +20,7 @@ on:
       - 'ios/**'
       - 'pubspec.yaml'
       - 'pubspec.lock'
+      - 'scripts/ci/**'
       - '.github/workflows/ios.yml'
   pull_request:
     branches: [main]
@@ -27,6 +28,7 @@ on:
       - 'ios/**'
       - 'pubspec.yaml'
       - 'pubspec.lock'
+      - 'scripts/ci/**'
       - '.github/workflows/ios.yml'
   schedule:
     # Mondays 07:00 UTC, an hour after the security workflow so the two weekly
@@ -66,6 +68,9 @@ jobs:
           xcodebuild -version
           pod --version
           flutter --version
+
+      - name: Simulator-Auswahl und Ergebnispruefung testen
+        run: python3 -m unittest discover -s scripts/ci -p 'test_*.py' -v
 
       # Order is binding: `pod install` reads ios/Flutter/Generated.xcconfig
       # (FLUTTER_ROOT) and .flutter-plugins-dependencies, which only
@@ -125,6 +130,69 @@ jobs:
           flutter build ios --release --no-codesign \
             --dart-define=SUPABASE_URL=https://ci.invalid \
             --dart-define=SUPABASE_ANON_KEY=ci-dummy-key
+
+      # Regenerate Flutter's build mode/defines after the release compile;
+      # xcodebuild then builds and launches the Debug XCTest host itself.
+      - name: Simulator-Testkonfiguration
+        run: |
+          flutter build ios --simulator --debug --config-only \
+            --dart-define=SUPABASE_URL=https://ci.invalid \
+            --dart-define=SUPABASE_ANON_KEY=ci-dummy-key
+
+      # The tests use temporary directories and injected callbacks, without
+      # live credentials or an App Group container. This does not run TikTok.
+      - name: RunnerTests auf iPhone-Simulator
+        id: simulator-tests
+        timeout-minutes: 25
+        run: |
+          set -euo pipefail
+          mkdir -p build/ios-test-results
+          xcrun simctl list devices available --json > build/ios-test-results/devices.json
+          RECIPE_SHARE_SIMULATOR="$(python3 scripts/ci/ios_test_support.py select-device < build/ios-test-results/devices.json)"
+          xcodebuild test \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "platform=iOS Simulator,id=$RECIPE_SHARE_SIMULATOR" \
+            -destination-timeout 120 \
+            -parallel-testing-enabled NO \
+            -only-testing:RunnerTests \
+            -resultBundlePath build/ios-test-results/RunnerTests.xcresult \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            2>&1 | tee build/ios-test-results/xcodebuild.log
+          xcrun xcresulttool get test-results tests \
+            --path build/ios-test-results/RunnerTests.xcresult \
+            > build/ios-test-results/tests.json
+          python3 scripts/ci/ios_test_support.py verify-results \
+            < build/ios-test-results/tests.json \
+            | tee build/ios-test-results/required-suite-counts.json
+
+      - name: Simulator-Testnachweise
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-runner-tests
+          path: build/ios-test-results/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Simulator-Ergebnis zusammenfassen
+        if: always()
+        env:
+          SIMULATOR_TEST_OUTCOME: ${{ steps.simulator-tests.outcome }}
+        run: |
+          {
+            echo "### iOS-Simulator-Tests: $SIMULATOR_TEST_OUTCOME"
+            echo ""
+            echo "RunnerTests prueft Inbox, App-Uebergabe und Wake-Routing mit lokalen Testdaten."
+            echo "Ein TikTok-Share auf einem signierten iPhone ist damit nicht nachgewiesen."
+            if [ -f build/ios-test-results/required-suite-counts.json ]; then
+              echo '```json'
+              cat build/ios-test-results/required-suite-counts.json
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Ergebnis zusammenfassen
         if: always()

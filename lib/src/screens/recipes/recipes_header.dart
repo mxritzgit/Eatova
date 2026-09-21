@@ -5,10 +5,11 @@ part of 'recipes_screen.dart';
 // horizontal category filter bar.
 // ---------------------------------------------------------------------------
 class _RecipesHeader extends StatelessWidget {
-  const _RecipesHeader({this.onCreate, this.onOpenMealPlan});
+  const _RecipesHeader({this.onCreate, this.onOpenMealPlan, this.onImport});
 
   final VoidCallback? onCreate;
   final VoidCallback? onOpenMealPlan;
+  final VoidCallback? onImport;
 
   @override
   Widget build(BuildContext context) {
@@ -19,6 +20,13 @@ class _RecipesHeader extends StatelessWidget {
           spacing: 4,
           runSpacing: 8,
           children: [
+            if (onImport != null)
+              RecipeHeaderAction(
+                key: const ValueKey('recipe-import-button'),
+                icon: Icons.download_rounded,
+                label: l10n.recipeImportAction,
+                onTap: onImport,
+              ),
             if (onCreate != null)
               RecipeHeaderAction(
                 key: const ValueKey('recipe-create-button'),
@@ -36,7 +44,7 @@ class _RecipesHeader extends StatelessWidget {
           ],
         );
         final stacked =
-            constraints.maxWidth < 340 ||
+            constraints.maxWidth < (onImport == null ? 340 : 560) ||
             MediaQuery.textScalerOf(context).scale(14) > 18;
         final title = ScreenTitle(title: l10n.navRecipes);
         return stacked

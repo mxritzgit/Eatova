@@ -18,6 +18,9 @@ import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_input.dart';
 import '../services/notification_service.dart';
 import '../services/open_food_facts_product_service.dart';
+import '../services/recipe_import_inbox.dart';
+import '../services/recipe_import_service.dart';
+import '../services/meal_scan_identity.dart';
 import '../services/sync_connectivity.dart';
 import '../screens/coach/coach_chat_screen.dart';
 import '../screens/meal_analysis_screen.dart';
@@ -25,6 +28,7 @@ import '../screens/onboarding_screen.dart';
 import '../screens/profile_screen.dart';
 import '../screens/recipes/meal_plan_screen.dart';
 import '../screens/recipes/recipes_screen.dart';
+import '../screens/recipes/recipe_import_sheet.dart';
 import '../screens/settings/goals_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../screens/today/today_screen.dart';
@@ -64,6 +68,8 @@ class EatovaHomePage extends StatefulWidget {
     this.debugCache,
     this.syncConnectivity,
     this.backgroundSyncScheduler,
+    this.recipeImportInbox,
+    this.recipeImportService,
   });
 
   final MealAnalyzer? mealAnalyzer;
@@ -88,6 +94,8 @@ class EatovaHomePage extends StatefulWidget {
   final EatovaSync? sync;
   final SyncConnectivity? syncConnectivity;
   final BackgroundSyncScheduler? backgroundSyncScheduler;
+  final RecipeImportInbox? recipeImportInbox;
+  final RecipeImportService? recipeImportService;
 
   /// Test seam (DATA-3): inject the durable cache so clobber-guard and
   /// hydration are testable without a Supabase session. Null in production.
@@ -139,6 +147,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   bool _trainingHistoryRouteOpen = false;
   bool _profileRouteOpen = false;
   late bool _welcomeFinished;
+  bool _recipeImportOpen = false;
+  bool _recipeImportScheduled = false;
 
   @override
   void initState() {
@@ -153,6 +163,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       emitSnack: _emitSnack,
     );
     _store.addListener(_onStoreChanged);
+    widget.recipeImportInbox?.addListener(_scheduleRecipeImport);
     // No sync (preview/test) means no boot/welcome phase.
     _welcomeFinished = widget.sync == null;
     if (widget.healthService != null) {
@@ -181,6 +192,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     // The store holds no BuildContext (ARCH-4). Re-pushed on every call, so
     // store-built snack texts follow the active locale.
     _store.setLocalizations(context.l10n);
+    _scheduleRecipeImport();
   }
 
   @override
@@ -188,6 +200,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     WidgetsBinding.instance.removeObserver(this);
     _reconnectSync?.dispose();
     _store.removeListener(_onStoreChanged);
+    widget.recipeImportInbox?.removeListener(_scheduleRecipeImport);
     _profileRefresh.dispose();
     _addSlotRequest.dispose();
     _planDraftRequest.dispose();
@@ -200,6 +213,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   /// Only what no widget observes hangs here: the profile bridge into a
   /// pushed route and the calendar-day guard for steps (B3b).
   void _onStoreChanged() {
+    _scheduleRecipeImport();
     if (_profileRouteOpen && mounted) _profileRefresh.value++;
     // B3b: the midnight rollover keeps `dailySteps`, so pull one refresh per
     // calendar day or yesterday's steps feed `burnedKcal` all day.
@@ -448,6 +462,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
 
   @override
   Widget build(BuildContext context) {
+    _scheduleRecipeImport();
     if (!_welcomeFinished) {
       return WelcomeScreen(
         firstName: _store.userName,
@@ -788,6 +803,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             ? null
             : ownerStore.editUserRecipe,
         isSessionCurrent: () => _isStoreSessionCurrent(ownerStore),
+        onImport: () => _openRecipeImport(),
         onOpenMealPlan: () {
           if (_isStoreSessionCurrent(ownerStore)) {
             unawaited(MealPlanScreen.open(context, ownerStore));
@@ -822,6 +838,62 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     _selectedPlanForCoach = null;
     _planDraftRequest.value++;
     _store.setTab(_tabCoach);
+  }
+
+  void _scheduleRecipeImport() {
+    if (!mounted || _recipeImportScheduled || _recipeImportOpen ||
+        !(widget.recipeImportInbox?.hasPending ?? false)) {
+      return;
+    }
+    _recipeImportScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _recipeImportScheduled = false;
+      if (!mounted || _recipeImportOpen || !_welcomeFinished ||
+          _store.bootUnanswered || _store.legacyStorageConflict ||
+          _store.needsOnboarding) {
+        return;
+      }
+      final source = widget.recipeImportInbox?.take();
+      if (source != null) unawaited(_openRecipeImport(source.text));
+    });
+    // A warm share can arrive while Flutter is idle; a post-frame callback
+    // alone does not request the frame needed to display its sheet.
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  Future<void> _openRecipeImport([String initialText = '']) async {
+    if (_recipeImportOpen || !mounted) return;
+    final ownerStore = _store;
+    final identity = MealScanIdentity();
+    final inboxGeneration = widget.recipeImportInbox?.generation;
+    final owner = widget.authRepository?.currentUser;
+    bool isCurrent() {
+      final current = widget.authRepository?.currentUser;
+      return _isStoreSessionCurrent(ownerStore) && identity.isCurrent &&
+          widget.recipeImportInbox?.generation == inboxGeneration &&
+          current?.id == owner?.id && current?.sessionId == owner?.sessionId;
+    }
+    if (!isCurrent()) return;
+    _recipeImportOpen = true;
+    try {
+      final recipe = await showRecipeImportSheet(
+        context: context,
+        service: widget.recipeImportService ?? const EdgeFunctionRecipeImportService(),
+        initialText: initialText,
+        sessionIsCurrent: isCurrent,
+        isSaved: (slug) => ownerStore.visibleUserRecipes.any((r) => r.slug == slug),
+        onSave: (recipe) {
+          if (!isCurrent()) {
+            throw const RecipeImportException(RecipeImportFailure.reauthRequired);
+          }
+          return ownerStore.saveUserRecipe(recipe);
+        },
+      );
+      if (recipe != null && isCurrent()) ownerStore.setTab(_tabRezepte);
+    } finally {
+      _recipeImportOpen = false;
+      _scheduleRecipeImport();
+    }
   }
 
   bool _isStoreSessionCurrent(HomeStore ownerStore) {

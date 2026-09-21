@@ -126,9 +126,11 @@ class AuthGate extends StatefulWidget {
     required this.authRepository,
     required this.builder,
     this.debugPurgeCache,
+    this.onUserChanged,
   });
 
   final AuthRepository authRepository;
+  final ValueChanged<EatovaUser?>? onUserChanged;
 
   /// Test seam for [purgePersonalCacheFor] — `LocalCache.create` returns null
   /// in widget tests. Always null in production.
@@ -157,6 +159,7 @@ class _AuthGateState extends State<AuthGate> {
     super.initState();
     final initial = widget.authRepository.currentUser;
     _user = initial;
+    widget.onUserChanged?.call(initial);
     // Session restore on app start does not count as a fresh login.
     _freshLogin = false;
     // Finding 5: the recipe photo store is bound to the active user id. Cold
@@ -179,6 +182,7 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   void _onAuthEvent(EatovaUser? user) {
+    widget.onUserChanged?.call(user);
     // Finding 5: the gate is the ONE place every auth transition passes.
     // Bound before the mounted check (a teardown event must still purge) and
     // before setState (no frame of the new account sees the old namespace).
@@ -254,6 +258,7 @@ class _AuthGateState extends State<AuthGate> {
     _subscription?.cancel();
     final previous = _user;
     _user = widget.authRepository.currentUser;
+    widget.onUserChanged?.call(_user);
     if (previous != null && previous.id != _user?.id) _purgePrevious(previous);
     // A repository swap is a potential identity change too.
     unawaited(RecipeImageStore.instance.setActiveUser(_user?.id, sessionId: _user?.sessionId));

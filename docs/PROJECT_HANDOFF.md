@@ -1529,3 +1529,124 @@ Sources: [current password contract and rollout](../supabase/AUTH_EMAIL_OTP.md),
 [password matrix](../scripts/security/password_change_checks.py),
 [Auth probe guide](../scripts/security/README.md),
 [production configuration audit](../scripts/security/auth_password_policy.py).
+
+## Social recipe share import, 2026-09-21
+
+Implemented locally on `feat/social-recipe-import`, based on `main` f4aa705,
+in `.agents/social-recipe-import-2026-09-21/worktree`. Three requested workstreams
+covered extraction, Flutter review UI and native sharing; integration review fixed
+idle warm-share frame scheduling and durable account binding before native delivery.
+The original older, dirty checkout was preserved. No commit, push or deployment
+was performed for this feature.
+
+One complete recipe opens a preview. Multiple recipes and explicit variants remain
+separate, unselected choices; users can save several individually from one result.
+Only confirmation writes through the existing HomeStore encrypted cache/outbox.
+Unavailable or incomplete captions fall back to pasted text. Missing nutrition
+stays visibly unknown and cannot enter the diary until supplied. Source attribution
+and stable content identity survive persistence. See the [product and security
+contract](RECIPE_SHARE_IMPORT.md), [native integration](NATIVE_RECIPE_SHARE.md),
+and [Edge Function contract](../supabase/functions/recipe-import/README.md).
+
+Android opens the import sheet in Eatova. The first iOS implementation required
+manual app opening after preparing the source. The user clarified that this extra
+step does not satisfy the requirement: both platforms must open Eatova directly
+from Share, with all recipe UI inside Eatova. See the automatic iOS handoff update
+below. App Group provisioning, a signed Xcode build and Apple-device tests remain
+required. The backend is not deployed. Live TikTok availability and actual model
+extraction quality remain unverified; unit fixtures do not establish them.
+
+Automatic approval review rejected the emulator ACTION_SEND launch with
+`blocked by policy`, including an attempt without force-stop. No bypass was used;
+on-device cold/warm flow behavior is unverified. The latest separate Android test
+APK compiled successfully and was not installed. Only an earlier synthetic fixture
+was installed in the emulator; the normal Eatova package/data remained unchanged.
+
+A pre-existing test-seam edge was recorded during review: replacing the entire
+AuthGate authRepository with another identity does not dismiss pushed routes,
+although save fences reject stale writes. Normal production auth-stream transitions
+do dismiss the import. It was not changed as part of this feature.
+
+Final integrated verification (Flutter 3.47.2 / Dart 3.13.2): **5,114 tests passed**,
+strict analyzer with fatal warnings/infos passed, **94.95% line coverage
+(31,048 / 32,699)** excluding generated localization, above the unchanged 88%
+floor. The frozen snapshot matches all 49 changed product/test files byte-for-byte.
+Backend verification: 725 function tests plus 11 offline evaluation tests passed,
+66 function files and three eval files linted, all four entry points type-checked.
+The import test files also pass standalone without network permission. Deliberate
+negative controls detected removed auth-context, source-quote, redirect-host,
+initial-owner and stale-owner protections. No live database tests were needed;
+there are no schema changes.
+
+Visual review passed 16 sheet tests plus four real-font render flows, covering
+light/dark themes at 390px/normal text and 320px/double text; 20 screenshots were
+inspected. Native receiver tests passed 13/13; iOS XCTest source was added but
+cannot be executed on Windows. The final isolated Android test APK SHA256 is
+`27B366ED1AD85E98B205A6BB0BC1D03D1B47290CDCDA0367E5F3054FBCCD8330`.
+Scoped key-pattern scanning found no credentials; changed-doc links and diff
+whitespace checks passed. No dependencies or lockfiles were changed.
+
+Local evidence lives in the ignored task folder
+`.agents/social-recipe-import-2026-09-21/`: `flutter-full-owner-final.log`,
+`flutter-analyze-owner-final.log`, `integration-freeze-manifest.json`,
+`backend-verification/`, `visual-verification/VISUAL_REVIEW.md`, and
+`android-share-evidence/VERIFICATION.md`. These are local checks, not a CI run,
+backend deployment, signed iOS archive or on-device functional proof.
+
+## Automatic iOS recipe handoff correction, 2026-09-21
+
+The required flow is TikTok -> Share -> Eatova -> main app opens automatically
+-> recipe review sheet inside Eatova. The user explicitly rejected manual app
+opening as the normal iOS flow and authorized protected-PR push/merge only after
+addressing this. A recipe overlay inside TikTok was never required.
+
+The Share Extension now waits for both loaded source and an appeared controller,
+atomically enqueues once, and launches the main app using the payload-free
+`eatova-share://import` URL. It completes only after a successful launch callback;
+false or an eight-second deadline offers retry without duplicating the source.
+Late callbacks, repeated appearance/loading and cancellation are fenced. The main
+app handles warm delivery through SceneDelegate/RecipeSharePlugin; cold startup
+keeps Flutter's engine bootstrap and the owner-bound inbox. Malformed reserved
+wake URLs are swallowed, unrelated OAuth URLs are forwarded unchanged, and no
+source data or credentials travel in the wake URL.
+
+The typed modern UIApplication.open call uses a responder-chain compatibility
+technique; Apple does not support this operation from Share Extensions. The
+extension keeps APPLICATION_EXTENSION_API_ONLY=YES. The first PR build rejected
+NO; the typed instance method does not use the extension-unavailable shared
+accessor. No private API, deprecated openURL selector or dynamic-selector
+workaround is used. This limitation is
+explicitly documented in the [native guide](NATIVE_RECIPE_SHARE.md). Unit tests and
+compilation cannot establish live TikTok behavior, future OS compatibility or
+App Store acceptance; a signed device check remains necessary before release.
+
+Nine handoff and five wake XCTest cases join the eight durable-inbox tests. The
+iOS workflow now compiles the release app and runs RunnerTests in a simulator,
+requiring actual passed cases from all three share suites in xcresult. The CI
+helper's nine offline tests and its missing-suite negative control pass locally.
+Two new Flutter integration tests cover cold/active wake, route echoes and
+notification/resume deduplication; disabling native wake delivery makes the active
+case fail. Native XCTest execution is delegated to the macOS PR check, because
+this Windows workspace has no Xcode. The delivery PR records its actual outcome;
+no production backend deployment or normal-device installation is implied.
+
+## Recipe share CI review and test scheduling fix, 2026-09-22
+
+The iOS implementation in PR #101 compiled with Xcode 26.6 and
+APPLICATION_EXTENSION_API_ONLY=YES. The iPhone 17e/iOS 26.5 simulator passed
+all 22 new share cases (handoff 9, inbox 8, wake 5), 23 RunnerTests total with
+zero failures. The [iOS run](https://github.com/mxritzgit/Eatova/actions/runs/35659311846)
+contains the xcresult and logs. This proves compilation and the tested handoff
+logic, not a signed TikTok-to-Eatova switch on a physical iPhone.
+
+CI also exposed an existing timing race in the English legacy-storage-conflict
+widget test. Its fixed retry wait could leave cache opening unfinished, then
+await storageReleased inside runAsync while FakeAsync continuations could no
+longer advance. The current feature run passed, but a deliberately delayed retry
+reproduced the earlier timeout. The test now pumps until initial load, retry and
+storage release actually finish, with bounded waits and explicit retry-start
+verification. Production storage and share code are unchanged by this correction.
+
+The [delivery PR](https://github.com/mxritzgit/Eatova/pull/101) records the final
+head, CI counts, coverage and merge state. Backend deployment, Apple App Group
+provisioning and a signed real-device share check remain release work.

@@ -357,11 +357,14 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
               SectionHeading(title: l10n.recipesPerPortion),
               const SizedBox(height: 12),
               _NutritionGrid(recipe: recipe),
-              if (recipe.hasStructuredIngredients &&
-                  !recipe.calculationForServings(1).isComplete) ...[
+              if (recipe.hasPendingNutrition ||
+                  (recipe.hasStructuredIngredients &&
+                  !recipe.calculationForServings(1).isComplete)) ...[
                 const SizedBox(height: 8),
                 Text(
-                  l10n.recipeEditIncompleteNutrition,
+                  recipe.hasPendingNutrition
+                      ? l10n.recipeImportNutritionPendingHint
+                      : l10n.recipeEditIncompleteNutrition,
                   key: const ValueKey('recipe-nutrition-incomplete'),
                   style: AppType.ui(14, color: t.ink2, height: 1.4),
                 ),

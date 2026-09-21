@@ -1,0 +1,9 @@
+"share.title" = "Eatova wird geöffnet";
+"share.opening" = "Dein Rezeptimport öffnet sich gleich in Eatova.";
+"share.retry" = "Erneut öffnen";
+"share.cancel" = "Schließen";
+"share.openFailed" = "Eatova konnte nicht geöffnet werden. Versuche es erneut. Dein Link wartet weiterhin sicher auf diesem Gerät; es wurde noch kein Rezept gespeichert.";
+"share.invalid" = "Teile einen Rezeptlink oder Text mit bis zu 20.000 Zeichen. Dieser Inhalt konnte nicht gelesen werden.";
+"share.full" = "Schließe die offenen Importe in Eatova ab und teile danach erneut.";
+"share.accountChanged" = "Das Eatova-Konto wurde gewechselt. Schließe dieses Fenster und teile erneut.";
+"share.unavailable" = "Dieser Inhalt konnte nicht gelesen oder abgelegt werden. Schließe dieses Fenster und teile erneut.";

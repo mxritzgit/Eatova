@@ -20,6 +20,19 @@
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
 		C48495589E49EEDC4CFAF670 /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 529D1A73FB5E4F1883C02B5D /* Pods_RunnerTests.framework */; };
+		EA2100010000000000000001 /* RecipeShareInbox.swift in Runner Sources */ = {isa = PBXBuildFile; fileRef = EA2100020000000000000001 /* RecipeShareInbox.swift */; };
+		EA2100010000000000000002 /* RecipeSharePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA2100020000000000000002 /* RecipeSharePlugin.swift */; };
+		EA2100010000000000000003 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA2100020000000000000003 /* ShareViewController.swift */; };
+		EA2100010000000000000004 /* RecipeShareInbox.swift in Extension Sources */ = {isa = PBXBuildFile; fileRef = EA2100020000000000000001 /* RecipeShareInbox.swift */; };
+		EA2100010000000000000005 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = EA2100030000000000000003 /* Localizable.strings */; };
+		EA2100010000000000000006 /* RecipeShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = EA2100020000000000000008 /* RecipeShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		EA2100010000000000000007 /* RecipeShareInboxTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA2100020000000000000009 /* RecipeShareInboxTests.swift */; };
+		EA2100010000000000000008 /* RecipeShareHandoff.swift in Runner Sources */ = {isa = PBXBuildFile; fileRef = EA2100020000000000000010 /* RecipeShareHandoff.swift */; };
+		EA2100010000000000000009 /* RecipeShareHandoff.swift in Extension Sources */ = {isa = PBXBuildFile; fileRef = EA2100020000000000000010 /* RecipeShareHandoff.swift */; };
+		EA2100010000000000000010 /* RecipeShareHandoffTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA2100020000000000000011 /* RecipeShareHandoffTests.swift */; };
+		EA2100010000000000000011 /* RecipeShareWake.swift in Runner Sources */ = {isa = PBXBuildFile; fileRef = EA2100020000000000000012 /* RecipeShareWake.swift */; };
+		EA2100010000000000000012 /* RecipeShareWake.swift in Extension Sources */ = {isa = PBXBuildFile; fileRef = EA2100020000000000000012 /* RecipeShareWake.swift */; };
+		EA2100010000000000000013 /* RecipeShareWakeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA2100020000000000000013 /* RecipeShareWakeTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -30,6 +43,7 @@
 			remoteGlobalIDString = 97C146ED1CF9000F007C117D;
 			remoteInfo = Runner;
 		};
+		EA2100050000000000000001 /* PBXContainerItemProxy */ = {isa = PBXContainerItemProxy; containerPortal = 97C146E61CF9000F007C117D /* Project object */; proxyType = 1; remoteGlobalIDString = EA2100060000000000000001; remoteInfo = RecipeShareExtension; };
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -43,6 +57,7 @@
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		EA2100040000000000000004 /* Embed App Extensions */ = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 13; files = (EA2100010000000000000006 /* RecipeShareExtension.appex in Embed App Extensions */, ); name = "Embed App Extensions"; runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -74,6 +89,19 @@
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		997BE59D7605D07B4B3B4A9D /* Pods-Runner.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Runner.debug.xcconfig"; path = "Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"; sourceTree = "<group>"; };
 		E475B19D5F59A8B3D16DAB62 /* Pods-RunnerTests.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-RunnerTests.release.xcconfig"; path = "Target Support Files/Pods-RunnerTests/Pods-RunnerTests.release.xcconfig"; sourceTree = "<group>"; };
+		EA2100020000000000000001 /* RecipeShareInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeShareInbox.swift; sourceTree = "<group>"; };
+		EA2100020000000000000002 /* RecipeSharePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeSharePlugin.swift; sourceTree = "<group>"; };
+		EA2100020000000000000003 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		EA2100020000000000000004 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		EA2100020000000000000005 /* RecipeShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RecipeShareExtension.entitlements; sourceTree = "<group>"; };
+		EA2100020000000000000006 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = de.lproj/Localizable.strings; sourceTree = "<group>"; };
+		EA2100020000000000000007 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		EA2100020000000000000008 /* RecipeShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RecipeShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		EA2100020000000000000009 /* RecipeShareInboxTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeShareInboxTests.swift; sourceTree = "<group>"; };
+		EA2100020000000000000010 /* RecipeShareHandoff.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeShareHandoff.swift; sourceTree = "<group>"; };
+		EA2100020000000000000011 /* RecipeShareHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeShareHandoffTests.swift; sourceTree = "<group>"; };
+		EA2100020000000000000012 /* RecipeShareWake.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeShareWake.swift; sourceTree = "<group>"; };
+		EA2100020000000000000013 /* RecipeShareWakeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeShareWakeTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -94,6 +122,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		EA2100040000000000000003 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -114,6 +143,9 @@
 			isa = PBXGroup;
 			children = (
 				331C807B294A618700263BE5 /* RunnerTests.swift */,
+				EA2100020000000000000009 /* RecipeShareInboxTests.swift */,
+				EA2100020000000000000011 /* RecipeShareHandoffTests.swift */,
+				EA2100020000000000000013 /* RecipeShareWakeTests.swift */,
 			);
 			path = RunnerTests;
 			sourceTree = "<group>";
@@ -144,6 +176,8 @@
 			children = (
 				9740EEB11CF90186004384FC /* Flutter */,
 				97C146F01CF9000F007C117D /* Runner */,
+				EA2100030000000000000001 /* Shared */,
+				EA2100030000000000000002 /* RecipeShareExtension */,
 				97C146EF1CF9000F007C117D /* Products */,
 				331C8082294A63A400263BE5 /* RunnerTests */,
 				302AF3B538C21830120E7F41 /* Pods */,
@@ -155,6 +189,7 @@
 			isa = PBXGroup;
 			children = (
 				97C146EE1CF9000F007C117D /* Runner.app */,
+				EA2100020000000000000008 /* RecipeShareExtension.appex */,
 				331C8081294A63A400263BE5 /* RunnerTests.xctest */,
 			);
 			name = Products;
@@ -173,11 +208,14 @@
 				1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */,
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */,
+				EA2100020000000000000002 /* RecipeSharePlugin.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
 		};
+		EA2100030000000000000001 /* Shared */ = {isa = PBXGroup; children = (EA2100020000000000000001 /* RecipeShareInbox.swift */, EA2100020000000000000010 /* RecipeShareHandoff.swift */, EA2100020000000000000012 /* RecipeShareWake.swift */, ); path = Shared; sourceTree = "<group>"; };
+		EA2100030000000000000002 /* RecipeShareExtension */ = {isa = PBXGroup; children = (EA2100020000000000000003 /* ShareViewController.swift */, EA2100020000000000000004 /* Info.plist */, EA2100020000000000000005 /* RecipeShareExtension.entitlements */, EA2100030000000000000003 /* Localizable.strings */, ); path = RecipeShareExtension; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -210,6 +248,7 @@
 				97C146EB1CF9000F007C117D /* Frameworks */,
 				97C146EC1CF9000F007C117D /* Resources */,
 				9705A1C41CF9048500538489 /* Embed Frameworks */,
+				EA2100040000000000000004 /* Embed App Extensions */,
 				3B06AD1E1E4923F5004D2608 /* Thin Binary */,
 				D6F1005DD6F1005DD6F10001 /* Re-sign Native Asset Frameworks */,
 				1F72E7FE5936606172435587 /* [CP] Embed Pods Frameworks */,
@@ -217,6 +256,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				EA2100050000000000000002 /* PBXTargetDependency */,
 			);
 			name = Runner;
 			packageProductDependencies = (
@@ -225,6 +265,17 @@
 			productName = Runner;
 			productReference = 97C146EE1CF9000F007C117D /* Runner.app */;
 			productType = "com.apple.product-type.application";
+		};
+		EA2100060000000000000001 /* RecipeShareExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EA2100070000000000000004 /* Build configuration list for RecipeShareExtension */;
+			buildPhases = (EA2100040000000000000001 /* Sources */, EA2100040000000000000003 /* Frameworks */, EA2100040000000000000002 /* Resources */, );
+			buildRules = ();
+			dependencies = ();
+			name = RecipeShareExtension;
+			productName = RecipeShareExtension;
+			productReference = EA2100020000000000000008 /* RecipeShareExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -264,6 +315,7 @@
 			projectRoot = "";
 			targets = (
 				97C146ED1CF9000F007C117D /* Runner */,
+				EA2100060000000000000001 /* RecipeShareExtension */,
 				331C8080294A63A400263BE5 /* RunnerTests */,
 			);
 		};
@@ -290,6 +342,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		EA2100040000000000000002 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (EA2100010000000000000005 /* Localizable.strings in Resources */, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
@@ -409,6 +462,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */,
+				EA2100010000000000000007 /* RecipeShareInboxTests.swift in Sources */,
+				EA2100010000000000000010 /* RecipeShareHandoffTests.swift in Sources */,
+				EA2100010000000000000013 /* RecipeShareWakeTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -419,9 +475,14 @@
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
+				EA2100010000000000000001 /* RecipeShareInbox.swift in Runner Sources */,
+				EA2100010000000000000002 /* RecipeSharePlugin.swift in Sources */,
+				EA2100010000000000000008 /* RecipeShareHandoff.swift in Runner Sources */,
+				EA2100010000000000000011 /* RecipeShareWake.swift in Runner Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		EA2100040000000000000001 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (EA2100010000000000000003 /* ShareViewController.swift in Sources */, EA2100010000000000000004 /* RecipeShareInbox.swift in Extension Sources */, EA2100010000000000000009 /* RecipeShareHandoff.swift in Extension Sources */, EA2100010000000000000012 /* RecipeShareWake.swift in Extension Sources */, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -430,6 +491,7 @@
 			target = 97C146ED1CF9000F007C117D /* Runner */;
 			targetProxy = 331C8085294A63A400263BE5 /* PBXContainerItemProxy */;
 		};
+		EA2100050000000000000002 /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = EA2100060000000000000001 /* RecipeShareExtension */; targetProxy = EA2100050000000000000001 /* PBXContainerItemProxy */; };
 /* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
@@ -458,6 +520,7 @@
 			name = LaunchScreen.storyboard;
 			sourceTree = "<group>";
 		};
+		EA2100030000000000000003 /* Localizable.strings */ = {isa = PBXVariantGroup; children = (EA2100020000000000000006 /* de */, EA2100020000000000000007 /* en */, ); name = Localizable.strings; sourceTree = "<group>"; };
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
@@ -747,6 +810,69 @@
 			};
 			name = Release;
 		};
+		EA2100070000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = RecipeShareExtension/RecipeShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEVELOPMENT_TEAM = 2CMYGW6L2R;
+				INFOPLIST_FILE = RecipeShareExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
+				PRODUCT_BUNDLE_IDENTIFIER = com.eatova.app.RecipeShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		EA2100070000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = RecipeShareExtension/RecipeShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEVELOPMENT_TEAM = 2CMYGW6L2R;
+				INFOPLIST_FILE = RecipeShareExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
+				PRODUCT_BUNDLE_IDENTIFIER = com.eatova.app.RecipeShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		EA2100070000000000000003 /* Profile */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 9740EEB31CF90195004384FC /* Generated.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_ENTITLEMENTS = RecipeShareExtension/RecipeShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				DEVELOPMENT_TEAM = 2CMYGW6L2R;
+				INFOPLIST_FILE = RecipeShareExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks", );
+				PRODUCT_BUNDLE_IDENTIFIER = com.eatova.app.RecipeShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Profile;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -780,6 +906,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		EA2100070000000000000004 /* Build configuration list for RecipeShareExtension */ = {isa = XCConfigurationList; buildConfigurations = (EA2100070000000000000001 /* Debug */, EA2100070000000000000002 /* Release */, EA2100070000000000000003 /* Profile */, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */

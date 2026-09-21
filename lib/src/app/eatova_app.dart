@@ -18,6 +18,9 @@ import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_input.dart';
 import '../services/notification_service.dart';
 import '../services/open_food_facts_product_service.dart';
+import '../services/recipe_import_inbox.dart';
+import '../services/recipe_import_service.dart';
+import '../services/recipe_share_receiver.dart';
 import '../services/secure_screen.dart';
 import '../services/sync_connectivity.dart';
 import '../theme/app_theme.dart';
@@ -42,6 +45,8 @@ class EatovaApp extends StatefulWidget {
     this.syncConnectivity,
     this.backgroundSyncScheduler,
     this.debugCacheBuilder,
+    this.recipeImportService,
+    this.recipeShareReceiver,
   });
 
   final MealAnalyzer? mealAnalyzer;
@@ -52,6 +57,8 @@ class EatovaApp extends StatefulWidget {
   final AuthRepository? authRepository;
   final SyncConnectivity? syncConnectivity;
   final BackgroundSyncScheduler? backgroundSyncScheduler;
+  final RecipeImportService? recipeImportService;
+  final RecipeShareReceiver? recipeShareReceiver;
 
   @visibleForTesting
   final LocalCache Function(String userId)? debugCacheBuilder;
@@ -88,10 +95,13 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
   late final bool _eigenerController;
   late final LocaleController _locale;
   late final bool _eigenerLocale;
+  late final RecipeImportInbox _recipeInbox;
 
   @override
   void initState() {
     super.initState();
+    _recipeInbox = RecipeImportInbox(widget.recipeShareReceiver ?? RecipeShareReceiver());
+    unawaited(_recipeInbox.start());
     // Deeplink route guard (Audit 2026-08-14): must register here, above the
     // MaterialApp — the observer order is the whole trick, see
     // [didPushRouteInformation].
@@ -115,6 +125,7 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _recipeInbox.dispose();
     if (_eigenerController) _themeMode.dispose();
     if (_eigenerLocale) _locale.dispose();
     super.dispose();
@@ -186,11 +197,14 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
       },
       home: AuthGate(
         authRepository: repository,
+        onUserChanged: _recipeInbox.bindUser,
         builder: (context, user, freshLogin) => EatovaHomePage(
           debugCache: widget.debugCacheBuilder?.call(user.id),
           // A new login gets a fresh store even for the same account.
           // Refreshing a token keeps the session ID and the existing store.
           key: ValueKey((user.id, user.sessionId)),
+          recipeImportInbox: _recipeInbox,
+          recipeImportService: widget.recipeImportService,
           mealAnalyzer: widget.mealAnalyzer,
           productService: widget.productService,
           photoInput: widget.photoInput,

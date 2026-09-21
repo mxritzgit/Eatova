@@ -1,0 +1,28 @@
+{
+  "status": "ready",
+  "source": {
+    "url": "https://www.tiktok.com/@synthetic_cook/video/1234567890123456789",
+    "title": "Pasta\n200 g Pasta\nPasta kochen.\nFür 2 Portionen.\nPro Portion: 450.5 kcal, 20.5 g Protein, 55.25 g Kohlenhydrate, 15.5 g Fett, 300.5 g Gewicht.",
+    "author": "Synthetic Cook"
+  },
+  "candidates": [
+    {
+      "id": "19204aa24b5bc2139a7ce7c2145aaf35",
+      "title": "Pasta",
+      "ingredients": "200 g Pasta",
+      "preparation": "Pasta kochen.",
+      "description": "",
+      "portion": "Für 2 Portionen.",
+      "servings": 2,
+      "nutrition_estimated": false,
+      "calories_kcal": null,
+      "protein_g": null,
+      "carbs_g": null,
+      "fat_g": null,
+      "estimated_g": null
+    }
+  ],
+  "warnings": [
+    "nutrition_missing"
+  ]
+}

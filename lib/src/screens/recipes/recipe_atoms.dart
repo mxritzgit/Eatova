@@ -7,7 +7,9 @@ String _nutritionNumber(double? value) => value == null
     : value.toStringAsFixed(1);
 
 RecipeNutrition _recipeNutrition(FitnessRecipe recipe) =>
-    recipe.hasStructuredIngredients
+    recipe.hasPendingNutrition
+    ? const RecipeNutrition()
+    : recipe.hasStructuredIngredients
     ? recipe.calculationForServings(1).nutrition
     : RecipeNutrition(
         caloriesKcal: recipe.caloriesKcal.toDouble(),
@@ -99,6 +101,7 @@ String recipeCategoryLabel(String category, AppLocalizations l10n) {
     "Vegan" => l10n.recipesFilterVegan,
     "Low Carb" => l10n.recipesFilterLowCarb,
     "Eigene" => l10n.recipesCategoryOwn,
+    recipeNutritionPendingCategory => l10n.recipeImportNutritionPendingLabel,
     _ => category,
   };
 }

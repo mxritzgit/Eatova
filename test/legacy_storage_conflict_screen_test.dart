@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:eatova/src/app/eatova_home_page.dart';
+import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/services/durable_cache_store.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
@@ -15,6 +16,20 @@ import 'package:supabase/supabase.dart';
 
 import 'outbox/outbox_test_helpers.dart' as h;
 import 'support/harness.dart';
+
+Future<void> pumpUntilComplete(
+  WidgetTester tester,
+  bool Function() completed,
+  String reason,
+) async {
+  for (var i = 0; i < 500 && !completed(); i++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+  expect(completed(), isTrue, reason: reason);
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -54,55 +69,67 @@ void main() {
     testWidgets('obsolete writer recovery screen is actionable in $language', (
       tester,
     ) async {
-      final home = EatovaHomePage(
-        sync: EatovaSync.forUser(client, 'user-outbox'),
-        showWelcome: false,
-      );
-      await pumpLocalized(
-        tester,
-        home,
-        locale: Locale(language),
-        scaffold: false,
-        safeArea: false,
-      );
-      final localizations = language == 'de' ? deL10n : enL10n;
-      final title = find.text(localizations.commonLegacyStorageConflictTitle);
-      for (var i = 0; i < 100 && title.evaluate().isEmpty; i++) {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+      HomeStore? store;
+      try {
+        final home = EatovaHomePage(
+          sync: EatovaSync.forUser(client, 'user-outbox'),
+          showWelcome: false,
         );
-        await tester.pump(const Duration(milliseconds: 100));
-      }
-      expect(title, findsOneWidget);
-      expect(
-        find.text(localizations.commonLegacyStorageConflictBody),
-        findsOneWidget,
-      );
-      expect(find.byKey(const ValueKey('screen-onboarding')), findsNothing);
-      expect(server.requests, isEmpty);
-      await tester.tap(find.byKey(const ValueKey('boot-unanswered-retry')));
-      for (var i = 0; i < 10; i++) {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        await pumpLocalized(
+          tester,
+          home,
+          locale: Locale(language),
+          scaffold: false,
+          safeArea: false,
         );
-        await tester.pump(const Duration(milliseconds: 100));
+        store =
+            (tester.state(find.byType(EatovaHomePage)) as HomePageDebugAccess)
+                .debugStore;
+        final localizations = language == 'de' ? deL10n : enL10n;
+        final title = find.text(localizations.commonLegacyStorageConflictTitle);
+        await pumpUntilComplete(
+          tester,
+          () => title.evaluate().isNotEmpty && !store!.bootLoadInFlight,
+          'Initial storage conflict recovery must finish before retry.',
+        );
+        expect(title, findsOneWidget);
+        expect(
+          find.text(localizations.commonLegacyStorageConflictBody),
+          findsOneWidget,
+        );
+        expect(find.byKey(const ValueKey('screen-onboarding')), findsNothing);
+        expect(server.requests, isEmpty);
+        await tester.tap(find.byKey(const ValueKey('boot-unanswered-retry')));
+        expect(store.bootLoadInFlight, isTrue);
+        await pumpUntilComplete(
+          tester,
+          () => !store!.bootLoadInFlight,
+          'Retry must finish; the existing conflict title also stays visible while busy.',
+        );
+        expect(title, findsOneWidget);
+        expect(server.requests, isEmpty);
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getString(outbox), 'preserved-obsolete-offline-write');
+        expect(tester.takeException(), isNull);
+      } finally {
+        await tester.pumpWidget(const SizedBox());
+        await tester.pump();
+        if (store != null) {
+          var released = false;
+          // The release continuation belongs to the fake zone; keep pumping it.
+          store.storageReleased.then((_) => released = true);
+          await pumpUntilComplete(
+            tester,
+            () => released,
+            'Storage must release after disposal.',
+          );
+        }
+        await tester.runAsync(() async {
+          await DurableCacheStore.closeAll();
+          await client.dispose();
+          await directory.delete(recursive: true);
+        });
       }
-      expect(title, findsOneWidget);
-      expect(server.requests, isEmpty);
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString(outbox), 'preserved-obsolete-offline-write');
-      expect(tester.takeException(), isNull);
-      final store =
-          (tester.state(find.byType(EatovaHomePage)) as HomePageDebugAccess)
-              .debugStore;
-      await tester.pumpWidget(const SizedBox());
-      await tester.pump();
-      await tester.runAsync(() async {
-        await store.storageReleased;
-        await DurableCacheStore.closeAll();
-        await client.dispose();
-        await directory.delete(recursive: true);
-      });
-    });
+    }, timeout: const Timeout(Duration(seconds: 30)));
   }
 }

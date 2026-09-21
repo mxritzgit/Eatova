@@ -20,6 +20,9 @@ export 'recipe_ingredient.dart';
 /// data, not UI text.
 const String highProteinCategory = "High Protein";
 
+/// Persisted with the recipe so missing imported values never become measured zero.
+const String recipeNutritionPendingCategory = 'Nutrition pending';
+
 /// When a recipe may carry [highProteinCategory].
 ///
 /// Before the fix run of 2026-08-29 the tag was assigned by feel, and no
@@ -99,6 +102,9 @@ class FitnessRecipe {
   final List<RecipeIngredient> structuredIngredients;
   final double batchServings;
   bool get hasStructuredIngredients => structuredIngredients.isNotEmpty;
+
+  bool get hasPendingNutrition =>
+      categories.contains(recipeNutritionPendingCategory);
 
   RecipeCalculation calculationForServings(double servings) =>
       RecipeCalculation.calculate(
@@ -180,6 +186,7 @@ class FitnessRecipe {
   /// a kcal term; filling the remainder without overshooting ranks highest.
   /// Sorting heuristic only, not nutrition advice.
   double matchScore(MacroProgress remaining) {
+    if (hasPendingNutrition) return 0;
     if (remaining.kcal <= 0 &&
         remaining.proteinG <= 0 &&
         remaining.carbsG <= 0 &&
@@ -454,6 +461,9 @@ class FitnessRecipe {
     AppLocalizations? l10n,
   ]) {
     validateRecipeServings(servings);
+    if (hasPendingNutrition) {
+      throw const FormatException('Recipe nutrition is missing');
+    }
     if (hasStructuredIngredients) {
       calculationForServings(servings).validateStorageLimits();
     }
@@ -512,7 +522,8 @@ class FitnessRecipe {
           '${displayProfessionalHint(sprache)}',
       sourceLabel: MealResultSource.recipe.code,
       brand: 'Eatova',
-      explicitZeroKcal: hasStructuredIngredients && calories == 0,
+      explicitZeroKcal: calories == 0 &&
+          (hasStructuredIngredients || slug.startsWith('user_import_')),
     );
   }
 }
