@@ -1629,3 +1629,24 @@ notification/resume deduplication; disabling native wake delivery makes the acti
 case fail. Native XCTest execution is delegated to the macOS PR check, because
 this Windows workspace has no Xcode. The delivery PR records its actual outcome;
 no production backend deployment or normal-device installation is implied.
+
+## Recipe share CI review and test scheduling fix, 2026-09-22
+
+The iOS implementation in PR #101 compiled with Xcode 26.6 and
+APPLICATION_EXTENSION_API_ONLY=YES. The iPhone 17e/iOS 26.5 simulator passed
+all 22 new share cases (handoff 9, inbox 8, wake 5), 23 RunnerTests total with
+zero failures. The [iOS run](https://github.com/mxritzgit/Eatova/actions/runs/35659311846)
+contains the xcresult and logs. This proves compilation and the tested handoff
+logic, not a signed TikTok-to-Eatova switch on a physical iPhone.
+
+CI also exposed an existing timing race in the English legacy-storage-conflict
+widget test. Its fixed retry wait could leave cache opening unfinished, then
+await storageReleased inside runAsync while FakeAsync continuations could no
+longer advance. The current feature run passed, but a deliberately delayed retry
+reproduced the earlier timeout. The test now pumps until initial load, retry and
+storage release actually finish, with bounded waits and explicit retry-start
+verification. Production storage and share code are unchanged by this correction.
+
+The [delivery PR](https://github.com/mxritzgit/Eatova/pull/101) records the final
+head, CI counts, coverage and merge state. Backend deployment, Apple App Group
+provisioning and a signed real-device share check remain release work.
