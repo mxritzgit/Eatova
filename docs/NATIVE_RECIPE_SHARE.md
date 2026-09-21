@@ -28,11 +28,11 @@ wake signal and reads the protected inbox through the authenticated receiver.
 Unrelated URL callbacks, including OAuth, retain the existing Flutter handling.
 
 The launcher uses the typed modern `UIApplication.open(_:options:completionHandler:)`
-API on the responder chain, after the extension has appeared. This API is public
-but unavailable in Apple's supported Share Extension API set. Only the extension
-sets `APPLICATION_EXTENSION_API_ONLY = NO` to compile this explicit compatibility
-path. No `UIApplication.shared`, deprecated `openURL:`, dynamic selector or private
-API is used. Apple explicitly warns that opening the containing app this way is
+API on the responder chain, after the extension has appeared. The extension keeps
+`APPLICATION_EXTENSION_API_ONLY = YES`; the typed instance method is distinct
+from the extension-unavailable `UIApplication.shared` accessor. No
+`UIApplication.shared`, deprecated `openURL:`, dynamic selector or private API is
+used. Apple explicitly warns that opening the containing app this way is
 unsupported; Telegram's current implementation is precedent, not an Apple guarantee.
 Simulator unit tests and a successful build do not prove real TikTok app switching
 or future App Store acceptance.

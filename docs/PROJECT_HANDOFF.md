@@ -1611,9 +1611,11 @@ wake URLs are swallowed, unrelated OAuth URLs are forwarded unchanged, and no
 source data or credentials travel in the wake URL.
 
 The typed modern UIApplication.open call uses a responder-chain compatibility
-technique; Apple does not support this operation from Share Extensions. Only the
-extension disables APPLICATION_EXTENSION_API_ONLY. No private API, deprecated
-openURL selector or dynamic-selector workaround is used. This limitation is
+technique; Apple does not support this operation from Share Extensions. The
+extension keeps APPLICATION_EXTENSION_API_ONLY=YES. The first PR build rejected
+NO; the typed instance method does not use the extension-unavailable shared
+accessor. No private API, deprecated openURL selector or dynamic-selector
+workaround is used. This limitation is
 explicitly documented in the [native guide](NATIVE_RECIPE_SHARE.md). Unit tests and
 compilation cannot establish live TikTok behavior, future OS compatibility or
 App Store acceptance; a signed device check remains necessary before release.

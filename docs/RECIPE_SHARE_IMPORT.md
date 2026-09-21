@@ -35,9 +35,10 @@ remain in Eatova, after authentication/onboarding.
 
 Automatic opening uses the modern public UIApplication URL API through the
 responder chain. This is a compatibility technique used by other apps, **not an
-Apple-supported Share Extension contract**. The extension alone disables
-APPLICATION_EXTENSION_API_ONLY to compile that explicit call; no private API or
-dynamic selector hides it. Future iOS compatibility and App Store acceptance are
+Apple-supported Share Extension contract**. The extension keeps
+`APPLICATION_EXTENSION_API_ONLY=YES`; the typed instance method does not require
+`UIApplication.shared`, private APIs or dynamic selectors. Future iOS compatibility
+and App Store acceptance are
 not established by passing mocked tests or a native build. The earlier manual-open
 handoff does not satisfy the clarified product requirement.
 
