@@ -1,5 +1,7 @@
 package com.eatova.app
 
+import android.content.Intent
+import android.os.Bundle
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -9,12 +11,25 @@ import io.flutter.plugin.common.MethodChannel
 // ComponentActivity, otherwise its registration throws ClassCastException.
 class MainActivity : FlutterFragmentActivity() {
     private var healthConnectBridge: HealthConnectBridge? = null
+    private var recipeShareBridge: RecipeShareBridge? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        if (savedInstanceState == null) recipeShareBridge?.receive(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        recipeShareBridge?.receive(intent)
+    }
 
     // Screenshot/recents protection: the Dart-side SecureScreenGuard toggles
     // FLAG_SECURE while a sensitive screen is visible.
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         healthConnectBridge = HealthConnectBridge(this, flutterEngine)
+        recipeShareBridge = RecipeShareBridge(this, flutterEngine)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "eatova/secure_screen"
@@ -39,6 +54,7 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun onDestroy() {
         healthConnectBridge?.close()
+        recipeShareBridge?.close()
         super.onDestroy()
     }
 }

@@ -1,0 +1,9 @@
+"share.title" = "Opening Eatova";
+"share.opening" = "Your recipe import will open in Eatova.";
+"share.retry" = "Try opening again";
+"share.cancel" = "Close";
+"share.openFailed" = "Eatova could not open. Try again. Your link is still waiting securely on this device; no recipe has been saved.";
+"share.invalid" = "Share a recipe link or text with up to 20,000 characters. This content could not be read.";
+"share.full" = "Finish the pending imports in Eatova, then share again.";
+"share.accountChanged" = "The Eatova account changed. Close this sheet and share again.";
+"share.unavailable" = "This share could not be read or stored. Close this sheet and try sharing again.";

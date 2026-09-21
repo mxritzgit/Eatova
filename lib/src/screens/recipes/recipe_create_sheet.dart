@@ -227,11 +227,12 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     // The portion default lands in didChangeDependencies — l10n needs a built
     // BuildContext, which initState does not have yet.
     _portion = _feld(recipe?.portion ?? '');
-    _grams = _feld(recipe?.estimatedGrams.toString() ?? '300');
-    _kcal = _feld(recipe?.caloriesKcal.toString() ?? '');
-    _protein = _feld(recipe?.proteinG.toString() ?? '');
-    _carbs = _feld(recipe?.carbsG.toString() ?? '');
-    _fat = _feld(recipe?.fatG.toString() ?? '');
+    final pendingNutrition = recipe?.hasPendingNutrition ?? false;
+    _grams = _feld(pendingNutrition ? '' : recipe?.estimatedGrams.toString() ?? '300');
+    _kcal = _feld(pendingNutrition ? '' : recipe?.caloriesKcal.toString() ?? '');
+    _protein = _feld(pendingNutrition ? '' : recipe?.proteinG.toString() ?? '');
+    _carbs = _feld(pendingNutrition ? '' : recipe?.carbsG.toString() ?? '');
+    _fat = _feld(pendingNutrition ? '' : recipe?.fatG.toString() ?? '');
     _ingredients = _feld(recipe?.ingredients ?? '');
     _preparation = _feld(recipe?.preparation ?? '');
     _description = _feld(recipe?.description ?? '');
@@ -404,6 +405,13 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
 
   /// Save is enabled when the required fields are filled and all fields are
   /// within their limits.
+  bool get _pendingNutritionUnchanged =>
+      (widget.initialRecipe?.hasPendingNutrition ?? false) &&
+      !_structured &&
+      [_kcal, _grams, _protein, _carbs, _fat].every(
+        (field) => field.text.trim().isEmpty,
+      );
+
   bool get _isValid {
     if (_name.text.trim().isEmpty) return false;
     if (_structured) {
@@ -414,7 +422,18 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
           _textFehler(_portion, _portionMaxCodePoints) == null &&
           _textFehler(_ingredients, _ingredientsMaxCodePoints) == null &&
           _textFehler(_preparation, _ingredientsMaxCodePoints) == null &&
-          _textFehler(_description, 2000) == null;
+          _textFehler(_description, 4000) == null;
+    }
+    if (_pendingNutritionUnchanged) {
+      return _nameFehler == null &&
+          _textFehler(_portion, _portionMaxCodePoints) == null &&
+          _textFehler(_ingredients, _ingredientsMaxCodePoints) == null &&
+          _textFehler(_preparation, _ingredientsMaxCodePoints) == null &&
+          _textFehler(_description, 4000) == null;
+    }
+    if ((widget.initialRecipe?.hasPendingNutrition ?? false) &&
+        [_protein, _carbs, _fat].any((field) => field.text.trim().isEmpty)) {
+      return false;
     }
     // Required fields: empty means missing, not optional.
     if (_kcal.text.trim().isEmpty || _grams.text.trim().isEmpty) return false;
@@ -422,7 +441,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
         _textFehler(_portion, _portionMaxCodePoints) == null &&
         _textFehler(_ingredients, _ingredientsMaxCodePoints) == null &&
         _textFehler(_preparation, _ingredientsMaxCodePoints) == null &&
-        _textFehler(_description, 2000) == null &&
+        _textFehler(_description, 4000) == null &&
         _kcalFehler == null &&
         _gramsFehler == null &&
         _makroFehler(_protein) == null &&
@@ -524,7 +543,13 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
       carbsG: carbsG,
       fatG: fatG,
       estimatedGrams: estimatedGrams,
-      categories: original?.categories ?? const <String>['Eigene'],
+      categories: [
+        for (final category in original?.categories ?? const <String>['Eigene'])
+          if (category != recipeNutritionPendingCategory ||
+              _pendingNutritionUnchanged ||
+              (_structured && !(_calculation?.isComplete ?? false)))
+            category,
+      ],
       userCreated: true,
       serverRevision: original?.serverRevision ?? (original == null ? 0 : null),
       conflictOf: original?.conflictOf,
@@ -732,8 +757,8 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                             controller: _description,
                             label: l10n.recipeEditDescription,
                             maxLines: 3,
-                            maxChars: 2000,
-                            errorText: _textFehler(_description, 2000),
+                            maxChars: 4000,
+                            errorText: _textFehler(_description, 4000),
                           ),
                         ],
                         const SizedBox(height: 12),
@@ -800,6 +825,14 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  if (widget.initialRecipe?.hasPendingNutrition ?? false) ...[
+                    Text(
+                      l10n.recipeImportNutritionPendingHint,
+                      key: const ValueKey('recipe-edit-import-nutrition-hint'),
+                      style: AppType.ui(14, color: t.ink2, height: 1.5),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
                   if (_structured) ...[
                     RecipeIngredientEditor(
                       ingredients: _structuredIngredients,

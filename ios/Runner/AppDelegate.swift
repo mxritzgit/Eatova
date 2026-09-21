@@ -36,6 +36,9 @@ import workmanager_apple
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "EatovaSecureScreenPlugin") {
       EatovaSecureScreenPlugin.register(with: registrar)
     }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "RecipeSharePlugin") {
+      RecipeSharePlugin.register(with: registrar)
+    }
   }
 }
 

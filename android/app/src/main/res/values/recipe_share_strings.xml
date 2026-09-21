@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="recipe_share_invalid">This shared text is too long or cannot be read. Share the recipe link instead.</string>
+    <string name="recipe_share_queue_full">Finish the pending recipe imports in Eatova, then share again.</string>
+</resources>

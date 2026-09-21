@@ -55,6 +55,7 @@ class RecipesScreen extends StatefulWidget {
     this.onRestoreRecipe,
     this.isSessionCurrent,
     this.onOpenMealPlan,
+    this.onImport,
     this.productService,
     this.onDeleteRecipe,
     this.onDeletePendingChanged,
@@ -88,6 +89,7 @@ class RecipesScreen extends StatefulWidget {
   final RecipeVersionRestorer? onRestoreRecipe;
   final bool Function()? isSessionCurrent;
   final VoidCallback? onOpenMealPlan;
+  final VoidCallback? onImport;
   final ProductLookupService? productService;
 
   /// Optional hook for deleting a user recipe by slug, forwarded to
@@ -825,6 +827,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
           _RecipesHeader(
             onCreate: _openCreateSheet,
             onOpenMealPlan: widget.onOpenMealPlan,
+            onImport: widget.onImport,
           ),
           const SizedBox(height: 20),
           _RecipeSearchField(
