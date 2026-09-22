@@ -269,10 +269,10 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          if (recipe.categories.isNotEmpty) ...[
+                          if (recipe.displayCategories.isNotEmpty) ...[
                             Text(
                               recipeCategoryLabel(
-                                recipe.categories.first,
+                                recipe.displayCategories.first,
                                 l10n,
                               ),
                               style: AppType.ui(
@@ -313,13 +313,13 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                   ],
                 ),
               ),
-              if (recipe.categories.length > 1) ...[
+              if (recipe.displayCategories.length > 1) ...[
                 const SizedBox(height: 14),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    for (final category in recipe.categories.skip(1))
+                    for (final category in recipe.displayCategories.skip(1))
                       _CategoryPill(label: recipeCategoryLabel(category, l10n)),
                   ],
                 ),
@@ -354,7 +354,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                 ),
               ],
               const SizedBox(height: 24),
-              SectionHeading(title: l10n.recipesPerPortion),
+              SectionHeading(title: recipe.hasUnclearNutritionBasis ? l10n.recipeImportNutritionSource : l10n.recipesPerPortion),
               const SizedBox(height: 12),
               _NutritionGrid(recipe: recipe),
               if (recipe.hasPendingNutrition ||
@@ -362,7 +362,9 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                   !recipe.calculationForServings(1).isComplete)) ...[
                 const SizedBox(height: 8),
                 Text(
-                  recipe.hasPendingNutrition
+                  recipe.hasUnclearNutritionBasis
+                      ? l10n.recipeImportBasisHint
+                      : recipe.hasPendingNutrition
                       ? l10n.recipeImportNutritionPendingHint
                       : l10n.recipeEditIncompleteNutrition,
                   key: const ValueKey('recipe-nutrition-incomplete'),

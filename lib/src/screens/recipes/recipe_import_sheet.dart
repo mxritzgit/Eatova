@@ -8,6 +8,7 @@ import '../../services/sync_error_messages.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/design/design.dart';
+import 'recipe_import_nutrition.dart';
 
 /// Reviewing, selecting and editing a shared recipe never writes user data.
 Future<FitnessRecipe?> showRecipeImportSheet({
@@ -191,8 +192,8 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
       RecipeImportFailure.invalidInput => l10n.recipeImportInvalidInput,
       RecipeImportFailure.reauthRequired => l10n.recipeImportReauth,
       RecipeImportFailure.rateLimited => l10n.recipeImportRateLimited,
-      RecipeImportFailure.unavailable ||
-      RecipeImportFailure.invalidResponse => l10n.recipeImportUnavailable,
+      RecipeImportFailure.unavailable => l10n.recipeImportUnavailable,
+      RecipeImportFailure.invalidResponse => l10n.recipeImportInvalidResponse,
       RecipeImportFailure.timeout => l10n.recipeImportTimeout,
       RecipeImportFailure.network => l10n.commonSyncErrorOffline,
     };
@@ -222,9 +223,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
   }
 
   bool _applyEdits() {
-    if (_title.text.trim().isEmpty ||
-        _ingredients.text.trim().isEmpty ||
-        _preparation.text.trim().isEmpty) {
+    if (_title.text.trim().isEmpty || _ingredients.text.trim().isEmpty) {
       setState(() => _editError = context.l10n.recipeImportRequiredFields);
       return false;
     }
@@ -395,7 +394,13 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
                     padding: const EdgeInsets.symmetric(vertical: 32),
                     child: Column(
                       children: [
-                        const CircularProgressIndicator(),
+                        _intro(context),
+                        const SizedBox(height: 28),
+                        const SizedBox(
+                          width: 28,
+                          height: 28,
+                          child: CircularProgressIndicator(strokeWidth: 2.5),
+                        ),
                         const SizedBox(height: 20),
                         Text(
                           l10n.recipeImportLoading,
@@ -444,14 +449,66 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
     );
   }
 
+  Widget _intro(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: t.brandSurface,
+        borderRadius: BorderRadius.circular(rCard),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.bookmark_add_outlined,
+                size: 22,
+                color: t.onBrandSurface,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  l10n.recipeImportEyebrow,
+                  style: AppType.ui(
+                    11,
+                    weight: FontWeight.w700,
+                    color: t.onBrandSurface,
+                    letterSpacing: 1.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 22),
+          Text(
+            l10n.recipeImportIntroTitle,
+            style: AppType.display(30, color: t.onBrandSurface, height: 1.12),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            l10n.recipeImportIntroBody,
+            style: AppType.ui(14, color: t.onBrandSurface, height: 1.5),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _input(BuildContext context) {
     final l10n = context.l10n;
     final status = _result?.status;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        _intro(context),
+        const SizedBox(height: 24),
         Text(
-          status == RecipeImportStatus.needsText
+          _result?.sourceUnavailable == true
+              ? l10n.recipeImportSourceUnavailable
+              : status == RecipeImportStatus.needsText
               ? l10n.recipeImportNeedsText
               : status == RecipeImportStatus.noRecipe
               ? l10n.recipeImportNoRecipe
@@ -641,7 +698,6 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
               label: Text(l10n.recipeImportOtherRecipe),
             ),
           ),
-        _source(context),
         if (_editing) ...[
           SheetField(
             fieldKey: const ValueKey('recipe-import-edit-title'),
@@ -684,50 +740,69 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
             child: Text(l10n.recipeImportFinishEditing),
           ),
         ] else ...[
-          Text(
-            candidate.title,
-            style: AppType.display(26, color: context.t.ink, height: 1.2),
-          ),
-          if (candidate.variantLabel.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                candidate.variantLabel,
-                style: AppType.ui(
-                  14,
-                  color: context.t.accent,
-                  weight: FontWeight.w600,
+          Container(
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+              color: context.t.brandSurface,
+              borderRadius: BorderRadius.circular(rCard),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  l10n.recipeImportPreviewLabel,
+                  style: AppType.ui(
+                    11,
+                    weight: FontWeight.w700,
+                    color: context.t.onBrandSurface,
+                    letterSpacing: 1.3,
+                  ),
                 ),
-              ),
+                const SizedBox(height: 12),
+                Text(
+                  candidate.title,
+                  style: AppType.display(
+                    28,
+                    color: context.t.onBrandSurface,
+                    height: 1.16,
+                  ),
+                ),
+                if (candidate.variantLabel.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    candidate.variantLabel,
+                    style: AppType.ui(
+                      14,
+                      color: context.t.onBrandSurface,
+                      weight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+                if (candidate.description.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    candidate.description,
+                    style: AppType.ui(
+                      14,
+                      color: context.t.onBrandSurface,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ],
             ),
-          if (candidate.description.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text(
-                candidate.description,
-                style: AppType.ui(14, color: context.t.ink2, height: 1.5),
-              ),
-            ),
-          const SizedBox(height: 16),
-          Text(
-            candidate.hasNutrition
-                ? l10n.recipesKcalProteinSummary(
-                    candidate.caloriesKcal!,
-                    candidate.proteinG!,
-                  )
-                : l10n.recipeImportNutritionPendingHint,
-            key: const ValueKey('recipe-import-nutrition'),
-            style: AppType.ui(14, color: context.t.ink2, height: 1.5),
           ),
-          if (candidate.hasNutrition && candidate.nutritionEstimated)
-            Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Text(
-                l10n.recipeImportNutritionEstimate,
-                style: AppType.ui(12, color: context.t.ink2, height: 1.5),
-              ),
-            ),
-          _section(context, l10n.recipesSectionPortion, candidate.portion),
+          const SizedBox(height: 24),
+          RecipeImportNutrition(candidate: candidate),
+          _section(
+            context,
+            l10n.recipesSectionPortion,
+            candidate.portion.isNotEmpty
+                ? candidate.portion
+                : candidate.servings != null
+                ? '${l10n.recipeEditBatchServings}: ${candidate.servings == candidate.servings!.roundToDouble() ? candidate.servings!.round() : candidate.servings}'
+                : '',
+          ),
           _section(
             context,
             l10n.recipesSectionIngredients,
@@ -756,6 +831,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
             ),
           ),
         const SizedBox(height: 16),
+        _source(context),
         Text(
           l10n.recipeImportReviewHint,
           style: AppType.ui(12, color: context.t.ink2, height: 1.5),
@@ -783,13 +859,19 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Divider(color: context.t.line, height: 20),
+        const SizedBox(height: 8),
         Text(
           title,
-          style: AppType.ui(14, color: context.t.ink, weight: FontWeight.w600),
+          style: AppType.ui(16, color: context.t.ink, weight: FontWeight.w700),
         ),
         const SizedBox(height: 6),
         Text(
-          body.isEmpty ? context.l10n.recipesNoDataProvided : body,
+          body.isEmpty
+              ? title == context.l10n.recipesSectionPreparation
+                    ? context.l10n.recipeImportPreparationMissing
+                    : context.l10n.recipesNoDataProvided
+              : body,
           style: AppType.ui(15, color: context.t.ink, height: 1.6),
         ),
       ],

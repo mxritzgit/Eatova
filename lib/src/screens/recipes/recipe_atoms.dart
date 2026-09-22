@@ -7,16 +7,7 @@ String _nutritionNumber(double? value) => value == null
     : value.toStringAsFixed(1);
 
 RecipeNutrition _recipeNutrition(FitnessRecipe recipe) =>
-    recipe.hasPendingNutrition
-    ? const RecipeNutrition()
-    : recipe.hasStructuredIngredients
-    ? recipe.calculationForServings(1).nutrition
-    : RecipeNutrition(
-        caloriesKcal: recipe.caloriesKcal.toDouble(),
-        proteinG: recipe.proteinG.toDouble(),
-        carbsG: recipe.carbsG.toDouble(),
-        fatG: recipe.fatG.toDouble(),
-      );
+    recipe.displayNutrition;
 
 String _recipeSummary(FitnessRecipe recipe, AppLocalizations l10n) {
   final n = _recipeNutrition(recipe);

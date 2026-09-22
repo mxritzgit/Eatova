@@ -118,6 +118,117 @@ Future<void> _enter(WidgetTester tester, String key, String text) async {
 }
 
 void main() {
+  testWidgets('preview and saved edit retain each known macro independently', (
+    tester,
+  ) async {
+    const partial = RecipeImportCandidate(
+      id: 'partial',
+      title: 'Hot Pockets',
+      ingredients: '500 g quark',
+      preparation: 'Mix and bake.',
+      caloriesKcal: 358,
+      proteinG: 32,
+      fatG: 0,
+    );
+    final saved = <FitnessRecipe>[];
+    await _open(
+      tester,
+      service: _Service(
+        (_) async => const RecipeImportResult(
+          status: RecipeImportStatus.ready,
+          candidates: [partial],
+        ),
+      ),
+      save: (recipe) async {
+        saved.add(recipe);
+        return SyncDelivery.delivered;
+      },
+    );
+    expect(find.text('358'), findsOneWidget);
+    expect(find.text('32 g'), findsOneWidget);
+    expect(find.text('0 g'), findsOneWidget);
+    expect(find.text('—'), findsOneWidget);
+    await _tap(tester, 'recipe-import-save');
+    expect(saved.single.displayNutrition.proteinG, 32);
+    expect(saved.single.canLogServings(1), isFalse);
+    await pumpLocalized(
+      tester,
+      RecipeDetailScreen(
+        recipe: saved.single,
+        onAddMeal: (_, __) {},
+        onEdit: (recipe) async {
+          saved.add(recipe);
+          return RecipeSaveResult.detached(recipe, SyncDelivery.delivered);
+        },
+      ),
+      locale: const Locale('en'),
+      surfaceSize: const Size(390, 844),
+    );
+    await _tap(tester, 'recipe-detail-edit');
+    expect(
+      tester
+          .widget<TextField>(
+            find.byKey(const ValueKey('recipe-create-protein')),
+          )
+          .controller!
+          .text,
+      '32',
+    );
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('recipe-create-carbs')))
+          .controller!
+          .text,
+      isEmpty,
+    );
+    await _enter(tester, 'recipe-create-name', 'Saved pocket');
+    await _tap(tester, 'recipe-create-save');
+    expect(saved.last.displayNutrition.proteinG, 32);
+    expect(saved.last.displayNutrition.carbsG, isNull);
+  });
+
+  testWidgets(
+    'unstated nutrition basis requires deliberate confirmation before diary use',
+    (tester) async {
+      const unknownBasis = RecipeImportCandidate(
+        id: 'basis',
+        title: 'Bowl',
+        ingredients: '250 g quark',
+        preparation: '',
+        caloriesKcal: 350,
+        proteinG: 30,
+        carbsG: 40,
+        fatG: 10,
+        nutritionBasisUnclear: true,
+      );
+      final saved = <FitnessRecipe>[];
+      final recipe = unknownBasis.toRecipe(
+        slug: 'basis',
+        sourceLabel: 'Source',
+      );
+      await pumpLocalized(
+        tester,
+        RecipeDetailScreen(
+          recipe: recipe,
+          onAddMeal: (_, __) {},
+          onEdit: (updated) async {
+            saved.add(updated);
+            return RecipeSaveResult.detached(updated, SyncDelivery.delivered);
+          },
+        ),
+        locale: const Locale('en'),
+        surfaceSize: const Size(390, 844),
+      );
+      expect(recipe.canLogServings(1), isFalse);
+      await _tap(tester, 'recipe-detail-edit');
+      await _tap(tester, 'recipe-edit-confirm-nutrition-basis');
+      await _tap(tester, 'recipe-create-save');
+      expect(saved.single.hasUnclearNutritionBasis, isFalse);
+      expect(saved.single.canLogServings(1), isTrue);
+      expect(saved.single.displayNutrition.proteinG, 30);
+    },
+  );
+
   testWidgets(
     'multiple recipes can be confirmed individually without another extraction',
     (tester) async {
@@ -258,10 +369,7 @@ void main() {
         service: service,
         save: (_) async => SyncDelivery.delivered,
       );
-      expect(
-        find.textContaining('could not read a complete recipe'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('usable ingredient list'), findsOneWidget);
       final field = tester.widget<TextField>(
         find.byKey(const ValueKey('recipe-import-input')),
       );

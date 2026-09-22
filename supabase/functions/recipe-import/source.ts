@@ -1,9 +1,11 @@
 import { readProviderBody } from '../_shared/provider_body.ts';
+import { pageCaption } from './tiktok_page.ts';
 
 export interface RecipeSource {
   url: string | null;
   title?: string;
   author?: string;
+  unavailable?: boolean;
 }
 
 export interface SourceContent {
@@ -49,7 +51,7 @@ async function resolveVideo(initial: URL, signal: AbortSignal): Promise<URL | nu
   for (let redirects = 0; redirects < 4; redirects++) {
     if (isVideo(current)) return current;
     const response = await fetch(current, {
-      method: 'GET', redirect: 'manual', signal,
+      method: 'GET', redirect: 'manual', signal: childSignal(signal),
       headers: { accept: 'text/html' },
     });
     await response.body?.cancel();
@@ -63,7 +65,9 @@ async function resolveVideo(initial: URL, signal: AbortSignal): Promise<URL | nu
   return isVideo(current) ? current : null;
 }
 
-/** Fetch only TikTok's public oEmbed metadata. HTML and media are never loaded. */
+const childSignal = (signal: AbortSignal) => AbortSignal.any([signal, AbortSignal.timeout(2500)]);
+
+/** Public metadata first; bounded, inert page data is a fallback. No media fetches. */
 export async function loadSource(text: string, signal: AbortSignal): Promise<SourceContent> {
   const links = text.match(/https?:\/\/[^\s<>"']+/giu) ?? [];
   const cleaned = links.map((link) => link.replace(/[),.!?;]+$/u, ''));
@@ -83,32 +87,62 @@ export async function loadSource(text: string, signal: AbortSignal): Promise<Sou
   };
   // Multiple links require user-supplied text; choosing a video would be arbitrary.
   if (unique.length !== 1 || allTargets.size !== 1) return result;
+  result.source.unavailable = true;
   try {
     const video = await resolveVideo(unique[0], signal);
     if (!video) return result;
     result.source.url = video.href;
     const endpoint = new URL('https://www.tiktok.com/oembed');
     endpoint.searchParams.set('url', video.href);
-    const response = await fetch(endpoint, {
-      method: 'GET', redirect: 'error', signal,
-      headers: { accept: 'application/json' },
-    });
-    if (!response.ok) {
-      await response.body?.cancel();
-      return result;
+    let caption = '';
+    let author = '';
+    for (let attempt = 0; attempt < 2 && !signal.aborted; attempt++) {
+      try {
+        const requestSignal = childSignal(signal);
+        const response = await fetch(endpoint, {
+          method: 'GET', redirect: 'error', signal: requestSignal,
+          headers: { accept: 'application/json' },
+        });
+        if (!response.ok) {
+          await response.body?.cancel();
+          if (response.status === 429 || response.status >= 500) continue;
+          break;
+        }
+        const raw = await readProviderBody(response, 96_000, requestSignal);
+        const metadata = raw === null ? null : JSON.parse(raw);
+        if (typeof metadata?.title === 'string') caption = metadata.title.trim();
+        if (typeof metadata?.author_name === 'string') author = metadata.author_name.trim();
+        break;
+      } catch { /* Retry transient metadata failures within the source deadline. */ }
     }
-    const raw = await readProviderBody(response, 96_000, signal);
-    if (raw === null) return result;
-    const metadata = JSON.parse(raw);
-    if (typeof metadata?.title !== 'string' || !metadata.title.trim()) return result;
-    const caption = metadata.title.trim();
+    if (!caption || /(?:\u2026|\.\.\.)$/.test(caption)) {
+      try {
+        const requestSignal = childSignal(signal);
+        const response = await fetch(video, {
+          method: 'GET', redirect: 'manual', signal: requestSignal,
+          headers: { accept: 'text/html' },
+        });
+        if (response.ok) {
+          const html = await readProviderBody(response, 2_000_000, requestSignal);
+          const page = html === null ? null : pageCaption(html, video.pathname.split('/').at(-1)!);
+          if (page && page.title.length > caption.length) {
+            caption = page.title.trim();
+            author = page.author ?? author;
+          }
+        } else await response.body?.cancel();
+      } catch { /* Login pages, challenges and unavailable public pages stay unavailable. */ }
+    }
+    if (!caption) return result;
+    caption = [...caption].filter((char) => {
+      const code = char.charCodeAt(0);
+      return code !== 127 && (code >= 32 || code === 9 || code === 10 || code === 13);
+    }).join('');
     result.source.title = caption.slice(0, 160);
-    if (typeof metadata.author_name === 'string' && metadata.author_name.trim()) {
-      result.source.author = metadata.author_name.trim().slice(0, 160);
-    }
+    if (author) result.source.author = author.slice(0, 160);
+    result.source.unavailable = false;
     const combined = sharedText ? `${sharedText}\n\n${caption}` : caption;
     result.text = combined.slice(0, MAX_SOURCE_CHARS);
-    result.truncated = combined.length > MAX_SOURCE_CHARS;
+    result.truncated = combined.length > MAX_SOURCE_CHARS || /(?:\u2026|\.\.\.)$/.test(caption);
     result.incomplete = false;
   } catch {
     // Private/deleted posts, platform restrictions, redirects and metadata outages

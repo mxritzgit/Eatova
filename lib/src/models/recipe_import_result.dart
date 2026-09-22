@@ -16,6 +16,7 @@ class RecipeImportResult {
     this.sourceUrl,
     this.sourceTitle,
     this.sourceAuthor,
+    this.sourceUnavailable = false,
     this.warnings = const [],
   });
 
@@ -23,6 +24,7 @@ class RecipeImportResult {
   final List<RecipeImportCandidate> candidates;
   final String? sourceUrl, sourceTitle, sourceAuthor;
   final List<String> warnings;
+  final bool sourceUnavailable;
 
   factory RecipeImportResult.fromJson(Map<String, dynamic> json) {
     final status = switch (json['status']) {
@@ -84,6 +86,7 @@ class RecipeImportResult {
       status: status,
       candidates: List.unmodifiable(candidates),
       sourceUrl: url,
+      sourceUnavailable: source['unavailable'] == true,
       sourceTitle: _optionalText(source['title'], 500),
       sourceAuthor: _optionalText(source['author'], 160),
       warnings: List<String>.unmodifiable(rawWarnings),
@@ -107,6 +110,7 @@ class RecipeImportCandidate {
     this.estimatedGrams,
     this.servings,
     this.nutritionEstimated = false,
+    this.nutritionBasisUnclear = false,
   });
 
   final String id, title, description, portion, ingredients, preparation;
@@ -114,6 +118,7 @@ class RecipeImportCandidate {
   final int? caloriesKcal, proteinG, carbsG, fatG, estimatedGrams;
   final double? servings;
   final bool nutritionEstimated;
+  final bool nutritionBasisUnclear;
 
   bool get hasNutrition =>
       caloriesKcal != null &&
@@ -122,6 +127,13 @@ class RecipeImportCandidate {
       fatG != null;
 
   factory RecipeImportCandidate.fromJson(Map<String, dynamic> json) {
+    if (!const [
+      null,
+      'per_serving',
+      'unspecified',
+    ].contains(json['nutrition_basis'])) {
+      throw const FormatException('Invalid import nutrition basis');
+    }
     final estimated = json['nutrition_estimated'];
     if (estimated is! bool) {
       throw const FormatException('Invalid import nutrition status');
@@ -132,7 +144,7 @@ class RecipeImportCandidate {
       description: _text(json['description'] ?? '', 2000, empty: true),
       portion: _text(json['portion'] ?? '', 200, empty: true),
       ingredients: _text(json['ingredients'], 8000),
-      preparation: _text(json['preparation'], 10000),
+      preparation: _text(json['preparation'], 10000, empty: true),
       variantLabel: _text(json['variant_label'] ?? '', 160, empty: true),
       caloriesKcal: _integer(json['calories_kcal'], 10000),
       proteinG: _integer(json['protein_g'], 1000),
@@ -141,6 +153,7 @@ class RecipeImportCandidate {
       estimatedGrams: _integer(json['estimated_g'], 10000),
       servings: _servings(json['servings']),
       nutritionEstimated: estimated,
+      nutritionBasisUnclear: json['nutrition_basis'] == 'unspecified',
     );
   }
 
@@ -166,6 +179,7 @@ class RecipeImportCandidate {
     estimatedGrams: clearNutrition ? null : estimatedGrams,
     servings: clearNutrition ? null : servings,
     nutritionEstimated: !clearNutrition && nutritionEstimated,
+    nutritionBasisUnclear: !clearNutrition && nutritionBasisUnclear,
   );
 
   /// Content identity makes repeated shares and uncertain save retries idempotent.
@@ -193,7 +207,7 @@ class RecipeImportCandidate {
   }) {
     _text(title, 160);
     _text(ingredients, 8000);
-    _text(preparation, 10000);
+    _text(preparation, 10000, empty: true);
     _text(portion, 200, empty: true);
     final source = sourceUrl == null ? '' : '$sourceLabel: $sourceUrl';
     return FitnessRecipe(
@@ -211,12 +225,25 @@ class RecipeImportCandidate {
       preparation: preparation.trim(),
       professionalHint: '',
       imageAsset: '',
-      caloriesKcal: hasNutrition ? caloriesKcal! : 0,
-      proteinG: hasNutrition ? proteinG! : 0,
-      carbsG: hasNutrition ? carbsG! : 0,
-      fatG: hasNutrition ? fatG! : 0,
-      estimatedGrams: hasNutrition ? estimatedGrams ?? 0 : 0,
-      categories: ['Eigene', if (!hasNutrition) recipeNutritionPendingCategory],
+      caloriesKcal: caloriesKcal ?? 0,
+      proteinG: proteinG ?? 0,
+      carbsG: carbsG ?? 0,
+      fatG: fatG ?? 0,
+      estimatedGrams: estimatedGrams ?? 0,
+      categories: [
+        'Eigene',
+        if (!hasNutrition || nutritionBasisUnclear) ...[
+          recipeNutritionPendingCategory,
+          if (nutritionBasisUnclear) recipeNutritionBasisPendingCategory,
+          for (final entry in {
+            'calories_kcal': caloriesKcal,
+            'protein_g': proteinG,
+            'carbs_g': carbsG,
+            'fat_g': fatG,
+          }.entries)
+            if (entry.value != null) '$recipeNutritionKnownPrefix${entry.key}',
+        ],
+      ],
       userCreated: true,
       batchServings: servings ?? 1,
     );

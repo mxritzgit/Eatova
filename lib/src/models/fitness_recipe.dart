@@ -22,6 +22,13 @@ const String highProteinCategory = "High Protein";
 
 /// Persisted with the recipe so missing imported values never become measured zero.
 const String recipeNutritionPendingCategory = 'Nutrition pending';
+const String recipeNutritionKnownPrefix = 'Nutrition known: ';
+const String recipeNutritionBasisPendingCategory = 'Nutrition basis pending';
+
+bool isRecipeNutritionMetadata(String category) =>
+    category == recipeNutritionPendingCategory ||
+    category == recipeNutritionBasisPendingCategory ||
+    category.startsWith(recipeNutritionKnownPrefix);
 
 /// When a recipe may carry [highProteinCategory].
 ///
@@ -104,7 +111,32 @@ class FitnessRecipe {
   bool get hasStructuredIngredients => structuredIngredients.isNotEmpty;
 
   bool get hasPendingNutrition =>
-      categories.contains(recipeNutritionPendingCategory);
+      categories.contains(recipeNutritionPendingCategory) ||
+      hasUnclearNutritionBasis;
+
+  bool get hasUnclearNutritionBasis =>
+      categories.contains(recipeNutritionBasisPendingCategory);
+
+  List<String> get displayCategories => categories
+      .where((category) => !category.startsWith(recipeNutritionKnownPrefix) &&
+          category != recipeNutritionBasisPendingCategory)
+      .toList(growable: false);
+
+  /// Older pending imports have no known-field markers and remain fully unknown.
+  RecipeNutrition get displayNutrition {
+    if (hasStructuredIngredients) return calculationForServings(1).nutrition;
+    double? known(String field, int value) =>
+        !hasPendingNutrition ||
+            categories.contains('$recipeNutritionKnownPrefix$field')
+        ? value.toDouble()
+        : null;
+    return RecipeNutrition(
+      caloriesKcal: known('calories_kcal', caloriesKcal),
+      proteinG: known('protein_g', proteinG),
+      carbsG: known('carbs_g', carbsG),
+      fatG: known('fat_g', fatG),
+    );
+  }
 
   RecipeCalculation calculationForServings(double servings) =>
       RecipeCalculation.calculate(
