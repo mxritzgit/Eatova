@@ -40,6 +40,7 @@ part 'recipes_header.dart';
 part 'recipe_cards.dart';
 part 'recipe_detail.dart';
 part 'recipe_slot_picker.dart';
+part 'recipe_nutrition_basis_sheet.dart';
 part 'recipe_create_sheet.dart';
 part 'recipe_atoms.dart';
 

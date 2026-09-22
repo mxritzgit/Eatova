@@ -71,11 +71,12 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
     super.dispose();
   }
 
-  Future<void> _edit() async {
+  Future<bool> _edit() async {
     if (_editing ||
+        widget.onEdit == null ||
         !_canUseRecipe ||
         widget.isSessionCurrent?.call() == false) {
-      return;
+      return false;
     }
     _editing = true;
     final editingRecipe = recipe;
@@ -109,7 +110,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
         result == null ||
         widget.isSessionCurrent?.call() == false) {
       saved?.handle.dispose();
-      return;
+      return false;
     }
     _saveHandle?.removeListener(_refreshSavedRecipe);
     _saveHandle?.dispose();
@@ -129,11 +130,68 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
       ),
       icon: Icons.check_circle_rounded,
     );
+    return true;
+  }
+
+  Future<bool> _confirmNutritionBasis() async {
+    if (_editing || widget.onEdit == null || !_canUseRecipe) return false;
+    _editing = true;
+    final original = recipe;
+    final saved = await showEatovaSheet<RecipeSaveResult>(
+      context,
+      _RecipeNutritionBasisSheet(
+        recipe: original,
+        isSessionCurrent: () =>
+            mounted && widget.isSessionCurrent?.call() != false,
+        onSave: (draft) {
+          if (!mounted ||
+              widget.isSessionCurrent?.call() == false ||
+              !identical(recipe, original) ||
+              !_canUseRecipe) {
+            throw StateError('Recipe confirmation is no longer current');
+          }
+          return widget.onEdit!(draft);
+        },
+      ),
+      isDismissible: false,
+      enableDrag: false,
+    );
+    _editing = false;
+    if (!mounted || widget.isSessionCurrent?.call() == false) {
+      saved?.handle.dispose();
+      return false;
+    }
+    if (saved == null) return false;
+    _saveHandle?.removeListener(_refreshSavedRecipe);
+    _saveHandle?.dispose();
+    _saveHandle = saved.handle;
+    _saveHandle!.addListener(_refreshSavedRecipe);
+    setState(() {
+      final current = _saveHandle!.value.recipe;
+      if (current != null) recipe = current;
+    });
+    return _canUseRecipe && recipe.canLogServings(1);
   }
 
   Future<void> _showMealPicker(BuildContext context) async {
-    if (_adding || !_canUseRecipe || widget.isSessionCurrent?.call() == false) {
+    if (_adding ||
+        _editing ||
+        !_canUseRecipe ||
+        widget.isSessionCurrent?.call() == false) {
       return;
+    }
+    if (!recipe.canLogServings(1) && recipe.userCreated && widget.onEdit != null) {
+      final prepared =
+          recipe.hasUnclearNutritionBasis && !recipe.hasMissingNutrition
+          ? await _confirmNutritionBasis()
+          : await _edit();
+      if (!prepared ||
+          !context.mounted ||
+          !_canUseRecipe ||
+          widget.isSessionCurrent?.call() == false ||
+          !recipe.canLogServings(1)) {
+        return;
+      }
     }
     final selectedRecipe = recipe;
     final selection = await showEatovaSheet<({MealSlot slot, double servings})>(
@@ -362,10 +420,10 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                   !recipe.calculationForServings(1).isComplete)) ...[
                 const SizedBox(height: 8),
                 Text(
-                  recipe.hasUnclearNutritionBasis
-                      ? l10n.recipeImportBasisHint
-                      : recipe.hasPendingNutrition
+                  recipe.hasPendingNutrition && recipe.hasMissingNutrition
                       ? l10n.recipeImportNutritionPendingHint
+                      : recipe.hasUnclearNutritionBasis
+                      ? l10n.recipeImportBasisHint
                       : l10n.recipeEditIncompleteNutrition,
                   key: const ValueKey('recipe-nutrition-incomplete'),
                   style: AppType.ui(14, color: t.ink2, height: 1.4),
@@ -445,16 +503,29 @@ class _AddToMealCard extends StatelessWidget {
               minimumSize: const Size(48, 52),
             ),
             onPressed: onTap,
-            icon: const Icon(Icons.add_rounded, size: 22),
+            icon: Icon(
+              recipe.hasPendingNutrition
+                  ? Icons.fact_check_outlined
+                  : Icons.add_rounded,
+              size: 22,
+            ),
             label: Text(
-              l.recipesAddToTrackerTitle,
+              recipe.hasPendingNutrition
+                  ? recipe.hasMissingNutrition
+                      ? l.recipeNutritionComplete
+                      : l.recipeNutritionBasisCheck
+                  : l.recipesAddToTrackerTitle,
               textAlign: TextAlign.center,
               style: AppType.ui(15, weight: FontWeight.w700),
             ),
           ),
           const SizedBox(height: 10),
           Text(
-            l.recipesAddToTrackerHint,
+            recipe.hasPendingNutrition
+                ? recipe.hasMissingNutrition
+                    ? l.recipeImportNutritionPendingHint
+                    : l.recipeNutritionBasisBeforeLog
+                : l.recipesAddToTrackerHint,
             textAlign: TextAlign.center,
             style: AppType.ui(12, color: t.ink2, height: 1.4),
           ),

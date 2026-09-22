@@ -16,7 +16,7 @@ Nothing enters the user's recipe library until the user confirms a specific reci
 | Missing/private/unavailable caption | Ask for pasted recipe text in the same sheet. |
 | Ingredients in the caption, steps only in the video | Preview the ingredients and explicitly mark missing steps; never invent instructions. |
 | Partial nutrition | Keep and display every known value, including zero. Only missing values are blank; block food logging until complete. |
-| Nutrition without a serving basis | Preserve the caption values, show the unclear basis, and require confirmation/correction in the recipe editor before food logging. |
+| Nutrition without a serving basis | Preserve the caption values and show a serving-basis status. The tracker action asks how many servings the values cover, saves the confirmation, then opens meal selection. |
 | Repeated share | Content-based recipe identity prevents overwriting an existing saved import. |
 
 The existing Recipes header also has an Import action for pasting a link or text.
@@ -68,7 +68,10 @@ part of the workflow. Whitespace differences are normalized without rewriting so
 content; repeated quantities in different recipe parts are preserved. Nutrition
 recognizes German/English labels, abbreviations, decimals, approximate caption values
 and per-piece wording. Explicit whole-recipe totals are divided only by a proven
-yield. Missing values are never estimated; ambiguous serving bases stay pending.
+yield. An exact yield such as `Für eine Pizza` also proves a single complete dish;
+its matching whole-dish nutrition can be retained as one serving. Per-100g and
+fractional-dish values are not promoted by this rule. Missing values are never
+estimated; ambiguous serving bases stay pending.
 
 No extraction request writes recipe rows. Explicit saves use `HomeStore.saveUserRecipe`
 and the existing encrypted cache, transactional outbox, server revisions and ownership
@@ -77,9 +80,20 @@ uses the persisted `Nutrition pending` category, localized at display time, so e
 row/snapshot/history formats remain compatible without a migration. Neutral numeric
 storage fields are not treated as measured zero while this marker is present.
 Additional `Nutrition known: <field>` markers preserve individual known values,
-and `Nutrition basis pending` records an unclear serving basis. These internal
-markers are hidden from category chips and survive cache/outbox/history round trips.
+and `Nutrition basis pending` records an unclear serving basis. Known-field markers
+are hidden from category chips; the basis marker becomes a localized check-basis
+status. A generic pending marker on older imports no longer displays "Nutrition
+missing" when all four known-field markers prove complete values. All metadata
+survives cache/outbox/history round trips.
 Older pending recipes without known-field markers remain entirely unknown.
+
+The detail tracker action routes complete, unqualified values through a compact
+basis confirmation, or genuinely missing values directly into the recipe editor.
+It only opens meal selection after the existing revision-aware save receipt is
+usable and the recipe can be logged. Basis confirmation divides the caption
+figures by the explicitly confirmed serving count; consumed servings are chosen
+separately in the meal picker. Cancellation and failed saves do not log food.
+Existing saved imports use the same repair flow without reimport or migration.
 
 The model uses a strict structured-output schema and completed-response/JSON/source
 validation. A transient failure or invalid response permits one retry, each with a

@@ -117,10 +117,40 @@ class FitnessRecipe {
   bool get hasUnclearNutritionBasis =>
       categories.contains(recipeNutritionBasisPendingCategory);
 
+  bool get hasMissingNutrition => !displayNutrition.isComplete;
+
   List<String> get displayCategories => categories
-      .where((category) => !category.startsWith(recipeNutritionKnownPrefix) &&
-          category != recipeNutritionBasisPendingCategory)
+      .where(
+        (category) => !category.startsWith(recipeNutritionKnownPrefix) &&
+            (category != recipeNutritionPendingCategory || hasMissingNutrition),
+      )
       .toList(growable: false);
+
+  /// The user assigns the caption values to a stated number of servings.
+  FitnessRecipe withConfirmedNutritionBasis(double sourceServings) {
+    validateRecipeServings(sourceServings);
+    if (!hasUnclearNutritionBasis ||
+        hasStructuredIngredients ||
+        hasMissingNutrition) {
+      throw const FormatException('Recipe nutrition cannot be confirmed');
+    }
+    int perServing(int value, num max) {
+      final converted = value / sourceServings;
+      if (converted < 0 || converted > max) {
+        throw const FormatException('Recipe nutrition exceeds storage limits');
+      }
+      return converted.round();
+    }
+
+    return copyWith(
+      caloriesKcal: perServing(caloriesKcal, LoggedMealLimits.caloriesKcalMax),
+      proteinG: perServing(proteinG, LoggedMealLimits.macroGMax),
+      carbsG: perServing(carbsG, LoggedMealLimits.macroGMax),
+      fatG: perServing(fatG, LoggedMealLimits.macroGMax),
+      estimatedGrams: perServing(estimatedGrams, LoggedMealLimits.estimatedGMax),
+      categories: categories.where((c) => !isRecipeNutritionMetadata(c)).toList(),
+    );
+  }
 
   /// Older pending imports have no known-field markers and remain fully unknown.
   RecipeNutrition get displayNutrition {

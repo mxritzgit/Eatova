@@ -93,6 +93,7 @@ String recipeCategoryLabel(String category, AppLocalizations l10n) {
     "Low Carb" => l10n.recipesFilterLowCarb,
     "Eigene" => l10n.recipesCategoryOwn,
     recipeNutritionPendingCategory => l10n.recipeImportNutritionPendingLabel,
+    recipeNutritionBasisPendingCategory => l10n.recipeNutritionBasisCheck,
     _ => category,
   };
 }
