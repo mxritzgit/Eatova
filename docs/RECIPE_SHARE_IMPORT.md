@@ -67,7 +67,11 @@ prove that a model associated every quote with the correct dish. Human review re
 part of the workflow. Whitespace differences are normalized without rewriting source
 content; repeated quantities in different recipe parts are preserved. Nutrition
 recognizes German/English labels, abbreviations, decimals, approximate caption values
-and per-piece wording. A heading such as `Nährwerte (1 Bowl)` proves the values
+and per-piece wording. Single-letter labels `P`, `C` and `F` mean protein,
+carbohydrates and fat, case-insensitively: both `31g P 13g C 9g F` and
+`P: 31g C: 13g F: 9g` are supported. These letters require a gram amount
+and cannot match word prefixes or oven temperatures such as `180 C`.
+A heading such as `Nährwerte (1 Bowl)` proves the values
 apply to one Bowl; it does not establish the whole recipe's yield. The source
 validator keeps those four values even if the model labels the basis differently.
 Mixed, fractional and per-100g blocks remain separate. Explicit whole-recipe
