@@ -1782,3 +1782,26 @@ parser and is consumed by Flutter's JSON model, preview and storage checks.
 Delivery evidence must distinguish local verification, protected-main CI/merge,
 authenticated provider tests and backend deployment; the delivery PR records
 their final status. No device build is implied by a backend rollout.
+
+## Single-letter caption macros, 2026-09-22
+
+Fix on `fix/import-macro-abbreviations`, based on main `5e4fb5c`, in
+`.agents/import-macro-abbreviations-2026-09-22/worktree`. The reported
+`31g P   13g C  9g F` was rejected because the nutrient-label validator lacked
+single-letter aliases. The extraction prompt and source validation now support
+`P`/`C`/`F` with gram amounts on either side, case-insensitively. Decimal and
+zero values survive; word prefixes and temperatures cannot supply macros.
+Reading-order binding also preserves repeated-label conflicts and prevents a
+label followed by `:` or `=` from borrowing the preceding nutrient's amount.
+
+The [regressions](../supabase/functions/recipe-import/macro_abbreviations_test.ts)
+cover source-verified extraction with both supplied and omitted model values,
+format variants, missing/zero values, conflicting/swapped values, false matches,
+invalid quantities, serving conversion and legacy behavior. Before the fix,
+five of seven tests failed, including the reported caption. After the fix,
+all 763 backend tests and 11 offline evaluation tests passed; all Edge Function
+entry points type-checked and Deno lint passed. No Flutter code changed.
+The user authorized push, merge after CI, and the required backend deployment
+on 2026-09-23. The delivery PR records the verified CI, merge and rollout
+results separately; no device installation is implied. Existing saved imports
+are not rewritten.

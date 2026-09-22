@@ -24,6 +24,10 @@ IDs hash normalized source ingredient/preparation text, independent of translate
 titles. Ingredient/preparation fields and variant labels must be verbatim source
 quotes. Unknown nutrition stays null. Each copied value must match its nutrient label and
 source number; per-serving/per-piece bases can precede or follow the figures.
+Macro abbreviations `P` (protein), `C` (carbohydrates) and `F` (fat) are
+case-insensitive and require grams, before or after the letter: `31g P 13g C
+9g F` or `P: 31g C: 13g F: 9g`. Decimals and zero are preserved. Ingredient
+word prefixes and temperatures without gram units do not supply macro values.
 Parenthesized single-item nutrition headings such as `Nährwerte (1 Bowl)` and
 `Nutrition (one pizza)` are source proof of a per-item basis, independent of
 the model's basis label. A nutrition basis for one item does not itself prove

@@ -1,9 +1,9 @@
 type Basis = 'per_serving' | 'per_recipe' | 'per_100g' | 'unspecified';
 const LABELS = {
   calories_kcal: '(?:kcal|calories|kalorien|kilokalorien)',
-  protein_g: '(?:proteins?|proteine|eiweiß|eiweiss)',
-  carbs_g: '(?:carbs?|carbohydrates?|kohlenhydrate[n]?|kh)',
-  fat_g: '(?:fats?|fett[e]?)',
+  protein_g: '(?:proteins?|proteine|eiweiß|eiweiss|p)',
+  carbs_g: '(?:carbs?|carbohydrates?|kohlenhydrate[n]?|kh|c)',
+  fat_g: '(?:fats?|fett[e]?|f)',
   estimated_g: '(?:weight|gewicht|portionsgewicht)',
 };
 type Field = keyof typeof LABELS;
@@ -69,16 +69,21 @@ function nutritionNumbers(evidence: string): Record<Field, string[]> {
   const pairs: { field: Field; number: number; label: number; value: string }[] = [];
   for (const field of Object.keys(LABELS) as Field[]) {
     const name = LABELS[field];
-    const before = new RegExp('(?:^|[^\\p{L}\\d.,\\-−–—/⁄])(\\d+(?:[.,]\\d+)?)\\s*(?:g\\s*)?(' + name + ')(?=$|[^\\p{L}])', 'giu');
+    const before = new RegExp('(?:^|[^\\p{L}\\d.,\\-−–—/⁄])(\\d+(?:[.,]\\d+)?)\\s*(g\\s*)?(' + name + ')(?=$|[^\\p{L}])', 'giu');
     const after = new RegExp('(?:^|[^\\p{L}])(' + name + ')\\s*[:=]?\\s*(?:(?:ca\\.?|circa|about|approx\\.?)\\s*)?(\\d+(?:[.,]\\d+)?)', 'giu');
     for (const match of evidence.matchAll(before)) {
+      // Single letters need grams: "180 C" and "350 F" can be oven temperatures.
+      if (match[3].length === 1 && !match[2]) continue;
       const trailing = evidence.slice(match.index! + match[0].length);
+      // A colon/equal sign binds this label to its own following value.
+      if (/^\s*[:=]/.test(trailing)) continue;
       // "15 g protein powder" and "7 g fat free yogurt" are ingredients, not macros.
       if (/^\s*(?:powder|pulver|free|reduced)\b/i.test(trailing)) continue;
       pairs.push({ field, number: match.index! + match[0].indexOf(match[1]),
-        label: match.index! + match[0].length - match[2].length, value: match[1] });
+        label: match.index! + match[0].length - match[3].length, value: match[1] });
     }
     for (const match of evidence.matchAll(after)) {
+      if (match[1].length === 1 && !/^\s*g(?!\p{L})/iu.test(evidence.slice(match.index! + match[0].length))) continue;
       if (/^(?:[eE][+-]?\d|[.,/⁄]\d|\s*(?:g\s*)?(?:[-−–—]|to\b|bis\b)\s*\d)/i.test(evidence.slice(match.index! + match[0].length))) continue;
       pairs.push({ field, number: match.index! + match[0].length - match[2].length,
         label: match.index! + match[0].indexOf(match[1]), value: match[2] });
@@ -92,9 +97,8 @@ function nutritionNumbers(evidence: string): Record<Field, string[]> {
   for (const pair of pairs) {
     if (usedLabels.has(pair.label)) continue;
     const owner = usedNumbers.get(pair.number);
-    if (owner && owner !== pair.field) continue;
-    usedLabels.add(pair.label);
     if (owner) continue;
+    usedLabels.add(pair.label);
     usedNumbers.set(pair.number, pair.field);
     result[pair.field].push(pair.value);
   }
