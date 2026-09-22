@@ -5,6 +5,7 @@ import { providerCallBudget, ProviderBudgetError } from '../_shared/provider_bud
 import { hasExpectedUserTokenContext } from '../_shared/user_token_context.ts';
 import { extractionPrompt, parseExtraction } from './extraction.ts';
 import { loadSource } from './source.ts';
+import { extractionResponseFormat } from './schema.ts';
 
 const REQUEST_BUDGET_MS = 55_000;
 const MAX_BODY_BYTES = 90_000;
@@ -109,7 +110,7 @@ async function consumeGates(secrets: Secrets, gates: Gate[], total: AbortSignal)
   if (data.length !== gates.length) throw new ImportError(503, 'rate_limit_unavailable');
 }
 
-async function parseBody(request: Request, total: AbortSignal): Promise<{ text: string; locale: 'de' | 'en' }> {
+async function parseBody(request: Request, total: AbortSignal): Promise<{ text: string; locale: 'de' | 'en'; version: number }> {
   if (!/^application\/json(?:\s*;|$)/i.test(request.headers.get('content-type') ?? '')) throw new ImportError(415, 'unsupported_content_type');
   const length = Number(request.headers.get('content-length'));
   if (length > MAX_BODY_BYTES) throw new ImportError(413, 'payload_too_large');
@@ -117,14 +118,15 @@ async function parseBody(request: Request, total: AbortSignal): Promise<{ text: 
   if (raw === null) throw new ImportError(413, 'payload_too_large');
   let body: unknown;
   try { body = JSON.parse(raw); } catch { throw new ImportError(400, 'invalid_json'); }
-  if (!record(body) || Object.keys(body).some((key) => key !== 'text' && key !== 'locale') ||
+  if (!record(body) || Object.keys(body).some((key) => !['text', 'locale', 'version'].includes(key)) ||
     typeof body.text !== 'string' || !body.text.trim() || body.text.length > MAX_TEXT_CHARS ||
-    (body.locale !== 'de' && body.locale !== 'en')) throw new ImportError(400, 'invalid_request');
+    (body.locale !== 'de' && body.locale !== 'en') ||
+    (body.version !== undefined && body.version !== 2)) throw new ImportError(400, 'invalid_request');
   if ([...body.text].some((char) => {
     const code = char.charCodeAt(0);
     return code === 127 || code < 32 && code !== 9 && code !== 10 && code !== 13;
   })) throw new ImportError(400, 'invalid_request');
-  return { text: body.text.trim(), locale: body.locale };
+  return { text: body.text.trim(), locale: body.locale, version: body.version === 2 ? 2 : 1 };
 }
 
 export async function handleRequest(request: Request): Promise<Response> {
@@ -154,39 +156,49 @@ export async function handleRequest(request: Request): Promise<Response> {
       { scope: 'recipe-import:user-day', subject: userId, limit: 20, window_seconds: 86_400 },
     ], total);
     const budget = providerCallBudget({ supabaseUrl: secrets.supabaseUrl, serviceKey: secrets.serviceKey, userId, signal: total });
-    await budget('coach_recipe');
-    const signal = stepSignal(total, 35_000);
-    let provider: unknown;
-    try {
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST', signal, redirect: 'error',
-        headers: { authorization: `Bearer ${secrets.providerKey}`, 'content-type': 'application/json' },
-        body: JSON.stringify({
-          model: Deno.env.get('RECIPE_IMPORT_MODEL') ?? Deno.env.get('COACH_MODEL_ANSWER') ?? 'google/gemini-3.8-flash',
-          messages: [
-            { role: 'system', content: extractionPrompt(input.locale) },
-            { role: 'user', content: JSON.stringify({ source_text: source.text }) },
-          ],
-          response_format: { type: 'json_object' }, temperature: 0,
-          reasoning: { effort: 'minimal' }, max_tokens: 12_000,
-        }),
-      });
-      if (!response.ok) {
-        await response.body?.cancel();
-        throw new ImportError(502, 'provider_unavailable');
+    const providerDeadline = stepSignal(total, 35_000);
+    let lastError = new ImportError(502, 'provider_invalid_response');
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await budget('coach_recipe');
+      const signal = stepSignal(providerDeadline, attempt === 0 ? 25_000 : 15_000);
+      let provider: unknown;
+      try {
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST', signal, redirect: 'error',
+          headers: { authorization: `Bearer ${secrets.providerKey}`, 'content-type': 'application/json' },
+          body: JSON.stringify({
+            model: Deno.env.get('RECIPE_IMPORT_MODEL') ?? Deno.env.get('COACH_MODEL_ANSWER') ?? 'google/gemini-3.8-flash',
+            messages: [
+              { role: 'system', content: extractionPrompt(input.locale) },
+              { role: 'user', content: JSON.stringify({ source_text: source.text }) },
+            ],
+            response_format: extractionResponseFormat, provider: { require_parameters: true }, temperature: 0,
+            reasoning: { effort: 'minimal' }, max_tokens: 12_000,
+          }),
+        });
+        if (!response.ok) {
+          await response.body?.cancel();
+          if (attempt === 0 && (response.status === 429 || response.status >= 500) && !providerDeadline.aborted) {
+            lastError = new ImportError(502, 'provider_unavailable');
+            continue;
+          }
+          throw new ImportError(502, 'provider_unavailable');
+        }
+        provider = await boundedJson(response, 192_000, signal);
+      } catch (error) {
+        if (error instanceof ImportError) throw error;
+        lastError = new ImportError(signal.aborted ? 504 : 502, signal.aborted ? 'request_timeout' : 'provider_invalid_response');
+        if (attempt === 0 && !providerDeadline.aborted) continue;
+        throw lastError;
       }
-      provider = await boundedJson(response, 192_000, signal);
-    } catch (error) {
-      if (error instanceof ImportError) throw error;
-      if (signal.aborted) throw new ImportError(504, 'request_timeout');
-      throw new ImportError(502, 'provider_invalid_response');
+      const choice = record(provider) && Array.isArray(provider.choices) ? provider.choices[0] : null;
+      const result = record(choice) && choice.finish_reason === 'stop' && record(choice.message) && typeof choice.message.content === 'string'
+        ? await parseExtraction(choice.message.content, source, input.version) : null;
+      if (result) return json(request, result);
+      lastError = new ImportError(502, 'provider_invalid_response');
+      if (providerDeadline.aborted) break;
     }
-    if (!record(provider) || !Array.isArray(provider.choices) || !record(provider.choices[0])) throw new ImportError(502, 'provider_invalid_response');
-    const choice = provider.choices[0];
-    if (choice.finish_reason !== 'stop' || !record(choice.message) || typeof choice.message.content !== 'string') throw new ImportError(502, 'provider_invalid_response');
-    const result = await parseExtraction(choice.message.content, source);
-    if (!result) throw new ImportError(502, 'provider_invalid_response');
-    return json(request, result);
+    throw lastError;
   } catch (error) {
     if (error instanceof ProviderBudgetError) return json(request, { error: error.code }, error.status);
     if (error instanceof ImportError) return json(request, { error: error.code }, error.status, error.retryAfter);

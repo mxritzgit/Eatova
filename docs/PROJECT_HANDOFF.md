@@ -1650,3 +1650,41 @@ verification. Production storage and share code are unchanged by this correction
 The [delivery PR](https://github.com/mxritzgit/Eatova/pull/101) records the final
 head, CI counts, coverage and merge state. Backend deployment, Apple App Group
 provisioning and a signed real-device share check remain release work.
+
+## TikTok caption nutrition and import reliability, 2026-09-22
+
+The reported Hot Pockets video reproduced the original deployed failure: a ready
+recipe with all four nutrition fields and yield null, despite explicit caption
+values. The source validator missed `pro Stück`, `ca.` and piece yields; the app
+also discarded every nutrition field when any macro was missing. The corrected
+handler, exercised with real authentication, budget reservations and provider,
+returned **358 kcal, 32 g protein, 31 g carbs, 11 g fat per piece, yield 8**.
+Repeated quantities in different recipe parts now survive extraction as well.
+
+The [import contract](RECIPE_SHARE_IMPORT.md) and
+[function guide](../supabase/functions/recipe-import/README.md) describe v2:
+independent source-backed nutrition, proven whole-recipe yield conversion,
+explicit confirmation of unclear serving bases, and ingredient-only previews
+without invented preparation. Existing clients retain the v1 contract. Persisted
+known-field/basis markers preserve partial values through the existing recipe
+row, encrypted cache and outbox; no schema migration is needed. Existing saved
+recipes are not automatically rewritten.
+
+Source fetching now retries transient oEmbed failures and can read bounded,
+inert public-page data for the exact post ID. This fallback was also checked
+against the reported public video. Strict JSON output, finish-reason checks,
+source verification and one reserved retry address malformed/truncated model
+responses. Live provider testing caught a schema compatibility issue with nested
+`maxItems`; caps remain enforced by the parser. Private/deleted/restricted videos
+can still require pasted text, and the other originally failing videos were not
+supplied, so their individual historical failures are not established.
+
+The import preview now uses Eatova typography, a brand-colored recipe header,
+four independent nutrient tiles and clearer source/missing-content states.
+Real-font light/dark renders were inspected. Local verification: strict analyzer
+passed, **5,121 Flutter tests**, **94.95% coverage (31,176 / 32,834)** excluding
+generated localization, **738 backend tests** and **11 offline evaluations**
+passed. The regression fixtures detected the old trailing-basis, whole-total
+and long-caption failures before the fixes. The delivery PR records the final
+CI, merge and deployed function version; no updated device installation is
+established by these checks.

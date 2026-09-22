@@ -91,6 +91,7 @@ class EdgeFunctionRecipeImportService implements RecipeImportService {
             })
             ..body = jsonEncode({
               'text': input,
+              'version': 2,
               'locale': locale == 'de' ? 'de' : 'en',
             });
       final response = await _read(client, request).timeout(_timeout);
@@ -141,6 +142,16 @@ RecipeImportResult parseRecipeImportResponse(int status, String body) {
   }
   if (status == 504) {
     throw const RecipeImportException(RecipeImportFailure.timeout);
+  }
+  if (status == 502) {
+    try {
+      final error = jsonDecode(body);
+      if (error is Map && error['error'] == 'provider_invalid_response') {
+        throw const RecipeImportException(RecipeImportFailure.invalidResponse);
+      }
+    } on FormatException {
+      // The status still represents an unavailable upstream.
+    }
   }
   if (status != 200) {
     throw const RecipeImportException(RecipeImportFailure.unavailable);

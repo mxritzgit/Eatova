@@ -16,6 +16,8 @@ type Call = { url: string; body: Record<string, unknown>; headers: Headers; redi
 type Options = {
   authStatus?: number; authBody?: unknown; gate?: unknown; budget?: unknown;
   model?: unknown; providerStatus?: number; providerRaw?: string; finishReason?: string;
+  providerSequence?: Array<{ status?: number; raw?: string }>;
+  budgetSequence?: unknown[];
   metadataStatus?: number; metadata?: unknown;
 };
 
@@ -43,9 +45,12 @@ async function stub(options: Options, run: (calls: Call[]) => Promise<void>): Pr
     if (target.endsWith('/auth/v1/user')) return Promise.resolve(Response.json(options.authBody ?? { id: USER }, { status: options.authStatus ?? 200 }));
     if (target.endsWith('/consume_edge_rate_limit')) return Promise.resolve(Response.json({ allowed: true }));
     if (target.endsWith('/consume_edge_rate_limits')) return Promise.resolve(Response.json(options.gate ?? body.p_gates.map(() => ({ allowed: true }))));
-    if (target.endsWith('/reserve_ai_provider_call')) return Promise.resolve(Response.json(options.budget ?? { allowed: true, reason: 'allowed' }));
+    if (target.endsWith('/reserve_ai_provider_call')) return Promise.resolve(Response.json(options.budgetSequence?.[calls.filter((c) => c.url.endsWith('/reserve_ai_provider_call')).length - 1] ?? options.budget ?? { allowed: true, reason: 'allowed' }));
     if (target.startsWith('https://www.tiktok.com/oembed?')) return Promise.resolve(Response.json(options.metadata ?? { title: TEXT, author_name: 'Cook' }, { status: options.metadataStatus ?? 200 }));
-    if (target === 'https://openrouter.ai/api/v1/chat/completions') return Promise.resolve(new Response(options.providerRaw ?? JSON.stringify({ choices: [{ finish_reason: options.finishReason ?? 'stop', message: { content: JSON.stringify(options.model ?? MODEL) } }] }), { status: options.providerStatus ?? 200 }));
+    if (target === 'https://openrouter.ai/api/v1/chat/completions') {
+      const next = options.providerSequence?.[calls.filter((c) => c.url === target).length - 1];
+      return Promise.resolve(new Response(next?.raw ?? options.providerRaw ?? JSON.stringify({ choices: [{ finish_reason: options.finishReason ?? 'stop', message: { content: JSON.stringify(options.model ?? MODEL) } }] }), { status: next?.status ?? options.providerStatus ?? 200 }));
+    }
     throw new Error('Unexpected outbound request');
   }) as typeof fetch;
   try { await run(calls); }
@@ -206,5 +211,53 @@ Deno.test('recipe-import exact CORS origin and no-store apply to preflight and r
       }
     }
     check(calls.length === 0, 'No side effects');
+  });
+});
+
+Deno.test('recipe-import retries malformed or transient provider results with a fresh reservation', async () => {
+  for (const first of [{ status: 503, raw: 'unavailable' }, { raw: '{"broken":' },
+    { raw: JSON.stringify({ choices: [{ finish_reason: 'length', message: { content: '{}' } }] }) }]) {
+    await stub({ providerSequence: [first, {}] }, async (calls) => {
+      const response = await handleRequest(request());
+      check(response.status === 200 && (await response.json()).status === 'ready', 'Retry recovered');
+      const providers = calls.filter((c) => c.url.includes('openrouter.ai'));
+      check(providers.length === 2 && calls.filter((c) => c.url.endsWith('/reserve_ai_provider_call')).length === 2, 'Each attempt reserved independently');
+      for (const provider of providers) {
+        const format = provider.body.response_format as { type: string; json_schema: { strict: boolean } };
+        check(format.type === 'json_schema' && format.json_schema.strict === true, 'Structured schema requested');
+        check((provider.body.provider as { require_parameters: boolean }).require_parameters, 'Route must support requested parameters');
+      }
+    });
+  }
+});
+
+Deno.test('recipe-import retry never bypasses a denied budget or a permanent provider error', async () => {
+  await stub({ providerSequence: [{ raw: 'invalid JSON' }],
+    budgetSequence: [{ allowed: true, reason: 'allowed' }, { allowed: false, reason: 'budget_exhausted' }],
+  }, async (calls) => {
+    const response = await handleRequest(request());
+    check(response.status === 429, 'Second reservation fails closed');
+    check(calls.filter((c) => c.url.includes('openrouter.ai')).length === 1, 'No unreserved second request');
+  });
+  await stub({ providerStatus: 400 }, async (calls) => {
+    check((await handleRequest(request())).status === 502, 'Permanent provider failure');
+    check(calls.filter((c) => c.url.includes('openrouter.ai')).length === 1, 'No futile permanent-error retries');
+  });
+});
+
+Deno.test('recipe-import v2 explicitly supports ingredient-only and unqualified caption nutrition', async () => {
+  const model = { status: 'ready', candidates: [{ ...MODEL.candidates[0],
+    preparation_quotes: [], nutrition_basis: 'unspecified', nutrition_quote: '450 kcal, 30 g Protein.',
+    calories_kcal: 450, protein_g: 30,
+  }] };
+  await stub({ model }, async () => {
+    const response = await handleRequest(request({ text: TEXT + '\n450 kcal, 30 g Protein.', locale: 'de', version: 2 }));
+    const body = await response.json();
+    check(body.status === 'ready' && body.candidates[0].preparation === '', 'Missing steps stay empty');
+    check(body.candidates[0].nutrition_basis === 'unspecified' && body.candidates[0].protein_g === 30, 'Basis retained, not guessed');
+  });
+  await stub({ model }, async () => {
+    const response = await handleRequest(request({ text: TEXT + '\n450 kcal, 30 g Protein.', locale: 'de' }));
+    check((await response.json()).status === 'needs_text', 'Older clients keep their compatible contract');
   });
 });

@@ -9,13 +9,14 @@ Nothing enters the user's recipe library until the user confirms a specific reci
 
 | Source content | Behavior |
 | --- | --- |
-| One complete recipe | Open its preview directly; allow edits and explicit saving. |
+| One recipe with a usable ingredient list | Open its preview directly; allow edits and explicit saving. |
 | Multiple recipes | Show separate choices in source order, with no preselected recipe. |
 | Explicit vegan substitution | Offer a separate source-backed variant; do not silently replace the original. |
 | Several wanted recipes | Save each deliberately from the same result; mark saved choices and finish when ready. |
 | Missing/private/unavailable caption | Ask for pasted recipe text in the same sheet. |
-| Video-only instructions | Ask for text; this implementation does not transcribe video, speech or screenshots. |
-| Missing nutrition | Save the recipe with a visible pending-nutrition badge; block food logging until values are supplied. |
+| Ingredients in the caption, steps only in the video | Preview the ingredients and explicitly mark missing steps; never invent instructions. |
+| Partial nutrition | Keep and display every known value, including zero. Only missing values are blank; block food logging until complete. |
+| Nutrition without a serving basis | Preserve the caption values, show the unclear basis, and require confirmation/correction in the recipe editor before food logging. |
 | Repeated share | Content-based recipe identity prevents overwriting an existing saved import. |
 
 The existing Recipes header also has an Import action for pasting a link or text.
@@ -47,12 +48,15 @@ Apple-device verification remain required; see [native integration](NATIVE_RECIP
 
 ## Extraction and persistence
 
-`recipe-import` accepts authenticated POST `{text, locale}`. Source text is limited
+`recipe-import` accepts authenticated POST `{text, locale, version: 2}`. Older callers may omit `version` and retain the earlier complete-recipe/per-serving contract. Source text is limited
 to 20,000 UTF-16 code units. The service returns up to six candidates, source
 attribution and machine-readable missing/truncated-source warnings.
 
 Only exact HTTPS TikTok video/short-link hosts and paths are fetched. Every redirect
-is validated and bounded; only public oEmbed metadata is read. Unsupported recipe
+is validated and bounded. Public oEmbed metadata is retried once for transient errors.
+If unavailable or apparently truncated, a bounded public video page can provide
+inert hydration JSON. Its post ID must match the shared video exactly; HTML/scripts
+are never executed, and no login/challenge is bypassed. Unsupported recipe
 sites, Instagram and YouTube currently require pasted text. Multiple distinct links
 are ambiguous and are not resolved by choosing one automatically.
 
@@ -60,8 +64,11 @@ The provider separates recipes and returns verbatim ingredient/preparation evide
 The server verifies those quotes against the supplied source and discards ungrounded
 candidates. This prevents invented recipe text from entering a preview, but does not
 prove that a model associated every quote with the correct dish. Human review remains
-part of the workflow. Nutritional figures require explicit per-serving source evidence;
-the importer does not estimate missing values.
+part of the workflow. Whitespace differences are normalized without rewriting source
+content; repeated quantities in different recipe parts are preserved. Nutrition
+recognizes German/English labels, abbreviations, decimals, approximate caption values
+and per-piece wording. Explicit whole-recipe totals are divided only by a proven
+yield. Missing values are never estimated; ambiguous serving bases stay pending.
 
 No extraction request writes recipe rows. Explicit saves use `HomeStore.saveUserRecipe`
 and the existing encrypted cache, transactional outbox, server revisions and ownership
@@ -69,6 +76,15 @@ checks. Source attribution is retained in the persisted description. Missing nut
 uses the persisted `Nutrition pending` category, localized at display time, so existing
 row/snapshot/history formats remain compatible without a migration. Neutral numeric
 storage fields are not treated as measured zero while this marker is present.
+Additional `Nutrition known: <field>` markers preserve individual known values,
+and `Nutrition basis pending` records an unclear serving basis. These internal
+markers are hidden from category chips and survive cache/outbox/history round trips.
+Older pending recipes without known-field markers remain entirely unknown.
+
+The model uses a strict structured-output schema and completed-response/JSON/source
+validation. A transient failure or invalid response permits one retry, each with a
+fresh provider reservation, within the same request deadline. The server enforces
+array limits: nested schema `maxItems` was rejected by the live Gemini provider.
 
 Incoming native sources and extraction responses are bounded. Account/session changes
 clear pending imports, close old routes and reject late responses and saves. Native

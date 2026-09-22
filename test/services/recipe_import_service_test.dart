@@ -60,6 +60,7 @@ void main() {
         expect(request.headers['Authorization'], 'Bearer synthetic-token');
         expect(jsonDecode(request.body), {
           'text': 'recipe caption',
+          'version': 2,
           'locale': 'de',
         });
         return http.Response(emptyResult, 200);

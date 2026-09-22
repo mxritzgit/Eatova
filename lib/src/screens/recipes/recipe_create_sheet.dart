@@ -214,6 +214,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   late bool _structured;
   late double? _batchServings;
   bool _ingredientsChanged = false;
+  bool _nutritionBasisConfirmed = false;
 
   @override
   void initState() {
@@ -228,11 +229,11 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     // BuildContext, which initState does not have yet.
     _portion = _feld(recipe?.portion ?? '');
     final pendingNutrition = recipe?.hasPendingNutrition ?? false;
-    _grams = _feld(pendingNutrition ? '' : recipe?.estimatedGrams.toString() ?? '300');
-    _kcal = _feld(pendingNutrition ? '' : recipe?.caloriesKcal.toString() ?? '');
-    _protein = _feld(pendingNutrition ? '' : recipe?.proteinG.toString() ?? '');
-    _carbs = _feld(pendingNutrition ? '' : recipe?.carbsG.toString() ?? '');
-    _fat = _feld(pendingNutrition ? '' : recipe?.fatG.toString() ?? '');
+    _grams = _feld(pendingNutrition && recipe!.estimatedGrams == 0 ? '' : recipe?.estimatedGrams.toString() ?? '300');
+    _kcal = _feld(recipe?.displayNutrition.caloriesKcal?.round().toString() ?? '');
+    _protein = _feld(recipe?.displayNutrition.proteinG?.round().toString() ?? '');
+    _carbs = _feld(recipe?.displayNutrition.carbsG?.round().toString() ?? '');
+    _fat = _feld(recipe?.displayNutrition.fatG?.round().toString() ?? '');
     _ingredients = _feld(recipe?.ingredients ?? '');
     _preparation = _feld(recipe?.preparation ?? '');
     _description = _feld(recipe?.description ?? '');
@@ -335,6 +336,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   /// the sheet. Without the second half a fresh photo would be the one content
   /// a barrier tap discards silently.
   bool get _dirty =>
+      _nutritionBasisConfirmed ||
       _ingredientsChanged ||
       _structured !=
           (widget.initialRecipe?.hasStructuredIngredients ?? false) ||
@@ -407,10 +409,9 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   /// within their limits.
   bool get _pendingNutritionUnchanged =>
       (widget.initialRecipe?.hasPendingNutrition ?? false) &&
-      !_structured &&
-      [_kcal, _grams, _protein, _carbs, _fat].every(
-        (field) => field.text.trim().isEmpty,
-      );
+      !_structured && !_nutritionBasisConfirmed &&
+      _felder.where((field) => [_kcal, _grams, _protein, _carbs, _fat].contains(field.controller))
+          .every((field) => field.controller.text == field.start);
 
   bool get _isValid {
     if (_name.text.trim().isEmpty) return false;
@@ -436,7 +437,15 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
       return false;
     }
     // Required fields: empty means missing, not optional.
-    if (_kcal.text.trim().isEmpty || _grams.text.trim().isEmpty) return false;
+    if (_kcal.text.trim().isEmpty ||
+        (_grams.text.trim().isEmpty &&
+            !(widget.initialRecipe?.hasPendingNutrition ?? false))) {
+      return false;
+    }
+    if ((widget.initialRecipe?.hasUnclearNutritionBasis ?? false) &&
+        !_nutritionBasisConfirmed) {
+      return false;
+    }
     return _nameFehler == null &&
         _textFehler(_portion, _portionMaxCodePoints) == null &&
         _textFehler(_ingredients, _ingredientsMaxCodePoints) == null &&
@@ -545,9 +554,9 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
       estimatedGrams: estimatedGrams,
       categories: [
         for (final category in original?.categories ?? const <String>['Eigene'])
-          if (category != recipeNutritionPendingCategory ||
+          if (!isRecipeNutritionMetadata(category) ||
               _pendingNutritionUnchanged ||
-              (_structured && !(_calculation?.isComplete ?? false)))
+              (category == recipeNutritionPendingCategory && _structured && !(_calculation?.isComplete ?? false)))
             category,
       ],
       userCreated: true,
@@ -833,6 +842,18 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                     ),
                     const SizedBox(height: 16),
                   ],
+                  if (!_structured && (widget.initialRecipe?.hasUnclearNutritionBasis ?? false))
+                    Material(
+                      color: t.bg,
+                      child: CheckboxListTile(
+                        key: const ValueKey('recipe-edit-confirm-nutrition-basis'),
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(l10n.recipeImportConfirmBasis),
+                        subtitle: Text(l10n.recipeImportBasisHint),
+                        value: _nutritionBasisConfirmed,
+                        onChanged: (value) => setState(() => _nutritionBasisConfirmed = value ?? false),
+                      ),
+                    ),
                   if (_structured) ...[
                     RecipeIngredientEditor(
                       ingredients: _structuredIngredients,

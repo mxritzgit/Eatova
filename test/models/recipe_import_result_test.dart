@@ -30,6 +30,83 @@ Map<String, dynamic> responseJson() => {
 
 void main() {
   test(
+    'partial caption nutrition survives storage, display and editing boundaries',
+    () {
+      final candidate = RecipeImportCandidate.fromJson({
+        ...candidateJson(),
+        'calories_kcal': 358,
+        'protein_g': 32,
+        'fat_g': 0,
+      });
+      final recipe = FitnessRecipe.fromRow(
+        candidate
+            .toRecipe(slug: candidate.stableSlug(), sourceLabel: 'Source')
+            .toRow(),
+      );
+      expect(recipe.caloriesKcal, 358);
+      expect(recipe.proteinG, 32);
+      expect(recipe.displayNutrition.caloriesKcal, 358);
+      expect(recipe.displayNutrition.proteinG, 32);
+      expect(recipe.displayNutrition.fatG, 0);
+      expect(recipe.displayNutrition.carbsG, isNull);
+      expect(recipe.canLogServings(1), isFalse);
+      expect(
+        recipe.displayCategories.any(
+          (c) => c.startsWith(recipeNutritionKnownPrefix),
+        ),
+        isFalse,
+      );
+      final legacy = recipe.copyWith(
+        categories: ['Eigene', recipeNutritionPendingCategory],
+      );
+      expect(legacy.displayNutrition.proteinG, isNull);
+    },
+  );
+
+  test(
+    'nutrition with no stated serving basis stays visible but cannot be logged',
+    () {
+      final candidate = RecipeImportCandidate.fromJson({
+        ...candidateJson(),
+        'calories_kcal': 358,
+        'protein_g': 32,
+        'carbs_g': 31,
+        'fat_g': 11,
+        'nutrition_basis': 'unspecified',
+      });
+      final recipe = FitnessRecipe.fromRow(
+        candidate
+            .toRecipe(slug: candidate.stableSlug(), sourceLabel: 'Source')
+            .toRow(),
+      );
+      expect(candidate.nutritionBasisUnclear, isTrue);
+      expect(recipe.hasUnclearNutritionBasis, isTrue);
+      expect(recipe.displayNutrition.proteinG, 32);
+      expect(recipe.canLogServings(1), isFalse);
+      expect(
+        candidate.copyWith(clearNutrition: true).nutritionBasisUnclear,
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'ingredient-only caption can be saved without fabricated instructions',
+    () {
+      final candidate = RecipeImportCandidate.fromJson({
+        ...candidateJson(),
+        'preparation': '',
+      });
+      expect(
+        candidate
+            .toRecipe(slug: candidate.stableSlug(), sourceLabel: 'Source')
+            .preparation,
+        isEmpty,
+      );
+    },
+  );
+
+  test(
     'fractional source nutrition maps to the existing whole-unit recipe model',
     () {
       final candidate = RecipeImportCandidate.fromJson({
