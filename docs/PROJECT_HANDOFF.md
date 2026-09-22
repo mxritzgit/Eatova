@@ -1752,3 +1752,33 @@ the expected missing-preparation warning. The disposable account was deleted.
 See [Bowl regressions](../supabase/functions/recipe-import/bowl_basis_test.ts)
 and the [import contract](RECIPE_SHARE_IMPORT.md). The delivery PR records
 full CI, merge and deployment evidence; no updated app build is implied.
+
+## Separate caption values from serving conversion, 2026-09-22
+
+The Oreo report (`https://vm.tiktok.com/ZGdQqda4h/`, canonical Niall Grehan
+video `7356279018955607328`) exposed the limitation of the previous fixes.
+The public source fetch returned the complete caption, including `Macros for
+whole desert: 326 kcal 31g carbs 7g fat 32g protein`. The source validator still
+coupled every number to a small serving-basis vocabulary, so a valid but
+unrecognized heading cleared all four figures. The regression reproduces that
+loss without requiring a paid provider call.
+
+Version 2 now separates proof of a nutrient value from permission to normalize
+it to servings. A single source-backed block survives unfamiliar wording with
+its raw values and an unconfirmed basis. No dessert-specific phrase was added
+to authorize a serving conversion. Unproven mass/fraction references likewise
+stay reviewable without silent scaling. Null model fields can recover unique
+source values; missing values, conflicting blocks, swapped numbers and invalid
+numeric tokens remain guarded. Reading-order parsing also handles densely
+packed label-first values without borrowing the preceding nutrient's number.
+Complete values no longer receive the `nutrition_missing` warning solely
+because their basis needs confirmation. Legacy clients retain their stricter
+contract.
+
+See [the regression matrix](../supabase/functions/recipe-import/nutrition_evidence_test.ts)
+and [the Flutter preview/save test](../test/recipe_import_sheet_test.dart).
+The shared Oreo response fixture was generated through the actual TypeScript
+parser and is consumed by Flutter's JSON model, preview and storage checks.
+Delivery evidence must distinguish local verification, protected-main CI/merge,
+authenticated provider tests and backend deployment; the delivery PR records
+their final status. No device build is implied by a backend rollout.

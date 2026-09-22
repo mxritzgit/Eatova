@@ -37,6 +37,7 @@ Rules:
 - title (max 160 chars) is a short descriptive label in ${locale === 'en' ? 'English' : 'German'}. variant_label (max 80 chars), description_quote and portion_quote must be exact source quotes, or empty. Keep variant_label in the source language; never invent or translate dietary labels. Never claim dietary/allergen suitability beyond what the source explicitly says.
 - servings is the explicitly stated recipe yield, otherwise null; servings_quote must prove it (e.g. "Für 2 Portionen" or "Für eine Pizza"/"Makes one pizza" = 1). Quote the yield phrase itself. Copy nutrition numbers EXACTLY AS WRITTEN, including decimals and zero. Never calculate or estimate. nutrition_quote must include the entire nutrition block WITH its basis, even when "pro Portion" appears AFTER the values. Recognize kcal/Kalorien, Protein/Eiweiß, KH/Kohlenhydrate/carbs, Fett/fat. Do not require all macros or a portion weight: copy each available value independently, unknown values are null.
 - nutrition_basis describes the SOURCE: per_serving for an explicit serving/person/piece basis (including "pro Stück"), per_recipe for explicitly labelled totals, per_100g for that basis, unspecified if the caption lists values without stating a basis. Never reinterpret totals as per-serving. The server handles proven yield conversion. Do not combine nutrition from different recipes/variants. estimated_g is a stated weight, never an ingredient weight.
+- Nutrition values and serving counts are independent. Preserve a single complete nutrition block and all its numbers even when its heading is unfamiliar, misspelled, or its serving count is absent. Whole-dish/batch totals remain per_recipe with servings=null unless a yield is stated. Use portion_quote for the exact reference phrase (for example "whole dessert" or "per 100 g"). Do not copy several conflicting nutrition blocks into one nutrition_quote or omit the reference to make a block look per-serving.
 - When the recipe explicitly yields one complete dish (e.g. "Für eine Pizza"), its matching complete-recipe nutrition block is per_recipe with servings=1. Select the block for the actual ingredients: "mit Belag" belongs to the pizza with toppings, "ohne Belag" only to the untopped version. A per-100g or fractional-dish block never becomes whole-recipe nutrition through this rule. Without an explicit yield or nutrition basis, keep unspecified.
 - Return JSON only, no markdown, tools, or surrounding prose.`;
 }
@@ -117,7 +118,7 @@ export async function parseExtraction(raw: string, content: SourceContent, versi
     };
     const variant = quote(row.variant_label, content.text, 80);
     if (variant) candidate.variant_label = variant;
-    if (candidate.nutrition_basis !== 'per_serving' || [candidate.calories_kcal, candidate.protein_g, candidate.carbs_g, candidate.fat_g].includes(null)) warnings.add('nutrition_missing');
+    if ([candidate.calories_kcal, candidate.protein_g, candidate.carbs_g, candidate.fat_g].includes(null)) warnings.add('nutrition_missing');
     candidates.push(candidate);
   }
   if (data.candidates.length && !candidates.length) {

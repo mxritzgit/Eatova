@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -118,6 +120,49 @@ Future<void> _enter(WidgetTester tester, String key, String text) async {
 }
 
 void main() {
+  testWidgets(
+    'whole-dessert server values remain visible through preview and save',
+    (tester) async {
+      final response = RecipeImportResult.fromJson(
+        jsonDecode(
+              File(
+                'test/fixtures/recipe_import/whole_dessert.json',
+              ).readAsStringSync(),
+            )
+            as Map<String, dynamic>,
+      );
+      final saved = <FitnessRecipe>[];
+      await _open(
+        tester,
+        service: _Service((_) async => response),
+        save: (recipe) async {
+          saved.add(recipe);
+          return SyncDelivery.delivered;
+        },
+      );
+      for (final value in ['326', '32 g', '31 g', '7 g']) {
+        expect(find.text(value), findsOneWidget);
+      }
+      expect(find.text('—'), findsNothing);
+      expect(find.text('per portion'), findsNothing);
+      await _tap(tester, 'recipe-import-save');
+      final restored = FitnessRecipe.fromRow(saved.single.toRow());
+      expect(restored.displayNutrition.caloriesKcal, 326);
+      expect(restored.displayNutrition.proteinG, 32);
+      expect(restored.displayNutrition.carbsG, 31);
+      expect(restored.displayNutrition.fatG, 7);
+      expect(
+        restored.displayCategories,
+        isNot(contains(recipeNutritionPendingCategory)),
+      );
+      expect(restored.hasUnclearNutritionBasis, isTrue);
+      expect(restored.canLogServings(1), isFalse);
+      final confirmed = restored.withConfirmedNutritionBasis(1);
+      expect(confirmed.canLogServings(1), isTrue);
+      expect(confirmed.toMealResultForServings(1).caloriesKcal, 326);
+    },
+  );
+
   testWidgets('preview and saved edit retain each known macro independently', (
     tester,
   ) async {
