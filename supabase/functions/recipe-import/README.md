@@ -36,12 +36,19 @@ be treated as one complete serving. Conflicting bases, fractional-dish values
 and mixed nutrition blocks cannot use this fallback. The prompt selects the
 nutrition block for the actual ingredients (e.g. pizza with toppings).
 `nutrition_basis` in the response is `per_serving`, `unspecified` or null. Version 2
-preserves unqualified figures as `unspecified`; the app requires a deliberate basis
-confirmation before logging them. Per-100g values are not converted without a
-known cooked portion weight. No calorie estimates are generated.
+preserves uniquely evidenced figures from one nutrition block as `unspecified`
+whenever conversion to servings is unproven. This includes unfamiliar headings,
+whole-dish totals without yield, per-100g and fractional references. The app
+shows the raw values and requires deliberate basis confirmation before logging;
+neither a model label nor a recipe yield alone proves the conversion. Missing
+model fields can be recovered from an unambiguous source label/number pair.
+Reading-order binding supports numbers before or after their labels and avoids
+assigning the same quantity to neighboring nutrients. Conflicting blocks are
+not merged, missing source values remain null, and no estimates are generated.
 Warnings are only `nutrition_missing`, `source_incomplete`, `truncated`. The last
 also means some additional recipes could not be represented completely; it never
-authorizes silently completing them.
+authorizes silently completing them. An unresolved basis with all four values
+present does not emit `nutrition_missing`; use `nutrition_basis` for that state.
 
 Public TikTok captions are obtained from the official
 [oEmbed endpoint](https://developers.tiktok.com/docs/en/embed-videos).

@@ -1,0 +1,28 @@
+{
+  "status": "ready",
+  "source": {
+    "url": "https://www.tiktok.com/@niall_grehan/video/7356279018955607328",
+    "unavailable": false,
+    "title": "High Protein Oreo Dessert🍧🍪 Ingredients:  • 180g 0% Greek yogurt • 15g vanilla protein powder  • 3 oreo cookies * Mix the yogurt with the protein, add sweeten",
+    "author": "Niall Grehan"
+  },
+  "candidates": [
+    {
+      "id": "48825919d63c8939a2aba87c7c11289c",
+      "title": "High Protein Oreo Dessert",
+      "ingredients": "180g 0% Greek yogurt\n15g vanilla protein powder\n3 oreo cookies",
+      "preparation": "Mix the yogurt with the protein, add sweetener if desired\nBreak up one Oreo into the mix and whisk around until it’s smooth\nLayer first the half yogurt mix, then Oreo and again yogurt mix\nCrumple up one Oreo on top and enjoy",
+      "description": "",
+      "portion": "whole desert",
+      "servings": null,
+      "nutrition_estimated": false,
+      "calories_kcal": 326,
+      "protein_g": 32,
+      "carbs_g": 31,
+      "fat_g": 7,
+      "estimated_g": null,
+      "nutrition_basis": "unspecified"
+    }
+  ],
+  "warnings": []
+}

@@ -16,7 +16,7 @@ Nothing enters the user's recipe library until the user confirms a specific reci
 | Missing/private/unavailable caption | Ask for pasted recipe text in the same sheet. |
 | Ingredients in the caption, steps only in the video | Preview the ingredients and explicitly mark missing steps; never invent instructions. |
 | Partial nutrition | Keep and display every known value, including zero. Only missing values are blank; block food logging until complete. |
-| Nutrition without a serving basis | Preserve the caption values and show a serving-basis status. The tracker action asks how many servings the values cover, saves the confirmation, then opens meal selection. |
+| Nutrition with an unconfirmed serving basis | Preserve the caption values even when the reference wording is unfamiliar, a whole-dish yield is absent, or values refer to a mass/fraction. The tracker asks how many servings the displayed values cover, saves the confirmation, then opens meal selection. |
 | Repeated share | Content-based recipe identity prevents overwriting an existing saved import. |
 
 The existing Recipes header also has an Import action for pasting a link or text.
@@ -76,6 +76,23 @@ totals are divided only by a proven yield. An exact yield such as
 nutrition can be retained as one serving. Per-100g and
 fractional-dish values are not promoted by this rule. Missing values are never
 estimated; ambiguous serving bases stay pending.
+
+Number evidence and serving conversion are separate decisions. Version 2 retains
+each uniquely evidenced nutrient from a single nutrition block even when the
+basis validator does not recognize its wording, such as `Macros for whole
+desert`. Those values are returned unchanged as `unspecified`; a guessed model
+basis or the recipe yield alone cannot authorize division. Per-100g and
+fractional-reference values can likewise be reviewed but are not automatically
+converted or logged. This avoids maintaining a list of every dish name merely
+to display its caption values. Older clients without version 2 still receive
+only values safe for their earlier per-serving contract.
+
+The parser binds adjacent nutrient labels and numbers in reading order, supporting
+both `32g protein` and `protein: 32g` without borrowing a neighboring nutrient's
+number. A null model field can be recovered from a unique source pair; missing,
+conflicting, invalid and out-of-range values remain null. Distinct nutrition
+blocks are not merged. Complete values with an unresolved basis no longer emit
+`nutrition_missing`; the candidate's basis field still requires confirmation.
 
 No extraction request writes recipe rows. Explicit saves use `HomeStore.saveUserRecipe`
 and the existing encrypted cache, transactional outbox, server revisions and ownership

@@ -47,13 +47,18 @@ Deno.test('a single yielded dish never overrides another nutrition basis or conf
     'Nutrition per 100 ml: 507 kcal, 50 g protein',
     'Nährwerte für eine halbe Pizza: 507 kcal, 50 g Protein',
     'Nutrition for 2 slices: 507 kcal, 50 g protein',
-    'Nährwerte mit Belag: 507 kcal, 50 g Protein. Nährwerte ohne Belag: 343 kcal, 24 g Protein.',
   ]) {
     const value = sourcedNutrition(row, evidence, 1, true, 'Für eine Pizza');
-    check(value.calories_kcal === null && value.protein_g === null, 'No unsupported whole-recipe attribution: ' + evidence);
+    check(value.calories_kcal === 507 && value.protein_g === 50 &&
+      value.nutrition_basis === 'unspecified', 'Keep raw values without whole-recipe attribution: ' + evidence);
   }
+  const mixed = sourcedNutrition(row,
+    'Nährwerte mit Belag: 507 kcal, 50 g Protein. Nährwerte ohne Belag: 343 kcal, 24 g Protein.',
+    1, true, 'Für eine Pizza');
+  check(mixed.calories_kcal === null && mixed.protein_g === null, 'Conflicting variant blocks remain separate');
   const guessed = sourcedNutrition(row, 'Nährwerte: 507 kcal, 50 g Protein', 1, true);
-  check(guessed.calories_kcal === null, 'A numeric yield without source evidence is insufficient');
+  check(guessed.calories_kcal === 507 && guessed.nutrition_basis === 'unspecified',
+    'A numeric yield without source evidence must not authorize conversion');
   const ordinary = sourcedNutrition({ ...row, nutrition_basis: 'unspecified' },
     'Nährwerte: 507 kcal, 50 g Protein', null, true);
   check(ordinary.nutrition_basis === 'unspecified' && ordinary.calories_kcal === 507, 'Unstated recipe yield stays unconfirmed');

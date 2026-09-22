@@ -63,19 +63,21 @@ Deno.test('written one-unit nutrition headings work in German and English', () =
   }
 });
 
-Deno.test('ambiguous and incompatible nutrition blocks remain untrusted', () => {
+Deno.test('other nutrition references stay unconfirmed and conflicting blocks stay separate', () => {
   const row = { nutrition_basis: 'per_serving', calories_kcal: 425,
     protein_g: 48, carbs_g: 39, fat_g: 8 };
   for (const evidence of [
     'Nährwerte (1/2 Bowl): 425 kcal, 48 g Protein, 39 g Kohlenhydrate, 8 g Fett',
     'Nährwerte (2 Bowls): 425 kcal, 48 g Protein, 39 g Kohlenhydrate, 8 g Fett',
     'Nährwerte pro 100 g: 425 kcal, 48 g Protein, 39 g Kohlenhydrate, 8 g Fett',
-    `${nutrition}\nNährwerte (1 Pizza): 343 kcal, 24 g Protein`,
   ]) {
     const value = sourcedNutrition(row, evidence, null, true);
-    check(value.calories_kcal === null && value.protein_g === null,
-      'No unsupported per-Bowl attribution: ' + evidence);
+    check(value.calories_kcal === 425 && value.protein_g === 48 &&
+      value.nutrition_basis === 'unspecified', 'Source values are not promoted to per-Bowl: ' + evidence);
   }
+  const conflicting = sourcedNutrition(row, `${nutrition}\nNährwerte (1 Pizza): 343 kcal, 24 g Protein`, null, true);
+  check(conflicting.calories_kcal === null && conflicting.protein_g === null,
+    'Different dishes cannot share one nutrition block');
   const swapped = sourcedNutrition({ ...row, protein_g: 39, carbs_g: 48 }, nutrition, null, true);
   check(swapped.calories_kcal === 425 && swapped.protein_g === null &&
     swapped.carbs_g === null && swapped.fat_g === 8, 'Nutrient labels still bind each number');
