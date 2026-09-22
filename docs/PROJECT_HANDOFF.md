@@ -1688,3 +1688,46 @@ passed. The regression fixtures detected the old trailing-basis, whole-total
 and long-caption failures before the fixes. The delivery PR records the final
 CI, merge and deployed function version; no updated device installation is
 established by these checks.
+
+## Imported nutrition and tracker handoff, 2026-09-22
+
+The follow-up pizza screenshots exposed two linked presentation failures:
+complete caption values with an unconfirmed basis still showed the generic
+"Nutrition missing" marker, and the tracker action opened a picker whose four
+meal buttons were disabled without an actionable way to resolve the basis.
+The caption explicitly said `Für eine Pizza`, which the yield validator also
+missed. Its matching with-toppings values are 507 kcal / 50 g protein / 61 g
+carbs / 6 g fat; the separate without-toppings block must not be mixed in.
+
+New imports recognize that exact written single-dish yield with conservative
+source checks. A real provider/authenticated handler call for the screenshot
+video returned the four expected values, yield 1 and `per_serving`, with no
+warnings or provider diagnostics. Hot Pockets, partial values, recipe totals
+and genuinely unspecified bases also retained their expected behavior. The
+temporary synthetic account was deleted and deletion verified.
+
+Existing saved recipes now distinguish missing values from an unclear basis.
+The tracker action opens a compact serving-basis confirmation for complete
+figures, persists it through the existing recipe save/outbox path, then opens
+meal selection. Actually missing values lead directly to the prefilled editor.
+Cancellation, invalid amounts, failed persistence and stale account sessions
+do not create diary entries. No row migration or automatic recipe rewrite is
+needed. See the [current import contract](RECIPE_SHARE_IMPORT.md).
+
+Three Flutter regressions and the original two yield regressions failed against
+the prior behavior before the fixes. The focused 50-case Flutter suite covers
+all four meal slots, offline receipts, scaling, retry, cancellation, single
+flight, account switching and large German/English text. The source guards
+also reject per-100g, fractional and mixed-block reinterpretations. Real-font
+light/dark renders were inspected; strict analysis passes. See the
+[tracker regressions](../test/recipe_import_tracker_test.dart) and
+[yield/source guards](../supabase/functions/recipe-import/single_yield_test.ts).
+An additional real-provider case caught loss of valid numbers when a single-dish
+caption omitted the optional nutrition heading; its negative control failed
+before the correction and its live rerun retained all four values and basis.
+
+Local verification passed **5,131 Flutter tests**, **94.95% coverage (31,328 /
+32,993)** excluding generated localization, **742 backend tests** and **11
+offline evaluations**. The delivery PR records CI results, merge and deployed
+function version. App changes still require a new device build; backend
+deployment alone does not update it.

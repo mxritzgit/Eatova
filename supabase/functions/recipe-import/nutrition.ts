@@ -17,9 +17,17 @@ export function evidencedNumber(value: unknown, numbers: string[], min: number, 
   return distinct.size === 1 && distinct.has(value) ? value : null;
 }
 
+function explicitDishYield(evidence: string): number | null {
+  const match = /^(?:für|fuer|for|ergibt|makes|yields)\s+(ein(?:e[nr]?)?|one|\d+(?:[.,]\d+)?)\s+(?:pizza|pizzen|pizzas|bowls?|burgers?|pancakes?|pfannkuchen|waffeln?|waffles?|portion(?:en|s)?|servings?)\s*[.!:]?$/i.exec(evidence.trim());
+  if (!match) return null;
+  return /^(?:ein|one)/i.test(match[1]) ? 1 : Number(match[1].replace(',', '.'));
+}
+
 export function sourcedServings(value: unknown, evidence: string): number | null {
   const numbers = [...evidence.matchAll(/(\d+(?:[.,]\d+)?)\s*(?:portion(?:en|s)?|servings?|personen|people|stücke?|stuecke?|pieces?)\b/gi)].map((m) => m[1]);
   numbers.push(...[...evidence.matchAll(/\b(?:serves|servings|portionen)\s*[:=]?\s*(\d+(?:[.,]\d+)?)/gi)].map((m) => m[1]));
+  const dishYield = explicitDishYield(evidence);
+  if (dishYield !== null) numbers.push(String(dishYield));
   return evidencedNumber(value, numbers, 0.1, 100);
 }
 
@@ -49,11 +57,18 @@ function sourcedValue(value: unknown, evidence: string, field: Field): number | 
     field === 'calories_kcal' || field === 'estimated_g' ? 10_000 : 1000);
 }
 
-export function sourcedNutrition(row: Record<string, unknown>, evidence: string, servings: number | null, allowUnspecified: boolean): Nutrition {
+export function sourcedNutrition(row: Record<string, unknown>, evidence: string, servings: number | null, allowUnspecified: boolean, servingsEvidence = ''): Nutrition {
   const result: Nutrition = { calories_kcal: null, protein_g: null, carbs_g: null, fat_g: null, estimated_g: null, nutrition_basis: null };
   const basis = row.nutrition_basis;
   if (!['per_serving', 'per_recipe', 'per_100g', 'unspecified'].includes(String(basis))) return result;
-  const block = nutritionBlock(evidence, basis as Basis);
+  let block = nutritionBlock(evidence, basis as Basis);
+  // One explicitly yielded dish makes its complete recipe totals one serving.
+  // A model label alone, a fraction or a conflicting per-unit basis is not proof.
+  if (!block && basis === 'per_recipe' && servings === 1 &&
+      explicitDishYield(servingsEvidence) === 1 &&
+      !/\b(?:pro|je|per|für|fuer|for|half|halbe[nrs]?|viertel|quarter|slices?|stücke?|stuecke?|pieces?)\b|[½¼]|1\s*\/\s*[24]/i.test(evidence)) {
+    block = nutritionBlock(evidence, 'unspecified');
+  }
   if (!block || basis === 'unspecified' && !allowUnspecified) return result;
   let divisor = 1;
   if (basis === 'per_recipe') {

@@ -233,7 +233,7 @@ class RecipeImportCandidate {
       categories: [
         'Eigene',
         if (!hasNutrition || nutritionBasisUnclear) ...[
-          recipeNutritionPendingCategory,
+          if (!hasNutrition) recipeNutritionPendingCategory,
           if (nutritionBasisUnclear) recipeNutritionBasisPendingCategory,
           for (final entry in {
             'calories_kcal': caloriesKcal,

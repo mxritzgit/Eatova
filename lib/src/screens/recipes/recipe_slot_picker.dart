@@ -121,7 +121,7 @@ class _MealSlotPickerSheetState extends State<_MealSlotPickerSheet> {
                         const SizedBox(height: 8),
                         Text(
                           result == null
-                              ? l10n.recipeEditCannotLog
+                              ? _recipeSummary(recipe, l10n)
                               : '${result.caloriesKcal} kcal · ${result.protein} ${l10n.todayMacroProtein}',
                           style: AppType.ui(13, color: t.ink2, height: 1.4),
                         ),
@@ -139,7 +139,11 @@ class _MealSlotPickerSheetState extends State<_MealSlotPickerSheet> {
                 if (result == null) ...[
                   const SizedBox(height: 12),
                   Text(
-                    l10n.recipeEditCannotLog,
+                    recipe.hasUnclearNutritionBasis
+                        ? l10n.recipeImportBasisHint
+                        : recipe.hasPendingNutrition
+                        ? l10n.recipeImportNutritionPendingHint
+                        : l10n.recipeEditCannotLog,
                     key: const ValueKey('recipe-log-unavailable'),
                     style: AppType.ui(14, color: t.ink2, height: 1.4),
                   ),
@@ -192,40 +196,51 @@ class _MealSlotButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final accent = slot.accentIn(context);
-    return Material(
-      color: t.surf,
-      borderRadius: BorderRadius.circular(rControl),
-      child: InkWell(
-        key: ValueKey('recipe-meal-picker-${slot.name}'),
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(rControl),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(
+    return Semantics(
+      button: true,
+      enabled: onTap != null,
+      child: Opacity(
+        opacity: onTap == null ? 0.45 : 1,
+        child: Material(
+          color: t.surf,
+          borderRadius: BorderRadius.circular(rControl),
+          child: InkWell(
+            key: ValueKey('recipe-meal-picker-${slot.name}'),
+            onTap: onTap,
             borderRadius: BorderRadius.circular(rControl),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: slot.diarySurface(t),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: AppIcon(slot.symbol, size: 24, color: accent),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(rControl),
               ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 46,
+                    height: 46,
+                    decoration: BoxDecoration(
+                      color: slot.diarySurface(t),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: AppIcon(slot.symbol, size: 24, color: accent),
+                  ),
 
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  slot.label(context.l10n),
-                  style: AppType.ui(16, weight: FontWeight.w600, color: t.ink),
-                ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      slot.label(context.l10n),
+                      style: AppType.ui(
+                        16,
+                        weight: FontWeight.w600,
+                        color: t.ink,
+                      ),
+                    ),
+                  ),
+                  Icon(Icons.add_rounded, color: t.accent, size: 22),
+                ],
               ),
-              Icon(Icons.add_rounded, color: t.accent, size: 22),
-            ],
+            ),
           ),
         ),
       ),
