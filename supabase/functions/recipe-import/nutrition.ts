@@ -32,10 +32,15 @@ export function sourcedServings(value: unknown, evidence: string): number | null
 }
 
 // A single block can end with its basis. Mixed blocks must have clear headers.
+const singleUnitHeading = /\b(?:nährwerte|naehrwerte|nutrition|macros?)\s*:?\s*\(\s*(?:1|ein(?:e[nr]?)?|one)\s+(?:bowls?|pizzas?|burgers?|pancakes?|waffles?|waffeln?|pfannkuchen|portion(?:en|s)?|servings?|stücke?|stuecke?|pieces?)\s*\)/i;
+
 function nutritionBlock(evidence: string, basis: Basis): string {
-  const markers = [...evidence.matchAll(/\b(?:(?:pro|je|per)\s*(?:(?:1|eine[r]?|one)\s+)?(?:portion|serving|person|stück|stueck|piece)\b|(?:pro|je|per)\s*100\s*g\b|(?:insgesamt|gesamt(?:es\s+rezept)?|total|whole\s+recipe|entire\s+recipe|für\s+das\s+(?:ganze\s+)?rezept)\b)/gi)];
+  const markers = [
+    ...evidence.matchAll(/\b(?:(?:pro|je|per)\s*(?:(?:1|eine[r]?|one)\s+)?(?:portion|serving|person|stück|stueck|piece)\b|(?:pro|je|per)\s*100\s*g\b|(?:insgesamt|gesamt(?:es\s+rezept)?|total|whole\s+recipe|entire\s+recipe|für\s+das\s+(?:ganze\s+)?rezept)\b)/gi),
+    ...evidence.matchAll(new RegExp(singleUnitHeading.source, 'gi')),
+  ].sort((a, b) => a.index! - b.index!);
   const kind = (text: string): Basis => /100\s*g/i.test(text) ? 'per_100g'
-    : /(?:pro|je|per)\s/i.test(text) ? 'per_serving' : 'per_recipe';
+    : /(?:pro|je|per)\s/i.test(text) || singleUnitHeading.test(text) ? 'per_serving' : 'per_recipe';
   if (!markers.length) return basis === 'unspecified' ? evidence : '';
   const selected = markers.filter((m) => kind(m[0]) === basis);
   if (selected.length !== 1) return '';
@@ -59,7 +64,10 @@ function sourcedValue(value: unknown, evidence: string, field: Field): number | 
 
 export function sourcedNutrition(row: Record<string, unknown>, evidence: string, servings: number | null, allowUnspecified: boolean, servingsEvidence = ''): Nutrition {
   const result: Nutrition = { calories_kcal: null, protein_g: null, carbs_g: null, fat_g: null, estimated_g: null, nutrition_basis: null };
-  const basis = row.nutrition_basis;
+  // An explicit one-dish nutrition heading is stronger than the model's basis label.
+  const basis = singleUnitHeading.test(evidence) &&
+      (row.nutrition_basis === 'unspecified' || row.nutrition_basis === 'per_recipe')
+    ? 'per_serving' : row.nutrition_basis;
   if (!['per_serving', 'per_recipe', 'per_100g', 'unspecified'].includes(String(basis))) return result;
   let block = nutritionBlock(evidence, basis as Basis);
   // One explicitly yielded dish makes its complete recipe totals one serving.

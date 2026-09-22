@@ -24,6 +24,11 @@ IDs hash normalized source ingredient/preparation text, independent of translate
 titles. Ingredient/preparation fields and variant labels must be verbatim source
 quotes. Unknown nutrition stays null. Each copied value must match its nutrient label and
 source number; per-serving/per-piece bases can precede or follow the figures.
+Parenthesized single-item nutrition headings such as `Nährwerte (1 Bowl)` and
+`Nutrition (one pizza)` are source proof of a per-item basis, independent of
+the model's basis label. A nutrition basis for one item does not itself prove
+the recipe's total serving yield. Conflicting or fractional headings cannot
+authorize a per-item conversion.
 Explicit whole-recipe totals use the evidenced yield for server-side division.
 Exact single-dish yields also recognize written one (`Für eine Pizza`, `Makes
 one pizza`). With that source proof, a matching whole-dish nutrition block can

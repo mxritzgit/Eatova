@@ -67,9 +67,13 @@ prove that a model associated every quote with the correct dish. Human review re
 part of the workflow. Whitespace differences are normalized without rewriting source
 content; repeated quantities in different recipe parts are preserved. Nutrition
 recognizes German/English labels, abbreviations, decimals, approximate caption values
-and per-piece wording. Explicit whole-recipe totals are divided only by a proven
-yield. An exact yield such as `Für eine Pizza` also proves a single complete dish;
-its matching whole-dish nutrition can be retained as one serving. Per-100g and
+and per-piece wording. A heading such as `Nährwerte (1 Bowl)` proves the values
+apply to one Bowl; it does not establish the whole recipe's yield. The source
+validator keeps those four values even if the model labels the basis differently.
+Mixed, fractional and per-100g blocks remain separate. Explicit whole-recipe
+totals are divided only by a proven yield. An exact yield such as
+`Für eine Pizza` also proves a single complete dish; its matching whole-dish
+nutrition can be retained as one serving. Per-100g and
 fractional-dish values are not promoted by this rule. Missing values are never
 estimated; ambiguous serving bases stay pending.
 

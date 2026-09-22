@@ -1731,3 +1731,24 @@ Local verification passed **5,131 Flutter tests**, **94.95% coverage (31,328 /
 offline evaluations**. The delivery PR records CI results, merge and deployed
 function version. App changes still require a new device build; backend
 deployment alone does not update it.
+
+## Single-Bowl caption nutrition guard, 2026-09-22
+
+The next reported TikTok screenshot showed `Nährwerte (1 Bowl): 425 kcal,
+48 g Protein, 39 g Kohlenhydrate, 8 g Fett`, while the preview showed four
+dashes. A real provider call using the caption reproduced the failure: the
+model returned all four correct numbers and `per_serving`, but the server
+source validator rejected the parenthesized Bowl basis and discarded every
+number. Recipe ingredients still survived, explaining the misleading preview.
+
+The validator now recognizes source-backed parenthesized one-item nutrition
+headings. It chooses that explicit basis even if a model labels it uncertain or
+as a recipe total, and still verifies each number against its nutrient label.
+`1 Bowl` in the nutrition heading is not treated as proof of the recipe's
+overall yield. Fractional, per-100g and multiple conflicting blocks remain
+unconfirmed. The before-fix regression failed with all four values null; the
+corrected local handler/provider call returned 425/48/39/8 per Bowl with only
+the expected missing-preparation warning. The disposable account was deleted.
+See [Bowl regressions](../supabase/functions/recipe-import/bowl_basis_test.ts)
+and the [import contract](RECIPE_SHARE_IMPORT.md). The delivery PR records
+full CI, merge and deployment evidence; no updated app build is implied.
