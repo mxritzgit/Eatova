@@ -5,6 +5,7 @@
 // countermeasures via the CALL COUNT, since the message alone would look
 // right either way.
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -60,6 +61,21 @@ class _ZaehlenderProduktdienst implements ProductLookupService {
       throw fehler!;
     }
     return treffer;
+  }
+}
+
+class _RecoveringTimeoutSearch implements ProductLookupService {
+  int calls = 0;
+
+  @override
+  Future<MealAnalysisResult> lookupBarcode(String barcode) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<ProductSearchResult>> searchProducts(String query) async {
+    calls++;
+    if (calls <= 3) throw TimeoutException('world catalog unanswered');
+    return _einTreffer;
   }
 }
 
@@ -223,6 +239,31 @@ void main() {
       dienst.aufrufe,
       3,
       reason: 'ein Wackler darf weiterhin dreimal versucht werden',
+    );
+  });
+
+  testWidgets('a timed-out catalog can be searched again after recovery', (
+    tester,
+  ) async {
+    final service = _RecoveringTimeoutSearch();
+    await _pumpeSheet(tester, service);
+    await tester.enterText(
+      find.byKey(const ValueKey('kcal-product-search-input')),
+      'Eiweissbrot',
+    );
+    await tester.pump(const Duration(milliseconds: 1100));
+    await tester.pump(const Duration(milliseconds: 1300));
+    await tester.pumpAndSettle();
+    expect(service.calls, 3);
+    expect(find.text(_keineTreffer), findsNothing);
+    expect(find.byKey(const ValueKey('manual-entry-cta')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('kcal-product-search-button')));
+    await tester.pumpAndSettle();
+    expect(service.calls, 4);
+    expect(
+      find.byKey(const ValueKey('kcal-product-suggestion-0')),
+      findsOneWidget,
     );
   });
 

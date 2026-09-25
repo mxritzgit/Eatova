@@ -273,18 +273,28 @@ void main() {
           reason: 'sonst waeren es 12 s Antwort-Phase je Endpunkt');
     });
 
-    test('sauber leeres de ueberlebt ein haengendes world', () async {
-      // P10-02 und P10-07 zusammen: die Frist laeuft im zweiten Endpunkt ab,
-      // aber der erste hat sauber geantwortet — das bleibt "nichts gefunden".
+    test('leeres de plus haengendes world bleibt ein unbekanntes Ergebnis',
+        () async {
+      // The first catalog's empty result cannot speak for the second one.
+      // Give both sockets time to start on a busy runner, while the shared
+      // deadline still bounds the incomplete search.
       final stub = await _LeeresDeStummesWorld.start();
       addTearDown(stub.close);
 
-      final treffer = await OpenFoodFactsProductService(
-        searchBaseUrls: stub.searchBaseUrls,
-        searchChainBudget: _winziges,
-      ).searchProducts('bauernmozzarella');
+      final uhr = Stopwatch()..start();
+      await expectLater(
+        OpenFoodFactsProductService(
+          searchBaseUrls: stub.searchBaseUrls,
+          searchChainBudget: const Duration(seconds: 3),
+        ).searchProducts('bauernmozzarella').timeout(
+          const Duration(seconds: 8),
+          onTimeout: () => throw StateError('OFF search did not finish'),
+        ),
+        throwsA(isA<TimeoutException>()),
+      );
+      uhr.stop();
 
-      expect(treffer, isEmpty);
+      expect(uhr.elapsed, lessThan(const Duration(seconds: 5)));
       expect(stub.gefragt, <String>['de', 'world']);
     });
   });

@@ -129,17 +129,18 @@ export async function authFailGate(options: AuthFailGateOptions): Promise<AuthFa
     }
     data = await response.json();
   } catch (e) {
-    console.error(`${label} failed: ${e instanceof Error ? e.message : String(e)}`);
+    const kind = e instanceof DOMException && (e.name === 'TimeoutError' || e.name === 'AbortError')
+      ? 'timeout'
+      : 'transport unavailable';
+    console.error(`${label} failed: ${kind}`);
     return { limited: false };
   }
 
   // E6, same guard as the application gates: a broken response shape is a
-  // limiter outage, not a measured limit. The diagnostic names the fields,
-  // not their values.
+  // limiter outage, not a measured limit. Never log upstream field names.
   const record = data !== null && typeof data === "object" ? data as Record<string, unknown> : null;
   if (record === null || typeof record.allowed !== "boolean") {
-    const shape = record === null ? typeof data : Object.keys(record).join(",");
-    console.error(`${label}: 200 ohne lesbares allowed (Felder: ${shape})`);
+    console.error(`${label}: 200 ohne lesbares allowed`);
     return { limited: false };
   }
   if (record.allowed) return { limited: false };
@@ -154,7 +155,7 @@ export async function authFailGate(options: AuthFailGateOptions): Promise<AuthFa
     // caller changing its fallback would have put that id into function_logs
     // (CWE-532). Which bucket it is, is all this warning ever needed.
     console.warn(
-      `${label}: geteilter ${options.subject.split(":")[0]}-Bucket erschoepft — bis ${resetAt} wird jede 401 als 429 beantwortet`,
+      `${label}: geteilter ${options.subject.split(":")[0]}-Bucket erschoepft — jede 401 wird als 429 beantwortet`,
     );
   }
   const reportedWindow = Number(record.windowSeconds);

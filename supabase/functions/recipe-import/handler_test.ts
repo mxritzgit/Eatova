@@ -15,6 +15,7 @@ const MODEL = {
 type Call = { url: string; body: Record<string, unknown>; headers: Headers; redirect?: RequestRedirect };
 type Options = {
   authStatus?: number; authBody?: unknown; gate?: unknown; budget?: unknown;
+  authCancelStall?: boolean; gateCancelStall?: boolean; providerCancelStall?: boolean;
   model?: unknown; providerStatus?: number; providerRaw?: string; finishReason?: string;
   providerSequence?: Array<{ status?: number; raw?: string }>;
   budgetSequence?: unknown[];
@@ -42,12 +43,25 @@ async function stub(options: Options, run: (calls: Call[]) => Promise<void>): Pr
     const target = String(url);
     const body = init?.body ? JSON.parse(String(init.body)) : {};
     calls.push({ url: target, body, headers: new Headers(init?.headers), redirect: init?.redirect });
-    if (target.endsWith('/auth/v1/user')) return Promise.resolve(Response.json(options.authBody ?? { id: USER }, { status: options.authStatus ?? 200 }));
+    if (target.endsWith('/auth/v1/user')) {
+      if (options.authCancelStall) return Promise.resolve(new Response(new ReadableStream<Uint8Array>({
+        cancel() { return new Promise<void>(() => {}); },
+      }), { status: 503 }));
+      return Promise.resolve(Response.json(options.authBody ?? { id: USER }, { status: options.authStatus ?? 200 }));
+    }
     if (target.endsWith('/consume_edge_rate_limit')) return Promise.resolve(Response.json({ allowed: true }));
-    if (target.endsWith('/consume_edge_rate_limits')) return Promise.resolve(Response.json(options.gate ?? body.p_gates.map(() => ({ allowed: true }))));
+    if (target.endsWith('/consume_edge_rate_limits')) {
+      if (options.gateCancelStall) return Promise.resolve(new Response(new ReadableStream<Uint8Array>({
+        cancel() { return new Promise<void>(() => {}); },
+      }), { status: 503 }));
+      return Promise.resolve(Response.json(options.gate ?? body.p_gates.map(() => ({ allowed: true }))));
+    }
     if (target.endsWith('/reserve_ai_provider_call')) return Promise.resolve(Response.json(options.budgetSequence?.[calls.filter((c) => c.url.endsWith('/reserve_ai_provider_call')).length - 1] ?? options.budget ?? { allowed: true, reason: 'allowed' }));
     if (target.startsWith('https://www.tiktok.com/oembed?')) return Promise.resolve(Response.json(options.metadata ?? { title: TEXT, author_name: 'Cook' }, { status: options.metadataStatus ?? 200 }));
     if (target === 'https://openrouter.ai/api/v1/chat/completions') {
+      if (options.providerCancelStall) return Promise.resolve(new Response(new ReadableStream<Uint8Array>({
+        cancel() { return new Promise<void>(() => {}); },
+      }), { status: 400 }));
       const next = options.providerSequence?.[calls.filter((c) => c.url === target).length - 1];
       return Promise.resolve(new Response(next?.raw ?? options.providerRaw ?? JSON.stringify({ choices: [{ finish_reason: options.finishReason ?? 'stop', message: { content: JSON.stringify(options.model ?? MODEL) } }] }), { status: next?.status ?? options.providerStatus ?? 200 }));
     }
@@ -104,6 +118,43 @@ Deno.test('recipe-import auth server outage fails closed without masquerading as
     check(response.status === 503 && (await response.json()).error === 'auth_unavailable', 'Transient auth failure');
     check(calls.length === 1, 'No provider or quota calls');
   });
+});
+
+Deno.test('recipe-import auth outage responds despite a stalled body cancellation', async () => {
+  await stub({ authCancelStall: true }, async (calls) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const response = await Promise.race([
+        handleRequest(request()),
+        new Promise<Response>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error('auth waited for stalled body.cancel()')), 1000);
+        }),
+      ]);
+      check(response.status === 503 && (await response.json()).error === 'auth_unavailable', 'bounded auth outage');
+      check(calls.length === 1, 'No provider or quota calls');
+    } finally { clearTimeout(timer); }
+  });
+});
+
+Deno.test('recipe-import limiter and provider errors do not wait for stalled body cancellation', async () => {
+  for (const [options, expectedStatus, expectedCode, expectedCalls] of [
+    [{ gateCancelStall: true }, 503, 'rate_limit_unavailable', 2],
+    [{ providerCancelStall: true }, 502, 'provider_unavailable', 5],
+  ] as const) {
+    await stub(options, async (calls) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const response = await Promise.race([
+          handleRequest(request()),
+          new Promise<Response>((_resolve, reject) => {
+            timer = setTimeout(() => reject(new Error('error path waited for stalled body.cancel()')), 1000);
+          }),
+        ]);
+        check(response.status === expectedStatus && (await response.json()).error === expectedCode, 'bounded upstream error');
+        check(calls.length === expectedCalls, 'no excess provider call');
+      } finally { clearTimeout(timer); }
+    });
+  }
 });
 
 Deno.test('recipe-import rejected authenticated lookup consumes only failed-auth gate', async () => {

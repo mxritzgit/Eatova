@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/auth_gate.dart';
 import 'package:eatova/src/auth/auth_repository.dart';
+import 'package:eatova/src/screens/auth_code_screen.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/user_profile.dart';
@@ -117,6 +118,16 @@ class _ScriptedAuthRepository implements AuthRepository {
 
   @override
   Future<void> signOut() async => emit(null);
+}
+
+class _PendingSignupRepository extends _ScriptedAuthRepository {
+  _PendingSignupRepository() : super(null);
+
+  final verification = Completer<void>();
+
+  @override
+  Future<void> verifySignupCode({required String email, required String code}) =>
+      verification.future;
 }
 
 /// Photo store double without IO; the real purge is covered by
@@ -412,5 +423,93 @@ void main() {
         expect(IntentionalSignOut.consume(), isFalse);
       });
     });
+  });
+
+  testWidgets('repository replacement dismisses a route owned by the old account',
+      (tester) async {
+    final oldRepository = _ScriptedAuthRepository(_userA);
+    final newRepository = _ScriptedAuthRepository(_userB);
+    addTearDown(oldRepository.dispose);
+    addTearDown(newRepository.dispose);
+    await _pumpGate(tester, oldRepository);
+
+    await tester.tap(find.byKey(const ValueKey('push-settings')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('screen-fake-settings')), findsOneWidget);
+
+    await _pumpGate(tester, newRepository);
+
+    expect(find.byKey(const ValueKey('screen-fake-settings')), findsNothing,
+        reason: 'a pushed route must not expose the former account after '
+            'AuthGate adopts a new repository');
+    expect(find.byKey(const ValueKey('screen-fake-home')), findsOneWidget);
+  });
+
+  testWidgets('external sign-in dismisses a pushed signed-out flow',
+      (tester) async {
+    final repository = _ScriptedAuthRepository(null);
+    addTearDown(repository.dispose);
+    await _pumpGate(tester, repository);
+    final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+    navigator.push(MaterialPageRoute<void>(
+      builder: (_) => const Scaffold(key: ValueKey('screen-fake-code')),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('screen-fake-code')), findsOneWidget);
+
+    repository.emit(_userA);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('screen-fake-code')), findsNothing,
+        reason: 'a late OAuth sign-in must dismiss the old OTP route');
+    expect(find.byKey(const ValueKey('screen-fake-home')), findsOneWidget);
+  });
+
+  testWidgets('repository replacement dismisses a signed-out code route',
+      (tester) async {
+    final oldRepository = _ScriptedAuthRepository(null);
+    final newRepository = _ScriptedAuthRepository(_userA);
+    addTearDown(oldRepository.dispose);
+    addTearDown(newRepository.dispose);
+    await _pumpGate(tester, oldRepository);
+    final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+    navigator.push(MaterialPageRoute<void>(
+      builder: (_) => const Scaffold(key: ValueKey('screen-fake-code')),
+    ));
+    await tester.pumpAndSettle();
+
+    await _pumpGate(tester, newRepository);
+
+    expect(find.byKey(const ValueKey('screen-fake-code')), findsNothing);
+    expect(find.byKey(const ValueKey('screen-fake-home')), findsOneWidget);
+  });
+
+  testWidgets('late signup verification cannot pop the new signed-in home',
+      (tester) async {
+    final repository = _PendingSignupRepository();
+    addTearDown(repository.dispose);
+    await _pumpGate(tester, repository);
+    final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+    navigator.push(MaterialPageRoute<AuthCodeResult>(
+      builder: (_) => AuthCodeScreen(
+        authRepository: repository,
+        flow: AuthCodeFlow.signup,
+        initialEmail: 'a@example.com',
+        throttleStore: InMemoryKeyValueStore(),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('code-field')), '12345678');
+    await tester.tap(find.byKey(const ValueKey('code-primary')));
+    await tester.pump();
+
+    repository.emit(_userA);
+    await tester.pump();
+    repository.verification.complete();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('auth-code-screen')), findsNothing);
+    expect(find.byKey(const ValueKey('screen-fake-home')), findsOneWidget,
+        reason: 'the completed old code request must not dismiss the new login');
   });
 }

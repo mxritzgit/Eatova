@@ -73,6 +73,9 @@ interface StubOptions {
   providerBudgetDenied?: boolean;
   /** HTTP status of the /auth/v1/user lookup (auth failure simulation). */
   authStatus?: number;
+  authCancelStall?: boolean;
+  abortOnAuth?: AbortController;
+  onAuthSignal?: (signal: AbortSignal | null | undefined) => void;
   /**
    * Body of the /auth/v1/user lookup — for the 200-with-unusable-id case: an
    * auth server that answers but yields no usable identity.
@@ -82,6 +85,7 @@ interface StubOptions {
   ipAllowed?: boolean;
   /** Answer of the global day gate (default: allowed). */
   globalAllowed?: boolean;
+  globalDeniedResetAt?: string;
   /** Answer of the per-user day gate (default: allowed). */
   userDayAllowed?: boolean;
   /** Answer of the hourly user gate (default: allowed). */
@@ -96,6 +100,7 @@ interface StubOptions {
    * `allowed` — the same outage class one level deeper (E6).
    */
   rateLimitBrokenElement?: boolean;
+  rateLimitPayload?: unknown;
   /**
    * A4: the batch answers SHORT although no gate denied — the one shape a
    * caller must never read as "the missing gate was allowed".
@@ -122,6 +127,9 @@ interface StubOptions {
   providerJson?: JsonRecord;
   /** The provider fetch aborts exactly like a real one on signal timeout. */
   providerTimeout?: boolean;
+  abortOnProvider?: AbortController;
+  ignoreProviderAbort?: boolean;
+  onProviderSignal?: (signal: AbortSignal | null | undefined) => void;
 }
 
 /** One element of the p_gates array (contract of
@@ -198,6 +206,9 @@ function installFetch(options: StubOptions = {}): FetchStub {
     if (url.endsWith("/rest/v1/rpc/reserve_ai_provider_call")) return jsonRes({ allowed: !options.providerBudgetDenied,
       reason: options.providerBudgetDenied ? "budget_exhausted" : "allowed" });
     if (url.includes('/auth/v1/user')) {
+      if (options.authCancelStall) return new Response(new ReadableStream<Uint8Array>({
+        cancel() { return new Promise<void>(() => {}); },
+      }), { status: 503 });
       if (options.authStatus !== undefined) {
         return jsonRes({ message: 'invalid token' }, options.authStatus);
       }
@@ -207,6 +218,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
     // array of gates. Matched before the single-gate route, whose URL is a
     // prefix of this one; only the auth-fail bucket still uses that one.
     if (url.includes('/rest/v1/rpc/consume_edge_rate_limits')) {
+      if (options.rateLimitPayload !== undefined) return jsonRes(options.rateLimitPayload);
       if (options.rateLimitBroken) return jsonRes({ ok: true });
       if (options.rateLimitBrokenElement) return jsonRes([{ ok: true }]);
       const gates = (JSON.parse(body) as { p_gates: GateParams[] }).p_gates;
@@ -228,7 +240,11 @@ function installFetch(options: StubOptions = {}): FetchStub {
           p_limit: gate.limit,
           p_window_seconds: gate.window_seconds,
         });
-        results.push(limitBody(gate.limit, gate.window_seconds, allowed));
+        results.push({
+          ...limitBody(gate.limit, gate.window_seconds, allowed),
+          ...(gate.scope === 'analyze-meal:global' && !allowed && options.globalDeniedResetAt
+            ? { resetAt: options.globalDeniedResetAt } : {}),
+        });
         // THE rule of the contract: after a denial the RPC touches nothing
         // else, so the array comes back short.
         if (!allowed) break;
@@ -304,6 +320,16 @@ function installFetch(options: StubOptions = {}): FetchStub {
     const method = (init?.method ?? 'GET').toUpperCase();
     const body = typeof init?.body === 'string' ? init.body : '';
     calls.push({ url, method, body, headers: new Headers(init?.headers) });
+    if (url.includes('/auth/v1/user') && options.abortOnAuth) {
+      options.abortOnAuth.abort();
+      options.onAuthSignal?.(init?.signal);
+      if (init?.signal?.aborted) return Promise.reject(init.signal.reason);
+    }
+    if (url.includes('openrouter.ai') && options.abortOnProvider) {
+      options.abortOnProvider.abort();
+      options.onProviderSignal?.(init?.signal);
+      if (init?.signal?.aborted && !options.ignoreProviderAbort) return Promise.reject(init.signal.reason);
+    }
     try {
       return Promise.resolve(route(url, body));
     } catch (error) {
@@ -337,6 +363,7 @@ interface RequestOptions {
   ip?: string;
   /** Raw body, bypassing JSON.stringify (the invalid-JSON cases). */
   raw?: string;
+  signal?: AbortSignal;
 }
 
 function makeRequest(payload: JsonRecord, options: RequestOptions = {}): Request {
@@ -355,6 +382,7 @@ function makeRequest(payload: JsonRecord, options: RequestOptions = {}): Request
     method,
     headers,
     body: hasBody ? options.raw ?? JSON.stringify(payload) : undefined,
+    signal: options.signal,
   });
 }
 
@@ -1243,6 +1271,105 @@ interface BodyCase {
   /** User data from the request that must not show up in a log. */
   probe?: string;
 }
+
+Deno.test('Limiter response values stay out of analyze-meal diagnostics', async () => {
+  const marker = 'PRIVATE_LIMITER_RESPONSE_SENTINEL';
+  const stub = installFetch({ rateLimitPayload: [{ allowed: marker }] });
+  const logs = captureConsole();
+  try {
+    const response = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(response.status, 500, 'malformed limiter answer fails closed');
+    assertEquals((await response.json() as JsonRecord).error, 'rate_limit_unavailable', 'public code');
+    assert(logs.text().includes('consume_edge_rate_limits'), 'operation remains diagnosable');
+    assert(!logs.text().includes(marker), 'upstream data omitted from logs');
+  } finally {
+    logs.restore();
+    stub.restore();
+  }
+});
+
+Deno.test('Global-cap warning omits malformed limiter resetAt content', async () => {
+  const marker = 'PRIVATE_RESET_AT_SENTINEL';
+  const stub = installFetch({ globalAllowed: false, globalDeniedResetAt: marker });
+  const logs = captureConsole();
+  try {
+    const response = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
+    assertEquals(response.status, 429, 'global cap still denies');
+    assert(logs.text().includes('global day cap reached'), 'cap remains diagnosable');
+    assert(!logs.text().includes(marker), 'untrusted resetAt omitted from warning');
+  } finally {
+    logs.restore();
+    stub.restore();
+  }
+});
+
+Deno.test('Client cancellation reaches an in-flight analyze-meal provider call', async () => {
+  for (const ignoreProviderAbort of [false, true]) {
+    const controller = new AbortController();
+    let providerSignal: AbortSignal | null | undefined;
+    const stub = installFetch({
+      abortOnProvider: controller,
+      ignoreProviderAbort,
+      onProviderSignal: (signal) => { providerSignal = signal; },
+    });
+    const logs = captureConsole();
+    try {
+      const response = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }, { signal: controller.signal }));
+      assertEquals(stub.callsTo('openrouter.ai').length, 1, 'no retry after a consumed provider reservation');
+      assertEquals(stub.callsTo('reserve_ai_provider_call').length, 1, 'one non-refundable provider claim');
+      assert(providerSignal?.aborted === true, 'outbound provider signal follows client cancellation');
+      assertEquals(response.status, 499, 'cancelled provider work stops promptly');
+      assertEquals((await response.json() as JsonRecord).error, 'request_aborted', 'public cancellation code');
+      assert(logs.text().includes('request_aborted'), 'cancellation classified separately in diagnostics');
+    } finally {
+      logs.restore();
+      stub.restore();
+    }
+  }
+});
+
+Deno.test('Client cancellation stops analyze-meal before quota and provider calls', async () => {
+  const controller = new AbortController();
+  let authSignal: AbortSignal | null | undefined;
+  const stub = installFetch({
+    abortOnAuth: controller,
+    onAuthSignal: (signal) => { authSignal = signal; },
+  });
+  const logs = captureConsole();
+  try {
+    const response = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }, { signal: controller.signal }));
+    assert(authSignal?.aborted === true, 'outbound auth signal follows client cancellation');
+    assertEquals(response.status, 499, 'client abort is distinct from auth outage');
+    assertEquals((await response.json() as JsonRecord).error, 'request_aborted', 'public cancellation code');
+    assertEquals(stub.rateLimitCalls(), 0, 'no quota calls after abort');
+    assertEquals(stub.openRouterBodies.length, 0, 'no provider call after abort');
+  } finally {
+    logs.restore();
+    stub.restore();
+  }
+});
+
+Deno.test('Analyze-meal auth outage responds despite a stalled body cancellation', async () => {
+  const stub = installFetch({ authCancelStall: true });
+  const logs = captureConsole();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const response = await Promise.race([
+      handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 })),
+      new Promise<Response>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error('auth waited for stalled body.cancel()')), 1000);
+      }),
+    ]);
+    assertEquals(response.status, 503, 'auth outage stays distinct from logout');
+    assertEquals((await response.json() as JsonRecord).error, 'auth_unavailable', 'public code');
+    assertEquals(stub.rateLimitCalls(), 0, 'no gates after auth outage');
+    assertEquals(stub.openRouterBodies.length, 0, 'no provider call');
+  } finally {
+    clearTimeout(timer);
+    logs.restore();
+    stub.restore();
+  }
+});
 
 const BODY_CASES: BodyCase[] = [
   { name: 'abgeschnittenes JSON', raw: `{"imageBase64":"${BODY_PROBE}"`, code: 'invalid_json', probe: BODY_PROBE },

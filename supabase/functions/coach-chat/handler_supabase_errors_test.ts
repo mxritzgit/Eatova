@@ -16,7 +16,7 @@ Deno.env.set("OPENROUTER_API_KEY", "test-openrouter-key");
 
 type Stage = "auth" | "limits" | "session" | "ownership" | "history" | "claim" |
   "user-store" | "title" | "assistant-store" | "recipe-store" | "touch";
-type Fault = "transport" | "body-timeout" | "body-invalid";
+type Fault = "transport" | "body-timeout" | "body-invalid" | "http-error" | "shape-invalid" | "cancel-stall";
 type Call = { url: string; method: string; body: Record<string, unknown> };
 
 function equal(actual: unknown, expected: unknown, label: string): void {
@@ -36,6 +36,7 @@ async function withStub(
     recipe?: boolean;
     quotaDay?: unknown;
     midnightFailure?: boolean;
+    maxWaitMs?: number;
   },
   verify: (response: Response, calls: Call[]) => Promise<void>,
 ): Promise<void> {
@@ -65,6 +66,11 @@ async function withStub(
     if (stage !== options.stage) return json(value);
     if (options.fault === "transport") throw new TypeError(PRIVATE_ERROR);
     if (options.fault === "body-invalid") return new Response(PRIVATE_ERROR);
+    if (options.fault === "http-error") return new Response(PRIVATE_ERROR, { status: 500 });
+    if (options.fault === "cancel-stall") return new Response(new ReadableStream<Uint8Array>({
+      cancel() { return new Promise<void>(() => {}); },
+    }), { status: 500 });
+    if (options.fault === "shape-invalid") return json([{ allowed: PRIVATE_ERROR }]);
     if (!signal) throw new Error("Missing response-body deadline");
     return new Response(new ReadableStream<Uint8Array>({
       start(controller) {
@@ -122,7 +128,7 @@ async function withStub(
     }
   }) as typeof fetch;
   try {
-    const response = await handleRequest(new Request("https://edge.test.invalid/coach-chat", {
+    const work = handleRequest(new Request("https://edge.test.invalid/coach-chat", {
       method: "POST",
       headers: { authorization: `Bearer ${userToken(USER_ID)}`, "cf-connecting-ip": "203.0.113.7" },
       body: JSON.stringify({
@@ -131,6 +137,13 @@ async function withStub(
         ...(options.stage === "ownership" ? { session_id: SESSION_ID } : {}),
       }),
     }));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const response = options.maxWaitMs === undefined ? await work : await Promise.race([
+      work,
+      new Promise<Response>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error("handler waited for stalled body.cancel()")), options.maxWaitMs);
+      }),
+    ]).finally(() => clearTimeout(timer));
     await verify(response, calls);
     equal(logs.some((line) => line.includes(PRIVATE_ERROR)), false, "response and transport details stay out of logs");
   } finally {
@@ -181,6 +194,38 @@ for (const fault of ["transport", "body-timeout", "body-invalid"] as const) {
     });
   }
 }
+
+for (const fault of ["http-error", "shape-invalid"] as const) {
+  for (const stage of ["limits", "claim"] as const) {
+    Deno.test(`Supabase ${fault}: ${stage} keeps response content out of diagnostics`, async () => {
+      await withStub({ stage, fault }, async (response, calls) => {
+        if (fault === "http-error" || stage === "limits") {
+          equal(response.status, 500, "status");
+          equal((await response.json()).error, stage === "limits" ? "rate_limit_unavailable" : "rpc_unavailable", "public error");
+          equal(calls.some((call) => call.url.includes("openrouter.ai")), false, "no provider call");
+        } else {
+          equal(response.status, 200, "a successful quota claim with unreadable count can still answer");
+        }
+      });
+    });
+  }
+}
+
+Deno.test("Coach limiter HTTP error responds despite a stalled body cancellation", async () => {
+  await withStub({ stage: "limits", fault: "cancel-stall", maxWaitMs: 1000 }, async (response, calls) => {
+    equal(response.status, 500, "status");
+    equal((await response.json()).error, "rate_limit_unavailable", "public code");
+    equal(calls.some((call) => call.url.includes("openrouter.ai")), false, "no provider call");
+  });
+});
+
+Deno.test("Coach auth outage responds despite a stalled body cancellation", async () => {
+  await withStub({ stage: "auth", fault: "cancel-stall", maxWaitMs: 1000 }, async (response, calls) => {
+    equal(response.status, 503, "status");
+    equal((await response.json()).error, "auth_unavailable", "public code");
+    equal(calls.some((call) => call.url.includes("openrouter.ai")), false, "no provider call");
+  });
+});
 
 for (const fault of ["body-timeout", "body-invalid"] as const) {
   Deno.test(`Supabase ${fault}: recipe representation does not discard the recipe`, async () => {

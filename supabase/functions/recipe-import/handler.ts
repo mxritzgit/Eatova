@@ -67,7 +67,7 @@ async function authenticate(request: Request, secrets: Secrets, total: AbortSign
     });
   } catch { throw new ImportError(503, 'auth_unavailable'); }
   if (!response.ok) {
-    await response.body?.cancel();
+    void response.body?.cancel().catch(() => {});
     if (response.status >= 500 || response.status === 429) throw new ImportError(503, 'auth_unavailable');
     const gate = await authFailGate({
       supabaseUrl: secrets.supabaseUrl, serviceKey: secrets.serviceKey,
@@ -94,7 +94,7 @@ async function consumeGates(secrets: Secrets, gates: Gate[], total: AbortSignal)
       body: JSON.stringify({ p_gates: gates }),
     });
     if (!response.ok) {
-      await response.body?.cancel();
+      void response.body?.cancel().catch(() => {});
       throw new Error('unavailable');
     }
     data = await boundedJson(response, 12_000, signal);
@@ -177,7 +177,7 @@ export async function handleRequest(request: Request): Promise<Response> {
           }),
         });
         if (!response.ok) {
-          await response.body?.cancel();
+          void response.body?.cancel().catch(() => {});
           if (attempt === 0 && (response.status === 429 || response.status >= 500) && !providerDeadline.aborted) {
             lastError = new ImportError(502, 'provider_unavailable');
             continue;

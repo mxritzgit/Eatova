@@ -250,10 +250,6 @@ class OpenFoodFactsProductService implements ProductLookupService {
       // the CrashReporter (`FallbackProductService` only classifies what it
       // catches).
       var everyLegAnswered = true;
-      // At least one leg said "not in this index". Only relevant for the one
-      // carve-out below, where our own budget cut the walk short.
-      var anyLegAnsweredEmpty = false;
-
       for (final baseUrl in searchBaseUrls) {
         if (deadline.isExpired) {
           everyLegAnswered = false;
@@ -270,7 +266,6 @@ class OpenFoodFactsProductService implements ProductLookupService {
           if (hits.isNotEmpty) {
             return hits;
           }
-          anyLegAnsweredEmpty = true;
         } catch (error) {
           lastError = error;
           everyLegAnswered = false;
@@ -281,13 +276,6 @@ class OpenFoodFactsProductService implements ProductLookupService {
         // The legitimate empty result: every source answered, none of them
         // knows the query. This is the one case that must never throw — a real
         // non-hit is the search's normal outcome, not an error.
-        return const <ProductSearchResult>[];
-      }
-      if (deadline.isExpired && anyLegAnsweredEmpty) {
-        // Not a source that failed: OUR OWN budget stopped the walk (P10-02).
-        // The chain has already burned its full budget, so throwing would buy
-        // the caller another budget per retry and no new information — the
-        // clean answer in hand stands.
         return const <ProductSearchResult>[];
       }
       throw lastError ??

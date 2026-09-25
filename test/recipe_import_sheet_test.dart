@@ -564,6 +564,70 @@ void main() {
     expect(saved.single.description, contains(_source));
   });
 
+  testWidgets(
+    'edited import keeps its own content identity on a repeated share',
+    (tester) async {
+      final saved = <FitnessRecipe>[];
+      Future<SyncDelivery> save(FitnessRecipe recipe) async {
+        saved.add(recipe);
+        return SyncDelivery.delivered;
+      }
+
+      await _open(
+        tester,
+        service: _Service((_) async => _ready),
+        save: save,
+        isSaved: (slug) => saved.any((recipe) => recipe.slug == slug),
+      );
+      await _tap(tester, 'recipe-import-edit');
+      await _enter(tester, 'recipe-import-edit-ingredients', '200 g tofu');
+      await _tap(tester, 'recipe-import-save');
+      expect(saved.single.ingredients, '200 g tofu');
+
+      await _open(
+        tester,
+        service: _Service((_) async => _ready),
+        save: save,
+        isSaved: (slug) => saved.any((recipe) => recipe.slug == slug),
+      );
+      await _tap(tester, 'recipe-import-save');
+      expect(saved, hasLength(2));
+      expect(saved.last.ingredients, _bowl.ingredients);
+      expect(saved.first.slug, isNot(saved.last.slug));
+    },
+  );
+
+  testWidgets('edited import retry keeps the first attempted identity', (
+    tester,
+  ) async {
+    final attempts = <FitnessRecipe>[];
+    await _open(
+      tester,
+      service: _Service((_) async => _ready),
+      save: (recipe) async {
+        attempts.add(recipe);
+        if (attempts.length == 1) throw StateError('receipt lost');
+        return SyncDelivery.delivered;
+      },
+    );
+    await _tap(tester, 'recipe-import-edit');
+    await _enter(tester, 'recipe-import-edit-ingredients', '200 g tofu');
+    await _tap(tester, 'recipe-import-save');
+    expect(find.byKey(const ValueKey('recipe-import-sheet')), findsOneWidget);
+    expect(
+      tester
+          .widget<TextButton>(find.byKey(const ValueKey('recipe-import-edit')))
+          .onPressed,
+      isNull,
+    );
+    await _tap(tester, 'recipe-import-save');
+    expect(attempts, hasLength(2));
+    expect(attempts.first.slug, attempts.last.slug);
+    expect(attempts.first.ingredients, attempts.last.ingredients);
+    expect(attempts.last.toRow(), attempts.first.toRow());
+    expect(attempts.first.slug, isNot(_bowl.stableSlug(_source)));
+  });
+
   testWidgets('duplicate shared recipe cannot overwrite an existing recipe', (
     tester,
   ) async {

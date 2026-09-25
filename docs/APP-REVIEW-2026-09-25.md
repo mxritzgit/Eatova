@@ -1,5 +1,7 @@
 # App review and fixes — 2026-09-25
 
+Latest findings, verification and deployment boundaries: [deep review with ten specialists](#deep-review-with-ten-specialists-2026-09-25-to-2026-09-26). The initial two-agent round remains below as dated history.
+
 Reviewed fetched `origin/main` at `af69a95c68511ae14219585978c65b862a1d2bde`
 using exactly two subagents plus the primary reviewer. The primary reviewer owns
 integration, authentication, local persistence and sync; the subagents examined
@@ -144,3 +146,124 @@ are verification artifacts, not a production release. Camera,
 HealthKit/Health Connect, native notifications, voice, OAuth and the signed iOS
 social-share transition remain unverified on hardware. No live AI generation,
 production database or production authentication configuration was tested.
+
+## Deep review with ten specialists (2026-09-25 to 2026-09-26)
+
+This second review starts at `8b8ee122fc8fac04b1ff3221587ec47bfea4a2e6`
+(PR #107), so the four fixes above are baseline behavior, not new findings.
+Exactly ten specialists ran with GPT-6 Sol and xhigh reasoning in isolated
+worktrees: authentication/accounts, sync/cache, food tracking, recipes/import,
+Coach client, training, profile/health/settings, Edge AI services, database/RLS,
+and tests/platforms. Each inspected its existing tests as well as production
+paths. Another specialist reviewed each patch; the primary reviewer challenged
+oracles, reviewed the combined changes and owns final verification/delivery.
+The user's unrelated working directory remained untouched.
+
+### Findings and behavior after correction
+
+| Area / severity | Confirmed behavior and correction | Regression evidence |
+| --- | --- | --- |
+| Auth / medium | An external sign-in or repository replacement could leave an OTP route above the signed-in app. Dismiss only the appropriate auth overlay, and prevent a late OTP callback from popping the newly opened page. | [Auth gate races](../test/gate_sync_auth_gate_test.dart) |
+| Sync / medium | A partial acknowledgement or reload could replace optimistic lifetime counts while later inserts remained queued. Preserve a bounded local count while nonrejected counting intents remain; authoritative state wins after the queue drains. Rejected tracking intents no longer restore streaks after an authoritative refresh. | [Encrypted cache reconciliation](../test/services/sync_pending_stats_reconciliation_test.dart), [store delivery](../test/outbox/outbox_delivery_progress_test.dart) |
+| Food / medium | Archive days stopped at 50 entries, and the 1,000-row boot cap could hide an in-window day indefinitely. Complete-day UUID cursor pagination preserves owner/day filters, withstands deletion between pages, and fails the whole read above its explicit 1,000-row bound. A capped boot triggers complete selected-day loading. | [Wire pagination](../test/wire_meals_sync_window_test.dart), [boot/day loading](../test/home_store_day_load_test.dart) |
+| Food / medium | A serialized meal write could use a date selected after the action began. Capture the requested date/timestamps before entering the queue. An empty regional search plus an unanswered world search no longer becomes a cached definitive miss. | [Atomic meal actions](../test/atomic_store_mutations_test.dart), [real HTTP fallback](../test/services/open_food_facts_incomplete_search_test.dart), [retry UI](../test/add_meal_search_throttle_test.dart) |
+| Import / medium | Edited ingredient/preparation content retained the original content-derived identity, causing false duplicate saves. Recompute identity for edited content, then freeze the entire attempted row for an immutable retry. | [Import sheet identity/retry](../test/recipe_import_sheet_test.dart) |
+| Coach / medium | Delayed history/quota/session-list results and create/delete/photo actions could apply to a later visit, including A -> B -> A. Fence reads and navigation by service and visit revision. Accepted replies must remain available in their original chat without duplicate history rows. A delayed resume quota refresh also preserves newer action errors. | [Session races](../test/coach_session_race_test.dart), [photo privacy](../test/coach_image_privacy_test.dart) |
+| Training / medium | Offset paging skipped history after a preceding row was deleted. Use the `(finished_at, id)` cursor with microsecond precision. Keep selected workout identity through a plan edit/reorder using its stable exercise IDs. | [History wire test](../test/training/training_history_sync_test.dart), [training screen](../test/training_page_test.dart) |
+| Weight history / medium | Same-day/backdated writes and replay could exceed the 365-entry projection or leave the wrong latest entry. Apply stable chronological capping in model, store, boot and atomic cache projection; keep all durable outbox intents. | [Weight input](../test/fixlauf_g_weight_input_test.dart), [cache projection](../test/services/sync_pending_stats_reconciliation_test.dart) |
+| Settings / medium | Overlapping native preference writes could restore the older theme/language after restart. Serialize writes while updating the current UI immediately. Failed profile persistence could already request reminder permission; start that side effect only after the durable commit. | [Locale](../test/app/locale_controller_test.dart), [theme](../test/theme/theme_mode_controller_test.dart), [actual commit failure](../test/settings_save_side_effect_test.dart) |
+| Edge services / medium | Selected diagnostics emitted untrusted upstream bodies, exception text, field names or reset metadata. Keep bounded status/error classification. Connect analysis/search cancellation to outbound work, and discard late completion after cancellation. Awaiting a stalled stream cancellation could hold error responses forever; cleanup is now nonblocking with rejected promises handled. Quota reservation/refund rules are unchanged. | [Analysis](../supabase/functions/analyze-meal/handler_test.ts), [Coach RPC failures](../supabase/functions/coach-chat/handler_supabase_errors_test.ts), [provider budget](../supabase/functions/_shared/provider_budget_test.ts), [recipe source](../supabase/functions/recipe-import/source_test.ts), [search deadline](../supabase/functions/search-key/deadline_test.ts) |
+| Native test gate / medium | The iOS result checker accepted only a few passing cases from each suite. It now requires every one of the 22 declared share-extension XCTest cases and rejects missing, skipped, failed, duplicate or ambiguous results. | [Checker negative controls](../scripts/ci/test_ios_test_support.py) |
+| Bounded hardening / low | Strict profile hydration rejects fractional/nonfinite values for integer columns; stored recipe proposals are restricted to nonrefused assistant messages; a single tracked day is visible in Trends. Request-driven 30-day provider-usage cleanup also runs on a denied first request of a new day without charging quota. | [Profile parser](../test/services/profile_sync_load_strict_test.dart), [proposal parser](../test/models/coach_recipe_proposal_test.dart), [Trends](../test/widgets/trends_screen_test.dart), [SQL boundary checks](../test/migrations/ai_provider_budget.sql) |
+
+The lifetime counter fix is a conservative display floor, not an exact
+cross-device total while delivery/acknowledgement is uncertain. Rejected local
+meal content remains visible for recovery; a fresh authoritative snapshot can
+remove its optimistic counter/streak contribution. The 365-point weight limit
+applies to the projection, not to pending deliveries. Archive paging provides
+bounded completeness, not a transactional snapshot across concurrent inserts.
+
+### Test correctness and rejected suspicions
+
+Important behavioral regressions were run against the faulty implementation
+before their fixes. Tests exercise real encrypted SQLite transactions, actual
+PostgREST query filtering, delayed native preference writes, real loopback HTTP,
+malformed upstream sentinels, and PostgreSQL concurrency where applicable.
+The settings test also fails if permission is moved below the readiness check
+but still above the actual atomic commit; it verifies recovery on retry.
+
+The first integrated Flutter run also caught the new `request_aborted` server
+code falling through to a misleading network fallback. The client now maps a
+received remote abort to existing localized service-unavailable text, while a
+local user cancellation remains silent. The unchanged [cross-language contract](../test/review_31/i_analyze_meal_error_contract_test.dart)
+checks this mapping, alongside [both-language UI regressions](../test/widgets/meal_analysis_error_mapping_test.dart). Two older assertions were updated to the new UUID cursor
+order and to an explicit timeout for incomplete catalog coverage; their
+ownership, day, page-size and elapsed-time checks remain enforced.
+
+The primary review rejected a Coach oracle that treated every late A -> B -> A reply
+as stale: an accepted reply still belongs to A. The final contract requires
+reconciliation and deduplication, including accepted proposals whose history
+write failed. History-load ABA is a separate stale-read problem. Photo race controls wait for the real temporary-file cleanup before asserting
+that nothing was sent, rather than assuming image processing finishes within
+a fixed sleep. The retained
+Coach-tab harness now includes its real TickerMode behavior and expects quota
+to refresh on return while history/draft stay retained.
+
+A suspected preference startup-load race was not reproduced because the plugin
+coalesces its initial load. The demonstrated bug was reordered native writes.
+Local `dart:developer` stack traces were not treated as remote data exposure;
+no remote egress was established there. A SQL assertion inside a rolled-back
+exception block cannot by itself prove statement ordering: source review
+verified validation before cleanup and the existing account-FK-before-prune
+lock order. SQL tests explicitly reject null denial results and check the exact
+30-day retention boundary, in addition to real cross-user and race tests.
+
+### Verification and delivery for this round
+
+- Final integrated Flutter run: **5,194 passing tests**, no failures;
+  strict analyzer has zero warnings/infos. **95.02% line coverage
+  (31,563 / 33,217)**, excluding generated localization;
+  the required floor is 88%. Flutter 3.47.2 / Dart 3.13.2 match CI.
+- Independent root backend verification: **795 offline Deno tests** (784 function
+  tests and 11 evaluations), lint of 78 function/evaluation files, and all four
+  entrypoint type checks passed. The 84 backend/evaluation source files matched
+  the integrated source after normalizing line endings.
+- Python operations tests: **26**; loopback auth transport tests: **7**;
+  native result checker tests: **12**, all passing.
+- Synthetic GoTrue/PostgreSQL/Edge verification: **47 handler checks** and
+  **178 auth lifecycle checks** passed. Disabling refresh-token rotation was
+  detected by the negative control. Test providers were stubbed; no mail or
+  production requests were sent.
+- All **50 migrations** replayed on fresh disposable PostgreSQL and passed an
+  idempotent replay, cross-user RLS, provider-budget and sync concurrency,
+  1,800-recipe upgrade, and 25-table backup/restore negative-control checks.
+- Final **Android debug APK and release AAB passed**, using dummy configuration
+  and throwaway signing. The release pipeline retained a nonempty R8 mapping.
+  All 393 app/build inputs matched integration; signing material was removed.
+  Artifact hashes are retained in the local review evidence; neither artifact
+  is a production-signed release or an installed build.
+- The first integrated run had 5,189 passes and the three contract failures
+  described above. All three were fixed and the complete suite rerun; the
+  final count above includes the two added remote-abort regressions.
+- Source and test changes were frozen during verification. Git delivery uses
+  `fix/deep-app-review-2026-09-25`; protected PR CI and merge evidence are
+  recorded by its delivery pull request, separately from these local results.
+
+No new High/Critical security defect was established by this round. This is a
+bounded functional and test review, not proof that every external integration
+works on every device. Legacy Coach responses without a server message ID use
+newly observed message IDs and matching answer/proposal content for fallback
+deduplication. An unseen identical concurrent response from another device
+remains ambiguous without a correlation ID. Real camera/scanner, mailbox and OAuth delivery, physical
+HealthKit/Health Connect and notification behavior, installed signed app/share
+flows, production provider quality, and live cross-device behavior were not
+exercised. Windows cannot locally execute Xcode/XCTest; the changed native test
+checker also requires its actual macOS CI run.
+
+This round adds migration
+[`20260925100000_provider_usage_denied_retention.sql`](../supabase/migrations/20260925100000_provider_usage_denied_retention.sql)
+and changes all four Edge Functions/shared modules. Neither the migration nor
+these function changes were deployed to production. Backend deployment and a
+new installed device build remain distinct from a Git merge. The existing
+main-only live migration drift check can report the intentionally undeployed
+migration until a separately authorized rollout occurs.

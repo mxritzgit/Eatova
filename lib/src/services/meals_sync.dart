@@ -29,12 +29,20 @@ class MealsSync {
   /// Defensive row cap on top (~28 logs/day in the window): PostgREST truncates
   /// SILENTLY at db-max-rows, while an explicit limit is deterministic and,
   /// thanks to order desc, only ever drops the OLDEST rows of the window.
+  /// A full page makes selected days eligible for a complete on-demand read.
   static const int loggedMealsMaxRows = 1000;
 
-  /// Row cap for the on-demand day query ([loadLoggedMealsForDay]): ~50 logs on
-  /// ONE day is far beyond realistic use, and an explicit limit beats depending
-  /// on the silent db-max-rows.
+  /// A full boot response cannot prove that every day in the window is
+  /// complete. Read before mapping, which can skip a malformed row.
+  bool _lastLoggedMealsWindowAtCapacity = false;
+  bool get lastLoggedMealsWindowAtCapacity => _lastLoggedMealsWindowAtCapacity;
+
+  /// Page size for the on-demand day query ([loadLoggedMealsForDay]).
   static const int loggedMealsDayMaxRows = 50;
+
+  /// A damaged or excessive archive cannot make the client fetch forever.
+  /// Crossing this bound fails the load rather than presenting partial totals.
+  static const int _archiveDayMaxPages = 20;
 
   /// Favourites cap: the client only keeps 5 auto-recents plus pinned
   /// favourites, so 200 is far above any realistic pin count.
@@ -64,6 +72,7 @@ class MealsSync {
           .gte('logged_at', cutoffIso)
           .order('logged_at', ascending: false)
           .limit(loggedMealsMaxRows);
+      _lastLoggedMealsWindowAtCapacity = rows.length >= loggedMealsMaxRows;
       return _mealsFromRows(rows);
     } catch (e, stack) {
       dev.log('MealsSync.loadLoggedMeals failed',
@@ -106,22 +115,43 @@ class MealsSync {
       // day+1 instead of +Duration(days: 1): the constructor normalises to the
       // next local midnight, DST edges included.
       final end = DateTime(day.year, day.month, day.day + 1);
-      final rows = await _client
-          .from('logged_meals')
-          .select('id, logged_at, forced_slot, local_day, payload')
-          .eq('user_id', _userId)
-          .or('local_day.eq.${localDayKey(start)},'
-              'and(local_day.is.null,'
-              'logged_at.gte.${start.toUtc().toIso8601String()},'
-              'logged_at.lt.${end.toUtc().toIso8601String()})')
-          .order('logged_at', ascending: false)
-          .limit(loggedMealsDayMaxRows)
-          // No postgrest auto-retry (default 3 attempts, 1s/2s/4s backoff):
-          // this query runs interactively behind a spinner, where the silent
-          // retry cascade would delay the error by ~7s. Tapping the day again
-          // reloads.
-          .retry(enabled: false);
-      return _mealsFromRows(rows);
+      final rows = <dynamic>[];
+      String? cursor;
+      for (var page = 0; page <= _archiveDayMaxPages; page++) {
+        var query = _client
+            .from('logged_meals')
+            .select('id, logged_at, forced_slot, local_day, payload')
+            .eq('user_id', _userId)
+            .or('local_day.eq.${localDayKey(start)},'
+                'and(local_day.is.null,'
+                'logged_at.gte.${start.toUtc().toIso8601String()},'
+                'logged_at.lt.${end.toUtc().toIso8601String()})');
+        if (cursor != null) query = query.gt('id', cursor);
+        final batch = await query
+            .order('id', ascending: true)
+            .limit(loggedMealsDayMaxRows)
+            // Interactive load: leave retry to the user's next tap.
+            .retry(enabled: false);
+        if (page == _archiveDayMaxPages && batch.isNotEmpty) {
+          throw StateError('Archive day exceeds safe page bound');
+        }
+        for (final row in batch) {
+          final id = row['id'];
+          if (id is! String || id.isEmpty ||
+              (cursor != null && id.compareTo(cursor) <= 0)) {
+            throw StateError('Archive page has an invalid cursor order');
+          }
+          cursor = id;
+        }
+        rows.addAll(batch);
+        if (batch.length < loggedMealsDayMaxRows) break;
+      }
+      final meals = _mealsFromRows(rows);
+      meals.sort((a, b) {
+        final byTime = b.loggedAt.compareTo(a.loggedAt);
+        return byTime != 0 ? byTime : b.id.compareTo(a.id);
+      });
+      return meals;
     } catch (e, stack) {
       dev.log('MealsSync.loadLoggedMealsForDay failed',
           error: e, stackTrace: stack, name: 'meals_sync');

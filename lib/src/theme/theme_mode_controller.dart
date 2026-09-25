@@ -18,6 +18,7 @@ class ThemeModeController extends ChangeNotifier {
 
   ThemeMode _mode;
   ThemeMode get mode => _mode;
+  Future<void> _pendingWrite = Future<void>.value();
 
   /// Reads the stored mode. Errors and unknown values fall back to
   /// [ThemeMode.system]; a broken prefs entry must not block startup.
@@ -37,16 +38,20 @@ class ThemeModeController extends ChangeNotifier {
 
   /// Sets the mode and persists it. An unchanged value triggers neither a
   /// write nor a rebuild.
-  Future<void> setMode(ThemeMode modus) async {
-    if (modus == _mode) return;
+  Future<void> setMode(ThemeMode modus) {
+    if (modus == _mode) return Future<void>.value();
     _mode = modus;
     notifyListeners();
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(storageKey, modus.name);
-    } catch (_) {
-      // Not persisted — the session still runs in the chosen mode.
-    }
+    // Native writes may complete out of order after quick successive choices.
+    _pendingWrite = _pendingWrite.then((_) async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(storageKey, modus.name);
+      } catch (_) {
+        // Not persisted — the session still runs in the chosen mode.
+      }
+    });
+    return _pendingWrite;
   }
 
   /// Tests and synchronous priming only: sets without persisting.

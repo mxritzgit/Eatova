@@ -88,6 +88,9 @@ interface StubOptions {
   stallGateScope?: string;
   /** HTTP-Status des /auth/v1/user-Lookups. */
   authStatus?: number;
+  authCancelStall?: boolean;
+  abortOnAuth?: AbortController;
+  onAuthSignal?: (signal: AbortSignal | null | undefined) => void;
 }
 
 interface RecordedCall {
@@ -117,6 +120,16 @@ function installFetch(options: StubOptions = {}): FetchStub {
       return haengtBisAbbruch(init?.signal);
     }
     if (url.includes("/auth/v1/user")) {
+      if (options.authCancelStall) {
+        return Promise.resolve(new Response(new ReadableStream<Uint8Array>({
+          cancel() { return new Promise<void>(() => {}); },
+        }), { status: 503 }));
+      }
+      if (options.abortOnAuth) {
+        options.abortOnAuth.abort();
+        options.onAuthSignal?.(init?.signal);
+        if (init?.signal?.aborted) return Promise.reject(init.signal.reason);
+      }
       if (options.authStatus !== undefined) {
         return Promise.resolve(jsonRes({ message: "invalid token" }, options.authStatus));
       }
@@ -232,6 +245,40 @@ function request(token = userToken(USER_ID)): Request {
     headers: { authorization: `Bearer ${token}`, "cf-connecting-ip": CLIENT_IP },
   });
 }
+
+Deno.test("Client cancellation stops an in-flight search-key auth lookup", async () => {
+  const serve = await loadHandler("call-cap");
+  const controller = new AbortController();
+  let authSignal: AbortSignal | null | undefined;
+  const stub = installFetch({ abortOnAuth: controller, onAuthSignal: (signal) => { authSignal = signal; } });
+  try {
+    const req = new Request(`${BASE_URL}/functions/v1/search-key`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${userToken(USER_ID)}`, "cf-connecting-ip": CLIENT_IP },
+      signal: controller.signal,
+    });
+    const response = await ohneHaenger(serve(req));
+    assert(authSignal?.aborted === true, "outbound auth signal follows client cancellation");
+    assertEquals(response.status, 499, "client abort is distinct from an auth outage");
+    assertEquals((await response.json() as JsonRecord).error, "request_aborted", "public cancellation code");
+    assertEquals(stub.gateScopes().length, 0, "no limiter work after cancellation");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("Search-key auth outage responds despite a stalled body cancellation", async () => {
+  const serve = await loadHandler("call-cap");
+  const stub = installFetch({ authCancelStall: true });
+  try {
+    const response = await ohneHaenger(serve(request()));
+    assertEquals(response.status, 503, "auth outage stays distinct from logout");
+    assertEquals((await response.json() as JsonRecord).error, "auth_unavailable", "public code");
+    assertEquals(stub.gateScopes().length, 0, "no gates after auth outage");
+  } finally {
+    stub.restore();
+  }
+});
 
 Deno.test("E1: ein haengendes Rate-Limit faellt geschlossen statt den Key auszuliefern", async () => {
   const serve = await loadHandler("call-cap");

@@ -64,3 +64,26 @@ Deno.test('provider budget abort before execution cannot reserve or start work',
     assert(calls === 0, 'nothing sent');
   } finally { globalThis.fetch = saved; }
 });
+
+Deno.test('provider budget HTTP outage does not await stalled response cancellation', async () => {
+  const saved = globalThis.fetch;
+  globalThis.fetch = (() => Promise.resolve(new Response(new ReadableStream<Uint8Array>({
+    cancel() { return new Promise<void>(() => {}); },
+  }), { status: 500 }))) as typeof fetch;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    let error: unknown;
+    try {
+      await Promise.race([
+        providerCallBudget(context)('coach_answer'),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error('budget waited for stalled body.cancel()')), 1000);
+        }),
+      ]);
+    } catch (caught) { error = caught; }
+    assert(error instanceof ProviderBudgetError && error.code === 'ai_budget_unavailable', 'bounded fail-closed outage');
+  } finally {
+    clearTimeout(timer);
+    globalThis.fetch = saved;
+  }
+});

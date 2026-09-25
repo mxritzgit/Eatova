@@ -1173,6 +1173,7 @@ class HomeStore extends _HomeStoreBase
 
       final loadedMeals = results[1] as List<LoggedMeal>?;
       if (loadedMeals != null) {
+        _bootMealsAtCapacity = s.meals.lastLoggedMealsWindowAtCapacity;
         loggedMeals = vorher.loggedMealsVersion == _loggedMealsVersion
             ? loadedMeals
             : _mergeRacedLoad(
@@ -1213,8 +1214,8 @@ class HomeStore extends _HomeStoreBase
       if (loadedWeightLog != null) {
         weightLog = vorher.weightLogVersion == _weightLogVersion
             ? loadedWeightLog
-            : WeightLog(
-                entries: _mergeRacedLoad(
+            : WeightLog.capped(
+                _mergeRacedLoad(
                   local: weightLog.entries,
                   server: loadedWeightLog.entries,
                   baseline: vorher.weightLog.entries,
@@ -1229,7 +1230,11 @@ class HomeStore extends _HomeStoreBase
       // the snapshot; the next flush brings the authoritative counters.
       if (loadedStats != null &&
           vorher.lifetimeStatsVersion == _lifetimeStatsVersion) {
-        lifetimeStats = loadedStats;
+        lifetimeStats = reconcileLifetimeStatsWithPending(
+          loadedStats,
+          lifetimeStats,
+          _outbox,
+        );
       }
 
       final loadedRecipes = results[5] as List<FitnessRecipe>?;
@@ -1288,9 +1293,8 @@ class HomeStore extends _HomeStoreBase
       dailyConsumedKcal = consumedKcalForFoodDate(today);
       macroProgress = macroProgressForFoodDate(today);
     });
-    // Selection sits on an archive day (boot ran during a calendar visit):
-    // reload it instead of showing it empty after the window replace.
-    if (_isOutsideBootWindow(selectedFoodDate)) {
+    // A calendar visit or capped boot can leave the selected day incomplete.
+    if (_needsFoodDayLoad(selectedFoodDate)) {
       unawaited(_ensureArchiveDayLoaded(selectedFoodDate));
     }
     if (healSave) _queueHealedProfileSave();
@@ -1426,9 +1430,8 @@ class HomeStore extends _HomeStoreBase
   void setFoodDate(DateTime date) {
     final day = DateUtils.dateOnly(date);
     _mutate(() => selectedFoodDate = day);
-    // Calendar pick outside the boot window: load the day on demand instead
-    // of showing it wrongly empty.
-    if (_isOutsideBootWindow(day)) {
+    // An old day or a day in a capped boot window may be incomplete.
+    if (_needsFoodDayLoad(day)) {
       unawaited(_ensureArchiveDayLoaded(day));
     }
     // Archive day: pull the burned-kcal value from the health history if this

@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 import 'package:eatova/src/app/locale_controller.dart';
+
+import '../support/reordering_preferences_store.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -49,6 +52,27 @@ void main() {
       expect(c.override, isNull);
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString(LocaleController.storageKey), 'system');
+    });
+
+    test('the last language choice survives reordered native writes',
+        () async {
+      final store = ReorderingPreferencesStore();
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      SharedPreferencesStorePlatform.instance = store;
+      addTearDown(() => SharedPreferences.setMockInitialValues({}));
+      final controller = LocaleController();
+
+      final first = controller.setOverride(const Locale('de'));
+      await store.firstWriteStarted.future;
+      final second = controller.setOverride(const Locale('en'));
+      await Future<void>.delayed(Duration.zero);
+      store.releaseFirstWrite();
+      await Future.wait([first, second]);
+
+      expect(controller.override, const Locale('en'));
+      SharedPreferences.resetStatic();
+      final reloaded = await SharedPreferences.getInstance();
+      expect(reloaded.getString(LocaleController.storageKey), 'en');
     });
 
     test('unveraenderter Wert loest keine Benachrichtigung aus', () async {

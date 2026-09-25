@@ -114,11 +114,11 @@ const SUPABASE_TIMEOUT_MS = positiveIntFromEnv('SEARCH_KEY_SUPABASE_TIMEOUT_MS',
 
 /** Wall-clock budget of one request; handed to every stage so none of them can
  *  spend time the client is no longer waiting for. */
-type Deadline = { remainingMs(): number };
+type Deadline = { remainingMs(): number; requestSignal: AbortSignal };
 
-function startDeadline(budgetMs: number): Deadline {
+function startDeadline(budgetMs: number, requestSignal: AbortSignal): Deadline {
   const endsAt = Date.now() + budgetMs;
-  return { remainingMs: () => endsAt - Date.now() };
+  return { remainingMs: () => endsAt - Date.now(), requestSignal };
 }
 
 /** Signal for one outbound call: the per-call ceiling or the rest of the
@@ -126,7 +126,10 @@ function startDeadline(budgetMs: number): Deadline {
  *  before the call even starts, turning an exhausted budget into a request
  *  that never left. */
 function stepSignal(deadline: Deadline, capMs: number): AbortSignal {
-  return AbortSignal.timeout(Math.max(1, Math.min(capMs, deadline.remainingMs())));
+  return AbortSignal.any([
+    deadline.requestSignal,
+    AbortSignal.timeout(Math.max(1, Math.min(capMs, deadline.remainingMs()))),
+  ]);
 }
 
 function isTimeout(error: unknown): boolean {
@@ -147,7 +150,7 @@ type AuthOutcome = { user: AuthUser } | { rateLimited: RateLimitResult };
 
 Deno.serve(async (request) => {
   const requestId = crypto.randomUUID();
-  const deadline = startDeadline(REQUEST_BUDGET_MS);
+  const deadline = startDeadline(REQUEST_BUDGET_MS, request.signal);
   try {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: responseHeaders(request) });
@@ -193,14 +196,6 @@ Deno.serve(async (request) => {
     void pruneRateLimits({ supabaseUrl: SUPABASE_URL, serviceKey: SUPABASE_SERVICE_ROLE_KEY });
 
     const disabled = MIRROR_SEARCH_KEY === KILL_SWITCH;
-    // NEVER log the key or token. Only whether one was issued and how.
-    console.log('search-key issued', {
-      requestId,
-      disabled,
-      ttlSeconds: TTL_SECONDS,
-      tenantToken: TENANT_TOKEN_MODE,
-    });
-
     // ttlSeconds stays the client's cache duration; the token itself lives
     // TENANT_TOKEN_GRACE_SECONDS longer, because the client keeps using an
     // expired entry while it refreshes in the background
@@ -211,6 +206,14 @@ Deno.serve(async (request) => {
       ? await issueTenantToken(Math.floor(Date.now() / 1000) + TTL_SECONDS + TENANT_TOKEN_GRACE_SECONDS)
       : MIRROR_SEARCH_KEY;
 
+    request.signal.throwIfAborted();
+    // NEVER log the key or token. Only whether one was issued and how.
+    console.log('search-key issued', {
+      requestId,
+      disabled,
+      ttlSeconds: TTL_SECONDS,
+      tenantToken: TENANT_TOKEN_MODE,
+    });
     return jsonResponse(
       request,
       {
@@ -234,9 +237,12 @@ Deno.serve(async (request) => {
       },
     );
   } catch (error) {
+    if (request.signal.aborted) {
+      return jsonResponse(request, { error: 'request_aborted', requestId }, 499);
+    }
     console.error('search-key failed', {
       requestId,
-      message: error instanceof Error ? error.message : String(error),
+      code: error instanceof HttpError ? error.code : 'unexpected_error',
     });
 
     if (error instanceof HttpError) {
@@ -338,7 +344,7 @@ async function authenticateUser(request: Request, deadline: Deadline): Promise<A
   }
 
   if (response.status === 429 || response.status >= 500) {
-    await response.body?.cancel();
+    void response.body?.cancel().catch(() => {});
     throw new HttpError(503, 'auth_unavailable', 'Anmeldung gerade nicht prüfbar.');
   }
   if (!response.ok) {
@@ -441,7 +447,7 @@ async function consumeRateLimits(gates: RateLimitGate[], deadline: Deadline): Pr
   // outage, not an invented 429. An array LONGER than the input is just as
   // unreadable as a non-array — the RPC only ever shortens.
   if (!Array.isArray(data) || data.length === 0 || data.length > gates.length) {
-    console.error(`consume_edge_rate_limits: 200 mit unlesbarer Antwort (${JSON.stringify(data).slice(0, 120)})`);
+    console.error('consume_edge_rate_limits: 200 mit unlesbarer Antwort');
     throw rateLimitUnavailable();
   }
 
@@ -451,7 +457,7 @@ async function consumeRateLimits(gates: RateLimitGate[], deadline: Deadline): Pr
     const entry = (data[i] ?? {}) as Partial<RateLimitResult>;
     if (typeof entry.allowed !== 'boolean') {
       console.error(
-        `consume_edge_rate_limits: ${gate.scope} ohne lesbares allowed (${JSON.stringify(entry).slice(0, 120)})`,
+        `consume_edge_rate_limits: ${gate.scope} ohne lesbares allowed`,
       );
       throw rateLimitUnavailable();
     }

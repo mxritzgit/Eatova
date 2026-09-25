@@ -53,6 +53,56 @@ class LocalSyncResult {
   final bool trainingHeadConflict;
 }
 
+/// Keep a bounded optimistic count while a later counting intent is pending.
+/// A remote snapshot may already include an ACK-failed intent, so adding the
+/// queue length would double count it. The pending count bounds a stale cache.
+LifetimeStats reconcileLifetimeStatsWithPending(
+  LifetimeStats remote,
+  LifetimeStats local,
+  Iterable<SyncOp> pending,
+) {
+  final operations = pending.toList();
+  var pendingMeals = 0;
+  var pendingWeights = 0;
+  for (final op in operations) {
+    if (op.blockedReason == SyncBlockedReason.rejected) continue;
+    switch (op.kind) {
+      case SyncOpKind.mealInsert || SyncOpKind.mealPlanConvert:
+        pendingMeals++;
+      case SyncOpKind.weightInsert:
+        pendingWeights++;
+      case SyncOpKind.statsIncrement:
+        pendingMeals += math.max(0, op.statsMeals);
+        pendingWeights += math.max(0, op.statsWeightLogs);
+      default:
+        break;
+    }
+  }
+  var reconciled = remote.copyWith(
+    mealsLogged: math.min(
+      math.max(remote.mealsLogged, local.mealsLogged),
+      remote.mealsLogged + pendingMeals,
+    ),
+    weightLogs: math.min(
+      math.max(remote.weightLogs, local.weightLogs),
+      remote.weightLogs + pendingWeights,
+    ),
+  );
+  for (final op in operations) {
+    if (op.blockedReason == SyncBlockedReason.rejected) continue;
+    if (op.trackDay) {
+      final meal = op.meal;
+      if (meal != null) {
+        reconciled = reconciled.recordTrackedDay(meal.loggedAt);
+      }
+    } else if (op.kind == SyncOpKind.trackingDay) {
+      final day = DateTime.tryParse(op.entityId);
+      if (day != null) reconciled = reconciled.recordTrackedDay(day);
+    }
+  }
+  return reconciled;
+}
+
 extension LocalCacheMutations on LocalCache {
   AtomicKeyValueStore? get atomicStore =>
       _store is AtomicKeyValueStore ? _store : null;
@@ -439,7 +489,13 @@ extension LocalCacheMutations on LocalCache {
       queue.removeAt(at);
       final hasNewer = queue.any((op) => op.entityKey == delivered.entityKey);
       if (result.stats != null) {
-        state[_statsKey] = LocalCache._statsToJson(result.stats!);
+        state[_statsKey] = LocalCache._statsToJson(
+          reconcileLifetimeStatsWithPending(
+            result.stats!,
+            LifetimeStats.fromRow(state[_statsKey] ?? {}),
+            queue,
+          ),
+        );
       }
       if (result.plan != null && !hasNewer) {
         _put(
@@ -717,7 +773,15 @@ extension LocalCacheMutations on LocalCache {
   }) => _atomicMutation(
     (state, queue) {
       if (profile != null) state[_profileKey] = userProfileToJson(profile);
-      if (stats != null) state[_statsKey] = LocalCache._statsToJson(stats);
+      if (stats != null) {
+        state[_statsKey] = LocalCache._statsToJson(
+          reconcileLifetimeStatsWithPending(
+            stats,
+            LifetimeStats.fromRow(state[_statsKey] ?? {}),
+            queue,
+          ),
+        );
+      }
       if (meals != null) {
         state[_loggedMealsKey] = {
           'items': meals.map(loggedMealToJson).toList(),
@@ -1137,7 +1201,11 @@ extension LocalCacheMutations on LocalCache {
         final rows = _rows(state, _weightLogKey, 'items');
         if (!rows.any((row) => row['id'] == op.entityId)) {
           rows.add({'id': op.entityId, 't': ts.toIso8601String(), 'kg': kg});
-          rows.sort((a, b) => (a['t'] as String).compareTo(b['t'] as String));
+          rows.sort((a, b) => DateTime.parse(a['t'] as String)
+              .compareTo(DateTime.parse(b['t'] as String)));
+          if (rows.length > WeightLog.maxEntries) {
+            rows.removeRange(0, rows.length - WeightLog.maxEntries);
+          }
           state[_weightLogKey] = {'items': rows};
           if (countStats) {
             state[_statsKey] = LocalCache._statsToJson(

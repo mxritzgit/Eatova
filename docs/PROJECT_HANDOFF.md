@@ -1832,3 +1832,34 @@ request records GitHub verification and merge status separately; the fixes need
 no backend deployment. The original dirty checkout remains preserved. No device
 installation, local iOS build or live provider/production verification is
 established by the local review above.
+
+## Deep functional review with ten specialists, 2026-09-26
+
+The second review started from main `8b8ee122fc8fac04b1ff3221587ec47bfea4a2e6`
+(PR #107), with exactly ten GPT-6 Sol/xhigh specialists in isolated worktrees
+and independent peer/root review. The full [review and regression evidence](APP-REVIEW-2026-09-25.md#deep-review-with-ten-specialists-2026-09-25-to-2026-09-26)
+records the corrected behavior, test oracles and residual boundaries.
+
+- Fixed async auth/Coach navigation and quota feedback, accepted-answer
+  reconciliation, immutable import retries, complete bounded meal/history
+  paging, selected-day/workout retention, pending counters and weight capping,
+  native preference ordering and reminder side effects after durable commits.
+- Hardened Edge diagnostics/cancellation/stream cleanup, denied-day provider
+  usage retention, and the iOS gate requiring all 22 declared share XCTests.
+- Test review corrected a discarded-accepted-reply oracle and replaced timed
+  photo assertions with actual cleanup completion. The integrated server/client
+  contract caught a missing remote-abort mapping; local cancellation stays silent.
+- Final local evidence: **5,194 Flutter tests, 95.02% coverage**,
+  strict analyzer clean; **795 offline Deno tests**, four entrypoints checked;
+  final Android debug/release builds with R8. Real disposable PostgreSQL checks
+  covered all 50 migrations, ownership, concurrency, upgrades and restore.
+  Synthetic auth checks included a detected disabled-rotation mutation.
+
+Delivery branch: `fix/deep-app-review-2026-09-25`. Its pull request records
+protected CI and merge status; local passes alone do not establish either.
+The original dirty checkout was preserved. Migration
+`20260925100000_provider_usage_denied_retention.sql` and all four Edge Functions
+still need a separately authorized backend deployment. No device build was
+installed; real hardware/provider journeys and live production state were not
+verified. The main-only drift check can report the unapplied migration until
+rollout. Actual Xcode/XCTest execution is delegated to the macOS PR workflow.

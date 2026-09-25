@@ -97,6 +97,9 @@ String _mealAnalysisExceptionMessage(
       // answers 503 there on purpose instead of 401 (a 401 would sign the
       // user out over an auth OUTAGE), so this belongs with the other
       // outages — not on the fallback, which blames the user's connection.
+      // A remote 499 remains a server error. Only a local
+      // MealAnalysisCancelled means the user closed this sheet.
+      'request_aborted' ||
       'auth_unavailable' ||
       'internal_error' => l10n.foodAnalysisServiceUnavailableMessage,
       'missing_image' ||

@@ -77,6 +77,69 @@ do $$ begin
   if exists(select 1 from public.ai_provider_user_usage where usage_date < current_date-30) then raise exception 'stale account counters retained'; end if;
 end $$;
 reset role;
+-- Denied requests are still the first request after a UTC-day rollover.
+-- They must clean old account metadata without spending a call.
+truncate public.ai_provider_daily_usage, public.ai_provider_user_usage;
+update public.ai_provider_limits set enabled=false;
+insert into public.ai_provider_daily_usage values
+  (((clock_timestamp() at time zone 'UTC')::date)-31, 2, 0),
+  (((clock_timestamp() at time zone 'UTC')::date)-30, 5, 2),
+  (((clock_timestamp() at time zone 'UTC')::date)-1, 7, 1);
+insert into public.ai_provider_user_usage values
+  ('91111111-1111-4111-8111-111111111111',((clock_timestamp() at time zone 'UTC')::date)-31,2),
+  ('91111111-1111-4111-8111-111111111111',((clock_timestamp() at time zone 'UTC')::date)-30,5),
+  ('91111111-1111-4111-8111-111111111111',((clock_timestamp() at time zone 'UTC')::date)-1,7);
+set role service_role;
+do $$ declare result jsonb; begin
+  begin
+    perform public.reserve_ai_provider_call('91111111-1111-4111-8111-111111111111','invalid_operation');
+    raise exception 'invalid operation was accepted';
+  exception when sqlstate '22023' then null; end;
+  begin
+    perform public.reserve_ai_provider_call('93333333-3333-4333-8333-333333333333','coach_answer');
+    raise exception 'unknown account was accepted';
+  exception when sqlstate '22023' then null; end;
+  if not exists(select 1 from public.ai_provider_user_usage
+      where usage_date=((clock_timestamp() at time zone 'UTC')::date)-31 and calls=2)
+    or not exists(select 1 from public.ai_provider_daily_usage
+      where usage_date=((clock_timestamp() at time zone 'UTC')::date)-31 and calls=2 and image_calls=0)
+    then raise exception 'invalid request pruned usage'; end if;
+  result := public.reserve_ai_provider_call('91111111-1111-4111-8111-111111111111','coach_answer');
+  if result->>'reason' is distinct from 'disabled' or result->>'allowed' is distinct from 'false'
+    then raise exception 'disabled budget request was allowed'; end if;
+  if (select count(*) from public.ai_provider_user_usage) <> 2
+    or (select count(*) from public.ai_provider_daily_usage) <> 2
+    or (select sum(calls) from public.ai_provider_user_usage) <> 12
+    or (select sum(calls) from public.ai_provider_daily_usage) <> 12
+    or (select sum(image_calls) from public.ai_provider_daily_usage) <> 3
+    or not exists(select 1 from public.ai_provider_user_usage
+      where usage_date=((clock_timestamp() at time zone 'UTC')::date)-30 and calls=5)
+    or not exists(select 1 from public.ai_provider_daily_usage
+      where usage_date=((clock_timestamp() at time zone 'UTC')::date)-30 and calls=5 and image_calls=2)
+    then raise exception 'disabled cleanup lost recent counts or retained stale usage'; end if;
+end $$;
+reset role;
+insert into public.ai_provider_daily_usage values (((clock_timestamp() at time zone 'UTC')::date)-31, 2, 0);
+insert into public.ai_provider_user_usage values
+  ('91111111-1111-4111-8111-111111111111',((clock_timestamp() at time zone 'UTC')::date)-31,2);
+update public.ai_provider_limits set enabled=true,daily_call_limit=0;
+set role service_role;
+do $$ declare result jsonb; begin
+  result := public.reserve_ai_provider_call('91111111-1111-4111-8111-111111111111','coach_answer');
+  if result->>'reason' is distinct from 'budget_exhausted' or result->>'allowed' is distinct from 'false'
+    then raise exception 'zero cap request was allowed'; end if;
+  if (select count(*) from public.ai_provider_user_usage) <> 2
+    or (select count(*) from public.ai_provider_daily_usage) <> 2
+    or (select sum(calls) from public.ai_provider_user_usage) <> 12
+    or (select sum(calls) from public.ai_provider_daily_usage) <> 12
+    or (select sum(image_calls) from public.ai_provider_daily_usage) <> 3
+    or not exists(select 1 from public.ai_provider_user_usage
+      where usage_date=((clock_timestamp() at time zone 'UTC')::date)-30 and calls=5)
+    or not exists(select 1 from public.ai_provider_daily_usage
+      where usage_date=((clock_timestamp() at time zone 'UTC')::date)-30 and calls=5 and image_calls=2)
+    then raise exception 'zero-cap cleanup lost recent counts or retained stale usage'; end if;
+end $$;
+reset role;
 delete from public.ai_provider_limits;
 select rlstest.erwarte_sqlstate('select public.reserve_ai_provider_call(''91111111-1111-4111-8111-111111111111'', ''coach_answer'')', '55000', 'missing configuration fails closed');
 rollback;

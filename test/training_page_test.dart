@@ -237,6 +237,80 @@ void main() {
     },
   );
 
+  testWidgets('editing a plan keeps the selected workout after reordering', (
+    tester,
+  ) async {
+    final initial = TrainingPlan(
+      id: 'selection-plan',
+      proposal: CoachTrainingProposal(
+        title: 'Three workouts',
+        workouts: [
+          for (final name in ['A', 'B', 'C'])
+            TrainingWorkout(
+              title: '$name workout',
+              exercises: [
+                TrainingExercise(
+                  name: '$name move',
+                  sets: 1,
+                  reps: 8,
+                  restSeconds: 0,
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+    var current = initial;
+    void Function(VoidCallback)? update;
+    TrainingPlan? started;
+    int? startedIndex;
+    await pumpLocalized(
+      tester,
+      StatefulBuilder(
+        builder: (context, setState) {
+          update = setState;
+          return _screen(
+            plans: [current],
+            start: (plan, index) {
+              started = plan;
+              startedIndex = index;
+            },
+          );
+        },
+      ),
+      locale: const Locale('en'),
+      surfaceSize: const Size(390, 844),
+    );
+    await _tap(tester, 'training-workout-1');
+    expect(find.text('B move'), findsOneWidget);
+    update!(() => current = initial.copyWith());
+    await tester.pumpAndSettle();
+    expect(find.text('B move'), findsOneWidget);
+    update!(() {
+      current = initial.copyWith(
+        proposal: initial.proposal.copyWith(
+          workouts: initial.workouts.skip(1).toList(),
+        ),
+      );
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('B move'), findsOneWidget);
+    expect(find.text('C move'), findsNothing);
+    await _tap(tester, 'training-start');
+    expect(started, same(current));
+    expect(startedIndex, 0);
+    update!(() {
+      current = current.copyWith(
+        proposal: current.proposal.copyWith(workouts: [current.workouts.last]),
+      );
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('C move'), findsOneWidget);
+    await _tap(tester, 'training-start');
+    expect(started, same(current));
+    expect(startedIndex, 0);
+  });
+
   testWidgets('saved plan picker calls account-owned selection', (
     tester,
   ) async {

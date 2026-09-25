@@ -87,6 +87,39 @@ Deno.test('import source resolves short links manually before metadata request',
   } finally { globalThis.fetch = original; }
 });
 
+Deno.test('import source redirects and failed metadata do not wait for stalled body cancellation', async () => {
+  const original = globalThis.fetch;
+  const stalled = (status: number, headers?: HeadersInit) => new Response(new ReadableStream<Uint8Array>({
+    cancel() { return new Promise<void>(() => {}); },
+  }), { status, headers });
+  try {
+    for (const scenario of ['redirect', 'metadata', 'page'] as const) {
+      const calls: string[] = [];
+      globalThis.fetch = ((url: string | URL | Request) => {
+        const target = String(url);
+        calls.push(target);
+        if (scenario === 'redirect') return Promise.resolve(calls.length === 1
+          ? stalled(302, { location: VIDEO }) : Response.json({ title: 'Caption' }));
+        if (target.includes('/oembed?')) return Promise.resolve(scenario === 'metadata'
+          ? stalled(403) : Response.json({ title: '' }));
+        return Promise.resolve(stalled(403));
+      }) as typeof fetch;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const result = await Promise.race([
+          loadSource(scenario === 'redirect' ? SHORT : VIDEO, AbortSignal.timeout(1000)),
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => reject(new Error(`${scenario} waited for stalled body.cancel()`)), 1000);
+          }),
+        ]);
+        check(scenario === 'redirect' ? result.source.url === VIDEO && !result.incomplete : result.incomplete,
+          'source outcome preserved');
+        check(calls.length === 2, 'bounded source requests');
+      } finally { clearTimeout(timer); }
+    }
+  } finally { globalThis.fetch = original; }
+});
+
 Deno.test('import source blocks redirect SSRF before second fetch and preserves pasted text', async () => {
   for (const location of ['http://127.0.0.1/private', 'https://169.254.169.254/', 'https://www.tiktok.com.evil.invalid/secret', 'https://user:secret@www.tiktok.com/@cook/video/1234567890123456789']) {
     const original = globalThis.fetch;

@@ -136,7 +136,10 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   /// once the server actually named numbers; a failed RPC must not refill an
   /// exhausted quota and lift the block (Review D2).
   ChatQuotaSnapshot? _quota;
+  int _quotaRevision = 0;
   String? _activeSessionId;
+  int _conversationRevision = 0;
+  int _sessionListRevision = 0;
   bool _loading = true;
   bool _listening = false;
   int _speechGeneration = 0;
@@ -301,9 +304,11 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       await _bootstrap();
       return;
     }
-    await _refreshQuota(svc);
     // The error banner is feedback on an action, not a permanent state.
-    if (mounted && _error != null) setState(() => _error = null);
+    if (mounted && identical(widget.service, svc) && _error != null) {
+      setState(() => _error = null);
+    }
+    await _refreshQuota(svc);
   }
 
   /// Second trigger for the refresh path: [didChangeDependencies] only fires
@@ -454,18 +459,24 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   /// Rule: a network outage must neither consume nor refill the quota —
   /// [CoachChatService.loadQuotaToday] throws instead of inventing a snapshot.
   Future<void> _refreshQuota(CoachChatService svc) async {
+    final revision = ++_quotaRevision;
     final ChatQuotaSnapshot frisch;
     try {
       frisch = await svc.loadQuotaToday();
     } on CoachDataUnavailable {
       return;
     }
-    if (mounted) setState(() => _quota = frisch);
+    if (mounted &&
+        identical(widget.service, svc) &&
+        revision == _quotaRevision) {
+      setState(() => _quota = frisch);
+    }
   }
 
   Future<void> _refreshSessions() async {
     final svc = widget.service;
     if (svc == null) return;
+    final revision = ++_sessionListRevision;
     final List<ChatSession> sessions;
     try {
       sessions = await svc.loadSessions();
@@ -474,19 +485,34 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       // sheet and claim there are no conversations.
       return;
     }
-    if (!mounted) return;
+    if (!mounted ||
+        !identical(widget.service, svc) ||
+        revision != _sessionListRevision) {
+      return;
+    }
     setState(() => _sessions = sessions);
   }
 
+  bool _matchesConversation(
+    CoachChatService svc,
+    String? sessionId,
+    int revision,
+  ) =>
+      mounted &&
+      identical(widget.service, svc) &&
+      _activeSessionId == sessionId &&
+      _conversationRevision == revision;
+
   /// Switches the displayed conversation.
   ///
-  /// Every exit checks `_activeSessionId != sessionId`: the screen stays
-  /// mounted, so `mounted` alone would let a slow load of A write its history
-  /// (or its error state) into the view while C is on screen.
+  /// A visit revision fences slow loads, including an A→B→A return to the same
+  /// session id. The screen stays mounted across switches.
   Future<void> _switchToSession(String sessionId) async {
     final svc = widget.service;
     if (svc == null) return;
     if (_activeSessionId == sessionId) return;
+    final revision = ++_conversationRevision;
+    _streamVorschau.value = '';
     setState(() {
       _loading = true;
       _activeSessionId = sessionId;
@@ -501,7 +527,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     } on CoachDataUnavailable {
       // The error belongs to the session that caused it, or C would carry A's
       // banner and `_historyUnavailable` state.
-      if (!mounted || _activeSessionId != sessionId) return;
+      if (!_matchesConversation(svc, sessionId, revision)) {
+        return;
+      }
       setState(() {
         _loading = false;
         _historyUnavailable = true;
@@ -510,11 +538,90 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       return;
     }
     history = await _hydrateProposalImages(history);
-    if (!mounted || _activeSessionId != sessionId) return;
+    if (!_matchesConversation(svc, sessionId, revision)) {
+      return;
+    }
     setState(() {
       _messages = history;
       _historyUnavailable = false;
       _loading = false;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
+  }
+
+  bool _sameCompletedAnswer(ChatMessage row, ChatMessage answer) {
+    if (row.role != ChatRole.assistant ||
+        row.content != answer.content ||
+        row.refusal != answer.refusal) {
+      return false;
+    }
+    final recipe = answer.recipeProposal;
+    if (recipe != null) {
+      final other = row.recipeProposal;
+      return other != null &&
+          other.title == recipe.title &&
+          other.description == recipe.description &&
+          other.portion == recipe.portion &&
+          other.caloriesKcal == recipe.caloriesKcal &&
+          other.proteinG == recipe.proteinG &&
+          other.carbsG == recipe.carbsG &&
+          other.fatG == recipe.fatG &&
+          other.estimatedGrams == recipe.estimatedGrams &&
+          other.ingredients == recipe.ingredients &&
+          other.preparation == recipe.preparation;
+    }
+    final plan = answer.trainingPlanProposal;
+    if (plan != null) {
+      final other = row.trainingPlanProposal;
+      return other != null &&
+          jsonEncode(other.toJson()) == jsonEncode(plan.toJson());
+    }
+    return row.recipeProposal == null && row.trainingPlanProposal == null;
+  }
+
+  /// A completed send may reach the server after a user has left and returned
+  /// to its session. Reload that visit instead of appending an old local answer
+  /// to history that may already contain the persisted row.
+  Future<void> _reconcileReenteredSession(
+    CoachChatService svc,
+    String sessionId, {
+    ChatMessage? fallback,
+    required Set<String> knownMessageIds,
+  }) async {
+    if (!mounted ||
+        !identical(widget.service, svc) ||
+        _activeSessionId != sessionId) {
+      return;
+    }
+    // Supersede any earlier history load for this same visit.
+    final revision = ++_conversationRevision;
+    setState(() => _loading = true);
+    List<ChatMessage>? history;
+    try {
+      history = await svc.loadHistory(sessionId);
+    } on CoachDataUnavailable {
+      // A paid plan or recipe can have an answer even when its history write
+      // failed. Keep that response visible without claiming history is sound.
+    }
+    if (!_matchesConversation(svc, sessionId, revision)) return;
+    if (history != null) history = await _hydrateProposalImages(history);
+    if (!_matchesConversation(svc, sessionId, revision)) return;
+    final loaded = history;
+    setState(() {
+      final messages = loaded ?? _messages;
+      _messages = [
+        ...messages,
+        if (fallback != null &&
+            !messages.any((message) =>
+                message.id == fallback.id ||
+                (fallback.id.startsWith('local-') &&
+                    !knownMessageIds.contains(message.id) &&
+                    _sameCompletedAnswer(message, fallback))))
+          fallback,
+      ];
+      _historyUnavailable = loaded == null;
+      _loading = false;
+      _error = loaded == null ? context.l10n.coachErrorHistoryUnavailable : null;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
   }
@@ -527,13 +634,15 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     // the user switched meanwhile, the view is theirs — the new session is in
     // the list, one tap away.
     final vorher = _activeSessionId;
+    final revision = _conversationRevision;
     final id = await svc.createSession(
       title: context.l10n.coachSessionDefaultTitle,
     );
     if (id == null) return;
     await _refreshSessions();
-    if (!mounted || _activeSessionId != vorher) return;
+    if (!_matchesConversation(svc, vorher, revision)) return;
     setState(() {
+      _conversationRevision++;
       _activeSessionId = id;
       _messages = const <ChatMessage>[];
       _loading = false;
@@ -560,20 +669,48 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       );
       return;
     }
-    final wasActive = _activeSessionId == sessionId;
+    if (!mounted || !identical(widget.service, svc)) return;
+    setState(() {
+      _sessions = _sessions.where((s) => s.id != sessionId).toList();
+    });
     await _refreshSessions();
-    if (!mounted) return;
-    if (wasActive) {
+    if (!mounted || !identical(widget.service, svc)) return;
+    // Ignore a list response that still contains the confirmed deletion.
+    if (_sessions.any((s) => s.id == sessionId)) {
+      setState(() {
+        _sessions = _sessions.where((s) => s.id != sessionId).toList();
+      });
+    }
+    if (_activeSessionId == sessionId) {
       if (_sessions.isNotEmpty) {
         await _switchToSession(_sessions.first.id);
       } else {
         // Last session deleted: recreate the default AND reload, so list and
         // sheet show the new session instead of being empty.
         final fallback = await svc.ensureDefaultSession();
-        if (fallback != null) {
-          await _refreshSessions();
-          await _switchToSession(fallback);
+        if (!mounted ||
+            !identical(widget.service, svc) ||
+            _activeSessionId != sessionId) {
+          return;
         }
+        if (fallback == null) {
+          _conversationRevision++;
+          _streamVorschau.value = '';
+          setState(() {
+            _activeSessionId = null;
+            _messages = const <ChatMessage>[];
+            _loading = false;
+            _error = context.l10n.coachErrorNoSession;
+          });
+          return;
+        }
+        await _refreshSessions();
+        if (!mounted ||
+            !identical(widget.service, svc) ||
+            _activeSessionId != sessionId) {
+          return;
+        }
+        await _switchToSession(fallback);
       }
     }
   }
@@ -611,6 +748,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     final l10n = context.l10n;
     final svc = widget.service;
     final sessionId = _activeSessionId;
+    final conversationRevision = _conversationRevision;
+    final knownMessageIds = _messages.map((message) => message.id).toSet();
     final typedText = textOverride ?? _input.text;
     final text = typedText.trim();
     final hasImage = imageBytes != null && imageBytes.isNotEmpty;
@@ -718,7 +857,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         // switching stays possible while sending, and the answer to another
         // conversation must not type itself into this one.
         onPartialReply: (text) {
-          if (!mounted || _activeSessionId != sessionId) return;
+          if (!_matchesConversation(svc, sessionId, conversationRevision)) return;
           // Once, when the dots turn into text: the bubble takes the row's
           // place and has to be in view. Not per delta — that would animate
           // against a user scrolling up to read what already arrived.
@@ -731,47 +870,59 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       );
       // The daily slot is spent even if the answer is discarded — hence
       // before the session comparison.
+      if (!mounted || !identical(widget.service, svc)) return;
       _quotaUebernehmen(remaining: res.remaining, dailyLimit: res.dailyLimit);
+      final answer = ChatMessage(
+        id: 'local-r-${DateTime.now().microsecondsSinceEpoch}',
+        role: ChatRole.assistant,
+        content: res.reply,
+        createdAt: DateTime.now(),
+        refusal: res.refusal,
+      );
       // Answer and error belong to the session the question came from;
       // switching stays possible while sending, and `mounted` alone does not
       // cover it because the screen stays mounted.
-      if (!mounted || _activeSessionId != sessionId) return;
+      if (!_matchesConversation(svc, sessionId, conversationRevision)) {
+        if (res.sessionId == sessionId) {
+          await _reconcileReenteredSession(
+            svc,
+            sessionId,
+            fallback: answer,
+            knownMessageIds: knownMessageIds,
+          );
+        }
+        return;
+      }
       if (res.sessionId != sessionId) {
         await _serverSessionUebernehmen(
+          svc: svc,
           angefragt: sessionId,
           benutzt: res.sessionId,
           l10n: l10n,
+          revision: conversationRevision,
         );
         return;
       }
       setState(() {
-        _messages = [
-          ..._messages,
-          ChatMessage(
-            id: 'local-r-${DateTime.now().microsecondsSinceEpoch}',
-            role: ChatRole.assistant,
-            content: res.reply,
-            createdAt: DateTime.now(),
-            refusal: res.refusal,
-          ),
-        ];
+        _messages = [..._messages, answer];
       });
       HapticFeedback.lightImpact();
       // Refresh sessions in the background so auto title / last_message_at are
       // current in the sheet without blocking the send flow.
       unawaited(_refreshSessions());
     } on CoachQuotaExceeded catch (e) {
-      if (!mounted) return;
+      if (!mounted || !identical(widget.service, svc)) return;
       // The server named the limit explicitly, so this replaces any prior
       // state regardless of the open session: the limit is per user.
       setState(() {
+        _quotaRevision++;
         _quota = ChatQuotaSnapshot(
           used: e.dailyLimit,
           remaining: 0,
           dailyLimit: e.dailyLimit,
         );
       });
-      if (_activeSessionId != sessionId) return;
+      if (!_matchesConversation(svc, sessionId, conversationRevision)) return;
       // Marked here too: the slot was gone, the question did not go out. The
       // retry button hangs on [_canInteract] and stays off, but the marker
       // remains — otherwise the bubble would look sent.
@@ -780,7 +931,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         _fehlgeschlagen = auftrag;
       });
     } on CoachChatException catch (e) {
-      if (!mounted || _activeSessionId != sessionId) return;
+      if (!_matchesConversation(svc, sessionId, conversationRevision)) return;
       setState(() {
         _error = e.message;
         _fehlgeschlagen = auftrag;
@@ -824,11 +975,13 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   /// reload would move the exchange elsewhere without a word. So: say it, then
   /// follow the server and load the session it actually used.
   Future<void> _serverSessionUebernehmen({
+    required CoachChatService svc,
     required String angefragt,
     required String benutzt,
     required AppLocalizations l10n,
+    required int revision,
   }) async {
-    if (!mounted || _activeSessionId != angefragt) return;
+    if (!_matchesConversation(svc, angefragt, revision)) return;
     setState(() {
       _error = l10n.coachSessionSwitchedNotice;
       // The question WAS delivered — it just landed elsewhere. An unsent
@@ -837,6 +990,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     });
     // The deleted session is gone from the sheet and the used one may be new.
     await _refreshSessions();
+    if (!_matchesConversation(svc, angefragt, revision)) return;
     // [_switchToSession] does the full load; the history it fetches already
     // contains both the question and the answer.
     await _switchToSession(benutzt);
@@ -849,6 +1003,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   /// send no limit and fall back to the current display value.
   void _quotaUebernehmen({required int? remaining, required int? dailyLimit}) {
     if (remaining == null || !mounted) return;
+    _quotaRevision++;
     final limit = dailyLimit ?? _limitFuerAnzeige;
     final frei = remaining.clamp(0, limit);
     setState(() {
@@ -1071,6 +1226,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   }) async {
     final imageStore = RecipeImageStore.instance;
     final imageScope = imageStore.scopeToken;
+    final conversationRevision = _conversationRevision;
+    final knownMessageIds = _messages.map((message) => message.id).toSet();
     HapticFeedback.selectionClick();
     final userMsg = ChatMessage(
       id: 'local-${DateTime.now().microsecondsSinceEpoch}',
@@ -1104,8 +1261,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         locale: l10n.localeName,
       );
       // As in [_send]: the slot is spent even if the card is discarded.
+      if (!mounted || !identical(widget.service, svc)) return;
       _quotaUebernehmen(remaining: res.remaining, dailyLimit: res.dailyLimit);
-      if (!mounted) return;
       // Store the image under the SERVER message id, so history reconstruction
       // and the live card use the same key.
       final serverId = res.assistantMessageId;
@@ -1122,53 +1279,66 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                 .catchError((Object _) => false)
           : null;
       if (bildGespeichert != null) unawaited(bildGespeichert);
+      final answer = ChatMessage(
+        id: serverId ?? 'local-r-${DateTime.now().microsecondsSinceEpoch}',
+        role: ChatRole.assistant,
+        content: res.reply,
+        createdAt: DateTime.now(),
+        refusal: res.refusal,
+        recipeProposal: res.proposal,
+      );
       // Images exist only in this response: keep them in the original user's
       // local store even when another conversation is now visible.
-      if (_activeSessionId != sessionId) return;
+      if (!_matchesConversation(svc, sessionId, conversationRevision)) {
+        if (res.sessionId == sessionId) {
+          if (bildGespeichert != null) await bildGespeichert;
+          await _reconcileReenteredSession(
+            svc,
+            sessionId,
+            fallback: answer,
+            knownMessageIds: knownMessageIds,
+          );
+        }
+        return;
+      }
       if (res.sessionId != sessionId) {
         // Mirror of [_send]. The reload rebuilds the card from
         // `chat_messages.recipe` and rehydrates its image from disk, so the
         // write has to be finished first.
         if (bildGespeichert != null) await bildGespeichert;
+        if (!_matchesConversation(svc, sessionId, conversationRevision)) return;
         await _serverSessionUebernehmen(
+          svc: svc,
           angefragt: sessionId,
           benutzt: res.sessionId,
           l10n: l10n,
+          revision: conversationRevision,
         );
         return;
       }
       setState(() {
-        _messages = [
-          ..._messages,
-          ChatMessage(
-            id: serverId ?? 'local-r-${DateTime.now().microsecondsSinceEpoch}',
-            role: ChatRole.assistant,
-            content: res.reply,
-            createdAt: DateTime.now(),
-            refusal: res.refusal,
-            recipeProposal: res.proposal,
-          ),
-        ];
+        _messages = [..._messages, answer];
       });
       HapticFeedback.lightImpact();
       unawaited(_refreshSessions());
     } on CoachQuotaExceeded catch (e) {
-      if (!mounted) return;
+      if (!mounted || !identical(widget.service, svc)) return;
       // As in [_send]: the limit is per user, not per session.
       setState(() {
+        _quotaRevision++;
         _quota = ChatQuotaSnapshot(
           used: e.dailyLimit,
           remaining: 0,
           dailyLimit: e.dailyLimit,
         );
       });
-      if (_activeSessionId != sessionId) return;
+      if (!_matchesConversation(svc, sessionId, conversationRevision)) return;
       setState(() {
         _error = e.message;
         _fehlgeschlagen = auftrag;
       });
     } on CoachChatException catch (e) {
-      if (!mounted || _activeSessionId != sessionId) return;
+      if (!_matchesConversation(svc, sessionId, conversationRevision)) return;
       setState(() {
         _error = e.message;
         _fehlgeschlagen = auftrag;
@@ -1188,6 +1358,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     CoachTrainingContext? trainingContext,
   }) async {
     final accountRevision = _trainingAccountRevision;
+    final conversationRevision = _conversationRevision;
+    final knownMessageIds = _messages.map((message) => message.id).toSet();
     HapticFeedback.selectionClick();
     final userMsg = ChatMessage(
       id: 'local-${DateTime.now().microsecondsSinceEpoch}',
@@ -1229,7 +1401,6 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         remaining: reply.remaining,
         dailyLimit: reply.dailyLimit,
       );
-      if (!isCurrentConversation()) return;
       final answer = ChatMessage(
         id:
             reply.assistantMessageId ??
@@ -1240,6 +1411,19 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         refusal: reply.refusal,
         trainingPlanProposal: reply.refusal ? null : reply.proposal,
       );
+      if (!isCurrentConversation()) {
+        if (_activeSessionId == sessionId &&
+            _conversationRevision != conversationRevision &&
+            reply.sessionId == sessionId) {
+          await _reconcileReenteredSession(
+            svc,
+            sessionId,
+            fallback: answer,
+            knownMessageIds: knownMessageIds,
+          );
+        }
+        return;
+      }
       if (reply.sessionId != sessionId) {
         await _receiveRemappedPlan(
           svc: svc,
@@ -1286,6 +1470,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     required bool Function() isCurrentSource,
     required AppLocalizations l10n,
   }) async {
+    final listRevision = ++_sessionListRevision;
     List<ChatSession>? sessions;
     try {
       sessions = await svc.loadSessions();
@@ -1296,7 +1481,10 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     // A fresh list also identifies this load across navigation away and back.
     final loadingMessages = <ChatMessage>[];
     setState(() {
-      if (sessions != null) _sessions = sessions;
+      if (sessions != null && listRevision == _sessionListRevision) {
+        _sessions = sessions;
+      }
+      _conversationRevision++;
       _activeSessionId = sessionId;
       _messages = loadingMessages;
       _loading = true;
@@ -1526,6 +1714,16 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     HapticFeedback.selectionClick();
     // Grabbed before the first `await`: safe context access.
     final l10n = context.l10n;
+    final service = widget.service;
+    final sessionId = _activeSessionId;
+    final revision = _conversationRevision;
+    final draft = _input.text;
+    bool isCurrent() => mounted &&
+        identical(widget.service, service) &&
+        _activeSessionId == sessionId &&
+        _conversationRevision == revision &&
+        _input.text == draft &&
+        _canInteract;
     // The copy the picker leaves in the app cache; deleted in `finally`, or
     // the user's photos stay on the device forever, even after account
     // deletion.
@@ -1541,25 +1739,27 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       );
       if (image == null) return;
       aufnahme = image;
+      if (!isCurrent()) return;
       final raw = await image.readAsBytes();
+      if (!isCurrent()) return;
       final bytes = await _scrubImage(raw);
-      if (!mounted) return;
+      if (!isCurrent()) return;
       if (bytes.lengthInBytes > _maxImageBytes) {
         setState(() => _error = l10n.coachErrorImageTooLarge);
         return;
       }
       await _send(
-        textOverride: _input.text.trim().isEmpty
+        textOverride: draft.trim().isEmpty
             ? l10n.coachImageDefaultCaption
-            : _input.text.trim(),
+            : draft.trim(),
         imageBytes: bytes,
         imageMimeType: _mimeForBytes(bytes, image),
       );
     } on PlatformException catch (e) {
-      if (!mounted) return;
+      if (!isCurrent()) return;
       setState(() => _error = _permissionMessageFor(source, e, l10n));
     } catch (e) {
-      if (!mounted) return;
+      if (!isCurrent()) return;
       setState(() => _error = l10n.coachErrorImageLoadFailed);
     } finally {
       // Only here: by now the bytes are read, scrubbed and sent — the path is

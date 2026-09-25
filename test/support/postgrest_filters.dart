@@ -31,7 +31,7 @@ bool _matches(Map<String, dynamic> row, String expression) {
     }
   }
   final match = RegExp(
-    r'^([a-z_]+)\.(eq|gte|lt|is)\.(.+)$',
+    r'^([a-z_]+)\.(eq|gt|gte|lt|is)\.(.+)$',
   ).firstMatch(expression);
   if (match == null) throw FormatException('Unsupported filter: $expression');
   final column = match[1]!;
@@ -42,6 +42,8 @@ bool _matches(Map<String, dynamic> row, String expression) {
   final expected = match[3]!;
   return switch (match[2]) {
     'eq' => value != null && value.toString() == expected,
+    'gt' when column == 'id' =>
+      value != null && value.toString().compareTo(expected) > 0,
     'is' when expected == 'null' => value == null,
     'gte' =>
       value != null &&

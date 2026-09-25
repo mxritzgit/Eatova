@@ -11,7 +11,7 @@ import 'package:eatova/src/services/tracking_sync.dart';
 // PERF/DATA: the four boot reads were unbounded — after a year of tracking
 // every cold start pulls thousands of JSONB rows, and a db-max-rows setting
 // truncates SILENTLY in PostgREST. These tests pin the bounds ON THE WIRE:
-// order desc plus an explicit limit everywhere, a date window on logged_meals,
+// explicit order and limit everywhere, a date window on logged_meals,
 // and an ASCENDING result for weight_log (latest == entries.last).
 
 /// SupabaseClient over a MockClient that records every request and answers
@@ -35,18 +35,19 @@ import 'package:eatova/src/services/tracking_sync.dart';
   return (client: client, requests: requests);
 }
 
-/// The bounds every boot read shares: the user filter, `order desc` and an
-/// explicit limit. One place, so a new loader inherits the same check.
+/// The bounds every read shares: the user filter, explicit order and limit.
 void _erwarteGedeckelt(
   http.Request req, {
   required String pfad,
   required String orderSpalte,
   required int limit,
+  bool ascending = false,
 }) {
   expect(req.url.path, endsWith(pfad));
   final params = req.url.queryParameters;
   expect(params['user_id'], 'eq.user-1');
-  expect(params['order'], startsWith('$orderSpalte.desc'));
+  expect(params['order'],
+      startsWith('$orderSpalte.${ascending ? 'asc' : 'desc'}'));
   expect(params['limit'], '$limit');
 }
 
@@ -124,7 +125,7 @@ void main() {
 
   group('MealsSync.loadLoggedMealsForDay', () {
     test(
-        'sendet kanonischen Tag mit Null-Fallback, order desc '
+        'sendet kanonischen Tag mit Null-Fallback, id asc '
         'und kleines Limit', () async {
       final c = _recordingClient(const <dynamic>[]);
       await MealsSync(c.client, 'user-1')
@@ -133,7 +134,8 @@ void main() {
       final req = c.requests.single;
       _erwarteGedeckelt(req,
           pfad: '/logged_meals',
-          orderSpalte: 'logged_at',
+          orderSpalte: 'id',
+          ascending: true,
           limit: MealsSync.loggedMealsDayMaxRows);
 
       expect(req.url.queryParameters.containsKey('logged_at'), isFalse,

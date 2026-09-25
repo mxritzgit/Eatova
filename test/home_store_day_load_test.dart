@@ -117,11 +117,14 @@ class _FakeServer {
           .where((row) => matchesPostgrestFilters(row, req.url))
           .toList();
       final order = req.url.queryParameters['order'];
-      if (order == null || !order.startsWith('logged_at.desc')) {
+      if (order != null && order.startsWith('id.asc')) {
+        rows.sort((a, b) => (a['id'] as String).compareTo(b['id'] as String));
+      } else if (order != null && order.startsWith('logged_at.desc')) {
+        rows.sort((a, b) => DateTime.parse(b['logged_at'] as String)
+            .compareTo(DateTime.parse(a['logged_at'] as String)));
+      } else {
         throw StateError('Diary request lost its server ordering');
       }
-      rows.sort((a, b) => DateTime.parse(b['logged_at'] as String)
-          .compareTo(DateTime.parse(a['logged_at'] as String)));
       final limit = int.parse(req.url.queryParameters['limit']!);
       if (rows.length > limit) rows = rows.sublist(0, limit);
       return ok(rows.map((r) => <String, dynamic>{
@@ -265,6 +268,50 @@ void _expectDayFilter(http.Request request, DateTime day) {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('a boot row cap does not leave an in-window day permanently empty',
+      () async {
+    await withClock(Clock.fixed(DateTime(2026, 9, 25, 12)), () async {
+      final s = _setup();
+      final now = DateTime(2026, 9, 25, 12);
+      for (var day = 0; day < 20; day++) {
+        for (var row = 0; row < 50; row++) {
+          final index = day * 50 + row;
+          final id =
+              '00000000-0000-4000-8000-${index.toString().padLeft(12, '0')}';
+          s.server.mealRows[id] = _serverMealRow(
+            id,
+            now.subtract(Duration(days: day)).add(Duration(seconds: row)),
+            localDay: localDayKey(now.subtract(Duration(days: day))),
+          );
+        }
+      }
+      final missingDay = DateTime(2026, 9, 1);
+      const missingId = '00000000-0000-4000-8000-999999999999';
+      s.server.mealRows[missingId] = _serverMealRow(
+        missingId,
+        missingDay.add(const Duration(hours: 12)),
+        kcal: 415,
+        localDay: localDayKey(missingDay),
+      );
+
+      await _boot(s.store);
+      expect(s.store.loggedMeals, hasLength(MealsSync.loggedMealsMaxRows));
+      expect(s.store.mealsForFoodDate(missingDay), isEmpty);
+
+      s.store.setFoodDate(missingDay);
+      await _settle();
+
+      expect(s.store.mealsForFoodDate(missingDay).map((m) => m.id), [missingId]);
+      expect(s.store.consumedKcalForFoodDate(missingDay), 415);
+      expect(
+        s.server.dayReads.any((r) =>
+            r.url.queryParameters['or']?.contains(localDayKey(missingDay)) ??
+            false),
+        isTrue,
+      );
+    });
+  });
 
   test(
       'Alt-Tag waehlen laedt den kanonischen Tag nach, merged ihn '

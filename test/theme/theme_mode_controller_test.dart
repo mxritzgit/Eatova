@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 
 import 'package:eatova/src/theme/theme_mode_controller.dart';
+
+import '../support/reordering_preferences_store.dart';
 
 // The display mode is a device setting, not a profile column: it must apply
 // before login and must not wait for a sync, hence SharedPreferences.
@@ -77,6 +80,27 @@ void main() {
     final controller = ThemeModeController();
     await controller.load();
     expect(controller.mode, ThemeMode.system);
+  });
+
+  test('the last appearance choice survives reordered native writes',
+      () async {
+    final store = ReorderingPreferencesStore();
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    SharedPreferencesStorePlatform.instance = store;
+    addTearDown(() => SharedPreferences.setMockInitialValues({}));
+    final controller = ThemeModeController();
+
+    final first = controller.setMode(ThemeMode.dark);
+    await store.firstWriteStarted.future;
+    final second = controller.setMode(ThemeMode.light);
+    await Future<void>.delayed(Duration.zero);
+    store.releaseFirstWrite();
+    await Future.wait([first, second]);
+
+    expect(controller.mode, ThemeMode.light);
+    SharedPreferences.resetStatic();
+    final reloaded = await SharedPreferences.getInstance();
+    expect(reloaded.getString(ThemeModeController.storageKey), 'light');
   });
 
   test('isDark loest den System-Modus gegen die Plattform auf', () {

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -51,9 +52,9 @@ Future<void> _pumpTrends(
 
 /// Six days of realistic totals — the fixture every render smoke uses.
 List<TrendDayTotals> _sechsTage() => <TrendDayTotals>[
-      for (var d = 0; d < 6; d++)
-        _day(d, kcal: 1800 + d * 90, p: 110, c: 190, f: 65),
-    ];
+  for (var d = 0; d < 6; d++)
+    _day(d, kcal: 1800 + d * 90, p: 110, c: 190, f: 65),
+];
 
 void main() {
   testWidgets('zeigt Lade-Zustand bis der Loader antwortet', (tester) async {
@@ -70,12 +71,10 @@ void main() {
     expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
   });
 
-  testWidgets('Empty State bei weniger als zwei getrackten Tagen', (
-    tester,
-  ) async {
+  testWidgets('Empty State ohne getrackte Tage', (tester) async {
     await _pumpTrends(
       tester,
-      loader: () => Future.value([_day(0, kcal: 1800)]),
+      loader: () => Future.value(const <TrendDayTotals>[]),
     );
     await tester.pump();
     await tester.pumpAndSettle();
@@ -85,6 +84,31 @@ void main() {
     // No metrics and no chart in the empty state.
     expect(find.byKey(const ValueKey('trends-avg-kcal')), findsNothing);
     expect(find.byKey(const ValueKey('trends-chart')), findsNothing);
+  });
+
+  testWidgets('ein einzelner getrackter Tag bleibt im Chart sichtbar', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(DateTime(2026, 9, 25, 12)), () async {
+      await _pumpTrends(
+        tester,
+        loader: () => Future.value([
+          TrendDayTotals(
+            day: DateTime(2026, 9, 25),
+            kcal: 350,
+            proteinG: 12,
+            carbsG: 40,
+            fatG: 8,
+          ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('trends-empty')), findsNothing);
+      expect(find.byKey(const ValueKey('trends-chart')), findsOneWidget);
+      expect(find.byKey(const ValueKey('trends-avg-kcal')), findsOneWidget);
+      expect(find.text('noch kein abgeschlossener Tag'), findsNWidgets(2));
+    });
   });
 
   testWidgets('rendert Kennzahlen (Ø kcal, Treffer-Quote, Ø Makros)', (
@@ -260,8 +284,9 @@ void main() {
     expect(find.byKey(const ValueKey('trends-retry')), findsOneWidget);
   });
 
-  testWidgets('unter en steht die englische Kennzahl-Beschriftung im Baum',
-      (tester) async {
+  testWidgets('unter en steht die englische Kennzahl-Beschriftung im Baum', (
+    tester,
+  ) async {
     // Counter-check to the matrix above: the label must really CHANGE with
     // the language, not just resolve to whatever the ARB lookup returns.
     pinPhoneViewport(tester);

@@ -339,8 +339,8 @@ List<TrendDayTotals?> denseTrendWindow(
 /// breakfast drag down. A day viewed at 23:50 therefore does not count either;
 /// a clock heuristic would be arbitrary and untestable.
 ///
-/// The CHART still gets the full window. A window holding only today becomes
-/// empty, so callers must render an empty state instead of computing 0/0.
+/// The chart still gets the full window. A window holding only today has no
+/// completed-day metrics, so callers must avoid computing 0/0.
 List<TrendDayTotals?> completedDaysOf(List<TrendDayTotals?> window) {
   if (window.isEmpty) return const <TrendDayTotals?>[];
   return window.sublist(0, window.length - 1);

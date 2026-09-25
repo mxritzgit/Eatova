@@ -525,7 +525,13 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           ];
         }
       }
-      if (result.stats != null) lifetimeStats = result.stats!;
+      if (result.stats != null) {
+        lifetimeStats = reconcileLifetimeStatsWithPending(
+          result.stats!,
+          lifetimeStats,
+          _outbox,
+        );
+      }
       if (result.plan != null && !newer) {
         _putPlannedMeal(result.plan!);
         if (result.meal != null) {
@@ -626,7 +632,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           if (plan == null || meal == null) break;
           _putPlannedMeal(plan);
           loggedMeals = [meal, ...loggedMeals.where((m) => m.id != meal.id)];
-          if (op.trackDay) {
+          if (op.trackDay && op.blockedReason != SyncBlockedReason.rejected) {
             lifetimeStats = lifetimeStats.recordTrackedDay(meal.loggedAt);
           }
           mealsTouched = true;
@@ -634,7 +640,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         case SyncOpKind.mealUpsert:
           final meal = op.meal;
           if (meal == null) break;
-          if (op.trackDay) {
+          if (op.trackDay && op.blockedReason != SyncBlockedReason.rejected) {
             lifetimeStats = lifetimeStats.recordTrackedDay(meal.loggedAt);
           }
           final index = loggedMeals.indexWhere((m) => m.id == meal.id);
@@ -655,11 +661,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           if (weightLog.entries.any((e) => e.timestamp.isAtSameMomentAs(ts))) {
             break;
           }
-          final entries = [
-            ...weightLog.entries,
+          weightLog = weightLog.addEntry(
             WeightLogEntry(timestamp: ts, weightKg: kg),
-          ]..sort((a, b) => a.timestamp.compareTo(b.timestamp));
-          weightLog = WeightLog(entries: entries);
+          );
         case SyncOpKind.favoriteUpsert:
           final fav = op.favorite;
           if (fav == null) break;
@@ -718,6 +722,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           // Lets the optimistic streak survive a cold start: the server row
           // comes WITHOUT the day (the RPC never landed), so it goes back on
           // top. recordTrackedDay is idempotent per day.
+          if (op.blockedReason == SyncBlockedReason.rejected) break;
           final tag = DateTime.tryParse(op.entityId);
           if (tag == null) break;
           lifetimeStats = lifetimeStats.recordTrackedDay(tag);

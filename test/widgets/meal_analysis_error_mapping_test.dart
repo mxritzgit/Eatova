@@ -230,6 +230,30 @@ void main() {
       expect(map('something_new'), isNot(contains('Analyse konnte')));
     });
 
+    test('remote 499 request_aborted stays visible and names service trouble',
+        () {
+      Object? error;
+      try {
+        parseAnalyzeMealResponse(
+          499,
+          '{"error":"request_aborted","message":"Server detail"}',
+        );
+      } on Object catch (caught) {
+        error = caught;
+      }
+      expect(error, isA<MealAnalysisServerError>());
+      final remote = error! as MealAnalysisServerError;
+      expect(remote.statusCode, 499);
+      expect(remote.code, 'request_aborted');
+      expect(remote, isNot(isA<MealAnalysisCancelled>()));
+      for (final l10n in [_de, _en]) {
+        final text = mealAnalysisErrorMessage(remote, _fallback, l10n);
+        expect(text, l10n.foodAnalysisServiceUnavailableMessage);
+        expect(text, isNot(_fallback));
+        expect(text, isNot(contains('Server detail')));
+      }
+    });
+
     test('kein Text nennt Infrastruktur beim Namen', () {
       for (final l10n in [_de, _en]) {
         for (final text in [
@@ -398,6 +422,23 @@ void main() {
 
     expect(find.text(_fallback), findsOneWidget);
     expect(find.text(_timeoutText), findsNothing);
+  });
+
+  testWidgets('remote 499 shows an error card instead of staying loading',
+      (tester) async {
+    final completer = Completer<MealAnalysisResult>();
+    await tester.pumpWidget(_sheetHost(completer.future));
+    try {
+      parseAnalyzeMealResponse(499, '{"error":"request_aborted"}');
+    } on Object catch (error) {
+      completer.completeError(error);
+    }
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('analyse-error')), findsOneWidget);
+    expect(find.text(_de.foodAnalysisServiceUnavailableMessage), findsOneWidget);
+    expect(find.text(_fallback), findsNothing);
   });
 
   testWidgets('Analyse-Sheet zeigt 401/429/413 mit ihrem eigenen Text',

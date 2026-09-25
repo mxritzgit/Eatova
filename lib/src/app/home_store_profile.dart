@@ -270,18 +270,17 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     required UserProfile newProfile,
     required bool notificationsEnabled,
   }) async {
-    // `this.` is needed because the parameter shadows the getter. Compared
-    // against the ACTUAL state: in [ReminderState.blocked] the getter is
-    // false, so flipping to ON runs the permission flow again.
-    if (notificationsEnabled != this.notificationsEnabled) {
-      unawaited(_setNotificationsEnabled(notificationsEnabled));
-    }
     if (sync != null && !_hydratedFromRealSource) {
       throw StateError('Profile storage is not ready');
     }
     await _commitSyncIntents([
       SyncOp.profileUpsert(newProfile),
     ], publish: () => profile = newProfile);
+    // Request OS permission only after the profile save is durable. A failed
+    // save leaves the form open and must not apply a draft reminder choice.
+    if (notificationsEnabled != this.notificationsEnabled) {
+      unawaited(_setNotificationsEnabled(notificationsEnabled));
+    }
   }
 
   // `resetTodayData()`/`_clearTodayState()` were removed with "reset day

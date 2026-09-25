@@ -14,6 +14,7 @@ class LocaleController extends ChangeNotifier {
 
   Locale? _override;
   Locale? get override => _override;
+  Future<void> _pendingWrite = Future<void>.value();
 
   Future<void> load() async {
     try {
@@ -28,16 +29,19 @@ class LocaleController extends ChangeNotifier {
     }
   }
 
-  Future<void> setOverride(Locale? locale) async {
-    if (locale == _override) return;
+  Future<void> setOverride(Locale? locale) {
+    if (locale == _override) return Future<void>.value();
     _override = locale;
     notifyListeners();
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(storageKey, locale?.languageCode ?? 'system');
-    } catch (_) {
-      // Not persisted; the session still runs in the chosen language.
-    }
+    _pendingWrite = _pendingWrite.then((_) async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(storageKey, locale?.languageCode ?? 'system');
+      } catch (_) {
+        // Not persisted; the session still runs in the chosen language.
+      }
+    });
+    return _pendingWrite;
   }
 
   @visibleForTesting
