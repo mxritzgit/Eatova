@@ -20,6 +20,7 @@ import 'package:eatova/src/services/sync_operation_sync.dart';
 import 'package:eatova/src/services/sqlite_key_value_store.dart';
 
 import 'background_sync_client_test.dart' show encodedSession;
+import '../outbox/outbox_test_helpers.dart' show userRecipe;
 
 const _mealA = '11111111-1111-4111-8111-111111111111';
 const _mealB = '22222222-2222-4222-8222-222222222222';
@@ -101,6 +102,74 @@ BackgroundSyncRunner _runner(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final now = DateTime.utc(2026, 9, 20, 12);
+
+  test(
+    'waiting conflict-copy chains cannot starve unrelated background work',
+    () async {
+      await withClock(Clock.fixed(now), () async {
+        final db = await _seed([]);
+        final cache = LocalCache(db, 'A');
+        addTearDown(cache.close);
+        for (var i = 0; i < 20; i++) {
+          final original = userRecipe('user_original_$i');
+          final first = SyncOp.recipeUpsert(original);
+          final second = SyncOp.recipeUpsert(
+            original.copyWith(title: 'Second'),
+          );
+          final third = SyncOp.recipeUpsert(original.copyWith(title: 'Third'));
+          await cache.commitSyncOperations([first, second, third]);
+          // A conflict moves only the direct successor to the saved copy.
+          // The third edit still waits on that successor under the original key.
+          final saved = original.copyWith(
+            slug: 'user_conflict_${first.operationId}',
+            serverRevision: 1,
+          );
+          await cache.acknowledgeSyncOperation(
+            first.operationId,
+            LocalSyncResult(
+              recipe: saved,
+              recipeRevision: 2,
+              currentRecipe: original.copyWith(serverRevision: 2),
+            ),
+          );
+          await cache.recordSyncFailure(
+            second.operationId,
+            countAttempt: false,
+            blockedReason: SyncBlockedReason.rejected,
+          );
+        }
+        final unrelated = SyncOp.mealDelete(_mealB);
+        await cache.commitSyncOperations([unrelated]);
+        final before = await cache.readSyncOperations();
+        final blocked = before.where((op) => op.blockedReason != null).toList();
+        final waiting = before.where((op) => op.predecessorId != null).toList();
+        expect(blocked, hasLength(20));
+        expect(waiting, hasLength(20));
+        expect(
+          waiting.every(
+            (op) => blocked.any(
+              (head) =>
+                  head.operationId == op.predecessorId &&
+                  head.entityKey != op.entityKey,
+            ),
+          ),
+          isTrue,
+        );
+        final dispatched = <String>[];
+
+        await _runner(
+          db,
+          dispatch: (_, op) async {
+            dispatched.add(op.operationId);
+            return const LocalSyncResult();
+          },
+        ).run();
+
+        expect(dispatched, [unrelated.operationId]);
+        expect(await _pending(db), hasLength(40));
+      });
+    },
+  );
 
   test(
     'echter Dispatcher liefert feste opUUID und atomarer Ack leert Queue',

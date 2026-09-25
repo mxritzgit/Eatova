@@ -1422,46 +1422,53 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     if (confirmed != true || !mounted) return;
 
     setState(() => _addingRecipe = true);
-    var imageAsset = '';
-    final bytes = proposal.imageBytes;
-    if (bytes != null) {
-      final referenz = await RecipeImageStore.instance.save(bytes: bytes);
+    try {
+      var imageAsset = '';
+      final bytes = proposal.imageBytes;
+      if (bytes != null) {
+        final referenz = await RecipeImageStore.instance.save(bytes: bytes);
+        if (!mounted) return;
+        if (referenz == null) {
+          // A failed photo save does not discard the confirmed recipe.
+          showAppSnack(
+            context,
+            context.l10n.recipesPhotoSaveFailedError,
+            icon: Icons.error_outline_rounded,
+            tone: SnackTone.error,
+          );
+        } else {
+          imageAsset = referenz;
+        }
+      }
+
+      final recipe = proposal.toFitnessRecipe(
+        imageAsset: imageAsset,
+        slug: FitnessRecipe.coachProposalSlug(message.id),
+      );
+      final delivery = await onCreate(recipe);
       if (!mounted) return;
-      if (referenz == null) {
-        // As in the manual form: the recipe is created anyway, just without
-        // an image, and the user is told.
+      HapticFeedback.lightImpact();
+      showAppSnack(
+        context,
+        deliveryHint(
+          context.l10n.recipesSavedSuccess(recipe.title),
+          delivery,
+          context.l10n,
+        ),
+        icon: Icons.bookmark_added_rounded,
+      );
+    } catch (_) {
+      if (mounted) {
         showAppSnack(
           context,
-          context.l10n.recipesPhotoSaveFailedError,
-          icon: Icons.error_outline_rounded,
+          context.l10n.commonLocalSaveFailed,
           tone: SnackTone.error,
+          duration: kSnackError,
         );
-      } else {
-        imageAsset = referenz;
       }
+    } finally {
+      if (mounted) setState(() => _addingRecipe = false);
     }
-
-    final recipe = proposal.toFitnessRecipe(
-      imageAsset: imageAsset,
-      slug: FitnessRecipe.coachProposalSlug(message.id),
-    );
-    // Gap-E pattern (recipes_screen): the message waits for the outcome
-    // instead of asserting it; the store caps the wait.
-    final ausgang = await onCreate(recipe);
-    if (!mounted) return;
-    setState(() {
-      _addingRecipe = false;
-    });
-    HapticFeedback.lightImpact();
-    showAppSnack(
-      context,
-      deliveryHint(
-        context.l10n.recipesSavedSuccess(recipe.title),
-        ausgang,
-        context.l10n,
-      ),
-      icon: Icons.bookmark_added_rounded,
-    );
   }
 
   /// Base64 inflates by +33%, and the edge function cuts off at 6,000,000

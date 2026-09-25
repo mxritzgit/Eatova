@@ -94,6 +94,12 @@ Automatic delivery stops after eight counted failures (64 for deletion
 operations), retaining the blocked intent until an explicit retry. Network and
 timeout failures do not consume that budget.
 
+Both dispatchers spend their per-pass budget only on eligible entity heads;
+successors awaiting an earlier receipt cannot starve unrelated changes. A
+successful remote delivery followed by a failed local acknowledgement also
+does not spend the rejection budget. Its frozen identity remains queued for
+idempotent reconciliation after local storage recovers.
+
 ## Reconnection and background execution
 
 An available-network transition triggers foreground replay. Resume and manual
