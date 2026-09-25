@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/models/coach_recipe_proposal.dart';
@@ -139,6 +140,7 @@ Future<void> _pumpCoach(
   required _RecipeCoach service,
   List<FitnessRecipe>? created,
   Set<String>? userRecipeSlugs,
+  Future<SyncDelivery> Function(FitnessRecipe)? onCreateRecipe,
   Locale locale = const Locale('de'),
 }) async {
   tester.view.devicePixelRatio = 3.0;
@@ -154,13 +156,15 @@ Future<void> _pumpCoach(
       // The shell mirrors the HomeStore: createUserRecipe makes the
       // recipe visible at once, so the slug enters the live slug view
       // in the same step.
-      onCreateRecipe: created == null
-          ? null
-          : (recipe) async {
-              created.add(recipe);
-              userRecipeSlugs?.add(recipe.slug);
-              return SyncDelivery.delivered;
-            },
+      onCreateRecipe:
+          onCreateRecipe ??
+          (created == null
+              ? null
+              : (recipe) async {
+                  created.add(recipe);
+                  userRecipeSlugs?.add(recipe.slug);
+                  return SyncDelivery.delivered;
+                }),
       userRecipeSlugs: userRecipeSlugs ?? const <String>{},
     ),
     locale: locale,
@@ -178,6 +182,65 @@ Future<void> _type(WidgetTester tester, String text) async {
 }
 
 void main() {
+  testWidgets('failed recipe commit shows an error and permits retry', (
+    tester,
+  ) async {
+    final svc = _RecipeCoach.create()
+      ..history = [
+        ChatMessage(
+          id: 'retry-proposal',
+          role: ChatRole.assistant,
+          content: 'Rezeptvorschlag',
+          createdAt: DateTime(2026, 9, 25),
+          recipeProposal: _proposal(),
+        ),
+      ];
+    final saved = <FitnessRecipe>[];
+    final slugs = <String>{};
+    var attempts = 0;
+    await _pumpCoach(
+      tester,
+      service: svc,
+      userRecipeSlugs: slugs,
+      onCreateRecipe: (recipe) async {
+        if (++attempts == 1) throw StateError('Local commit failed');
+        saved.add(recipe);
+        slugs.add(recipe.slug);
+        return SyncDelivery.delivered;
+      },
+    );
+    final l10n = tester.element(find.byType(CoachChatScreen)).l10n;
+    final success = deliveryHint(
+      l10n.recipesSavedSuccess(_proposal().title),
+      SyncDelivery.delivered,
+      l10n,
+    );
+
+    Future<void> confirmRecipe() async {
+      await tester.tap(find.byKey(const ValueKey('coach-recipe-add')));
+      await tester.pumpAndSettle();
+      final confirm = find.byKey(const ValueKey('coach-recipe-sheet-confirm'));
+      await tester.ensureVisible(confirm);
+      await tester.tap(confirm);
+      await tester.pumpAndSettle();
+    }
+
+    await confirmRecipe();
+    expect(tester.takeException(), isNull);
+    expect(saved, isEmpty);
+    expect(find.text(l10n.commonLocalSaveFailed), findsOneWidget);
+    expect(find.text(success), findsNothing);
+
+    await confirmRecipe();
+    expect(attempts, 2);
+    expect(
+      saved.single.slug,
+      FitnessRecipe.coachProposalSlug('retry-proposal'),
+    );
+    expect(find.byKey(const ValueKey('coach-recipe-add')), findsNothing);
+    expect(find.text(success), findsOneWidget);
+  });
+
   testWidgets('/recipe ruft requestRecipe statt send und zeigt die Karte', (
     tester,
   ) async {

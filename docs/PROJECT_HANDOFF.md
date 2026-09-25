@@ -1805,3 +1805,30 @@ The user authorized push, merge after CI, and the required backend deployment
 on 2026-09-23. The delivery PR records the verified CI, merge and rollout
 results separately; no device installation is implied. Existing saved imports
 are not rewritten.
+
+
+## App review and reliability fixes, 2026-09-25
+
+Reviewed current remote main `af69a95` with exactly two subagents plus the
+primary reviewer. The [review report](APP-REVIEW-2026-09-25.md) records the
+feature matrix, four confirmed findings, source/test links and verification
+limits. Fixed foreground and background queue starvation, local ACK failures
+incorrectly exhausting server retry attempts, and Coach recipe adoption staying
+locked after failed persistence. All four original failures were demonstrated
+before correction; five regressions now pass. No confirmed critical backend
+security defect or actual data loss was established.
+
+Local result: `fix/app-review-2026-09-25` in the original checkout's
+`.agents/app-review-2026-09-25/integration`. Final checks: 5,137 Flutter tests,
+fatal analyzer clean, 94.98% coverage (31,343 / 33,001), Android debug APK and
+release AAB with R8/AOT and throwaway signing; 763 backend tests, 45 Deno files
+independently, 11 offline evals, all 49 migrations/real local RLS and concurrency,
+local Auth/password/mail-purpose and backup/restore checks. The report scopes
+these counts and links their machine-local evidence. No dependencies, schema
+or backend source changed.
+
+The user subsequently authorized push and merge after CI. The delivery pull
+request records GitHub verification and merge status separately; the fixes need
+no backend deployment. The original dirty checkout remains preserved. No device
+installation, local iOS build or live provider/production verification is
+established by the local review above.

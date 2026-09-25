@@ -190,6 +190,7 @@ class BackgroundSyncRunner {
               (op) =>
                   !attempted.contains(op.operationId) &&
                   op.blockedReason == null &&
+                  op.predecessorId == null &&
                   !blockedEntities.contains(op.entityKey),
             )
             .firstOrNull;

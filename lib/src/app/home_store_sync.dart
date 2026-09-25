@@ -399,11 +399,16 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         _outbox = await cache.readSyncOperations(
           guards: claim?.guards ?? const {},
         );
-        final candidate = _outbox
+        final entityHeads = <String, SyncOp>{};
+        for (final op in _outbox) {
+          entityHeads.putIfAbsent(op.entityKey, () => op);
+        }
+        final candidate = entityHeads.values
             .where(
               (op) =>
                   !attempted.contains(op.operationId) &&
                   !blocked.contains(op.entityKey) &&
+                  op.predecessorId == null &&
                   op.blockedReason == null,
             )
             .firstOrNull;
@@ -420,8 +425,10 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           return;
         }
         _inFlightOps[op.entityKey] = op;
+        var delivered = false;
         try {
           final result = await dispatchSyncOp(s, op);
+          delivered = true;
           if (_disposed || _trainingSessionEnded) return;
           _ensureMutationActive();
           final committed = await cache.acknowledgeSyncOperation(
@@ -441,19 +448,21 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
           if (_disposed || _trainingSessionEnded) return;
           _ensureMutationActive();
           blocked.add(op.entityKey);
-          // Rejected or unsupported requests remain durable. No retry budget
-          // or capacity policy may erase an acknowledged user mutation.
-          final receipt = await cache.recordSyncFailure(
-            op.operationId,
-            countAttempt: !isNetworkSyncError(error),
-            blockedReason: blockedReasonForSyncError(
-              error,
-              attempts: op.attempts,
-              kind: op.kind,
-            ),
-            guards: claim?.guards ?? const {},
-          );
-          _mutate(() => _outbox = receipt.operations);
+          // A local ACK failure cannot turn accepted server work into a
+          // rejected operation. Replay its frozen identity after storage heals.
+          if (!delivered) {
+            final receipt = await cache.recordSyncFailure(
+              op.operationId,
+              countAttempt: !isNetworkSyncError(error),
+              blockedReason: blockedReasonForSyncError(
+                error,
+                attempts: op.attempts,
+                kind: op.kind,
+              ),
+              guards: claim?.guards ?? const {},
+            );
+            _mutate(() => _outbox = receipt.operations);
+          }
           unawaited(
             CrashReporter.captureSyncFailure(
               error,
