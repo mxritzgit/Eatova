@@ -1863,3 +1863,34 @@ still need a separately authorized backend deployment. No device build was
 installed; real hardware/provider journeys and live production state were not
 verified. The main-only drift check can report the unapplied migration until
 rollout. Actual Xcode/XCTest execution is delegated to the macOS PR workflow.
+
+## iPhone Health startup recovery, 2026-09-26
+
+An intermittent missing steps card was reproduced from main `6a2da06`
+([PR #108](https://github.com/mxritzgit/Eatova/pull/108)) using the actual
+[Apple Health service](../lib/src/services/apple_health_service.dart) and
+Flutter lifecycle binding with a stubbed native Health plugin. An initial
+authorization attempt can finish `unknown` when startup is inactive,
+configuration is interrupted, or configuration fails temporarily. The
+[home shell](../lib/src/app/eatova_home_page.dart) excluded `unknown` from every
+later resume; a resume during an active Health request was also discarded.
+Manual Connect Health could therefore recover a session that automatic refresh
+never retried. This reproduces a code-level cause consistent with the report;
+the historical timing on the user's iPhone and update-versus-reinstall are unknown.
+
+The shell now retries an unfinished iOS connection on resume and coalesces a
+resume received while busy into one follow-up. Lifecycle events caused by that
+follow-up cannot enqueue another retry, preventing permission-sheet loops.
+Android still requires account-scoped Health Connect opt-in. The existing
+foreground/account guards, silent re-verification, and same-local-day snapshot
+requirement remain; unknown readings do not become measured zero.
+
+[Nine regression tests](../test/health_startup_recovery_test.dart) cover startup,
+interruption, temporary failure, busy resume, bounded retries, absent read
+evidence, Android opt-in, disposal and sign-out. Five fail against the original
+shell; all nine pass with the fix. The adjacent Health/lifecycle run passed
+163 tests, and strict analysis passed. Full-suite coverage and protected CI
+results are recorded in the delivery PR for `fix/health-startup-recovery`.
+Evidence logs are machine-local under `.agents/health-startup-2026-09-26/`.
+No backend deployment is needed. A rebuilt iOS app and physical-device check
+are separate from automated verification; neither is established by these tests.
