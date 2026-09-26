@@ -71,9 +71,20 @@ class _RaceCoach extends CoachChatService {
   /// Pending history jobs, keyed by session id.
   final Map<String, Completer<List<ChatMessage>>> offeneVerlaeufe =
       <String, Completer<List<ChatMessage>>>{};
+  final Map<String, List<Completer<List<ChatMessage>>>> verlaufsVersuche = {};
+  final List<Completer<List<ChatSession>>> sessionLoads = [];
+  Completer<String?>? createGate;
+  List<ChatSession>? sessionList;
+  String? defaultSessionId = 's1';
+  List<ChatMessage>? historyA;
+  Completer<List<ChatMessage>>? nextAHistory;
+  void Function(String text)? partialReply;
 
   @override
-  Future<List<ChatSession>> loadSessions() async => <ChatSession>[
+  Future<List<ChatSession>> loadSessions() async {
+    if (sessionLoads.isNotEmpty) return sessionLoads.removeAt(0).future;
+    if (sessionList != null) return sessionList!;
+    return <ChatSession>[
     ChatSession(
       id: 's1',
       title: 'Chat A',
@@ -95,10 +106,18 @@ class _RaceCoach extends CoachChatService {
       lastMessageAt: DateTime(2026, 8, 11),
       messageCount: 1,
     ),
-  ];
+    ];
+  }
 
   @override
-  Future<String?> ensureDefaultSession() async => 's1';
+  Future<String?> createSession({required String title}) =>
+      createGate?.future ?? Future<String?>.value('s4');
+
+  @override
+  Future<void> deleteSession(String sessionId) async {}
+
+  @override
+  Future<String?> ensureDefaultSession() async => defaultSessionId;
 
   /// History of a session: A is empty, B and C each carry one unmistakable
   /// message.
@@ -124,11 +143,21 @@ class _RaceCoach extends CoachChatService {
 
   @override
   Future<List<ChatMessage>> loadHistory(String sessionId, {int limit = 100}) {
+    if (sessionId == 's1' && nextAHistory != null) {
+      final job = nextAHistory!;
+      nextAHistory = null;
+      return job.future;
+    }
     if (!verlaufHaengt) {
-      return Future<List<ChatMessage>>.value(verlaufVon(sessionId));
+      return Future<List<ChatMessage>>.value(
+        sessionId == 's1' && historyA != null
+            ? historyA!
+            : verlaufVon(sessionId),
+      );
     }
     final auftrag = Completer<List<ChatMessage>>();
     offeneVerlaeufe[sessionId] = auftrag;
+    verlaufsVersuche.putIfAbsent(sessionId, () => []).add(auftrag);
     return auftrag.future;
   }
 
@@ -142,9 +171,11 @@ class _RaceCoach extends CoachChatService {
   /// Makes the quota RPC fail: the service throws instead of inventing
   /// numbers (W6-07) and `_quota` stays null.
   bool quotaUnbekannt = false;
+  Completer<ChatQuotaSnapshot>? quotaGate;
 
   @override
   Future<ChatQuotaSnapshot> loadQuotaToday() async {
+    if (quotaGate != null) return quotaGate!.future;
     if (quotaUnbekannt) {
       throw const CoachDataUnavailable('Test: Quota-RPC gescheitert');
     }
@@ -161,6 +192,7 @@ class _RaceCoach extends CoachChatService {
     void Function(String text)? onPartialReply,
   }) {
     gesendeteSessions.add(sessionId);
+    partialReply = onPartialReply;
     final auftrag = Completer<CoachChatReply>();
     offen.add(auftrag);
     return auftrag.future;
@@ -170,6 +202,20 @@ class _RaceCoach extends CoachChatService {
   /// the proposal lands, so the session switch fits in between.
   final List<Completer<CoachRecipeReply>> offeneRezepte =
       <Completer<CoachRecipeReply>>[];
+  final List<Completer<CoachPlanReply>> offenePlaene =
+      <Completer<CoachPlanReply>>[];
+
+  @override
+  Future<CoachPlanReply> requestPlan(
+    String wish, {
+    required String sessionId,
+    required String locale,
+  }) {
+    gesendeteSessions.add(sessionId);
+    final job = Completer<CoachPlanReply>();
+    offenePlaene.add(job);
+    return job.future;
+  }
 
   @override
   Future<CoachRecipeReply> requestRecipe(
@@ -575,6 +621,488 @@ void main() {
       );
     },
   );
+
+  testWidgets('A -> B -> A -> B: only the latest B history can render',
+      (tester) async {
+    final svc = _RaceCoach.create();
+    await _pumpCoach(tester, svc);
+    svc.verlaufHaengt = true;
+
+    await _wechsleAufSitzungOhneRuhe(tester, 'Chat B');
+    await _wechsleAufSitzungOhneRuhe(tester, 'Chat A');
+    svc.offeneVerlaeufe['s1']!.complete(const <ChatMessage>[]);
+    await _pumpFrames(tester);
+    await _wechsleAufSitzungOhneRuhe(tester, 'Chat B');
+    expect(svc.verlaufsVersuche['s2'], hasLength(2));
+
+    svc.verlaufsVersuche['s2']![1].complete([
+      ChatMessage(
+        id: 'fresh',
+        role: ChatRole.assistant,
+        content: 'New B history',
+        createdAt: DateTime(2026, 8, 14),
+      ),
+    ]);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('coach-loading')), findsNothing);
+    bool shows(String content) => tester.widgetList<Text>(find.byType(Text))
+        .any((widget) => widget.data?.contains(content) ?? false);
+    expect(shows('New B history'), isTrue);
+
+    svc.verlaufsVersuche['s2']![0].complete([
+      ChatMessage(
+        id: 'stale',
+        role: ChatRole.assistant,
+        content: 'Old B history',
+        createdAt: DateTime(2026, 8, 13),
+      ),
+    ]);
+    await tester.pumpAndSettle();
+    expect(shows('New B history'), isTrue);
+    expect(shows('Old B history'), isFalse);
+  });
+
+  testWidgets('a stale quota refresh cannot restore a spent final slot',
+      (tester) async {
+    final svc = _RaceCoach.create();
+    await _pumpCoach(tester, svc);
+    svc.quotaGate = Completer<ChatQuotaSnapshot>();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await _pumpFrames(tester);
+
+    await _tippenUndSenden(tester, 'Final question');
+    svc.offen.single.complete(const CoachChatReply(
+      reply: 'Answer',
+      refusal: false,
+      sessionId: 's1',
+      remaining: 0,
+      dailyLimit: 5,
+    ));
+    await _pumpFrames(tester);
+    svc.quotaGate!.complete(const ChatQuotaSnapshot(
+      used: 4,
+      remaining: 1,
+      dailyLimit: 5,
+    ));
+    await tester.pumpAndSettle();
+
+    await _oeffneInfoSheet(tester);
+    expect(find.textContaining('0 von 5 Fragen heute frei'), findsOneWidget);
+    expect(find.textContaining('1 von 5 Fragen heute frei'), findsNothing);
+  });
+
+  testWidgets('resume quota completion cannot clear a newer send error',
+      (tester) async {
+    final svc = _RaceCoach.create();
+    await _pumpCoach(tester, svc);
+    svc.quotaGate = Completer<ChatQuotaSnapshot>();
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await _pumpFrames(tester);
+
+    await _tippenUndSenden(tester, 'Question during resume');
+    svc.offen.single.completeError(
+      const CoachChatException('Fresh send error'),
+    );
+    await _pumpFrames(tester);
+    expect(find.text('Fresh send error'), findsOneWidget);
+
+    svc.quotaGate!.complete(svc.quota);
+    await tester.pumpAndSettle();
+    expect(find.text('Fresh send error'), findsOneWidget);
+  });
+
+  testWidgets('A -> B -> A reloads an accepted late answer from A history',
+      (tester) async {
+    final svc = _RaceCoach.create();
+    await _pumpCoach(tester, svc);
+    await _tippenUndSenden(tester, 'Question from first A visit');
+    await _wechsleAufSitzung(tester, 'Chat B');
+    await _wechsleAufSitzung(tester, 'Chat A');
+
+    svc.historyA = [
+      ChatMessage(
+        id: 'persisted-answer',
+        role: ChatRole.assistant,
+        content: 'Old A answer',
+        createdAt: DateTime.now().add(const Duration(seconds: 1)),
+      ),
+    ];
+    svc.offen.single.complete(const CoachChatReply(
+      reply: 'Old A answer',
+      refusal: false,
+      sessionId: 's1',
+      remaining: 4,
+      dailyLimit: 5,
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Old A answer'), findsOneWidget);
+  });
+
+  testWidgets('A -> B -> A does not duplicate an answer already in A history',
+      (tester) async {
+    final svc = _RaceCoach.create();
+    await _pumpCoach(tester, svc);
+    await _tippenUndSenden(tester, 'Question from first A visit');
+    await _wechsleAufSitzung(tester, 'Chat B');
+    svc.historyA = [
+      ChatMessage(
+        id: 'persisted-answer',
+        role: ChatRole.assistant,
+        content: 'Already in A history',
+        createdAt: DateTime.now().add(const Duration(seconds: 1)),
+      ),
+    ];
+    await _wechsleAufSitzung(tester, 'Chat A');
+    expect(find.text('Already in A history'), findsOneWidget);
+
+    svc.offen.single.complete(const CoachChatReply(
+      reply: 'Already in A history',
+      refusal: false,
+      sessionId: 's1',
+      remaining: 4,
+      dailyLimit: 5,
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Already in A history'), findsOneWidget);
+  });
+
+  testWidgets('accepted A reply supersedes a still-pending reentry load',
+      (tester) async {
+    final svc = _RaceCoach.create();
+    await _pumpCoach(tester, svc);
+    await _tippenUndSenden(tester, 'Question from first A visit');
+    await _wechsleAufSitzung(tester, 'Chat B');
+    final oldLoad = Completer<List<ChatMessage>>();
+    svc.nextAHistory = oldLoad;
+    await _wechsleAufSitzungOhneRuhe(tester, 'Chat A');
+    svc.historyA = [
+      ChatMessage(
+        id: 'persisted-answer',
+        role: ChatRole.assistant,
+        content: 'Fresh A answer',
+        createdAt: DateTime.now().add(const Duration(seconds: 1)),
+      ),
+    ];
+    svc.offen.single.complete(const CoachChatReply(
+      reply: 'Fresh A answer',
+      refusal: false,
+      sessionId: 's1',
+      remaining: 4,
+      dailyLimit: 5,
+    ));
+    await _pumpFrames(tester);
+    oldLoad.complete(const <ChatMessage>[]);
+    await tester.pumpAndSettle();
+    expect(find.text('Fresh A answer'), findsOneWidget);
+  });
+
+  testWidgets('accepted answer clears an earlier A history error on reload',
+      (tester) async {
+    final svc = _RaceCoach.create();
+    await _pumpCoach(tester, svc);
+    await _tippenUndSenden(tester, 'Question from first A visit');
+    await _wechsleAufSitzung(tester, 'Chat B');
+    final failedLoad = Completer<List<ChatMessage>>();
+    svc.nextAHistory = failedLoad;
+    await _wechsleAufSitzungOhneRuhe(tester, 'Chat A');
+    failedLoad.completeError(const CoachDataUnavailable('history outage'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Dein Verlauf konnte nicht geladen'),
+        findsOneWidget);
+
+    svc.historyA = [
+      ChatMessage(
+        id: 'persisted-answer',
+        role: ChatRole.assistant,
+        content: 'Recovered A answer',
+        createdAt: DateTime(2020, 1, 1),
+      ),
+    ];
+    svc.offen.single.complete(const CoachChatReply(
+      reply: 'Recovered A answer',
+      refusal: false,
+      sessionId: 's1',
+      remaining: 4,
+      dailyLimit: 5,
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Recovered A answer'), findsOneWidget);
+    expect(find.textContaining('Dein Verlauf konnte nicht geladen'),
+        findsNothing);
+  });
+
+  testWidgets('reentered A shows an accepted recipe even without a history row',
+      (tester) async {
+    final svc = _RaceCoach.create();
+    await _pumpCoach(tester, svc);
+    await _tippenUndSenden(tester, '/recipe Huehnchenauflauf');
+    await _wechsleAufSitzung(tester, 'Chat B');
+    await _wechsleAufSitzung(tester, 'Chat A');
+    svc.offeneRezepte.single.complete(const CoachRecipeReply(
+      reply: 'New recipe answer',
+      refusal: false,
+      proposal: _vorschlag,
+      sessionId: 's1',
+      assistantMessageId: 'recipe-server-id',
+      remaining: 4,
+      dailyLimit: 5,
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Huehnchenauflauf'), findsOneWidget);
+  });
+
+  testWidgets('legacy recipe reply does not duplicate its persisted A row',
+      (tester) async {
+    final svc = _RaceCoach.create();
+    await _pumpCoach(tester, svc);
+    await _tippenUndSenden(tester, '/recipe Huehnchenauflauf');
+    await _wechsleAufSitzung(tester, 'Chat B');
+    svc.historyA = [
+      ChatMessage(
+        id: 'recipe-server-id',
+        role: ChatRole.assistant,
+        content: 'Persisted recipe answer',
+        recipeProposal: _vorschlag,
+        // Server timestamps can lag the device clock; ID delta determines
+        // whether this row belongs to the in-flight request.
+        createdAt: DateTime(2020, 1, 1),
+      ),
+    ];
+    await _wechsleAufSitzung(tester, 'Chat A');
+    svc.offeneRezepte.single.complete(const CoachRecipeReply(
+      reply: 'Persisted recipe answer',
+      refusal: false,
+      proposal: _vorschlag,
+      sessionId: 's1',
+      remaining: 4,
+      dailyLimit: 5,
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Huehnchenauflauf'), findsOneWidget);
+  });
+
+  testWidgets('identical older recipe does not hide an unpersisted new card',
+      (tester) async {
+    final svc = _RaceCoach.create()
+      ..historyA = [
+        ChatMessage(
+          id: 'older-recipe',
+          role: ChatRole.assistant,
+          content: 'Same recipe answer',
+          recipeProposal: _vorschlag,
+          createdAt: DateTime(2020, 1, 1),
+        ),
+      ];
+    await _pumpCoach(tester, svc);
+    await _tippenUndSenden(tester, '/recipe Huehnchenauflauf');
+    await _wechsleAufSitzung(tester, 'Chat B');
+    await _wechsleAufSitzung(tester, 'Chat A');
+    svc.offeneRezepte.single.complete(const CoachRecipeReply(
+      reply: 'Same recipe answer',
+      refusal: false,
+      proposal: _vorschlag,
+      sessionId: 's1',
+      remaining: 4,
+      dailyLimit: 5,
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Huehnchenauflauf'), findsNWidgets(2));
+  });
+
+  testWidgets('reentered A retains a paid plan reply absent from history',
+      (tester) async {
+    final svc = _RaceCoach.create();
+    await _pumpCoach(tester, svc);
+    await _tippenUndSenden(tester, '/plan Zwei Tage');
+    await _wechsleAufSitzung(tester, 'Chat B');
+    await _wechsleAufSitzung(tester, 'Chat A');
+    svc.offenePlaene.single.complete(const CoachPlanReply(
+      reply: 'New plan answer',
+      refusal: false,
+      sessionId: 's1',
+      assistantMessageId: 'plan-server-id',
+      remaining: 4,
+      dailyLimit: 5,
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('New plan answer'), findsOneWidget);
+  });
+
+  testWidgets('A -> B -> A does not replay the earlier streaming preview',
+      (tester) async {
+    final svc = _RaceCoach.create()
+      ..historyA = [
+        ChatMessage(
+          id: 'prior-a',
+          role: ChatRole.assistant,
+          content: 'Prior A history',
+          createdAt: DateTime(2026, 8, 12),
+        ),
+      ];
+    await _pumpCoach(tester, svc);
+    await _tippenUndSenden(tester, 'Question from first A visit');
+    svc.partialReply!('Old A partial');
+    await _pumpFrames(tester);
+    expect(find.text('Old A partial'), findsOneWidget);
+
+    await _wechsleAufSitzung(tester, 'Chat B');
+    await _wechsleAufSitzung(tester, 'Chat A');
+    expect(find.text('Prior A history'), findsOneWidget);
+    expect(find.text('Old A partial'), findsNothing);
+  });
+
+  testWidgets('A -> B -> A keeps the reentered view during a pending new chat',
+      (tester) async {
+    final svc = _RaceCoach.create()..createGate = Completer<String?>();
+    await _pumpCoach(tester, svc);
+    await tester.tap(find.byKey(const ValueKey('coach-sessions-open')));
+    await _pumpFrames(tester);
+    await tester.tap(find.byKey(const ValueKey('coach-sessions-new')));
+    await _pumpFrames(tester);
+
+    await _wechsleAufSitzung(tester, 'Chat B');
+    await _wechsleAufSitzung(tester, 'Chat A');
+    svc.createGate!.complete('s4');
+    await tester.pumpAndSettle();
+
+    await _tippenUndSenden(tester, 'Question for reentered A');
+    expect(svc.gesendeteSessions, <String>['s1']);
+  });
+
+  testWidgets('an older session-list refresh cannot remove a new chat',
+      (tester) async {
+    final svc = _RaceCoach.create();
+    await _pumpCoach(tester, svc);
+    final original = await svc.loadSessions();
+    final older = Completer<List<ChatSession>>();
+    final newer = Completer<List<ChatSession>>();
+    svc.sessionLoads.addAll([older, newer]);
+
+    await _tippenUndSenden(tester, 'First question');
+    svc.offen.single.complete(const CoachChatReply(
+      reply: 'Answer', refusal: false, sessionId: 's1',
+    ));
+    await _pumpFrames(tester);
+
+    await tester.tap(find.byKey(const ValueKey('coach-sessions-open')));
+    await _pumpFrames(tester);
+    await tester.tap(find.byKey(const ValueKey('coach-sessions-new')));
+    await _pumpFrames(tester);
+    newer.complete([
+      ChatSession(
+        id: 's4', title: 'Chat New', createdAt: DateTime(2026, 8, 4),
+        lastMessageAt: DateTime(2026, 8, 4), messageCount: 0,
+      ),
+      ...original,
+    ]);
+    await _pumpFrames(tester);
+    older.complete(original);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('coach-sessions-open')));
+    await tester.pumpAndSettle();
+    expect(find.text('Chat New'), findsOneWidget);
+  });
+
+  testWidgets('deleting A cannot navigate away from B during list refresh',
+      (tester) async {
+    final svc = _RaceCoach.create();
+    await _pumpCoach(tester, svc);
+    final original = await svc.loadSessions();
+    final refresh = Completer<List<ChatSession>>();
+    svc.sessionLoads.add(refresh);
+
+    await tester.tap(find.byKey(const ValueKey('coach-sessions-open')));
+    await _pumpFrames(tester);
+    await tester.tap(find.byIcon(Icons.delete_outline_rounded).first);
+    await _pumpFrames(tester);
+    await tester.tap(find.widgetWithText(FilledButton, 'Löschen'));
+    await _pumpFrames(tester);
+
+    await tester.tap(find.text('Chat B'));
+    await _pumpFrames(tester);
+    expect(find.text(_RaceCoach.verlaufB), findsOneWidget);
+    refresh.complete([original[2], original[1]]);
+    await tester.pumpAndSettle();
+    expect(find.text(_RaceCoach.verlaufB), findsOneWidget);
+    expect(find.text(_RaceCoach.verlaufC), findsNothing);
+  });
+
+  testWidgets('deleted active chat disappears when the list refresh fails',
+      (tester) async {
+    final svc = _RaceCoach.create();
+    await _pumpCoach(tester, svc);
+    final refresh = Completer<List<ChatSession>>();
+    svc.sessionLoads.add(refresh);
+
+    await tester.tap(find.byKey(const ValueKey('coach-sessions-open')));
+    await _pumpFrames(tester);
+    await tester.tap(find.byIcon(Icons.delete_outline_rounded).first);
+    await _pumpFrames(tester);
+    await tester.tap(find.widgetWithText(FilledButton, 'Löschen'));
+    await _pumpFrames(tester);
+    refresh.completeError(const CoachDataUnavailable('test list outage'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Chat A'), findsNothing);
+    expect(find.text('Chat B'), findsOneWidget);
+    await tester.tap(find.text('Chat B'));
+    await tester.pumpAndSettle();
+    await _tippenUndSenden(tester, 'Question after A deletion');
+    expect(svc.gesendeteSessions, <String>['s2']);
+  });
+
+  testWidgets('a stale successful list cannot resurrect a deleted chat',
+      (tester) async {
+    final svc = _RaceCoach.create();
+    await _pumpCoach(tester, svc);
+
+    await tester.tap(find.byKey(const ValueKey('coach-sessions-open')));
+    await _pumpFrames(tester);
+    await tester.tap(find.byIcon(Icons.delete_outline_rounded).first);
+    await _pumpFrames(tester);
+    await tester.tap(find.widgetWithText(FilledButton, 'Löschen'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Chat A'), findsNothing);
+    expect(find.text('Chat B'), findsOneWidget);
+    await tester.tap(find.text('Chat B'));
+    await tester.pumpAndSettle();
+    await _tippenUndSenden(tester, 'Question after stale list');
+    expect(svc.gesendeteSessions, <String>['s2']);
+  });
+
+  testWidgets('last deletion with no replacement disables the composer',
+      (tester) async {
+    final svc = _RaceCoach.create()
+      ..defaultSessionId = null
+      ..sessionList = [
+        ChatSession(
+          id: 's1',
+          title: 'Chat A',
+          createdAt: DateTime(2026, 8, 1),
+          lastMessageAt: DateTime(2026, 8, 1),
+          messageCount: 0,
+        ),
+      ];
+    await _pumpCoach(tester, svc);
+    await tester.tap(find.byKey(const ValueKey('coach-sessions-open')));
+    await _pumpFrames(tester);
+    await tester.tap(find.byIcon(Icons.delete_outline_rounded).first);
+    await _pumpFrames(tester);
+    await tester.tap(find.widgetWithText(FilledButton, 'Löschen'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Chat A'), findsNothing);
+    Navigator.of(tester.element(find.byKey(const ValueKey('coach-sessions-new'))))
+        .pop();
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(find.byKey(const ValueKey('coach-input'))).enabled,
+      isFalse,
+    );
+    expect(svc.gesendeteSessions, isEmpty);
+  });
 
   testWidgets(
     'Fehlschlag: die Frage bleibt als Blase mit Marker, das Feld bleibt leer',

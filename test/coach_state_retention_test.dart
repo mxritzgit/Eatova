@@ -11,12 +11,9 @@ import 'package:eatova/src/services/coach_chat_service.dart';
 
 import 'support/harness.dart';
 
-// D6 (coach half) — proof that the IndexedStack suffices: `_bootstrap()` runs
-// in initState and the draft lives in a state-owned controller, so both losses
-// depended solely on the tab frame unmounting the subtree.
-//
-// Downside: `_bootstrap()` now runs ONCE per app run, so a UTC midnight quota
-// reset only reaches the screen on cold start.
+// The production tab stack retains the Coach state and flips TickerMode on
+// visibility changes. Returning to Coach refreshes quota while preserving the
+// draft and loaded conversation.
 
 /// Networkless CoachChatService counting every load call. `stopAutoRefresh()`
 /// is mandatory: GoTrue's constructor timer trips every widget test.
@@ -62,7 +59,7 @@ class _CountingService extends CoachChatService {
   }
 }
 
-/// Minimal tab frame WITH IndexedStack: both children stay mounted.
+/// Minimal production-shaped tab frame: retained children and TickerMode edge.
 class _TabHost extends StatefulWidget {
   const _TabHost({required this.service});
 
@@ -81,8 +78,14 @@ class _TabHostState extends State<_TabHost> {
       body: IndexedStack(
         index: _index,
         children: [
-          CoachChatScreen(service: widget.service, userName: 'Moritz'),
-          const Center(child: Text('anderer Tab')),
+          TickerMode(
+            enabled: _index == 0,
+            child: CoachChatScreen(service: widget.service, userName: 'Moritz'),
+          ),
+          TickerMode(
+            enabled: _index == 1,
+            child: const Center(child: Text('anderer Tab')),
+          ),
         ],
       ),
       bottomNavigationBar: Row(
@@ -137,8 +140,9 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('to-coach')));
     await tester.pumpAndSettle();
 
-    // Not a single load call fired again — so no spinner either.
-    expect(service.calls, afterBootstrap);
+    expect(service.sessionCalls, afterBootstrap[0]);
+    expect(service.historyCalls, afterBootstrap[1]);
+    expect(service.quotaCalls, afterBootstrap[2] + 1);
 
     final field = tester.widget<TextField>(
       find.byKey(const ValueKey('coach-input')),

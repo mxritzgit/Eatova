@@ -83,6 +83,34 @@ void main() {
     expect(ohne.recipeProposal, isNull);
   });
 
+  test('only non-refused assistant rows expose an adoptable recipe', () {
+    final row = <String, dynamic>{
+      'id': 'srv-1',
+      'role': 'assistant',
+      'content': 'Rezeptvorschlag',
+      'refusal': false,
+      'created_at': '2026-08-12T18:00:00Z',
+      'recipe': _validJson(),
+    };
+    expect(ChatMessage.fromRow(row).recipeProposal, isNotNull);
+    expect(
+      ChatMessage.fromRow({...row, 'refusal': null}).recipeProposal,
+      isNotNull,
+    );
+    expect(
+      ChatMessage.fromRow({...row, 'role': 'user'}).recipeProposal,
+      isNull,
+    );
+    expect(
+      ChatMessage.fromRow({...row, 'refusal': true}).recipeProposal,
+      isNull,
+    );
+    expect(
+      ChatMessage.fromRow({...row, 'refusal': 'false'}).recipeProposal,
+      isNull,
+    );
+  });
+
   test('toFitnessRecipe baut ein Eigen-Rezept nach den Haus-Regeln', () {
     final recipe = CoachRecipeProposal.fromJson(_validJson())!.toFitnessRecipe(
       imageAsset: 'local:img_abc.jpg',

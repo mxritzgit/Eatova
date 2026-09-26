@@ -29,18 +29,27 @@ class TrainingHistorySync {
   Future<List<TrainingHistoryEntry>> load() async {
     final authorization = await _authorization();
     final result = <TrainingHistoryEntry>[];
-    // The account limit is explicit; paginate below PostgREST's row ceiling.
-    for (var offset = 0; offset < limit; offset += 500) {
-      final rows = await _client
+    TrainingHistoryEntry? cursor;
+    // A changing first page must not shift unread rows past an offset.
+    while (result.length < limit) {
+      var query = _client
           .from('training_history')
           .select('id,finished_at,session')
-          .eq('user_id', _userId)
+          .eq('user_id', _userId);
+      if (cursor != null) {
+        final at = cursor.finishedAt.toIso8601String();
+        query = query.or(
+          'finished_at.lt.$at,and(finished_at.eq.$at,id.lt.${cursor.id})',
+        );
+      }
+      final rows = await query
           .order('finished_at', ascending: false)
-          .order('id')
-          .range(offset, offset + 499)
+          .order('id', ascending: false)
+          .limit(500)
           .setHeader('Authorization', authorization);
       result.addAll(rows.map(TrainingHistoryEntry.fromRow));
       if (rows.length < 500) break;
+      cursor = result.last;
     }
     return List.unmodifiable(result);
   }

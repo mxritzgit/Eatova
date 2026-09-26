@@ -343,11 +343,8 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     await _commitSyncIntents(
       [op],
       publish: () {
-        weightLog = WeightLog(
-          entries: [
-            ...weightLog.entries,
-            WeightLogEntry(timestamp: ts, weightKg: kg),
-          ],
+        weightLog = weightLog.addEntry(
+          WeightLogEntry(timestamp: ts, weightKg: kg),
         );
         lifetimeStats = lifetimeStats.incrementWeightLogs();
       },

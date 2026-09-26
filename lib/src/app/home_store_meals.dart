@@ -1,7 +1,7 @@
 part of 'home_store.dart';
 
 /// Meals part of [HomeStore]: log/edit/delete with undo, favorites/recents,
-/// own recipes, and on-demand loading of days outside the boot window.
+/// own recipes, and on-demand loading of days not fully covered by boot.
 mixin _HomeStoreMealsPart
     on
         _HomeStoreBase,
@@ -19,19 +19,22 @@ mixin _HomeStoreMealsPart
     return future;
   }
 
-  // --- On-demand loading of days outside the boot window --------------------
-  // Boot loads only the 35-day window (MealsSync.loggedMealsWindowDays);
-  // picking an older day loads exactly that day and merges it into
-  // loggedMeals. Such days stay in memory (session-local), never reach the
+  // --- On-demand loading of days not covered by a complete boot ------------
+  // Boot loads at most 1,000 rows of the 35-day window. Picking an older day
+  // or a day from a capped window loads exactly that day and merges it into
+  // loggedMeals. These reads stay in memory (session-local), never reach the
   // durable LocalCache during the read, and drop out on the next
   // window load — the merge source is always the server state.
-  /// Archive days already loaded (localDayKey), to avoid repeat queries.
+  /// Days already loaded on demand (localDayKey), to avoid repeat queries.
   /// Cleared on a window refresh.
   final Set<String> _loadedArchiveDays = <String>{};
 
   /// Archive days currently in flight (localDayKey) — drives the UI loading
   /// state and dedups parallel triggers.
   final Set<String> _loadingArchiveDays = <String>{};
+
+  /// The boot hit its row cap, so any in-window day may still be incomplete.
+  bool _bootMealsAtCapacity = false;
 
   /// True while [day] is being loaded on demand; the UI shows a spinner
   /// instead of a wrongly empty day.
@@ -50,7 +53,10 @@ mixin _HomeStoreMealsPart
   bool _isOutsideBootWindow(DateTime day) =>
       daysBetween(clock.now(), day) >= MealsSync.loggedMealsWindowDays;
 
-  /// Loads an archive day on demand and merges it into [loggedMeals]. Once per
+  bool _needsFoodDayLoad(DateTime day) =>
+      _bootMealsAtCapacity || _isOutsideBootWindow(day);
+
+  /// Loads a selected day on demand and merges it into [loggedMeals]. Once per
   /// day per session (_loadedArchiveDays); errors show the classified message
   /// and leave the day retryable on the next tap.
   Future<void> _ensureArchiveDayLoaded(DateTime day) async {
@@ -93,7 +99,10 @@ mixin _HomeStoreMealsPart
     if (missing.isNotEmpty) {
       // Restore the server order (logged_at descending) after the merge.
       loggedMeals = [...loggedMeals, ...missing]
-        ..sort((a, b) => b.loggedAt.compareTo(a.loggedAt));
+        ..sort((a, b) {
+          final byTime = b.loggedAt.compareTo(a.loggedAt);
+          return byTime != 0 ? byTime : b.id.compareTo(a.id);
+        });
     }
     _applyPendingOpsToState();
   }
@@ -104,46 +113,50 @@ mixin _HomeStoreMealsPart
     MealAnalysisResult result, {
     MealSlot? slot,
     DateTime? foodDate,
-  }) => _serializeFavoriteMutation(() async {
+  }) {
     final targetDate = DateUtils.dateOnly(foodDate ?? selectedFoodDate);
-    final entry = LoggedMeal(
-      id: uuidV4(),
-      result: result,
-      loggedAt: _timestampForFoodDate(targetDate),
-      forcedSlot: slot,
-    );
-    final today = _isSameFoodDate(targetDate, clock.now());
-    final recentId = FavoriteMeal.idFor(result);
-    final old = favorites.where((f) => f.id == recentId).firstOrNull;
-    final recent = FavoriteMeal(
-      id: recentId,
-      result: result,
-      addedAt: clock.now(),
-      pinned: old?.pinned ?? false,
-    );
-    final before = [recent, ...favorites.where((f) => f.id != recentId)];
-    final after = _cappedFavorites(before);
-    final intents = [
-      SyncOp.mealInsert(entry, trackDay: today),
-      SyncOp.favoriteUpsert(recent),
-      for (final dropped in before)
-        if (!dropped.pinned && !after.any((f) => f.id == dropped.id))
-          SyncOp.favoriteDelete(dropped.id),
-    ];
-    await _commitSyncIntents(
-      intents,
-      publish: () {
-        lifetimeStats = lifetimeStats.incrementMeals();
-        if (today) lifetimeStats = lifetimeStats.recordTrackedDay(targetDate);
-        favorites = after;
-        loggedMeals = [entry, ...loggedMeals.where((m) => m.id != entry.id)];
-        _refreshMealTotals();
-      },
-    );
-    HapticFeedback.lightImpact();
-    if (today) unawaited(_rescheduleStreakReminder());
-    return entry.id;
-  });
+    final loggedAt = _timestampForFoodDate(targetDate);
+    final addedAt = clock.now();
+    final today = _isSameFoodDate(targetDate, addedAt);
+    return _serializeFavoriteMutation(() async {
+      final entry = LoggedMeal(
+        id: uuidV4(),
+        result: result,
+        loggedAt: loggedAt,
+        forcedSlot: slot,
+      );
+      final recentId = FavoriteMeal.idFor(result);
+      final old = favorites.where((f) => f.id == recentId).firstOrNull;
+      final recent = FavoriteMeal(
+        id: recentId,
+        result: result,
+        addedAt: addedAt,
+        pinned: old?.pinned ?? false,
+      );
+      final before = [recent, ...favorites.where((f) => f.id != recentId)];
+      final after = _cappedFavorites(before);
+      final intents = [
+        SyncOp.mealInsert(entry, trackDay: today),
+        SyncOp.favoriteUpsert(recent),
+        for (final dropped in before)
+          if (!dropped.pinned && !after.any((f) => f.id == dropped.id))
+            SyncOp.favoriteDelete(dropped.id),
+      ];
+      await _commitSyncIntents(
+        intents,
+        publish: () {
+          lifetimeStats = lifetimeStats.incrementMeals();
+          if (today) lifetimeStats = lifetimeStats.recordTrackedDay(targetDate);
+          favorites = after;
+          loggedMeals = [entry, ...loggedMeals.where((m) => m.id != entry.id)];
+          _refreshMealTotals();
+        },
+      );
+      HapticFeedback.lightImpact();
+      if (today) unawaited(_rescheduleStreakReminder());
+      return entry.id;
+    });
+  }
 
   void _refreshMealTotals() {
     _invalidateTrendWindow();

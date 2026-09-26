@@ -197,7 +197,12 @@ class ProfileSync {
 
   static int? _toInt(Object? value) {
     if (value is int) return value;
-    if (value is num) return value.toInt();
+    // Profile measurements are integer DB columns. A fractional or non-finite
+    // response is malformed and must not become a different saved measurement.
+    if (value is num) {
+      if (!value.isFinite || value % 1 != 0) return null;
+      return value.toInt();
+    }
     if (value is String) return int.tryParse(value);
     return null;
   }

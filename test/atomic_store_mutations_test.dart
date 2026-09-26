@@ -134,4 +134,36 @@ void main() {
       );
     });
   });
+
+  test(
+    'a queued meal keeps the diary date selected when logging began',
+    () async {
+      await withClock(Clock.fixed(DateTime(2026, 9, 20, 12)), () async {
+        final kv = _HeldStore();
+        final env = setup(
+          kv: kv,
+          injizierterCache: LocalCache(kv, 'user-outbox'),
+        );
+        await bootUntilIdle(env.store);
+        kv.hold = true;
+        final favorite = env.store.toggleFavorite(mealResult('Held favorite'));
+        await settle();
+        final logging = env.store.addResultToDailyTotal(
+          mealResult('Dated meal'),
+        );
+        env.store.setFoodDate(DateTime(2026, 9, 19));
+
+        kv.gate.complete();
+        await favorite;
+        await logging;
+        expect(
+          env.store
+              .mealsForFoodDate(DateTime(2026, 9, 20))
+              .map((meal) => meal.result.mealName),
+          ['Dated meal'],
+        );
+        expect(env.store.mealsForFoodDate(DateTime(2026, 9, 19)), isEmpty);
+      });
+    },
+  );
 }

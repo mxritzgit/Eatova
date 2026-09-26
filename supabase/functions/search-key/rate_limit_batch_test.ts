@@ -315,6 +315,25 @@ Deno.test("P6-02: ein Element ohne lesbares allowed bleibt ein Ausfall, kein erf
   }
 });
 
+Deno.test("Limiter response values stay out of search-key diagnostics", async () => {
+  const marker = "PRIVATE_LIMITER_RESPONSE_SENTINEL";
+  const handler = await loadHandler();
+  const originalError = console.error;
+  const lines: string[] = [];
+  console.error = (...args: unknown[]) => lines.push(args.map(String).join(" "));
+  const stub = installFetch({ batchReply: (gates) => [erlaubt(gates[0]), { allowed: marker }] });
+  try {
+    const response = await handler(request());
+    assertEquals(response.status, 500, "malformed limiter answer fails closed");
+    assertEquals((await response.json() as JsonRecord).error, "rate_limit_unavailable", "public code");
+    assert(lines.some((line) => line.includes("consume_edge_rate_limits")), "operation remains diagnosable");
+    assert(!lines.join(" ").includes(marker), "upstream data omitted from logs");
+  } finally {
+    stub.restore();
+    console.error = originalError;
+  }
+});
+
 // ---------------------------------------------------------------------------
 // A6 (review 2026-09-01): the shape guards above were pinned only where a
 // broken reply CHANGES the answer by itself. Three shapes did not: an empty

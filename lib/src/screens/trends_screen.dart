@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart' show listEquals, visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -136,11 +137,11 @@ class _TrendsScreenState extends State<TrendsScreen> {
     if (_error != null) {
       return [_ErrorCard(onRetry: _load)];
     }
-    if (_totals.length < 2) {
+    if (_totals.isEmpty) {
       return const [_EmptyCard()];
     }
 
-    final today = DateTime.now();
+    final today = clock.now();
     final window = denseTrendWindow(_totals, today: today, days: _rangeDays);
     // B6: the CHART includes today; the METRICS exclude it, or a partial day
     // would count as a full one.

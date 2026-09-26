@@ -60,6 +60,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
   final _preparation = TextEditingController();
   final Map<String, RecipeImportCandidate> _drafts = {};
   final Map<String, String> _slugs = {};
+  final Map<String, FitnessRecipe> _attemptedRecipes = {};
   final Set<String> _savedSlugs = {};
   final Set<String> _editedCandidates = {};
   RecipeImportResult? _result;
@@ -158,6 +159,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
         _drafts.clear();
         _editedCandidates.clear();
         _slugs.clear();
+        _attemptedRecipes.clear();
         _saveMessage = null;
         for (final candidate in result.candidates) {
           _slugs[candidate.id] = candidate.stableSlug(result.sourceUrl);
@@ -255,6 +257,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
     setState(() {
       _drafts[candidate.id] = candidate;
       _selected = candidate;
+      _slugs[candidate.id] = candidate.stableSlug(_result?.sourceUrl);
       if (changed) _editedCandidates.add(candidate.id);
       _editing = false;
       _editError = null;
@@ -282,10 +285,13 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
     });
     FocusScope.of(context).unfocus();
     try {
-      final recipe = candidate.toRecipe(
-        slug: slug,
-        sourceUrl: _result?.sourceUrl,
-        sourceLabel: context.l10n.recipeImportSourceLabel,
+      final recipe = _attemptedRecipes.putIfAbsent(
+        candidate.id,
+        () => candidate.toRecipe(
+          slug: slug,
+          sourceUrl: _result?.sourceUrl,
+          sourceLabel: context.l10n.recipeImportSourceLabel,
+        ),
       );
       final delivery = await widget.onSave(recipe);
       if (!mounted || !_checkSession()) return;
@@ -815,7 +821,9 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
           ),
           TextButton.icon(
             key: const ValueKey('recipe-import-edit'),
-            onPressed: _saving ? null : _edit,
+            onPressed: _saving || _attemptedRecipes.containsKey(candidate.id)
+                ? null
+                : _edit,
             icon: const Icon(Icons.edit_outlined),
             label: Text(l10n.recipeImportEdit),
           ),

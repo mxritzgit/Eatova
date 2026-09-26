@@ -292,6 +292,10 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
 
   bool get _isRecovery => widget.flow == AuthCodeFlow.recovery;
 
+  // A popped route stays mounted during its reverse animation; an in-flight
+  // verification must not pop the newly signed-in home beneath it.
+  bool get _ownsCurrentRoute => ModalRoute.of(context)?.isCurrent ?? false;
+
   /// Address the guard and the failure counter hang on. From the code step on
   /// the field is hidden, so the value is stable.
   String get _guardEmail => _email.text.trim();
@@ -759,7 +763,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
         if (_isRecovery) {
           final recovery = await widget.authRepository
               .verifyRecoveryCode(email: email, code: code);
-          if (!mounted) {
+          if (!mounted || !_ownsCurrentRoute) {
             await recovery.close();
             return;
           }
@@ -770,7 +774,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
         } else {
           await widget.authRepository
               .verifySignupCode(email: email, code: code);
-          if (!mounted) return;
+          if (!mounted || !_ownsCurrentRoute) return;
           Navigator.of(context).pop<AuthCodeResult>(
             (flow: widget.flow, email: email),
           );
@@ -815,7 +819,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
         }
         rethrow;
       }
-      if (!mounted) return;
+      if (!mounted || !_ownsCurrentRoute) return;
       // Lets the password manager store the new password.
       TextInput.finishAutofillContext();
       Navigator.of(context).pop<AuthCodeResult>(

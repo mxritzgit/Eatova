@@ -1671,9 +1671,8 @@ async function rpcClaimQuota(
     const text = await readSupabaseBody(() => resp.text(), "claim_chat_quota");
     if (text === undefined) return { error: "rpc_unavailable" };
     if (text.includes("EX_QUOTA_EXCEEDED")) return { error: "quota_exceeded" };
-    // Log Postgres/PostgREST details server-side only; the client gets a
-    // generic code (no info leak).
-    console.error(`claim_chat_quota rpc failed: ${resp.status} ${text.slice(0, 200)}`);
+    // Upstream bodies can echo request data; status identifies the failing RPC.
+    console.error(`claim_chat_quota rpc failed: HTTP ${resp.status}`);
     return { error: "rpc_unavailable" };
   }
   const data = await readSupabaseBody(() => resp.json(), "claim_chat_quota");
@@ -1687,7 +1686,7 @@ async function rpcClaimQuota(
   const remaining = typeof row?.remaining === "number" ? row.remaining : null;
   if (remaining === null) {
     console.error(
-      `claim_chat_quota: 200 ohne lesbares remaining (${JSON.stringify(data).slice(0, 120)})`,
+      "claim_chat_quota: 200 ohne lesbares remaining",
     );
   }
   return { used, remaining, quotaDay: parseQuotaDay(row?.quota_day) };
@@ -1786,9 +1785,8 @@ async function rpcConsumeEdgeRateLimits(
     return { error: "rate_limit_unavailable" };
   }
   if (!resp.ok) {
-    const text = await readSupabaseBody(() => resp.text(), "consume_edge_rate_limits");
-    if (text === undefined) return { error: "rate_limit_unavailable" };
-    console.error(`consume_edge_rate_limits failed: ${resp.status} ${text.slice(0, 200)}`);
+    void resp.body?.cancel().catch(() => {});
+    console.error(`consume_edge_rate_limits failed: HTTP ${resp.status}`);
     return { error: "rate_limit_unavailable" };
   }
   const data = await readSupabaseBody(() => resp.json(), "consume_edge_rate_limits");
@@ -1799,7 +1797,7 @@ async function rpcConsumeEdgeRateLimits(
   // limiter outage, not a limit.
   if (!Array.isArray(data) || data.length < 1 || data.length > gates.length) {
     console.error(
-      `consume_edge_rate_limits: 200 ohne lesbares Ergebnis (${JSON.stringify(data).slice(0, 120)})`,
+      "consume_edge_rate_limits: 200 ohne lesbares Ergebnis",
     );
     return { error: "rate_limit_unavailable" };
   }
@@ -1808,7 +1806,7 @@ async function rpcConsumeEdgeRateLimits(
     const entry = data[i];
     if (typeof entry?.allowed !== "boolean") {
       console.error(
-        `consume_edge_rate_limits: 200 ohne lesbares allowed (${JSON.stringify(data).slice(0, 120)})`,
+        "consume_edge_rate_limits: 200 ohne lesbares allowed",
       );
       return { error: "rate_limit_unavailable" };
     }
@@ -2138,7 +2136,7 @@ async function userIdFromJwt(
     return { ok: false, reason: "auth_unavailable" };
   }
   if (resp.status === 429 || resp.status >= 500) {
-    await resp.body?.cancel();
+    void resp.body?.cancel().catch(() => {});
     return { ok: false, reason: "auth_unavailable" };
   }
   if (!resp.ok) return { ok: false, reason: "lookup_failed" };

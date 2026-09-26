@@ -46,6 +46,7 @@ class _PostgrestFake {
       <String, List<Map<String, dynamic>>>{};
 
   final List<Uri> requests = <Uri>[];
+  void Function(Uri)? afterQuery;
 
   int get port => _server.port;
   String get url => 'http://127.0.0.1:$port';
@@ -69,6 +70,7 @@ class _PostgrestFake {
         throw StateError('Unerwarteter Pfad: ${request.uri.path}');
       }
       final zeilen = _query(segmente[2], request.uri);
+      afterQuery?.call(request.uri);
       final bytes = utf8.encode(jsonEncode(zeilen));
       request.response
         ..statusCode = 200
@@ -471,7 +473,7 @@ void main() {
         expect(server.requests.single.queryParameters['limit'], '50');
         expect(
           server.requests.single.queryParameters['order'],
-          startsWith('logged_at.desc'),
+          startsWith('id.asc'),
         );
       },
     );
@@ -486,7 +488,7 @@ void main() {
     });
 
     test(
-      'caps the combined modern and legacy matches at the newest 50',
+      'loads every modern and legacy row beyond the first archive page',
       () async {
         server.tables['logged_meals'] = [
           for (var i = 0; i < 60; i++)
@@ -495,17 +497,86 @@ void main() {
               loggedAt: DateTime(2026, 3, 14, 12, i),
               localDay: i.isEven ? '2026-03-14' : null,
             ),
+          _zeile(
+            id: 'zzzz-foreign',
+            loggedAt: DateTime(2026, 3, 14, 23),
+            localDay: '2026-03-14',
+            userId: 'other-user',
+          ),
+          _zeile(
+            id: 'zzzz-wrong-day',
+            loggedAt: DateTime(2026, 3, 14, 23),
+            localDay: '2026-03-15',
+          ),
         ];
         final meals = await MealsSync(
           client,
           'user-1',
         ).loadLoggedMealsForDay(day);
         expect(meals.map((meal) => meal.id), [
-          for (var i = 59; i >= 10; i--) 'meal-$i',
+          for (var i = 59; i >= 0; i--) 'meal-$i',
         ]);
-        expect(server.requests, hasLength(1));
+        expect(server.requests, hasLength(2));
+        expect(server.requests.last.queryParameters['id'], startsWith('gt.'));
+        expect(
+          server.requests.last.queryParameters['user_id'],
+          'eq.user-1',
+        );
+        expect(server.requests.last.queryParameters['or'], isNotNull);
       },
     );
+
+    test('a deletion after page one cannot skip the next archive row', () async {
+      server.tables['logged_meals'] = [
+        for (var i = 0; i < 61; i++)
+          _zeile(
+            id: 'meal-${i.toString().padLeft(3, '0')}',
+            loggedAt: DateTime(2026, 3, 14, 12, i),
+            localDay: '2026-03-14',
+          ),
+      ];
+      var first = true;
+      server.afterQuery = (uri) {
+        if (!first) return;
+        first = false;
+        server.tables['logged_meals']!.removeWhere(
+          (row) => row['id'] == 'meal-010',
+        );
+      };
+
+      final meals = await MealsSync(client, 'user-1').loadLoggedMealsForDay(day);
+      expect(meals.map((meal) => meal.id).toSet(), contains('meal-050'));
+      expect(meals.map((meal) => meal.id).toSet(), contains('meal-060'));
+      expect(meals.map((meal) => meal.id).toSet().length, 61);
+      expect(server.requests, hasLength(2));
+    });
+
+    test('equal timestamps have a stable id order', () async {
+      final sameTime = DateTime(2026, 3, 14, 12);
+      server.tables['logged_meals'] = [
+        _zeile(id: 'aaa', loggedAt: sameTime, localDay: '2026-03-14'),
+        _zeile(id: 'bbb', loggedAt: sameTime, localDay: '2026-03-14'),
+      ];
+
+      final meals = await MealsSync(client, 'user-1').loadLoggedMealsForDay(day);
+      expect(meals.map((meal) => meal.id), ['bbb', 'aaa']);
+    });
+
+    test('a day above the safety bound fails instead of showing partial totals', () async {
+      server.tables['logged_meals'] = [
+        for (var i = 0; i < 1001; i++)
+          _zeile(
+            id: 'meal-${i.toString().padLeft(4, '0')}',
+            loggedAt: DateTime(2026, 3, 14, 12, 0, i),
+            localDay: '2026-03-14',
+          ),
+      ];
+
+      await expectLater(
+        MealsSync(client, 'user-1').loadLoggedMealsForDay(day),
+        throwsA(isA<StateError>()),
+      );
+    });
 
     // Both European and North-American DST boundaries. The assertions follow
     // calendar midnights in the real process zone, never a fixed 24-hour span.

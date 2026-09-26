@@ -54,7 +54,7 @@ async function resolveVideo(initial: URL, signal: AbortSignal): Promise<URL | nu
       method: 'GET', redirect: 'manual', signal: childSignal(signal),
       headers: { accept: 'text/html' },
     });
-    await response.body?.cancel();
+    void response.body?.cancel().catch(() => {});
     if (![301, 302, 303, 307, 308].includes(response.status)) return null;
     const location = response.headers.get('location');
     if (!location) return null;
@@ -104,7 +104,7 @@ export async function loadSource(text: string, signal: AbortSignal): Promise<Sou
           headers: { accept: 'application/json' },
         });
         if (!response.ok) {
-          await response.body?.cancel();
+          void response.body?.cancel().catch(() => {});
           if (response.status === 429 || response.status >= 500) continue;
           break;
         }
@@ -129,7 +129,7 @@ export async function loadSource(text: string, signal: AbortSignal): Promise<Sou
             caption = page.title.trim();
             author = page.author ?? author;
           }
-        } else await response.body?.cancel();
+        } else void response.body?.cancel().catch(() => {});
       } catch { /* Login pages, challenges and unavailable public pages stay unavailable. */ }
     }
     if (!caption) return result;

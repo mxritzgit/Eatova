@@ -205,10 +205,12 @@ class _AuthGateState extends State<AuthGate> {
     // D8: AuthGate is MaterialApp.home, so an auth change swapped only that
     // content and anything pushed on top stayed usable, showing data of a dead
     // session. Real identity changes only — a refresh must keep the open view.
-    if (identityChanged || sessionChanged) {
-      // ALWAYS consumed, not only in the notify branch: one intent covers
-      // exactly one transition.
-      final gewollt = IntentionalSignOut.consume();
+    if (identityChanged || sessionChanged || (wasLoggedOut && isLoggedIn)) {
+      // Consume logout intent on session exits, including same-user rotation.
+      // An entry from the signed-out screen must leave that intent untouched.
+      final gewollt = identityChanged || sessionChanged
+          ? IntentionalSignOut.consume()
+          : false;
       _popToRootRoute();
       // Only the gate knows "signed out" from "session lost", and
       // [IntentionalSignOut] draws that line. The snack runs through the
@@ -258,10 +260,26 @@ class _AuthGateState extends State<AuthGate> {
     _subscription?.cancel();
     final previous = _user;
     _user = widget.authRepository.currentUser;
+    final routeOwnerChanged = previous?.id != _user?.id ||
+        previous?.sessionId != _user?.sessionId;
     widget.onUserChanged?.call(_user);
     if (previous != null && previous.id != _user?.id) _purgePrevious(previous);
     // A repository swap is a potential identity change too.
     unawaited(RecipeImageStore.instance.setActiveUser(_user?.id, sessionId: _user?.sessionId));
+    if (routeOwnerChanged) {
+      // didUpdateWidget runs during build; Navigator cannot pop its overlay
+      // until this frame has finished updating the widget tree.
+      final replacement = widget.authRepository;
+      final replacementUser = _user;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted &&
+            identical(widget.authRepository, replacement) &&
+            _user?.id == replacementUser?.id &&
+            _user?.sessionId == replacementUser?.sessionId) {
+          _popToRootRoute();
+        }
+      });
+    }
     _freshLogin = false;
     _subscription = widget.authRepository.authStateChanges
         .listen(_onAuthEvent, onError: _onAuthStreamError);

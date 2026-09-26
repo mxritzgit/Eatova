@@ -20,10 +20,9 @@ notes are in the [documentation index](docs/README.md).
 
 ## Project status
 
-This documentation describes the source on `main`, checked on **2026-09-14**
-through [PR #88](https://github.com/mxritzgit/Eatova/pull/88). The package is
-`eatova`; `pubspec.yaml` declares **1.1.0+3**. Newer merged work is recorded
-under **Unreleased** in [CHANGELOG.md](CHANGELOG.md).
+This feature summary was checked against `main` at `8b8ee12` on
+**2026-09-25**, through [PR #107](https://github.com/mxritzgit/Eatova/pull/107).
+The package is `eatova`; `pubspec.yaml` declares **1.1.0+3**.
 
 A merged commit, deployed Supabase functions and an installed/store build are
 separate delivery steps. See the [backend guide](docs/BACKEND.md) and dated
@@ -31,6 +30,8 @@ separate delivery steps. See the [backend guide](docs/BACKEND.md) and dated
 
 ## Features
 
+- **Account entry:** email/password and Google sign-in, code confirmation and
+  recovery, followed by six profile setup screens with an editable summary.
 - **Today:** remaining calories, macro progress bars, logging streak and a
   connected step count. Profile and Settings are opened from this tab.
 - **Food:** camera/gallery meal analysis with optional context, barcode lookup,
@@ -40,6 +41,10 @@ separate delivery steps. See the [backend guide](docs/BACKEND.md) and dated
 - **Recipes:** a recipe catalog and editable own/adopted recipes with photos,
   preparation steps, structured ingredients and fractional servings. Add a
   portion to the diary or schedule it in the meal plan.
+- **Recipe import:** paste a TikTok link or recipe text, or share it into Eatova
+  from Android/iOS. Review extracted drafts before explicitly saving a chosen
+  recipe. See the [import contract](docs/RECIPE_SHARE_IMPORT.md) for source and
+  platform limits.
 - **Meal Plan and Shopping List:** plan meals by week, day and meal slot;
   aggregate compatible ingredient quantities and keep checked items. Planned
   meals affect the food diary only after an explicit consumption action.
@@ -66,8 +71,10 @@ separate delivery steps. See the [backend guide](docs/BACKEND.md) and dated
   Health Connect steps on Android. One local evening reminder helps protect the
   logging streak.
 
-The [feature and platform matrix](docs/FEATURES.md) documents current behavior,
-entry points and limitations, including Android weight sync and export sharing.
+The [feature and platform matrix](docs/FEATURES.md) covers core capabilities
+and limits, including Android weight sync and export sharing. The newer
+[recipe import](docs/RECIPE_SHARE_IMPORT.md) and
+[offline sync](docs/OFFLINE_SYNC.md) contracts cover those additions.
 
 ## AI models
 
@@ -79,6 +86,7 @@ source defaults are:
 | Meal photo analysis | `google/gemini-3.8-flash` | `OPENROUTER_MODEL` |
 | Coach replies, recipe text and training drafts | `google/gemini-3.8-flash` | `COACH_MODEL_ANSWER` |
 | Coach safety/topic classifier | `google/gemini-3.8-flash` | `COACH_MODEL_CLASSIFIER` |
+| Recipe share extraction | `google/gemini-3.8-flash` | `RECIPE_IMPORT_MODEL`, then `COACH_MODEL_ANSWER` |
 | Generated recipe pictures | `google/gemini-3.1-flash-image` | `COACH_IMAGE_MODEL` |
 
 Grok is no longer the configured default. Server overrides can change the
@@ -130,7 +138,7 @@ the RLS boundary and the local account namespace.
 | `lib/src/theme/`, `lib/src/widgets/` | Shared design tokens, original icons and reusable UI |
 | `lib/l10n/` | German/English source strings; generated output is ignored |
 | `test/` | Unit, widget, flow, repository-rule and migration tests |
-| `supabase/functions/`, `supabase/migrations/` | Three Edge Functions and versioned database changes |
+| `supabase/functions/`, `supabase/migrations/` | Edge Functions and versioned database changes |
 | `docs/` | Current guides, design contracts, previews and dated delivery records |
 
 ## Getting started
@@ -158,9 +166,10 @@ Google Sign-In, search fallback, Sentry and signed Android release builds.
 
 ## Backend
 
-The endpoints are `analyze-meal`, `coach-chat` and `search-key`. Apply the
-versioned migrations to your own project and configure the needed function
-secrets before deploying. Schema changes and function deployments are separate.
+The endpoints are `analyze-meal`, `coach-chat`, `recipe-import` and `search-key`.
+Apply the versioned migrations to your own project and configure the needed
+function secrets before deploying. Schema changes and function deployments are
+separate.
 
 - [Backend configuration and operations](docs/BACKEND.md)
 - [Google sign-in setup](supabase/OAUTH_SETUP.md)
@@ -194,7 +203,8 @@ tests and cross-account RLS against disposable Postgres. The production
 migration comparison runs only on `main`; PRs receive a separate required gate.
 
 [ios.yml](.github/workflows/ios.yml) builds without code signing when iOS files,
-the pubspec/lockfile or that workflow change, and on its schedule/manual trigger.
+the pubspec/lockfile, CI helper scripts or that workflow change, and on its
+schedule/manual trigger.
 CI artifacts do not establish a store release or a device installation.
 
 ## Documentation and contributing

@@ -238,6 +238,20 @@ Deno.test("der Service-Key steht nie in der Fehlerzeile", async () => {
   }
 });
 
+Deno.test("prune diagnostics omit arbitrary transport exception messages", async () => {
+  const marker = "PRIVATE_PRUNE_SENTINEL";
+  const fetchStub = installFetch(() => Promise.reject(new TypeError(marker)));
+  const log = installErrorLog();
+  try {
+    await pruneRateLimits({ ...OPTIONS, sampler: () => 0 });
+    assert(log.zeilen.some((line) => line.includes("prune_edge_rate_limits failed")), "operation remains diagnosable");
+    assert(!log.zeilen.join(" ").includes(marker), "upstream data omitted from logs");
+  } finally {
+    log.restore();
+    fetchStub.restore();
+  }
+});
+
 Deno.test("Erfolgsfall: POST auf die RPC, Service-Key in beiden Headern, leerer JSON-Body", async () => {
   const fetchStub = installFetch(() => Promise.resolve(new Response(null, { status: 204 })));
   const log = installErrorLog();

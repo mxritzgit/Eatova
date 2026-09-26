@@ -38,7 +38,7 @@ export function providerCallBudget(context: BudgetContext): ProviderCallBudget {
         signal,
       });
       if (!response.ok || !response.body) {
-        await response.body?.cancel().catch(() => {});
+        void response.body?.cancel().catch(() => {});
         throw new ProviderBudgetError('ai_budget_unavailable');
       }
       reader = response.body.getReader();
@@ -68,7 +68,7 @@ export function providerCallBudget(context: BudgetContext): ProviderCallBudget {
       throw new ProviderBudgetError('ai_budget_unavailable');
     } finally {
       signal.removeEventListener('abort', abort);
-      await reader?.cancel().catch(() => {});
+      void reader?.cancel().catch(() => {});
     }
   };
 }

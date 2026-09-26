@@ -90,6 +90,20 @@ void main() {
     await expectLater(sync.load(), throwsFormatException);
   });
 
+  test('fractional server measurement is not silently truncated', () async {
+    final row = _vollstaendigeZeile()..['weight_kg'] = 82.9;
+    final sync = ProfileSync(_clientMitZeile(row), 'user-1');
+
+    await expectLater(sync.load(), throwsFormatException);
+  });
+
+  test('an integral numeric representation still loads exactly', () async {
+    final row = _vollstaendigeZeile()..['weight_kg'] = 82.0;
+    final sync = ProfileSync(_clientMitZeile(row), 'user-1');
+
+    expect((await sync.load())!.weightKg, 82);
+  });
+
   test('Enum-Muell bleibt nachsichtig (A7-Entscheidung, kein Wurf)', () async {
     final zeile = _vollstaendigeZeile()..['diet_preference'] = 'voll_random';
     final sync = ProfileSync(_clientMitZeile(zeile), 'user-1');

@@ -32,7 +32,7 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 `.github/workflows/security.yml`; die Bedienung steht in
 `supabase/SCHEMA_STATE_2026-06-07.md`.
 
-## Migrationen (49)
+## Migrationen (50)
 
 1. `20260516150000_create_profiles.sql`
 2. `20260516160000_app_data_schema.sql`
@@ -83,6 +83,7 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 47. `20260920100000_offline_sync_versions.sql`
 48. `20260920100500_training_plan_incarnations.sql`
 49. `20260920101000_sync_operation_receipts.sql`
+50. `20260925100000_provider_usage_denied_retention.sql`
 
 ## Tabellen in `public` (24)
 
@@ -237,7 +238,7 @@ als dieselbe Bedingung; der Waechter prueft beide Varianten.
 | `refund_chat_quota` | **Eigentuemers** | `public` | `service_role` | `20260808210000_chat_quota_honesty.sql` |
 | `refund_chat_quota_for_day` | **Eigentuemers** | `public` | `service_role` | `20260908120000_chat_quota_refund_day.sql` |
 | `rename_chat_session` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260517170000_chat_sessions.sql` |
-| `reserve_ai_provider_call` | **Eigentuemers** | `''` | `service_role` | `20260915091000_ai_provider_budgets.sql` |
+| `reserve_ai_provider_call` | **Eigentuemers** | `''` | `service_role` | `20260925100000_provider_usage_denied_retention.sql` |
 | `rls_auto_enable` | Aufrufers | `public` | `service_role` | `20260814120000_audit_rls_guard.sql` |
 | `save_planned_meal` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260920101000_sync_operation_receipts.sql` |
 | `save_shopping_check` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260910182000_meal_plans.sql` |

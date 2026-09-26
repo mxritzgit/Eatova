@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -111,6 +112,8 @@ class _RecordingPicker extends ImagePicker {
   /// gallery/camera app spends in the foreground — the window in which the
   /// composer is still free.
   Completer<void>? tor;
+  Completer<void>? readGate;
+  String? delayedPath;
 
   @override
   Future<XFile?> pickImage({
@@ -125,12 +128,28 @@ class _RecordingPicker extends ImagePicker {
     this.imageQuality = imageQuality;
     this.maxWidth = maxWidth;
     await tor?.future;
-    return XFile.fromData(
-      bytes,
-      mimeType: 'image/jpeg',
-      name: 'foto.jpg',
-      path: 'foto.jpg',
-    );
+    final gate = readGate;
+    return gate == null
+        ? XFile.fromData(
+            bytes,
+            mimeType: 'image/jpeg',
+            name: 'foto.jpg',
+            path: 'foto.jpg',
+          )
+        : _DelayedXFile(bytes, gate, delayedPath!);
+  }
+}
+
+class _DelayedXFile extends XFile {
+  _DelayedXFile(super.bytes, this.gate, String path)
+      : super.fromData(mimeType: 'image/jpeg', path: path);
+
+  final Completer<void> gate;
+
+  @override
+  Future<Uint8List> readAsBytes() async {
+    await gate.future;
+    return super.readAsBytes();
   }
 }
 
@@ -143,6 +162,7 @@ class _CapturingService extends CoachChatService {
   String? sentImageBase64;
   String? sentMimeType;
   int sendCalls = 0;
+  List<ChatSession>? sessions;
 
   /// Set = `send()` HANGS, so a request stays in flight while the test does
   /// something else.
@@ -162,7 +182,8 @@ class _CapturingService extends CoachChatService {
   }
 
   @override
-  Future<List<ChatSession>> loadSessions() async => const <ChatSession>[];
+  Future<List<ChatSession>> loadSessions() async =>
+      sessions ?? const <ChatSession>[];
 
   @override
   Future<String?> ensureDefaultSession() async => 's1';
@@ -237,6 +258,80 @@ Future<void> _sendFromGallery(WidgetTester tester) async {
 }
 
 void main() {
+
+  for (final returnToOriginal in [false, true]) {
+    testWidgets(
+      'a photo read after session ${returnToOriginal ? 'A→B→A' : 'A→B'} cannot send in the later view',
+      (tester) async {
+        final service = _CapturingService.create()
+          ..sessions = [
+            for (final id in ['s1', 's2'])
+              ChatSession(
+                id: id,
+                title: id == 's1' ? 'Chat A' : 'Chat B',
+                createdAt: DateTime(2026, 8, 1),
+                lastMessageAt: DateTime(2026, 8, 1),
+                messageCount: 0,
+              ),
+          ];
+        final bytes = _geotaggedJpeg();
+        final directory = Directory.systemTemp.createTempSync('coach-photo-');
+        final photo = File('${directory.path}/photo.jpg');
+        photo.writeAsBytesSync(bytes);
+        addTearDown(() {
+          if (photo.existsSync()) photo.deleteSync();
+          if (directory.existsSync()) directory.deleteSync();
+        });
+        final picker = _RecordingPicker(bytes)
+          ..readGate = Completer<void>()
+          ..delayedPath = photo.path;
+        await _pumpCoach(tester, service: service, picker: picker);
+        await tester.enterText(
+          find.byKey(const ValueKey('coach-input')),
+          'Caption for A',
+        );
+        await tester.tap(find.byKey(const ValueKey('coach-attach')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('coach-gallery')));
+        await tester.pumpAndSettle();
+
+        Future<void> switchTo(String title) async {
+          await tester.tap(find.byKey(const ValueKey('coach-sessions-open')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text(title));
+          await tester.pumpAndSettle();
+        }
+
+        await switchTo('Chat B');
+        if (returnToOriginal) await switchTo('Chat A');
+        await tester.enterText(
+          find.byKey(const ValueKey('coach-input')),
+          'New draft',
+        );
+        picker.readGate!.complete();
+        final clock = Stopwatch()..start();
+        while (photo.existsSync()) {
+          if (clock.elapsed > const Duration(seconds: 10)) {
+            throw TimeoutException('Coach did not clean up the picked photo');
+          }
+          await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 20)),
+          );
+          await tester.pump();
+        }
+        await tester.pumpAndSettle();
+
+        expect(service.sendCalls, 0,
+            reason: 'the selected photo belongs to the earlier visit');
+        expect(
+          tester.widget<TextField>(find.byKey(const ValueKey('coach-input')))
+              .controller?.text,
+          'New draft',
+        );
+      },
+    );
+  }
+
   test('Fixture-Vorbedingung: das Test-JPEG traegt die Koordinaten wirklich',
       () {
     final original = _geotaggedJpeg();

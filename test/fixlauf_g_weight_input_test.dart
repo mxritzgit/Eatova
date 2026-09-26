@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -176,6 +177,47 @@ void main() {
       await s.logWeight(75.456);
       expect(s.weightLog.latest!.weightKg, 75.46);
     });
+
+    test(
+      'store retains only the newest 365 entries after another weigh-in',
+      () async {
+        final s = store()..weightLog = _log(WeightLog.maxEntries);
+        addTearDown(s.dispose);
+
+        await withClock(
+          Clock.fixed(DateTime(2026, 12, 31, 12)),
+          () => s.logWeight(53),
+        );
+
+        expect(s.weightLog.entries, hasLength(WeightLog.maxEntries));
+        expect(s.weightLog.baseline!.timestamp, DateTime(2026, 1, 2));
+        expect(s.weightLog.latest!.weightKg, 53);
+      },
+    );
+
+    test(
+      'a backdated weigh-in keeps chronological latest and the cap',
+      () async {
+        final s = store()..weightLog = _log(WeightLog.maxEntries);
+        addTearDown(s.dispose);
+
+        await withClock(
+          Clock.fixed(DateTime(2026, 6, 1, 12)),
+          () => s.logWeight(74),
+        );
+
+        expect(s.weightLog.entries, hasLength(WeightLog.maxEntries));
+        expect(s.weightLog.baseline!.timestamp, DateTime(2026, 1, 2));
+        expect(s.weightLog.latest!.timestamp, DateTime(2026, 12, 31));
+        expect(
+          s.weightLog.entries.map((entry) => entry.timestamp),
+          orderedEquals(
+            s.weightLog.entries.map((entry) => entry.timestamp).toList()
+              ..sort(),
+          ),
+        );
+      },
+    );
   });
 
   group('WeightLog — EINE Obergrenze, stabile Basis (F7-03)', () {

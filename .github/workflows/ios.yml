@@ -140,7 +140,9 @@ jobs:
             --dart-define=SUPABASE_ANON_KEY=ci-dummy-key
 
       # The tests use temporary directories and injected callbacks, without
-      # live credentials or an App Group container. This does not run TikTok.
+      # live credentials or an App Group container. The verifier compares
+      # every declared share XCTest with xcresult, so partial discovery fails.
+      # This does not run TikTok.
       - name: RunnerTests auf iPhone-Simulator
         id: simulator-tests
         timeout-minutes: 25

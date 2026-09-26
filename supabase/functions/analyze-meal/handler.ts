@@ -255,11 +255,11 @@ type Secrets = {
 
 /** Wall-clock budget of one request (P6-07). Handed to every stage so none of
  *  them can spend time the client is no longer waiting for. */
-type Deadline = { remainingMs(): number };
+type Deadline = { remainingMs(): number; requestSignal: AbortSignal };
 
-function startDeadline(budgetMs: number): Deadline {
+function startDeadline(budgetMs: number, requestSignal: AbortSignal): Deadline {
   const endsAt = Date.now() + budgetMs;
-  return { remainingMs: () => endsAt - Date.now() };
+  return { remainingMs: () => endsAt - Date.now(), requestSignal };
 }
 
 /** Signal for one outbound call: the per-call ceiling or the rest of the
@@ -267,7 +267,10 @@ function startDeadline(budgetMs: number): Deadline {
  *  before the call even starts, turning an exhausted budget into a request
  *  that never left. */
 function stepSignal(deadline: Deadline, capMs: number): AbortSignal {
-  return AbortSignal.timeout(Math.max(1, Math.min(capMs, deadline.remainingMs())));
+  return AbortSignal.any([
+    deadline.requestSignal,
+    AbortSignal.timeout(Math.max(1, Math.min(capMs, deadline.remainingMs()))),
+  ]);
 }
 
 function isTimeout(error: unknown): boolean {
@@ -329,7 +332,7 @@ async function withDeadline<T>(work: Promise<T>, ms: number, onTimeout: T): Prom
 
 export async function handleRequest(request: Request): Promise<Response> {
   const requestId = crypto.randomUUID();
-  const deadline = startDeadline(REQUEST_BUDGET_MS);
+  const deadline = startDeadline(REQUEST_BUDGET_MS, request.signal);
   try {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: responseHeaders(request) });
@@ -406,7 +409,7 @@ export async function handleRequest(request: Request): Promise<Response> {
     if ('denied' in dayGates) {
       if (dayGates.deniedScope === globalGate.scope) {
         // Operator signal: this is the bill cap, not one abusive user.
-        console.warn('analyze-meal global day cap reached', { requestId, resetAt: dayGates.denied.resetAt });
+        console.warn('analyze-meal global day cap reached', { requestId });
       }
       return rateLimitedResponse(request, dayGates.denied, requestId);
     }
@@ -422,7 +425,7 @@ export async function handleRequest(request: Request): Promise<Response> {
     const budget = providerCallBudget({ supabaseUrl: secrets.supabaseUrl, serviceKey: secrets.serviceKey, userId: user.id,
       signal: request.signal, timeoutMs: Math.min(SUPABASE_TIMEOUT_MS, deadline.remainingMs()) });
     await budget('analyze_meal');
-    const providerResult = await callOpenRouter(secrets, body, prompt, requestId, deadline);
+    const providerResult = await callOpenRouter(secrets, body, prompt, requestId, deadline, request.signal);
     const result = normalizeMealResult(providerResult);
 
     // P6-06: valid JSON that matches nothing in the contract used to leave as a
@@ -477,6 +480,7 @@ export async function handleRequest(request: Request): Promise<Response> {
       });
     }
 
+    request.signal.throwIfAborted();
     return jsonResponse(
       request,
       {
@@ -493,9 +497,13 @@ export async function handleRequest(request: Request): Promise<Response> {
       200,
     );
   } catch (error) {
+    if (request.signal.aborted) {
+      console.error('analyze-meal failed', { requestId, code: 'request_aborted' });
+      return jsonResponse(request, { error: 'request_aborted', requestId }, 499);
+    }
     console.error('analyze-meal failed', {
       requestId,
-      message: error instanceof Error ? error.message : String(error),
+      code: error instanceof ProviderBudgetError || error instanceof HttpError ? error.code : 'unexpected_error',
     });
 
     if (error instanceof ProviderBudgetError) {
@@ -665,7 +673,7 @@ async function authenticateUser(request: Request, secrets: Secrets, deadline: De
   }
 
   if (response.status === 429 || response.status >= 500) {
-    await response.body?.cancel();
+    void response.body?.cancel().catch(() => {});
     throw new HttpError(503, 'auth_unavailable', 'Anmeldung gerade nicht prüfbar. Bitte erneut versuchen.');
   }
   if (!response.ok) {
@@ -810,7 +818,7 @@ async function consumeRateLimits(
   // covers the LENGTH — more elements than gates is a different RPC than the
   // one we called.
   if (!Array.isArray(data) || data.length === 0 || data.length > gates.length) {
-    console.error(`consume_edge_rate_limits: 200 ohne lesbares Ergebnis (${JSON.stringify(data).slice(0, 120)})`);
+    console.error('consume_edge_rate_limits: 200 ohne lesbares Ergebnis');
     throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
   }
 
@@ -819,7 +827,7 @@ async function consumeRateLimits(
     const gate = gates[index];
     if (!isRecord(entry) || typeof entry.allowed !== 'boolean') {
       console.error(
-        `consume_edge_rate_limits: 200 ohne lesbares allowed (${gate.scope}: ${JSON.stringify(entry).slice(0, 120)})`,
+        `consume_edge_rate_limits: 200 ohne lesbares allowed (${gate.scope})`,
       );
       throw new HttpError(500, 'rate_limit_unavailable', 'Sicherheitslimit gerade nicht verfügbar.');
     }
@@ -975,6 +983,7 @@ async function callOpenRouter(
   prompt: string,
   requestId: string,
   deadline: Deadline,
+  requestSignal: AbortSignal,
 ): Promise<Record<string, unknown>> {
   // Log the model name (never the key) so a wrong OPENROUTER_MODEL secret is
   // immediately visible.
@@ -982,7 +991,7 @@ async function callOpenRouter(
   // What is left of the request budget, at most OPENROUTER_TIMEOUT_MS: the
   // preliminary steps have already spent part of the 60 s the client waits.
   const timeoutMs = Math.max(1, Math.min(OPENROUTER_TIMEOUT_MS, deadline.remainingMs()));
-  const signal = AbortSignal.timeout(timeoutMs);
+  const signal = AbortSignal.any([requestSignal, AbortSignal.timeout(timeoutMs)]);
   let response: Response;
   let text: string;
   try {
@@ -1030,6 +1039,9 @@ async function callOpenRouter(
     if (bounded === null) throw new HttpError(502, 'provider_response_too_large', 'Analyse-Antwort war zu gross.');
     text = bounded;
   } catch (error) {
+    if (requestSignal.aborted) {
+      throw new HttpError(499, 'request_aborted', 'Anfrage abgebrochen.');
+    }
     if (isTimeout(error)) {
       console.error('OpenRouter timeout', {
         requestId,

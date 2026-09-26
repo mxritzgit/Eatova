@@ -46,7 +46,10 @@ class ChatMessage {
       content: row['content']?.toString() ?? '',
       createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
       refusal: row['refusal'] == true,
-      recipeProposal: !conflictingProposals && rawRecipe is Map
+      recipeProposal: !conflictingProposals &&
+              row['role'] == 'assistant' &&
+              (row['refusal'] == null || row['refusal'] == false) &&
+              rawRecipe is Map
           ? CoachRecipeProposal.fromJson(rawRecipe)
           : null,
       trainingPlanProposal:

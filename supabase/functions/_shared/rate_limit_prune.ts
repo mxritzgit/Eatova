@@ -150,6 +150,9 @@ export async function pruneRateLimits(options: PruneRateLimitsOptions): Promise<
       console.error(`prune_edge_rate_limits failed: HTTP ${response.status}`);
     }
   } catch (e) {
-    console.error(`prune_edge_rate_limits failed: ${e instanceof Error ? e.message : String(e)}`);
+    const kind = e instanceof DOMException && (e.name === 'TimeoutError' || e.name === 'AbortError')
+      ? 'timeout'
+      : 'transport unavailable';
+    console.error(`prune_edge_rate_limits failed: ${kind}`);
   }
 }

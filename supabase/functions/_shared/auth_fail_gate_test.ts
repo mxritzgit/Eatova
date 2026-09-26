@@ -457,3 +457,37 @@ Deno.test("der Service-Key steht nie in der Fehlerzeile", async () => {
     }
   }
 });
+
+Deno.test("shared auth-fail warning omits malformed resetAt content", async () => {
+  const marker = "PRIVATE_RESET_AT_SENTINEL";
+  const fetchStub = installFetch(rpcAntwort({ allowed: false, resetAt: marker }));
+  const warn = installWarnLog();
+  try {
+    const result = await authFailGate({ ...OPTIONS, subject: "uid:anon" });
+    assert(result.limited, "denial still applies");
+    assert(warn.zeilen.some((line) => line.includes("uid-Bucket")), "shared bucket remains diagnosable");
+    assert(!warn.zeilen.join(" ").includes(marker), "untrusted resetAt omitted from warning");
+  } finally {
+    warn.restore();
+    fetchStub.restore();
+  }
+});
+
+Deno.test("auth-fail limiter omits arbitrary exception messages and response field names", async () => {
+  const marker = "PRIVATE_LIMITER_SENTINEL";
+  for (const fail of [
+    () => Promise.reject(new TypeError(marker)),
+    rpcAntwort({ [marker]: true }),
+  ]) {
+    const fetchStub = installFetch(fail);
+    const log = installErrorLog();
+    try {
+      assertEquals((await authFailGate(OPTIONS)).limited, false, "limiter fault never blocks the 401");
+      assert(log.zeilen.some((line) => line.includes("consume_edge_rate_limit")), "operation remains diagnosable");
+      assert(!log.zeilen.join(" ").includes(marker), "upstream data omitted from logs");
+    } finally {
+      log.restore();
+      fetchStub.restore();
+    }
+  }
+});

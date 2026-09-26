@@ -94,10 +94,28 @@ class _TrainingScreenState extends State<TrainingScreen> {
             orElse: () => oldWidget.plans.first,
           );
     final plan = _plan;
-    if (oldPlan?.id != plan?.id ||
-        oldWidget.selectedPlanId != widget.selectedPlanId ||
-        (plan != null && _workoutIndex >= plan.workouts.length)) {
-      _workoutIndex = 0;
+    final sourceChanged =
+        oldPlan?.id != plan?.id ||
+        oldPlan?.incarnation != plan?.incarnation ||
+        oldWidget.selectedPlanId != widget.selectedPlanId;
+    var nextWorkoutIndex = 0;
+    if (!sourceChanged &&
+        oldPlan != null &&
+        plan != null &&
+        _workoutIndex < oldPlan.workouts.length) {
+      final exerciseIds = oldPlan.workouts[_workoutIndex].exercises
+          .map((exercise) => exercise.id)
+          .whereType<String>()
+          .toSet();
+      final match = plan.workouts.indexWhere(
+        (workout) => workout.exercises.any(
+          (exercise) => exerciseIds.contains(exercise.id),
+        ),
+      );
+      if (match >= 0) nextWorkoutIndex = match;
+    }
+    if (sourceChanged || _workoutIndex != nextWorkoutIndex) {
+      _workoutIndex = nextWorkoutIndex;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _scroll.hasClients) _scroll.jumpTo(0);
       });
