@@ -65,56 +65,68 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    await pumpLocalized(
-      tester,
-      DataExportSheet(
-        snapshot: Future<String>.value(auskunft),
-        fallbackSnapshot: '',
-        vollstaendig: vollstaendig,
-        dateiTeilen: dateiTeilen,
-      ),
-    );
+    await tester.runAsync(() async {
+      await pumpLocalized(
+        tester,
+        DataExportSheet(
+          snapshot: Future<String>.value(auskunft),
+          fallbackSnapshot: '',
+          vollstaendig: vollstaendig,
+          dateiTeilen: dateiTeilen,
+        ),
+      );
+      // Isolate work needs real event-loop time, not fake animation time.
+      for (var attempt = 0; attempt < 200; attempt++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        await tester.pump();
+        if (find.byType(CircularProgressIndicator).evaluate().isEmpty) break;
+      }
+    });
     await tester.pumpAndSettle();
   }
 
   group('der volle Export gehoert nicht in eine Textflaeche', () {
-    testWidgets('die Karte zeigt hoechstens eine Vorschau — samt Hinweis',
-        (tester) async {
+    testWidgets('die Karte zeigt hoechstens eine Vorschau — samt Hinweis', (
+      tester,
+    ) async {
       final voll = _export(mahlzeiten: 300);
       expect(
         voll.length,
         greaterThan(DataExportSheet.vorschauMaxZeichen),
-        reason: 'die Vorlage muss ueberhaupt ueber der Grenze liegen, sonst '
+        reason:
+            'die Vorlage muss ueberhaupt ueber der Grenze liegen, sonst '
             'prueft der Test nichts',
       );
 
       await zeigeSheet(tester, auskunft: voll);
 
-      final gezeigt = tester.widget<SelectableText>(find.byType(SelectableText));
-      expect(
-        gezeigt.data!.length,
-        lessThanOrEqualTo(DataExportSheet.vorschauMaxZeichen),
-        reason: 'ein Megabyte-JSON als EIN Paragraph blockiert '
-            'TextPainter.layout auf dem UI-Isolate — das Sheet friert ein',
+      // A large export opens as section summaries, never one JSON paragraph.
+      expect(find.byType(SelectableText), findsNothing);
+      final section = find.byKey(const ValueKey('export-expand-logged_meals'));
+      await tester.scrollUntilVisible(section, 250);
+      await tester.tap(section);
+      await tester.pumpAndSettle();
+      final texts = tester.widgetList<SelectableText>(
+        find.byType(SelectableText),
       );
-      expect(
-        find.byKey(const ValueKey('profile-export-shortened')),
-        findsOneWidget,
-        reason: 'eine stillschweigend gekuerzte Auskunft sieht aus wie eine '
-            'unvollstaendige',
-      );
+      expect(texts, isNotEmpty);
+      expect(texts.every((text) => text.data!.length <= 800), isTrue);
+      expect(find.text('300 Datensätze'), findsOneWidget);
     });
 
     testWidgets('eine kurze Auskunft wird nicht gekuerzt und sagt es auch '
         'nicht', (tester) async {
       await zeigeSheet(tester, auskunft: _export());
 
-      expect(find.byKey(const ValueKey('profile-export-shortened')),
-          findsNothing);
+      expect(
+        find.byKey(const ValueKey('profile-export-shortened')),
+        findsNothing,
+      );
     });
 
-    testWidgets('die Datei bekommt die VOLLEN Daten, nicht die Vorschau',
-        (tester) async {
+    testWidgets('die Datei bekommt die VOLLEN Daten, nicht die Vorschau', (
+      tester,
+    ) async {
       final voll = _export(mahlzeiten: 300);
       String? geteilt;
       String? dateiname;
@@ -128,23 +140,32 @@ void main() {
         },
       );
 
+      await tester.tap(find.byKey(const ValueKey('export-format-json')));
+      await tester.pumpAndSettle();
       final knopf = find.byKey(const ValueKey('profile-export-share'));
       await tester.ensureVisible(knopf);
       await tester.pumpAndSettle();
       await tester.tap(knopf);
       await tester.pumpAndSettle();
 
-      expect(geteilt, voll,
-          reason: 'die Datei ist der Weg fuer die vollstaendigen Daten — sie '
-              'darf nicht die Anzeige-Kuerzung erben');
+      expect(
+        (jsonDecode(geteilt!) as Map)['logged_meals'],
+        unorderedEquals((jsonDecode(voll) as Map)['logged_meals'] as List),
+        reason:
+            'die Datei ist der Weg fuer die vollstaendigen Daten — sie '
+            'darf nicht die Anzeige-Kuerzung erben',
+      );
       expect(dateiname, endsWith('.json'));
     });
 
     testWidgets('ohne Teilen-Weg gibt es den Knopf nicht', (tester) async {
       await zeigeSheet(tester, auskunft: _export());
 
-      expect(find.byKey(const ValueKey('profile-export-share')), findsNothing,
-          reason: 'ein Ausgabeweg, den es nicht gibt, ist schlimmer als keiner');
+      expect(
+        find.byKey(const ValueKey('profile-export-share')),
+        findsNothing,
+        reason: 'ein Ausgabeweg, den es nicht gibt, ist schlimmer als keiner',
+      );
     });
   });
 
@@ -155,7 +176,9 @@ void main() {
       expect(find.text(deL10n.exportSheetFullSubtitle), findsOneWidget);
     });
 
-    testWidgets('kam KEINE Sektion an, sagt das Sheet genau das', (tester) async {
+    testWidgets('kam KEINE Sektion an, sagt das Sheet genau das', (
+      tester,
+    ) async {
       // Offline every section fails individually and `buildExportJson` still
       // does not throw — which used to claim a full copy over an empty export.
       await zeigeSheet(
@@ -170,21 +193,24 @@ void main() {
       expect(find.text(deL10n.exportSheetFullSubtitle), findsNothing);
     });
 
-    testWidgets('fehlt eine einzelne Sektion, ist es keine vollstaendige Kopie',
-        (tester) async {
-      await zeigeSheet(
-        tester,
-        auskunft: _export(
-          sektionen: DataExportService.alleExportTabellen
-              .where((t) => t != 'chat_messages'),
-          unvollstaendig: const <String>['chat_messages'],
-        ),
-      );
+    testWidgets(
+      'fehlt eine einzelne Sektion, ist es keine vollstaendige Kopie',
+      (tester) async {
+        await zeigeSheet(
+          tester,
+          auskunft: _export(
+            sektionen: DataExportService.alleExportTabellen.where(
+              (t) => t != 'chat_messages',
+            ),
+            unvollstaendig: const <String>['chat_messages'],
+          ),
+        );
 
-      expect(find.text(deL10n.exportSheetFullSubtitle), findsNothing);
-      expect(find.text(deL10n.exportNothingLoaded), findsNothing);
-      expect(find.text(deL10n.exportSheetErrorSubtitle), findsOneWidget);
-    });
+        expect(find.text(deL10n.exportSheetFullSubtitle), findsNothing);
+        expect(find.text(deL10n.exportNothingLoaded), findsNothing);
+        expect(find.text(deL10n.exportSheetErrorSubtitle), findsOneWidget);
+      },
+    );
   });
 
   group('die Zwischenablage ist ein Plattformkanal', () {
@@ -196,8 +222,12 @@ void main() {
         SystemChannels.platform,
         (call) async => null,
       );
-      addTearDown(() => tester.binding.defaultBinaryMessenger
-          .setMockMethodCallHandler(SystemChannels.platform, null));
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
 
       await zeigeSheet(tester, auskunft: _export());
 
@@ -221,19 +251,30 @@ void main() {
           return null;
         },
       );
-      addTearDown(() => tester.binding.defaultBinaryMessenger
-          .setMockMethodCallHandler(SystemChannels.platform, null));
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
 
       await zeigeSheet(tester, auskunft: _export());
 
       await tester.tap(find.byKey(const ValueKey('profile-export-copy')));
       await tester.pumpAndSettle();
 
-      expect(tester.takeException(), isNull,
-          reason: 'ohne try/catch wird daraus ein unbehandelter Zonen-Fehler');
-      expect(find.text(deL10n.exportSheetCopiedSnack), findsNothing,
-          reason: 'eine Bestaetigung fuer etwas, das nicht passiert ist, ist '
-              'dieselbe Sorte Luege wie die Vollstaendigkeits-Behauptung');
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: 'ohne try/catch wird daraus ein unbehandelter Zonen-Fehler',
+      );
+      expect(
+        find.text(deL10n.exportSheetCopiedSnack),
+        findsNothing,
+        reason:
+            'eine Bestaetigung fuer etwas, das nicht passiert ist, ist '
+            'dieselbe Sorte Luege wie die Vollstaendigkeits-Behauptung',
+      );
     });
   });
 }

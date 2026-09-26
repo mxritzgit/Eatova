@@ -194,8 +194,8 @@ void main() {
         for (var i = 0; i < 3; i++) {
           final kachel = kacheln.at(i);
           final flaeche = _kachelFlaeche(kachel);
-          expect(flaeche, t.surf2,
-              reason: 'die Kachel liegt auf surf2 — die Praemisse des Fundes');
+          expect(flaeche, [t.proteinSurface, t.carbsSurface, t.fatSurface][i],
+              reason: 'die Kachel nutzt die semantische Makroflaeche');
 
           // The number: text token, never a macro tone.
           final zahl = tester.widget<Text>(

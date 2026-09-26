@@ -60,7 +60,8 @@ separate delivery steps. See the [backend guide](docs/BACKEND.md) and dated
   provider response passes server-side checks; the thinking state stays visible
   while that validation is pending.
 - **Profile and Settings:** body values, daily goals, weight history, lifetime
-  statistics, health connection, language/theme, JSON export, account changes
+  statistics, health connection, language/theme, structured export (readable
+  report, JSON and per-section CSV), account changes
   and account deletion with email verification.
 - **Offline use:** encrypted SQLite commits each supported edit and its sync
   intent together. Reconnection and bounded background work replay pending

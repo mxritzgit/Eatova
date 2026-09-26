@@ -1,0 +1,229 @@
+import 'dart:convert';
+
+/// Presentation and portable output of an export. Unknown fields are retained.
+class ExportDocument {
+  ExportDocument._(this.data, this.sections);
+
+  factory ExportDocument.parse(String source) {
+    final decoded = jsonDecode(source);
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('Expected an export object');
+    }
+    final keys = decoded.keys.toList()..sort(_compareKeys);
+    final data = <String, dynamic>{};
+    for (final key in keys) {
+      final value = _ordered(decoded[key]);
+      // Only sort table rows. Ingredient, workout and other nested arrays
+      // carry meaningful order and must survive export unchanged.
+      if (value is List && value.every((row) => row is Map)) {
+        value.sort(_compareRows);
+      }
+      data[key] = value;
+    }
+    return ExportDocument._(data, [
+      for (final entry in data.entries)
+        if (!_metadata.contains(entry.key))
+          ExportSection(entry.key, entry.value),
+    ]);
+  }
+
+  final Map<String, dynamic> data;
+  final List<ExportSection> sections;
+
+  static const _metadata = ['format', 'exportedAt', 'userId'];
+  static const _order = [
+    ..._metadata,
+    'profiles',
+    'lifetime_stats',
+    'logged_meals',
+    'favorite_meals',
+    'weight_log',
+    'user_recipes',
+    'planned_meals',
+    'shopping_checks',
+    'training_plans',
+    'training_history',
+    'training_history_deletions',
+    'chat_sessions',
+    'chat_messages',
+    'chat_quota_usage',
+    'unvollstaendig',
+    'gekappt',
+  ];
+
+  int get recordCount => sections.fold(0, (n, section) => n + section.count);
+  String get json => const JsonEncoder.withIndent('  ').convert(data);
+
+  String report(String title, String Function(String) label) {
+    final buffer = StringBuffer('$title\n${'=' * title.length}\n');
+    for (final key in _metadata) {
+      if (data.containsKey(key)) {
+        buffer.writeln('${label(key)}: ${exportValue(data[key])}');
+      }
+    }
+    for (final section in sections) {
+      buffer.write('\n${section.report(label)}');
+    }
+    return buffer.toString();
+  }
+
+  static int _compareKeys(String a, String b) {
+    final ai = _order.indexOf(a);
+    final bi = _order.indexOf(b);
+    if (ai != bi) {
+      return (ai < 0 ? _order.length : ai).compareTo(
+        bi < 0 ? _order.length : bi,
+      );
+    }
+    return a.compareTo(b);
+  }
+
+  static dynamic _ordered(dynamic value) {
+    if (value is Map<String, dynamic>) {
+      const first = [
+        'name',
+        'title',
+        'mealName',
+        'logged_at',
+        'date',
+        'local_day',
+        'payload',
+        'caloriesKcal',
+        'kcal',
+        'grams',
+        'estimatedGrams',
+        'protein',
+        'carbs',
+        'fat',
+      ];
+      const last = ['id', 'user_id'];
+      int rank(String key) => first.contains(key)
+          ? first.indexOf(key)
+          : last.contains(key)
+          ? first.length + 1 + last.indexOf(key)
+          : first.length;
+      final keys = value.keys.toList()
+        ..sort((a, b) {
+          final result = rank(a).compareTo(rank(b));
+          return result == 0 ? a.compareTo(b) : result;
+        });
+      return {for (final key in keys) key: _ordered(value[key])};
+    }
+    if (value is List) return value.map(_ordered).toList();
+    return value;
+  }
+
+  static int _compareRows(dynamic a, dynamic b) {
+    // Newest first, with deterministic ties; text-based collections by name.
+    DateTime? timestamp(Map row) {
+      for (final key in const [
+        'logged_at',
+        'measured_at',
+        'date',
+        'local_day',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+      ]) {
+        final value = row[key];
+        if (value is String) {
+          final date = DateTime.tryParse(value);
+          if (date != null) return date;
+        }
+      }
+      return null;
+    }
+
+    final ad = timestamp(a as Map);
+    final bd = timestamp(b as Map);
+    if (ad != null && bd != null) {
+      final result = bd.compareTo(ad);
+      if (result != 0) return result;
+    } else if (ad != null || bd != null) {
+      return ad == null ? 1 : -1;
+    }
+    for (final key in ['name', 'title', 'id']) {
+      final result = '${a[key] ?? ''}'.compareTo('${b[key] ?? ''}');
+      if (result != 0) return result;
+    }
+    return jsonEncode(a).compareTo(jsonEncode(b));
+  }
+}
+
+class ExportSection {
+  ExportSection(this.key, this.value);
+
+  final String key;
+  final dynamic value;
+  List<dynamic> get records => value is List ? value as List : [value];
+  int get count => records.length;
+
+  String report(String Function(String) label) {
+    final title = '${label(key)} ($count)';
+    final buffer = StringBuffer('$title\n${'-' * title.length}\n');
+    for (var i = 0; i < records.length; i++) {
+      buffer.writeln('#${i + 1}');
+      for (final field in exportFields(records[i], expandLists: true).entries) {
+        buffer.writeln('${label(field.key)}: ${exportValue(field.value)}');
+      }
+      buffer.writeln();
+    }
+    return buffer.toString();
+  }
+
+  /// RFC-style CSV with an explicit union of fields, stable column order and
+  /// spreadsheet formula escaping. JSON remains the lossless typed format.
+  String get csv {
+    final rows = records.map(exportFields).toList();
+    final columns = rows.expand((row) => row.keys).toSet().toList()..sort();
+    if (columns.isEmpty) return '';
+    return [
+      columns.map(_csvCell).join(','),
+      for (final row in rows)
+        columns
+            .map((key) => _csvCell(row.containsKey(key) ? row[key] : ''))
+            .join(','),
+    ].join('\r\n');
+  }
+
+  static String _csvCell(dynamic cell) {
+    var value = exportValue(cell);
+    // Untrusted names/messages must not become formulas when pasted in Excel.
+    final trimmed = value.trimLeft();
+    if (cell is String &&
+        (RegExp(r'^[=+@-]').hasMatch(trimmed) ||
+            value.startsWith('\t') ||
+            value.startsWith('\r'))) {
+      value = "'$value";
+    }
+    return '"${value.replaceAll('"', '""')}"';
+  }
+}
+
+/// JSON-pointer paths avoid collisions between nested and literal field names.
+Map<String, dynamic> exportFields(dynamic record, {bool expandLists = false}) {
+  final fields = <String, dynamic>{};
+  void visit(dynamic value, String path) {
+    if (value is Map && value.isNotEmpty) {
+      for (final entry in value.entries) {
+        final key = entry.key
+            .toString()
+            .replaceAll('~', '~0')
+            .replaceAll('/', '~1');
+        visit(entry.value, '$path/$key');
+      }
+    } else if (expandLists && value is List && value.isNotEmpty) {
+      for (var i = 0; i < value.length; i++) {
+        visit(value[i], '$path/${i + 1}');
+      }
+    } else {
+      fields[path.isEmpty ? '/' : path] = value;
+    }
+  }
+
+  visit(record, '');
+  return fields;
+}
+
+String exportValue(dynamic value) =>
+    value is String ? value : jsonEncode(value);
