@@ -12,7 +12,9 @@ import 'motion.dart';
 /// [motionDuration]. Reduced to 0 under "reduce motion" the toast would be gone
 /// before anyone can read it — a behaviour bug, not an a11y fix.
 const Duration kSnackShort = Duration(milliseconds: 1600); // plain confirmation
-const Duration kSnackAction = Duration(milliseconds: 2200); // with action (undo)
+const Duration kSnackAction = Duration(
+  milliseconds: 2200,
+); // with action (undo)
 // — short enough to clearly self-dismiss, long enough to still hit the undo.
 const Duration kSnackError = Duration(milliseconds: 3000);
 
@@ -22,11 +24,11 @@ const Duration kSnackError = Duration(milliseconds: 3000);
 enum SnackTone { positive, neutral, warning, error }
 
 Color _toneColor(AppTokens t, SnackTone tone) => switch (tone) {
-      SnackTone.positive => t.lime,
-      SnackTone.neutral => t.ink2,
-      SnackTone.warning => t.warning,
-      SnackTone.error => t.danger,
-    };
+  SnackTone.positive => t.lime,
+  SnackTone.neutral => t.ink2,
+  SnackTone.warning => t.warning,
+  SnackTone.error => t.danger,
+};
 
 /// Alpha of the disc behind the glyph. Glyph and disc share one color, so the
 /// disc IS the glyph's ground — the correction below has to know it.
@@ -143,7 +145,7 @@ void showAppSnack(
     action: action,
   );
   if (host != null) {
-    host._show(snackBar);
+    host._show(snackBar, message, hasIcon: icon != null);
   } else {
     messenger.showSnackBar(snackBar);
   }
@@ -166,6 +168,7 @@ class SnackHost extends StatefulWidget {
     required this.child,
     this.enabled = true,
     this.currentRouteOnly = false,
+    this.measureToast = false,
   });
 
   final Widget child;
@@ -175,6 +178,10 @@ class SnackHost extends StatefulWidget {
 
   /// Page hosts yield immediately when another route covers them.
   final bool currentRouteOnly;
+
+  /// For scrollable sheets that can yield space to multiline feedback.
+  /// Fixed-header editors retain their established reservation until adapted.
+  final bool measureToast;
 
   static final List<_SnackHostState> _hosts = <_SnackHostState>[];
 
@@ -205,6 +212,9 @@ class _SnackHostState extends State<SnackHost> {
   ModalRoute<dynamic>? _route;
   ScaffoldFeatureController<SnackBar, SnackBarClosedReason>? _current;
   bool _visible = false;
+  String _message = '';
+  bool _hasIcon = false;
+  String? _actionLabel;
 
   ScaffoldMessengerState? get _messenger => _messengerKey.currentState;
 
@@ -241,10 +251,15 @@ class _SnackHostState extends State<SnackHost> {
 
   /// Presents [snackBar] and keeps the strip reserved until it has closed —
   /// the controller's `closed` future is the only lifecycle signal needed.
-  void _show(SnackBar snackBar) {
+  void _show(SnackBar snackBar, String message, {required bool hasIcon}) {
     final messenger = _messenger;
     if (messenger == null) return;
-    setState(() => _visible = true);
+    setState(() {
+      _visible = true;
+      _message = message;
+      _hasIcon = hasIcon;
+      _actionLabel = snackBar.action?.label;
+    });
     final controller = messenger.showSnackBar(snackBar);
     _current = controller;
     controller.closed.then((_) {
@@ -256,46 +271,78 @@ class _SnackHostState extends State<SnackHost> {
     });
   }
 
-  /// Height reserved for the toast: two lines of snackbar text plus its
-  /// 14 px vertical padding, the floating margins and some slack. An estimate
-  /// on purpose — generous rather than exact, so the toast never lands on
-  /// content. The action shares the text row (see [showAppSnack]).
-  static double _toastReserve(BuildContext context) {
-    final line = MediaQuery.textScalerOf(context).scale(13.5) * 1.5;
-    return math.max(48.0, 2 * line + 28) + 24;
+  /// Real fonts and large text can wrap past the old two-line estimate.
+  double _toastReserve(BuildContext context, double width) {
+    final theme = Theme.of(context);
+    final scaler = MediaQuery.textScalerOf(context);
+    final twoLines = 2 * scaler.scale(13.5) * 1.5;
+    if (!widget.measureToast) return math.max(48.0, twoLines + 28) + 24;
+    final direction = Directionality.of(context);
+    final style = theme.snackBarTheme.contentTextStyle ?? AppType.ui(13.5);
+    double measure(String text, TextStyle style, double maxWidth) {
+      final painter = TextPainter(
+        text: TextSpan(text: text, style: style),
+        textDirection: direction,
+        textScaler: scaler,
+      )..layout(maxWidth: maxWidth);
+      final result = maxWidth.isFinite ? painter.height : painter.width;
+      painter.dispose();
+      return result;
+    }
+
+    final actionWidth = _actionLabel == null
+        ? 0.0
+        : measure(_actionLabel!, theme.textTheme.labelLarge!, double.infinity) +
+              48;
+    final textWidth = math.max(
+      1.0,
+      width - 62 - (_hasIcon ? 34 : 0) - actionWidth,
+    );
+    final textHeight = measure(_message, style, textWidth);
+    return math.max(48.0, math.max(twoLines, textHeight) + 28) +
+        24 +
+        MediaQuery.viewPaddingOf(context).bottom;
   }
 
   @override
   Widget build(BuildContext context) {
-    final reserve = _visible ? _toastReserve(context) : 0.0;
-    return ScaffoldMessenger(
-      key: _messengerKey,
-      child: Stack(
-        children: <Widget>[
-          AnimatedPadding(
-            duration:
-                motionDuration(context, const Duration(milliseconds: 160)),
-            curve: Curves.easeOutCubic,
-            padding: EdgeInsets.only(bottom: reserve),
-            child: widget.child,
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            height: reserve,
-            child: IgnorePointer(
-              ignoring: !_visible,
-              child: const Scaffold(
-                backgroundColor: Colors.transparent,
-                // The sheet already lifts itself above the keyboard.
-                resizeToAvoidBottomInset: false,
-                body: SizedBox.shrink(),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final reserve = _visible
+            ? _toastReserve(context, constraints.maxWidth)
+            : 0.0;
+        return ScaffoldMessenger(
+          key: _messengerKey,
+          child: Stack(
+            children: <Widget>[
+              AnimatedPadding(
+                duration: motionDuration(
+                  context,
+                  const Duration(milliseconds: 160),
+                ),
+                curve: Curves.easeOutCubic,
+                padding: EdgeInsets.only(bottom: reserve),
+                child: widget.child,
               ),
-            ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: reserve,
+                child: IgnorePointer(
+                  ignoring: !_visible,
+                  child: const Scaffold(
+                    backgroundColor: Colors.transparent,
+                    // The sheet already lifts itself above the keyboard.
+                    resizeToAvoidBottomInset: false,
+                    body: SizedBox.shrink(),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -321,18 +368,15 @@ class _AutoDismissState extends State<_AutoDismiss> {
     super.initState();
     // Slightly after the snackbar duration: gives the built-in timer priority
     // but steps in when it does not fire.
-    _timer = Timer(
-      widget.duration + const Duration(milliseconds: 400),
-      () {
-        // removeCurrentSnackBar (not hideCurrentSnackBar): removes IMMEDIATELY
-        // without exit animation, so it is gone even with animations off.
-        if (mounted) {
-          ScaffoldMessenger.maybeOf(context)?.removeCurrentSnackBar(
-            reason: SnackBarClosedReason.timeout,
-          );
-        }
-      },
-    );
+    _timer = Timer(widget.duration + const Duration(milliseconds: 400), () {
+      // removeCurrentSnackBar (not hideCurrentSnackBar): removes IMMEDIATELY
+      // without exit animation, so it is gone even with animations off.
+      if (mounted) {
+        ScaffoldMessenger.maybeOf(
+          context,
+        )?.removeCurrentSnackBar(reason: SnackBarClosedReason.timeout);
+      }
+    });
   }
 
   @override

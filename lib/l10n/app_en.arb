@@ -1154,7 +1154,7 @@
   "settingsThemeModeDark": "Dark",
   "settingsGroupDataPrivacy": "DATA & PRIVACY",
   "settingsExportDataTitle": "Export data",
-  "settingsExportDataSubtitle": "Full copy as JSON (Art. 15 GDPR)",
+  "settingsExportDataSubtitle": "Your data as a report, JSON or CSV",
   "settingsLegalPrivacy": "Privacy",
   "settingsLegalTerms": "Terms",
   "settingsLegalImprint": "Imprint",
@@ -1260,12 +1260,12 @@
 
   "exportSheetLoadingSubtitle": "Your data is loading from the server …",
   "exportSheetErrorSubtitle": "This copy is incomplete or could not be fully verified. Please try again later.",
-  "exportSheetFullSubtitle": "Full copy of your stored data as JSON — all tables, loaded directly from the server (Art. 15/20 GDPR).",
-  "exportSheetSessionSubtitle": "In-memory snapshot of your current session as JSON.",
+  "exportSheetFullSubtitle": "Full copy of your stored data, clearly organized by section.",
+  "exportSheetSessionSubtitle": "A snapshot of the data in your current session.",
   "exportSheetTitleFull": "Data disclosure",
   "exportSheetTitleSession": "Data snapshot",
   "exportSheetCopiedSnack": "Export copied to clipboard",
-  "exportSheetCopyButton": "Copy",
+  "exportSheetCopyButton": "Copy all",
 
   "targetBmiHintUnderweight": "This target weight would correspond to a BMI of {bmi} — that's below the range considered healthy.",
   "@targetBmiHintUnderweight": {
@@ -1719,7 +1719,7 @@
   "coachMessageNotSent": "Not sent",
   "coachMessageRetry": "Send again",
   "exportShareFile": "Share as file",
-  "exportPreviewShortened": "Preview shortened — the full data is in the file.",
+  "exportPreviewShortened": "The preview is shortened. Copy and share always include all loaded data.",
   "exportNothingLoaded": "Not a single section could be loaded. Are you online?",
   "searchRateLimited": "Too many searches — try again in a moment.",
   "commonFavoriteRemoved": "Favorite removed",
@@ -2442,5 +2442,117 @@
     }
   },
   "trainingAdoptionDiscardAction": "Discard draft",
-  "trainingAdoptionDiscardBody": "Only your rejected draft will be removed from this device. The current plan on the server will be kept."
+  "trainingAdoptionDiscardBody": "Only your rejected draft will be removed from this device. The current plan on the server will be kept.",
+  "exportOverview": "Your data at a glance",
+  "exportSummary": "{sections} sections · {records} records",
+  "@exportSummary": {
+    "placeholders": {
+      "sections": {
+        "type": "int"
+      },
+      "records": {
+        "type": "int"
+      }
+    }
+  },
+  "exportCreatedAt": "Created: {date}",
+  "@exportCreatedAt": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "exportReadable": "Readable report",
+  "exportJson": "JSON",
+  "exportOutputHint": "Copy all data in the selected format, or individual sections as CSV for spreadsheets.",
+  "exportUnverified": "The completeness of this data could not be verified.",
+  "exportProfiles": "Profile & settings",
+  "exportStats": "Statistics",
+  "exportMeals": "Meals",
+  "exportFavorites": "Favorites",
+  "exportWeight": "Weight history",
+  "exportRecipes": "Your recipes",
+  "exportMealPlan": "Meal plan",
+  "exportShopping": "Shopping list",
+  "exportTrainingPlans": "Training plans",
+  "exportTrainingHistory": "Training history",
+  "exportTrainingDeletions": "Deleted training entries",
+  "exportChats": "Coach conversations",
+  "exportMessages": "Coach messages",
+  "exportQuota": "Coach usage",
+  "exportMissing": "Sections not loaded",
+  "exportCapped": "Truncated sections",
+  "exportFormat": "Export format",
+  "exportDate": "Export date",
+  "exportAccount": "Account ID",
+  "exportRecordCount": "{count, plural, =0{No records} =1{1 record} other{{count} records}}",
+  "@exportRecordCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "exportRecordNumber": "Record {number}",
+  "@exportRecordNumber": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "exportCopySection": "Copy section",
+  "exportCopyCsv": "Copy CSV",
+  "exportEmptySection": "No data is stored in this section.",
+  "exportPageRange": "{start}–{end} of {total}",
+  "@exportPageRange": {
+    "placeholders": {
+      "start": {
+        "type": "int"
+      },
+      "end": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "exportPrevious": "Previous records",
+  "exportNext": "Next records",
+  "foodAnalysisNutrition": "Nutrition for your portion",
+  "exportFieldId": "ID",
+  "exportFieldUserId": "Account ID",
+  "exportFieldCreatedAt": "Created at",
+  "exportFieldUpdatedAt": "Updated at",
+  "exportFieldLoggedAt": "Logged at",
+  "exportFieldLocalDay": "Calendar day",
+  "exportFieldDate": "Date",
+  "exportFieldPayload": "Details",
+  "exportFieldMealName": "Meal",
+  "exportFieldName": "Name",
+  "exportFieldTitle": "Title",
+  "exportFieldCaloriesKcal": "Energy (kcal)",
+  "exportFieldKcal": "Energy (kcal)",
+  "exportFieldProteinG": "Protein (g)",
+  "exportFieldCarbsG": "Carbohydrates (g)",
+  "exportFieldFatG": "Fat (g)",
+  "exportFieldEstimatedGrams": "Estimated amount (g)",
+  "exportFieldGrams": "Amount (g)",
+  "exportFieldWeightKg": "Weight (kg)",
+  "exportFieldSlot": "Meal slot",
+  "exportFieldContent": "Message",
+  "exportFieldRole": "Role",
+  "exportFieldSessionId": "Conversation ID",
+  "exportFieldItems": "Components",
+  "exportFieldEmail": "Email",
+  "exportFieldDisplayName": "Display name",
+  "exportFieldSourceLabel": "Source",
+  "exportFieldConfidence": "Estimate confidence",
+  "exportFieldPortionNotes": "Portion notes",
+  "exportFieldProtein": "Protein",
+  "exportFieldCarbs": "Carbohydrates",
+  "exportFieldFat": "Fat",
+  "exportFieldExplanation": "Explanation"
 }

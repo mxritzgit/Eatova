@@ -218,14 +218,14 @@ void main() {
 
   // --- DATA & PRIVACY -------------------------------------------------------
 
-  testWidgets('„Daten exportieren" oeffnet die Auskunft mit dem JSON',
+  testWidgets('„Daten exportieren" oeffnet die gegliederte Auskunft',
       (tester) async {
     var aufgerufen = 0;
     await pump(
       tester,
       onExportData: () async {
         aufgerufen++;
-        return '{ "meals": [] }';
+        return '{ "logged_meals": [] }';
       },
     );
 
@@ -233,7 +233,11 @@ void main() {
 
     expect(aufgerufen, 1);
     expect(find.text('Datenauskunft'), findsOneWidget);
-    expect(find.text('{ "meals": [] }'), findsOneWidget);
+    expect(find.byType(SelectableText), findsNothing);
+    final section = find.byKey(const ValueKey('export-expand-logged_meals'));
+    await tester.scrollUntilVisible(section, 200,
+        scrollable: find.byType(Scrollable).last);
+    expect(find.text('Mahlzeiten'), findsOneWidget);
     // Same copy button as in the profile; there is no second export sheet.
     expect(find.byKey(const ValueKey('profile-export-copy')), findsOneWidget);
   });

@@ -8,9 +8,13 @@ class MealResultCard extends StatefulWidget {
     required this.onAdjustRequested,
     required this.onAddToDailyRequested,
     this.isFavorite = false,
+    this.showActions = true,
+    this.previewImage,
     this.onToggleFavorite,
   });
 
+  final Uint8List? previewImage;
+  final bool showActions;
   final MealAnalysisResult result;
   final bool addedToDailyTotal;
   final VoidCallback onAdjustRequested;
@@ -44,164 +48,145 @@ class _MealResultCardState extends State<MealResultCard> {
     final result = widget.result;
     final isBarcode =
         MealResultSource.resolve(result.sourceLabel) ==
-            MealResultSource.openFoodFacts;
+        MealResultSource.openFoodFacts;
 
-    return AppCard(
+    return Column(
       key: const ValueKey('analyse-result-card'),
-      radius: rCard,
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              // Neither nutrient nor state, so never a macro colour.
-              StatusPill(
-                label: result.resolvedSourceLabel(l10n),
-                color: isBarcode ? t.ink2 : t.accent,
-              ),
-              const Spacer(),
-              if (widget.onToggleFavorite != null)
-                IconButton(
-                  key: const ValueKey('analyse-favorite-button'),
-                  onPressed: () => widget.onToggleFavorite!(result),
-                  tooltip: widget.isFavorite
-                      ? l10n.foodRemoveFavoriteTooltip
-                      : l10n.foodAddFavoriteTooltip,
-                  visualDensity: VisualDensity.compact,
-                  icon: Icon(
-                    widget.isFavorite
-                        ? Icons.favorite_rounded
-                        : Icons.favorite_outline_rounded,
-                    size: 19,
-                    color: widget.isFavorite ? t.accent : t.ink2,
-                  ),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (widget.previewImage != null) ...[
+          MealPreviewCard(imageBytes: widget.previewImage),
+          const SizedBox(height: 16),
+        ],
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                result.resolvedSourceLabel(l10n),
+                style: AppType.ui(
+                  12,
+                  weight: FontWeight.w700,
+                  color: isBarcode ? t.ink2 : t.accent,
                 ),
+              ),
+            ),
+            if (widget.onToggleFavorite != null)
               IconButton(
-                key: const ValueKey('analyse-info-button'),
-                onPressed: () => _showInfo(context),
-                tooltip: l10n.foodDetailsTooltip,
-                visualDensity: VisualDensity.compact,
+                key: const ValueKey('analyse-favorite-button'),
+                onPressed: () => widget.onToggleFavorite!(result),
+                tooltip: widget.isFavorite
+                    ? l10n.foodRemoveFavoriteTooltip
+                    : l10n.foodAddFavoriteTooltip,
                 icon: Icon(
-                  Icons.info_outline_rounded,
-                  size: 18,
-                  color: t.ink2,
+                  widget.isFavorite
+                      ? Icons.favorite_rounded
+                      : Icons.favorite_outline_rounded,
+                  color: widget.isFavorite ? t.accent : t.ink2,
                 ),
               ),
-            ],
+            IconButton(
+              key: const ValueKey('analyse-info-button'),
+              onPressed: () => _showInfo(context),
+              tooltip: l10n.foodDetailsTooltip,
+              icon: Icon(Icons.info_outline_rounded, color: t.ink2),
+            ),
+          ],
+        ),
+        Text(
+          result.mealName,
+          key: const ValueKey('analyse-meal-name'),
+          style: AppType.display(26, color: t.ink, height: 1.15),
+        ),
+        const SizedBox(height: 18),
+        Container(
+          key: const ValueKey('analyse-nutrition-hero'),
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: t.brandSurface,
+            borderRadius: BorderRadius.circular(rHero),
           ),
-          const SizedBox(height: 10),
-          Text(
-            result.mealName,
-            key: const ValueKey('analyse-meal-name'),
-            style: AppType.display(20, color: t.ink, height: 1.15),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: _AnimatedKcal(
-                  from: _previousKcal,
-                  to: result.caloriesKcal,
-                ),
+              Text(
+                l10n.foodAnalysisNutrition,
+                style: AppType.ui(12, weight: FontWeight.w600, color: t.ink2),
               ),
+              const SizedBox(height: 10),
+              _AnimatedKcal(from: _previousKcal, to: result.caloriesKcal),
+              const SizedBox(height: 10),
+              _PortionLine(result: result),
+              const SizedBox(height: 6),
               Text(
                 result.kcalPer100Label,
                 key: const ValueKey('analyse-kcal-per-100'),
-                style: AppType.display(
-                  12,
-                  weight: FontWeight.w500,
-                  color: t.ink2,
-                ),
+                style: AppType.ui(12, color: t.ink2),
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          _PortionLine(result: result),
-          if (result.hasItemizedBreakdown) ...[
-            const SizedBox(height: 14),
-            FieldLabel(l10n.foodIngredientsCountLabel(result.items.length)),
-            const SizedBox(height: 6),
-            _ItemBreakdownList(items: result.items),
-          ],
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Expanded(
-                child: MacroTile(
-                  label: l10n.todayMacroProtein,
-                  value: result.protein,
-                  color: t.protein,
-                ),
+        ),
+        const SizedBox(height: 10),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final stacked =
+                constraints.maxWidth < 290 ||
+                MediaQuery.textScalerOf(context).scale(14) > 21;
+            final tiles = [
+              MacroTile(
+                label: l10n.todayMacroProtein,
+                value: result.protein,
+                color: t.protein,
+                surface: t.proteinSurface,
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: MacroTile(
-                  label: l10n.foodMacroTileCarbsLabel,
-                  value: result.carbs,
-                  color: t.carbs,
-                ),
+              MacroTile(
+                label: l10n.foodMacroTileCarbsLabel,
+                value: result.carbs,
+                color: t.carbs,
+                surface: t.carbsSurface,
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: MacroTile(
-                  label: l10n.todayMacroFat,
-                  value: result.fat,
-                  color: t.fat,
-                ),
+              MacroTile(
+                label: l10n.todayMacroFat,
+                value: result.fat,
+                color: t.fat,
+                surface: t.fatSurface,
               ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              SizedBox(
-                width: 56,
-                child: OutlinedButton(
-                  key: const ValueKey('analyse-adjust-button'),
-                  onPressed: widget.onAdjustRequested,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: t.ink,
-                    side: BorderSide(color: t.line),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(rControl),
-                    ),
-                  ),
-                  child: const Icon(Icons.tune_rounded, size: 18),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: FilledButton.icon(
-                  key: const ValueKey('analyse-add-daily-button'),
-                  onPressed: widget.addedToDailyTotal
-                      ? null
-                      : widget.onAddToDailyRequested,
-                  icon: Icon(
-                    widget.addedToDailyTotal
-                        ? Icons.check_circle_rounded
-                        : Icons.add_circle_outline_rounded,
-                    size: 18,
-                  ),
-                  label: Text(
-                    widget.addedToDailyTotal
-                        ? l10n.foodAddedToDailyLabel
-                        : l10n.commonAdd,
-                    style: AppType.ui(14, weight: FontWeight.w700),
-                  ),
-                  // Colour and shape come from filledButtonTheme (F8-10);
-                  // only the height parity with the adjust button stays.
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
-                ),
-              ),
-            ],
+            ];
+            return stacked
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (final tile in tiles) ...[
+                        tile,
+                        const SizedBox(height: 8),
+                      ],
+                    ],
+                  )
+                : Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (var i = 0; i < tiles.length; i++) ...[
+                        if (i > 0) const SizedBox(width: 8),
+                        Expanded(child: tiles[i]),
+                      ],
+                    ],
+                  );
+          },
+        ),
+        if (result.hasItemizedBreakdown) ...[
+          const SizedBox(height: 24),
+          FieldLabel(l10n.foodIngredientsCountLabel(result.items.length)),
+          const SizedBox(height: 8),
+          _ItemBreakdownList(items: result.items),
+        ],
+        if (widget.showActions) ...[
+          const SizedBox(height: 18),
+          MealResultActions(
+            added: widget.addedToDailyTotal,
+            onAdjust: widget.onAdjustRequested,
+            onAdd: widget.onAddToDailyRequested,
           ),
         ],
-      ),
+      ],
     );
   }
 
@@ -217,22 +202,21 @@ class _MealResultCardState extends State<MealResultCard> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
       ),
       builder: (sheetContext) {
-        return Padding(
+        return SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                result.mealName,
-                style: AppType.display(18, color: t.ink),
-              ),
+              Text(result.mealName, style: AppType.display(18, color: t.ink)),
               const SizedBox(height: 12),
               if (result.brand != null && result.brand!.isNotEmpty)
                 _InfoLine(label: l10n.foodInfoBrandLabel, value: result.brand!),
               if (result.barcode != null && result.barcode!.isNotEmpty)
                 _InfoLine(
-                    label: l10n.foodInfoBarcodeLabel, value: result.barcode!),
+                  label: l10n.foodInfoBarcodeLabel,
+                  value: result.barcode!,
+                ),
               _InfoLine(
                 label: l10n.foodInfoSourceLabel,
                 value: result.resolvedSourceLabel(l10n),
@@ -328,7 +312,10 @@ class _PortionLine extends StatelessWidget {
     if (result.hasItemizedBreakdown) {
       label = result.isAdjusted
           ? l10n.foodPortionItemizedAdjusted(result.estimatedGrams)
-          : l10n.foodPortionItemized(result.items.length, result.estimatedGrams);
+          : l10n.foodPortionItemized(
+              result.items.length,
+              result.estimatedGrams,
+            );
     } else if (result.isAdjusted) {
       label = l10n.foodPortionManuallyAdjusted(result.estimatedGrams);
     } else {
@@ -362,7 +349,7 @@ class _AnimatedKcal extends StatelessWidget {
         return Text(
           '${value.round()} kcal',
           key: const ValueKey('analyse-kcal-range'),
-          style: AppType.display(28, color: t.ink, height: 1.0),
+          style: AppType.display(42, color: t.ink, height: 1.1),
         );
       },
     );
@@ -399,27 +386,28 @@ class _ItemBreakdownRow extends StatelessWidget {
     final t = context.t;
     return Container(
       key: ValueKey('analyse-item-row-$index'),
-      padding: const EdgeInsets.fromLTRB(14, 11, 12, 11),
+      padding: const EdgeInsets.symmetric(vertical: 12),
       decoration: BoxDecoration(
-        color: t.surf2,
-        borderRadius: BorderRadius.circular(rControl),
+        border: Border(bottom: BorderSide(color: t.line)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Text(
-              item.name,
-              style: AppType.ui(13, weight: FontWeight.w600, color: t.ink),
-            ),
-          ),
           Text(
-            item.gramsLabel,
-            style: AppType.display(12, weight: FontWeight.w500, color: t.ink2),
+            item.name,
+            style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
           ),
-          const SizedBox(width: 10),
-          Text(
-            item.caloriesLabel,
-            style: AppType.display(13, weight: FontWeight.w600, color: t.ink),
+          const SizedBox(height: 5),
+          Wrap(
+            spacing: 12,
+            runSpacing: 4,
+            children: [
+              Text(item.gramsLabel, style: AppType.ui(12, color: t.ink2)),
+              Text(
+                item.caloriesLabel,
+                style: AppType.ui(12, weight: FontWeight.w600, color: t.ink),
+              ),
+            ],
           ),
         ],
       ),
@@ -433,6 +421,7 @@ class MacroTile extends StatelessWidget {
     required this.label,
     required this.value,
     required this.color,
+    this.surface,
   });
 
   final String label;
@@ -448,6 +437,7 @@ class MacroTile extends StatelessWidget {
   /// and lifts the three to 5.76 … 7.93:1 (hell) / 8.16 … 10.05:1 (dunkel),
   /// hue intact, without a brightness branch.
   final Color color;
+  final Color? surface;
 
   @override
   Widget build(BuildContext context) {
@@ -455,7 +445,7 @@ class MacroTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: t.surf2,
+        color: surface ?? t.surf2,
         borderRadius: BorderRadius.circular(rControl),
       ),
       child: Column(
@@ -491,10 +481,56 @@ class MacroTile extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             value,
-            style: AppType.display(13, weight: FontWeight.w700, color: t.ink),
+            style: AppType.display(20, weight: FontWeight.w700, color: t.ink),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Shared actions can sit in the sheet footer or scroll with large text.
+class MealResultActions extends StatelessWidget {
+  const MealResultActions({
+    super.key,
+    required this.added,
+    required this.onAdjust,
+    required this.onAdd,
+  });
+  final bool added;
+  final VoidCallback onAdjust;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        TextButton.icon(
+          key: const ValueKey('analyse-adjust-button'),
+          onPressed: onAdjust,
+          icon: const Icon(Icons.tune_rounded, size: 18),
+          label: Text(
+            l10n.foodAdjustPortionButton,
+            textAlign: TextAlign.center,
+          ),
+        ),
+        const SizedBox(height: 6),
+        FilledButton.icon(
+          key: const ValueKey('analyse-add-daily-button'),
+          onPressed: added ? null : onAdd,
+          icon: Icon(added ? Icons.check_circle_rounded : Icons.add_rounded),
+          label: Text(
+            added ? l10n.foodAddedToDailyLabel : l10n.commonAdd,
+            textAlign: TextAlign.center,
+          ),
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          ),
+        ),
+      ],
     );
   }
 }

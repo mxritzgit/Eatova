@@ -9,67 +9,44 @@ class MealPreviewCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    return AppCard(
-      radius: rCard,
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SectionHeader(
-            title: l10n.foodPhotoCardTitle,
-            action: l10n.foodPhotoCardPreviewAction,
-          ),
-          const SizedBox(height: 10),
-          Container(
-            key: const ValueKey('analyse-image-preview'),
-            height: 170,
-            width: double.infinity,
-            clipBehavior: Clip.antiAlias,
-            decoration: BoxDecoration(
-              color: t.surf2,
-              borderRadius: BorderRadius.circular(rCard),
-            ),
-            child: imageBytes == null
-                ? Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.add_photo_alternate_outlined,
-                        color: t.ink2,
-                        size: 32,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        l10n.foodNoImageSelected,
-                        style: AppType.ui(
-                          13,
-                          weight: FontWeight.w500,
-                          color: t.ink2,
-                        ),
-                      ),
-                    ],
-                  )
-                : LayoutBuilder(
-                    builder: (context, constraints) {
-                      // Decode at card width (pattern of the coach recipe
-                      // card): the bytes are the scrubbed UPLOAD image, up to
-                      // 1600 px — full size is a multi-MB texture for a
-                      // 170-px slot.
-                      final dpr = MediaQuery.devicePixelRatioOf(context);
-                      final w = constraints.maxWidth.isFinite
-                          ? constraints.maxWidth
-                          : 320.0;
-                      return Image.memory(
-                        imageBytes!,
-                        fit: BoxFit.cover,
-                        gaplessPlayback: true,
-                        cacheWidth: (w * dpr).round().clamp(1, 1600),
-                      );
-                    },
-                  ),
-          ),
-        ],
+    return Container(
+      key: const ValueKey('analyse-image-preview'),
+      height: 176,
+      width: double.infinity,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        color: t.brandSurface,
+        borderRadius: BorderRadius.circular(rHero),
       ),
+      child: imageBytes == null
+          ? Center(
+              child: Text(
+                l10n.foodNoImageSelected,
+                style: AppType.ui(13, color: t.ink2),
+              ),
+            )
+          : LayoutBuilder(
+              builder: (context, constraints) {
+                final dpr = MediaQuery.devicePixelRatioOf(context);
+                final width = constraints.maxWidth.isFinite
+                    ? constraints.maxWidth
+                    : 320.0;
+                return Image.memory(
+                  imageBytes!,
+                  semanticLabel: l10n.foodPhotoCardTitle,
+                  fit: BoxFit.cover,
+                  gaplessPlayback: true,
+                  cacheWidth: (width * dpr).round().clamp(1, 1600),
+                  errorBuilder: (_, _, _) => Center(
+                    child: Icon(
+                      Icons.image_not_supported_outlined,
+                      color: t.ink2,
+                      size: 32,
+                    ),
+                  ),
+                );
+              },
+            ),
     );
   }
 }
@@ -96,19 +73,16 @@ class _MealLoadingCardState extends State<MealLoadingCard>
   static const int _stageCount = 4;
 
   List<(IconData, String)> _stages(AppLocalizations l10n) => [
-        (Icons.image_search_rounded, l10n.foodLoadingStageDetect),
-        (Icons.straighten_rounded, l10n.foodLoadingStageEstimate),
-        (Icons.calculate_rounded, l10n.foodLoadingStageCalculate),
-        (Icons.fact_check_outlined, l10n.foodLoadingStageFinal),
-      ];
+    (Icons.image_search_rounded, l10n.foodLoadingStageDetect),
+    (Icons.straighten_rounded, l10n.foodLoadingStageEstimate),
+    (Icons.calculate_rounded, l10n.foodLoadingStageCalculate),
+    (Icons.fact_check_outlined, l10n.foodLoadingStageFinal),
+  ];
 
   @override
   void initState() {
     super.initState();
-    _progress = AnimationController(
-      vsync: this,
-      duration: _estimatedDuration,
-    )
+    _progress = AnimationController(vsync: this, duration: _estimatedDuration)
       ..addListener(_handleTick)
       ..forward();
   }
@@ -139,7 +113,8 @@ class _MealLoadingCardState extends State<MealLoadingCard>
     final atFinalStage = _stepIndex == stages.length - 1;
     return AppCard(
       key: const ValueKey('analyse-loading'),
-      radius: rCard,
+      color: t.brandSurface,
+      radius: rHero,
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -150,8 +125,10 @@ class _MealLoadingCardState extends State<MealLoadingCard>
               const SizedBox(width: 12),
               Expanded(
                 child: AnimatedSwitcher(
-                  duration:
-                      motionDuration(context, const Duration(milliseconds: 220)),
+                  duration: motionDuration(
+                    context,
+                    const Duration(milliseconds: 220),
+                  ),
                   transitionBuilder: (child, anim) => FadeTransition(
                     opacity: anim,
                     child: SlideTransition(
@@ -180,7 +157,9 @@ class _MealLoadingCardState extends State<MealLoadingCard>
                         atFinalStage
                             ? l10n.foodLoadingAlmostDone
                             : l10n.foodLoadingStepOf(
-                                _stepIndex + 1, stages.length),
+                                _stepIndex + 1,
+                                stages.length,
+                              ),
                         style: AppType.ui(
                           11,
                           weight: FontWeight.w500,

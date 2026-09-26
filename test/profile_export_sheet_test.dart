@@ -33,6 +33,7 @@ import 'package:supabase/supabase.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/services/data_export.dart';
+import 'package:eatova/src/widgets/shared/data_export_sheet.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
 /// Tables that really exist per supabase/migrations/ and hold user data under a
@@ -173,23 +174,40 @@ void main() {
   }
 
   testWidgets(
-      'mit Sync zeigt das Sheet die vollstaendige Server-Auskunft — nicht '
-      'mehr den Session-Ausschnitt', (tester) async {
-    await oeffneExport(
-      tester,
-      onExportData: () async => '{"logged_meals": ["alle Zeilen"]}',
-    );
+    'mit Sync zeigt das Sheet die vollstaendige Server-Auskunft — nicht '
+    'mehr den Session-Ausschnitt',
+    (tester) async {
+      await oeffneExport(
+        tester,
+        onExportData: () async => jsonEncode({
+          'format': DataExportService.formatKennung,
+          for (final table in _tabellenLautMigrationen) table: <dynamic>[],
+          'user_recipe_history': <dynamic>[],
+        }),
+      );
 
-    expect(find.text('Datenauskunft'), findsOneWidget);
-    // The LONG excerpt on purpose: the short one also appears in the subtitle
-    // of the `settings-export` row, so it would match two widgets.
-    expect(
-      find.textContaining('Vollständige Kopie deiner gespeicherten Daten'),
-      findsOneWidget,
-    );
-    expect(find.textContaining('logged_meals'), findsOneWidget);
-    expect(find.textContaining('In-Memory Snapshot'), findsNothing);
-  });
+      expect(find.text('Datenauskunft'), findsOneWidget);
+      // The LONG excerpt on purpose: the short one also appears in the subtitle
+      // of the `settings-export` row, so it would match two widgets.
+      expect(
+        find.textContaining('Vollständige Kopie deiner gespeicherten Daten'),
+        findsOneWidget,
+      );
+      final meals = find.byKey(const ValueKey('export-expand-logged_meals'));
+      await tester.scrollUntilVisible(
+        meals,
+        200,
+        scrollable: find
+            .descendant(
+              of: find.byType(DataExportSheet),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      expect(find.text('Mahlzeiten'), findsOneWidget);
+      expect(find.textContaining('In-Memory Snapshot'), findsNothing);
+    },
+  );
 
   testWidgets(
       'ohne Sync gibt es die Zeile gar nicht — statt eines halben Exports',

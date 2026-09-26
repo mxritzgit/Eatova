@@ -508,10 +508,17 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
     final maxHeight = sheetMaxHeightOf(context);
     final keyboardInset = mediaQuery.viewInsets.bottom;
     final error = _error;
+    final pinnedActions =
+        !_isLoading &&
+        _result != null &&
+        error == null &&
+        maxHeight >= 620 &&
+        mediaQuery.size.width >= 340 &&
+        mediaQuery.textScaler.scale(14) <= 21;
 
     // No SheetScaffold: that assumes a fixed title plus exactly one footer
-    // action. Here a fixed header sits above a capped scroll area and the
-    // actions live on the result card.
+    // action. The footer stays visible where space permits; large text and
+    // short windows keep actions in the scrolling result.
     final body = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -523,12 +530,13 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
               20,
               0,
               20,
-              28 + mediaQuery.viewPadding.bottom,
+              pinnedActions ? 12 : 28 + mediaQuery.viewPadding.bottom,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (widget.previewImage != null) ...[
+                if (widget.previewImage != null &&
+                    (_isLoading || error != null)) ...[
                   MealPreviewCard(imageBytes: widget.previewImage),
                   const SizedBox(height: 14),
                 ],
@@ -551,6 +559,8 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
                 else if (_result != null)
                   MealResultCard(
                     result: _result!,
+                    previewImage: widget.previewImage,
+                    showActions: !pinnedActions,
                     addedToDailyTotal: _addedToDailyTotal,
                     onAdjustRequested: _adjustPortion,
                     onAddToDailyRequested: _addToDaily,
@@ -563,6 +573,20 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
             ),
           ),
         ),
+        if (pinnedActions)
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+              20,
+              8,
+              20,
+              16 + mediaQuery.viewPadding.bottom,
+            ),
+            child: MealResultActions(
+              added: _addedToDailyTotal,
+              onAdjust: _adjustPortion,
+              onAdd: _addToDaily,
+            ),
+          ),
       ],
     );
     // SnackHost INSIDE the ground color (review I-2): the sheet stays open
@@ -580,7 +604,7 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
             top: Radius.circular(rSheet),
           ),
         ),
-        child: SnackHost(child: body),
+        child: SnackHost(measureToast: true, child: body),
       ),
     );
   }
@@ -711,12 +735,20 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    final color = slot.accentIn(context);
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 4, 8, 12),
       child: Row(
         children: [
-          MealAvatar(letter: slot.initial(l10n), color: color, size: 36),
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: slot.diarySurface(t),
+              borderRadius: BorderRadius.circular(rControl),
+            ),
+            child: AppIcon(slot.symbol, color: t.ink, size: 24),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -724,12 +756,12 @@ class _Header extends StatelessWidget {
               children: [
                 Text(
                   slot.label(l10n),
-                  style: AppType.display(18, color: t.ink),
+                  style: AppType.ui(12, weight: FontWeight.w600, color: t.ink2),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   l10n.foodReviewAnalysisSubtitle,
-                  style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
+                  style: AppType.display(22, color: t.ink),
                 ),
               ],
             ),

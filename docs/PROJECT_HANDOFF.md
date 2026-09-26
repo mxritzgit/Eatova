@@ -1894,3 +1894,33 @@ results are recorded in the delivery PR for `fix/health-startup-recovery`.
 Evidence logs are machine-local under `.agents/health-startup-2026-09-26/`.
 No backend deployment is needed. A rebuilt iOS app and physical-device check
 are separate from automated verification; neither is established by these tests.
+
+## Data export and analysis overlay, 2026-09-26
+
+The export now presents ordered, expandable sections with paged records and
+selectable values. Complete output is available as a readable report, indented
+JSON, or per-section CSV. Preview limits never truncate copied/shared data;
+unknown fields and meaningful nested array order remain intact. CSV escapes
+quotes, multiline values and spreadsheet formulas. Completeness still comes
+from the export service, including its unknown-count and partial-copy markers.
+
+Photo analysis now uses an integrated photo, a lavender nutrition summary,
+pastel macro tiles, open ingredient rows and accessible portion/add actions.
+Actions remain visible on ordinary phones and scroll with enlarged text or
+short screens. The current meal icon family and asynchronous persistence guards
+are retained. Measured toast space is opt-in for the two adapted sheets;
+other hosts preserve their existing layout and route visibility rules.
+
+The changes were integrated onto main `1c4862f` in the isolated delivery branch
+`design/export-analysis-release`. The original dirty checkout and unrelated
+instruction/review edits are preserved. Local verification: strict Flutter
+3.47.2 analysis passed; the full suite ran 5,225 tests, with one older export
+fixture missing the recipe-history section. After correcting that fixture,
+all 67 affected tests passed. Full-run line coverage was **95.12%**. Real-font
+renders cover German/English, light/dark and 200% text; final visual inspection
+includes the current meal icons. Secret scanning and diff review passed.
+
+Machine-local logs and captures are under `.agents/export-analysis-delivery/`
+and `.agents/export-analysis-release/build/export-analysis/`. The delivery PR
+records the final complete CI run, Android builds and protected-main merge.
+No backend deployment or device installation is part of this UI change.

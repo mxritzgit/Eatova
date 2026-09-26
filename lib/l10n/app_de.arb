@@ -1182,7 +1182,7 @@
   "settingsThemeModeDark": "Dunkel",
   "settingsGroupDataPrivacy": "DATEN & PRIVATSPHÄRE",
   "settingsExportDataTitle": "Daten exportieren",
-  "settingsExportDataSubtitle": "Vollständige Kopie als JSON (Art. 15 DSGVO)",
+  "settingsExportDataSubtitle": "Deine Daten als Bericht, JSON oder CSV",
   "settingsLegalPrivacy": "Datenschutz",
   "settingsLegalTerms": "AGB",
   "settingsLegalImprint": "Impressum",
@@ -1288,12 +1288,12 @@
 
   "exportSheetLoadingSubtitle": "Deine Daten werden vom Server geladen …",
   "exportSheetErrorSubtitle": "Diese Kopie ist unvollständig oder konnte nicht vollständig geprüft werden. Bitte versuche es später erneut.",
-  "exportSheetFullSubtitle": "Vollständige Kopie deiner gespeicherten Daten als JSON — alle Tabellen, direkt vom Server geladen (Art. 15/20 DSGVO).",
-  "exportSheetSessionSubtitle": "In-Memory Snapshot deiner aktuellen Session als JSON.",
+  "exportSheetFullSubtitle": "Vollständige Kopie deiner gespeicherten Daten, übersichtlich nach Bereichen geordnet.",
+  "exportSheetSessionSubtitle": "Ausschnitt der Daten deiner aktuellen Sitzung.",
   "exportSheetTitleFull": "Datenauskunft",
   "exportSheetTitleSession": "Daten Snapshot",
   "exportSheetCopiedSnack": "Export in Zwischenablage",
-  "exportSheetCopyButton": "Kopieren",
+  "exportSheetCopyButton": "Alles kopieren",
 
   "targetBmiHintUnderweight": "Dieses Zielgewicht entspräche einem BMI von {bmi} — das liegt unterhalb des als gesund geltenden Bereichs.",
   "@targetBmiHintUnderweight": {
@@ -1747,7 +1747,7 @@
   "coachMessageNotSent": "Nicht gesendet",
   "coachMessageRetry": "Erneut senden",
   "exportShareFile": "Als Datei teilen",
-  "exportPreviewShortened": "Vorschau gekürzt — die vollständigen Daten stecken in der Datei.",
+  "exportPreviewShortened": "Die Anzeige ist gekürzt. Kopieren und Teilen enthalten immer alle geladenen Daten.",
   "exportNothingLoaded": "Es konnte kein einziger Abschnitt geladen werden. Bist du online?",
   "searchRateLimited": "Zu viele Suchanfragen — versuch es gleich noch einmal.",
   "commonFavoriteRemoved": "Favorit entfernt",
@@ -2470,5 +2470,117 @@
     }
   },
   "trainingAdoptionDiscardAction": "Entwurf verwerfen",
-  "trainingAdoptionDiscardBody": "Nur dein abgelehnter Entwurf wird von diesem Gerät entfernt. Der aktuelle Plan auf dem Server bleibt erhalten."
+  "trainingAdoptionDiscardBody": "Nur dein abgelehnter Entwurf wird von diesem Gerät entfernt. Der aktuelle Plan auf dem Server bleibt erhalten.",
+  "exportOverview": "Deine Daten im Überblick",
+  "exportSummary": "{sections} Bereiche · {records} Datensätze",
+  "@exportSummary": {
+    "placeholders": {
+      "sections": {
+        "type": "int"
+      },
+      "records": {
+        "type": "int"
+      }
+    }
+  },
+  "exportCreatedAt": "Erstellt: {date}",
+  "@exportCreatedAt": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "exportReadable": "Lesbarer Bericht",
+  "exportJson": "JSON",
+  "exportOutputHint": "Kopiere alle Daten im gewählten Format oder einzelne Bereiche als CSV für Tabellen.",
+  "exportUnverified": "Die Vollständigkeit dieser Daten konnte nicht bestätigt werden.",
+  "exportProfiles": "Profil & Einstellungen",
+  "exportStats": "Statistiken",
+  "exportMeals": "Mahlzeiten",
+  "exportFavorites": "Favoriten",
+  "exportWeight": "Gewichtsverlauf",
+  "exportRecipes": "Eigene Rezepte",
+  "exportMealPlan": "Essensplanung",
+  "exportShopping": "Einkaufsliste",
+  "exportTrainingPlans": "Trainingspläne",
+  "exportTrainingHistory": "Trainingsverlauf",
+  "exportTrainingDeletions": "Gelöschte Trainingseinträge",
+  "exportChats": "Coach-Unterhaltungen",
+  "exportMessages": "Coach-Nachrichten",
+  "exportQuota": "Coach-Nutzung",
+  "exportMissing": "Nicht geladene Bereiche",
+  "exportCapped": "Gekürzte Bereiche",
+  "exportFormat": "Exportformat",
+  "exportDate": "Exportzeitpunkt",
+  "exportAccount": "Konto-ID",
+  "exportRecordCount": "{count, plural, =0{Keine Datensätze} =1{1 Datensatz} other{{count} Datensätze}}",
+  "@exportRecordCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "exportRecordNumber": "Datensatz {number}",
+  "@exportRecordNumber": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "exportCopySection": "Bereich kopieren",
+  "exportCopyCsv": "CSV kopieren",
+  "exportEmptySection": "In diesem Bereich sind keine Daten gespeichert.",
+  "exportPageRange": "{start}–{end} von {total}",
+  "@exportPageRange": {
+    "placeholders": {
+      "start": {
+        "type": "int"
+      },
+      "end": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "exportPrevious": "Vorherige Datensätze",
+  "exportNext": "Nächste Datensätze",
+  "foodAnalysisNutrition": "Nährwerte deiner Portion",
+  "exportFieldId": "ID",
+  "exportFieldUserId": "Konto-ID",
+  "exportFieldCreatedAt": "Erstellt am",
+  "exportFieldUpdatedAt": "Aktualisiert am",
+  "exportFieldLoggedAt": "Erfasst am",
+  "exportFieldLocalDay": "Kalendertag",
+  "exportFieldDate": "Datum",
+  "exportFieldPayload": "Details",
+  "exportFieldMealName": "Mahlzeit",
+  "exportFieldName": "Name",
+  "exportFieldTitle": "Titel",
+  "exportFieldCaloriesKcal": "Energie (kcal)",
+  "exportFieldKcal": "Energie (kcal)",
+  "exportFieldProteinG": "Eiweiß (g)",
+  "exportFieldCarbsG": "Kohlenhydrate (g)",
+  "exportFieldFatG": "Fett (g)",
+  "exportFieldEstimatedGrams": "Geschätzte Menge (g)",
+  "exportFieldGrams": "Menge (g)",
+  "exportFieldWeightKg": "Gewicht (kg)",
+  "exportFieldSlot": "Mahlzeitentyp",
+  "exportFieldContent": "Nachricht",
+  "exportFieldRole": "Rolle",
+  "exportFieldSessionId": "Unterhaltung-ID",
+  "exportFieldItems": "Bestandteile",
+  "exportFieldEmail": "E-Mail",
+  "exportFieldDisplayName": "Anzeigename",
+  "exportFieldSourceLabel": "Quelle",
+  "exportFieldConfidence": "Sicherheit der Schätzung",
+  "exportFieldPortionNotes": "Portionshinweise",
+  "exportFieldProtein": "Eiweiß",
+  "exportFieldCarbs": "Kohlenhydrate",
+  "exportFieldFat": "Fett",
+  "exportFieldExplanation": "Erläuterung"
 }
