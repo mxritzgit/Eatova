@@ -218,6 +218,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     // B3b: the midnight rollover keeps `dailySteps`, so pull one refresh per
     // calendar day or yesterday's steps feed `burnedKcal` all day.
     if (!DateUtils.isSameDay(_healthDay, clock.now())) _refreshHealthSteps();
+    if (_healthRefreshPending && !_store.healthSyncing) {
+      _healthRefreshPending = false;
+      _refreshHealthSteps(replay: true);
+    }
     if (_store.pendingOutbox.isEmpty) {
       _backgroundSyncRequested = false;
     } else if (!_backgroundSyncRequested) {
@@ -228,12 +232,15 @@ class _EatovaHomePageState extends State<EatovaHomePage>
 
   /// Calendar day of the last health refresh (guard for [_onStoreChanged]).
   DateTime _healthDay = DateUtils.dateOnly(clock.now());
+  bool _healthRefreshPending = false;
+  bool _healthReplayInFlight = false;
 
   /// May a refresh run without pointlessly toggling `healthSyncing`?
   ///
   /// `refreshHealthSteps()` does not check "connected"; the guard sits here.
   /// `unverified`/`denied` are in (B3): `readSnapshot()` re-verifies silently,
-  /// so a late grant heals only here. `unknown` belongs to `connectHealth()`.
+  /// so a late grant heals here. An unknown iOS startup retries authorization;
+  /// Android still requires this account's explicit Health Connect opt-in.
   bool get _healthMayRefresh => switch (_store.healthAuthState) {
     HealthAuthState.granted ||
     HealthAuthState.unverified ||
@@ -241,15 +248,35 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     HealthAuthState.noData ||
     HealthAuthState.updateRequired ||
     HealthAuthState.error => true,
-    HealthAuthState.unknown ||
-    HealthAuthState.unsupported ||
-    HealthAuthState.unavailable => false,
+    HealthAuthState.unknown =>
+      widget.healthService != null &&
+          widget.healthService is! HealthConnectAccess,
+    HealthAuthState.unsupported || HealthAuthState.unavailable => false,
   };
 
-  void _refreshHealthSteps() {
+  void _refreshHealthSteps({bool replay = false}) {
     _healthDay = DateUtils.dateOnly(clock.now());
     if (!_healthMayRefresh) return;
-    unawaited(_store.refreshHealthSteps());
+    if (_store.healthSyncing) {
+      // Coalesce a resume that arrives during startup or a native query.
+      // A replay cannot enqueue itself through permission-sheet lifecycle events.
+      if (!_healthReplayInFlight) _healthRefreshPending = true;
+      return;
+    }
+    unawaited(_runHealthRefresh(replay: replay));
+  }
+
+  Future<void> _runHealthRefresh({required bool replay}) async {
+    if (replay) _healthReplayInFlight = true;
+    try {
+      if (_store.healthAuthState == HealthAuthState.unknown) {
+        await _store.connectHealth();
+      } else {
+        await _store.refreshHealthSteps();
+      }
+    } finally {
+      if (replay) _healthReplayInFlight = false;
+    }
   }
 
   @override
