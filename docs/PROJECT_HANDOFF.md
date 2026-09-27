@@ -1924,3 +1924,29 @@ Machine-local logs and captures are under `.agents/export-analysis-delivery/`
 and `.agents/export-analysis-release/build/export-analysis/`. The delivery PR
 records the final complete CI run, Android builds and protected-main merge.
 No backend deployment or device installation is part of this UI change.
+
+## Photo preview refinement, 2026-09-27
+
+The user's screenshot identified the **pre-analysis** photo/context dialog
+(`MealScanPreviewSheet`), distinct from the result sheet refined in PR #110.
+This follow-up replaces its photo-check/ready badges, decorative icons, nested
+context card, repeated explanations and character-progress bar with a plain
+app header, photo, one optional soft-fill field and compact suggestions. The
+upload explanation appears once next to the explicit Start action.
+
+The primary action remains visible on regular phones. Small windows, enlarged
+text and the keyboard use a scrollable layout; the input stays in the same
+subtree so its focus, selection and draft survive that transition. The close
+control is in the header. Invalid/missing previews have an honest fallback,
+image decoding is bounded, and the existing 400 UTF-16-unit validation and
+cancel-before-upload/account-isolation contracts remain unchanged.
+
+Actual Flutter renders: [dark](scan-preview/dark.png),
+[light](scan-preview/light.png). These use a bundled fixture photo, not user
+data. Reproduce with `CAPTURE_SCAN_PREVIEW=true` while running
+`test/meal_scan_preview_design_test.dart`. Its real-font matrix covers both
+languages/themes, 390x844 and 320x568 at 200%, keyboard reflow, focus/selection,
+confirmation and unavailable previews; existing flow tests cover the upload
+and account guards. Direct diff review and final validation are recorded in
+the delivery PR for `design/scan-preview-refinement`. No backend change is
+needed; seeing this on a device requires a newly built and installed client.

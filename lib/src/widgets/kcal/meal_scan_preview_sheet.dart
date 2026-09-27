@@ -7,6 +7,7 @@ import '../../models/meal_analysis_request.dart';
 import '../../theme/app_tokens.dart';
 import '../design/controls.dart';
 import '../design/sheets.dart';
+import '../design/surfaces.dart';
 
 /// A local preview. Nothing is uploaded until the user starts analysis.
 Future<MealAnalysisRequest?> showMealScanPreviewSheet(
@@ -58,15 +59,17 @@ class _MealScanPreviewSheetState extends State<MealScanPreviewSheet> {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final l10n = context.l10n;
     final media = MediaQuery.of(context);
     final valid = MealAnalysisRequest.isValidHint(_hint.text);
-    final bytes = widget.previewBytes;
+    final maxHeight = sheetMaxHeightOf(context);
+    final pinnedAction = maxHeight >= 620 && media.textScaler.scale(14) <= 21;
+    final footer = _ScanFooter(onStart: valid ? _start : null);
+
     return Padding(
       padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
       child: Container(
         key: const ValueKey('meal-scan-preview'),
-        constraints: BoxConstraints(maxHeight: sheetMaxHeightOf(context)),
+        constraints: BoxConstraints(maxHeight: maxHeight),
         decoration: BoxDecoration(
           color: t.bg,
           borderRadius: const BorderRadius.vertical(
@@ -74,65 +77,50 @@ class _MealScanPreviewSheetState extends State<MealScanPreviewSheet> {
           ),
         ),
         clipBehavior: Clip.antiAlias,
-        child: SingleChildScrollView(
-          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-          padding: EdgeInsets.fromLTRB(
-            20,
-            10,
-            20,
-            18 + media.viewPadding.bottom,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 42,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: t.line,
-                    borderRadius: BorderRadius.circular(rPill),
-                  ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              // Keep the field in the same subtree when the keyboard changes
+              // the footer layout, so focus, selection and draft survive.
+              child: SingleChildScrollView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SheetHandle(),
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(20, 4, 8, 16),
+                      child: _ScanHeader(),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _ScanPhoto(
+                            bytes: widget.previewBytes,
+                            compact: media.viewInsets.bottom > 0,
+                          ),
+                          const SizedBox(height: 24),
+                          _ScanContext(
+                            hint: _hint,
+                            valid: valid,
+                            onChanged: (_) => setState(() {}),
+                            onSuggestion: _applySuggestion,
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (!pinnedAction) footer,
+                  ],
                 ),
               ),
-              const SizedBox(height: 14),
-              _ScanPreviewHeader(
-                title: l10n.foodScanPreviewTitle,
-                eyebrow: l10n.foodScanPreviewEyebrow,
-                description: l10n.foodScanPreviewDescription,
-                photoReady: l10n.foodScanPhotoReady,
-              ),
-              const SizedBox(height: 18),
-              _ScanPhotoCard(
-                bytes: bytes,
-                height: media.viewInsets.bottom > 0 ? 116 : 176,
-                photoLabel: l10n.foodScanPhotoLabel,
-              ),
-              const SizedBox(height: 18),
-              _ScanContextCard(
-                hint: _hint,
-                valid: valid,
-                l10n: l10n,
-                onChanged: (_) => setState(() {}),
-                onSuggestion: _applySuggestion,
-              ),
-              const SizedBox(height: 20),
-              PrimaryActionButton(
-                key: const ValueKey('meal-scan-start'),
-                label: l10n.foodScanStart,
-                onTap: valid ? _start : null,
-              ),
-              const SizedBox(height: 8),
-              Center(
-                child: TextButton(
-                  key: const ValueKey('meal-scan-cancel'),
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: Text(l10n.commonCancel),
-                ),
-              ),
-            ],
-          ),
+            ),
+            if (pinnedAction) footer,
+          ],
         ),
       ),
     );
@@ -149,299 +137,159 @@ class _MealScanPreviewSheetState extends State<MealScanPreviewSheet> {
   }
 }
 
-class _ScanPreviewHeader extends StatelessWidget {
-  const _ScanPreviewHeader({
-    required this.title,
-    required this.eyebrow,
-    required this.description,
-    required this.photoReady,
-  });
-
-  final String title;
-  final String eyebrow;
-  final String description;
-  final String photoReady;
+class _ScanHeader extends StatelessWidget {
+  const _ScanHeader();
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: t.forest,
-                borderRadius: BorderRadius.circular(rControl),
-              ),
-              child: Icon(Icons.auto_awesome_rounded, color: t.lime, size: 21),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(eyebrow, style: AppType.eyebrow(t.accent, size: 10)),
-                  const SizedBox(height: 3),
-                  Text(
-                    title,
-                    style: AppType.display(24, color: t.ink, height: 1.15),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            _ScanStatusPill(label: photoReady),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Text(description, style: AppType.ui(14, color: t.ink2, height: 1.45)),
-      ],
+    final largeText = MediaQuery.textScalerOf(context).scale(14) > 21;
+    final title = HeadingSemantics(
+      level: 1,
+      child: Text(
+        context.l10n.foodScanPreviewTitle,
+        style: AppType.display(largeText ? 24 : 26, color: context.t.ink),
+      ),
     );
+    final close = IconButton(
+      key: const ValueKey('meal-scan-cancel'),
+      tooltip: context.l10n.commonClose,
+      onPressed: () => Navigator.of(context).pop(),
+      icon: const Icon(Icons.close_rounded),
+    );
+    return largeText
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Align(alignment: Alignment.centerRight, child: close),
+              Padding(padding: const EdgeInsets.only(right: 12), child: title),
+            ],
+          )
+        : Row(
+            children: [
+              Expanded(child: title),
+              const SizedBox(width: 8),
+              close,
+            ],
+          );
   }
 }
 
-class _ScanStatusPill extends StatelessWidget {
-  const _ScanStatusPill({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Container(
-      constraints: const BoxConstraints(minHeight: 32),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: t.lime,
-        borderRadius: BorderRadius.circular(rPill),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.check_rounded, color: t.onLime, size: 15),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: AppType.ui(11.5, color: t.onLime, weight: FontWeight.w700),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ScanPhotoCard extends StatelessWidget {
-  const _ScanPhotoCard({
-    required this.bytes,
-    required this.height,
-    required this.photoLabel,
-  });
+class _ScanPhoto extends StatelessWidget {
+  const _ScanPhoto({required this.bytes, required this.compact});
 
   final Uint8List? bytes;
-  final double height;
-  final String photoLabel;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(rCard),
-      child: SizedBox(
-        width: double.infinity,
-        height: height,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            ColoredBox(
-              color: t.surf2,
-              child: bytes == null
-                  ? Icon(Icons.photo_outlined, color: t.ink2, size: 32)
-                  : Image.memory(
-                      bytes!,
-                      fit: BoxFit.cover,
-                      semanticLabel: photoLabel,
-                      errorBuilder: (_, _, _) => Icon(
-                        Icons.broken_image_outlined,
-                        color: t.ink2,
-                        size: 32,
-                      ),
-                    ),
-            ),
-            if (bytes != null)
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Colors.transparent, t.ink.withValues(alpha: 0.72)],
-                  ),
-                ),
-              ),
-            Positioned(
-              left: 12,
-              right: 12,
-              bottom: 10,
-              child: Row(
-                children: [
-                  Icon(Icons.photo_camera_rounded, color: t.bg, size: 17),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Text(
-                      photoLabel,
-                      style: AppType.ui(
-                        12.5,
-                        color: t.bg,
-                        weight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+    final l10n = context.l10n;
+    final unavailable = Center(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Text(
+          l10n.foodScanPhotoUnavailable,
+          textAlign: TextAlign.center,
+          style: AppType.ui(13, color: t.ink2),
         ),
+      ),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) => Container(
+        key: const ValueKey('meal-scan-photo'),
+        height: compact ? 100 : (constraints.maxWidth * 0.6).clamp(160, 240),
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: t.surf2,
+          borderRadius: BorderRadius.circular(rCard),
+        ),
+        child: bytes == null
+            ? unavailable
+            : Image.memory(
+                bytes!,
+                fit: BoxFit.cover,
+                semanticLabel: l10n.foodScanPhotoLabel,
+                gaplessPlayback: true,
+                cacheWidth:
+                    (constraints.maxWidth *
+                            MediaQuery.devicePixelRatioOf(context))
+                        .round()
+                        .clamp(1, 1600),
+                errorBuilder: (_, _, _) => unavailable,
+              ),
       ),
     );
   }
 }
 
-class _ScanContextCard extends StatelessWidget {
-  const _ScanContextCard({
+class _ScanContext extends StatelessWidget {
+  const _ScanContext({
     required this.hint,
     required this.valid,
-    required this.l10n,
     required this.onChanged,
     required this.onSuggestion,
   });
 
   final TextEditingController hint;
   final bool valid;
-  final AppLocalizations l10n;
   final ValueChanged<String> onChanged;
   final ValueChanged<String> onSuggestion;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final progress = (hint.text.length / MealAnalysisRequest.maxHintLength)
-        .clamp(0.0, 1.0);
-    return Container(
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
-      decoration: BoxDecoration(
-        color: t.surf,
-        borderRadius: BorderRadius.circular(rCard),
-        border: Border.all(color: t.line),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(Icons.edit_note_rounded, color: t.accent, size: 21),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      l10n.foodScanContextPrompt,
-                      style: AppType.ui(
-                        15,
-                        color: t.ink,
-                        weight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      l10n.foodScanContextLabel,
-                      style: AppType.eyebrow(t.ink2, size: 9.5),
-                    ),
-                  ],
-                ),
+    final l10n = context.l10n;
+    final suggestions = [
+      l10n.foodScanContextSuggestionNoSauce,
+      l10n.foodScanContextSuggestionHomemade,
+      l10n.foodScanContextSuggestionPortion,
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Text(
+                l10n.foodScanContextLabel,
+                style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
               ),
-              Icon(Icons.tune_rounded, color: t.ink2, size: 17),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            l10n.foodScanContextAssist,
-            style: AppType.ui(12.5, color: t.ink2, height: 1.4),
-          ),
-          const SizedBox(height: 12),
-          SheetField(
-            fieldKey: const ValueKey('meal-scan-context'),
-            controller: hint,
-            semanticLabel: l10n.foodScanContextLabel,
-            hint: l10n.foodScanContextExample,
-            maxLines: 3,
-            keyboardType: TextInputType.multiline,
-            textCapitalization: TextCapitalization.sentences,
-            prefix: Icon(Icons.notes_rounded, color: t.ink2, size: 19),
-            onChanged: onChanged,
-            errorText: valid ? null : l10n.foodScanContextInvalid,
-            bottomGap: 6,
-          ),
-          Row(
-            children: [
-              Expanded(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(rPill),
-                  child: LinearProgressIndicator(
-                    value: progress,
-                    minHeight: 4,
-                    backgroundColor: t.tile,
-                    color: valid ? t.accent : t.danger,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                '${hint.text.length}/${MealAnalysisRequest.maxHintLength}',
-                key: const ValueKey('meal-scan-context-count'),
-                style: AppType.ui(12, color: valid ? t.ink2 : t.danger),
-              ),
-            ],
-          ),
-          const SizedBox(height: 9),
-          Text(
-            l10n.foodScanContextHelp,
-            style: AppType.ui(12.5, color: t.ink2, height: 1.4),
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 7,
-            runSpacing: 7,
-            children: [
+            ),
+            const SizedBox(width: 12),
+            Text(
+              '${hint.text.length}/${MealAnalysisRequest.maxHintLength}',
+              key: const ValueKey('meal-scan-context-count'),
+              style: AppType.ui(11, color: valid ? t.ink2 : t.danger),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        SheetField(
+          fieldKey: const ValueKey('meal-scan-context'),
+          controller: hint,
+          semanticLabel: l10n.foodScanContextLabel,
+          hint: l10n.foodScanContextExample,
+          maxLines: 3,
+          keyboardType: TextInputType.multiline,
+          textCapitalization: TextCapitalization.sentences,
+          onChanged: onChanged,
+          errorText: valid ? null : l10n.foodScanContextInvalid,
+          bottomGap: 10,
+        ),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final suggestion in suggestions)
               _ScanSuggestion(
-                label: l10n.foodScanContextSuggestionNoSauce,
-                enabled: !_hasSuggestion(l10n.foodScanContextSuggestionNoSauce),
-                onPressed: () =>
-                    onSuggestion(l10n.foodScanContextSuggestionNoSauce),
+                label: suggestion,
+                selected: _hasSuggestion(suggestion),
+                onPressed: () => onSuggestion(suggestion),
               ),
-              _ScanSuggestion(
-                label: l10n.foodScanContextSuggestionHomemade,
-                enabled: !_hasSuggestion(
-                  l10n.foodScanContextSuggestionHomemade,
-                ),
-                onPressed: () =>
-                    onSuggestion(l10n.foodScanContextSuggestionHomemade),
-              ),
-              _ScanSuggestion(
-                label: l10n.foodScanContextSuggestionPortion,
-                enabled: !_hasSuggestion(l10n.foodScanContextSuggestionPortion),
-                onPressed: () =>
-                    onSuggestion(l10n.foodScanContextSuggestionPortion),
-              ),
-            ],
-          ),
-        ],
-      ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -453,26 +301,68 @@ class _ScanContextCard extends StatelessWidget {
 class _ScanSuggestion extends StatelessWidget {
   const _ScanSuggestion({
     required this.label,
-    required this.enabled,
+    required this.selected,
     required this.onPressed,
   });
 
   final String label;
-  final bool enabled;
-  final VoidCallback? onPressed;
+  final bool selected;
+  final VoidCallback onPressed;
 
   @override
-  Widget build(BuildContext context) => TextButton.icon(
-    onPressed: enabled ? onPressed : null,
-    style: TextButton.styleFrom(
-      foregroundColor: context.t.ink,
-      disabledForegroundColor: context.t.ink2,
-      backgroundColor: context.t.tile,
-      minimumSize: const Size(0, kButtonMinHeight),
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(rPill)),
-    ),
-    icon: Icon(enabled ? Icons.add_rounded : Icons.check_rounded, size: 15),
-    label: Text(label, style: AppType.ui(12, weight: FontWeight.w600)),
-  );
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Semantics(
+      selected: selected,
+      child: TextButton(
+        onPressed: selected ? null : onPressed,
+        style: TextButton.styleFrom(
+          foregroundColor: t.ink2,
+          disabledForegroundColor: t.ink,
+          backgroundColor: selected ? t.brandSurface : t.tile,
+          minimumSize: const Size(0, kButtonMinHeight),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(rChip),
+          ),
+        ),
+        child: Text(label, style: AppType.ui(12, weight: FontWeight.w500)),
+      ),
+    );
+  }
+}
+
+class _ScanFooter extends StatelessWidget {
+  const _ScanFooter({required this.onStart});
+
+  final VoidCallback? onStart;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        20,
+        20,
+        18 + MediaQuery.paddingOf(context).bottom,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            l10n.foodScanContextHelp,
+            style: AppType.ui(12, color: context.t.ink2, height: 1.4),
+          ),
+          const SizedBox(height: 14),
+          PrimaryActionButton(
+            key: const ValueKey('meal-scan-start'),
+            label: l10n.foodScanStart,
+            onTap: onStart,
+          ),
+        ],
+      ),
+    );
+  }
 }
