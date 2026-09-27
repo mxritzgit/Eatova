@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../models/recipe_ingredient.dart';
 import '../../theme/app_tokens.dart';
+import '../common/decimal_text.dart';
 import '../design/sheets.dart';
 
 /// Returns null while invalid so a parent cannot log the previous valid value.
@@ -25,22 +26,28 @@ class RecipePortionSelector extends StatefulWidget {
 }
 
 class _RecipePortionSelectorState extends State<RecipePortionSelector> {
-  late final TextEditingController _controller;
+  // Created on the first dependency pass: the prefill needs the locale's
+  // decimal separator, which initState cannot read.
+  TextEditingController? _field;
+  TextEditingController get _controller => _field!;
 
   @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(text: _format(widget.initialServings));
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _field ??= TextEditingController(
+      text: formatDecimal(
+        widget.initialServings,
+        context.l10n,
+        maxFractionDigits: 3,
+      ),
+    );
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _field?.dispose();
     super.dispose();
   }
-
-  String _format(double n) =>
-      n.isFinite && n == n.roundToDouble() ? '${n.round()}' : '$n';
 
   void _changed(String text) {
     setState(() {});
@@ -71,7 +78,7 @@ class _RecipePortionSelectorState extends State<RecipePortionSelector> {
             children: [
               for (final amount in [0.5, 1.0, 2.0])
                 ChoiceChip(
-                  label: Text(t.recipeCalcServingsCount(_format(amount))),
+                  label: Text(t.recipePortionPresetLabel(amount)),
                   selected: value == amount,
                   selectedColor: context.t.brandSurface,
                   backgroundColor: context.t.surf,
@@ -87,7 +94,7 @@ class _RecipePortionSelectorState extends State<RecipePortionSelector> {
                     vertical: 10,
                   ),
                   onSelected: (_) {
-                    _controller.text = _format(amount);
+                    _controller.text = formatDecimal(amount, t);
                     _changed(_controller.text);
                   },
                 ),

@@ -23,7 +23,12 @@ class CoachSpeechInput {
       if (code.contains('unavailable')) {
         throw CoachSpeechException(l10n.coachSpeechUnavailable);
       }
-      throw CoachSpeechException(e.message ?? l10n.coachSpeechFailed);
+      if (code == 'busy') {
+        throw CoachSpeechException(l10n.coachSpeechBusy);
+      }
+      // Never the platform's `message`: iOS sends hard-coded German or the
+      // system language, not the app language.
+      throw CoachSpeechException(l10n.coachSpeechFailed);
     } on MissingPluginException {
       throw CoachSpeechException(l10n.coachSpeechUnavailable);
     }

@@ -14,6 +14,7 @@ import '../../services/uuid.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
 import '../../widgets/common/app_snack.dart';
+import '../../widgets/common/decimal_text.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/recipes/recipe_photo.dart';
 import '../../widgets/recipes/recipe_navigation.dart';
@@ -95,72 +96,74 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
       builder: (context, _) => Scaffold(
         backgroundColor: t.bg,
         body: SafeArea(
-          child: ListView(
-            key: const PageStorageKey('meal-plan-scroll'),
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-            children: [
-              PageHeader(
-                backKey: const ValueKey('meal-plan-back'),
-                title: l.mealPlanTitle,
-              ),
-              const SizedBox(height: 22),
-              RecipeNavigation(
-                labels: [l.mealPlanWeek, l.mealPlanShopping],
-                itemKeys: const [
-                  ValueKey('meal-plan-tab-week'),
-                  ValueKey('meal-plan-tab-shopping'),
-                ],
-                selected: _shopping ? 1 : 0,
-                onSelected: (index) => setState(() => _shopping = index == 1),
-              ),
-              const SizedBox(height: 22),
-              _weekNavigation(context),
-              const SizedBox(height: 20),
-              if (store.mealPlansLoading)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: LinearProgressIndicator(
-                    semanticsLabel: l.mealPlanTitle,
-                    color: t.accent,
-                  ),
+          child: ReadableWidth(
+            child: ListView(
+              key: const PageStorageKey('meal-plan-scroll'),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+              children: [
+                PageHeader(
+                  backKey: const ValueKey('meal-plan-back'),
+                  title: l.mealPlanTitle,
                 ),
-              if (store.mealPlansLoadFailed)
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: t.tile,
-                    borderRadius: BorderRadius.circular(rCard),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        l.mealPlanLoadError,
-                        style: AppType.ui(14, color: t.ink),
-                      ),
-                      TextButton.icon(
-                        onPressed: store.mealPlansLoading
-                            ? null
-                            : store.retryMealPlans,
-                        icon: const Icon(Icons.refresh_rounded),
-                        label: Text(l.mealPlanRetry),
-                      ),
-                    ],
-                  ),
+                const SizedBox(height: 22),
+                RecipeNavigation(
+                  labels: [l.mealPlanWeek, l.mealPlanShopping],
+                  itemKeys: const [
+                    ValueKey('meal-plan-tab-week'),
+                    ValueKey('meal-plan-tab-shopping'),
+                  ],
+                  selected: _shopping ? 1 : 0,
+                  onSelected: (index) => setState(() => _shopping = index == 1),
                 ),
-              if (_shopping)
-                ..._shoppingList(context)
-              else ...[
-                if (!store.mealPlansLoading && !store.mealPlansLoadFailed)
-                  _weekSummary(context),
+                const SizedBox(height: 22),
+                _weekNavigation(context),
                 const SizedBox(height: 20),
-                for (var i = 0; i < 7; i++)
-                  _day(
-                    context,
-                    DateTime(_week.year, _week.month, _week.day + i),
+                if (store.mealPlansLoading)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: LinearProgressIndicator(
+                      semanticsLabel: l.mealPlanTitle,
+                      color: t.accent,
+                    ),
                   ),
+                if (store.mealPlansLoadFailed)
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: t.tile,
+                      borderRadius: BorderRadius.circular(rCard),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          l.mealPlanLoadError,
+                          style: AppType.ui(14, color: t.ink),
+                        ),
+                        TextButton.icon(
+                          onPressed: store.mealPlansLoading
+                              ? null
+                              : store.retryMealPlans,
+                          icon: const Icon(Icons.refresh_rounded),
+                          label: Text(l.mealPlanRetry),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (_shopping)
+                  ..._shoppingList(context)
+                else ...[
+                  if (!store.mealPlansLoading && !store.mealPlansLoadFailed)
+                    _weekSummary(context),
+                  const SizedBox(height: 20),
+                  for (var i = 0; i < 7; i++)
+                    _day(
+                      context,
+                      DateTime(_week.year, _week.month, _week.day + i),
+                    ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),
@@ -279,15 +282,6 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
         ],
       ),
     );
-  }
-
-  bool _canLog(PlannedMeal plan) {
-    try {
-      plan.recipe.toMealResultForServings(plan.servings);
-      return true;
-    } on FormatException {
-      return false;
-    }
   }
 
   Widget _day(BuildContext context, DateTime day) {
@@ -455,7 +449,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
               ],
             )
           else ...[
-            if (!_canLog(plan))
+            if (!plan.recipe.canLogServings(plan.servings))
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: Text(
@@ -478,7 +472,8 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                       ),
                       minimumSize: const Size(48, 48),
                     ),
-                    onPressed: busy || !_canLog(plan)
+                    onPressed:
+                        busy || !plan.recipe.canLogServings(plan.servings)
                         ? null
                         : () => _run(
                             plan.id,

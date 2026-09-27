@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
 import '../widgets/common/persistence_action.dart';
@@ -74,7 +75,8 @@ class ProfileScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final streak = stats.effectiveStreakOn(DateTime.now());
+    // Same clock as the Today tab, so both show the same streak.
+    final streak = stats.effectiveStreakOn(clock.now());
 
     // Keep health data (weight, BMI, history) out of the app-switcher
     // thumbnail (security audit 2026-08-09).
@@ -85,87 +87,89 @@ class ProfileScreen extends StatelessWidget {
             // SingleChildScrollView + Column, not a ListView: a ListView only
             // mounts visible children, and several tests reach far-down cards
             // without scrolling first.
-            child: SingleChildScrollView(
-              key: const ValueKey('screen-profile'),
-              padding: const EdgeInsets.fromLTRB(20, 6, 20, 32),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: <Widget>[
-                  PageHeader(
-                    title: l10n.profileTitle,
-                    backKey: const ValueKey('profile-close'),
-                    trailing: SquareIconButton(
-                      key: const ValueKey('profile-open-settings'),
-                      icon: Icons.settings_outlined,
-                      semanticLabel: l10n.foodSemanticsSettings,
-                      onTap: onOpenSettings,
+            child: ReadableWidth(
+              child: SingleChildScrollView(
+                key: const ValueKey('screen-profile'),
+                padding: const EdgeInsets.fromLTRB(20, 6, 20, 32),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    PageHeader(
+                      title: l10n.profileTitle,
+                      backKey: const ValueKey('profile-close'),
+                      trailing: SquareIconButton(
+                        key: const ValueKey('profile-open-settings'),
+                        icon: Icons.settings_outlined,
+                        semanticLabel: l10n.foodSemanticsSettings,
+                        onTap: onOpenSettings,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 14),
-                  IdentityCard(name: name, profile: profile),
-                  const SizedBox(height: 10),
-                  ProfileStatRow(
-                    left: ProfileStatTile(
-                      label: l10n.profileLabelStreak,
-                      value: '$streak',
-                      unit: l10n.coachStreakUnit(streak),
+                    const SizedBox(height: 14),
+                    IdentityCard(name: name, profile: profile),
+                    const SizedBox(height: 10),
+                    ProfileStatRow(
+                      left: ProfileStatTile(
+                        label: l10n.profileLabelStreak,
+                        value: '$streak',
+                        unit: l10n.coachStreakUnit(streak),
+                      ),
+                      right: ProfileStatTile(
+                        label: l10n.profileLabelMeals,
+                        value: '${stats.mealsLogged}',
+                        unit: l10n.profileUnitTotal,
+                      ),
                     ),
-                    right: ProfileStatTile(
-                      label: l10n.profileLabelMeals,
-                      value: '${stats.mealsLogged}',
-                      unit: l10n.profileUnitTotal,
+                    ProfileStatRow(
+                      left: ProfileStatTile(
+                        label: l10n.profileLabelRecord,
+                        value: '${stats.longestStreak}',
+                        unit: l10n.coachStreakUnit(stats.longestStreak),
+                      ),
+                      right: ProfileStatTile(
+                        label: l10n.profileLabelWeighIns,
+                        value: '${stats.weightLogs}',
+                        unit: l10n.profileUnitEntries(stats.weightLogs),
+                      ),
                     ),
-                  ),
-                  ProfileStatRow(
-                    left: ProfileStatTile(
-                      label: l10n.profileLabelRecord,
-                      value: '${stats.longestStreak}',
-                      unit: l10n.coachStreakUnit(stats.longestStreak),
+                    const SizedBox(height: 30),
+                    SectionHeading(title: l10n.profileSectionPlan),
+                    const SizedBox(height: 12),
+                    GoalPlanCard(profile: profile, onEdit: onEditProfile),
+                    const SizedBox(height: 30),
+                    SectionHeading(title: l10n.profileSectionBody),
+                    const SizedBox(height: 12),
+                    WeightCard(
+                      profile: profile,
+                      log: weightLog,
+                      onLogWeight: onLogWeight,
                     ),
-                    right: ProfileStatTile(
-                      label: l10n.profileLabelWeighIns,
-                      value: '${stats.weightLogs}',
-                      unit: l10n.profileUnitEntries,
+                    const SizedBox(height: 12),
+                    BmiCard(profile: profile, log: weightLog),
+                    const SizedBox(height: 30),
+                    SectionHeading(title: l10n.profileSectionDailyGoals),
+                    const SizedBox(height: 12),
+                    GoalsCard(
+                      profile: profile,
+                      dailyKcal: dailyConsumedKcal,
+                      dailySteps: dailySteps,
+                      onEdit: onEditProfile,
                     ),
-                  ),
-                  const SizedBox(height: 30),
-                  SectionHeading(title: l10n.profileSectionPlan),
-                  const SizedBox(height: 12),
-                  GoalPlanCard(profile: profile, onEdit: onEditProfile),
-                  const SizedBox(height: 30),
-                  SectionHeading(title: l10n.profileSectionBody),
-                  const SizedBox(height: 12),
-                  WeightCard(
-                    profile: profile,
-                    log: weightLog,
-                    onLogWeight: onLogWeight,
-                  ),
-                  const SizedBox(height: 12),
-                  BmiCard(profile: profile, log: weightLog),
-                  const SizedBox(height: 30),
-                  SectionHeading(title: l10n.profileSectionDailyGoals),
-                  const SizedBox(height: 12),
-                  GoalsCard(
-                    profile: profile,
-                    dailyKcal: dailyConsumedKcal,
-                    dailySteps: dailySteps,
-                    onEdit: onEditProfile,
-                  ),
-                  const SizedBox(height: 30),
-                  SectionHeading(title: l10n.profileSectionConnections),
-                  const SizedBox(height: 12),
-                  HealthConnectionCard(
-                    healthConnect: healthConnect,
-                    syncing: healthSyncing,
-                    onSettings: onHealthSettings,
-                    state: healthAuthState,
-                    lastFetch: healthLastFetch,
-                    onConnect: onConnectHealth,
-                    onRefresh: onRefreshHealth,
-                  ),
-                  const SizedBox(height: 22),
-                  const _FooterCredit(),
-                ],
+                    const SizedBox(height: 30),
+                    SectionHeading(title: l10n.profileSectionConnections),
+                    const SizedBox(height: 12),
+                    HealthConnectionCard(
+                      healthConnect: healthConnect,
+                      syncing: healthSyncing,
+                      onSettings: onHealthSettings,
+                      state: healthAuthState,
+                      lastFetch: healthLastFetch,
+                      onConnect: onConnectHealth,
+                      onRefresh: onRefreshHealth,
+                    ),
+                    const SizedBox(height: 22),
+                    const _FooterCredit(),
+                  ],
+                ),
               ),
             ),
           ),

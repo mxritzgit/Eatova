@@ -62,11 +62,11 @@ class _RecipeHeroCard extends StatelessWidget {
                       runSpacing: 8,
                       children: [
                         _SpotlightMetric(
-                          value: _nutritionNumber(n.caloriesKcal),
+                          value: _nutritionNumber(n.caloriesKcal, l),
                           unit: 'kcal',
                         ),
                         _SpotlightMetric(
-                          value: _nutritionNumber(n.proteinG),
+                          value: _nutritionNumber(n.proteinG, l),
                           unit: 'g ${l.todayMacroProtein}',
                         ),
                       ],

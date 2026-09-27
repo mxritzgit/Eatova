@@ -146,28 +146,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Scaffold(
         body: SafeArea(
           bottom: false,
-          child: SingleChildScrollView(
-            key: const ValueKey('screen-settings'),
-            padding: const EdgeInsets.fromLTRB(20, 6, 20, 32),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: <Widget>[
-                PageHeader(
-                  large: l10n.settingsPageTitle,
-                  backKey: const ValueKey('settings-back'),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  l10n.settingsStudioIntro,
-                  style: AppType.ui(15, color: t.ink2, height: 1.5),
-                ),
-                const SizedBox(height: 30),
-                ..._kontoGruppe(t, l10n),
-                ..._praeferenzenGruppe(l10n),
-                ..._syncGruppe(t, l10n),
-                ..._datenGruppe(l10n),
-                ..._gefahrenzone(t, l10n),
-              ],
+          child: ReadableWidth(
+            child: SingleChildScrollView(
+              key: const ValueKey('screen-settings'),
+              padding: const EdgeInsets.fromLTRB(20, 6, 20, 32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  PageHeader(
+                    large: l10n.settingsPageTitle,
+                    backKey: const ValueKey('settings-back'),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    l10n.settingsStudioIntro,
+                    style: AppType.ui(15, color: t.ink2, height: 1.5),
+                  ),
+                  const SizedBox(height: 30),
+                  ..._kontoGruppe(t, l10n),
+                  ..._praeferenzenGruppe(l10n),
+                  ..._syncGruppe(t, l10n),
+                  ..._datenGruppe(l10n),
+                  ..._gefahrenzone(t, l10n),
+                ],
+              ),
             ),
           ),
         ),

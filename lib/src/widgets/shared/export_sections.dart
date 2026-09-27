@@ -5,27 +5,8 @@ import '../../models/export_document.dart';
 import '../../theme/app_tokens.dart';
 import '../design/design.dart';
 
-String exportLabel(String key, AppLocalizations l10n) => switch (key) {
-  'profiles' => l10n.exportProfiles,
-  'lifetime_stats' => l10n.exportStats,
-  'logged_meals' => l10n.exportMeals,
-  'favorite_meals' => l10n.exportFavorites,
-  'weight_log' => l10n.exportWeight,
-  'user_recipes' => l10n.exportRecipes,
-  'planned_meals' => l10n.exportMealPlan,
-  'shopping_checks' => l10n.exportShopping,
-  'training_plans' => l10n.exportTrainingPlans,
-  'training_history' => l10n.exportTrainingHistory,
-  'training_history_deletions' => l10n.exportTrainingDeletions,
-  'chat_sessions' => l10n.exportChats,
-  'chat_messages' => l10n.exportMessages,
-  'chat_quota_usage' => l10n.exportQuota,
-  'unvollstaendig' => l10n.exportMissing,
-  'gekappt' => l10n.exportCapped,
-  'format' => l10n.exportFormat,
-  'exportedAt' => l10n.exportDate,
-  'userId' => l10n.exportAccount,
-  _ =>
+String exportLabel(String key, AppLocalizations l10n) =>
+    _sectionLabel(key, l10n) ??
     key
         .split('/')
         .where((part) => part.isNotEmpty)
@@ -46,7 +27,34 @@ String exportLabel(String key, AppLocalizations l10n) => switch (key) {
                 : '${name[0].toUpperCase()}${name.substring(1)}',
           );
         })
-        .join(' › '),
+        .join(' › ');
+
+/// Sections and export metadata. The export keeps German wire keys
+/// (`unvollstaendig`, `gekappt`, ...); only their labels are localized.
+String? _sectionLabel(String key, AppLocalizations l10n) => switch (key) {
+  'profiles' => l10n.exportProfiles,
+  'lifetime_stats' => l10n.exportStats,
+  'logged_meals' => l10n.exportMeals,
+  'favorite_meals' => l10n.exportFavorites,
+  'weight_log' => l10n.exportWeight,
+  'user_recipes' => l10n.exportRecipes,
+  'planned_meals' => l10n.exportMealPlan,
+  'shopping_checks' => l10n.exportShopping,
+  'training_plans' => l10n.exportTrainingPlans,
+  'training_history' => l10n.exportTrainingHistory,
+  'training_history_deletions' => l10n.exportTrainingDeletions,
+  'chat_sessions' => l10n.exportChats,
+  'chat_messages' => l10n.exportMessages,
+  'chat_quota_usage' => l10n.exportQuota,
+  'ai_provider_user_usage' => l10n.exportAiUsage,
+  'unvollstaendig' => l10n.exportMissing,
+  'gekappt' => l10n.exportCapped,
+  'format' => l10n.exportFormat,
+  'exportedAt' => l10n.exportDate,
+  'userId' => l10n.exportAccount,
+  'user_recipe_history' => l10n.exportRecipeHistory,
+  'vollstaendigkeitUnbekannt' => l10n.exportCompletenessUnknown,
+  _ => null,
 };
 
 String _fieldLabel(String key, AppLocalizations l10n, String fallback) =>
@@ -85,7 +93,11 @@ String _fieldLabel(String key, AppLocalizations l10n, String fallback) =>
       'carbs' => l10n.exportFieldCarbs,
       'fat' => l10n.exportFieldFat,
       'explanation' => l10n.exportFieldExplanation,
-      _ => fallback,
+      'grenzeProSektion' => l10n.exportFieldCapPerSection,
+      'sektionen' => l10n.exportFieldCappedSections,
+      'zeilenAufDemServer' => l10n.exportFieldServerRowCount,
+      // Section names appear inside paths, e.g. the server row counts.
+      _ => _sectionLabel(key, l10n) ?? fallback,
     };
 
 String exportDisplayDate(BuildContext context, String value) {

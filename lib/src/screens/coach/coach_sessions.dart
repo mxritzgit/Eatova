@@ -219,7 +219,7 @@ void _ensureCoachDateSymbols() {
 }
 
 String _humanizeTimestamp(DateTime ts, AppLocalizations l10n) {
-  final diff = DateTime.now().difference(ts);
+  final diff = clock.now().difference(ts);
   if (diff.inMinutes < 1) return l10n.coachTimeJustNow;
   if (diff.inMinutes < 60) return l10n.coachTimeMinutesAgo(diff.inMinutes);
   if (diff.inHours < 24) return l10n.coachTimeHoursAgo(diff.inHours);

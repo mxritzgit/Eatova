@@ -597,67 +597,69 @@ class _GoalsScreenState extends State<GoalsScreen> {
             // without it the save button and legal links would sit under the
             // system gesture bar. Deliberately NOT a ListView: tests read the
             // footer before anyone scrolls, and a lazy list never builds it.
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 6, 20, 32),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  PageHeader(
-                    large: l10n.goalsPageTitle,
-                    backKey: const ValueKey('settings-close'),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    l10n.goalsIntroHint,
-                    style: AppType.ui(12.5, color: t.ink2, height: 1.45),
-                  ),
-                  const SizedBox(height: 18),
-                  SettingsPlanHero(
-                    kcal: heroKcal,
-                    protein: heroProtein,
-                    carbs: heroCarbs,
-                    fat: heroFat,
-                    targets: ziele,
-                    manual: _manualEnergy,
-                  ),
-                  const SizedBox(height: 22),
-                  ..._koerperGruppe(),
-                  ..._zielGruppe(heroKcal: heroKcal, ziele: ziele),
-                  ..._energieGruppe(),
-                  ..._tageszieleGruppe(),
-                  ..._erinnerungenGruppe(t),
-                  if (_hatFehler) ...<Widget>[
-                    SettingsNote(
-                      l10n.goalsValidationSummary,
-                      key: const ValueKey('settings-validation-note'),
-                      tone: t.danger,
-                      icon: Icons.error_outline_rounded,
-                      boxed: true,
+            child: ReadableWidth(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 6, 20, 32),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    PageHeader(
+                      large: l10n.goalsPageTitle,
+                      backKey: const ValueKey('settings-close'),
                     ),
-                    const SizedBox(height: 14),
-                  ],
-                  Semantics(
-                    // [PrimaryActionButton] is a bare InkWell and carries
-                    // neither `isButton` nor an enabled state. Without this
-                    // wrapper the disabled save button would sound like a
-                    // normal button that does nothing to a screen reader.
-                    button: true,
-                    enabled: !_hatFehler,
-                    child: Opacity(
-                      // PrimaryActionButton cannot express "disabled" itself;
-                      // same solution as SheetScaffold.
-                      opacity: _hatFehler ? 0.4 : 1,
-                      child: PrimaryActionButton(
-                        key: const ValueKey('settings-save'),
-                        label: l10n.commonSave,
-                        icon: Icons.check_rounded,
-                        onTap: _hatFehler || _saving ? null : _save,
+                    const SizedBox(height: 10),
+                    Text(
+                      l10n.goalsIntroHint,
+                      style: AppType.ui(12.5, color: t.ink2, height: 1.45),
+                    ),
+                    const SizedBox(height: 18),
+                    SettingsPlanHero(
+                      kcal: heroKcal,
+                      protein: heroProtein,
+                      carbs: heroCarbs,
+                      fat: heroFat,
+                      targets: ziele,
+                      manual: _manualEnergy,
+                    ),
+                    const SizedBox(height: 22),
+                    ..._koerperGruppe(),
+                    ..._zielGruppe(heroKcal: heroKcal, ziele: ziele),
+                    ..._energieGruppe(),
+                    ..._tageszieleGruppe(),
+                    ..._erinnerungenGruppe(t),
+                    if (_hatFehler) ...<Widget>[
+                      SettingsNote(
+                        l10n.goalsValidationSummary,
+                        key: const ValueKey('settings-validation-note'),
+                        tone: t.danger,
+                        icon: Icons.error_outline_rounded,
+                        boxed: true,
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                    Semantics(
+                      // [PrimaryActionButton] is a bare InkWell and carries
+                      // neither `isButton` nor an enabled state. Without this
+                      // wrapper the disabled save button would sound like a
+                      // normal button that does nothing to a screen reader.
+                      button: true,
+                      enabled: !_hatFehler,
+                      child: Opacity(
+                        // PrimaryActionButton cannot express "disabled" itself;
+                        // same solution as SheetScaffold.
+                        opacity: _hatFehler ? 0.4 : 1,
+                        child: PrimaryActionButton(
+                          key: const ValueKey('settings-save'),
+                          label: l10n.commonSave,
+                          icon: Icons.check_rounded,
+                          onTap: _hatFehler || _saving ? null : _save,
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  const SettingsLegalLinks(),
-                ],
+                    const SizedBox(height: 10),
+                    const SettingsLegalLinks(),
+                  ],
+                ),
               ),
             ),
           ),

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../theme/app_tokens.dart';
 import '../common/motion.dart';
 import 'app_icon.dart';
+import 'readable_width.dart';
 
 // ---------------------------------------------------------------------------
 // CONTROLS — icon button, icon tile, toggle, segmented pill, filter chip,
@@ -569,68 +570,71 @@ class AppNavBar extends StatelessWidget {
       // that height from the content. The hit area stays above 44 px — the
       // floor this shortening must not cross.
       padding: EdgeInsets.fromLTRB(10, 6, 10, 6 + bottomInset),
-      child: Row(
-        children: List<Widget>.generate(items.length, (i) {
-          final item = items[i];
-          final active = i == index;
-          return Expanded(
-            child: Semantics(
-              selected: active,
-              button: true,
-              label: item.label,
-              child: InkWell(
-                key: ValueKey<String>('nav-${item.keyId}'),
-                onTap: () => onChanged(i),
-                borderRadius: BorderRadius.circular(rControl),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      AnimatedContainer(
-                        duration: motion,
-                        curve: Curves.easeOut,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 1,
-                        ),
-                        decoration: BoxDecoration(
-                          color: active ? t.brandSurface : Colors.transparent,
-                          borderRadius: BorderRadius.circular(rChip),
-                        ),
-                        child: AppIcon(
-                          item.icon,
-                          selected: active,
-                          size: 23,
-                          color: active ? t.onBrandSurface : t.ink2,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      // The label is already the item's Semantics label;
-                      // without ExcludeSemantics it would be read twice.
-                      // Hard single line: at textScaler 2.0 it would not fit
-                      // into a third of the bar.
-                      ExcludeSemantics(
-                        child: Text(
-                          item.label,
-                          maxLines: 1,
-                          softWrap: false,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: AppType.ui(
-                            10,
-                            weight: active ? FontWeight.w700 : FontWeight.w500,
-                            color: active ? t.ink : t.ink2,
+      // Keeps the items under the content column on large windows.
+      child: ReadableWidth(
+        child: Row(
+          children: List<Widget>.generate(items.length, (i) {
+            final item = items[i];
+            final active = i == index;
+            return Expanded(
+              child: Semantics(
+                selected: active,
+                button: true,
+                label: item.label,
+                child: InkWell(
+                  key: ValueKey<String>('nav-${item.keyId}'),
+                  onTap: () => onChanged(i),
+                  borderRadius: BorderRadius.circular(rControl),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        AnimatedContainer(
+                          duration: motion,
+                          curve: Curves.easeOut,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 1,
+                          ),
+                          decoration: BoxDecoration(
+                            color: active ? t.brandSurface : Colors.transparent,
+                            borderRadius: BorderRadius.circular(rChip),
+                          ),
+                          child: AppIcon(
+                            item.icon,
+                            selected: active,
+                            size: 23,
+                            color: active ? t.onBrandSurface : t.ink2,
                           ),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 3),
+                        // The label is already the item's Semantics label;
+                        // without ExcludeSemantics it would be read twice.
+                        // Hard single line: at textScaler 2.0 it would not fit
+                        // into a third of the bar.
+                        ExcludeSemantics(
+                          child: Text(
+                            item.label,
+                            maxLines: 1,
+                            softWrap: false,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: AppType.ui(
+                              10,
+                              weight: active ? FontWeight.w700 : FontWeight.w500,
+                              color: active ? t.ink : t.ink2,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          );
-        }),
+            );
+          }),
+        ),
       ),
     );
   }

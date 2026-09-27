@@ -11,9 +11,9 @@ class _PlanEditor extends StatefulWidget {
 
 class _PlanEditorState extends State<_PlanEditor> {
   late final String _draftId = widget.plan?.id ?? uuidV4();
-  late final _servings = TextEditingController(
-    text: '${widget.plan?.servings ?? 1}',
-  );
+  // Filled on the first dependency pass with the locale's separator.
+  final _servings = TextEditingController();
+  bool _servingsFilled = false;
   late MealSlot _slot = widget.plan?.slot ?? MealSlot.dinner;
   late DateTime _day = widget.day;
   FitnessRecipe? _recipe;
@@ -28,13 +28,27 @@ class _PlanEditorState extends State<_PlanEditor> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_servingsFilled) {
+      _servingsFilled = true;
+      _servings.text = formatDecimal(
+        widget.plan?.servings ?? 1,
+        context.l10n,
+        maxFractionDigits: 3,
+      );
+    }
+  }
+
+  @override
   void dispose() {
     _scroll.dispose();
     _servings.dispose();
     super.dispose();
   }
 
-  double? get _amount => double.tryParse(_servings.text.replaceAll(',', '.'));
+  /// Valid servings (0.1..100) or null; the shared recipe rule.
+  double? get _amount => parseRecipeServings(_servings.text);
 
   void _chooseRecipe(FitnessRecipe? recipe) {
     setState(() {
@@ -46,14 +60,7 @@ class _PlanEditorState extends State<_PlanEditor> {
 
   Future<void> _save() async {
     final amount = _amount;
-    if (_saving ||
-        _recipe == null ||
-        amount == null ||
-        !amount.isFinite ||
-        amount < .1 ||
-        amount > 100) {
-      return;
-    }
+    if (_saving || _recipe == null || amount == null) return;
     setState(() {
       _saving = true;
       _error = null;
@@ -317,19 +324,13 @@ class _PlanEditorState extends State<_PlanEditor> {
                   fieldKey: const ValueKey('meal-plan-servings'),
                   controller: _servings,
                   label: l.mealPlanServings,
-                  hint: '1.5',
+                  hint: formatDecimal(1.5, l),
                   enabled: !_saving,
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
                   onChanged: (_) => setState(() {}),
-                  errorText:
-                      _amount == null ||
-                          !_amount!.isFinite ||
-                          _amount! < .1 ||
-                          _amount! > 100
-                      ? l.mealPlanServingsError
-                      : null,
+                  errorText: _amount == null ? l.mealPlanServingsError : null,
                 ),
                 const SizedBox(height: 10),
                 Text(
@@ -352,14 +353,7 @@ class _PlanEditorState extends State<_PlanEditor> {
                       vertical: 16,
                     ),
                   ),
-                  onPressed:
-                      _saving ||
-                          _amount == null ||
-                          !_amount!.isFinite ||
-                          _amount! < .1 ||
-                          _amount! > 100
-                      ? null
-                      : _save,
+                  onPressed: _saving || _amount == null ? null : _save,
                   child: _saving
                       ? const SizedBox(
                           width: 20,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
+import '../../widgets/common/decimal_text.dart';
 import '../../widgets/design/design.dart';
 
 /// Borderless set inputs shared by the active set and completion review.
@@ -28,9 +29,8 @@ class TrainingActualFields extends StatefulWidget {
 
 class _TrainingActualFieldsState extends State<TrainingActualFields> {
   late final _reps = TextEditingController(text: widget.reps?.toString() ?? '');
-  late final _weight = TextEditingController(
-    text: widget.weightKg?.toString() ?? '',
-  );
+  final _weight = TextEditingController();
+  bool _weightFilled = false;
   bool _showErrors = false;
   int? get _repsValue => int.tryParse(_reps.text.trim());
   double? get _weightValue =>
@@ -50,6 +50,17 @@ class _TrainingActualFieldsState extends State<TrainingActualFields> {
     widget.onValidityChanged(valid);
     if (valid) widget.onChanged(widget.timed ? null : _repsValue, _weightValue);
     if (_showErrors) setState(() {});
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // "62,5" under de: the prefill needs the locale, unreadable in initState.
+    final kg = widget.weightKg;
+    if (!_weightFilled && kg != null) {
+      _weight.text = formatTrainingWeight(kg, context.l10n);
+    }
+    _weightFilled = true;
   }
 
   @override
@@ -105,3 +116,7 @@ class _TrainingActualFieldsState extends State<TrainingActualFields> {
     );
   }
 }
+
+/// A set's weight for labels and prefills: "62,5" under de, "60" not "60.0".
+String formatTrainingWeight(double kg, AppLocalizations l10n) =>
+    formatDecimal(kg, l10n);

@@ -10,6 +10,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:ui';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -1612,18 +1613,16 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     setState(() => _addingRecipe = true);
     try {
       var imageAsset = '';
+      var photoFailed = false;
       final bytes = proposal.imageBytes;
       if (bytes != null) {
         final referenz = await RecipeImageStore.instance.save(bytes: bytes);
         if (!mounted) return;
+        // A failed photo save does not discard the confirmed recipe; the
+        // outcome message below says so (a separate error toast would be
+        // replaced by it at once).
         if (referenz == null) {
-          // A failed photo save does not discard the confirmed recipe.
-          showAppSnack(
-            context,
-            context.l10n.recipesPhotoSaveFailedError,
-            icon: Icons.error_outline_rounded,
-            tone: SnackTone.error,
-          );
+          photoFailed = true;
         } else {
           imageAsset = referenz;
         }
@@ -1639,7 +1638,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       showAppSnack(
         context,
         deliveryHint(
-          context.l10n.recipesSavedSuccess(recipe.title),
+          photoFailed
+              ? context.l10n.recipesSavedWithoutPhoto(recipe.title)
+              : context.l10n.recipesSavedSuccess(recipe.title),
           delivery,
           context.l10n,
         ),

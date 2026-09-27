@@ -27,6 +27,7 @@ import '../../services/sync_error_messages.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
 import '../../widgets/common/app_snack.dart';
+import '../../widgets/common/decimal_text.dart';
 import '../../widgets/common/persistence_action.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/recipes/recipe_ingredient_editor.dart';
