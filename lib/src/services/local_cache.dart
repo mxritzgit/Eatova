@@ -410,10 +410,13 @@ class LocalCache {
 
   Future<({List<PlannedMeal> plans, Map<String, bool> checks})?> readMealPlans() async {
     final json = await _readJson(_mealPlansKey);
+    if (json == null) return null;
     try {
-      final plans = (json?['plans'] as List).map((row) =>
+      // An operation projected into an absent slot writes only its own key;
+      // the other collection is then empty, not unreadable.
+      final plans = ((json['plans'] as List?) ?? const <Object?>[]).map((row) =>
         PlannedMeal.fromJson((row as Map).cast<String, dynamic>())).toList();
-      final checks = (json?['checks'] as List).map((row) =>
+      final checks = ((json['checks'] as List?) ?? const <Object?>[]).map((row) =>
         ShoppingCheck.fromJson((row as Map).cast<String, dynamic>())).toList();
       if (plans.length > 10000 || checks.length > 2000 ||
           plans.map((p) => p.id).toSet().length != plans.length) { return null; }
