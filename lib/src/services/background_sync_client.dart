@@ -40,7 +40,13 @@ class BackgroundSyncSession {
       }
       final sessionId = claims['session_id'];
       final expiry = claims['exp'];
-      if (sessionId is! String || sessionId.isEmpty || expiry is! int) {
+      // Validated before multiplying: an overflowing claim must not wrap
+      // into a plausible expiry, and DateTime rejects anything beyond it.
+      if (sessionId is! String ||
+          sessionId.isEmpty ||
+          expiry is! int ||
+          expiry < -_maxExpirySeconds ||
+          expiry > _maxExpirySeconds) {
         return null;
       }
       final expiresAt = DateTime.fromMillisecondsSinceEpoch(
@@ -56,10 +62,11 @@ class BackgroundSyncSession {
       return session.isUsable ? session : null;
     } on FormatException {
       return null;
-    } on RangeError {
-      return null;
     }
   }
+
+  /// The DateTime range in whole seconds.
+  static const _maxExpirySeconds = 8640000000000;
 
   bool get isUsable =>
       clock.now().toUtc().add(expiryMargin).isBefore(expiresAt);
