@@ -15,11 +15,13 @@ class RecipeIngredientProjection {
 
 /// Bounded, all-or-original projection. Never edits the persisted source.
 /// Unsupported prose, package sizes or multiple quantities remain reviewable.
+/// [decimalSeparator] applies only to computed amounts; source text is kept.
 RecipeIngredientProjection projectRecipeIngredients(
   String source, {
   required RecipeIngredientsBasis basis,
   required double? batchServings,
   double servings = 1,
+  String decimalSeparator = '.',
 }) {
   validateRecipeServings(servings);
   if (basis == RecipeIngredientsBasis.unspecified ||
@@ -63,8 +65,10 @@ RecipeIngredientProjection projectRecipeIngredients(
         (match[3] != null && (upper == null || upper < amount))) {
       return RecipeIngredientProjection(source);
     }
-    final lowerText = _formatAmount(amount * factor);
-    final upperText = upper == null ? null : _formatAmount(upper * factor);
+    final lowerText = _formatAmount(amount * factor, decimalSeparator);
+    final upperText = upper == null
+        ? null
+        : _formatAmount(upper * factor, decimalSeparator);
     if (lowerText == null || (upper != null && upperText == null)) {
       return RecipeIngredientProjection(source);
     }
@@ -139,12 +143,15 @@ double? _parseAmount(String input) {
   return double.tryParse(text.replaceAll(',', '.'));
 }
 
-String? _formatAmount(double value) {
+String? _formatAmount(double value, String decimalSeparator) {
   if (!value.isFinite ||
       value < 0 ||
       value > 10000000 ||
       (value > 0 && value < .001)) {
     return null;
   }
-  return value.toStringAsFixed(3).replaceFirst(RegExp(r'\.?0+$'), '');
+  return value
+      .toStringAsFixed(3)
+      .replaceFirst(RegExp(r'\.?0+$'), '')
+      .replaceFirst('.', decimalSeparator);
 }

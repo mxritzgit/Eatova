@@ -26,10 +26,12 @@ class ShoppingItem {
 
 /// Combines only exact structured identities in grams. Free text retains its
 /// recipe and serving context without inferring units or parsing quantities.
+/// [decimalSeparator] only affects displayed names; ids stay locale-neutral.
 List<ShoppingItem> buildShoppingList(
   List<PlannedMeal> plans,
-  DateTime weekStart,
-) {
+  DateTime weekStart, {
+  String decimalSeparator = '.',
+}) {
   final start = localDayKey(weekStart);
   final end = localDayKey(
     DateTime(weekStart.year, weekStart.month, weekStart.day + 7),
@@ -58,7 +60,10 @@ List<ShoppingItem> buildShoppingList(
       unquantified.add(
         ShoppingItem(
           id: identity(['text', plan.id, projection.text, plan.servings]),
-          name: projection.text,
+          name: decimalSeparator == '.'
+              ? projection.text
+              : recipe.ingredientProjectionForServings(plan.servings,
+                  decimalSeparator: decimalSeparator).text,
           originalQuantities: recipe.hasImportedIngredientContext && !projection.isScaled,
           originalBatchServings: recipe.ingredientsBasis == RecipeIngredientsBasis.perRecipe
               ? recipe.batchServings : recipe.ingredientsBasis == RecipeIngredientsBasis.perServing ? 1 : null,

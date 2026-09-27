@@ -186,6 +186,39 @@ void main() {
   });
 
   test(
+    'German display uses a decimal comma while shopping ids stay locale-neutral',
+    () {
+      final day = DateTime(2026, 9, 21);
+      final recipe = importedPortions({
+        ...portionCandidate(),
+        'ingredients': '½ Zwiebel\n1 kg Kartoffeln',
+      });
+      // A dot after zero reads as a thousands separator in German.
+      expect(
+        recipe.displayIngredients(deL10n),
+        '0,125 Zwiebel\n0,25 kg Kartoffeln',
+      );
+      expect(
+        recipe.displayIngredients(enL10n),
+        '0.125 Zwiebel\n0.25 kg Kartoffeln',
+      );
+      expect(recipe.ingredients, '½ Zwiebel\n1 kg Kartoffeln');
+      final plan = PlannedMeal.create(
+        recipe: recipe,
+        day: day,
+        slot: MealSlot.lunch,
+        servings: 1,
+      );
+      final german = buildShoppingList([plan], day, decimalSeparator: ',');
+      final english = buildShoppingList([plan], day);
+      expect(german.single.name, '0,125 Zwiebel\n0,25 kg Kartoffeln');
+      expect(english.single.name, '0.125 Zwiebel\n0.25 kg Kartoffeln');
+      // Checked items are keyed by id and must survive a language switch.
+      expect(german.single.id, english.single.id);
+    },
+  );
+
+  test(
     'readable export adds context without mutating lossless JSON or source quantities',
     () {
       final row = importedPortions(portionCandidate()).toRow();
