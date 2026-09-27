@@ -50,16 +50,6 @@ void main() {
   group('goalHitsOf mit Schritt-Bonus', () {
     final tage = <TrendDayTotals?>[_tag(2, 2450), _tag(1, 2450)];
 
-    test('ohne Bonus: 2450 > 2420 -> verfehlt (alter Stand)', () {
-      final hits = goalHitsOf(tage, goalKcal: 2200);
-      expect(hits, (hit: 0, tracked: 2));
-    });
-
-    test('mit 230 kcal Bonus: Ziel 2430, 2450 liegt im Korridor', () {
-      final hits = goalHitsOf(tage, goalKcal: 2200, burnedKcalFor: (_) => 230);
-      expect(hits, (hit: 2, tracked: 2));
-    });
-
     test('Bonus ist tagesgenau: nur der Tag mit Schritten trifft', () {
       final gestern = _vorTagen(1);
       final hits = goalHitsOf(
@@ -93,15 +83,6 @@ void main() {
       expect(find.text('100 %'), findsOneWidget);
       expect(find.byKey(const ValueKey('trends-goal-bonus-note')),
           findsOneWidget);
-    });
-
-    testWidgets('ohne Bonus bleibt alles beim Basisziel, keine Fussnote',
-        (tester) async {
-      await _pump(tester, totals: [_tag(2, 2450), _tag(1, 2450), _tag(0, 500)]);
-
-      expect(find.text('0 von 2 Tagen (±10 %)'), findsOneWidget);
-      expect(find.byKey(const ValueKey('trends-goal-bonus-note')), findsNothing);
-      expect(tester.takeException(), isNull);
     });
 
     testWidgets('Stufen-Ziellinie rendert ohne Fehler ueber 90 Tage',

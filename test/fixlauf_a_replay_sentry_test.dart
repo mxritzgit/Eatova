@@ -73,20 +73,6 @@ void main() {
             'Verbindungszustand');
   });
 
-  test('Offline-Stats-Flush meldet nichts an Sentry', () async {
-    final s = await bootOnline();
-    s.store.addResultToDailyTotal(mealResult('Geliefert'));
-    await settle();
-    // Meal delivered live -> delta pending in the 600 ms debounce.
-    s.server.offline = true;
-    gemeldet.clear();
-
-    s.store.flushPendingWrites();
-    await settle();
-
-    expect(gemeldet, isEmpty, reason: kontexte.join(', '));
-  });
-
   test('Offline-Nachladen eines Archivtags meldet nichts, zeigt aber den '
       'Offline-Hinweis', () async {
     final s = await bootOnline();

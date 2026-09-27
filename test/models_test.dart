@@ -261,6 +261,26 @@ void main() {
       expect(c.caloriesKcal, 75);
     });
 
+    test('liest Zahlen als Text, Dezimalkomma und Gleitkomma aus Alias-Keys',
+        () {
+      final c = MealComponent.fromJson(const <String, dynamic>{
+        'item': 'Reis gekocht',
+        'estimatedGrams': 'ca. 150 g',
+        'calories': 199.6,
+        'caloriesPer100g': '130,5 kcal',
+        'protein_g': '3,5 g',
+        'carbs': 28.4,
+        'fat': 'n/a',
+      });
+      expect(c.name, 'Reis gekocht');
+      expect(c.grams, 150);
+      expect(c.caloriesKcal, 200);
+      expect(c.kcalPer100G, 130.5);
+      expect(c.proteinG, 3.5);
+      expect(c.carbsG, 28.4);
+      expect(c.fatG, isNull, reason: 'kein Zahlwert heisst unbekannt, nicht 0');
+    });
+
     test('adjustedToGrams erhält die kcal-Dichte', () {
       const c = MealComponent(
           name: 'X', grams: 100, caloriesKcal: 130, kcalPer100G: 130);

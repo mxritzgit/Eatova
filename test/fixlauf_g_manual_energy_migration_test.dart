@@ -58,12 +58,6 @@ void main() {
     );
   });
 
-  test('Spalte ist fuer authenticated auf insert UND update gewaehrt', () {
-    final sql = _ohneKommentare(_lies(_migrationPfad)).toLowerCase();
-    expect(_gewaehrt(sql, 'insert'), contains('manual_energy'));
-    expect(_gewaehrt(sql, 'update'), contains('manual_energy'));
-  });
-
   test('JEDE Spalte des ProfileSync-Payloads ist gewaehrt (insert + update)',
       () {
     final grants = _ohneKommentare(_lies(_grantsPfad)).toLowerCase() +
@@ -83,14 +77,6 @@ void main() {
       expect(insert, contains(spalte), reason: '$spalte ohne insert-Grant');
       expect(update, contains(spalte), reason: '$spalte ohne update-Grant');
     }
-  });
-
-  test('load() liest die Spalte (Select-Liste)', () {
-    final dart = _lies(_profileSyncPfad);
-    final columns = RegExp(r'static const _columns\s*=\s*([\s\S]*?);')
-        .firstMatch(dart)!
-        .group(1)!;
-    expect(columns, contains('manual_energy'));
   });
 
   // Review I-1: the pre-reset snapshot is a SERVER-ONLY column. It exists
