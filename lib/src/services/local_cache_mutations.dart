@@ -1199,7 +1199,14 @@ extension LocalCacheMutations on LocalCache {
           throw const FormatException('Invalid weight');
         }
         final rows = _rows(state, _weightLogKey, 'items');
-        if (!rows.any((row) => row['id'] == op.entityId)) {
+        // Store snapshots carry no operation ids: like the store's own merge,
+        // an id-less row at the same instant is this pending weigh-in.
+        if (!rows.any(
+          (row) =>
+              row['id'] == op.entityId ||
+              row['id'] == null &&
+                  DateTime.parse(row['t'] as String).isAtSameMomentAs(ts),
+        )) {
           rows.add({'id': op.entityId, 't': ts.toIso8601String(), 'kg': kg});
           rows.sort((a, b) => DateTime.parse(a['t'] as String)
               .compareTo(DateTime.parse(b['t'] as String)));
