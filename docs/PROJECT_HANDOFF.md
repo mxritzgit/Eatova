@@ -1950,3 +1950,43 @@ confirmation and unavailable previews; existing flow tests cover the upload
 and account guards. Direct diff review and final validation are recorded in
 the delivery PR for `design/scan-preview-refinement`. No backend change is
 needed; seeing this on a device requires a newly built and installed client.
+
+## Recipe ingredient portions and complete parallel CI, 2026-09-27
+
+Imported recipes previously retained batch ingredient text beside nutrition that
+was already normalized per serving. The server now validates ingredient-specific
+source evidence independently of nutrition: 800 g for four servings becomes
+200 g in the client presentation, while per-piece nutrition stays unchanged.
+Whole-recipe nutrition is divided once. Storage and JSON export preserve original
+source quantities; readable report/CSV add a derived serving projection.
+Detail, import preview, meal-plan shopping and history share that interpretation.
+Source edits invalidate ingredient evidence, while title-only edits retain yield.
+
+Unsupported or ambiguous amounts preserve the complete original list with its
+context. Written quantities in arbitrary source languages cannot accidentally
+be labelled as converted. Older imports without ingredient evidence remain
+unconfirmed; nutrition confirmation alone cannot prove their ingredient basis.
+See the [import contract](RECIPE_SHARE_IMPORT.md) and the shared
+[server/client fixtures](../test/fixtures/recipe_import/portions_contract.json).
+The change needs both the updated `recipe-import` function and a rebuilt client;
+merging does not establish backend deployment or device installation.
+
+The previous successful Flutter CI job spent 25m15s testing and 49s on setup and
+analysis (GitHub job 108573679433). Four complete-file partitions now run in
+parallel, starting longer suites first. New test files are discovered automatically.
+The existing required `Flutter analyze + test` context verifies strict analysis,
+every shard, complete JSON reports and coverage artifacts bound to the checkout.
+Coverage unions source/line hits across all shards, excludes generated l10n as
+before, and retains the 88% floor. No prior passing result substitutes for a run.
+The [CI guide](../CONTRIBUTING.md) describes local reproduction;
+[43 integrity regressions](../test/tooling/flutter_ci_test.py) exercise missing,
+failed, cancelled, skipped, truncated and incorrectly merged evidence.
+
+Independent local validation: Flutter 3.47.2 strict analysis, **5,315 tests across
+525 files**, **95.17%** line coverage; Deno lint/check and **817 tests** including
+the evaluation harness. Negative controls reproduced the original portion bug,
+unsafe written quantities and CI omission/coverage faults. Exactly two requested
+Astra agents implemented and audited the work, followed by parent review and
+verification. Hosted timings, Android builds and the protected merge are recorded
+in the delivery PR for `fix/recipe-import-portions`. Local evidence is under
+`.agents/recipe-portions-2026-09-27/`; the original dirty checkout is preserved.
