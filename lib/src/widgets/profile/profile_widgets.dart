@@ -5,6 +5,7 @@
 /// [AppType]; `app_colors.dart` is fully retired here.
 library;
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
 import '../common/persistence_action.dart';

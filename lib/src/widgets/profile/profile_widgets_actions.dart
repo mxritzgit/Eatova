@@ -109,7 +109,7 @@ class HealthConnectionCard extends StatelessWidget {
   }
 
   static String _formatTime(DateTime d, AppLocalizations l10n) {
-    final now = DateTime.now();
+    final now = clock.now();
     final diff = now.difference(d);
     if (diff.inMinutes < 1) return l10n.profileHealthTimeJustNow;
     if (diff.inMinutes < 60) {

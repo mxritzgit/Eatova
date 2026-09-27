@@ -1,5 +1,6 @@
 import 'dart:developer' as dev;
 
+import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -136,7 +137,7 @@ class _DataExportSheetState extends State<DataExportSheet> {
   /// Dated file name, so several exports in the downloads folder stay
   /// distinguishable.
   String _dateiname() {
-    final jetzt = DateTime.now();
+    final jetzt = clock.now();
     String zwei(int n) => n.toString().padLeft(2, '0');
     return 'eatova-export-${jetzt.year}-${zwei(jetzt.month)}-'
         '${zwei(jetzt.day)}.${_jsonOutput ? 'json' : 'txt'}';

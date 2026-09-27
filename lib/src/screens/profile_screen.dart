@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
 import '../widgets/common/persistence_action.dart';
@@ -74,7 +75,8 @@ class ProfileScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final streak = stats.effectiveStreakOn(DateTime.now());
+    // Same clock as the Today tab, so both show the same streak.
+    final streak = stats.effectiveStreakOn(clock.now());
 
     // Keep health data (weight, BMI, history) out of the app-switcher
     // thumbnail (security audit 2026-08-09).

@@ -14,6 +14,7 @@ import '../../services/uuid.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
 import '../../widgets/common/app_snack.dart';
+import '../../widgets/common/decimal_text.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/recipes/recipe_photo.dart';
 import '../../widgets/recipes/recipe_navigation.dart';
@@ -283,15 +284,6 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     );
   }
 
-  bool _canLog(PlannedMeal plan) {
-    try {
-      plan.recipe.toMealResultForServings(plan.servings);
-      return true;
-    } on FormatException {
-      return false;
-    }
-  }
-
   Widget _day(BuildContext context, DateTime day) {
     final l = context.l10n;
     final t = context.t;
@@ -457,7 +449,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
               ],
             )
           else ...[
-            if (!_canLog(plan))
+            if (!plan.recipe.canLogServings(plan.servings))
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
                 child: Text(
@@ -480,7 +472,8 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                       ),
                       minimumSize: const Size(48, 48),
                     ),
-                    onPressed: busy || !_canLog(plan)
+                    onPressed:
+                        busy || !plan.recipe.canLogServings(plan.servings)
                         ? null
                         : () => _run(
                             plan.id,

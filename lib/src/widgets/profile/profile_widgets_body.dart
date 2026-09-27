@@ -242,7 +242,7 @@ class WeightCard extends StatelessWidget {
   }
 
   static String _formatShort(DateTime d, AppLocalizations l10n) {
-    final now = DateTime.now();
+    final now = clock.now();
     if (d.year == now.year && d.month == now.month && d.day == now.day) {
       return l10n.profileWeightCaptionToday;
     }
