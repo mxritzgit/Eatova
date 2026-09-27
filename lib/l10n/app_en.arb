@@ -1033,8 +1033,6 @@
   "commonQueuedOfflineHint": "Offline — will sync once you're back online.",
   "commonQueuedRetryGenericHint": "Change couldn't be saved — it will be retried automatically.",
   "commonSyncErrorOffline": "Offline — that didn't work just now. Please try again with an internet connection.",
-  "commonOutboxLossHint": "Some changes couldn't be saved and were discarded.",
-  "commonOutboxDeleteLossHint": "A deletion couldn't be saved — the entry is back. Please delete it again.",
   "commonCacheResetNotice": "The offline storage had to be created from scratch. Your data on the server is untouched — only entries that had not been synced yet are lost.",
   "commonLegacyStorageConflictTitle": "Offline data needs recovery",
   "commonLegacyStorageConflictBody": "This device contains data from an older Eatova version. Both copies are preserved; changes are paused. Please contact support@eatova.de without deleting the app or its data.",

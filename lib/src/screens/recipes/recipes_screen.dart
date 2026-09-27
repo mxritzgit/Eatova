@@ -460,8 +460,8 @@ class _RecipesScreenState extends State<RecipesScreen> {
     // on each mutation, so identity is an exact "something changed" check.
     //
     // No local-mutation latch here: the boot now MERGES instead of replacing
-    // (Gap C), so a latch would only hide recipes restored by
-    // `_restoreDroppedDeletes` or created on a second device.
+    // (Gap C), so a latch would only hide recipes the store brings back or
+    // that were created on a second device.
     if (!identical(oldWidget.initialUserRecipes, widget.initialUserRecipes)) {
       _userRecipes = List<FitnessRecipe>.of(widget.initialUserRecipes);
     }

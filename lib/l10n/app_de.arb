@@ -1052,8 +1052,6 @@
   "commonQueuedOfflineHint": "Offline — wird synchronisiert, sobald du wieder online bist.",
   "commonQueuedRetryGenericHint": "Änderung konnte nicht gespeichert werden — wird automatisch erneut versucht.",
   "commonSyncErrorOffline": "Offline — das hat gerade nicht geklappt. Bitte versuch es mit Internetverbindung erneut.",
-  "commonOutboxLossHint": "Einige Änderungen konnten nicht gespeichert werden und wurden verworfen.",
-  "commonOutboxDeleteLossHint": "Eine Löschung ließ sich nicht speichern — der Eintrag ist wieder da. Bitte lösch ihn noch einmal.",
   "commonCacheResetNotice": "Der Offline-Speicher musste neu angelegt werden. Deine Daten auf dem Server sind unberührt — nur noch nicht synchronisierte Einträge sind verloren.",
   "commonLegacyStorageConflictTitle": "Offline-Daten brauchen Wiederherstellung",
   "commonLegacyStorageConflictBody": "Auf diesem Gerät liegen Daten aus einer älteren Eatova-Version. Beide Datenstände bleiben erhalten; Änderungen sind vorerst gesperrt. Bitte kontaktiere support@eatova.de und lösche weder die App noch ihre Daten.",
