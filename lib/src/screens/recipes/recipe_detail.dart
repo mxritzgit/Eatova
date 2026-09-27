@@ -444,7 +444,10 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
               ),
               _RecipeInfoSection(
                 title: l10n.recipesSectionIngredients,
-                hint: l10n.recipeDetailIngredientsHint,
+                hint: recipe.hasImportedIngredientContext &&
+                        !recipe.hasStructuredIngredients
+                    ? recipe.ingredientQuantityHint(l10n)
+                    : l10n.recipeDetailIngredientsHint,
                 body: recipe.hasStructuredIngredients
                     ? '${recipe.structuredIngredients.map((i) => '${_nutritionNumber(i.grams)} g ${i.name}').join('\n')}${recipe.ingredients.isEmpty ? '' : '\n\n${recipe.ingredients}'}'
                     : recipe.displayIngredients(l10n),

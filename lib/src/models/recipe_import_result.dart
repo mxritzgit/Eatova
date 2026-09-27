@@ -111,6 +111,7 @@ class RecipeImportCandidate {
     this.servings,
     this.nutritionEstimated = false,
     this.nutritionBasisUnclear = false,
+    this.ingredientsBasis = RecipeIngredientsBasis.unspecified,
   });
 
   final String id, title, description, portion, ingredients, preparation;
@@ -119,6 +120,7 @@ class RecipeImportCandidate {
   final double? servings;
   final bool nutritionEstimated;
   final bool nutritionBasisUnclear;
+  final RecipeIngredientsBasis ingredientsBasis;
 
   bool get hasNutrition =>
       caloriesKcal != null &&
@@ -133,6 +135,9 @@ class RecipeImportCandidate {
       'unspecified',
     ].contains(json['nutrition_basis'])) {
       throw const FormatException('Invalid import nutrition basis');
+    }
+    if (!const [null, 'per_recipe', 'per_serving', 'unspecified'].contains(json['ingredients_basis'])) {
+      throw const FormatException('Invalid import ingredient basis');
     }
     final estimated = json['nutrition_estimated'];
     if (estimated is! bool) {
@@ -154,6 +159,11 @@ class RecipeImportCandidate {
       servings: _servings(json['servings']),
       nutritionEstimated: estimated,
       nutritionBasisUnclear: json['nutrition_basis'] == 'unspecified',
+      ingredientsBasis: switch (json['ingredients_basis']) {
+        'per_recipe' when json['servings'] != null => RecipeIngredientsBasis.perRecipe,
+        'per_serving' => RecipeIngredientsBasis.perServing,
+        _ => RecipeIngredientsBasis.unspecified,
+      },
     );
   }
 
@@ -177,7 +187,10 @@ class RecipeImportCandidate {
     carbsG: clearNutrition ? null : carbsG,
     fatG: clearNutrition ? null : fatG,
     estimatedGrams: clearNutrition ? null : estimatedGrams,
-    servings: clearNutrition ? null : servings,
+    servings: servings,
+    ingredientsBasis: (ingredients != null && ingredients != this.ingredients) ||
+        (portion != null && portion != this.portion)
+        ? RecipeIngredientsBasis.unspecified : ingredientsBasis,
     nutritionEstimated: !clearNutrition && nutritionEstimated,
     nutritionBasisUnclear: !clearNutrition && nutritionBasisUnclear,
   );
@@ -232,6 +245,11 @@ class RecipeImportCandidate {
       estimatedGrams: estimatedGrams ?? 0,
       categories: [
         'Eigene',
+        '$recipeIngredientsBasisPrefix${switch (ingredientsBasis) {
+          RecipeIngredientsBasis.perRecipe when servings != null => 'per_recipe',
+          RecipeIngredientsBasis.perServing => 'per_serving',
+          _ => 'unspecified',
+        }}',
         if (!hasNutrition || nutritionBasisUnclear) ...[
           if (!hasNutrition) recipeNutritionPendingCategory,
           if (nutritionBasisUnclear) recipeNutritionBasisPendingCategory,

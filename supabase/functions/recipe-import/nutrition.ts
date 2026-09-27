@@ -24,10 +24,14 @@ function explicitDishYield(evidence: string): number | null {
 }
 
 export function sourcedServings(value: unknown, evidence: string): number | null {
-  const numbers = [...evidence.matchAll(/(\d+(?:[.,]\d+)?)\s*(?:portion(?:en|s)?|servings?|personen|people|stücke?|stuecke?|pieces?)\b/gi)].map((m) => m[1]);
-  numbers.push(...[...evidence.matchAll(/\b(?:serves|servings|portionen)\s*[:=]?\s*(\d+(?:[.,]\d+)?)/gi)].map((m) => m[1]));
+  // Match the whole yield phrase: a suffix of "2–4 servings" or "1/2 portion"
+  // cannot prove an exact batch size. Nutrition reference headings are not yields.
+  const match = /^(?:(?:für|fuer|for|ergibt|makes|yields)\s+)?(\d+(?:[.,]\d+)?)\s*(?:portion(?:en|s)?|servings?|personen|people|stücke?|stuecke?|pieces?)\s*[.!:]?$/i.exec(evidence.trim()) ??
+    /^(?:serves|servings|portionen)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*[.!:]?$/i.exec(evidence.trim());
+  const numbers = match ? [match[1]] : [];
   const dishYield = explicitDishYield(evidence);
   if (dishYield !== null) numbers.push(String(dishYield));
+  if ((value === null || value === undefined) && numbers.length) value = Number(numbers[0].replace(',', '.'));
   return evidencedNumber(value, numbers, 0.1, 100);
 }
 

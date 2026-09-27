@@ -5,7 +5,7 @@ const number = { type: ['number', 'null'] };
 const quotes = { type: 'array', items: text };
 const properties = {
   title: text, description_quote: text, portion_quote: text,
-  ingredient_quotes: quotes, preparation_quotes: quotes, variant_label: text,
+  ingredient_quotes: quotes, ingredient_basis_quote: text, preparation_quotes: quotes, variant_label: text,
   servings: number, servings_quote: text,
   nutrition_basis: { type: 'string', enum: ['per_serving', 'per_recipe', 'per_100g', 'unspecified'] },
   nutrition_quote: text, calories_kcal: number, protein_g: number,

@@ -683,6 +683,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
   Widget _preview(BuildContext context) {
     final l10n = context.l10n;
     final candidate = _selected!;
+    final previewRecipe = candidate.toRecipe(slug: candidate.stableSlug(), sourceLabel: l10n.recipeImportSourceLabel);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -723,7 +724,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
           ),
           SheetField(
             fieldKey: const ValueKey('recipe-import-edit-ingredients'),
-            label: l10n.recipesSectionIngredients,
+            label: previewRecipe.sourceIngredientQuantityHint(l10n),
             hint: l10n.recipesIngredientsHint,
             controller: _ingredients,
             maxLines: 6,
@@ -812,7 +813,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
           _section(
             context,
             l10n.recipesSectionIngredients,
-            candidate.ingredients,
+            '${previewRecipe.ingredientQuantityHint(l10n)}\n\n${previewRecipe.displayIngredients(l10n)}',
           ),
           _section(
             context,

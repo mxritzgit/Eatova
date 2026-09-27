@@ -4,6 +4,7 @@ import 'package:crypto/crypto.dart';
 
 import '../services/local_day.dart';
 import 'planned_meal.dart';
+import 'recipe_ingredient_projection.dart';
 
 class ShoppingItem {
   const ShoppingItem({
@@ -12,11 +13,15 @@ class ShoppingItem {
     this.grams,
     this.recipeTitle,
     this.servings,
+    this.originalQuantities = false,
+    this.originalBatchServings,
   });
   final String id, name;
   final double? grams;
   final String? recipeTitle;
   final double? servings;
+  final bool originalQuantities;
+  final double? originalBatchServings;
 }
 
 /// Combines only exact structured identities in grams. Free text retains its
@@ -47,12 +52,16 @@ List<ShoppingItem> buildShoppingList(
         ..sort((a, b) => a.id.compareTo(b.id));
   for (final plan in sorted) {
     final recipe = plan.recipe;
+    final projection = recipe.ingredientProjectionForServings(plan.servings);
     if (recipe.structuredIngredients.isEmpty ||
         recipe.ingredients.trim().isNotEmpty) {
       unquantified.add(
         ShoppingItem(
-          id: identity(['text', plan.id, recipe.ingredients, plan.servings]),
-          name: recipe.ingredients,
+          id: identity(['text', plan.id, projection.text, plan.servings]),
+          name: projection.text,
+          originalQuantities: recipe.hasImportedIngredientContext && !projection.isScaled,
+          originalBatchServings: recipe.ingredientsBasis == RecipeIngredientsBasis.perRecipe
+              ? recipe.batchServings : recipe.ingredientsBasis == RecipeIngredientsBasis.perServing ? 1 : null,
           recipeTitle: recipe.title,
           servings: plan.servings,
         ),

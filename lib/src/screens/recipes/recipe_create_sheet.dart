@@ -228,8 +228,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     // The portion default lands in didChangeDependencies — l10n needs a built
     // BuildContext, which initState does not have yet.
     _portion = _feld(recipe?.portion ?? '');
-    final pendingNutrition = recipe?.hasPendingNutrition ?? false;
-    _grams = _feld(pendingNutrition && recipe!.estimatedGrams == 0 ? '' : recipe?.estimatedGrams.toString() ?? '300');
+    _grams = _feld(_mayOmitGrams && recipe!.estimatedGrams == 0 ? '' : recipe?.estimatedGrams.toString() ?? '300');
     _kcal = _feld(recipe?.displayNutrition.caloriesKcal?.round().toString() ?? '');
     _protein = _feld(recipe?.displayNutrition.proteinG?.round().toString() ?? '');
     _carbs = _feld(recipe?.displayNutrition.carbsG?.round().toString() ?? '');
@@ -380,6 +379,9 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     bereichstext: context.l10n.recipesRangeErrorKcal,
   );
 
+  bool get _mayOmitGrams => widget.initialRecipe?.hasPendingNutrition == true ||
+      widget.initialRecipe?.hasImportedIngredientContext == true;
+
   String? get _gramsFehler => _zahlFehler(
     _grams,
     min: _gramsMin,
@@ -438,8 +440,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     }
     // Required fields: empty means missing, not optional.
     if (_kcal.text.trim().isEmpty ||
-        (_grams.text.trim().isEmpty &&
-            !(widget.initialRecipe?.hasPendingNutrition ?? false))) {
+        (_grams.text.trim().isEmpty && !_mayOmitGrams)) {
       return false;
     }
     if ((widget.initialRecipe?.hasUnclearNutritionBasis ?? false) &&
@@ -504,7 +505,10 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
     final structuredIngredients = List<RecipeIngredient>.unmodifiable(
       _structured ? _structuredIngredients : <RecipeIngredient>[],
     );
-    final batchServings = _structured ? _batchServings! : 1.0;
+    final batchServings = _structured ? _batchServings! : original?.batchServings ?? 1.0;
+    final ingredientContextChanged = original != null &&
+        (ingredients != original.ingredients || portion != original.portion ||
+            _structured != original.hasStructuredIngredients);
 
     // The store names the image cryptographically at random, not from the slug
     // (Security review 2026-08-11, finding 5: `user_<ms>` was guessable). If
@@ -554,10 +558,13 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
       estimatedGrams: estimatedGrams,
       categories: [
         for (final category in original?.categories ?? const <String>['Eigene'])
-          if (!isRecipeNutritionMetadata(category) ||
+          if ((!category.startsWith(recipeIngredientsBasisPrefix) || !ingredientContextChanged) &&
+              (!isRecipeNutritionMetadata(category) ||
               _pendingNutritionUnchanged ||
-              (category == recipeNutritionPendingCategory && _structured && !(_calculation?.isComplete ?? false)))
+              (category == recipeNutritionPendingCategory && _structured && !(_calculation?.isComplete ?? false))))
             category,
+        if (ingredientContextChanged && original.hasImportedIngredientContext)
+          '${recipeIngredientsBasisPrefix}unspecified',
       ],
       userCreated: true,
       serverRevision: original?.serverRevision ?? (original == null ? 0 : null),
@@ -924,7 +931,9 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                   const SizedBox(height: 24),
                   _SheetGroup(
                     number: 3,
-                    label: l10n.recipesSectionIngredients,
+                    label: widget.initialRecipe?.hasImportedIngredientContext == true
+                        ? widget.initialRecipe!.sourceIngredientQuantityHint(l10n)
+                        : l10n.recipesSectionIngredients,
                     trailing: l10n.recipesOptionalLabel,
                     child: _RecipeSheetField(
                       fieldKey: const ValueKey('recipe-create-ingredients'),

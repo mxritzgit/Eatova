@@ -24,6 +24,22 @@ IDs hash normalized source ingredient/preparation text, independent of translate
 titles. Ingredient/preparation fields and variant labels must be verbatim source
 quotes. Unknown nutrition stays null. Each copied value must match its nutrient label and
 source number; per-serving/per-piece bases can precede or follow the figures.
+Version 2 also returns `ingredients_basis`: `per_recipe`, `per_serving` or
+`unspecified`. The provider supplies an exact `ingredient_basis_quote` containing
+the candidate's complete ingredient list and its batch yield or ingredient
+reference. The server checks that context independently of nutrient references;
+missing evidence, conflicting yields, unsupported references or a quote spanning
+another candidate's ingredient list cannot authorize scaling. Ordinary source
+headings such as `Für 4 Portionen` above `800 g Hackfleisch` establish batch
+quantities. `Zutaten pro Portion` establishes quantities already per serving.
+The source `ingredients` string and candidate identity remain unchanged; the app
+derives `200 g` per serving from `800 g` and yield 4. No ingredient quantities are
+calculated by the model. Older provider rows without the new quote stay usable
+with an unspecified ingredient basis; version 1 omits the additive response field.
+Exact decimal yields are retained, including recovery of null model yields from
+their unique source quote. Ranges, fractions, conflicting counts and nutrition
+references cannot establish recipe yield. Batch yield, ingredient basis, nutrient
+basis and consumed servings are independent; none is inferred from another.
 Macro abbreviations `P` (protein), `C` (carbohydrates) and `F` (fat) are
 case-insensitive and require grams, before or after the letter: `31g P 13g C
 9g F` or `P: 31g C: 13g F: 9g`. Decimals and zero are preserved. Ingredient

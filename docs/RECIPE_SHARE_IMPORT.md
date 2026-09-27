@@ -91,6 +91,35 @@ converted or logged. This avoids maintaining a list of every dish name merely
 to display its caption values. Older clients without version 2 still receive
 only values safe for their earlier per-serving contract.
 
+Ingredient quantities have their own source-backed basis, independent of nutrition.
+Version 2 adds `ingredients_basis` (`per_recipe`, `per_serving`, or `unspecified`).
+The model supplies an exact `ingredient_basis_quote`; the server accepts it only
+when it contains the complete ingredient list and an unambiguous matching yield
+or per-serving reference. Cropped ranges, conflicting yields, mixed references
+and evidence borrowed from another recipe cannot authorize division.
+
+For example, 800 g mince for four servings displays as 200 g per serving. Nutrition
+already stated per piece stays unchanged; proven whole-recipe nutrition is divided
+once. The original ingredient text remains in storage and the lossless JSON export.
+The report and CSV add an `eatova_serving_projection` with the derived quantities
+and their basis. Shopping lists use the planned number of servings. Preparation
+temperatures and times are never scaled.
+
+Only fully supported quantity lists are scaled. Ambiguous package sizes, number
+formats or mixed text preserve the entire source list with an explicit context
+label; the app never mixes scaled and unscaled quantities. Older saved imports
+without ingredient evidence remain unconfirmed even if they have a recipe yield.
+Confirming nutrition alone does not establish ingredient quantities. Source edits
+invalidate ingredient evidence; title-only edits retain it. The hidden category
+`Ingredients basis: <basis>` persists through existing cache/outbox/history formats
+without a database migration.
+
+Shared [contract fixtures](../test/fixtures/recipe_import/portions_contract.json)
+are checked by both the real server parser and the Flutter import/save/display,
+shopping-list and export flows. See the
+[server contract test](../supabase/functions/recipe-import/portion_contract_fixture_test.ts)
+and [client contract test](../test/recipe_portion_contract_test.dart).
+
 The parser binds adjacent nutrient labels and numbers in reading order, supporting
 both `32g protein` and `protein: 32g` without borrowing a neighboring nutrient's
 number. A null model field can be recovered from a unique source pair; missing,

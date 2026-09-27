@@ -6,11 +6,13 @@ import 'model_limits.dart';
 import 'recipe_catalog_de.dart';
 import 'recipe_catalog_en.dart';
 import 'recipe_ingredient.dart';
+import 'recipe_ingredient_projection.dart';
 import 'user_profile.dart';
 
 export 'recipe_catalog_de.dart' show recipeCatalogDe;
 export 'recipe_catalog_en.dart' show recipeCatalogEn;
 export 'recipe_ingredient.dart';
+export 'recipe_ingredient_projection.dart';
 
 /// The `High Protein` category, as a constant instead of a repeated literal:
 /// it is the one tag that is DERIVED from the numbers (see [HighProteinRule]),
@@ -121,7 +123,8 @@ class FitnessRecipe {
 
   List<String> get displayCategories => categories
       .where(
-        (category) => !category.startsWith(recipeNutritionKnownPrefix) &&
+        (category) => !category.startsWith(recipeIngredientsBasisPrefix) &&
+            !category.startsWith(recipeNutritionKnownPrefix) &&
             (category != recipeNutritionPendingCategory || hasMissingNutrition),
       )
       .toList(growable: false);
@@ -463,11 +466,48 @@ class FitnessRecipe {
       ? _resolvePlaceholder(portion, l10n, (x) => x.foodPortionFallback)
       : portion;
 
-  /// Display value of [ingredients]. Has a real form field, so the placeholder
-  /// only applies to empty input.
-  String displayIngredients(AppLocalizations l10n) => userCreated
-      ? _resolvePlaceholder(ingredients, l10n, (x) => x.recipesNoDataProvided)
-      : ingredients;
+  /// Metadata stays in the existing lossless row/cache/outbox contract.
+  RecipeIngredientsBasis get ingredientsBasis {
+    final markers = categories.where((c) => c.startsWith(recipeIngredientsBasisPrefix)).toList();
+    if (markers.length != 1) return RecipeIngredientsBasis.unspecified;
+    return switch (markers.single.substring(recipeIngredientsBasisPrefix.length)) {
+      'per_recipe' => RecipeIngredientsBasis.perRecipe,
+      'per_serving' => RecipeIngredientsBasis.perServing,
+      _ => RecipeIngredientsBasis.unspecified,
+    };
+  }
+
+  bool get hasImportedIngredientContext => slug.startsWith('user_import_') ||
+      categories.any((c) => c.startsWith(recipeIngredientsBasisPrefix));
+
+  RecipeIngredientProjection ingredientProjectionForServings(double servings) =>
+      projectRecipeIngredients(ingredients, basis: ingredientsBasis,
+          batchServings: batchServings, servings: servings);
+
+  String displayIngredients(AppLocalizations l10n, {double servings = 1}) {
+    final text = ingredientProjectionForServings(servings).text;
+    return userCreated
+        ? _resolvePlaceholder(text, l10n, (x) => x.recipesNoDataProvided)
+        : text;
+  }
+
+  String ingredientQuantityHint(AppLocalizations l10n, {double servings = 1}) {
+    if (ingredientProjectionForServings(servings).isScaled) {
+      return l10n.recipeIngredientsForServings(_servingNumber(servings, l10n));
+    }
+    return sourceIngredientQuantityHint(l10n);
+  }
+
+  String sourceIngredientQuantityHint(AppLocalizations l10n) =>
+      switch (ingredientsBasis) {
+        RecipeIngredientsBasis.perRecipe => l10n.recipeIngredientsOriginalBatch(_servingNumber(batchServings, l10n)),
+        RecipeIngredientsBasis.perServing => l10n.recipeIngredientsOriginalServing,
+        RecipeIngredientsBasis.unspecified => l10n.recipeIngredientsOriginalUnknown,
+      };
+
+  static String _servingNumber(double value, AppLocalizations l10n) =>
+      (value == value.roundToDouble() ? '${value.round()}' : '$value')
+          .replaceAll('.', l10n.localeName == 'de' ? ',' : '.');
 
   /// Display value of [preparation]. No form field, so for [userCreated] this
   /// is always a placeholder.

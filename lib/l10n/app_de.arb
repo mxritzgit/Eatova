@@ -2578,5 +2578,12 @@
   "exportFieldProtein": "Eiweiß",
   "exportFieldCarbs": "Kohlenhydrate",
   "exportFieldFat": "Fett",
-  "exportFieldExplanation": "Erläuterung"
+  "exportFieldExplanation": "Erläuterung",
+  "recipeIngredientsForServings": "Zutaten für {count} Portion(en). Die Zubereitung bezieht sich auf das Originalrezept.",
+  "@recipeIngredientsForServings": {"placeholders": {"count": {"type": "String"}}},
+  "recipeIngredientsOriginalBatch": "Originalmengen für {count} Portion(en), nicht umgerechnet.",
+  "@recipeIngredientsOriginalBatch": {"placeholders": {"count": {"type": "String"}}},
+  "recipeIngredientsOriginalServing": "Originalmengen für eine Portion, nicht umgerechnet.",
+  "recipeIngredientsOriginalUnknown": "Originalmengen; Portionsbezug nicht bestätigt.",
+  "exportRecipePortionProjection": "Berechnete Portionsangaben"
 }

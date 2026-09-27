@@ -682,6 +682,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
               item.grams != null
                   ? '${NumberFormat('0.##', l.localeName).format(item.grams)} g'
                   : '${l.mealPlanPortionCount(item.servings!)}\n'
+                        '${item.originalQuantities ? (item.originalBatchServings == null ? l.recipeIngredientsOriginalUnknown : l.recipeIngredientsOriginalBatch(NumberFormat('0.##', l.localeName).format(item.originalBatchServings))) : ''}${item.originalQuantities ? '\n' : ''}'
                         '${item.name.isEmpty ? l.mealPlanNoIngredients : item.name}',
               style: AppType.ui(14, color: t.ink2, height: 1.45),
             ),
