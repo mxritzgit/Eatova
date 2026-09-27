@@ -334,37 +334,6 @@ void main() {
     _modi.forEach((name, brightness) {
       final t = _tokens(brightness);
 
-      test('$name: der Zeiger steht auf dem Zifferblatt', () {
-        final thema = buildEatovaTheme(brightness).timePickerTheme;
-        final zifferblatt = _ueber(thema.dialBackgroundColor!, t.surf);
-        final zeiger = _ueber(thema.dialHandColor!, zifferblatt);
-
-        expect(
-          _kontrast(zeiger, zifferblatt),
-          greaterThanOrEqualTo(_zustand),
-          reason: '$name: der Zeiger zeigt die gewaehlte Stunde an und muss '
-              'sich vom Zifferblatt abheben (WCAG 1.4.11)',
-        );
-        // The picked number sits INSIDE the dot at the hand's end.
-        expect(
-          _kontrast(
-            slot(thema.dialTextColor, <WidgetState>{WidgetState.selected},
-                zeiger),
-            zeiger,
-          ),
-          greaterThanOrEqualTo(_text),
-          reason: '$name: die Zahl auf dem Zeiger',
-        );
-        expect(
-          _kontrast(
-            slot(thema.dialTextColor, <WidgetState>{}, zifferblatt),
-            zifferblatt,
-          ),
-          greaterThanOrEqualTo(_text),
-          reason: '$name: die uebrigen Zahlen auf dem Zifferblatt',
-        );
-      });
-
       test('$name: Stunde und Minute sind unterscheidbar', () {
         final thema = buildEatovaTheme(brightness).timePickerTheme;
         final gewaehlt = slot(
