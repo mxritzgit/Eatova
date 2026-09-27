@@ -148,17 +148,6 @@ String deleteAccountErrorMessage(Object error, [AppLocalizations? l10n]) {
   return directSyncErrorMessage(error, t);
 }
 
-/// Hint that the outbox dropped ops for good (poison op, spent retry budget or
-/// queue cap). Real data loss: the user is told, but without technical details.
-String outboxLossHint([AppLocalizations? l10n]) =>
-    (l10n ?? deL10n).commonOutboxLossHint;
-
-/// Hint for a finally failed DELETE. Own text because the consequence is
-/// inverted: a dropped write loses something, a dropped delete brings
-/// something BACK. The store re-shows the entry locally in the same step.
-String outboxDeleteLossHint([AppLocalizations? l10n]) =>
-    (l10n ?? deL10n).commonOutboxDeleteLossHint;
-
 /// What should happen to a failed outbox op.
 enum OutboxVerdict {
   /// Stop automatic retry; the dispatcher retains the blocked durable intent.

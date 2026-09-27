@@ -384,23 +384,6 @@ void main() {
     });
   });
 
-  group('outboxLossHint (endgueltiger Verlust)', () {
-    test('sagt es klar, leakt aber nichts Technisches', () {
-      expect(outboxLossHint(), isNotEmpty);
-      for (final leak in const <String>[
-        '23514',
-        'logged_meals',
-        'check constraint',
-        'PostgrestException',
-        'PGRST',
-        'SQLSTATE',
-        'Sync (',
-      ]) {
-        expect(outboxLossHint(), isNot(contains(leak)));
-      }
-    });
-  });
-
   group('deliveryHint (Luecke E)', () {
     // These hint functions take an optional [AppLocalizations] (default
     // German), under which the values here stay byte-identical.

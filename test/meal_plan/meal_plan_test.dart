@@ -242,8 +242,6 @@ void main() {
     final queue = enqueueCoalesced([conversion], SyncOp.mealUpsert(meal));
     expect(queue, hasLength(2));
     expect(queue.first.kind, SyncOpKind.mealPlanConvert);
-    final capped = capOutbox(queue, maxOps: 1);
-    expect(capped.queue.single.kind, SyncOpKind.mealPlanConvert);
     final restored = SyncOp.tryFromJson(
       jsonDecode(jsonEncode(conversion.toJson())) as Map<String, dynamic>,
     );

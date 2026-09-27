@@ -286,13 +286,6 @@ class SyncOp {
     }
   }
 
-  // Conversion is one durable transaction. Neither capacity nor a prolonged
-  // outage may discard half of the user's accepted action.
-  bool get isMealPlanIntent =>
-      kind == SyncOpKind.mealPlanConvert ||
-      kind == SyncOpKind.mealPlanUpsert ||
-      kind == SyncOpKind.shoppingCheck;
-
   factory SyncOp.mealInsert(LoggedMeal meal, {required bool trackDay}) =>
       SyncOp._(
         kind: SyncOpKind.mealInsert,
@@ -484,20 +477,9 @@ class SyncOp {
     SyncOpKind.statsIncrement => 'stats:$entityId',
   };
 
-  /// True for the three delete families.
-  ///
-  /// Special in the drop path: losing a delete is the only loss a cold start
-  /// actively UNDOES (server row survives, local state does not). So a delete
-  /// is the last choice everywhere: no immediate drop from an error code, a
-  /// far larger attempt budget ([kOutboxDeleteMaxAttempts]), a wall-clock
-  /// deadline in the store, and at the queue cap it falls only once no write
-  /// op is left. Not undroppable though — that would be an immortal op; where
-  /// it falls, the store restores the entry locally and reports it.
-  /// History is the only copy after its recovery checkpoint is retired.
-  bool get isTrainingHistoryIntent =>
-      kind == SyncOpKind.trainingHistoryInsert ||
-      kind == SyncOpKind.trainingHistoryDelete;
-
+  /// True for the deletion families. A failed delete never stops on an error
+  /// code alone and gets the larger [kOutboxDeleteMaxAttempts] budget; like
+  /// every intent it stays queued once automatic retry stops.
   bool get isDelete => kind.isDelete;
 
   /// True for upsert-like ops — only those may be coalesced (payload
@@ -852,78 +834,6 @@ List<SyncOp> enqueueCoalesced(
     }
   }
   return [...queue, op];
-}
-
-/// Caps the outbox at [maxOps] and returns queue and dropped ops separately.
-///
-/// A separate pure function rather than a flag on [enqueueCoalesced]: the
-/// caller MUST see what was lost (it reports and logs it), and the cap must
-/// also run on the hydration path, where a queue grown by an older, uncapped
-/// build comes back from cache without ever passing through enqueue.
-///
-/// Dropped are the oldest ops (head of the queue), WRITE ops first;
-/// [SyncOp.isDelete] only once no write op is left, so the cap stays hard
-/// even for an all-delete queue. Tolerable only because the store restores a
-/// dropped delete locally and reports it (`_restoreDroppedDeletes`,
-/// `outboxDeleteLossHint`). Why this order:
-///  (a) Drop-newest would turn a full queue into a permanent write outage —
-///      a full queue is by definition not draining.
-///  (b) The newest op is what the user is looking at; local state is mutated
-///      before the write, so drop-newest loses the just-entered meal.
-///  (c) The oldest ops of a full queue have failed longest, so they are the
-///      likeliest poison ops.
-///  (d) Writes survive a head trim per entity: each is a FULL row upsert on a
-///      client UUID (no deltas); only the stats/streak side effect is lost —
-///      a counter, not user content (same for a capped statsIncrement entry,
-///      which IS the counter). Not so for deletes: "idempotent" only means a
-///      retry is harmless, not that a drop is. They also cost almost nothing
-///      (~120 bytes), so they fall LAST — but they do fall, or an all-delete
-///      queue grows without bound.
-({List<SyncOp> queue, List<SyncOp> dropped}) capOutbox(
-  List<SyncOp> queue, {
-  int maxOps = kOutboxMaxOps,
-}) {
-  if (queue.length <= maxOps) {
-    // A COPY, not the input. The outbox replay cursor
-    // (home_store_sync.dart `_replayOutbox`) detects a foreign queue change by
-    // comparing list IDENTITY, which rests on every write to `_outbox`
-    // allocating a fresh list. Handing the input straight back made that true
-    // only by luck of the current call sites; one future
-    // `_outbox = capOutbox(_outbox).queue` after an in-place edit would skip
-    // ops with no test going red. Cheap: this path allocates one list per
-    // enqueue.
-    return (queue: List<SyncOp>.of(queue), dropped: const <SyncOp>[]);
-  }
-  var overflow = queue.length - maxOps;
-  var kept = <SyncOp>[];
-  final dropped = <SyncOp>[];
-  // Pass 1: write ops, oldest first.
-  for (final op in queue) {
-    if (overflow > 0 &&
-        !op.isDelete &&
-        !op.isMealPlanIntent &&
-        !op.isTrainingHistoryIntent) {
-      dropped.add(op);
-      overflow--;
-    } else {
-      kept.add(op);
-    }
-  }
-  // Pass 2: only deletes are left and the queue is still over the cap;
-  // oldest first again.
-  if (overflow > 0) {
-    final survivors = <SyncOp>[];
-    for (final op in kept) {
-      if (overflow > 0 && !op.isMealPlanIntent && !op.isTrainingHistoryIntent) {
-        dropped.add(op);
-        overflow--;
-      } else {
-        survivors.add(op);
-      }
-    }
-    kept = survivors;
-  }
-  return (queue: kept, dropped: dropped);
 }
 
 // ---- (De)serialization LoggedMeal / FavoriteMeal ----------------------------
