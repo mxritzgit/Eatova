@@ -5,6 +5,12 @@
 include: package:flutter_lints/flutter.yaml
 
 analyzer:
+  # No implicit downcasts from dynamic, no silently inferred dynamic and no raw
+  # generics: JSON/RPC payloads must be cast or type-tested explicitly.
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
   # Exclude only what is not ours: generated code and build artifacts.
   # A blanket `"*.dart"` used to sit here; it matches only repo-root files
   # (`*` never matches `/`) and would silently hide future root files.

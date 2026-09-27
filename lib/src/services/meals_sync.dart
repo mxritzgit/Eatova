@@ -395,7 +395,7 @@ MealAnalysisResult mealResultFromJson(Map<String, dynamic> j) {
   final itemsRaw = j['items'];
   final items = itemsRaw is List
       ? itemsRaw
-          .whereType<Map>()
+          .whereType<Map<dynamic, dynamic>>()
           .map((m) {
             final item = m.cast<String, dynamic>();
             return MealComponent(

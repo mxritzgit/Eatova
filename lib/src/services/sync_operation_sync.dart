@@ -217,7 +217,7 @@ class SyncOperationReceipt {
         state is! Map) {
       throw const FormatException('Invalid sync operation receipt');
     }
-    Map<String, dynamic>? value(Map source, String key) {
+    Map<String, dynamic>? value(Map<dynamic, dynamic> source, String key) {
       final item = source[key];
       if (item == null) return null;
       if (item is! Map) throw const FormatException('Invalid sync result');

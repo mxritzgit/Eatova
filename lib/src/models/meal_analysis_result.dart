@@ -786,7 +786,7 @@ class MealAnalysisResult {
       final value = json[key];
       if (value is List) {
         return value
-            .whereType<Map>()
+            .whereType<Map<dynamic, dynamic>>()
             .map(
               (item) => MealComponent.fromJson(
                 item.map(

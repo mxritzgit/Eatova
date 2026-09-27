@@ -155,7 +155,7 @@ class MeilisearchProductService implements ProductLookupService {
     }
 
     return hits
-        .whereType<Map>()
+        .whereType<Map<dynamic, dynamic>>()
         .map(
           (product) => ProductSearchResult.fromOpenFoodFacts(
             product.map((key, value) => MapEntry(key.toString(), value)),

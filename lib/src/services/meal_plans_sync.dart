@@ -117,19 +117,20 @@ class MealPlanConversion {
     final meal = raw == null
         ? null
         : LoggedMeal(
-            id: raw['id'],
-            loggedAt: DateTime.parse(raw['logged_at']).toLocal(),
-            localDay: raw['local_day'],
+            id: raw['id'] as String,
+            loggedAt: DateTime.parse(raw['logged_at'] as String).toLocal(),
+            localDay: raw['local_day'] as String?,
             forcedSlot: raw['forced_slot'] == null
                 ? null
-                : MealSlot.values.byName(raw['forced_slot']),
+                : MealSlot.values.byName(raw['forced_slot'] as String),
             result: mealResultFromJson(
               (raw['payload'] as Map).cast<String, dynamic>(),
             ),
           );
+    final created = json['created'];
     if (!plan.isEaten ||
         (meal != null && meal.id != plan.id) ||
-        json['created'] is! bool) {
+        created is! bool) {
       throw const FormatException('Invalid conversion receipt');
     }
     return MealPlanConversion(
@@ -138,7 +139,7 @@ class MealPlanConversion {
       stats: LifetimeStats.fromRow(
         (json['stats'] as Map).cast<String, dynamic>(),
       ),
-      created: json['created'],
+      created: created,
     );
   }
 }

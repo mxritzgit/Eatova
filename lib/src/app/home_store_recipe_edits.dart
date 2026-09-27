@@ -281,7 +281,7 @@ mixin _HomeStoreRecipeEditsPart
     final outboxKey = 'eatova.v1.outbox.${_cache!.userId}';
     final encoded = durable.snapshot.values[recipeKey];
     final rows = encoded == null
-        ? const []
+        ? const <dynamic>[]
         : (jsonDecode(encoded) as Map<String, dynamic>)['items'] as List;
     final recipes = rows
         .map(

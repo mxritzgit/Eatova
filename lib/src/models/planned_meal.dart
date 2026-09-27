@@ -162,11 +162,13 @@ class ShoppingCheck {
   final bool checked;
   Map<String, dynamic> toJson() => {'id': id, 'checked': checked};
   factory ShoppingCheck.fromJson(Map<String, dynamic> json) {
-    if (json['id'] is! String ||
-        !RegExp(r'^\d{4}-\d{2}-\d{2}:[a-f0-9]{64}$').hasMatch(json['id']) ||
-        json['checked'] is! bool) {
+    final id = json['id'];
+    final checked = json['checked'];
+    if (id is! String ||
+        !RegExp(r'^\d{4}-\d{2}-\d{2}:[a-f0-9]{64}$').hasMatch(id) ||
+        checked is! bool) {
       throw const FormatException('Invalid shopping check');
     }
-    return ShoppingCheck(id: json['id'], checked: json['checked']);
+    return ShoppingCheck(id: id, checked: checked);
   }
 }

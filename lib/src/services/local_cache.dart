@@ -1039,7 +1039,7 @@ class LocalCache {
     final items = json?['items'];
     if (items is! List) return null;
     return items
-        .whereType<Map>()
+        .whereType<Map<dynamic, dynamic>>()
         .map((m) => m.cast<String, dynamic>())
         .toList();
   }

@@ -13,7 +13,7 @@ Future<dynamic> userRpc(
 }) async {
   if (client is BackgroundSyncClient) {
     final authorization = await client.authorizationFor(userId);
-    final request = client.rpc(function, params: params);
+    final request = client.rpc<dynamic>(function, params: params);
     if (single) {
       return request.select().single().setHeader('Authorization', authorization);
     }
@@ -33,7 +33,7 @@ Future<dynamic> userRpc(
   // An absent session remains anonymous even if login finishes while the SDK
   // awaits its token. An explicit empty bearer is rejected by the server.
   final authorization = 'Bearer ${session?.accessToken ?? ''}';
-  final request = client.rpc(function, params: params);
+  final request = client.rpc<dynamic>(function, params: params);
   if (single) {
     return request.select().single().setHeader('Authorization', authorization);
   }
