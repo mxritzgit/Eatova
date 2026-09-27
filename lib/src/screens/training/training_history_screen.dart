@@ -30,64 +30,66 @@ class TrainingHistoryScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: t.bg,
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-          children: [
-            PageHeader(
-              backKey: const ValueKey('training-history-back'),
-              title: l.trainingHistoryTitle,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              l.trainingHistorySubtitle,
-              style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
-            ),
-            const SizedBox(height: 24),
-            if (loading) ...[
-              LinearProgressIndicator(color: t.accent),
-              const SizedBox(height: 16),
-            ],
-            if (loadFailed) ...[
+        child: ReadableWidth(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+            children: [
+              PageHeader(
+                backKey: const ValueKey('training-history-back'),
+                title: l.trainingHistoryTitle,
+              ),
+              const SizedBox(height: 12),
               Text(
-                l.trainingHistoryLoadError,
-                style: AppType.ui(14, color: t.ink2),
+                l.trainingHistorySubtitle,
+                style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
               ),
-              TextButton.icon(
-                onPressed: onRetry,
-                icon: const Icon(Icons.refresh_rounded),
-                label: Text(l.trainingPageRetry),
-              ),
-              const SizedBox(height: 16),
-            ],
-            if (entries.isEmpty && !loading)
-              Text(
-                l.trainingHistoryEmpty,
-                style: AppType.ui(15, color: t.ink2, height: 1.5),
-              ),
-            for (final entry in entries) ...[
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                key: ValueKey('training-history-${entry.id}'),
-                title: Text(
-                  entry.snapshot.workout.title,
-                  style: AppType.display(20, color: t.ink),
+              const SizedBox(height: 24),
+              if (loading) ...[
+                LinearProgressIndicator(color: t.accent),
+                const SizedBox(height: 16),
+              ],
+              if (loadFailed) ...[
+                Text(
+                  l.trainingHistoryLoadError,
+                  style: AppType.ui(14, color: t.ink2),
                 ),
-                subtitle: Text(
-                  '${_date(context, entry.finishedAt)}\n${l.trainingTimerProgress(entry.snapshot.completedSets.length, entry.snapshot.totalSets)}',
-                  style: AppType.ui(14, color: t.ink2, height: 1.5),
+                TextButton.icon(
+                  onPressed: onRetry,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: Text(l.trainingPageRetry),
                 ),
-                trailing: Icon(Icons.chevron_right_rounded, color: t.ink2),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) =>
-                        TrainingHistoryDetail(entry: entry, onDelete: onDelete),
+                const SizedBox(height: 16),
+              ],
+              if (entries.isEmpty && !loading)
+                Text(
+                  l.trainingHistoryEmpty,
+                  style: AppType.ui(15, color: t.ink2, height: 1.5),
+                ),
+              for (final entry in entries) ...[
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  key: ValueKey('training-history-${entry.id}'),
+                  title: Text(
+                    entry.snapshot.workout.title,
+                    style: AppType.display(20, color: t.ink),
+                  ),
+                  subtitle: Text(
+                    '${_date(context, entry.finishedAt)}\n${l.trainingTimerProgress(entry.snapshot.completedSets.length, entry.snapshot.totalSets)}',
+                    style: AppType.ui(14, color: t.ink2, height: 1.5),
+                  ),
+                  trailing: Icon(Icons.chevron_right_rounded, color: t.ink2),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          TrainingHistoryDetail(entry: entry, onDelete: onDelete),
+                    ),
                   ),
                 ),
-              ),
-              Divider(color: t.line),
+                Divider(color: t.line),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
@@ -160,78 +162,80 @@ class _TrainingHistoryDetailState extends State<TrainingHistoryDetail> {
     return Scaffold(
       backgroundColor: t.bg,
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-          children: [
-            PageHeader(
-              backKey: const ValueKey('training-history-detail-back'),
-              backEnabled: !_busy,
-              title: snapshot.workout.title,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              snapshot.plan.title,
-              style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              l.trainingHistoryStarted(_date(context, snapshot.startedAt)),
-              style: AppType.ui(14, color: t.ink2),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              l.trainingHistoryFinished(_date(context, entry.finishedAt)),
-              style: AppType.ui(14, color: t.ink2),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              l.trainingTimerProgress(
-                snapshot.completedSets.length,
-                snapshot.totalSets,
+        child: ReadableWidth(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+            children: [
+              PageHeader(
+                backKey: const ValueKey('training-history-detail-back'),
+                backEnabled: !_busy,
+                title: snapshot.workout.title,
               ),
-              style: AppType.display(24, color: t.ink),
-            ),
-            Text(
-              l.trainingTimerSkipped(snapshot.skippedSets.length),
-              style: AppType.ui(14, color: t.ink2),
-            ),
-            const SizedBox(height: 24),
-            for (var e = 0; e < snapshot.workout.exercises.length; e++) ...[
-              SectionHeading(title: snapshot.workout.exercises[e].name),
-              const SizedBox(height: 10),
-              for (var s = 0; s < snapshot.workout.exercises[e].sets; s++)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: Text(
-                    _setText(context, e, s),
-                    style: AppType.ui(15, color: t.ink, height: 1.5),
-                  ),
-                ),
-              Divider(color: t.line),
-              const SizedBox(height: 16),
-            ],
-            if (entry.note.isNotEmpty) ...[
-              SectionHeading(title: l.trainingHistoryNote),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
               Text(
-                entry.note,
-                style: AppType.ui(15, color: t.ink, height: 1.5),
+                snapshot.plan.title,
+                style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                l.trainingHistoryStarted(_date(context, snapshot.startedAt)),
+                style: AppType.ui(14, color: t.ink2),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                l.trainingHistoryFinished(_date(context, entry.finishedAt)),
+                style: AppType.ui(14, color: t.ink2),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                l.trainingTimerProgress(
+                  snapshot.completedSets.length,
+                  snapshot.totalSets,
+                ),
+                style: AppType.display(24, color: t.ink),
+              ),
+              Text(
+                l.trainingTimerSkipped(snapshot.skippedSets.length),
+                style: AppType.ui(14, color: t.ink2),
               ),
               const SizedBox(height: 24),
-            ],
-            if (_error != null)
-              Text(_error!, style: AppType.ui(14, color: t.danger)),
-            TextButton.icon(
-              key: const ValueKey('training-history-delete'),
-              style: TextButton.styleFrom(
-                foregroundColor: t.danger,
-                minimumSize: const Size(0, 48),
+              for (var e = 0; e < snapshot.workout.exercises.length; e++) ...[
+                SectionHeading(title: snapshot.workout.exercises[e].name),
+                const SizedBox(height: 10),
+                for (var s = 0; s < snapshot.workout.exercises[e].sets; s++)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Text(
+                      _setText(context, e, s),
+                      style: AppType.ui(15, color: t.ink, height: 1.5),
+                    ),
+                  ),
+                Divider(color: t.line),
+                const SizedBox(height: 16),
+              ],
+              if (entry.note.isNotEmpty) ...[
+                SectionHeading(title: l.trainingHistoryNote),
+                const SizedBox(height: 8),
+                Text(
+                  entry.note,
+                  style: AppType.ui(15, color: t.ink, height: 1.5),
+                ),
+                const SizedBox(height: 24),
+              ],
+              if (_error != null)
+                Text(_error!, style: AppType.ui(14, color: t.danger)),
+              TextButton.icon(
+                key: const ValueKey('training-history-delete'),
+                style: TextButton.styleFrom(
+                  foregroundColor: t.danger,
+                  minimumSize: const Size(0, 48),
+                ),
+                onPressed: _busy ? null : _delete,
+                icon: const Icon(Icons.delete_outline_rounded),
+                label: Text(_busy ? l.trainingTimerSaving : l.trainingHistoryDeleteAction),
               ),
-              onPressed: _busy ? null : _delete,
-              icon: const Icon(Icons.delete_outline_rounded),
-              label: Text(_busy ? l.trainingTimerSaving : l.trainingHistoryDeleteAction),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

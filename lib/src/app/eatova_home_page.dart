@@ -575,7 +575,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
                 },
               ),
               // Tabs scroll internally, so no outer SingleChildScrollView.
-              body: SafeArea(child: _buildTabStack(tab)),
+              // Large windows get a bounded column; phones are unaffected.
+              body: SafeArea(child: ReadableWidth(child: _buildTabStack(tab))),
             ),
           ),
         );

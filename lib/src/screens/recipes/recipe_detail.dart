@@ -249,219 +249,223 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
       bottomNavigationBar: pinAction
           ? SafeArea(
               top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                child: _AddToMealCard(
-                  recipe: recipe,
-                  onTap: _canUseRecipe ? () => _showMealPicker(context) : null,
+              child: ReadableWidth(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                  child: _AddToMealCard(
+                    recipe: recipe,
+                    onTap: _canUseRecipe ? () => _showMealPicker(context) : null,
+                  ),
                 ),
               ),
             )
           : null,
       body: SafeArea(
         bottom: false,
-        child: SingleChildScrollView(
-          key: const ValueKey('recipe-detail-scroll'),
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              PageHeader(
-                title: recipe.userCreated
-                    ? l10n.recipesOwnTitle
-                    : l10n.recipesBrandTitle,
-                backKey: const ValueKey('recipe-detail-back'),
-                onBack: () => Navigator.of(context).pop(),
-                trailing: onDelete == null
-                    // Counterweight to the back button, so the title centres.
-                    ? const SizedBox(width: 34)
-                    : SquareIconButton(
-                        key: const ValueKey('recipe-detail-delete'),
-                        icon: Icons.delete_outline_rounded,
-                        semanticLabel: l10n.recipesDeleteSemantics,
-                        onTap: !_canUseRecipe
-                            ? null
-                            : () {
-                                // Pop first: the toast belongs on the recipe list.
-                                Navigator.of(context).pop();
-                                onDelete!(recipe.slug);
-                              },
-                      ),
-              ),
-              const SizedBox(height: 16),
-              if (!_canUseRecipe || recipe.conflictOf != null) ...[
-                Text(
-                  _saveHandle?.value.resolving == true
-                      ? l10n.recipeEditResolving
-                      : _saveHandle?.value.recipe == null && _saveHandle != null
-                      ? l10n.recipeEditUnavailable
-                      : l10n.recipeEditConflictSaved,
-                  key: const ValueKey('recipe-edit-current-state'),
-                  style: AppType.ui(14, color: t.ink2, height: 1.5),
+        child: ReadableWidth(
+          child: SingleChildScrollView(
+            key: const ValueKey('recipe-detail-scroll'),
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                PageHeader(
+                  title: recipe.userCreated
+                      ? l10n.recipesOwnTitle
+                      : l10n.recipesBrandTitle,
+                  backKey: const ValueKey('recipe-detail-back'),
+                  onBack: () => Navigator.of(context).pop(),
+                  trailing: onDelete == null
+                      // Counterweight to the back button, so the title centres.
+                      ? const SizedBox(width: 34)
+                      : SquareIconButton(
+                          key: const ValueKey('recipe-detail-delete'),
+                          icon: Icons.delete_outline_rounded,
+                          semanticLabel: l10n.recipesDeleteSemantics,
+                          onTap: !_canUseRecipe
+                              ? null
+                              : () {
+                                  // Pop first: the toast belongs on the recipe list.
+                                  Navigator.of(context).pop();
+                                  onDelete!(recipe.slug);
+                                },
+                        ),
                 ),
-                if (_saveHandle?.value.resolving == true)
-                  TextButton.icon(
-                    key: const ValueKey('recipe-edit-refresh-result'),
-                    onPressed: () => _saveHandle?.refresh(),
-                    icon: const Icon(Icons.refresh_rounded),
-                    label: Text(l10n.commonBootUnansweredRetry),
-                  ),
                 const SizedBox(height: 16),
-              ],
-              Container(
-                key: const ValueKey('recipe-detail-hero'),
-                clipBehavior: Clip.antiAlias,
-                decoration: BoxDecoration(
-                  color: t.brandSurface,
-                  borderRadius: BorderRadius.circular(rSheet),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    AspectRatio(
-                      aspectRatio: 1.35,
-                      child: RecipePhoto(recipe: recipe),
+                if (!_canUseRecipe || recipe.conflictOf != null) ...[
+                  Text(
+                    _saveHandle?.value.resolving == true
+                        ? l10n.recipeEditResolving
+                        : _saveHandle?.value.recipe == null && _saveHandle != null
+                        ? l10n.recipeEditUnavailable
+                        : l10n.recipeEditConflictSaved,
+                    key: const ValueKey('recipe-edit-current-state'),
+                    style: AppType.ui(14, color: t.ink2, height: 1.5),
+                  ),
+                  if (_saveHandle?.value.resolving == true)
+                    TextButton.icon(
+                      key: const ValueKey('recipe-edit-refresh-result'),
+                      onPressed: () => _saveHandle?.refresh(),
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: Text(l10n.commonBootUnansweredRetry),
                     ),
-                    Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (recipe.displayCategories.isNotEmpty) ...[
-                            Text(
-                              recipeCategoryLabel(
-                                recipe.displayCategories.first,
-                                l10n,
+                  const SizedBox(height: 16),
+                ],
+                Container(
+                  key: const ValueKey('recipe-detail-hero'),
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    color: t.brandSurface,
+                    borderRadius: BorderRadius.circular(rSheet),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      AspectRatio(
+                        aspectRatio: 1.35,
+                        child: RecipePhoto(recipe: recipe),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (recipe.displayCategories.isNotEmpty) ...[
+                              Text(
+                                recipeCategoryLabel(
+                                  recipe.displayCategories.first,
+                                  l10n,
+                                ),
+                                style: AppType.ui(
+                                  13,
+                                  color: t.accent,
+                                  weight: FontWeight.w600,
+                                ),
                               ),
-                              style: AppType.ui(
-                                13,
-                                color: t.accent,
-                                weight: FontWeight.w600,
+                              const SizedBox(height: 8),
+                            ],
+                            HeadingSemantics(
+                              level: 1,
+                              child: Text(
+                                recipe.title,
+                                key: ValueKey('recipe-detail-${recipe.slug}'),
+                                style: AppType.display(
+                                  28,
+                                  color: t.onBrandSurface,
+                                  height: 1.12,
+                                ),
                               ),
                             ),
-                            const SizedBox(height: 8),
-                          ],
-                          HeadingSemantics(
-                            level: 1,
-                            child: Text(
-                              recipe.title,
-                              key: ValueKey('recipe-detail-${recipe.slug}'),
-                              style: AppType.display(
-                                28,
-                                color: t.onBrandSurface,
-                                height: 1.12,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            recipe.displayDescription(l10n),
-                            style: AppType.ui(14, color: t.ink2, height: 1.5),
-                          ),
-                          if (recipe.slug.startsWith('user_coach_')) ...[
                             const SizedBox(height: 12),
                             Text(
-                              l10n.recipeEditCoachSource,
-                              style: AppType.ui(13, color: t.accent),
+                              recipe.displayDescription(l10n),
+                              style: AppType.ui(14, color: t.ink2, height: 1.5),
                             ),
+                            if (recipe.slug.startsWith('user_coach_')) ...[
+                              const SizedBox(height: 12),
+                              Text(
+                                l10n.recipeEditCoachSource,
+                                style: AppType.ui(13, color: t.accent),
+                              ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              if (recipe.displayCategories.length > 1) ...[
-                const SizedBox(height: 14),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final category in recipe.displayCategories.skip(1))
-                      _CategoryPill(label: recipeCategoryLabel(category, l10n)),
-                  ],
+                if (recipe.displayCategories.length > 1) ...[
+                  const SizedBox(height: 14),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final category in recipe.displayCategories.skip(1))
+                        _CategoryPill(label: recipeCategoryLabel(category, l10n)),
+                    ],
+                  ),
+                ],
+                if (widget.onEdit != null && recipe.userCreated) ...[
+                  const SizedBox(height: 14),
+                  TextButton.icon(
+                    key: const ValueKey('recipe-detail-edit'),
+                    onPressed: _canUseRecipe ? _edit : null,
+                    icon: const Icon(Icons.edit_outlined),
+                    label: Text(l10n.recipeEditTitle),
+                  ),
+                ],
+                if (widget.onOpenHistory != null) ...[
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    key: const ValueKey('recipe-detail-history'),
+                    onPressed:
+                        _saveHandle?.value.resolving == true ||
+                            _historySlug == null
+                        ? null
+                        : () async {
+                            final restored = await widget.onOpenHistory!(
+                              _historySlug!,
+                            );
+                            if (restored && context.mounted) {
+                              Navigator.pop(context);
+                            }
+                          },
+                    icon: const Icon(Icons.history_rounded),
+                    label: Text(l10n.recipeHistoryTitle),
+                  ),
+                ],
+                const SizedBox(height: 24),
+                SectionHeading(title: recipe.hasUnclearNutritionBasis ? l10n.recipeImportNutritionSource : l10n.recipesPerPortion),
+                const SizedBox(height: 12),
+                _NutritionGrid(recipe: recipe),
+                if (recipe.hasPendingNutrition ||
+                    (recipe.hasStructuredIngredients &&
+                    !recipe.calculationForServings(1).isComplete)) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    recipe.hasPendingNutrition
+                        ? recipe.nutritionReviewHint(l10n)
+                        : l10n.recipeEditIncompleteNutrition,
+                    key: const ValueKey('recipe-nutrition-incomplete'),
+                    style: AppType.ui(14, color: t.ink2, height: 1.4),
+                  ),
+                ],
+                const SizedBox(height: 18),
+                if (!pinAction)
+                  _AddToMealCard(
+                    recipe: recipe,
+                    onTap: _canUseRecipe ? () => _showMealPicker(context) : null,
+                  ),
+                const SizedBox(height: 18),
+                _RecipeInfoSection(
+                  title: l10n.recipesSectionPortion,
+                  body: recipe.hasStructuredIngredients
+                      ? '${l10n.recipeEditBatchServings}: ${_nutritionNumber(recipe.batchServings)}\n${recipe.displayPortion(l10n)}'
+                      : recipe.displayPortion(l10n),
+                ),
+                _RecipeInfoSection(
+                  title: l10n.recipesSectionIngredients,
+                  hint: recipe.hasImportedIngredientContext &&
+                          !recipe.hasStructuredIngredients
+                      ? recipe.ingredientQuantityHint(l10n)
+                      : l10n.recipeDetailIngredientsHint,
+                  body: recipe.hasStructuredIngredients
+                      ? '${recipe.structuredIngredients.map((i) => '${_nutritionNumber(i.grams)} g ${i.name}').join('\n')}${recipe.ingredients.isEmpty ? '' : '\n\n${recipe.ingredients}'}'
+                      : recipe.displayIngredients(l10n),
+                ),
+                _RecipeInfoSection(
+                  title: l10n.recipesSectionPreparation,
+                  hint: l10n.recipeDetailPreparationHint,
+                  numbered: true,
+                  body: recipe.displayPreparation(l10n),
+                ),
+                _RecipeInfoSection(
+                  title: l10n.recipesSectionProHint,
+                  body: recipe.displayProfessionalHint(l10n),
+                  highlight: true,
                 ),
               ],
-              if (widget.onEdit != null && recipe.userCreated) ...[
-                const SizedBox(height: 14),
-                TextButton.icon(
-                  key: const ValueKey('recipe-detail-edit'),
-                  onPressed: _canUseRecipe ? _edit : null,
-                  icon: const Icon(Icons.edit_outlined),
-                  label: Text(l10n.recipeEditTitle),
-                ),
-              ],
-              if (widget.onOpenHistory != null) ...[
-                const SizedBox(height: 8),
-                TextButton.icon(
-                  key: const ValueKey('recipe-detail-history'),
-                  onPressed:
-                      _saveHandle?.value.resolving == true ||
-                          _historySlug == null
-                      ? null
-                      : () async {
-                          final restored = await widget.onOpenHistory!(
-                            _historySlug!,
-                          );
-                          if (restored && context.mounted) {
-                            Navigator.pop(context);
-                          }
-                        },
-                  icon: const Icon(Icons.history_rounded),
-                  label: Text(l10n.recipeHistoryTitle),
-                ),
-              ],
-              const SizedBox(height: 24),
-              SectionHeading(title: recipe.hasUnclearNutritionBasis ? l10n.recipeImportNutritionSource : l10n.recipesPerPortion),
-              const SizedBox(height: 12),
-              _NutritionGrid(recipe: recipe),
-              if (recipe.hasPendingNutrition ||
-                  (recipe.hasStructuredIngredients &&
-                  !recipe.calculationForServings(1).isComplete)) ...[
-                const SizedBox(height: 8),
-                Text(
-                  recipe.hasPendingNutrition
-                      ? recipe.nutritionReviewHint(l10n)
-                      : l10n.recipeEditIncompleteNutrition,
-                  key: const ValueKey('recipe-nutrition-incomplete'),
-                  style: AppType.ui(14, color: t.ink2, height: 1.4),
-                ),
-              ],
-              const SizedBox(height: 18),
-              if (!pinAction)
-                _AddToMealCard(
-                  recipe: recipe,
-                  onTap: _canUseRecipe ? () => _showMealPicker(context) : null,
-                ),
-              const SizedBox(height: 18),
-              _RecipeInfoSection(
-                title: l10n.recipesSectionPortion,
-                body: recipe.hasStructuredIngredients
-                    ? '${l10n.recipeEditBatchServings}: ${_nutritionNumber(recipe.batchServings)}\n${recipe.displayPortion(l10n)}'
-                    : recipe.displayPortion(l10n),
-              ),
-              _RecipeInfoSection(
-                title: l10n.recipesSectionIngredients,
-                hint: recipe.hasImportedIngredientContext &&
-                        !recipe.hasStructuredIngredients
-                    ? recipe.ingredientQuantityHint(l10n)
-                    : l10n.recipeDetailIngredientsHint,
-                body: recipe.hasStructuredIngredients
-                    ? '${recipe.structuredIngredients.map((i) => '${_nutritionNumber(i.grams)} g ${i.name}').join('\n')}${recipe.ingredients.isEmpty ? '' : '\n\n${recipe.ingredients}'}'
-                    : recipe.displayIngredients(l10n),
-              ),
-              _RecipeInfoSection(
-                title: l10n.recipesSectionPreparation,
-                hint: l10n.recipeDetailPreparationHint,
-                numbered: true,
-                body: recipe.displayPreparation(l10n),
-              ),
-              _RecipeInfoSection(
-                title: l10n.recipesSectionProHint,
-                body: recipe.displayProfessionalHint(l10n),
-                highlight: true,
-              ),
-            ],
+            ),
           ),
         ),
       ),

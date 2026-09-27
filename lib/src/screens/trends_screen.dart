@@ -97,25 +97,27 @@ class _TrendsScreenState extends State<TrendsScreen> {
       body: SafeArea(
         child: LivelyEntrance(
           // Column, not ListView: every metric must be in the element tree.
-          child: SingleChildScrollView(
-            key: const ValueKey('screen-trends'),
-            padding: const EdgeInsets.fromLTRB(20, 6, 20, 32),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                PageHeader(
-                  title: l10n.trendsTitle,
-                  backKey: const ValueKey('trends-close'),
-                ),
-                const SizedBox(height: 14),
-                _RangeSelector(
-                  ranges: _ranges,
-                  selected: _rangeDays,
-                  onSelected: (days) => setState(() => _rangeDays = days),
-                ),
-                const SizedBox(height: 14),
-                ..._buildContent(context),
-              ],
+          child: ReadableWidth(
+            child: SingleChildScrollView(
+              key: const ValueKey('screen-trends'),
+              padding: const EdgeInsets.fromLTRB(20, 6, 20, 32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  PageHeader(
+                    title: l10n.trendsTitle,
+                    backKey: const ValueKey('trends-close'),
+                  ),
+                  const SizedBox(height: 14),
+                  _RangeSelector(
+                    ranges: _ranges,
+                    selected: _rangeDays,
+                    onSelected: (days) => setState(() => _rangeDays = days),
+                  ),
+                  const SizedBox(height: 14),
+                  ..._buildContent(context),
+                ],
+              ),
             ),
           ),
         ),

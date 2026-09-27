@@ -469,24 +469,468 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
       child: Scaffold(
         backgroundColor: t.bg,
         body: SafeArea(
-          child: SingleChildScrollView(
-            controller: _scroll,
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    IconButton(
-                      key: const ValueKey('training-timer-back'),
-                      tooltip: l.trainingTimerBack,
-                      onPressed: _leaving ? null : () => _exitDialog(),
-                      icon: const Icon(Icons.arrow_back_rounded),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
+          child: ReadableWidth(
+            child: SingleChildScrollView(
+              controller: _scroll,
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      IconButton(
+                        key: const ValueKey('training-timer-back'),
+                        tooltip: l.trainingTimerBack,
+                        onPressed: _leaving ? null : () => _exitDialog(),
+                        icon: const Icon(Icons.arrow_back_rounded),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _session.workout.title,
+                          style: AppType.ui(
+                            15,
+                            weight: FontWeight.w600,
+                            color: t.ink,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  if (_saveFailed) ...[
+                    Semantics(
+                      liveRegion: true,
                       child: Text(
-                        _session.workout.title,
+                        l.trainingTimerSaveFailed,
+                        key: const ValueKey('training-timer-save-error'),
+                        style: AppType.ui(14, color: t.danger),
+                      ),
+                    ),
+                    _secondary(
+                      'retry',
+                      l.trainingTimerRetry,
+                      Icons.refresh_rounded,
+                      _pendingWrites > 0
+                          ? null
+                          : () {
+                              unawaited(_persist(_retryIntent));
+                            },
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  Text(
+                    l.trainingTimerProgress(
+                      _session.completedSetCount,
+                      _session.totalSets,
+                    ),
+                    key: const ValueKey('training-timer-progress-label'),
+                    style: AppType.ui(14, color: t.ink2),
+                  ),
+                  const SizedBox(height: 8),
+                  LinearProgressIndicator(
+                    value: _session.progress,
+                    minHeight: 4,
+                    borderRadius: BorderRadius.circular(rPill),
+                    color: t.accent,
+                    backgroundColor: t.tile,
+                    semanticsLabel: l.trainingTimerProgress(
+                      _session.completedSetCount,
+                      _session.totalSets,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Container(
+                    key: const ValueKey('training-timer-hero'),
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: t.forest,
+                      borderRadius: BorderRadius.circular(rHero),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        HeadingSemantics(
+                          level: 1,
+                          child: Text(
+                            review
+                                ? l.trainingTimerReview
+                                : rest
+                                ? l.trainingTimerRest
+                                : _session.exercise.name,
+                            style: AppType.display(
+                              22,
+                              color: t.onForest,
+                              height: 1.15,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          review
+                              ? l.trainingTimerSkipped(
+                                  _session.skippedSets.length,
+                                )
+                              : l.trainingTimerSet(
+                                  _session.setIndex + 1,
+                                  _session.exercise.sets,
+                                ),
+                          style: AppType.ui(14, color: t.onForest),
+                        ),
+                        const SizedBox(height: 24),
+                        if (review)
+                          Text(
+                            l.trainingTimerProgress(
+                              _session.completedSetCount,
+                              _session.totalSets,
+                            ),
+                            style: AppType.display(28, color: t.onForest),
+                          )
+                        else if (timed)
+                          Semantics(
+                            key: const ValueKey('training-timer-readout'),
+                            label: l.trainingTimerSecondsRemaining(seconds),
+                            child: ExcludeSemantics(
+                              child: LayoutBuilder(
+                                builder: (context, constraints) {
+                                  final largeText =
+                                      MediaQuery.textScalerOf(context).scale(64) >
+                                      90;
+                                  if (!largeText) {
+                                    return Text(
+                                      '$minutesPart:$secondsPart',
+                                      textAlign: TextAlign.center,
+                                      style: AppType.display(
+                                        64,
+                                        color: t.onForest,
+                                        height: 1,
+                                      ),
+                                    );
+                                  }
+                                  return Wrap(
+                                    alignment: WrapAlignment.center,
+                                    spacing: 24,
+                                    runSpacing: 16,
+                                    children: [
+                                      _timePart(
+                                        minutesPart,
+                                        l.trainingTimerMinutes,
+                                      ),
+                                      _timePart(
+                                        secondsPart,
+                                        l.trainingTimerSeconds,
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
+                            ),
+                          )
+                        else ...[
+                          Text(
+                            '${_session.exercise.reps}',
+                            textAlign: TextAlign.center,
+                            style: AppType.display(
+                              64,
+                              color: t.onForest,
+                              height: 1,
+                            ),
+                          ),
+                          Text(
+                            l.trainingTimerRepetitions,
+                            textAlign: TextAlign.center,
+                            style: AppType.ui(15, color: t.onForest),
+                          ),
+                        ],
+                        const SizedBox(height: 24),
+                        Semantics(
+                          liveRegion: true,
+                          label: l.trainingTimerAnnouncement(
+                            review
+                                ? l.trainingTimerReview
+                                : _session.exercise.name,
+                            review
+                                ? l.trainingTimerProgress(
+                                    _session.completedSetCount,
+                                    _session.totalSets,
+                                  )
+                                : l.trainingTimerSet(
+                                    _session.setIndex + 1,
+                                    _session.exercise.sets,
+                                  ),
+                            rest ? '${l.trainingTimerRest}. $status' : status,
+                          ),
+                          child: ExcludeSemantics(
+                            child: Text(
+                              status,
+                              key: const ValueKey('training-timer-status'),
+                              textAlign: TextAlign.center,
+                              style: AppType.ui(
+                                15,
+                                weight: FontWeight.w600,
+                                color: t.onForest,
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (!review && timed) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            atZero
+                                ? l.trainingTimerConfirmHint
+                                : l.trainingTimerAutomaticHint,
+                            textAlign: TextAlign.center,
+                            style: AppType.ui(14, color: t.onForest, height: 1.4),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  if (!review && !rest) ...[
+                    if (_lastPerformance.isNotEmpty) ...[
+                      SectionHeading(title: l.trainingHistoryLastTime),
+                      const SizedBox(height: 8),
+                      for (final actual in _lastPerformance)
+                        Text(
+                          l.trainingHistorySetValue(
+                            actual.reference.setIndex + 1,
+                            actual.reps == null
+                                ? l.trainingHistoryTimed
+                                : l.trainingHistoryRepsValue(actual.reps!),
+                            actual.weightKg == null
+                                ? l.trainingActualNoWeight
+                                : l.trainingHistoryWeightValue(
+                                    actual.weightKg!.toString(),
+                                  ),
+                          ),
+                          style: AppType.ui(14, color: t.ink2, height: 1.5),
+                        ),
+                      const SizedBox(height: 16),
+                    ],
+                    TrainingActualFields(
+                      key: ValueKey('actual-$_phaseIdentity'),
+                      timed: _session.exercise.isTimed,
+                      reps: _session.actualReps,
+                      weightKg: _session.actualWeightKg,
+                      enabled: !_leaving && _pendingCompletion == null,
+                      onValidityChanged: (valid) {
+                        _session.pause();
+                        setState(() => _actualValid = valid);
+                      },
+                      onChanged: (reps, weight) {
+                        _session.setCurrentActual(reps: reps, weightKg: weight);
+                        _pendingCompletion = null;
+                        unawaited(_persist());
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  if (review) ...[
+                    SectionHeading(title: l.trainingActualReview),
+                    const SizedBox(height: 12),
+                    for (final reference in _session.completedSets) ...[
+                      Text(
+                        '${_session.workout.exercises[reference.exerciseIndex].name} \u00b7 ${l.trainingTimerSet(reference.setIndex + 1, _session.workout.exercises[reference.exerciseIndex].sets)}',
+                        style: AppType.ui(
+                          15,
+                          color: t.ink,
+                          weight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      if (_session
+                              .workout
+                              .exercises[reference.exerciseIndex]
+                              .isTimed &&
+                          !_session.actualSets.any(
+                            (a) => a.reference == reference,
+                          ))
+                        TextButton(
+                          onPressed: _leaving
+                              ? null
+                              : () {
+                                  _session.setCompletedActual(reference);
+                                  unawaited(_persist());
+                                },
+                          child: Text(l.trainingActualConfirmLegacyTimed),
+                        ),
+                      TrainingActualFields(
+                        key: ValueKey(
+                          'review-${reference.exerciseIndex}-${reference.setIndex}',
+                        ),
+                        timed: _session
+                            .workout
+                            .exercises[reference.exerciseIndex]
+                            .isTimed,
+                        reps: _session.actualSets
+                            .where((a) => a.reference == reference)
+                            .firstOrNull
+                            ?.reps,
+                        weightKg: _session.actualSets
+                            .where((a) => a.reference == reference)
+                            .firstOrNull
+                            ?.weightKg,
+                        enabled: !_leaving && _pendingCompletion == null,
+                        onValidityChanged: (valid) => setState(() {
+                          if (valid) {
+                            _invalidActuals.remove(reference);
+                          } else {
+                            _invalidActuals.add(reference);
+                          }
+                        }),
+                        onChanged: (reps, weight) {
+                          _session.setCompletedActual(
+                            reference,
+                            reps: reps,
+                            weightKg: weight,
+                          );
+                          _pendingCompletion = null;
+                          unawaited(_persist());
+                        },
+                      ),
+                      const SizedBox(height: 20),
+                    ],
+                    if (!_completionValuesValid)
+                      Text(
+                        l.trainingActualMissing,
+                        style: AppType.ui(14, color: t.danger),
+                      ),
+                    Text(
+                      l.trainingHistoryNote,
+                      style: AppType.ui(13, color: t.ink2),
+                    ),
+                    const SizedBox(height: 8),
+                    SheetField(
+                      controller: _note,
+                      fieldKey: const ValueKey('training-history-note'),
+                      label: null,
+                      semanticLabel: l.trainingHistoryNote,
+                      hint: l.trainingActualOptional,
+                      maxLines: 3,
+                      inputFormatters: [_TrainingNoteFormatter()],
+                      enabled: !_leaving && _pendingCompletion == null,
+                      onChanged: (_) {
+                        _pendingCompletion = null;
+                        unawaited(_persist());
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  PrimaryActionButton(
+                    key: const ValueKey('training-timer-primary'),
+                    label: primaryLabel,
+                    icon: review || atZero || (!timed && running)
+                        ? Icons.check_rounded
+                        : running
+                        ? Icons.pause_rounded
+                        : Icons.play_arrow_rounded,
+                    onTap:
+                        _leaving ||
+                            _pendingCompletion != null ||
+                            (!review && !_actualValid) ||
+                            (review && !_completionValuesValid)
+                        ? null
+                        : primaryAction,
+                  ),
+                  const SizedBox(height: 12),
+                  if (!review) ...[
+                    if (!timed)
+                      _secondary(
+                        'pause',
+                        l.trainingTimerPause,
+                        Icons.pause_rounded,
+                        running ? _session.pause : null,
+                      ),
+                    if (timed)
+                      _controlPair(
+                        _secondary(
+                          'rewind',
+                          l.trainingTimerRewind,
+                          Icons.replay_10_rounded,
+                          _session.rewind10Seconds,
+                        ),
+                        _secondary(
+                          'forward',
+                          l.trainingTimerForward,
+                          Icons.forward_10_rounded,
+                          _session.forward10Seconds,
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                    _secondary(
+                      'reset',
+                      l.trainingTimerReset,
+                      Icons.restart_alt_rounded,
+                      _session.resetPhase,
+                    ),
+                    if (rest) ...[
+                      const SizedBox(height: 8),
+                      _secondary(
+                        'skip-rest',
+                        l.trainingTimerSkipRest,
+                        Icons.skip_next_rounded,
+                        _session.continueAfterRest,
+                      ),
+                    ],
+                  ],
+                  const SizedBox(height: 24),
+                  HeadingSemantics(
+                    level: 2,
+                    child: Text(
+                      l.trainingTimerNavigate,
+                      style: AppType.ui(
+                        15,
+                        weight: FontWeight.w600,
+                        color: t.ink,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _controlPair(
+                    _secondary(
+                      'previous-set',
+                      l.trainingTimerPreviousSet,
+                      Icons.chevron_left_rounded,
+                      _session.canPreviousSet ? _session.previousSet : null,
+                    ),
+                    rest
+                        ? null
+                        : _secondary(
+                            'next-set',
+                            l.trainingTimerNextSet,
+                            Icons.chevron_right_rounded,
+                            review ? null : _session.nextSet,
+                          ),
+                  ),
+                  const SizedBox(height: 8),
+                  _controlPair(
+                    _secondary(
+                      'previous-exercise',
+                      l.trainingTimerPreviousExercise,
+                      Icons.skip_previous_rounded,
+                      _session.canPreviousExercise
+                          ? _session.previousExercise
+                          : null,
+                    ),
+                    _secondary(
+                      'next-exercise',
+                      l.trainingTimerNextExercise,
+                      Icons.skip_next_rounded,
+                      review ? null : _session.nextExercise,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    l.trainingTimerNavigationHint,
+                    style: AppType.ui(13, color: t.ink2, height: 1.4),
+                  ),
+                  if (!review && _session.exercise.notes.isNotEmpty) ...[
+                    const SizedBox(height: 24),
+                    HeadingSemantics(
+                      level: 2,
+                      child: Text(
+                        l.trainingTimerInstructions,
                         style: AppType.ui(
                           15,
                           weight: FontWeight.w600,
@@ -494,507 +938,65 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
                         ),
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                if (_saveFailed) ...[
-                  Semantics(
-                    liveRegion: true,
-                    child: Text(
-                      l.trainingTimerSaveFailed,
-                      key: const ValueKey('training-timer-save-error'),
-                      style: AppType.ui(14, color: t.danger),
-                    ),
-                  ),
-                  _secondary(
-                    'retry',
-                    l.trainingTimerRetry,
-                    Icons.refresh_rounded,
-                    _pendingWrites > 0
-                        ? null
-                        : () {
-                            unawaited(_persist(_retryIntent));
-                          },
-                  ),
-                  const SizedBox(height: 16),
-                ],
-                Text(
-                  l.trainingTimerProgress(
-                    _session.completedSetCount,
-                    _session.totalSets,
-                  ),
-                  key: const ValueKey('training-timer-progress-label'),
-                  style: AppType.ui(14, color: t.ink2),
-                ),
-                const SizedBox(height: 8),
-                LinearProgressIndicator(
-                  value: _session.progress,
-                  minHeight: 4,
-                  borderRadius: BorderRadius.circular(rPill),
-                  color: t.accent,
-                  backgroundColor: t.tile,
-                  semanticsLabel: l.trainingTimerProgress(
-                    _session.completedSetCount,
-                    _session.totalSets,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Container(
-                  key: const ValueKey('training-timer-hero'),
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: t.forest,
-                    borderRadius: BorderRadius.circular(rHero),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      HeadingSemantics(
-                        level: 1,
-                        child: Text(
-                          review
-                              ? l.trainingTimerReview
-                              : rest
-                              ? l.trainingTimerRest
-                              : _session.exercise.name,
-                          style: AppType.display(
-                            22,
-                            color: t.onForest,
-                            height: 1.15,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        review
-                            ? l.trainingTimerSkipped(
-                                _session.skippedSets.length,
-                              )
-                            : l.trainingTimerSet(
-                                _session.setIndex + 1,
-                                _session.exercise.sets,
-                              ),
-                        style: AppType.ui(14, color: t.onForest),
-                      ),
-                      const SizedBox(height: 24),
-                      if (review)
-                        Text(
-                          l.trainingTimerProgress(
-                            _session.completedSetCount,
-                            _session.totalSets,
-                          ),
-                          style: AppType.display(28, color: t.onForest),
-                        )
-                      else if (timed)
-                        Semantics(
-                          key: const ValueKey('training-timer-readout'),
-                          label: l.trainingTimerSecondsRemaining(seconds),
-                          child: ExcludeSemantics(
-                            child: LayoutBuilder(
-                              builder: (context, constraints) {
-                                final largeText =
-                                    MediaQuery.textScalerOf(context).scale(64) >
-                                    90;
-                                if (!largeText) {
-                                  return Text(
-                                    '$minutesPart:$secondsPart',
-                                    textAlign: TextAlign.center,
-                                    style: AppType.display(
-                                      64,
-                                      color: t.onForest,
-                                      height: 1,
-                                    ),
-                                  );
-                                }
-                                return Wrap(
-                                  alignment: WrapAlignment.center,
-                                  spacing: 24,
-                                  runSpacing: 16,
-                                  children: [
-                                    _timePart(
-                                      minutesPart,
-                                      l.trainingTimerMinutes,
-                                    ),
-                                    _timePart(
-                                      secondsPart,
-                                      l.trainingTimerSeconds,
-                                    ),
-                                  ],
-                                );
-                              },
-                            ),
-                          ),
-                        )
-                      else ...[
-                        Text(
-                          '${_session.exercise.reps}',
-                          textAlign: TextAlign.center,
-                          style: AppType.display(
-                            64,
-                            color: t.onForest,
-                            height: 1,
-                          ),
-                        ),
-                        Text(
-                          l.trainingTimerRepetitions,
-                          textAlign: TextAlign.center,
-                          style: AppType.ui(15, color: t.onForest),
-                        ),
-                      ],
-                      const SizedBox(height: 24),
-                      Semantics(
-                        liveRegion: true,
-                        label: l.trainingTimerAnnouncement(
-                          review
-                              ? l.trainingTimerReview
-                              : _session.exercise.name,
-                          review
-                              ? l.trainingTimerProgress(
-                                  _session.completedSetCount,
-                                  _session.totalSets,
-                                )
-                              : l.trainingTimerSet(
-                                  _session.setIndex + 1,
-                                  _session.exercise.sets,
-                                ),
-                          rest ? '${l.trainingTimerRest}. $status' : status,
-                        ),
-                        child: ExcludeSemantics(
-                          child: Text(
-                            status,
-                            key: const ValueKey('training-timer-status'),
-                            textAlign: TextAlign.center,
-                            style: AppType.ui(
-                              15,
-                              weight: FontWeight.w600,
-                              color: t.onForest,
-                            ),
-                          ),
-                        ),
-                      ),
-                      if (!review && timed) ...[
-                        const SizedBox(height: 8),
-                        Text(
-                          atZero
-                              ? l.trainingTimerConfirmHint
-                              : l.trainingTimerAutomaticHint,
-                          textAlign: TextAlign.center,
-                          style: AppType.ui(14, color: t.onForest, height: 1.4),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                if (!review && !rest) ...[
-                  if (_lastPerformance.isNotEmpty) ...[
-                    SectionHeading(title: l.trainingHistoryLastTime),
                     const SizedBox(height: 8),
-                    for (final actual in _lastPerformance)
-                      Text(
-                        l.trainingHistorySetValue(
-                          actual.reference.setIndex + 1,
-                          actual.reps == null
-                              ? l.trainingHistoryTimed
-                              : l.trainingHistoryRepsValue(actual.reps!),
-                          actual.weightKg == null
-                              ? l.trainingActualNoWeight
-                              : l.trainingHistoryWeightValue(
-                                  actual.weightKg!.toString(),
-                                ),
-                        ),
-                        style: AppType.ui(14, color: t.ink2, height: 1.5),
-                      ),
+                    Text(
+                      _session.exercise.notes,
+                      style: AppType.ui(15, color: t.ink, height: 1.5),
+                    ),
+                  ],
+                  if (!review &&
+                      nextIndex < _session.workout.exercises.length) ...[
+                    const SizedBox(height: 24),
+                    Divider(color: t.line),
                     const SizedBox(height: 16),
-                  ],
-                  TrainingActualFields(
-                    key: ValueKey('actual-$_phaseIdentity'),
-                    timed: _session.exercise.isTimed,
-                    reps: _session.actualReps,
-                    weightKg: _session.actualWeightKg,
-                    enabled: !_leaving && _pendingCompletion == null,
-                    onValidityChanged: (valid) {
-                      _session.pause();
-                      setState(() => _actualValid = valid);
-                    },
-                    onChanged: (reps, weight) {
-                      _session.setCurrentActual(reps: reps, weightKg: weight);
-                      _pendingCompletion = null;
-                      unawaited(_persist());
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                ],
-                if (review) ...[
-                  SectionHeading(title: l.trainingActualReview),
-                  const SizedBox(height: 12),
-                  for (final reference in _session.completedSets) ...[
                     Text(
-                      '${_session.workout.exercises[reference.exerciseIndex].name} \u00b7 ${l.trainingTimerSet(reference.setIndex + 1, _session.workout.exercises[reference.exerciseIndex].sets)}',
-                      style: AppType.ui(
-                        15,
-                        color: t.ink,
-                        weight: FontWeight.w600,
-                      ),
+                      l.trainingTimerUpNext,
+                      style: AppType.ui(13, color: t.ink2),
                     ),
-                    const SizedBox(height: 12),
-                    if (_session
-                            .workout
-                            .exercises[reference.exerciseIndex]
-                            .isTimed &&
-                        !_session.actualSets.any(
-                          (a) => a.reference == reference,
-                        ))
-                      TextButton(
-                        onPressed: _leaving
-                            ? null
-                            : () {
-                                _session.setCompletedActual(reference);
-                                unawaited(_persist());
-                              },
-                        child: Text(l.trainingActualConfirmLegacyTimed),
-                      ),
-                    TrainingActualFields(
-                      key: ValueKey(
-                        'review-${reference.exerciseIndex}-${reference.setIndex}',
-                      ),
-                      timed: _session
-                          .workout
-                          .exercises[reference.exerciseIndex]
-                          .isTimed,
-                      reps: _session.actualSets
-                          .where((a) => a.reference == reference)
-                          .firstOrNull
-                          ?.reps,
-                      weightKg: _session.actualSets
-                          .where((a) => a.reference == reference)
-                          .firstOrNull
-                          ?.weightKg,
-                      enabled: !_leaving && _pendingCompletion == null,
-                      onValidityChanged: (valid) => setState(() {
-                        if (valid) {
-                          _invalidActuals.remove(reference);
-                        } else {
-                          _invalidActuals.add(reference);
-                        }
-                      }),
-                      onChanged: (reps, weight) {
-                        _session.setCompletedActual(
-                          reference,
-                          reps: reps,
-                          weightKg: weight,
-                        );
-                        _pendingCompletion = null;
-                        unawaited(_persist());
-                      },
-                    ),
-                    const SizedBox(height: 20),
-                  ],
-                  if (!_completionValuesValid)
+                    const SizedBox(height: 6),
                     Text(
-                      l.trainingActualMissing,
-                      style: AppType.ui(14, color: t.danger),
-                    ),
-                  Text(
-                    l.trainingHistoryNote,
-                    style: AppType.ui(13, color: t.ink2),
-                  ),
-                  const SizedBox(height: 8),
-                  SheetField(
-                    controller: _note,
-                    fieldKey: const ValueKey('training-history-note'),
-                    label: null,
-                    semanticLabel: l.trainingHistoryNote,
-                    hint: l.trainingActualOptional,
-                    maxLines: 3,
-                    inputFormatters: [_TrainingNoteFormatter()],
-                    enabled: !_leaving && _pendingCompletion == null,
-                    onChanged: (_) {
-                      _pendingCompletion = null;
-                      unawaited(_persist());
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                ],
-                PrimaryActionButton(
-                  key: const ValueKey('training-timer-primary'),
-                  label: primaryLabel,
-                  icon: review || atZero || (!timed && running)
-                      ? Icons.check_rounded
-                      : running
-                      ? Icons.pause_rounded
-                      : Icons.play_arrow_rounded,
-                  onTap:
-                      _leaving ||
-                          _pendingCompletion != null ||
-                          (!review && !_actualValid) ||
-                          (review && !_completionValuesValid)
-                      ? null
-                      : primaryAction,
-                ),
-                const SizedBox(height: 12),
-                if (!review) ...[
-                  if (!timed)
-                    _secondary(
-                      'pause',
-                      l.trainingTimerPause,
-                      Icons.pause_rounded,
-                      running ? _session.pause : null,
-                    ),
-                  if (timed)
-                    _controlPair(
-                      _secondary(
-                        'rewind',
-                        l.trainingTimerRewind,
-                        Icons.replay_10_rounded,
-                        _session.rewind10Seconds,
-                      ),
-                      _secondary(
-                        'forward',
-                        l.trainingTimerForward,
-                        Icons.forward_10_rounded,
-                        _session.forward10Seconds,
-                      ),
-                    ),
-                  const SizedBox(height: 8),
-                  _secondary(
-                    'reset',
-                    l.trainingTimerReset,
-                    Icons.restart_alt_rounded,
-                    _session.resetPhase,
-                  ),
-                  if (rest) ...[
-                    const SizedBox(height: 8),
-                    _secondary(
-                      'skip-rest',
-                      l.trainingTimerSkipRest,
-                      Icons.skip_next_rounded,
-                      _session.continueAfterRest,
+                      _session.workout.exercises[nextIndex].name,
+                      style: AppType.display(20, color: t.ink),
                     ),
                   ],
-                ],
-                const SizedBox(height: 24),
-                HeadingSemantics(
-                  level: 2,
-                  child: Text(
-                    l.trainingTimerNavigate,
-                    style: AppType.ui(
-                      15,
-                      weight: FontWeight.w600,
-                      color: t.ink,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                _controlPair(
-                  _secondary(
-                    'previous-set',
-                    l.trainingTimerPreviousSet,
-                    Icons.chevron_left_rounded,
-                    _session.canPreviousSet ? _session.previousSet : null,
-                  ),
-                  rest
-                      ? null
-                      : _secondary(
-                          'next-set',
-                          l.trainingTimerNextSet,
-                          Icons.chevron_right_rounded,
-                          review ? null : _session.nextSet,
-                        ),
-                ),
-                const SizedBox(height: 8),
-                _controlPair(
-                  _secondary(
-                    'previous-exercise',
-                    l.trainingTimerPreviousExercise,
-                    Icons.skip_previous_rounded,
-                    _session.canPreviousExercise
-                        ? _session.previousExercise
-                        : null,
-                  ),
-                  _secondary(
-                    'next-exercise',
-                    l.trainingTimerNextExercise,
-                    Icons.skip_next_rounded,
-                    review ? null : _session.nextExercise,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  l.trainingTimerNavigationHint,
-                  style: AppType.ui(13, color: t.ink2, height: 1.4),
-                ),
-                if (!review && _session.exercise.notes.isNotEmpty) ...[
                   const SizedBox(height: 24),
-                  HeadingSemantics(
-                    level: 2,
-                    child: Text(
-                      l.trainingTimerInstructions,
-                      style: AppType.ui(
-                        15,
-                        weight: FontWeight.w600,
-                        color: t.ink,
-                      ),
+                  if (!review)
+                    TextButton(
+                      key: const ValueKey('training-timer-finish'),
+                      onPressed:
+                          _leaving ||
+                              _pendingCompletion != null ||
+                              !_completionValuesValid
+                          ? null
+                          : () => _exitDialog(finish: true),
+                      child: Text(l.trainingTimerFinish),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _session.exercise.notes,
-                    style: AppType.ui(15, color: t.ink, height: 1.5),
-                  ),
-                ],
-                if (!review &&
-                    nextIndex < _session.workout.exercises.length) ...[
-                  const SizedBox(height: 24),
-                  Divider(color: t.line),
-                  const SizedBox(height: 16),
-                  Text(
-                    l.trainingTimerUpNext,
-                    style: AppType.ui(13, color: t.ink2),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _session.workout.exercises[nextIndex].name,
-                    style: AppType.display(20, color: t.ink),
-                  ),
-                ],
-                const SizedBox(height: 24),
-                if (!review)
                   TextButton(
-                    key: const ValueKey('training-timer-finish'),
-                    onPressed:
-                        _leaving ||
-                            _pendingCompletion != null ||
-                            !_completionValuesValid
+                    key: const ValueKey('training-timer-discard'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: t.danger,
+                      minimumSize: const Size(0, 48),
+                    ),
+                    onPressed: _leaving || _pendingCompletion != null
                         ? null
-                        : () => _exitDialog(finish: true),
-                    child: Text(l.trainingTimerFinish),
+                        : () => _exitDialog(discard: true),
+                    child: Text(l.trainingTimerDiscard),
                   ),
-                TextButton(
-                  key: const ValueKey('training-timer-discard'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: t.danger,
-                    minimumSize: const Size(0, 48),
+                  const SizedBox(height: 12),
+                  Text(
+                    _saveFailed
+                        ? l.trainingTimerNotSaved
+                        : _pendingWrites > 0
+                        ? l.trainingTimerSaving
+                        : _hasSaved
+                        ? l.trainingTimerSaved
+                        : l.trainingTimerNotSaved,
+                    key: const ValueKey('training-timer-save-status'),
+                    textAlign: TextAlign.center,
+                    style: AppType.ui(13, color: t.ink2),
                   ),
-                  onPressed: _leaving || _pendingCompletion != null
-                      ? null
-                      : () => _exitDialog(discard: true),
-                  child: Text(l.trainingTimerDiscard),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  _saveFailed
-                      ? l.trainingTimerNotSaved
-                      : _pendingWrites > 0
-                      ? l.trainingTimerSaving
-                      : _hasSaved
-                      ? l.trainingTimerSaved
-                      : l.trainingTimerNotSaved,
-                  key: const ValueKey('training-timer-save-status'),
-                  textAlign: TextAlign.center,
-                  style: AppType.ui(13, color: t.ink2),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
