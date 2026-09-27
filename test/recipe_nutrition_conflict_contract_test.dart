@@ -36,6 +36,11 @@ void main() {
       expect(restored.displayNutrition.fatG, 20);
       expect(restored.displayNutrition.proteinG, conflicted ? null : 47);
       expect(restored.displayNutrition.carbsG, conflicted ? null : 68);
+      if (fixture['name'] == 'inline source ingredient heading') {
+        expect(restored.ingredientsBasis, RecipeIngredientsBasis.perRecipe);
+        expect(restored.ingredients, '160g Mehl');
+        expect(restored.ingredientProjectionForServings(1).text, '80g Mehl');
+      }
       expect(restored.nutritionConflicts, conflicted ? ['protein_g'] : isEmpty);
       expect(
         restored.displayCategories.any(

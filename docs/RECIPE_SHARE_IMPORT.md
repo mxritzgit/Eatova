@@ -98,6 +98,9 @@ The model supplies an exact `ingredient_basis_quote`; the server accepts it only
 when it contains the complete ingredient list and an unambiguous matching yield
 or per-serving reference. Cropped ranges, conflicting yields, mixed references
 and evidence borrowed from another recipe cannot authorize division.
+Explicit ingredient headings followed by a colon also work when TikTok flattens
+the heading and quantities onto one line. This only establishes the ingredient
+reference: it neither rewrites source text nor confirms the nutrition basis.
 
 For example, 800 g mince for four servings displays as 200 g per serving. Nutrition
 already stated per piece stays unchanged; proven whole-recipe nutrition is divided

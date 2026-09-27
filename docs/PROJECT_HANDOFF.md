@@ -2011,6 +2011,13 @@ before final import save. It never silently relabels the caption's second protei
 amount as carbohydrates. Identity, source quantities, account guards and retry
 semantics are retained; no database migration or source-caption persistence is added.
 
+Replaying the fetched caption also exposed standalone-line assumptions in the
+ingredient-reference validator. Explicit colon-delimited ingredient headers now
+work in flattened TikTok captions. Repeated/mixed references, cropped preceding
+references and nutrition-only headings remain guarded. Shared fixtures prove
+160 g for two servings displays as 80 g without dividing unqualified nutrition;
+unsupported quantity lists still retain their complete original batch context.
+
 The [shared server/client regressions](../test/fixtures/recipe_import/nutrition_conflict_contract.json)
 cover both original and cropped evidence plus a correctly labelled control.
 Both faulty cases fail against the preceding implementation. Additional tests
@@ -2023,7 +2030,7 @@ captures use `CAPTURE_NUTRITION_REVIEW=true` with
 Exactly two existing Astra agents implemented backend and client changes;
 the parent reviewed the diffs and ran independent integration checks: strict
 analysis, **5,346 Flutter tests across 528 files**, **95.19%** line coverage,
-**824 Deno tests** both combined and across 49 isolated files, 11 offline
+**831 Deno tests** both combined and across 50 isolated files, 11 offline
 evaluations, lint/type checks and a clean secret scan. Bulleted nutrition rows
 after blank lines have a separate failing-before/passing-after regression. Final
 validation, protected-main delivery and CI evidence are recorded in the PR for

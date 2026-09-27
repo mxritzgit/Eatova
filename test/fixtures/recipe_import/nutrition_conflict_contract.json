@@ -200,5 +200,74 @@
       ],
       "warnings": []
     }
+  },
+  {
+    "name": "inline source ingredient heading",
+    "source": {
+      "source": {
+        "url": null
+      },
+      "text": "Zutaten für 2 Portionen: 160g Mehl\nZubereitung: In die Pfanne geben.\nNährwerte: 650 kcal 47g Protein 68g Protein 20g Fett",
+      "incomplete": false,
+      "truncated": false
+    },
+    "provider": {
+      "status": "ready",
+      "truncated": false,
+      "candidates": [
+        {
+          "title": "Kaiserschmarrn",
+          "description_quote": "",
+          "portion_quote": "2 Portionen",
+          "ingredient_quotes": [
+            "160g Mehl"
+          ],
+          "ingredient_basis_quote": "Zutaten für 2 Portionen: 160g Mehl",
+          "preparation_quotes": [
+            "In die Pfanne geben."
+          ],
+          "servings": 2,
+          "servings_quote": "2 Portionen",
+          "nutrition_basis": "unspecified",
+          "nutrition_quote": "Nährwerte: 650 kcal 47g Protein 68g Protein 20g Fett",
+          "calories_kcal": 650,
+          "protein_g": 47,
+          "carbs_g": 68,
+          "fat_g": 20,
+          "estimated_g": null
+        }
+      ]
+    },
+    "expected": {
+      "status": "ready",
+      "source": {
+        "url": null
+      },
+      "candidates": [
+        {
+          "id": "16ee13e00728d9e8c39ad51112dcc7ae",
+          "title": "Kaiserschmarrn",
+          "ingredients": "160g Mehl",
+          "preparation": "In die Pfanne geben.",
+          "description": "",
+          "portion": "2 Portionen",
+          "servings": 2,
+          "nutrition_estimated": false,
+          "calories_kcal": 650,
+          "protein_g": null,
+          "carbs_g": null,
+          "fat_g": 20,
+          "estimated_g": null,
+          "nutrition_basis": "unspecified",
+          "ingredients_basis": "per_recipe",
+          "nutrition_conflicts": [
+            "protein_g"
+          ]
+        }
+      ],
+      "warnings": [
+        "nutrition_missing"
+      ]
+    }
   }
 ]

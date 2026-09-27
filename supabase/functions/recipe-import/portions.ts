@@ -6,6 +6,19 @@ const perServingHeading = /^(?:zutaten|ingredients|mengen|amounts)?\s*(?:pro|je|
 const ingredientReference = /^(?:zutaten|ingredients|mengen|amounts)\s+(?:pro|je|per|für|fuer|for)\b/i;
 const bareReference = /^(?:pro|je|per)\s+/i;
 
+// Captions often flatten lists onto one line. Only explicit colon-delimited
+// references gain boundaries; quantities and prose cannot become yield headings.
+function referenceLines(evidence: string): string {
+  let ingredientEnd = 0;
+  return evidence.replace(/\b(?:(?:zutaten|ingredients|mengen|amounts)\s+(?:pro|je|per|für|fuer|for)|(?:pro|je|per))\s+[^:\r\n]{1,100}:/gi,
+    (heading: string, offset: number) => {
+      const prefix = evidence.slice(ingredientEnd, offset).split(/\r?\n/).at(-1) ?? '';
+      if (bareReference.test(heading) && nutritionHeading.test(prefix)) return heading;
+      if (!bareReference.test(heading)) ingredientEnd = offset + heading.length;
+      return `\n${heading.trim()}\n`;
+    });
+}
+
 /** A source substring must not crop a range, fraction or nutrition reference. */
 export function sourceYield(value: unknown, evidence: string, source: string): number | null {
   const servings = sourcedServings(value, evidence);
@@ -28,7 +41,7 @@ export function sourceYield(value: unknown, evidence: string, source: string): n
 // nutrition quantities cannot supply yields merely because they contain numbers.
 function yieldHeadings(evidence: string): (number | null)[] {
   const result: (number | null)[] = [];
-  for (const line of evidence.split(/\r?\n|(?<=[.!])\s+/)) {
+  for (const line of referenceLines(evidence).split(/\r?\n|(?<=[.!])\s+/)) {
     if (nutritionHeading.test(line)) continue;
     const text = line.trim().replace(/^(?:zutaten|ingredients)\s*:?\s*/i, '');
     const options = [text, ...[...text.matchAll(/\(([^()]*)\)/g)].map((match) => match[1])];
@@ -64,14 +77,17 @@ export function sourcedIngredientsBasis(
   // that these amounts apply to the batch.
   const start = source.indexOf(evidence);
   if (start < 0 || source.indexOf(evidence, start + evidence.length) >= 0) return 'unspecified';
-  const previous = source.slice(0, start).trimEnd().split(/\r?\n/).at(-1)?.trim() ?? '';
-  if (perServingHeading.test(previous) || ingredientReference.test(previous)) {
+  const previous = referenceLines(source.slice(0, start)).trimEnd().split(/\r?\n/).at(-1)?.trim() ?? '';
+  if (perServingHeading.test(previous) || ingredientReference.test(previous) || bareReference.test(previous)) {
     evidence = `${previous}\n${evidence}`;
   }
+  evidence = referenceLines(evidence);
   const headings = evidence.split(/\r?\n/);
+  const firstIngredient = Math.min(...ingredients.map((item) => evidence.indexOf(item)));
+  if (firstIngredient < 0) return 'unspecified';
+  if (evidence.slice(firstIngredient).split(/\r?\n/).some((line) => ingredientReference.test(line.trim()) || bareReference.test(line.trim()))) return 'unspecified';
   const servingHeadings = headings.filter((line) => perServingHeading.test(line.trim()));
   if (servingHeadings.length) {
-    const firstIngredient = Math.min(...ingredients.map((item) => evidence.indexOf(item)));
     if (headings.some((line) => (ingredientReference.test(line.trim()) || bareReference.test(line.trim())) && !perServingHeading.test(line.trim())) ||
         yieldHeadings(evidence.slice(firstIngredient)).length > 0) return 'unspecified';
     // Only one heading before the entire list establishes a uniform basis.
