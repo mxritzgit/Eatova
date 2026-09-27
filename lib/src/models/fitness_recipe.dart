@@ -517,12 +517,15 @@ class FitnessRecipe {
   bool get hasImportedIngredientContext => slug.startsWith('user_import_') ||
       categories.any((c) => c.startsWith(recipeIngredientsBasisPrefix));
 
-  RecipeIngredientProjection ingredientProjectionForServings(double servings) =>
+  RecipeIngredientProjection ingredientProjectionForServings(double servings,
+          {String decimalSeparator = '.'}) =>
       projectRecipeIngredients(ingredients, basis: ingredientsBasis,
-          batchServings: batchServings, servings: servings);
+          batchServings: batchServings, servings: servings,
+          decimalSeparator: decimalSeparator);
 
   String displayIngredients(AppLocalizations l10n, {double servings = 1}) {
-    final text = ingredientProjectionForServings(servings).text;
+    final text = ingredientProjectionForServings(servings,
+        decimalSeparator: l10n.localeName == 'de' ? ',' : '.').text;
     return userCreated
         ? _resolvePlaceholder(text, l10n, (x) => x.recipesNoDataProvided)
         : text;

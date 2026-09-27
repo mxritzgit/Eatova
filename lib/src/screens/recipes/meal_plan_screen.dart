@@ -527,7 +527,8 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
   List<Widget> _shoppingList(BuildContext context) {
     final l = context.l10n;
     final t = context.t;
-    final items = buildShoppingList(store.plannedMeals, _week);
+    final items = buildShoppingList(store.plannedMeals, _week,
+        decimalSeparator: l.localeName == 'de' ? ',' : '.');
     final done = items.where((i) => store.shoppingChecks[i.id] ?? false).length;
     final complete = items.isNotEmpty && done == items.length;
     return [

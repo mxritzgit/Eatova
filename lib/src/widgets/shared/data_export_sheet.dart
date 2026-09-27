@@ -203,7 +203,9 @@ class _DataExportSheetState extends State<DataExportSheet> {
       _jsonOutput || data.document == null
       ? data.document?.json ?? data.voll
       : data.document!.report(
-          l10n.exportSheetTitleFull,
+          widget.vollstaendig
+              ? l10n.exportSheetTitleFull
+              : l10n.exportSheetTitleSession,
           (key) => exportLabel(key, l10n),
         );
 
