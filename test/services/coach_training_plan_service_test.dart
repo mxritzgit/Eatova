@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:clock/clock.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
+import 'package:yet_another_json_isolate/yet_another_json_isolate.dart';
 
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/chat_message.dart';
@@ -83,15 +85,35 @@ http.Response _json(
   request: request,
 );
 
-SupabaseClient _client(http.Client transport) {
+SupabaseClient _client(http.Client transport, {YAJsonIsolate? isolate}) {
   final client = SupabaseClient(
     'https://example.invalid',
     'anon-fixture',
     httpClient: transport,
     authOptions: const AuthClientOptions(autoRefreshToken: false),
+    isolate: isolate,
   );
   addTearDown(client.dispose);
   return client;
+}
+
+/// JSON on the calling isolate. The SDK's default codec answers through a
+/// real isolate port, which fake time cannot advance.
+class _InlineJson implements YAJsonIsolate {
+  @override
+  String? get debugName => null;
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<void> dispose() async {}
+
+  @override
+  Future<dynamic> decode(String json) async => jsonDecode(json);
+
+  @override
+  Future<String> encode(Object? json) async => jsonEncode(json);
 }
 
 CoachChatService _service(
@@ -594,30 +616,40 @@ void main() {
   group('Training generation deadlines and ownership', () {
     test(
       'plan deadline allows the full generation budget without retry',
-      () async {
-        var historyCalls = 0;
-        final service = CoachChatService(
-          _client(
-            MockClient((request) async {
-              if (!request.url.path.contains('coach-chat')) {
-                historyCalls++;
-                return _json([], 200, request);
-              }
-              // Two milliseconds per production second. The real deadline drives
-              // the test so shrinking it below the server budget is observable.
-              await Future<void>.delayed(const Duration(milliseconds: 190));
-              return _json(_reply());
-            }),
-          ),
-          'A',
-          planFrist: Duration(
-            milliseconds: CoachChatService.planDeadline.inSeconds * 2,
-          ),
-          fristPuffer: Duration.zero,
-        );
-        final result = await _request(service);
-        expect(result.proposal!.title, 'Kraft im Alltag');
-        expect(historyCalls, 0);
+      () {
+        // Fake time with the production deadline. The former real-time proxy
+        // (190 of 210 ms) had to fit a JSON-isolate spawn and two isolate
+        // round trips into a 20 ms margin. Shrinking planDeadline below the
+        // server budget still fails this test.
+        fakeAsync((async) {
+          var historyCalls = 0;
+          final service = CoachChatService(
+            _client(
+              MockClient((request) async {
+                if (!request.url.path.contains('coach-chat')) {
+                  historyCalls++;
+                  return _json([], 200, request);
+                }
+                // The server's generation budget, 10 s inside the deadline.
+                await Future<void>.delayed(const Duration(seconds: 95));
+                return _json(_reply());
+              }),
+              isolate: _InlineJson(),
+            ),
+            'A',
+            fristPuffer: Duration.zero,
+          );
+          CoachPlanReply? result;
+          Object? failure;
+          _request(service).then<void>(
+            (reply) => result = reply,
+            onError: (Object error) => failure = error,
+          );
+          async.elapse(CoachChatService.planDeadline);
+          expect(failure, isNull);
+          expect(result!.proposal!.title, 'Kraft im Alltag');
+          expect(historyCalls, 0);
+        });
       },
     );
 
