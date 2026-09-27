@@ -1,5 +1,6 @@
 import type { RecipeSource, SourceContent } from './source.ts';
-import { sourcedNutrition } from './nutrition.ts';
+import { type NutritionField, sourcedNutrition } from './nutrition.ts';
+import { completeNutritionEvidence } from './nutrition_source.ts';
 import { consistentYield, type IngredientsBasis, sourcedIngredientsBasis, sourceYield } from './portions.ts';
 
 export type ImportWarning = 'nutrition_missing' | 'source_incomplete' | 'truncated';
@@ -15,6 +16,7 @@ export interface ImportCandidate {
   servings: number | null;
   nutrition_estimated: false;
   nutrition_basis: 'per_serving' | 'unspecified' | null;
+  nutrition_conflicts?: NutritionField[];
   calories_kcal: number | null;
   protein_g: number | null;
   carbs_g: number | null;
@@ -40,6 +42,7 @@ Rules:
 - title (max 160 chars) is a short descriptive label in ${locale === 'en' ? 'English' : 'German'}. variant_label (max 80 chars), description_quote and portion_quote must be exact source quotes, or empty. Keep variant_label in the source language; never invent or translate dietary labels. Never claim dietary/allergen suitability beyond what the source explicitly says.
 - servings is the explicitly stated recipe yield, otherwise null; servings_quote must prove it (e.g. "Für 2 Portionen" or "Für eine Pizza"/"Makes one pizza" = 1). Quote the yield phrase itself. Copy nutrition numbers EXACTLY AS WRITTEN, including decimals and zero. Never calculate or estimate. nutrition_quote must include the entire nutrition block WITH its basis, even when "pro Portion" appears AFTER the values. Recognize kcal/Kalorien, Protein/Eiweiß, KH/Kohlenhydrate/carbs, Fett/fat. Do not require all macros or a portion weight: copy each available value independently, unknown values are null.
 - Macro labels also include P = protein, C = carbohydrates, F = fat, case-insensitive, with grams before or after the label (e.g. "31g P 13g C 9g F", "P: 31g C: 13g F: 9g"). Copy them into protein_g, carbs_g and fat_g respectively and preserve the exact source quote. Single letters require gram amounts; ingredient names and oven temperatures such as "180 C" are not macros.
+- Preserve conflicting labels and all their numbers in the complete nutrition_quote. If a label has different values (e.g. "47g Protein 68g Protein"), that nutrient is null. Never relabel a repeated protein value as carbohydrates or infer a missing macro from calories, ingredients or expected nutrition. Identical repeated values are not a conflict; the server checks source evidence.
 - nutrition_basis describes the SOURCE: per_serving for an explicit serving/person/piece basis (including "pro Stück"), per_recipe for explicitly labelled totals, per_100g for that basis, unspecified if the caption lists values without stating a basis. Never reinterpret totals as per-serving. The server handles proven yield conversion. Do not combine nutrition from different recipes/variants. estimated_g is a stated weight, never an ingredient weight.
 - Nutrition values and serving counts are independent. Preserve a single complete nutrition block and all its numbers even when its heading is unfamiliar, misspelled, or its serving count is absent. Whole-dish/batch totals remain per_recipe with servings=null unless a yield is stated. Use portion_quote for the exact reference phrase (for example "whole dessert" or "per 100 g"). Do not copy several conflicting nutrition blocks into one nutrition_quote or omit the reference to make a block look per-serving.
 - When the recipe explicitly yields one complete dish (e.g. "Für eine Pizza"), its matching complete-recipe nutrition block is per_recipe with servings=1. Select the block for the actual ingredients: "mit Belag" belongs to the pizza with toppings, "ohne Belag" only to the untopped version. A per-100g or fractional-dish block never becomes whole-recipe nutrition through this rule. Without an explicit yield or nutrition basis, keep unspecified.
@@ -108,7 +111,9 @@ export async function parseExtraction(raw: string, content: SourceContent, versi
     const id = await candidateId(ingredients, preparation);
     if (seen.has(id)) continue;
     seen.add(id);
-    const nutritionQuote = quote(row.nutrition_quote, content.text, 2000);
+    const verifiedNutritionQuote = quote(row.nutrition_quote, content.text, 2000);
+    const nutritionQuote = version >= 2
+      ? completeNutritionEvidence(verifiedNutritionQuote, content.text) : verifiedNutritionQuote;
     const servingsQuote = quote(row.servings_quote, content.text, 200);
     const ingredientBasisQuote = quote(row.ingredient_basis_quote, content.text, 10000);
     const yieldScope = data.candidates.length === 1 ? content.text : ingredientBasisQuote;

@@ -1990,3 +1990,44 @@ Astra agents implemented and audited the work, followed by parent review and
 verification. Hosted timings, Android builds and the protected merge are recorded
 in the delivery PR for `fix/recipe-import-portions`. Local evidence is under
 `.agents/recipe-portions-2026-09-27/`; the original dirty checkout is preserved.
+
+## TikTok nutrition conflict diagnosis and correction, 2026-09-27
+
+The reported Kaiserschmarrn caption contains two different protein amounts
+(`47g Protein`, `68g Protein`) and no carbohydrate label. A fresh fetch through
+the production source loader returned the complete caption, including 650 kcal,
+20 g fat and a two-serving ingredient yield. That yield does not establish whether
+the nutrition describes one serving or the whole recipe. The historic provider
+response was not available; the screenshot behavior was independently reproduced
+with the current source and parser, without an authenticated or paid AI request.
+
+Two application defects were reproduced before correction: a model quote cropped
+to the second protein amount could conceal the earlier conflict, and the client
+showed a generic serving-confirmation hint while nutrients were still missing.
+The server now checks the bounded containing nutrition section and emits optional
+canonical conflict fields. The client preserves known values, distinguishes
+conflicts from missing nutrients, and offers a nutrition-only draft correction
+before final import save. It never silently relabels the caption's second protein
+amount as carbohydrates. Identity, source quantities, account guards and retry
+semantics are retained; no database migration or source-caption persistence is added.
+
+The [shared server/client regressions](../test/fixtures/recipe_import/nutrition_conflict_contract.json)
+cover both original and cropped evidence plus a correctly labelled control.
+Both faulty cases fail against the preceding implementation. Additional tests
+cover boundaries/hashtags, zero, source variants, persistence/export/logging,
+manual correction, cancellation and account changes. A real-font DE/EN,
+light/dark, regular/200% text matrix exercises the correction sheet; optional
+captures use `CAPTURE_NUTRITION_REVIEW=true` with
+`test/recipe_nutrition_review_layout_test.dart`.
+
+Exactly two existing Astra agents implemented backend and client changes;
+the parent reviewed the diffs and ran independent integration checks: strict
+analysis, **5,346 Flutter tests across 528 files**, **95.19%** line coverage,
+**824 Deno tests** both combined and across 49 isolated files, 11 offline
+evaluations, lint/type checks and a clean secret scan. Bulleted nutrition rows
+after blank lines have a separate failing-before/passing-after regression. Final
+validation, protected-main delivery and CI evidence are recorded in the PR for
+`fix/recipe-nutrition-conflicts`. Machine-local probes/logs are under
+`.agents/recipe-nutrition-2026-09-27/`; the original dirty checkout is untouched.
+The fix needs deployment of `recipe-import` and a rebuilt client. A merge alone
+does not establish either deployment or installation on the user's iPhone.

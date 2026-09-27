@@ -67,6 +67,46 @@ Future<void> open(
 );
 
 void main() {
+  testWidgets('saved caption conflict requires manual correction and stays corrected after reopen', (tester) async {
+    final original = RecipeImportCandidate.fromJson({
+      'id': 'kaiserschmarrn', 'title': 'Kaiserschmarrn', 'ingredients': '100 g flour', 'preparation': '',
+      'servings': 2, 'ingredients_basis': 'per_recipe',
+      'calories_kcal': 650, 'protein_g': null, 'carbs_g': null, 'fat_g': 20,
+      'nutrition_conflicts': ['protein_g'], 'nutrition_basis': 'unspecified', 'nutrition_estimated': false,
+    }).toRecipe(slug: 'user_import_conflict', sourceLabel: 'Source');
+    final saved = <FitnessRecipe>[];
+    final logged = <MealAnalysisResult>[];
+    await open(tester, recipe: FitnessRecipe.fromRow(original.toRow()),
+      save: (r) async { saved.add(r); return RecipeSaveResult.detached(r, SyncDelivery.queuedOffline); },
+      log: (r, _) => logged.add(r));
+    expect(find.text(enL10n.recipeNutritionCorrect), findsOneWidget);
+    await tap(tester, 'recipe-add-button');
+    expect(find.byKey(const ValueKey('recipe-nutrition-basis-sheet')), findsNothing);
+    for (final pair in {'kcal': '325', 'protein': '24', 'carbs': '34', 'fat': '10'}.entries) {
+      final field = find.byKey(ValueKey('recipe-create-${pair.key}'));
+      await tester.ensureVisible(field);
+      await tester.enterText(field, pair.value);
+    }
+    expect(tester.widget<FilledButton>(find.byKey(const ValueKey('recipe-create-save'))).onPressed, isNull);
+    await tap(tester, 'recipe-edit-confirm-nutrition-basis');
+    await tap(tester, 'recipe-create-save');
+    expect(saved, hasLength(1));
+    expect(logged, isEmpty);
+    final reopened = FitnessRecipe.fromRow(saved.single.toRow());
+    expect(reopened.nutritionConflicts, isEmpty);
+    expect(reopened.batchServings, 2);
+    expect(reopened.ingredients, original.ingredients);
+    expect(reopened.displayNutrition.caloriesKcal, 325);
+    await tap(tester, 'recipe-meal-picker-lunch');
+    expect(logged.single.caloriesKcal, 325);
+    expect(logged.single.protein, '24 g');
+    await open(tester, recipe: reopened, log: (r, _) => logged.add(r));
+    await tap(tester, 'recipe-add-button');
+    expect(find.byKey(const ValueKey('recipe-create-sheet')), findsNothing);
+    await tap(tester, 'recipe-meal-picker-dinner');
+    expect(logged.last.carbs, '34 g');
+  });
+
   testWidgets('complete caption values never show a missing-nutrition badge', (
     tester,
   ) async {

@@ -420,10 +420,8 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                   !recipe.calculationForServings(1).isComplete)) ...[
                 const SizedBox(height: 8),
                 Text(
-                  recipe.hasPendingNutrition && recipe.hasMissingNutrition
-                      ? l10n.recipeImportNutritionPendingHint
-                      : recipe.hasUnclearNutritionBasis
-                      ? l10n.recipeImportBasisHint
+                  recipe.hasPendingNutrition
+                      ? recipe.nutritionReviewHint(l10n)
                       : l10n.recipeEditIncompleteNutrition,
                   key: const ValueKey('recipe-nutrition-incomplete'),
                   style: AppType.ui(14, color: t.ink2, height: 1.4),
@@ -515,7 +513,7 @@ class _AddToMealCard extends StatelessWidget {
             label: Text(
               recipe.hasPendingNutrition
                   ? recipe.hasMissingNutrition
-                      ? l.recipeNutritionComplete
+                      ? recipe.nutritionConflicts.isNotEmpty ? l.recipeNutritionCorrect : l.recipeNutritionComplete
                       : l.recipeNutritionBasisCheck
                   : l.recipesAddToTrackerTitle,
               textAlign: TextAlign.center,
@@ -526,7 +524,7 @@ class _AddToMealCard extends StatelessWidget {
           Text(
             recipe.hasPendingNutrition
                 ? recipe.hasMissingNutrition
-                    ? l.recipeImportNutritionPendingHint
+                    ? recipe.nutritionReviewHint(l)
                     : l.recipeNutritionBasisBeforeLog
                 : l.recipesAddToTrackerHint,
             textAlign: TextAlign.center,

@@ -2585,5 +2585,14 @@
   "@recipeIngredientsOriginalBatch": {"placeholders": {"count": {"type": "String"}}},
   "recipeIngredientsOriginalServing": "Originalmengen für eine Portion, nicht umgerechnet.",
   "recipeIngredientsOriginalUnknown": "Originalmengen; Portionsbezug nicht bestätigt.",
-  "exportRecipePortionProjection": "Berechnete Portionsangaben"
+  "exportRecipePortionProjection": "Berechnete Portionsangaben",
+  "recipeNutritionCorrect": "Nährwerte korrigieren",
+  "recipeNutritionConflictFields": "Widersprüchliche Angaben in der Quelle: {fields}.",
+  "@recipeNutritionConflictFields": {"placeholders": {"fields": {"type": "String"}}},
+  "recipeNutritionMissingFields": "Fehlende Angaben: {fields}.",
+  "@recipeNutritionMissingFields": {"placeholders": {"fields": {"type": "String"}}},
+  "recipeNutritionCorrectionHint": "Trage vollständige, geprüfte Werte pro Portion ein.",
+  "recipeNutritionIncompleteBasisHint": "Ergänze die fehlenden Werte und prüfe, ob alle Angaben für eine Portion gelten.",
+  "recipeNutritionDraftIntro": "Passe die Vorschau an. Gespeichert wird mit „Rezept speichern“.",
+  "recipeNutritionApplyDraft": "In Vorschau übernehmen"
 }
