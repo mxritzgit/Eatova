@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'fitness_recipe.dart';
+
 /// Presentation and portable output of an export. Unknown fields are retained.
 class ExportDocument {
   ExportDocument._(this.data, this.sections);
@@ -155,7 +157,44 @@ class ExportSection {
 
   final String key;
   final dynamic value;
-  List<dynamic> get records => value is List ? value as List : [value];
+  List<dynamic> get records {
+    final rows = value is List ? value as List : [value];
+    return key == 'user_recipes' ? rows.map(_recipePresentation).toList() : rows;
+  }
+
+  /// Readable exports gain context; raw JSON and every original field survive.
+  static dynamic _recipePresentation(dynamic row) {
+    if (row is! Map<String, dynamic> ||
+        row.containsKey('eatova_serving_projection') ||
+        row['slug'] is! String || row['ingredients'] is! String ||
+        row['batch_servings'] is! num ||
+        row['categories'] is! List ||
+        (row['categories'] as List).any((c) => c is! String) ||
+        const ['calories_kcal', 'protein_g', 'carbs_g', 'fat_g'].any(
+          (key) => row[key] is! num || !(row[key] as num).isFinite || (row[key] as num) < 0)) {
+      return row;
+    }
+    try {
+      final recipe = FitnessRecipe.fromRow(row);
+      if (!recipe.hasImportedIngredientContext || recipe.hasStructuredIngredients) return row;
+      final projection = recipe.ingredientProjectionForServings(1);
+      return <String, dynamic>{
+        ...row,
+        'eatova_serving_projection': {
+          'source_ingredients_basis': switch (recipe.ingredientsBasis) {
+            RecipeIngredientsBasis.perRecipe => 'per_recipe',
+            RecipeIngredientsBasis.perServing => 'per_serving',
+            RecipeIngredientsBasis.unspecified => 'unspecified',
+          },
+          'nutrition_basis': recipe.hasUnclearNutritionBasis ? 'unspecified' : 'per_serving',
+          'nutrition_complete': !recipe.hasMissingNutrition,
+          'ingredients_per_serving': projection.isScaled ? projection.text : null,
+        },
+      };
+    } on FormatException {
+      return row;
+    }
+  }
   int get count => records.length;
 
   String report(String Function(String) label) {

@@ -51,6 +51,7 @@ String exportLabel(String key, AppLocalizations l10n) => switch (key) {
 
 String _fieldLabel(String key, AppLocalizations l10n, String fallback) =>
     switch (key) {
+      'eatova_serving_projection' => l10n.exportRecipePortionProjection,
       'id' => l10n.exportFieldId,
       'user_id' => l10n.exportFieldUserId,
       'created_at' => l10n.exportFieldCreatedAt,

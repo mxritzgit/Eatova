@@ -120,6 +120,29 @@ Future<void> _enter(WidgetTester tester, String key, String text) async {
 }
 
 void main() {
+  testWidgets('verified batch preview scales ingredients while editor and save retain source', (tester) async {
+    const candidate = RecipeImportCandidate(
+      id: 'mince', title: 'Mince pockets', ingredients: '800 g mince',
+      preparation: 'Bake at 180 C for 20 minutes.', portion: '4 portions',
+      servings: 4, ingredientsBasis: RecipeIngredientsBasis.perRecipe,
+      caloriesKcal: 350, proteinG: 30, carbsG: 25, fatG: 10,
+    );
+    final saved = <FitnessRecipe>[];
+    await _open(tester,
+      service: _Service((_) async => const RecipeImportResult(status: RecipeImportStatus.ready, candidates: [candidate])),
+      save: (recipe) async { saved.add(recipe); return SyncDelivery.queuedOffline; },
+    );
+    expect(saved, isEmpty);
+    expect(find.textContaining('200 g mince'), findsOneWidget);
+    await _tap(tester, 'recipe-import-edit');
+    expect(tester.widget<TextField>(find.byKey(const ValueKey('recipe-import-edit-ingredients'))).controller!.text, '800 g mince');
+    await _enter(tester, 'recipe-import-edit-title', 'Renamed mince');
+    await _tap(tester, 'recipe-import-save');
+    expect(saved.single.ingredients, '800 g mince');
+    expect(saved.single.batchServings, 4);
+    expect(saved.single.ingredientProjectionForServings(1).text, '200 g mince');
+  });
+
   testWidgets(
     'whole-dessert server values remain visible through preview and save',
     (tester) async {

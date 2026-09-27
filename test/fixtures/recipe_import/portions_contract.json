@@ -1,0 +1,352 @@
+[
+  {
+    "name": "batch ingredients with per-piece nutrition",
+    "source": {
+      "text": "Für 4 Portionen\n800 g Hackfleisch\n400 g Tomaten\nNährwerte pro Stück: 500 kcal, 40 g Protein, 20 g Kohlenhydrate, 10 g Fett\nBei 180 °C für 20 Minuten backen.",
+      "source": {
+        "url": "https://www.tiktok.com/@fixture/video/1234567890123456789"
+      },
+      "incomplete": false,
+      "truncated": false
+    },
+    "provider_response": {
+      "status": "ready",
+      "truncated": false,
+      "candidates": [
+        {
+          "title": "Hackfleisch mit Tomaten",
+          "description_quote": "",
+          "portion_quote": "",
+          "ingredient_quotes": [
+            "800 g Hackfleisch",
+            "400 g Tomaten"
+          ],
+          "ingredient_basis_quote": "Für 4 Portionen\n800 g Hackfleisch\n400 g Tomaten",
+          "preparation_quotes": [
+            "Bei 180 °C für 20 Minuten backen."
+          ],
+          "variant_label": "",
+          "servings": 4,
+          "servings_quote": "Für 4 Portionen",
+          "nutrition_basis": "per_serving",
+          "nutrition_quote": "Nährwerte pro Stück: 500 kcal, 40 g Protein, 20 g Kohlenhydrate, 10 g Fett",
+          "calories_kcal": 500,
+          "protein_g": 40,
+          "carbs_g": 20,
+          "fat_g": 10,
+          "estimated_g": null
+        }
+      ]
+    },
+    "response": {
+      "status": "ready",
+      "source": {
+        "url": "https://www.tiktok.com/@fixture/video/1234567890123456789"
+      },
+      "candidates": [
+        {
+          "id": "4dfda3bde9926c101d6d8d706a11524c",
+          "title": "Hackfleisch mit Tomaten",
+          "ingredients": "800 g Hackfleisch\n400 g Tomaten",
+          "preparation": "Bei 180 °C für 20 Minuten backen.",
+          "description": "",
+          "portion": "",
+          "servings": 4,
+          "nutrition_estimated": false,
+          "calories_kcal": 500,
+          "protein_g": 40,
+          "carbs_g": 20,
+          "fat_g": 10,
+          "estimated_g": null,
+          "nutrition_basis": "per_serving",
+          "ingredients_basis": "per_recipe"
+        }
+      ],
+      "warnings": []
+    },
+    "expected_ingredients_basis": "per_recipe",
+    "expected_nutrition_basis": "per_serving",
+    "expected_kcal": 500,
+    "expected_serving_ingredients": "200 g Hackfleisch\n100 g Tomaten"
+  },
+  {
+    "name": "batch ingredients with whole-recipe nutrition",
+    "source": {
+      "text": "Für 4 Portionen\n800 g Hackfleisch\n400 g Tomaten\nNährwerte insgesamt: 2000 kcal, 160 g Protein, 80 g Kohlenhydrate, 40 g Fett\nBei 180 °C für 20 Minuten backen.",
+      "source": {
+        "url": "https://www.tiktok.com/@fixture/video/1234567890123456789"
+      },
+      "incomplete": false,
+      "truncated": false
+    },
+    "provider_response": {
+      "status": "ready",
+      "truncated": false,
+      "candidates": [
+        {
+          "title": "Hackfleisch mit Tomaten",
+          "description_quote": "",
+          "portion_quote": "",
+          "ingredient_quotes": [
+            "800 g Hackfleisch",
+            "400 g Tomaten"
+          ],
+          "ingredient_basis_quote": "Für 4 Portionen\n800 g Hackfleisch\n400 g Tomaten",
+          "preparation_quotes": [
+            "Bei 180 °C für 20 Minuten backen."
+          ],
+          "variant_label": "",
+          "servings": 4,
+          "servings_quote": "Für 4 Portionen",
+          "nutrition_basis": "per_recipe",
+          "nutrition_quote": "Nährwerte insgesamt: 2000 kcal, 160 g Protein, 80 g Kohlenhydrate, 40 g Fett",
+          "calories_kcal": 2000,
+          "protein_g": 160,
+          "carbs_g": 80,
+          "fat_g": 40,
+          "estimated_g": null
+        }
+      ]
+    },
+    "response": {
+      "status": "ready",
+      "source": {
+        "url": "https://www.tiktok.com/@fixture/video/1234567890123456789"
+      },
+      "candidates": [
+        {
+          "id": "4dfda3bde9926c101d6d8d706a11524c",
+          "title": "Hackfleisch mit Tomaten",
+          "ingredients": "800 g Hackfleisch\n400 g Tomaten",
+          "preparation": "Bei 180 °C für 20 Minuten backen.",
+          "description": "",
+          "portion": "",
+          "servings": 4,
+          "nutrition_estimated": false,
+          "calories_kcal": 500,
+          "protein_g": 40,
+          "carbs_g": 20,
+          "fat_g": 10,
+          "estimated_g": null,
+          "nutrition_basis": "per_serving",
+          "ingredients_basis": "per_recipe"
+        }
+      ],
+      "warnings": []
+    },
+    "expected_ingredients_basis": "per_recipe",
+    "expected_nutrition_basis": "per_serving",
+    "expected_kcal": 500,
+    "expected_serving_ingredients": "200 g Hackfleisch\n100 g Tomaten"
+  },
+  {
+    "name": "already per-serving ingredients are not divided again",
+    "source": {
+      "text": "Für 4 Portionen\nZutaten pro Portion:\n200 g Hackfleisch\n100 g Tomaten\nNährwerte pro Stück: 500 kcal, 40 g Protein, 20 g Kohlenhydrate, 10 g Fett\nBei 180 °C für 20 Minuten backen.",
+      "source": {
+        "url": "https://www.tiktok.com/@fixture/video/1234567890123456789"
+      },
+      "incomplete": false,
+      "truncated": false
+    },
+    "provider_response": {
+      "status": "ready",
+      "truncated": false,
+      "candidates": [
+        {
+          "title": "Hackfleisch mit Tomaten",
+          "description_quote": "",
+          "portion_quote": "",
+          "ingredient_quotes": [
+            "200 g Hackfleisch",
+            "100 g Tomaten"
+          ],
+          "ingredient_basis_quote": "Zutaten pro Portion:\n200 g Hackfleisch\n100 g Tomaten",
+          "preparation_quotes": [
+            "Bei 180 °C für 20 Minuten backen."
+          ],
+          "variant_label": "",
+          "servings": 4,
+          "servings_quote": "Für 4 Portionen",
+          "nutrition_basis": "per_serving",
+          "nutrition_quote": "Nährwerte pro Stück: 500 kcal, 40 g Protein, 20 g Kohlenhydrate, 10 g Fett",
+          "calories_kcal": 500,
+          "protein_g": 40,
+          "carbs_g": 20,
+          "fat_g": 10,
+          "estimated_g": null
+        }
+      ]
+    },
+    "response": {
+      "status": "ready",
+      "source": {
+        "url": "https://www.tiktok.com/@fixture/video/1234567890123456789"
+      },
+      "candidates": [
+        {
+          "id": "8b0554520ec3972491dbf96738963542",
+          "title": "Hackfleisch mit Tomaten",
+          "ingredients": "200 g Hackfleisch\n100 g Tomaten",
+          "preparation": "Bei 180 °C für 20 Minuten backen.",
+          "description": "",
+          "portion": "",
+          "servings": 4,
+          "nutrition_estimated": false,
+          "calories_kcal": 500,
+          "protein_g": 40,
+          "carbs_g": 20,
+          "fat_g": 10,
+          "estimated_g": null,
+          "nutrition_basis": "per_serving",
+          "ingredients_basis": "per_serving"
+        }
+      ],
+      "warnings": []
+    },
+    "expected_ingredients_basis": "per_serving",
+    "expected_nutrition_basis": "per_serving",
+    "expected_kcal": 500,
+    "expected_serving_ingredients": "200 g Hackfleisch\n100 g Tomaten"
+  },
+  {
+    "name": "unknown yield retains source quantities and unconfirmed nutrition",
+    "source": {
+      "text": "800 g Hackfleisch\n400 g Tomaten\nNährwerte insgesamt: 2000 kcal, 160 g Protein, 80 g Kohlenhydrate, 40 g Fett\nBei 180 °C für 20 Minuten backen.",
+      "source": {
+        "url": "https://www.tiktok.com/@fixture/video/1234567890123456789"
+      },
+      "incomplete": false,
+      "truncated": false
+    },
+    "provider_response": {
+      "status": "ready",
+      "truncated": false,
+      "candidates": [
+        {
+          "title": "Hackfleisch mit Tomaten",
+          "description_quote": "",
+          "portion_quote": "",
+          "ingredient_quotes": [
+            "800 g Hackfleisch",
+            "400 g Tomaten"
+          ],
+          "ingredient_basis_quote": "800 g Hackfleisch\n400 g Tomaten",
+          "preparation_quotes": [
+            "Bei 180 °C für 20 Minuten backen."
+          ],
+          "variant_label": "",
+          "servings": null,
+          "servings_quote": "",
+          "nutrition_basis": "per_recipe",
+          "nutrition_quote": "Nährwerte insgesamt: 2000 kcal, 160 g Protein, 80 g Kohlenhydrate, 40 g Fett",
+          "calories_kcal": 2000,
+          "protein_g": 160,
+          "carbs_g": 80,
+          "fat_g": 40,
+          "estimated_g": null
+        }
+      ]
+    },
+    "response": {
+      "status": "ready",
+      "source": {
+        "url": "https://www.tiktok.com/@fixture/video/1234567890123456789"
+      },
+      "candidates": [
+        {
+          "id": "4dfda3bde9926c101d6d8d706a11524c",
+          "title": "Hackfleisch mit Tomaten",
+          "ingredients": "800 g Hackfleisch\n400 g Tomaten",
+          "preparation": "Bei 180 °C für 20 Minuten backen.",
+          "description": "",
+          "portion": "",
+          "servings": null,
+          "nutrition_estimated": false,
+          "calories_kcal": 2000,
+          "protein_g": 160,
+          "carbs_g": 80,
+          "fat_g": 40,
+          "estimated_g": null,
+          "nutrition_basis": "unspecified",
+          "ingredients_basis": "unspecified"
+        }
+      ],
+      "warnings": []
+    },
+    "expected_ingredients_basis": "unspecified",
+    "expected_nutrition_basis": "unspecified",
+    "expected_kcal": 2000,
+    "expected_serving_ingredients": "800 g Hackfleisch\n400 g Tomaten"
+  },
+  {
+    "name": "ingredient servings do not authorize per-100g nutrition",
+    "source": {
+      "text": "Für 4 Portionen\n800 g Hackfleisch\n400 g Tomaten\nNährwerte pro 100 g: 100 kcal, 8 g Protein, 4 g Kohlenhydrate, 2 g Fett\nBei 180 °C für 20 Minuten backen.",
+      "source": {
+        "url": "https://www.tiktok.com/@fixture/video/1234567890123456789"
+      },
+      "incomplete": false,
+      "truncated": false
+    },
+    "provider_response": {
+      "status": "ready",
+      "truncated": false,
+      "candidates": [
+        {
+          "title": "Hackfleisch mit Tomaten",
+          "description_quote": "",
+          "portion_quote": "",
+          "ingredient_quotes": [
+            "800 g Hackfleisch",
+            "400 g Tomaten"
+          ],
+          "ingredient_basis_quote": "Für 4 Portionen\n800 g Hackfleisch\n400 g Tomaten",
+          "preparation_quotes": [
+            "Bei 180 °C für 20 Minuten backen."
+          ],
+          "variant_label": "",
+          "servings": 4,
+          "servings_quote": "Für 4 Portionen",
+          "nutrition_basis": "per_100g",
+          "nutrition_quote": "Nährwerte pro 100 g: 100 kcal, 8 g Protein, 4 g Kohlenhydrate, 2 g Fett",
+          "calories_kcal": 100,
+          "protein_g": 8,
+          "carbs_g": 4,
+          "fat_g": 2,
+          "estimated_g": null
+        }
+      ]
+    },
+    "response": {
+      "status": "ready",
+      "source": {
+        "url": "https://www.tiktok.com/@fixture/video/1234567890123456789"
+      },
+      "candidates": [
+        {
+          "id": "4dfda3bde9926c101d6d8d706a11524c",
+          "title": "Hackfleisch mit Tomaten",
+          "ingredients": "800 g Hackfleisch\n400 g Tomaten",
+          "preparation": "Bei 180 °C für 20 Minuten backen.",
+          "description": "",
+          "portion": "",
+          "servings": 4,
+          "nutrition_estimated": false,
+          "calories_kcal": 100,
+          "protein_g": 8,
+          "carbs_g": 4,
+          "fat_g": 2,
+          "estimated_g": null,
+          "nutrition_basis": "unspecified",
+          "ingredients_basis": "per_recipe"
+        }
+      ],
+      "warnings": []
+    },
+    "expected_ingredients_basis": "per_recipe",
+    "expected_nutrition_basis": "unspecified",
+    "expected_kcal": 100,
+    "expected_serving_ingredients": "200 g Hackfleisch\n100 g Tomaten"
+  }
+]

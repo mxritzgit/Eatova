@@ -2550,5 +2550,12 @@
   "exportFieldProtein": "Protein",
   "exportFieldCarbs": "Carbohydrates",
   "exportFieldFat": "Fat",
-  "exportFieldExplanation": "Explanation"
+  "exportFieldExplanation": "Explanation",
+  "recipeIngredientsForServings": "Ingredients for {count} serving(s). Preparation refers to the original recipe.",
+  "@recipeIngredientsForServings": {"placeholders": {"count": {"type": "String"}}},
+  "recipeIngredientsOriginalBatch": "Original quantities for {count} serving(s), not converted.",
+  "@recipeIngredientsOriginalBatch": {"placeholders": {"count": {"type": "String"}}},
+  "recipeIngredientsOriginalServing": "Original quantities for one serving, not converted.",
+  "recipeIngredientsOriginalUnknown": "Original quantities; serving basis unconfirmed.",
+  "exportRecipePortionProjection": "Calculated serving details"
 }

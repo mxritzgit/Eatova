@@ -16,82 +16,92 @@ permissions:
   contents: read
 
 jobs:
-  flutter-analyze-test:
-    name: Flutter analyze + test
+  flutter-analyze:
+    name: Flutter strict analysis and contracts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
-          fetch-depth: 0 # Release guard tests reject the real pre-SQLite build.
-
+          fetch-depth: 0 # Storage release guards inspect the real historical build.
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
           flutter-version: 3.47.2
           cache: true
-
       - name: pub get
         run: flutter pub get
-
       - name: Auth email template contracts
         run: python3 scripts/test_auth_email_templates.py
-
       - name: Client storage release and rollback guard
         run: python3 scripts/test_storage_release.py
-
-      # --fatal-infos/--fatal-warnings keeps the clean analysis from eroding
-      # silently (Audit 2026-06-09, L4).
+      - name: Flutter CI integrity regressions
+        run: python3 -m unittest discover -s test/tooling -p flutter_ci_test.py -v
       - name: analyze
-        run: flutter analyze --fatal-infos --fatal-warnings
+        run: flutter analyze --no-pub --fatal-infos --fatal-warnings
 
-      # Defines are CI dummies: compile + widget tests, no Supabase traffic.
-      # --coverage writes coverage/lcov.info for the floor check below.
-      - name: test
-        run: |
-          flutter test --coverage \
-            --dart-define=SUPABASE_URL=https://ci.invalid \
-            --dart-define=SUPABASE_ANON_KEY=ci-dummy-key
+  flutter-test:
+    name: Flutter tests (shard ${{ matrix.label }}/4)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false # One failing shard must not suppress the remaining evidence.
+      matrix:
+        include:
+          - {shard: 0, label: 1}
+          - {shard: 1, label: 2}
+          - {shard: 2, label: 3}
+          - {shard: 3, label: 4}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: 3.47.2
+          cache: true
+      - name: pub get
+        run: flutter pub get
+      # Explicit whole-file partitions avoid loading every test suite in every
+      # runner, as native --total-shards does. All discovered files are required.
+      - name: Complete test shard with coverage and JSON evidence
+        run: python3 tool/flutter_ci.py run --shards 4 --shard ${{ matrix.shard }} --output .dart_tool/flutter-ci
+      - name: Upload shard evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: shard-${{ matrix.shard }}
+          path: .dart_tool/flutter-ci/shard-${{ matrix.shard }}/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
 
-      # Coverage floor as a ratchet. The old value of 30 came from a time when
-      # the UI was only spot-tested; measured on 2026-09-01 the suite sits at
-      # 94.8 % (18627/19650 lines, generated l10n excluded). At 30 the gate
-      # could not ratchet at all - coverage would have had to collapse by
-      # roughly 12800 lines before it complained, so it silently guarded
-      # nothing. 88 keeps about seven points of headroom: a large, genuinely
-      # untested feature (~1300 uncovered lines) still lands, a quiet erosion
-      # does not. Raise it when the real number moves, never lower it to make
-      # a red run green.
-      - name: Coverage floor check
+  flutter-analyze-test:
+    # Keep this exact protected-branch check name. Never accept a failed,
+    # cancelled, skipped or incomplete dependency as a passing aggregate.
+    name: Flutter analyze + test
+    if: ${{ always() }}
+    needs: [flutter-analyze, flutter-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Download all shard evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: shard-*
+          path: .dart_tool/flutter-ci-download
+      - name: Verify complete test set and global coverage floor
         env:
-          COVERAGE_FLOOR: '88'
+          FLUTTER_CI_NEEDS: ${{ toJSON(needs) }}
         run: |
-          set -euo pipefail
-          LCOV=coverage/lcov.info
-          if [ ! -f "$LCOV" ]; then
-            echo "::error::coverage/lcov.info nicht gefunden — lief 'flutter test --coverage'?"
-            exit 1
-          fi
-          # Generated l10n code (lib/src/l10n/generated/, ~724 getters x 3
-          # files) is excluded before summing: it is not ours to test and would
-          # otherwise dilute the ratio by several points and mask the ratchet
-          # (Review 2026-08-27, F10-07). The floor value stays where it was.
-          # LCOV: LF = lines found, LH = lines hit; coverage = sum(LH)/sum(LF).
-          PCT="$(awk -F: '
-            /^SF:/ { skip = ($2 ~ /lib\/src\/l10n\/generated\//) }
-            /^LF:/ { if (!skip) found += $2 }
-            /^LH:/ { if (!skip) hit   += $2 }
-            END {
-              if (found == 0) { print "0.0"; exit }
-              printf "%.1f", (hit / found) * 100
-            }
-          ' "$LCOV")"
-          echo "Total line coverage: ${PCT}% (floor: ${COVERAGE_FLOOR}%)"
-          # Float compare via awk; bash only does integers.
-          if awk -v p="$PCT" -v f="$COVERAGE_FLOOR" 'BEGIN { exit !(p < f) }'; then
-            echo "::error::Line-Coverage ${PCT}% liegt unter dem Floor von ${COVERAGE_FLOOR}%. Bitte Logik-/Sync-Tests ergaenzen (Floor ist ein Ratschet, kein Stylegate)."
-            exit 1
-          fi
-          echo "::notice::Coverage-Floor erfuellt: ${PCT}% >= ${COVERAGE_FLOOR}%."
+          python3 tool/flutter_ci.py aggregate --shards 4 --output .dart_tool/flutter-ci-download --floor 88
+      - name: Upload merged coverage
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: flutter-ci-merged-coverage
+          path: .dart_tool/lcov.info
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
 
   build-android:
     name: Android Debug-Build (APK)

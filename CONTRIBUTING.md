@@ -58,6 +58,31 @@ deno lint supabase/eval
 deno test --allow-env supabase/eval/coach_eval_test.ts
 ```
 
+CI runs the same complete Flutter suite in four balanced **whole-file** shards.
+The timing hints in `tool/flutter_ci_timings.json` only choose placement and
+start longer suites first so shorter files can run alongside them. Every
+new `test/**/*_test.dart` is discovered automatically. The required check remains
+**Flutter analyze + test** and passes only after strict analysis, the Python
+contracts, all four successful shards, complete JSON test reports and the merged
+88% coverage floor. Coverage merges each source/line once, with a hit in any
+shard counting as covered; it does not average shard percentages.
+
+To reproduce a shard after `flutter pub get`, use a fresh output directory:
+
+```bash
+python3 tool/flutter_ci.py plan --output .dart_tool/flutter-ci-plan
+python3 tool/flutter_ci.py run --shards 4 --shard 0 --output .dart_tool/flutter-ci
+# Run shard 1, 2 and 3 as well before checking the complete result:
+python3 tool/flutter_ci.py aggregate --shards 4 --output .dart_tool/flutter-ci --floor 88
+python3 -m unittest discover -s test/tooling -p flutter_ci_test.py -v
+```
+
+Shard artifacts include the exact checkout/test manifest, JSON reporter output,
+LCOV, content hashes and covered source/line inventory. Missing, changed,
+truncated, skipped or failed results fail the aggregate. These artifacts also
+retain per-file timings for future balancing; no earlier passing result is reused.
+The normal unsharded `flutter test --coverage` command above remains supported.
+
 Step 3 is required whenever you touch `supabase/functions/`; it is cheap
 enough to run every time. CI additionally builds a debug APK and a release
 AAB (R8 + AOT, throwaway keystore), scans secrets across the full history

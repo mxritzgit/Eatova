@@ -169,6 +169,8 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
                 expandedCrossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (version.hasRecipeContent) ...[
+                    if (version.recipe.hasImportedIngredientContext)
+                      Text(version.recipe.ingredientQuantityHint(l10n)),
                     Text(version.recipe.displayIngredients(l10n)),
                     const SizedBox(height: 12),
                     Text(version.recipe.displayPreparation(l10n)),
