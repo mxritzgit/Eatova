@@ -68,7 +68,7 @@ enum SyncDelivery {
 }
 
 /// Turns a success statement into the message matching the real outcome.
-/// One message says both things, because [showAppSnack] replaces the previous
+/// One message says both things, because `showAppSnack` replaces the previous
 /// snack and a success toast plus a queued hint would only flash past.
 String deliveryHint(
   String erfolg,

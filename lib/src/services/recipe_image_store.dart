@@ -11,10 +11,10 @@ import 'meal_photo_compressor.dart';
 /// Local storage for user-taken recipe photos.
 ///
 /// **Local, not Supabase Storage.** There is no bucket and no storage
-/// policies, and the [SyncOp] outbox carries JSON, not megabytes. So the
+/// policies, and the `SyncOp` outbox carries JSON, not megabytes. So the
 /// bytes live in this device's app documents directory and the recipe says so.
 ///
-/// **The marker.** [FitnessRecipe.imageAsset] holds `local:<name>.jpg`
+/// **The marker.** `FitnessRecipe.imageAsset` holds `local:<name>.jpg`
 /// instead of an asset path and travels unchanged through `toRow()/fromRow()`.
 /// A second device finds no file and falls back to the placeholder instead of
 /// loading a dead path. Rows without an image keep `''`.

@@ -28,8 +28,9 @@ class ChatMessage {
   final Uint8List? imageBytes;
 
   /// Recipe proposal from /recipe. Unlike [imageBytes] it survives a reload:
-  /// [fromRow] rebuilds it from `chat_messages.recipe`, but without bytes. The
-  /// screen then loads the image from the device-local RecipeImageStore.
+  /// [ChatMessage.fromRow] rebuilds it from `chat_messages.recipe`, but
+  /// without bytes. The screen then loads the image from the device-local
+  /// RecipeImageStore.
   final CoachRecipeProposal? recipeProposal;
 
   /// A validated /plan draft. It becomes user data only after explicit saving.

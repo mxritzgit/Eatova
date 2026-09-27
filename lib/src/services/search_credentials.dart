@@ -563,7 +563,7 @@ class SearchCredentialsStore {
     }
   }
 
-  /// Own [SharedPreferencesStore] instance, deliberately not [LocalCache]'s:
+  /// Own [SharedPreferencesStore] instance, deliberately not `LocalCache`'s:
   /// its `clear()` wipes everything on sign-out.
   Future<KeyValueStore?> _resolveStore() async {
     final injected = _injectedStore;
@@ -663,7 +663,7 @@ class _CachedEntry {
   }
 }
 
-/// Seam between [MeilisearchProductService] and the store.
+/// Seam between `MeilisearchProductService` and the store.
 ///
 /// Exists so the service stays `const`-constructible: the search needs
 /// runtime values, but its default parameters must be compile-time

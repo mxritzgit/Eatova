@@ -14,7 +14,7 @@ import 'search_credentials.dart';
 /// ranking: all words first, typo tolerance, then popularity (scans:desc).
 ///
 /// Search ONLY: the index answers no barcode lookups ([lookupBarcode] throws),
-/// so [FallbackProductService] forwards those to the OFF live API, which also
+/// so `FallbackProductService` forwards those to the OFF live API, which also
 /// knows brand-new products.
 ///
 /// Credentials resolve at RUNTIME from [SearchCredentialsSource] (cache ->
@@ -169,7 +169,7 @@ class MeilisearchProductService implements ProductLookupService {
 /// The mirror returned a 2xx that is not a search response (proxy error page,
 /// changed index schema).
 ///
-/// The type exists only for classification in [FallbackProductService], where
+/// The type exists only for classification in `FallbackProductService`, where
 /// the whole `IOException` family counts as an expected network error and
 /// stays silent. Hence plain `implements Exception`, so it lands in the
 /// unexpected branch and reaches the CrashReporter.

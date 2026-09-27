@@ -27,7 +27,7 @@
 ///
 /// ## Non-finite numbers
 ///
-/// `double.nan` means "no value" and is invalid for every [isValid] function;
+/// `double.nan` means "no value" and is invalid for every `isValid` function;
 /// `clamp…` returns `fallback`, which defaults to the **lower bound** — that
 /// is where B1 (0 kcal instead of "unknown") came from, so pass an explicit
 /// fallback if you need another. `infinity` clamps to the upper bound,

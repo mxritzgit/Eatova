@@ -1057,7 +1057,8 @@ class MealAnalysisResult {
   }
 
   /// Scales a per-100 g macro value to [grams] and formats it. Public because
-  /// both [fromOpenFoodFacts] and [manualEntry] need the same formatter.
+  /// both [MealAnalysisResult.fromOpenFoodFacts] and
+  /// [MealAnalysisResult.manualEntry] need the same formatter.
   static String macroForGrams(double? per100G, int grams) {
     if (per100G == null || !per100G.isFinite) {
       return _makroUnbekannt;
@@ -1140,7 +1141,8 @@ class MealAnalysisResult {
 
   /// Reference densities for a handful of raw foods the model often returns
   /// without numbers. Weakest source of the density chain in
-  /// [fromEdgeFunction]; composite dishes go through `autoSplitItems`.
+  /// [MealAnalysisResult.fromEdgeFunction]; composite dishes go through
+  /// `autoSplitItems`.
   static const Map<String, double> _referenzKcalPer100G = <String, double>{
     'apfel': 52,
     'äpfel': 52,

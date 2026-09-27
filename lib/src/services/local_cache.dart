@@ -740,7 +740,7 @@ class LocalCache {
         if (requestId != null) 'request_id': requestId,
       });
 
-  /// Reads the pending deltas. [requestId] is `null` for slots from an older
+  /// Reads the pending deltas. `requestId` is `null` for slots from an older
   /// build; the caller assigns one then.
   Future<({int meals, int weightLogs, String? requestId})?>
       readPendingStatsDeltas() async {

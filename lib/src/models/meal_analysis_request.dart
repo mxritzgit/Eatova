@@ -14,7 +14,7 @@ enum MealPortionHint {
 
 /// Cooperative cancel handle for one photo analysis (Review 2026-08-27,
 /// F4-02): the result sheet cancels on dispose, the analyzer closes its
-/// [HttpClient]. This only frees the client (socket, wait time): the server
+/// `HttpClient`. This only frees the client (socket, wait time): the server
 /// consumes the rate-limit slot BEFORE the provider call and the provider
 /// request runs to its own timeout regardless.
 ///
