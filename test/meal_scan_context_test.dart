@@ -192,7 +192,7 @@ void main() {
       await _tap(tester, entry);
       expect(photos.sources, [source]);
       expect(analyzer.requests, isEmpty);
-      expect(find.text('Note about the food (optional)'), findsOneWidget);
+      expect(find.text('Note (optional)'), findsOneWidget);
       await tester.enterText(_key('meal-scan-context'), 'Döner without sauce');
       await _tap(tester, 'meal-scan-cancel');
       expect(analyzer.requests, isEmpty);
