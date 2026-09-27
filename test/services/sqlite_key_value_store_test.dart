@@ -135,4 +135,36 @@ void main() {
       );
     },
   );
+
+  test(
+    'a failure swallowed inside initialization still blocks its commit',
+    () async {
+      final store = await open();
+      await store.writeBatch({'entity': 'old'});
+      await expectLater(
+        store.initializeExclusively(() async {
+          try {
+            await store.writeBatch(
+              {'entity': 'stale'},
+              expectedVersions: {'entity': 0},
+            );
+          } on KeyValueConflict {
+            // A migration step that ignores its own failed write.
+          }
+          await store.writeBatch({'migrated': 'true'});
+        }),
+        throwsA(isA<DurableStorageException>()),
+      );
+      await store.close();
+      final reopened = await open();
+      expect((await reopened.readSnapshot(['entity', 'migrated'])).values, {
+        'entity': 'old',
+        'migrated': null,
+      });
+      await reopened.initializeExclusively(() async {
+        await reopened.writeBatch({'migrated': 'true'});
+      });
+      expect(await reopened.getString('migrated'), 'true');
+    },
+  );
 }
