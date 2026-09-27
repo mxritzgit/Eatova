@@ -9,6 +9,7 @@ import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/design/design.dart';
 import 'recipe_import_nutrition.dart';
+import 'recipes_screen.dart' show showRecipeNutritionDraftEditor;
 
 /// Reviewing, selecting and editing a shared recipe never writes user data.
 Future<FitnessRecipe?> showRecipeImportSheet({
@@ -71,12 +72,13 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
   bool _loading = false;
   bool _saving = false;
   bool _editing = false;
+  bool _reviewingNutrition = false;
   bool _askingToDiscard = false;
   bool _showInput = true;
   String? _error;
   String? _editError;
 
-  bool get _busy => _loading || _saving;
+  bool get _busy => _loading || _saving || _reviewingNutrition;
   bool get _hasUserChanges =>
       _editedCandidates.isNotEmpty ||
       _text.text != (_savedText ?? widget.initialText) ||
@@ -264,6 +266,29 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
     });
     _scrollToTop();
     return true;
+  }
+
+  Future<void> _correctNutrition() async {
+    if (_busy || _selected == null || !_checkSession()) return;
+    final candidate = _selected!;
+    if (_attemptedRecipes.containsKey(candidate.id)) return;
+    setState(() => _reviewingNutrition = true);
+    final reviewed = await showRecipeNutritionDraftEditor(
+      context: context,
+      recipe: candidate.toRecipe(slug: candidate.stableSlug(_result?.sourceUrl),
+          sourceUrl: _result?.sourceUrl, sourceLabel: context.l10n.recipeImportSourceLabel),
+      isSessionCurrent: () => mounted && widget.sessionIsCurrent(),
+    );
+    if (!mounted) return;
+    setState(() => _reviewingNutrition = false);
+    if (reviewed == null || !_checkSession() || !identical(_selected, candidate)) return;
+    final updated = candidate.withReviewedNutrition(reviewed);
+    setState(() {
+      _selected = updated;
+      _drafts[candidate.id] = updated;
+      _editedCandidates.add(candidate.id);
+    });
+    _scrollToTop();
   }
 
   Future<void> _save() async {
@@ -801,6 +826,13 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
           ),
           const SizedBox(height: 24),
           RecipeImportNutrition(candidate: candidate),
+          if (!candidate.hasNutrition || candidate.nutritionBasisUnclear)
+            TextButton.icon(
+              key: const ValueKey('recipe-import-correct-nutrition'),
+              onPressed: _busy || _attemptedRecipes.containsKey(candidate.id) ? null : _correctNutrition,
+              icon: const Icon(Icons.edit_outlined),
+              label: Text(l10n.recipeNutritionCorrect),
+            ),
           _section(
             context,
             l10n.recipesSectionPortion,

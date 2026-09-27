@@ -26,11 +26,14 @@ const String highProteinCategory = "High Protein";
 const String recipeNutritionPendingCategory = 'Nutrition pending';
 const String recipeNutritionKnownPrefix = 'Nutrition known: ';
 const String recipeNutritionBasisPendingCategory = 'Nutrition basis pending';
+const String recipeNutritionConflictPrefix = 'Nutrition conflict: ';
+const recipeNutritionFields = ['calories_kcal', 'protein_g', 'carbs_g', 'fat_g'];
 
 bool isRecipeNutritionMetadata(String category) =>
     category == recipeNutritionPendingCategory ||
     category == recipeNutritionBasisPendingCategory ||
-    category.startsWith(recipeNutritionKnownPrefix);
+    category.startsWith(recipeNutritionKnownPrefix) ||
+    category.startsWith(recipeNutritionConflictPrefix);
 
 /// When a recipe may carry [highProteinCategory].
 ///
@@ -114,17 +117,51 @@ class FitnessRecipe {
 
   bool get hasPendingNutrition =>
       categories.contains(recipeNutritionPendingCategory) ||
-      hasUnclearNutritionBasis;
+      hasUnclearNutritionBasis || nutritionConflicts.isNotEmpty;
 
   bool get hasUnclearNutritionBasis =>
       categories.contains(recipeNutritionBasisPendingCategory);
 
   bool get hasMissingNutrition => !displayNutrition.isComplete;
 
+  List<String> get nutritionConflicts => [
+    for (final field in recipeNutritionFields)
+      if (categories.contains('$recipeNutritionConflictPrefix$field')) field,
+  ];
+
+  String nutritionReviewHint(AppLocalizations l10n) {
+    if (nutritionConflicts.isEmpty) {
+      return hasMissingNutrition
+          ? hasUnclearNutritionBasis
+              ? l10n.recipeNutritionIncompleteBasisHint
+              : l10n.recipeImportNutritionPendingHint
+          : l10n.recipeImportBasisHint;
+    }
+    final nutrition = displayNutrition;
+    final missing = <String>[
+      if (nutrition.caloriesKcal == null) 'calories_kcal',
+      if (nutrition.proteinG == null) 'protein_g',
+      if (nutrition.carbsG == null) 'carbs_g',
+      if (nutrition.fatG == null) 'fat_g',
+    ].where((field) => !nutritionConflicts.contains(field));
+    String label(String field) => switch (field) {
+      'calories_kcal' => l10n.recipesNutritionKcalLabel,
+      'protein_g' => l10n.todayMacroProtein,
+      'carbs_g' => l10n.todayMacroCarbs,
+      _ => l10n.todayMacroFat,
+    };
+    return [
+      l10n.recipeNutritionConflictFields(nutritionConflicts.map(label).join(', ')),
+      if (missing.isNotEmpty) l10n.recipeNutritionMissingFields(missing.map(label).join(', ')),
+      l10n.recipeNutritionCorrectionHint,
+    ].join(' ');
+  }
+
   List<String> get displayCategories => categories
       .where(
         (category) => !category.startsWith(recipeIngredientsBasisPrefix) &&
             !category.startsWith(recipeNutritionKnownPrefix) &&
+            !category.startsWith(recipeNutritionConflictPrefix) &&
             (category != recipeNutritionPendingCategory || hasMissingNutrition),
       )
       .toList(growable: false);
@@ -158,8 +195,8 @@ class FitnessRecipe {
   /// Older pending imports have no known-field markers and remain fully unknown.
   RecipeNutrition get displayNutrition {
     if (hasStructuredIngredients) return calculationForServings(1).nutrition;
-    double? known(String field, int value) =>
-        !hasPendingNutrition ||
+    double? known(String field, int value) => nutritionConflicts.contains(field)
+        ? null : !hasPendingNutrition ||
             categories.contains('$recipeNutritionKnownPrefix$field')
         ? value.toDouble()
         : null;

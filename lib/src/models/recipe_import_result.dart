@@ -111,6 +111,7 @@ class RecipeImportCandidate {
     this.servings,
     this.nutritionEstimated = false,
     this.nutritionBasisUnclear = false,
+    this.nutritionConflicts = const [],
     this.ingredientsBasis = RecipeIngredientsBasis.unspecified,
   });
 
@@ -120,9 +121,11 @@ class RecipeImportCandidate {
   final double? servings;
   final bool nutritionEstimated;
   final bool nutritionBasisUnclear;
+  final List<String> nutritionConflicts;
   final RecipeIngredientsBasis ingredientsBasis;
 
   bool get hasNutrition =>
+      nutritionConflicts.isEmpty &&
       caloriesKcal != null &&
       proteinG != null &&
       carbsG != null &&
@@ -138,6 +141,12 @@ class RecipeImportCandidate {
     }
     if (!const [null, 'per_recipe', 'per_serving', 'unspecified'].contains(json['ingredients_basis'])) {
       throw const FormatException('Invalid import ingredient basis');
+    }
+    final conflicts = json['nutrition_conflicts'] ?? const [];
+    if (conflicts is! List || conflicts.length > 4 ||
+        conflicts.any((field) => !recipeNutritionFields.contains(field) || json[field] != null) ||
+        conflicts.toSet().length != conflicts.length) {
+      throw const FormatException('Invalid import nutrition conflicts');
     }
     final estimated = json['nutrition_estimated'];
     if (estimated is! bool) {
@@ -158,6 +167,7 @@ class RecipeImportCandidate {
       estimatedGrams: _integer(json['estimated_g'], 10000),
       servings: _servings(json['servings']),
       nutritionEstimated: estimated,
+      nutritionConflicts: List<String>.unmodifiable(conflicts),
       nutritionBasisUnclear: json['nutrition_basis'] == 'unspecified',
       ingredientsBasis: switch (json['ingredients_basis']) {
         'per_recipe' when json['servings'] != null => RecipeIngredientsBasis.perRecipe,
@@ -191,9 +201,28 @@ class RecipeImportCandidate {
     ingredientsBasis: (ingredients != null && ingredients != this.ingredients) ||
         (portion != null && portion != this.portion)
         ? RecipeIngredientsBasis.unspecified : ingredientsBasis,
+    nutritionConflicts: clearNutrition ? const [] : nutritionConflicts,
     nutritionEstimated: !clearNutrition && nutritionEstimated,
     nutritionBasisUnclear: !clearNutrition && nutritionBasisUnclear,
   );
+
+  /// Applies an explicitly reviewed draft without changing its source identity.
+  RecipeImportCandidate withReviewedNutrition(FitnessRecipe reviewed) {
+    if (reviewed.hasPendingNutrition || reviewed.hasMissingNutrition ||
+        reviewed.hasStructuredIngredients) {
+      throw const FormatException('Nutrition review is incomplete');
+    }
+    return RecipeImportCandidate(
+      id: id, title: title, description: description, portion: portion,
+      ingredients: ingredients, preparation: preparation, variantLabel: variantLabel,
+      servings: servings, ingredientsBasis: ingredientsBasis,
+      caloriesKcal: _integer(reviewed.caloriesKcal, 10000),
+      proteinG: _integer(reviewed.proteinG, 1000),
+      carbsG: _integer(reviewed.carbsG, 1000),
+      fatG: _integer(reviewed.fatG, 1000),
+      estimatedGrams: nutritionBasisUnclear ? null : estimatedGrams,
+    );
+  }
 
   /// Content identity makes repeated shares and uncertain save retries idempotent.
   String stableSlug([String? sourceUrl]) {
@@ -245,6 +274,7 @@ class RecipeImportCandidate {
       estimatedGrams: estimatedGrams ?? 0,
       categories: [
         'Eigene',
+        for (final field in nutritionConflicts) '$recipeNutritionConflictPrefix$field',
         '$recipeIngredientsBasisPrefix${switch (ingredientsBasis) {
           RecipeIngredientsBasis.perRecipe when servings != null => 'per_recipe',
           RecipeIngredientsBasis.perServing => 'per_serving',

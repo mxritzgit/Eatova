@@ -161,6 +161,23 @@ class _DiscardDragGuardState extends State<_DiscardDragGuard> {
   }
 }
 
+/// Reuses the existing numeric editor without saving or exposing source/photo edits.
+Future<FitnessRecipe?> showRecipeNutritionDraftEditor({
+  required BuildContext context,
+  required FitnessRecipe recipe,
+  required bool Function() isSessionCurrent,
+}) async {
+  final result = await showModalBottomSheet<RezeptEntwurfErgebnis>(
+    context: context, isScrollControlled: true, backgroundColor: Colors.transparent,
+    enableDrag: false,
+    builder: (_) => _CreateRecipeSheet(
+      initialRecipe: recipe, photoInput: DeviceMealPhotoInput(),
+      isSessionCurrent: isSessionCurrent, nutritionOnly: true,
+    ),
+  );
+  return isSessionCurrent() ? result?.rezept : null;
+}
+
 /// Bottom sheet for creating an own recipe (photo, name, portion, nutrition,
 /// ingredients). Returns a [FitnessRecipe] via Navigator.pop on save.
 ///
@@ -173,6 +190,7 @@ class _CreateRecipeSheet extends StatefulWidget {
     this.onSave,
     this.isSessionCurrent,
     this.productService,
+    this.nutritionOnly = false,
   });
 
   /// Camera/gallery picker. Returns EXIF-free bytes already
@@ -183,6 +201,7 @@ class _CreateRecipeSheet extends StatefulWidget {
   final Future<SyncDelivery> Function(FitnessRecipe)? onSave;
   final bool Function()? isSessionCurrent;
   final ProductLookupService? productService;
+  final bool nutritionOnly;
 
   @override
   State<_CreateRecipeSheet> createState() => _CreateRecipeSheetState();
@@ -374,7 +393,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
 
   String? get _kcalFehler => _zahlFehler(
     _kcal,
-    min: _kcalMin,
+    min: widget.initialRecipe?.hasImportedIngredientContext == true ? 0 : _kcalMin,
     max: _kcalMax,
     bereichstext: context.l10n.recipesRangeErrorKcal,
   );
@@ -427,7 +446,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
           _textFehler(_preparation, _ingredientsMaxCodePoints) == null &&
           _textFehler(_description, 4000) == null;
     }
-    if (_pendingNutritionUnchanged) {
+    if (_pendingNutritionUnchanged && !widget.nutritionOnly) {
       return _nameFehler == null &&
           _textFehler(_portion, _portionMaxCodePoints) == null &&
           _textFehler(_ingredients, _ingredientsMaxCodePoints) == null &&
@@ -697,7 +716,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                   child: HeadingSemantics(
                     level: 1,
                     child: Text(
-                      widget.initialRecipe != null
+                      widget.nutritionOnly ? l10n.recipeNutritionCorrect : widget.initialRecipe != null
                           ? l10n.recipeEditTitle
                           : compact
                           ? l10n.navRecipes
@@ -737,11 +756,13 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    widget.initialRecipe != null
+                    widget.nutritionOnly ? l10n.recipeNutritionDraftIntro : widget.initialRecipe != null
                         ? l10n.recipeEditIntro
                         : l10n.recipesCreateIntro,
                     style: AppType.ui(14, color: t.ink2, height: 1.45),
                   ),
+                  if (widget.nutritionOnly) const SizedBox(height: 16),
+                  if (!widget.nutritionOnly) ...[
                   if (compact) ...[
                     const SizedBox(height: 8),
                     Text(
@@ -841,9 +862,10 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                     ),
                   ),
                   const SizedBox(height: 16),
+                  ],
                   if (widget.initialRecipe?.hasPendingNutrition ?? false) ...[
                     Text(
-                      l10n.recipeImportNutritionPendingHint,
+                      widget.initialRecipe!.nutritionReviewHint(l10n),
                       key: const ValueKey('recipe-edit-import-nutrition-hint'),
                       style: AppType.ui(14, color: t.ink2, height: 1.5),
                     ),
@@ -856,7 +878,6 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                         key: const ValueKey('recipe-edit-confirm-nutrition-basis'),
                         contentPadding: EdgeInsets.zero,
                         title: Text(l10n.recipeImportConfirmBasis),
-                        subtitle: Text(l10n.recipeImportBasisHint),
                         value: _nutritionBasisConfirmed,
                         onChanged: (value) => setState(() => _nutritionBasisConfirmed = value ?? false),
                       ),
@@ -883,7 +904,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                     ],
                   ] else
                     _SheetGroup(
-                      number: 2,
+                      number: widget.nutritionOnly ? 1 : 2,
                       label: l10n.recipesGroupNutrition,
                       trailing: l10n.recipesPerPortion,
                       // Nutrient colors match the recipe detail view.
@@ -928,6 +949,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                         ],
                       ),
                     ),
+                  if (!widget.nutritionOnly) ...[
                   const SizedBox(height: 24),
                   _SheetGroup(
                     number: 3,
@@ -970,6 +992,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                       showLabel: false,
                     ),
                   ),
+                  ],
                 ],
               ),
             ),
@@ -990,7 +1013,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                     ),
                     const SizedBox(height: 8),
                   ],
-                  if (!compact) ...[
+                  if (!compact && !widget.nutritionOnly) ...[
                     Text(
                       _structured
                           ? l10n.recipeEditCalculatedHint
@@ -1022,7 +1045,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                             )
                           : const Icon(Icons.check_rounded, size: 18),
                       label: Text(
-                        widget.initialRecipe != null
+                        widget.nutritionOnly ? l10n.recipeNutritionApplyDraft : widget.initialRecipe != null
                             ? l10n.recipeEditSave
                             : l10n.recipesSaveButtonLabel,
                         style: AppType.ui(14.5, weight: FontWeight.w700),

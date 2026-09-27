@@ -7,8 +7,10 @@ const LABELS = {
   estimated_g: '(?:weight|gewicht|portionsgewicht)',
 };
 type Field = keyof typeof LABELS;
+export type NutritionField = Exclude<Field, 'estimated_g'>;
 export type Nutrition = Record<Field, number | null> & {
   nutrition_basis: 'per_serving' | 'unspecified' | null;
+  nutrition_conflicts?: NutritionField[];
 };
 
 export function evidencedNumber(value: unknown, numbers: string[], min: number, max: number): number | null {
@@ -148,12 +150,18 @@ export function sourcedNutrition(row: Record<string, unknown>, evidence: string,
   }
   if (basis === 'per_100g') return result;
   const numbers = nutritionNumbers(block);
+  const conflicts: NutritionField[] = [];
   for (const field of Object.keys(LABELS) as Field[]) {
+    if (allowUnspecified && field !== 'estimated_g' &&
+        new Set(numbers[field].map((number) => Number(number.replace(',', '.')))).size > 1) {
+      conflicts.push(field);
+    }
     const value = sourcedValue(row[field], numbers[field], field, allowUnspecified);
     const converted = value === null ? null : value / divisor;
     const max = field === 'calories_kcal' || field === 'estimated_g' ? 10_000 : 1000;
     result[field] = converted !== null && converted <= max ? converted : null;
   }
+  if (conflicts.length) result.nutrition_conflicts = conflicts;
   result.nutrition_basis = basis === 'unspecified' || basis === 'per_recipe' && servings === null
     ? 'unspecified' : 'per_serving';
   return result;

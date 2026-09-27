@@ -2557,5 +2557,14 @@
   "@recipeIngredientsOriginalBatch": {"placeholders": {"count": {"type": "String"}}},
   "recipeIngredientsOriginalServing": "Original quantities for one serving, not converted.",
   "recipeIngredientsOriginalUnknown": "Original quantities; serving basis unconfirmed.",
-  "exportRecipePortionProjection": "Calculated serving details"
+  "exportRecipePortionProjection": "Calculated serving details",
+  "recipeNutritionCorrect": "Correct nutrition",
+  "recipeNutritionConflictFields": "Conflicting caption values: {fields}.",
+  "@recipeNutritionConflictFields": {"placeholders": {"fields": {"type": "String"}}},
+  "recipeNutritionMissingFields": "Missing values: {fields}.",
+  "@recipeNutritionMissingFields": {"placeholders": {"fields": {"type": "String"}}},
+  "recipeNutritionCorrectionHint": "Enter complete, checked values per serving.",
+  "recipeNutritionIncompleteBasisHint": "Add the missing values and check that all values apply to one serving.",
+  "recipeNutritionDraftIntro": "Update the preview. Save recipe will save your changes.",
+  "recipeNutritionApplyDraft": "Apply to preview"
 }

@@ -120,6 +120,155 @@ Future<void> _enter(WidgetTester tester, String key, String text) async {
 }
 
 void main() {
+  testWidgets('explicit source zero stays known while missing macros are corrected', (tester) async {
+    const candidate = RecipeImportCandidate(id: 'zero', title: 'Zero recipe',
+      ingredients: 'Water', preparation: '', caloriesKcal: 0, fatG: 0, nutritionBasisUnclear: true);
+    final saved = <FitnessRecipe>[];
+    await _open(tester,
+      service: _Service((_) async => const RecipeImportResult(status: RecipeImportStatus.ready, candidates: [candidate])),
+      save: (r) async { saved.add(r); return SyncDelivery.delivered; });
+    await _tap(tester, 'recipe-import-correct-nutrition');
+    expect(tester.widget<TextField>(find.byKey(const ValueKey('recipe-create-kcal'))).controller!.text, '0');
+    await _enter(tester, 'recipe-create-protein', '0');
+    await _enter(tester, 'recipe-create-carbs', '0');
+    await _tap(tester, 'recipe-edit-confirm-nutrition-basis');
+    await _tap(tester, 'recipe-create-save');
+    expect(saved, isEmpty);
+    await _tap(tester, 'recipe-import-save');
+    expect(saved.single.canLogServings(1), isTrue);
+    expect(saved.single.toMealResult().caloriesKcal, 0);
+  });
+
+  for (final language in ['en', 'de']) {
+    testWidgets('conflict correction stays readable at large text in $language', (tester) async {
+      const candidate = RecipeImportCandidate(
+        id: 'caption', title: 'Kaiserschmarrn', ingredients: '100 g flour', preparation: '',
+        caloriesKcal: 650, fatG: 20, nutritionBasisUnclear: true, nutritionConflicts: ['protein_g'],
+      );
+      await _open(tester,
+        service: _Service((_) async => const RecipeImportResult(status: RecipeImportStatus.ready, candidates: [candidate])),
+        save: (_) async => SyncDelivery.delivered,
+        locale: Locale(language), textScale: 2, size: const Size(320, 720),
+      );
+      await _tap(tester, 'recipe-import-correct-nutrition');
+      await tester.ensureVisible(find.byKey(const ValueKey('recipe-create-carbs')));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('nutrition correction changes only the draft until explicit import save', (tester) async {
+    final candidate = RecipeImportCandidate.fromJson({
+      'id': 'kaiserschmarrn', 'title': 'Kaiserschmarrn', 'description': 'Caption recipe',
+      'ingredients': '100 g flour', 'preparation': 'Fry slowly.', 'servings': 2,
+      'ingredients_basis': 'per_recipe', 'portion': '2 portions',
+      'calories_kcal': 650, 'protein_g': null, 'carbs_g': null, 'fat_g': 20,
+      'nutrition_basis': 'unspecified', 'nutrition_estimated': false,
+      'nutrition_conflicts': ['protein_g'],
+    });
+    final saved = <FitnessRecipe>[];
+    await _open(tester,
+      service: _Service((_) async => RecipeImportResult(status: RecipeImportStatus.ready, candidates: [candidate], sourceUrl: _source)),
+      save: (recipe) async { saved.add(recipe); return SyncDelivery.queuedOffline; },
+    );
+    await _tap(tester, 'recipe-import-correct-nutrition');
+    for (final key in ['name', 'ingredients', 'portion', 'grams', 'photo-camera', 'photo-gallery', 'structured', 'description', 'preparation']) {
+      expect(find.byKey(ValueKey('recipe-create-$key')), findsNothing);
+    }
+    String text(String key) => tester.widget<TextField>(find.byKey(ValueKey('recipe-create-$key'))).controller!.text;
+    expect(text('kcal'), '650');
+    expect(text('fat'), '20');
+    expect(text('protein'), isEmpty);
+    expect(text('carbs'), isEmpty);
+    expect(tester.widget<FilledButton>(find.byKey(const ValueKey('recipe-create-save'))).onPressed, isNull);
+    await _tap(tester, 'recipe-edit-confirm-nutrition-basis');
+    expect(tester.widget<FilledButton>(find.byKey(const ValueKey('recipe-create-save'))).onPressed, isNull);
+    await _tap(tester, 'recipe-edit-confirm-nutrition-basis');
+    // Values below are an explicit user correction, never inferred by the app.
+    await _enter(tester, 'recipe-create-protein', '47');
+    await _enter(tester, 'recipe-create-carbs', '68');
+    expect(tester.widget<FilledButton>(find.byKey(const ValueKey('recipe-create-save'))).onPressed, isNull);
+    await _tap(tester, 'recipe-edit-confirm-nutrition-basis');
+    await _tap(tester, 'recipe-create-save');
+    expect(saved, isEmpty);
+    expect(find.byKey(const ValueKey('recipe-create-sheet')), findsNothing);
+    expect(find.text('47 g'), findsOneWidget);
+    expect(find.text('68 g'), findsOneWidget);
+    await _tap(tester, 'recipe-import-save');
+    final recipe = FitnessRecipe.fromRow(saved.single.toRow());
+    expect(recipe.slug, candidate.stableSlug(_source));
+    expect(recipe.ingredients, candidate.ingredients);
+    expect(recipe.preparation, candidate.preparation);
+    expect(recipe.description, contains(_source));
+    expect(recipe.batchServings, 2);
+    expect(recipe.ingredientsBasis, RecipeIngredientsBasis.perRecipe);
+    expect(recipe.imageAsset, isEmpty);
+    expect(recipe.nutritionConflicts, isEmpty);
+    expect(recipe.hasPendingNutrition, isFalse);
+    expect(recipe.toMealResultForServings(2).caloriesKcal, 1300);
+  });
+
+  testWidgets('cancelled nutrition correction preserves original conflict draft', (tester) async {
+    final candidate = RecipeImportCandidate.fromJson({
+      'id': 'conflict', 'title': 'Caption recipe', 'ingredients': '100 g flour', 'preparation': '',
+      'calories_kcal': 650, 'protein_g': null, 'carbs_g': null, 'fat_g': 20,
+      'nutrition_basis': 'unspecified', 'nutrition_estimated': false,
+      'nutrition_conflicts': ['protein_g'],
+    });
+    final saved = <FitnessRecipe>[];
+    await _open(tester,
+      service: _Service((_) async => RecipeImportResult(status: RecipeImportStatus.ready, candidates: [candidate])),
+      save: (recipe) async { saved.add(recipe); return SyncDelivery.delivered; },
+    );
+    await _tap(tester, 'recipe-import-correct-nutrition');
+    await _enter(tester, 'recipe-create-protein', '47');
+    await _tap(tester, 'recipe-create-close');
+    await _tap(tester, 'discard-changes-confirm');
+    expect(saved, isEmpty);
+    expect(find.text('47 g'), findsNothing);
+    await _tap(tester, 'recipe-import-save');
+    expect(saved.single.nutritionConflicts, ['protein_g']);
+    expect(saved.single.displayNutrition.proteinG, isNull);
+    expect(saved.single.displayNutrition.carbsG, isNull);
+    expect(saved.single.canLogServings(1), isFalse);
+  });
+
+  testWidgets('account switch during draft correction never saves or applies late result', (tester) async {
+    var current = true;
+    var saves = 0;
+    await _open(tester, service: _Service((_) async => _ready),
+      sessionIsCurrent: () => current,
+      save: (_) async { saves++; return SyncDelivery.delivered; });
+    await _tap(tester, 'recipe-import-correct-nutrition');
+    for (final pair in {'kcal': '650', 'protein': '47', 'carbs': '68', 'fat': '20'}.entries) {
+      await _enter(tester, 'recipe-create-${pair.key}', pair.value);
+    }
+    current = false;
+    await _tap(tester, 'recipe-create-save');
+    expect(saves, 0);
+    expect(find.byKey(const ValueKey('recipe-edit-save-error')), findsOneWidget);
+    expect(find.byKey(const ValueKey('recipe-create-sheet')), findsOneWidget);
+  });
+
+  testWidgets('conflicting caption names the conflict and missing macro before basis confirmation', (tester) async {
+    final candidate = RecipeImportCandidate.fromJson({
+      'id': 'kaiserschmarrn', 'title': 'Kaiserschmarrn',
+      'ingredients': '100 g flour', 'preparation': '', 'servings': 2,
+      'calories_kcal': 650, 'protein_g': null, 'carbs_g': null, 'fat_g': 20,
+      'nutrition_basis': 'unspecified', 'nutrition_estimated': false,
+      'nutrition_conflicts': ['protein_g'],
+    });
+    await _open(tester,
+      service: _Service((_) async => RecipeImportResult(status: RecipeImportStatus.ready, candidates: [candidate])),
+      save: (_) async => SyncDelivery.delivered,
+    );
+    expect(find.text('650'), findsOneWidget);
+    expect(find.text('20 g'), findsOneWidget);
+    expect(find.textContaining('Conflicting caption values: Protein.'), findsOneWidget);
+    expect(find.textContaining('Missing values: Carbs.'), findsOneWidget);
+    expect(find.text('The values have been imported. Before logging, confirm how many servings they cover.'), findsNothing);
+  });
+
   testWidgets('verified batch preview scales ingredients while editor and save retain source', (tester) async {
     const candidate = RecipeImportCandidate(
       id: 'mince', title: 'Mince pockets', ingredients: '800 g mince',
@@ -542,6 +691,9 @@ void main() {
     await _tap(tester, 'recipe-import-save');
     expect(find.byKey(const ValueKey('recipe-import-sheet')), findsOneWidget);
     expect(find.textContaining('private backend details'), findsNothing);
+    expect(tester.widget<TextButton>(find.byKey(
+      const ValueKey('recipe-import-correct-nutrition'),
+    )).onPressed, isNull);
     await _tap(tester, 'recipe-import-save');
     expect(attempts, hasLength(2));
     expect(attempts[0].slug, attempts[1].slug);

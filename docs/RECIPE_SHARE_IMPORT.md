@@ -16,6 +16,7 @@ Nothing enters the user's recipe library until the user confirms a specific reci
 | Missing/private/unavailable caption | Ask for pasted recipe text in the same sheet. |
 | Ingredients in the caption, steps only in the video | Preview the ingredients and explicitly mark missing steps; never invent instructions. |
 | Partial nutrition | Keep and display every known value, including zero. Only missing values are blank; block food logging until complete. |
+| Conflicting caption labels | Explain which nutrient conflicts and which values are missing. Correct the four nutrition fields in the preview; applying a draft does not save the recipe. |
 | Nutrition with an unconfirmed serving basis | Preserve the caption values even when the reference wording is unfamiliar, a whole-dish yield is absent, or values refer to a mass/fraction. The tracker asks how many servings the displayed values cover, saves the confirmation, then opens meal selection. |
 | Repeated share | Content-based recipe identity prevents overwriting an existing saved import. |
 
@@ -97,6 +98,9 @@ The model supplies an exact `ingredient_basis_quote`; the server accepts it only
 when it contains the complete ingredient list and an unambiguous matching yield
 or per-serving reference. Cropped ranges, conflicting yields, mixed references
 and evidence borrowed from another recipe cannot authorize division.
+Explicit ingredient headings followed by a colon also work when TikTok flattens
+the heading and quantities onto one line. This only establishes the ingredient
+reference: it neither rewrites source text nor confirms the nutrition basis.
 
 For example, 800 g mince for four servings displays as 200 g per serving. Nutrition
 already stated per piece stays unchanged; proven whole-recipe nutrition is divided
@@ -126,6 +130,26 @@ number. A null model field can be recovered from a unique source pair; missing,
 conflicting, invalid and out-of-range values remain null. Distinct nutrition
 blocks are not merged. Complete values with an unresolved basis no longer emit
 `nutrition_missing`; the candidate's basis field still requires confirmation.
+
+Version 2 adds optional `nutrition_conflicts` for duplicate nutrient labels with
+different source values. For example, `650 kcal 47g Protein 68g Protein 20g Fett`
+preserves calories and fat, flags protein, and leaves carbohydrates unknown.
+The second protein amount is never guessed to mean carbohydrates. To detect a
+model quote that omits the other conflicting value, the server completes uniquely
+located evidence within one recognizable source nutrition section, bounded to
+2,000 characters. Explicit section/variant boundaries and hashtags prevent
+borrowing adjacent recipe text; headerless prose retains the existing validation.
+See the [server contract](../supabase/functions/recipe-import/README.md).
+
+Conflict markers survive existing recipe storage/history as hidden categories.
+The preview and saved recipe explain conflicts separately from absent fields.
+The nutrition-only preview editor keeps known values, leaves unknown values blank,
+and requires complete checked numbers plus explicit serving-basis confirmation
+when unresolved. It cannot modify source identity or ingredient quantities, write
+photos, or save user data. Only the final **Save recipe** action persists the draft.
+Cancellation/account changes discard the correction; an uncertain save freezes
+the attempted recipe for an idempotent retry. Older server responses without
+conflict metadata still explain incomplete nutrition correctly.
 
 No extraction request writes recipe rows. Explicit saves use `HomeStore.saveUserRecipe`
 and the existing encrypted cache, transactional outbox, server revisions and ownership

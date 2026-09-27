@@ -65,6 +65,26 @@ model fields can be recovered from an unambiguous source label/number pair.
 Reading-order binding supports numbers before or after their labels and avoids
 assigning the same quantity to neighboring nutrients. Conflicting blocks are
 not merged, missing source values remain null, and no estimates are generated.
+Version 2 optionally returns `nutrition_conflicts`, containing only canonical
+nutrient fields (`calories_kcal`, `protein_g`, `carbs_g`, `fat_g`) with distinct
+source values under the same label in the selected block. Each flagged value
+remains null; the field is omitted when there is no such conflict and in v1.
+For example, `650 kcal 47g Protein 68g Protein 20g Fett` preserves 650 kcal and
+20 g fat, flags protein as conflicting, and leaves carbohydrates unknown. Neither
+the model nor the server may relabel the second protein value as carbohydrates.
+Repeated identical numbers and unrelated nutrition blocks are not conflicts.
+The client distinguishes source conflicts from missing values and requires manual
+correction before a serving confirmation can make the recipe loggable.
+
+To prevent a model from hiding one conflicting value by cropping its quote, v2
+completes a uniquely located quote inside a recognizable, bounded source nutrition
+section before validation. The section is limited to 2,000 characters and stops at
+another nutrition or explicit recipe/ingredient/preparation/variant heading.
+Nutrient rows, including bullets, separated by blank lines remain together; unrelated blank sections
+and hashtags terminate the section. Trailing hashtags cannot bypass completion.
+Quotes crossing into another nonnutrition section fail closed. Where no heading
+establishes an unambiguous containing section, the original quote validation
+remains in effect; this is not a general reconstruction of arbitrary caption prose.
 Warnings are only `nutrition_missing`, `source_incomplete`, `truncated`. The last
 also means some additional recipes could not be represented completely; it never
 authorizes silently completing them. An unresolved basis with all four values

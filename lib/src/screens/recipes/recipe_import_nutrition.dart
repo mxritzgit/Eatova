@@ -100,9 +100,8 @@ class RecipeImportNutrition extends StatelessWidget {
         if (candidate.nutritionBasisUnclear || !candidate.hasNutrition) ...[
           const SizedBox(height: 12),
           Text(
-            candidate.nutritionBasisUnclear
-                ? l10n.recipeImportBasisHint
-                : l10n.recipeImportNutritionPendingHint,
+            candidate.toRecipe(slug: candidate.stableSlug(),
+                sourceLabel: l10n.recipeImportSourceLabel).nutritionReviewHint(l10n),
             style: AppType.ui(13, color: t.ink2, height: 1.5),
           ),
         ],
