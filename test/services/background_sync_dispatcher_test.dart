@@ -213,7 +213,7 @@ void main() {
                 'operation_id': sent.last['p_operation_id'],
                 'kind': sent.last['p_kind'],
                 'entity_id': sent.last['p_entity_id'],
-                'result': {},
+                'result': <dynamic, dynamic>{},
                 'current_state': {'entity_deleted': true},
               }),
               200,

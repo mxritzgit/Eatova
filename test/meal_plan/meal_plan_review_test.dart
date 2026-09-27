@@ -85,7 +85,7 @@ void main() {
             await release.future;
             return respond(req, {
               'plans': [old.toJson()],
-              'checks': [],
+              'checks': <dynamic>[],
             });
           }
           return defaults(req);
@@ -150,7 +150,7 @@ void main() {
           if (req.url.path.endsWith('/rpc/load_meal_plan')) {
             return respond(req, {
               'plans': [(reads++ == 0 ? p : remoteReceipt).toJson()],
-              'checks': [],
+              'checks': <dynamic>[],
             });
           }
           if (req.url.path.endsWith('/rpc/apply_sync_operation')) {

@@ -6,14 +6,14 @@ import 'package:http/http.dart' as http;
 http.Response? emptyRecipeReadResponse(http.Request request) {
   final Object body;
   if (request.url.path.endsWith('/rpc/load_recipe_page')) {
-    body = {'watermark': 0, 'rows': [], 'next_after': null, 'complete': true};
+    body = {'watermark': 0, 'rows': <dynamic>[], 'next_after': null, 'complete': true};
   } else if (request.url.path.endsWith('/rpc/load_recipe_photo_refs')) {
-    body = {'watermark': 0, 'refs': [], 'next_after': null, 'complete': true};
+    body = {'watermark': 0, 'refs': <dynamic>[], 'next_after': null, 'complete': true};
   } else if (request.url.path.endsWith('/rpc/load_recipe_history')) {
     body = {
       'current_revision': null,
       'current_deleted': null,
-      'versions': [],
+      'versions': <dynamic>[],
       'next_before': null,
     };
   } else {

@@ -203,7 +203,7 @@ void main() {
       }
       for (final raw in [
         false,
-        {},
+        <dynamic, dynamic>{},
         [false],
         List.filled(101, _ingredient().toJson()),
       ]) {

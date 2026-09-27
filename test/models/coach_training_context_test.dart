@@ -55,7 +55,7 @@ void main() {
         {'intent': 'unknown'},
         {'intent': 'adapt'},
         {'selected_plan': _plan().toJson()},
-        {'selected_plan': {}},
+        {'selected_plan': <dynamic, dynamic>{}},
         {
           'goal': {'instructions': 'nested'},
         },
@@ -64,7 +64,7 @@ void main() {
         {'goal': 'a\u0000b'},
         {'goal': '\ud800'},
         {'goal': 'a\u007fb'},
-        {'experience': []},
+        {'experience': <dynamic>[]},
         {'equipment': 'all'},
         for (final value in [double.nan, double.infinity, 3.5, 0, 8, '3'])
           {'sessions_per_week': value},

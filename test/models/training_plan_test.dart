@@ -37,7 +37,7 @@ void main() {
       expect(draft.toJson(), wire);
       expect(
         CoachTrainingProposal.fromJson(
-          jsonDecode(jsonEncode(draft.toJson())),
+          jsonDecode(jsonEncode(draft.toJson())) as Map<dynamic, dynamic>,
         )!.toJson(),
         wire,
       );
@@ -222,8 +222,8 @@ void main() {
     test('rejects invalid lists, child shapes, and overflowing counts', () {
       for (final workouts in [
         null,
-        {},
-        [],
+        <dynamic, dynamic>{},
+        <dynamic>[],
         [false],
         List.filled(8, _workout()),
       ]) {
@@ -234,8 +234,8 @@ void main() {
       }
       for (final exercises in [
         null,
-        {},
-        [],
+        <dynamic, dynamic>{},
+        <dynamic>[],
         [false],
         List.filled(21, _exercise()),
       ]) {
@@ -281,7 +281,7 @@ void main() {
           minimum + 0.5,
           '$minimum',
           true,
-          [],
+          <dynamic>[],
           double.nan,
           double.infinity,
         ]) {
@@ -499,7 +499,7 @@ void main() {
           <String, dynamic>{},
           {'id': 'p1'},
           {'id': 'p1', 'plan': null},
-          {'id': 'p1', 'plan': []},
+          {'id': 'p1', 'plan': <dynamic>[]},
           {'id': 'p1', 'plan': <String, dynamic>{}},
           {'id': 'p1', 'plan': _proposal()..['title'] = 123},
         ]) {

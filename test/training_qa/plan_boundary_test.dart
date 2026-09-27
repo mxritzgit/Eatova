@@ -19,7 +19,9 @@ void main() {
       id: trainingPlanIdForMessage('message-1'),
     );
     expect(
-      TrainingPlan.fromJson(jsonDecode(jsonEncode(plan.toJson()))).toJson(),
+      TrainingPlan.fromJson(
+        jsonDecode(jsonEncode(plan.toJson())) as Map<dynamic, dynamic>,
+      ).toJson(),
       plan.toJson(),
     );
     expect(plan.toRow().keys, unorderedEquals(['id', 'plan', 'exercise_ids']));
@@ -141,7 +143,8 @@ void main() {
     final plan = draft.toTrainingPlan(id: 'manual-1');
     firstExercise(raw)['name'] = 'Changed raw input';
     final encoded = plan.toJson();
-    firstExercise(encoded['plan'])['name'] = 'Changed output';
+    firstExercise(encoded['plan'] as Map<String, dynamic>)['name'] =
+        'Changed output';
     expect(plan.workouts.single.exercises.first.name, 'Chair squat');
     expect(() => plan.workouts.clear(), throwsUnsupportedError);
     expect(
@@ -177,12 +180,12 @@ void main() {
       );
       expect(
         ChatMessage.fromRow(
-          trainingMessage()..['recipe'] = {},
+          trainingMessage()..['recipe'] = <dynamic, dynamic>{},
         ).trainingPlanProposal,
         isNull,
       );
       final row = trainingMessage();
-      firstExercise(row['training_plan'])['sets'] = 999;
+      firstExercise(row['training_plan'] as Map<String, dynamic>)['sets'] = 999;
       expect(ChatMessage.fromRow(row).trainingPlanProposal, isNull);
     },
   );

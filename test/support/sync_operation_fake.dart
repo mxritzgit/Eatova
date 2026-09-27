@@ -125,7 +125,7 @@ class SyncOperationFake {
     });
   }
 
-  static int _trainingIncarnation(Map row) {
+  static int _trainingIncarnation(Map<dynamic, dynamic> row) {
     if (!row.containsKey('incarnation')) return 0;
     final value = row['incarnation'];
     if (value is! int || value < 0 || value > 2147483647) {

@@ -66,7 +66,7 @@ class _Fixture {
         if (offline) throw http.ClientException('offline');
         if (request.url.path.endsWith('/rpc/load_meal_plan')) {
           return http.Response(
-            jsonEncode({'plans': [], 'checks': []}),
+            jsonEncode({'plans': <dynamic>[], 'checks': <dynamic>[]}),
             200,
             headers: {'content-type': 'application/json'},
           );
@@ -245,7 +245,7 @@ void main() {
     final capped = capOutbox(queue, maxOps: 1);
     expect(capped.queue.single.kind, SyncOpKind.mealPlanConvert);
     final restored = SyncOp.tryFromJson(
-      jsonDecode(jsonEncode(conversion.toJson())),
+      jsonDecode(jsonEncode(conversion.toJson())) as Map<String, dynamic>,
     );
     expect(restored!.plannedMeal!.isEaten, isTrue);
     expect(restored.meal!.id, p.id);
