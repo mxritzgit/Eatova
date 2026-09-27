@@ -42,9 +42,22 @@ class PlannedMeal {
   final DateTime? eatenAt;
   final bool removed;
   bool get isEaten => eatenAt != null;
-  FitnessRecipe get recipe => FitnessRecipe.fromRow(
-    (jsonDecode(_snapshot) as Map).cast<String, dynamic>(),
-  );
+  /// The snapshot as a recipe. Rows have no professional-hint column, so an
+  /// unchanged catalog recipe (same slug and title, which also fixes the
+  /// language) gets its bundled hint back instead of the self-added text.
+  FitnessRecipe get recipe {
+    final snapshot = FitnessRecipe.fromRow(
+      (jsonDecode(_snapshot) as Map).cast<String, dynamic>(),
+    );
+    for (final catalog in const [recipeCatalogDe, recipeCatalogEn]) {
+      for (final entry in catalog) {
+        if (entry.slug == snapshot.slug && entry.title == snapshot.title) {
+          return snapshot.copyWith(professionalHint: entry.professionalHint);
+        }
+      }
+    }
+    return snapshot;
+  }
 
   PlannedMeal copyWith({
     DateTime? day,
