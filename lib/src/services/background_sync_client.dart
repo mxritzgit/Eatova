@@ -22,44 +22,36 @@ class BackgroundSyncSession {
   static BackgroundSyncSession? fromPersisted(String? encoded) {
     if (encoded == null || encoded.length > 65536) return null;
     try {
-      final data = jsonDecode(encoded);
-      if (data is! Map || data['user'] is! Map) return null;
-      final user = data['user'] as Map;
-      final token = data['access_token'];
-      final userId = user['id'];
-      if (token is! String || userId is! String || userId.isEmpty) return null;
-      final parts = token.split('.');
-      if (parts.length != 3) return null;
-      final claims = jsonDecode(
-        utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
-      );
-      if (claims is! Map ||
-          claims['sub'] != userId ||
-          claims['role'] != 'authenticated') {
-        return null;
+      if (jsonDecode(encoded) case {
+        'user': {'id': final String userId},
+        'access_token': final String token,
+      } when userId.isNotEmpty) {
+        final parts = token.split('.');
+        if (parts.length != 3) return null;
+        final claims = jsonDecode(
+          utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
+        );
+        // The expiry is range-checked before multiplying: an overflowing
+        // claim must not wrap into a plausible expiry.
+        if (claims case {
+          'sub': final String subject,
+          'role': 'authenticated',
+          'session_id': final String sessionId,
+          'exp': final int expiry,
+        } when subject == userId &&
+            sessionId.isNotEmpty &&
+            expiry >= -_maxExpirySeconds &&
+            expiry <= _maxExpirySeconds) {
+          final session = BackgroundSyncSession._(
+            userId,
+            sessionId,
+            token,
+            DateTime.fromMillisecondsSinceEpoch(expiry * 1000, isUtc: true),
+          );
+          return session.isUsable ? session : null;
+        }
       }
-      final sessionId = claims['session_id'];
-      final expiry = claims['exp'];
-      // Validated before multiplying: an overflowing claim must not wrap
-      // into a plausible expiry, and DateTime rejects anything beyond it.
-      if (sessionId is! String ||
-          sessionId.isEmpty ||
-          expiry is! int ||
-          expiry < -_maxExpirySeconds ||
-          expiry > _maxExpirySeconds) {
-        return null;
-      }
-      final expiresAt = DateTime.fromMillisecondsSinceEpoch(
-        expiry * 1000,
-        isUtc: true,
-      );
-      final session = BackgroundSyncSession._(
-        userId,
-        sessionId,
-        token,
-        expiresAt,
-      );
-      return session.isUsable ? session : null;
+      return null;
     } on FormatException {
       return null;
     }
