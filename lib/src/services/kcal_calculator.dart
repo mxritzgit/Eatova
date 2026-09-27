@@ -47,7 +47,7 @@ int estimateKcalBurnedFromSteps({
   return activeKcal.clamp(0, 99999).round();
 }
 
-/// [linearWeeks] is the optimistic lower bound, [dynamicWeeks] the simulated
+/// `linearWeeks` is the optimistic lower bound, `dynamicWeeks` the simulated
 /// upper bound (`null` if the deficit runs out first).
 typedef WeeksToGoalRange = ({int linearWeeks, int? dynamicWeeks});
 
@@ -144,7 +144,8 @@ class KcalTargets {
 
   /// Actual daily difference from maintenance: **negative = deficit**.
   ///
-  /// Display this, not [WeightGoal.kcalDelta] — that is the wish, this the plan.
+  /// Display this, not [WeightGoalInfo.kcalDelta] — that is the wish, this the
+  /// plan.
   int get effectiveKcalDelta => kcal - maintenanceKcal;
 
   /// Actually achievable weekly rate in kg, signed (negative = losing).

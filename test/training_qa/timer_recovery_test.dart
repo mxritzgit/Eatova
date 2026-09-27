@@ -95,7 +95,9 @@ void main() {
       controller.dispose();
       time += const Duration(days: 7);
       final restored = TrainingSessionController.fromSnapshot(
-        TrainingSessionSnapshot.fromJson(jsonDecode(serialized)),
+        TrainingSessionSnapshot.fromJson(
+          jsonDecode(serialized) as Map<dynamic, dynamic>,
+        ),
         monotonicNow: () => time,
         autoTick: false,
       );
@@ -169,7 +171,7 @@ void main() {
       actions[random.nextInt(actions.length)]();
       final encoded = controller.snapshot().toJson();
       final decoded = TrainingSessionSnapshot.fromJson(
-        jsonDecode(jsonEncode(encoded)),
+        jsonDecode(jsonEncode(encoded)) as Map<dynamic, dynamic>,
       );
       expect(decoded.toJson(), encoded, reason: 'transition $step');
       expect(controller.progress, inInclusiveRange(0, 1));

@@ -28,9 +28,9 @@ Map<String, dynamic> request(
   if (protocol != null) 'p_training_protocol': protocol,
 };
 
-Map mutation(Map response) =>
+Map<dynamic, dynamic> mutation(Map<dynamic, dynamic> response) =>
     (response['result'] as Map)['training_mutation'] as Map;
-Map current(Map response) => response['current_state'] as Map;
+Map<dynamic, dynamic> current(Map<dynamic, dynamic> response) => response['current_state'] as Map;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -189,7 +189,7 @@ void main() {
         ),
       );
       expect(
-        () => fake.apply(request(3, 'profileUpsert', {'row': {}})),
+        () => fake.apply(request(3, 'profileUpsert', {'row': <dynamic, dynamic>{}})),
         throwsA(isA<PostgrestException>()),
       );
     },

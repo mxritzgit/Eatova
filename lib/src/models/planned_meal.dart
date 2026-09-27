@@ -42,9 +42,22 @@ class PlannedMeal {
   final DateTime? eatenAt;
   final bool removed;
   bool get isEaten => eatenAt != null;
-  FitnessRecipe get recipe => FitnessRecipe.fromRow(
-    (jsonDecode(_snapshot) as Map).cast<String, dynamic>(),
-  );
+  /// The snapshot as a recipe. Rows have no professional-hint column, so an
+  /// unchanged catalog recipe (same slug and title, which also fixes the
+  /// language) gets its bundled hint back instead of the self-added text.
+  FitnessRecipe get recipe {
+    final snapshot = FitnessRecipe.fromRow(
+      (jsonDecode(_snapshot) as Map).cast<String, dynamic>(),
+    );
+    for (final catalog in const [recipeCatalogDe, recipeCatalogEn]) {
+      for (final entry in catalog) {
+        if (entry.slug == snapshot.slug && entry.title == snapshot.title) {
+          return snapshot.copyWith(professionalHint: entry.professionalHint);
+        }
+      }
+    }
+    return snapshot;
+  }
 
   PlannedMeal copyWith({
     DateTime? day,
@@ -162,11 +175,13 @@ class ShoppingCheck {
   final bool checked;
   Map<String, dynamic> toJson() => {'id': id, 'checked': checked};
   factory ShoppingCheck.fromJson(Map<String, dynamic> json) {
-    if (json['id'] is! String ||
-        !RegExp(r'^\d{4}-\d{2}-\d{2}:[a-f0-9]{64}$').hasMatch(json['id']) ||
-        json['checked'] is! bool) {
+    final id = json['id'];
+    final checked = json['checked'];
+    if (id is! String ||
+        !RegExp(r'^\d{4}-\d{2}-\d{2}:[a-f0-9]{64}$').hasMatch(id) ||
+        checked is! bool) {
       throw const FormatException('Invalid shopping check');
     }
-    return ShoppingCheck(id: json['id'], checked: json['checked']);
+    return ShoppingCheck(id: id, checked: checked);
   }
 }

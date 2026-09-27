@@ -1174,15 +1174,6 @@ void main() {
         kOutboxMaxOps,
         (_) => SyncOp.trainingHistoryInsert(_entry()),
       );
-      final newcomer = SyncOp.trainingPlanDelete('new-delete');
-      final capped = capOutbox([...entries, newcomer]);
-      expect(capped.queue.length, kOutboxMaxOps);
-      expect(capped.dropped, [newcomer]);
-      expect(
-        capped.queue.every((op) => op.kind == SyncOpKind.trainingHistoryInsert),
-        isTrue,
-      );
-
       final raw = InMemoryKeyValueStore();
       final cache = LocalCache(raw, 'A');
       await cache.writeOutbox(entries);

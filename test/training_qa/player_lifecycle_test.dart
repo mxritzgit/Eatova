@@ -142,7 +142,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(TrainingPlayerScreen), findsNothing);
       final reboot = TrainingSessionSnapshot.fromJson(
-        jsonDecode(jsonEncode(last!.toJson())),
+        jsonDecode(jsonEncode(last!.toJson())) as Map<dynamic, dynamic>,
       );
       expect(reboot.remainingMilliseconds, 27500);
       expect(reboot.toJson()['status'], 'paused');

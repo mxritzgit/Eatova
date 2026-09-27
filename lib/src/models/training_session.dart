@@ -321,7 +321,7 @@ final class TrainingSessionSnapshot {
         : '00000000000000000000000000000000';
     final legacyId =
         '${digest.substring(0, 8)}-${digest.substring(8, 12)}-${digest.substring(12, 16)}-${digest.substring(16, 20)}-${digest.substring(20)}';
-    final rawActuals = version == 2 ? json['actual_sets'] : const [];
+    final rawActuals = version == 2 ? json['actual_sets'] : const <dynamic>[];
     if (rawActuals is! List || rawActuals.length > 200) {
       throw const FormatException('Invalid training actuals');
     }

@@ -363,7 +363,7 @@ void main() {
     'queued payload cannot be changed after operation identity is assigned',
     () {
       final op = SyncOp.mealInsert(_meal('immutable'), trackDay: false);
-      expect(() => op.payload['meal'] = {}, throwsUnsupportedError);
+      expect(() => op.payload['meal'] = <dynamic, dynamic>{}, throwsUnsupportedError);
       expect(
         () => (op.payload['meal'] as Map)['id'] = 'different',
         throwsUnsupportedError,

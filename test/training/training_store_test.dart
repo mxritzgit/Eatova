@@ -975,6 +975,8 @@ void main() {
       try {
         await env.store.deleteTrainingPlan(plan().id);
         acknowledged = true;
+        // The fixture cipher simulates its storage failure with StateError.
+        // ignore: avoid_catching_errors
       } on StateError {
         expect(
           env.server.requests.where(

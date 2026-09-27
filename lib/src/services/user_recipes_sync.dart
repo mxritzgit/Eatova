@@ -70,8 +70,8 @@ class UserRecipesSync {
           'p_payload': payload,
         },
       );
-    } on PostgrestException catch (error) {
-      rethrowSyncFailure(error);
+    } on PostgrestException catch (error, stack) {
+      rethrowSyncFailure(error, stack);
     }
     if (raw is! Map) throw const FormatException('Invalid recipe receipt');
     final receipt = SyncOperationReceipt.fromJson(raw.cast<String, dynamic>());

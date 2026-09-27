@@ -131,7 +131,7 @@ class LifetimeStatsSync {
       },
       single: true,
     );
-    return LifetimeStats.fromRow(row);
+    return LifetimeStats.fromRow(row as Map<String, dynamic>);
   }
 
   /// Does the server say "I don't know this function/signature"?
@@ -156,7 +156,7 @@ class LifetimeStatsSync {
         params: <String, dynamic>{'p_day': _dateOnly(day)},
         single: true,
       );
-      return LifetimeStats.fromRow(row);
+      return LifetimeStats.fromRow(row as Map<String, dynamic>);
     } catch (e, stack) {
       dev.log('LifetimeStatsSync.recordTrackingDay failed',
           error: e, stackTrace: stack, name: 'lifetime_stats_sync');

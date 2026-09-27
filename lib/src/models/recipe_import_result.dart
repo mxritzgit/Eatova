@@ -70,7 +70,7 @@ class RecipeImportResult {
         throw const FormatException('Invalid import source URL');
       }
     }
-    final rawWarnings = json['warnings'] ?? const [];
+    final rawWarnings = json['warnings'] ?? const <dynamic>[];
     if (rawWarnings is! List ||
         rawWarnings.length > 6 ||
         rawWarnings.any(
@@ -142,7 +142,7 @@ class RecipeImportCandidate {
     if (!const [null, 'per_recipe', 'per_serving', 'unspecified'].contains(json['ingredients_basis'])) {
       throw const FormatException('Invalid import ingredient basis');
     }
-    final conflicts = json['nutrition_conflicts'] ?? const [];
+    final conflicts = json['nutrition_conflicts'] ?? const <dynamic>[];
     if (conflicts is! List || conflicts.length > 4 ||
         conflicts.any((field) => !recipeNutritionFields.contains(field) || json[field] != null) ||
         conflicts.toSet().length != conflicts.length) {

@@ -117,7 +117,7 @@ class ExportDocument {
 
   static int _compareRows(dynamic a, dynamic b) {
     // Newest first, with deterministic ties; text-based collections by name.
-    DateTime? timestamp(Map row) {
+    DateTime? timestamp(Map<dynamic, dynamic> row) {
       for (final key in const [
         'logged_at',
         'measured_at',

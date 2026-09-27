@@ -24,10 +24,6 @@ import 'sync_test_helpers.dart';
 //      order (insert -> update -> delete).
 //   4. attempts roundtrips, stays backwards compatible (missing -> 0) and is
 //      deliberately RESET on coalescing.
-//   5. capOutbox caps the queue and drops the OLDEST ops. Deletes fall LAST —
-//      losing one is the only loss the next cold start reverses rather than
-//      heals — but they do fall: the cap is hard, else the blob grows without
-//      bound.
 
 /// The shared fixture plus the fields only the wire-format assertions here
 /// care about: a component list, a barcode and a brand.
@@ -462,12 +458,12 @@ void main() {
       expect(SyncOp.favoriteDelete('fav-1').isDelete, isTrue);
       expect(SyncOp.recipeDelete('user_123').isDelete, isTrue);
 
-      // A dropped streak day costs a counter; a dropped delete resurrects user
-      // data. capOutbox's ordering rests on that distinction.
+      // A lost streak day costs a counter; a lost delete resurrects user
+      // data. The larger delete retry budget rests on that distinction.
       expect(
         SyncOp.trackingDay('2026-08-10').isDelete,
         isFalse,
-        reason: 'ein Streak-Tag ist KEIN Delete — er faellt am Cap zuerst',
+        reason: 'ein Streak-Tag ist KEIN Delete',
       );
       expect(SyncOp.mealInsert(_meal('m-1'), trackDay: true).isDelete, isFalse);
       expect(SyncOp.mealUpsert(_meal('m-1')).isDelete, isFalse);
@@ -716,135 +712,6 @@ void main() {
       expect(queue.first.meal!.result.caloriesKcal, 300);
       expect(queue.last.attempts, 0);
       expect(queue.last.meal!.result.caloriesKcal, 500);
-    });
-  });
-
-  group('capOutbox', () {
-    test(
-      'unter dem Cap bleibt der INHALT gleich, die Liste ist aber eine neue',
-      () {
-        // Frueher stand hier `same(queue)`. Das ist seit dem Review 2026-09-01
-        // (L1) genau falsch herum: der Replay-Kursor in home_store_sync.dart
-        // erkennt eine fremde Aenderung an der Listen-IDENTITAET, und das traegt
-        // nur, solange JEDER Schreibvorgang auf `_outbox` eine frische Liste
-        // anlegt. Gab capOutbox seine Eingabe zurueck, stimmte das bloss zufaellig
-        // fuer die heutigen Aufrufer — ein kuenftiges
-        // `_outbox = capOutbox(_outbox).queue` nach einer In-Place-Aenderung
-        // haette Ops uebersprungen, ohne dass ein Test rot wird.
-        final queue = <SyncOp>[SyncOp.mealDelete('a'), SyncOp.mealDelete('b')];
-        final capped = capOutbox(queue, maxOps: 5);
-
-        expect(capped.queue, isNot(same(queue)), reason: 'copy-on-write (L1)');
-        expect(
-          capped.queue.map((o) => o.entityId).toList(),
-          queue.map((o) => o.entityId).toList(),
-        );
-        expect(capped.dropped, isEmpty);
-
-        // Exactly at the cap nothing is dropped either.
-        expect(capOutbox(queue, maxOps: 2).dropped, isEmpty);
-      },
-    );
-
-    // Same head trim for both op families: the ONLY difference is whether the
-    // queue holds writes or deletes. "Never cap deletes" would disable the cap
-    // entirely for a queue of undeliverable deletes — exactly the unbounded
-    // blob growth the cap exists against. Resolution: deletes fall LAST, but
-    // they fall; the store then restores the affected entries and says so.
-    for (final (art, baue) in <(String, SyncOp Function(int))>[
-      ('Schreib-Ops', (i) => SyncOp.mealUpsert(_meal('m-$i'))),
-      ('Loesch-Ops', (i) => SyncOp.mealDelete('m-$i')),
-    ]) {
-      test('ueber dem Cap fliegen die AELTESTEN $art raus (Kopf-Trim)', () {
-        final queue = <SyncOp>[for (var i = 0; i < 6; i++) baue(i)];
-        final capped = capOutbox(queue, maxOps: 4);
-
-        expect(capped.queue, hasLength(4));
-        expect(capped.queue.map((o) => o.entityId).toList(), <String>[
-          'm-2',
-          'm-3',
-          'm-4',
-          'm-5',
-        ], reason: 'das Neueste — worauf der User gerade schaut — bleibt');
-        expect(capped.dropped.map((o) => o.entityId).toList(), <String>[
-          'm-0',
-          'm-1',
-        ], reason: 'aeltestes zuerst');
-      });
-    }
-
-    test('Deletes ueberleben den Kopf-Trim — sonst kehrt die geloeschte '
-        'Mahlzeit beim naechsten Kaltstart vom Server zurueck', () {
-      final queue = <SyncOp>[
-        SyncOp.mealUpsert(_meal('m-0')),
-        SyncOp.mealDelete('m-del'),
-        SyncOp.mealUpsert(_meal('m-1')),
-        SyncOp.favoriteDelete('barcode:4001234'),
-        SyncOp.mealUpsert(_meal('m-2')),
-        SyncOp.recipeDelete('user_123'),
-        SyncOp.mealUpsert(_meal('m-3')),
-      ];
-      final capped = capOutbox(queue, maxOps: 4);
-
-      // Trimming happens only from the head, oldest first.
-      expect(capped.dropped.map((o) => o.entityId).toList(), <String>[
-        'm-0',
-        'm-1',
-        'm-2',
-      ]);
-      expect(capped.dropped.map((o) => o.isDelete), everyElement(isFalse));
-      expect(capped.queue.map((o) => o.entityKey).toList(), <String>[
-        'meal:m-del',
-        'favorite:barcode:4001234',
-        'recipe:user_123',
-        'meal:m-3',
-      ], reason: 'FIFO-Reihenfolge bleibt, alle drei Loeschungen bleiben');
-    });
-
-    test('gemischte Queue ueber dem Cap: erst fallen ALLE Schreib-Ops, '
-        'Deletes erst danach', () {
-      final queue = <SyncOp>[
-        SyncOp.mealUpsert(_meal('m-0')),
-        SyncOp.mealDelete('d-0'),
-        SyncOp.mealUpsert(_meal('m-1')),
-        SyncOp.mealDelete('d-1'),
-        SyncOp.mealDelete('d-2'),
-      ];
-      final capped = capOutbox(queue, maxOps: 2);
-
-      expect(capped.dropped.map((o) => o.entityId).toList(), <String>[
-        'm-0',
-        'm-1',
-        'd-0',
-      ], reason: 'die zwei Schreib-Ops zuerst, dann der aelteste Delete');
-      expect(capped.queue.map((o) => o.entityId).toList(), <String>[
-        'd-1',
-        'd-2',
-      ]);
-      expect(
-        capped.queue.length + capped.dropped.length,
-        queue.length,
-        reason: 'nichts geht unterwegs verloren',
-      );
-    });
-
-    test('massiv uebergrosse Legacy-Queue kollabiert in EINEM Durchlauf', () {
-      final queue = <SyncOp>[
-        for (var i = 0; i < kOutboxMaxOps * 3; i++)
-          SyncOp.weightInsert(
-            id: 'w-$i',
-            weightKg: 80,
-            recordedAt: DateTime(2026, 8, 6),
-          ),
-      ];
-      final capped = capOutbox(queue);
-
-      expect(capped.queue, hasLength(kOutboxMaxOps));
-      expect(capped.dropped, hasLength(kOutboxMaxOps * 2));
-      expect(capped.queue.first.entityId, 'w-${kOutboxMaxOps * 2}');
-      expect(capped.queue.last.entityId, 'w-${kOutboxMaxOps * 3 - 1}');
-      // Idempotent: a second pass finds nothing left to cap.
-      expect(capOutbox(capped.queue).dropped, isEmpty);
     });
   });
 

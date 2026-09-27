@@ -29,7 +29,7 @@ void main() {
             jsonEncode({
               'plan': payload['p_plan'],
               'meal': payload['p_meal'],
-              'stats': {},
+              'stats': <dynamic, dynamic>{},
               'created': true,
             }),
             200,

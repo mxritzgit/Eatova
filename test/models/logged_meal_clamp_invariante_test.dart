@@ -52,8 +52,9 @@ final String _titel210 = _familie * 30;
 // Die Invariante
 // ---------------------------------------------------------------------------
 
-/// Nachbau von `MealsSync._macroToNumeric`: die App schreibt keinen `double`,
-/// sondern die erste Zahl aus dem Makro-TEXT in eine `numeric`-Spalte.
+/// Nachbau von `_macro` in `sync_operation_payload.dart`: die App schreibt
+/// keinen `double`, sondern die erste Zahl aus dem Makro-TEXT in eine
+/// `numeric`-Spalte.
 /// `_makroRegexIstNochDieselbe` hält den Nachbau am Original fest.
 num? _macroZuNumeric(String macroText) {
   final match = RegExp(r'(\d+(?:[.,]\d+)?)').firstMatch(macroText);
@@ -251,12 +252,12 @@ const Map<String, String> _erzeugerDateien = <String, String>{
           'dort; die Makros gehen durch macroForGrams, das selbst klemmt',
 };
 
-/// Spalten des `logged_meals`-Upserts in `MealsSync.insertLoggedMeal` mit der
+/// Spalten der `logged_meals`-Zeile, die `_mealRow` in
+/// `sync_operation_payload.dart` jeder Mahlzeit-Operation mitgibt, mit der
 /// Begründung, warum sie gedeckt sind. Eine neue Spalte muss hier eingetragen
-/// werden.
+/// werden. `user_id` fehlt, weil die RPC den Besitzer aus der Anmeldung nimmt.
 const Map<String, String> _upsertSpalten = <String, String>{
   'id': 'Client-UUID, kommt nicht aus dem Ergebnis',
-  'user_id': 'aus der Session',
   'logged_at': 'Zeitstempel',
   'local_day': 'abgeleiteter Tagesschluessel',
   'forced_slot': 'Enum-Name, durch forcedSlotValues gedeckt',
@@ -302,12 +303,14 @@ Set<String> _dateienMitErzeuger() {
 }
 
 Set<String> _spaltenDesUpserts() {
-  final quelle = _ohneKommentare(_lies('lib/src/services/meals_sync.dart'));
-  const kopf = "from('logged_meals').upsert({";
+  final quelle = _ohneKommentare(
+    _lies('lib/src/services/sync_operation_payload.dart'),
+  );
+  const kopf = 'Map<String, dynamic> _mealRow(LoggedMeal meal) => {';
   final start = quelle.indexOf(kopf);
-  expect(start, isNonNegative, reason: 'insertLoggedMeal-Upsert nicht gefunden');
-  final ende = quelle.indexOf('}, onConflict:', start);
-  expect(ende, isNonNegative, reason: 'Ende des Upsert-Maps nicht gefunden');
+  expect(start, isNonNegative, reason: '_mealRow nicht gefunden');
+  final ende = quelle.indexOf('\n};', start);
+  expect(ende, isNonNegative, reason: 'Ende der _mealRow-Map nicht gefunden');
   final block = quelle.substring(start + kopf.length, ende);
   return RegExp(r"'([a-z_]+)':")
       .allMatches(block)
@@ -465,7 +468,7 @@ void main() {
       expect(
         _spaltenDesUpserts(),
         _upsertSpalten.keys.toSet(),
-        reason: 'MealsSync schreibt eine Spalte, die diese Invariante nicht '
+        reason: '_mealRow schreibt eine Spalte, die diese Invariante nicht '
             'kennt — sie ist damit ungeprueft.',
       );
     });
@@ -494,14 +497,20 @@ void main() {
       );
     });
 
-    test('der Makro-Nachbau passt noch zur Regex in meals_sync', () {
-      final quelle = _lies('lib/src/services/meals_sync.dart');
-      expect(
-        quelle.contains(r"RegExp(r'(\d+(?:[.,]\d+)?)')"),
-        isTrue,
-        reason: '_macroToNumeric parst anders als _macroZuNumeric hier — die '
-            'Makro-Pruefung der Invariante misst dann das Falsche.',
-      );
+    test('der Makro-Nachbau passt noch zur Regex der Mahlzeit-Zeilen', () {
+      // Beide Wege schreiben logged_meals-Makros: die Sync-Operation und die
+      // Umwandlung einer geplanten Mahlzeit.
+      for (final pfad in const [
+        'lib/src/services/sync_operation_payload.dart',
+        'lib/src/services/meal_plans_sync.dart',
+      ]) {
+        expect(
+          _lies(pfad).contains(r"r'\d+(?:[.,]\d+)?'"),
+          isTrue,
+          reason: '$pfad parst Makros anders als _macroZuNumeric hier — die '
+              'Makro-Pruefung der Invariante misst dann das Falsche.',
+        );
+      }
     });
   });
 }

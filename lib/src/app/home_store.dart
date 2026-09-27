@@ -216,7 +216,7 @@ abstract class _HomeStoreBase extends ChangeNotifier {
       _trainingHistoryDeletionReadFailed ? const [] : _trainingHistoryState;
   set _trainingHistory(List<TrainingHistoryEntry> value) {
     _trainingHistoryState = List.unmodifiable(
-      [
+      <TrainingHistoryEntry>[
         ...value.where(
           (entry) => !_trainingHistoryDeletedIds.contains(entry.id),
         ),

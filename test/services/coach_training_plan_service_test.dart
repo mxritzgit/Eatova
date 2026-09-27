@@ -122,8 +122,8 @@ Future<void> _signIn(SupabaseClient client, String id) async {
         'id': id,
         'aud': 'authenticated',
         'created_at': '2026-01-01T00:00:00Z',
-        'app_metadata': {},
-        'user_metadata': {},
+        'app_metadata': <dynamic, dynamic>{},
+        'user_metadata': <dynamic, dynamic>{},
       },
     }),
   );

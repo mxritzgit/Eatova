@@ -34,7 +34,7 @@ class MealCameraCapture {
 }
 
 /// Starts the photo capture flow for the AI scan. Abstracted so widget tests
-/// can swap the untestable camera screen for a fake; like [MealPhotoInput],
+/// can swap the untestable camera screen for a fake; like `MealPhotoInput`,
 /// but including slot selection.
 abstract class MealCameraLauncher {
   Future<MealCameraCapture?> launch(

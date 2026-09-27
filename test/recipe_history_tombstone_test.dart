@@ -42,7 +42,7 @@ const deletion = {
       } else if (request.url.path.endsWith('/rpc/load_recipe_page')) {
         body = {
           'watermark': 1,
-          'rows': [],
+          'rows': <dynamic>[],
           'next_after': null,
           'complete': true,
         };

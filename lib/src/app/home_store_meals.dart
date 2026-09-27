@@ -177,9 +177,10 @@ mixin _HomeStoreMealsPart
   /// of a logged meal in ONE outbox-safe update (upsert on the client UUID, no
   /// rollback). Only passed fields change; `null` means unchanged.
   ///
-  /// Day move (DATA-6 consistent): [loggedAt] keeps its local wall-clock time
-  /// on the target day and [LoggedMeal.localDay] gets the new canonical key,
-  /// so bucketing, day counters and the server row stay aligned.
+  /// Day move (DATA-6 consistent): [LoggedMeal.loggedAt] keeps its local
+  /// wall-clock time on the target day and [LoggedMeal.localDay] gets the new
+  /// canonical key, so bucketing, day counters and the server row stay
+  /// aligned.
   ///
   /// Streak: a move ONTO today records today as tracked (idempotent per day).
   /// Moves to past days are back-fills and leave the streak alone. A move AWAY
@@ -500,7 +501,7 @@ mixin _HomeStoreMealsPart
   /// Gap E: the recipes screen showed a synchronous "saved" toast and the
   /// store's generic queue hint then wiped it. The screen now awaits this
   /// result and says both in ONE sentence, while the store withholds its own
-  /// hint ([aufruferMeldetAusgang]).
+  /// hint (`notifyQueued: false`).
   Future<SyncDelivery> createUserRecipe(FitnessRecipe recipe) =>
       saveUserRecipe(recipe);
 

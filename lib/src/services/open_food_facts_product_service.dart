@@ -341,7 +341,7 @@ class OpenFoodFactsProductService implements ProductLookupService {
     // A loop, not a map/where chain: the plausibility filter needs the raw
     // product map next to the parsed hit (see _energieProblem).
     final treffer = <ProductSearchResult>[];
-    for (final roh in products.whereType<Map>()) {
+    for (final roh in products.whereType<Map<dynamic, dynamic>>()) {
       final product = _normalizeProduct(
         roh.map((key, value) => MapEntry(key.toString(), value)),
       );

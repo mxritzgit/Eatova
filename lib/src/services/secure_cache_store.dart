@@ -36,8 +36,8 @@ const String cacheCipherMagic = 'EATOVA1:';
 /// purges the slot on the type, `crash_reporter.dart` allowlists it by name.
 const String _tagFailureMessage = 'Authentication tag check failed';
 
-/// Seam for encrypting one cache slot. Implementations MUST bind [key] as
-/// AAD. `Future`-valued so production can compute in an isolate (PERF-G9).
+/// Seam for encrypting one cache slot. Implementations MUST bind the slot key
+/// as AAD. `Future`-valued so production can compute in an isolate (PERF-G9).
 abstract class CacheCipher {
   /// Encrypts [plaintext] bound to [key] into [cacheCipherMagic] format.
   Future<String> encrypt(String key, String plaintext);
@@ -1352,7 +1352,7 @@ class CacheKeyProvider {
 }
 
 /// Decorator over a [KeyValueStore]: writes encrypted only, reads encrypted
-/// AND (migrating once) plaintext. Sits BELOW [LocalCache], wired only in
+/// AND (migrating once) plaintext. Sits BELOW `LocalCache`, wired only in
 /// `LocalCache.create`, so the cache and its serializers stay unchanged.
 class EncryptedKeyValueStore implements AtomicKeyValueStore, RawSlotProbe {
   /// [acceptLegacyPlaintext] is the migration path from
@@ -1541,7 +1541,7 @@ class EncryptedKeyValueStore implements AtomicKeyValueStore, RawSlotProbe {
   /// [getString] cannot answer this: it returns `null` both for an empty slot
   /// and for one whose decryption was not executable ([_onCipherUnavailable]
   /// leaves that slot in place on purpose). The `OrThrow` readers in
-  /// [LocalCache] need the difference, or an unreadable outbox counts as empty
+  /// `LocalCache` need the difference, or an unreadable outbox counts as empty
   /// and the next write overwrites it.
   ///
   /// P3-02c: an occupied slot additionally reports WHY the read failed, taken

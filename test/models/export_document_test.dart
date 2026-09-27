@@ -9,7 +9,7 @@ void main() {
     () {
       final document = ExportDocument.parse(
         jsonEncode({
-          'chat_messages': [],
+          'chat_messages': <dynamic>[],
           'unexpected_table': [
             {'unknown': null, 'enabled': false},
           ],
@@ -67,7 +67,7 @@ void main() {
       {'id': 'a', 'created_at': '2026-09-03T12:00:00Z'},
       {'id': 'old', 'date': '2026-08-01'},
     ];
-    String ordered(Iterable<Map> rows) =>
+    String ordered(Iterable<Map<dynamic, dynamic>> rows) =>
         ExportDocument.parse(jsonEncode({'logged_meals': rows.toList()})).json;
     expect(ordered(records), ordered(records.reversed));
     expect(
@@ -139,8 +139,8 @@ void main() {
       }),
       {'/a~1b': 1, '/a/b': 2, '/~0': 3},
     );
-    expect(ExportSection('empty', []).csv, '');
-    expect(ExportSection('object', {'a': []}).count, 1);
+    expect(ExportSection('empty', <dynamic>[]).csv, '');
+    expect(ExportSection('object', {'a': <dynamic>[]}).count, 1);
     expect(exportFields(null), {'/': null});
     expect(
       exportFields({
