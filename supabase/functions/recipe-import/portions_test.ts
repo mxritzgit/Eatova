@@ -91,6 +91,27 @@ Deno.test('portion contract rejects nutrition references cropped into a recipe y
   check(value.servings === null && value.ingredients_basis === 'unspecified', 'Nutrient reference does not establish batch yield');
 });
 
+Deno.test('portion yield accepts a recipe or ingredient subject before the exact yield', async () => {
+  for (const evidence of ['Zutaten für 4 Portionen', 'Zutaten für 4 Portionen:', 'Rezept für 4 Personen',
+    'Ingredients for 4 servings:', 'Recipe for 4 people', 'Serves 4 people', 'Portionen: 4 Personen']) {
+    check(sourcedServings(4, evidence) === 4, 'Exact yield with subject: ' + evidence);
+    check(sourcedServings(null, evidence) === 4, 'Omitted model yield recovered: ' + evidence);
+  }
+  check(sourcedServings(1, 'Rezept für eine Pizza') === 1, 'Written single-dish yield with subject');
+  for (const evidence of ['Zutaten für 2-4 Portionen', 'Zutaten 4 Portionen', 'Nährwerte für 4 Portionen',
+    'Nutrition for 4 servings', 'Serves 4 or 6 people', 'Zutaten für 4 Portionen Teig und 2 Portionen Soße']) {
+    check(sourcedServings(4, evidence) === null, 'Still not an exact recipe yield: ' + evidence);
+  }
+  const heading = 'Zutaten für 4 Portionen:';
+  const totals = 'Gesamt: 2000 kcal, 160 g Protein, 0 g KH, 80 g Fett';
+  const value = await extract(candidate({ servings_quote: heading, ingredient_basis_quote: `${heading}\n${ingredients.join('\n')}`,
+    nutrition_basis: 'per_recipe', nutrition_quote: totals, calories_kcal: 2000, protein_g: 160, fat_g: 80 }),
+    `${heading}\n${ingredients.join('\n')}\nAlles braten.\n${totals}`);
+  check(value.servings === 4 && value.ingredients_basis === 'per_recipe', 'Quoted ingredient heading proves the batch');
+  check(value.nutrition_basis === 'per_serving' && value.calories_kcal === 500 && value.fat_g === 20,
+    'Whole-recipe totals are divided by the proven yield');
+});
+
 Deno.test('portion yield rejects ranges fractions signs conflicting and model-invented numbers', () => {
   for (const evidence of ['2-4 servings', '1/4 servings', '-4 servings', '4 or 6 servings', '4 servings / 6 pieces',
     'Nutrition for 4 servings', '4.5.4 servings', '400 servings']) {

@@ -76,7 +76,10 @@ A heading such as `Nährwerte (1 Bowl)` proves the values
 apply to one Bowl; it does not establish the whole recipe's yield. The source
 validator keeps those four values even if the model labels the basis differently.
 Mixed, fractional and per-100g blocks remain separate. Explicit whole-recipe
-totals are divided only by a proven yield. An exact yield such as
+totals are divided only by a proven yield. The yield quote must consist of the
+yield phrase alone, optionally led by a recipe or ingredient subject
+(`Zutaten für 4 Portionen:`, `Serves 4 people`); ranges, partial counts and
+nutrition references such as `Nährwerte für 4 Portionen` do not qualify. An exact yield such as
 `Für eine Pizza` also proves a single complete dish; its matching whole-dish
 nutrition can be retained as one serving. Per-100g and
 fractional-dish values are not promoted by this rule. Missing values are never

@@ -19,8 +19,11 @@ export function evidencedNumber(value: unknown, numbers: string[], min: number, 
   return distinct.size === 1 && distinct.has(value) ? value : null;
 }
 
+// "Zutaten für 4 Portionen" names the recipe yield; "Nährwerte für ..." does not.
+const yieldLead = '(?:(?:(?:zutaten|rezept|ingredients|recipe)\\s+)?(?:für|fuer|for)|ergibt|makes|yields)';
+
 function explicitDishYield(evidence: string): number | null {
-  const match = /^(?:für|fuer|for|ergibt|makes|yields)\s+(ein(?:e[nr]?)?|one|\d+(?:[.,]\d+)?)\s+(?:pizza|pizzen|pizzas|bowls?|burgers?|pancakes?|pfannkuchen|waffeln?|waffles?|portion(?:en|s)?|servings?)\s*[.!:]?$/i.exec(evidence.trim());
+  const match = new RegExp('^' + yieldLead + '\\s+(ein(?:e[nr]?)?|one|\\d+(?:[.,]\\d+)?)\\s+(?:pizza|pizzen|pizzas|bowls?|burgers?|pancakes?|pfannkuchen|waffeln?|waffles?|portion(?:en|s)?|servings?)\\s*[.!:]?$', 'i').exec(evidence.trim());
   if (!match) return null;
   return /^(?:ein|one)/i.test(match[1]) ? 1 : Number(match[1].replace(',', '.'));
 }
@@ -28,8 +31,8 @@ function explicitDishYield(evidence: string): number | null {
 export function sourcedServings(value: unknown, evidence: string): number | null {
   // Match the whole yield phrase: a suffix of "2–4 servings" or "1/2 portion"
   // cannot prove an exact batch size. Nutrition reference headings are not yields.
-  const match = /^(?:(?:für|fuer|for|ergibt|makes|yields)\s+)?(\d+(?:[.,]\d+)?)\s*(?:portion(?:en|s)?|servings?|personen|people|stücke?|stuecke?|pieces?)\s*[.!:]?$/i.exec(evidence.trim()) ??
-    /^(?:serves|servings|portionen)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*[.!:]?$/i.exec(evidence.trim());
+  const match = new RegExp('^(?:' + yieldLead + '\\s+)?(\\d+(?:[.,]\\d+)?)\\s*(?:portion(?:en|s)?|servings?|personen|people|stücke?|stuecke?|pieces?)\\s*[.!:]?$', 'i').exec(evidence.trim()) ??
+    /^(?:serves|servings|portionen)\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(?:people|personen)?\s*[.!:]?$/i.exec(evidence.trim());
   const numbers = match ? [match[1]] : [];
   const dishYield = explicitDishYield(evidence);
   if (dishYield !== null) numbers.push(String(dishYield));
