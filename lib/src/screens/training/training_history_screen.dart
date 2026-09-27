@@ -8,6 +8,7 @@ import '../../services/sync_error_messages.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/design/design.dart';
+import 'training_actual_fields.dart' show formatTrainingWeight;
 
 class TrainingHistoryScreen extends StatelessWidget {
   const TrainingHistoryScreen({
@@ -259,7 +260,7 @@ class _TrainingHistoryDetailState extends State<TrainingHistoryDetail> {
           : l.trainingHistoryRepsValue(actual.reps!),
       actual.weightKg == null
           ? l.trainingActualNoWeight
-          : l.trainingHistoryWeightValue(actual.weightKg!.toString()),
+          : l.trainingHistoryWeightValue(formatTrainingWeight(actual.weightKg!, l)),
     );
   }
 }

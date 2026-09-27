@@ -542,22 +542,24 @@ class _ProfileWeightInputSheet extends StatefulWidget {
 }
 
 class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
-  late final TextEditingController _controller;
+  // Created on the first dependency pass: "72,5" under de needs the locale,
+  // which initState cannot read.
+  TextEditingController? _field;
+  TextEditingController get _controller => _field!;
   final FocusNode _focus = FocusNode();
 
   @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(
-      text: widget.initial.toStringAsFixed(1),
-    );
-    _controller.addListener(_onChanged);
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _field ??= TextEditingController(
+      text: formatKgDe(widget.initial, context.l10n),
+    )..addListener(_onChanged);
   }
 
   @override
   void dispose() {
-    _controller.removeListener(_onChanged);
-    _controller.dispose();
+    _field?.removeListener(_onChanged);
+    _field?.dispose();
     _focus.dispose();
     super.dispose();
   }

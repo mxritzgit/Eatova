@@ -612,6 +612,7 @@
     }
   },
   "coachHeroSubtitle": "How can I help you?",
+  "coachHeroGreeting": "{greeting}, {name}",
   "coachFallbackName": "Champion",
   "coachAiNoteBody": "An AI answers here. The tips are an AI estimate, not medical advice.",
   "coachAiNoteCta": "Which data is sent",
@@ -692,6 +693,7 @@
   "coachSpeechPermissionDenied": "Microphone or speech recognition access was denied. You can re-enable the permission in your device settings.",
   "coachSpeechUnavailable": "Speech recognition is not available on this device right now.",
   "coachSpeechFailed": "Speech recognition failed.",
+  "coachSpeechBusy": "Speech recognition is already running. Wait a moment and try again.",
   "coachErrorNotLoggedIn": "Please log in first to use the coach.",
   "coachErrorNoSession": "Could not load a coach session.",
   "coachErrorHistoryUnavailable": "Your history could not be loaded. Check your connection and try again.",
@@ -722,7 +724,7 @@
   "profileUnitTotal": "total",
   "profileLabelRecord": "RECORD",
   "profileLabelWeighIns": "WEIGH-INS",
-  "profileUnitEntries": "entries",
+  "profileUnitEntries": "{count, plural, one{entry} other{entries}}",
   "profileSectionPlan": "Your Plan",
   "profileSectionBody": "Body",
   "profileSectionDailyGoals": "Daily Goals",
@@ -1856,7 +1858,7 @@
       }
     }
   },
-  "trainingPageSetsReps": "{sets} × {reps} reps",
+  "trainingPageSetsReps": "{sets} × {reps, plural, one{1 rep} other{{reps} reps}}",
   "@trainingPageSetsReps": {
     "placeholders": {
       "sets": {
@@ -1934,7 +1936,7 @@
   "trainingTimerFinish": "Finish workout",
   "trainingTimerDiscard": "Discard workout",
   "trainingTimerFinishTitle": "Finish this workout?",
-  "trainingTimerFinishBody": "You completed {completed} of {total} sets. Uncompleted sets stay uncompleted. The recovery checkpoint will be removed.",
+  "trainingTimerFinishBody": "You completed {completed} of {total, plural, one{1 set} other{{total} sets}}. Uncompleted sets stay uncompleted. The recovery checkpoint will be removed.",
   "@trainingTimerFinishBody": {
     "placeholders": {
       "completed": {
@@ -1961,7 +1963,7 @@
   "trainingTimerRepetitions": "repetitions",
   "trainingTimerMinutes": "min",
   "trainingTimerSeconds": "sec",
-  "trainingTimerProgress": "{completed} of {total} sets completed",
+  "trainingTimerProgress": "{completed} of {total, plural, one{1 set} other{{total} sets}} completed",
   "@trainingTimerProgress": {
     "placeholders": {
       "completed": {
@@ -1983,7 +1985,7 @@
       }
     }
   },
-  "trainingTimerSkipped": "{count} sets skipped",
+  "trainingTimerSkipped": "{count, plural, one{1 set skipped} other{{count} sets skipped}}",
   "@trainingTimerSkipped": {
     "placeholders": {
       "count": {
@@ -1991,7 +1993,7 @@
       }
     }
   },
-  "trainingTimerSecondsRemaining": "{seconds} seconds remaining",
+  "trainingTimerSecondsRemaining": "{seconds, plural, one{1 second remaining} other{{seconds} seconds remaining}}",
   "@trainingTimerSecondsRemaining": {
     "placeholders": {
       "seconds": {
@@ -2061,6 +2063,7 @@
   "recipeCalcServingsError": "Enter between 0.1 and 100 servings, for example 0.5.",
   "recipeCalcServingsCount": "{count} servings",
   "@recipeCalcServingsCount": {"placeholders": {"count": {"type": "String"}}},
+  "recipePortionPresetLabel": "{count, plural, =1{1 serving} other{{count} servings}}",
   "recipeEditTitle": "Edit recipe",
   "recipeEditIntro": "Update your recipe. Previously logged meals stay unchanged.",
   "recipeEditDescription": "Description",
@@ -2203,7 +2206,7 @@
       }
     }
   },
-  "trainingHistoryRepsValue": "{reps} reps",
+  "trainingHistoryRepsValue": "{reps, plural, one{1 rep} other{{reps} reps}}",
   "@trainingHistoryRepsValue": {
     "placeholders": {
       "reps": {
@@ -2440,7 +2443,7 @@
   "trainingAdoptionDiscardAction": "Discard draft",
   "trainingAdoptionDiscardBody": "Only your rejected draft will be removed from this device. The current plan on the server will be kept.",
   "exportOverview": "Your data at a glance",
-  "exportSummary": "{sections} sections · {records} records",
+  "exportSummary": "{sections, plural, one{1 section} other{{sections} sections}} · {records, plural, one{1 record} other{{records} records}}",
   "@exportSummary": {
     "placeholders": {
       "sections": {
@@ -2477,8 +2480,14 @@
   "exportChats": "Coach conversations",
   "exportMessages": "Coach messages",
   "exportQuota": "Coach usage",
+  "exportAiUsage": "AI usage",
   "exportMissing": "Sections not loaded",
   "exportCapped": "Truncated sections",
+  "exportCompletenessUnknown": "Completeness unknown",
+  "exportRecipeHistory": "Recipe history",
+  "exportFieldCapPerSection": "Limit per section",
+  "exportFieldCappedSections": "Sections",
+  "exportFieldServerRowCount": "Rows on the server",
   "exportFormat": "Export format",
   "exportDate": "Export date",
   "exportAccount": "Account ID",

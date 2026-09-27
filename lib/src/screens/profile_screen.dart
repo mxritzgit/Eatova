@@ -126,7 +126,7 @@ class ProfileScreen extends StatelessWidget {
                       right: ProfileStatTile(
                         label: l10n.profileLabelWeighIns,
                         value: '${stats.weightLogs}',
-                        unit: l10n.profileUnitEntries,
+                        unit: l10n.profileUnitEntries(stats.weightLogs),
                       ),
                     ),
                     const SizedBox(height: 30),

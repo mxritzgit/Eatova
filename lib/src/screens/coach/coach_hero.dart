@@ -48,7 +48,7 @@ class _CoachHero extends StatelessWidget {
             HeadingSemantics(
               level: 2,
               child: Text(
-                '${_timeGreeting(l10n)}, ${_firstName(l10n)}',
+                l10n.coachHeroGreeting(_timeGreeting(l10n), _firstName(l10n)),
                 textAlign: TextAlign.center,
                 style: AppType.display(26, color: t.ink, height: 1.15),
               ),

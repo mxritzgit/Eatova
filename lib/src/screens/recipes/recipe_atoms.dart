@@ -1,17 +1,14 @@
 part of 'recipes_screen.dart';
 
-String _nutritionNumber(double? value) => value == null
-    ? '—'
-    : value == value.roundToDouble()
-    ? value.round().toString()
-    : value.toStringAsFixed(1);
+String _nutritionNumber(double? value, AppLocalizations l10n) =>
+    value == null ? '—' : formatDecimal(value, l10n, maxFractionDigits: 1);
 
 RecipeNutrition _recipeNutrition(FitnessRecipe recipe) =>
     recipe.displayNutrition;
 
 String _recipeSummary(FitnessRecipe recipe, AppLocalizations l10n) {
   final n = _recipeNutrition(recipe);
-  return '${_nutritionNumber(n.caloriesKcal)} kcal · ${_nutritionNumber(n.proteinG)} g ${l10n.todayMacroProtein}';
+  return '${_nutritionNumber(n.caloriesKcal, l10n)} kcal · ${_nutritionNumber(n.proteinG, l10n)} g ${l10n.todayMacroProtein}';
 }
 
 class _CalculatedNutrition extends StatelessWidget {
@@ -42,7 +39,7 @@ class _CalculatedNutrition extends StatelessWidget {
               (l10n.todayMacroFat, n.fatG, 'g'),
             ])
               Text(
-                '${pair.$1}: ${_nutritionNumber(pair.$2)} ${pair.$3}',
+                '${pair.$1}: ${_nutritionNumber(pair.$2, l10n)} ${pair.$3}',
                 style: AppType.ui(14, color: t.ink, height: 1.4),
               ),
           ],

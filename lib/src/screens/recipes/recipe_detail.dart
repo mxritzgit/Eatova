@@ -440,7 +440,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                 _RecipeInfoSection(
                   title: l10n.recipesSectionPortion,
                   body: recipe.hasStructuredIngredients
-                      ? '${l10n.recipeEditBatchServings}: ${_nutritionNumber(recipe.batchServings)}\n${recipe.displayPortion(l10n)}'
+                      ? '${l10n.recipeEditBatchServings}: ${_nutritionNumber(recipe.batchServings, l10n)}\n${recipe.displayPortion(l10n)}'
                       : recipe.displayPortion(l10n),
                 ),
                 _RecipeInfoSection(
@@ -450,7 +450,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                       ? recipe.ingredientQuantityHint(l10n)
                       : l10n.recipeDetailIngredientsHint,
                   body: recipe.hasStructuredIngredients
-                      ? '${recipe.structuredIngredients.map((i) => '${_nutritionNumber(i.grams)} g ${i.name}').join('\n')}${recipe.ingredients.isEmpty ? '' : '\n\n${recipe.ingredients}'}'
+                      ? '${recipe.structuredIngredients.map((i) => '${_nutritionNumber(i.grams, l10n)} g ${i.name}').join('\n')}${recipe.ingredients.isEmpty ? '' : '\n\n${recipe.ingredients}'}'
                       : recipe.displayIngredients(l10n),
                 ),
                 _RecipeInfoSection(
@@ -553,25 +553,25 @@ class _NutritionGrid extends StatelessWidget {
     final tiles = [
       _NutritionTile(
         label: l10n.recipesNutritionKcalLabel,
-        value: _nutritionNumber(n.caloriesKcal),
+        value: _nutritionNumber(n.caloriesKcal, l10n),
         color: t.accent,
         surface: t.brandSurface,
       ),
       _NutritionTile(
         label: l10n.todayMacroProtein,
-        value: '${_nutritionNumber(n.proteinG)} g',
+        value: '${_nutritionNumber(n.proteinG, l10n)} g',
         color: t.protein,
         surface: t.proteinSurface,
       ),
       _NutritionTile(
         label: l10n.recipesNutritionCarbsLabel,
-        value: '${_nutritionNumber(n.carbsG)} g',
+        value: '${_nutritionNumber(n.carbsG, l10n)} g',
         color: t.carbs,
         surface: t.carbsSurface,
       ),
       _NutritionTile(
         label: l10n.todayMacroFat,
-        value: '${_nutritionNumber(n.fatG)} g',
+        value: '${_nutritionNumber(n.fatG, l10n)} g',
         color: t.fat,
         surface: t.fatSurface,
       ),

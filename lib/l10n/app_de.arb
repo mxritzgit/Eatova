@@ -617,6 +617,8 @@
     }
   },
   "coachHeroSubtitle": "Wie kann ich dir helfen?",
+  "coachHeroGreeting": "{greeting}, {name}",
+  "@coachHeroGreeting": {"description": "Coach empty state: time-of-day greeting and first name.", "placeholders": {"greeting": {"type": "String"}, "name": {"type": "String"}}},
   "coachFallbackName": "Champion",
   "coachAiNoteBody": "Hier antwortet eine KI. Die Tipps sind eine KI-Schätzung, kein ärztlicher Rat.",
   "coachAiNoteCta": "Welche Daten mitgehen",
@@ -699,7 +701,7 @@
       "count": { "type": "int" }
     }
   },
-  "coachTimeDaysAgo": "vor {count} Tagen",
+  "coachTimeDaysAgo": "{count, plural, one{vor 1 Tag} other{vor {count} Tagen}}",
   "@coachTimeDaysAgo": {
     "placeholders": {
       "count": { "type": "int" }
@@ -708,6 +710,8 @@
   "coachSpeechPermissionDenied": "Mikrofon oder Spracherkennung wurde nicht erlaubt. Du kannst die Berechtigung in den Systemeinstellungen wieder aktivieren.",
   "coachSpeechUnavailable": "Spracherkennung ist auf diesem Gerät gerade nicht verfügbar.",
   "coachSpeechFailed": "Spracherkennung fehlgeschlagen.",
+  "coachSpeechBusy": "Die Spracherkennung läuft bereits. Warte kurz und versuch es dann nochmal.",
+  "@coachSpeechBusy": {"description": "The platform reports that a recognition session is still running."},
   "coachErrorNotLoggedIn": "Bitte erst einloggen, um den Coach zu nutzen.",
   "coachErrorNoSession": "Konnte keine Coach-Session laden.",
   "coachErrorHistoryUnavailable": "Dein Verlauf konnte nicht geladen werden. Prüf deine Verbindung und versuch es nochmal.",
@@ -738,7 +742,8 @@
   "profileUnitTotal": "gesamt",
   "profileLabelRecord": "REKORD",
   "profileLabelWeighIns": "WIEGEN",
-  "profileUnitEntries": "Einträge",
+  "profileUnitEntries": "{count, plural, one{Eintrag} other{Einträge}}",
+  "@profileUnitEntries": {"description": "Unit after the number of weigh-ins.", "placeholders": {"count": {"type": "int"}}},
   "profileSectionPlan": "Dein Plan",
   "profileSectionBody": "Körper",
   "profileSectionDailyGoals": "Tagesziele",
@@ -751,7 +756,7 @@
   "profilePlanChipPace": "Tempo",
   "profileStable": "stabil",
   "profilePlanChipDailyGoal": "Tagesziel",
-  "profileGoalProgressWeeks": "Noch {gap} kg · Ziel in ca. {weeks} Wochen",
+  "profileGoalProgressWeeks": "Noch {gap} kg · Ziel in ca. {weeks, plural, one{1 Woche} other{{weeks} Wochen}}",
   "@profileGoalProgressWeeks": {
     "placeholders": {
       "gap": { "type": "int" },
@@ -766,7 +771,7 @@
       "maxWeeks": { "type": "int" }
     }
   },
-  "profileGoalProgressWeeksOpen": "Noch {gap} kg · Ziel frühestens in ca. {minWeeks} Wochen",
+  "profileGoalProgressWeeksOpen": "Noch {gap} kg · Ziel frühestens in ca. {minWeeks, plural, one{1 Woche} other{{minWeeks} Wochen}}",
   "@profileGoalProgressWeeksOpen": {
     "placeholders": {
       "gap": { "type": "int" },
@@ -1422,7 +1427,7 @@
       "weightKg": { "type": "int" }
     }
   },
-  "onboardingTimelineEstimate": "{targetWeightKg} kg in ca. {weeks} Wochen erreichbar.",
+  "onboardingTimelineEstimate": "{targetWeightKg} kg in ca. {weeks, plural, one{1 Woche} other{{weeks} Wochen}} erreichbar.",
   "@onboardingTimelineEstimate": {
     "placeholders": {
       "targetWeightKg": { "type": "int" },
@@ -1437,7 +1442,7 @@
       "maxWeeks": { "type": "int" }
     }
   },
-  "onboardingTimelineEstimateOpen": "{targetWeightKg} kg frühestens in ca. {minWeeks} Wochen erreichbar – mit sinkendem Gewicht lässt das Tempo nach.",
+  "onboardingTimelineEstimateOpen": "{targetWeightKg} kg frühestens in ca. {minWeeks, plural, one{1 Woche} other{{minWeeks} Wochen}} erreichbar – mit sinkendem Gewicht lässt das Tempo nach.",
   "@onboardingTimelineEstimateOpen": {
     "placeholders": {
       "targetWeightKg": { "type": "int" },
@@ -1962,7 +1967,7 @@
   "trainingTimerFinish": "Training beenden",
   "trainingTimerDiscard": "Training verwerfen",
   "trainingTimerFinishTitle": "Training beenden?",
-  "trainingTimerFinishBody": "Du hast {completed} von {total} Sätzen geschafft. Nicht absolvierte Sätze bleiben offen. Der gespeicherte Wiedereinstieg wird entfernt.",
+  "trainingTimerFinishBody": "Du hast {completed} von {total, plural, one{1 Satz} other{{total} Sätzen}} geschafft. Nicht absolvierte Sätze bleiben offen. Der gespeicherte Wiedereinstieg wird entfernt.",
   "@trainingTimerFinishBody": {
     "placeholders": {
       "completed": {
@@ -1989,7 +1994,7 @@
   "trainingTimerRepetitions": "Wiederholungen",
   "trainingTimerMinutes": "Min.",
   "trainingTimerSeconds": "Sek.",
-  "trainingTimerProgress": "{completed} von {total} Sätzen geschafft",
+  "trainingTimerProgress": "{completed} von {total, plural, one{1 Satz} other{{total} Sätzen}} geschafft",
   "@trainingTimerProgress": {
     "placeholders": {
       "completed": {
@@ -2011,7 +2016,7 @@
       }
     }
   },
-  "trainingTimerSkipped": "{count} Sätze übersprungen",
+  "trainingTimerSkipped": "{count, plural, one{1 Satz übersprungen} other{{count} Sätze übersprungen}}",
   "@trainingTimerSkipped": {
     "placeholders": {
       "count": {
@@ -2019,7 +2024,7 @@
       }
     }
   },
-  "trainingTimerSecondsRemaining": "Noch {seconds} Sekunden",
+  "trainingTimerSecondsRemaining": "{seconds, plural, one{Noch 1 Sekunde} other{Noch {seconds} Sekunden}}",
   "@trainingTimerSecondsRemaining": {
     "placeholders": {
       "seconds": {
@@ -2089,6 +2094,8 @@
   "recipeCalcServingsError": "Gib zwischen 0,1 und 100 Portionen ein, zum Beispiel 0,5.",
   "recipeCalcServingsCount": "{count} Portionen",
   "@recipeCalcServingsCount": {"placeholders": {"count": {"type": "String"}}},
+  "recipePortionPresetLabel": "{count, plural, =1{1 Portion} other{{count} Portionen}}",
+  "@recipePortionPresetLabel": {"description": "Preset chip under a servings field, e.g. 0.5, 1 or 2 servings.", "placeholders": {"count": {"type": "num", "format": "decimalPattern"}}},
   "recipeEditTitle": "Rezept bearbeiten",
   "recipeEditIntro": "Passe dein Rezept an. Bereits eingetragene Mahlzeiten bleiben unverändert.",
   "recipeEditDescription": "Beschreibung",
@@ -2231,7 +2238,7 @@
       }
     }
   },
-  "trainingHistoryRepsValue": "{reps} Wiederholungen",
+  "trainingHistoryRepsValue": "{reps, plural, one{1 Wiederholung} other{{reps} Wiederholungen}}",
   "@trainingHistoryRepsValue": {
     "placeholders": {
       "reps": {
@@ -2468,7 +2475,7 @@
   "trainingAdoptionDiscardAction": "Entwurf verwerfen",
   "trainingAdoptionDiscardBody": "Nur dein abgelehnter Entwurf wird von diesem Gerät entfernt. Der aktuelle Plan auf dem Server bleibt erhalten.",
   "exportOverview": "Deine Daten im Überblick",
-  "exportSummary": "{sections} Bereiche · {records} Datensätze",
+  "exportSummary": "{sections, plural, one{1 Bereich} other{{sections} Bereiche}} · {records, plural, one{1 Datensatz} other{{records} Datensätze}}",
   "@exportSummary": {
     "placeholders": {
       "sections": {
@@ -2505,8 +2512,14 @@
   "exportChats": "Coach-Unterhaltungen",
   "exportMessages": "Coach-Nachrichten",
   "exportQuota": "Coach-Nutzung",
+  "exportAiUsage": "KI-Nutzung",
   "exportMissing": "Nicht geladene Bereiche",
   "exportCapped": "Gekürzte Bereiche",
+  "exportCompletenessUnknown": "Vollständigkeit unbekannt",
+  "exportRecipeHistory": "Rezeptverlauf",
+  "exportFieldCapPerSection": "Grenze pro Bereich",
+  "exportFieldCappedSections": "Bereiche",
+  "exportFieldServerRowCount": "Zeilen auf dem Server",
   "exportFormat": "Exportformat",
   "exportDate": "Exportzeitpunkt",
   "exportAccount": "Konto-ID",

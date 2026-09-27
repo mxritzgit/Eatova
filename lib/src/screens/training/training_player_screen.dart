@@ -701,7 +701,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
                             actual.weightKg == null
                                 ? l.trainingActualNoWeight
                                 : l.trainingHistoryWeightValue(
-                                    actual.weightKg!.toString(),
+                                    formatTrainingWeight(actual.weightKg!, l),
                                   ),
                           ),
                           style: AppType.ui(14, color: t.ink2, height: 1.5),
