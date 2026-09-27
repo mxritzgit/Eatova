@@ -1,7 +1,11 @@
+import 'dart:convert';
+
 import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/services/key_value_store.dart';
 import 'package:eatova/src/services/sync_execution_guard.dart';
+
+import '../support/atomic_store_faults.dart';
 
 void main() {
   test('zwei Engines koennen nur einen gemeinsamen Claim erhalten', () async {
@@ -146,5 +150,157 @@ void main() {
     await db.setString(syncSessionKey, 'invalid');
     await expectLater(guard.tryClaim('A'), throwsFormatException);
     expect(await db.getString(syncClaimKey('A')), isNull);
+  });
+
+  // The CAS retries below run between a guard's read and its write: another
+  // engine commits through the raw store while the hook holds the write.
+  group('Konflikt zwischen Lesen und CAS-Write', () {
+    test('Logout, der mit einer Anmeldung von B kollidiert, laesst B aktiv',
+        () async {
+      final db = InMemoryKeyValueStore();
+      final faults = AtomicStoreFaults(db);
+      final stale = SyncExecutionGuard(faults);
+      await stale.activate('A', 'session-A');
+      var writes = 0;
+      faults.beforeWrite = (_) async {
+        if (writes++ == 0) {
+          await SyncExecutionGuard(db).activate('B', 'session-B');
+        }
+      };
+
+      await stale.invalidate('A', expectedSessionId: 'session-A');
+
+      expect(writes, 1, reason: 'the retry re-reads B and must not write');
+      final other = SyncExecutionGuard(db);
+      expect(await other.hasActiveSession('B', 'session-B'), isTrue);
+      expect(await other.tryClaim('B'), isNotNull);
+    });
+
+    test('Purge-Fence gegen neue Anmeldung desselben Kontos liefert keinen '
+        'Fence und behaelt die neue Session', () async {
+      final db = InMemoryKeyValueStore();
+      final faults = AtomicStoreFaults(db);
+      final stale = SyncExecutionGuard(faults);
+      await stale.activate('A', 'old');
+      var writes = 0;
+      faults.beforeWrite = (_) async {
+        if (writes++ == 0) await SyncExecutionGuard(db).activate('A', 'new');
+      };
+
+      final fence = await stale.invalidateForPurge(
+        'A',
+        expectedSessionId: 'old',
+      );
+
+      expect(fence, isNull);
+      expect(writes, 1);
+      expect(await SyncExecutionGuard(db).hasActiveSession('A', 'new'), isTrue);
+    });
+
+    test('verspaetete Anmeldung ueberschreibt nach dem Konflikt keine neuere '
+        'Identitaet', () async {
+      final db = InMemoryKeyValueStore();
+      final faults = AtomicStoreFaults(db);
+      var current = true;
+      faults.beforeWrite = (_) async {
+        // B signs in and A's login attempt stops being the current one.
+        current = false;
+        await SyncExecutionGuard(db).activate('B', 'session-B');
+      };
+
+      await SyncExecutionGuard(faults).activate(
+        'A',
+        'session-A',
+        isCurrentSession: () => current,
+      );
+
+      final other = SyncExecutionGuard(db);
+      expect(await other.hasActiveSession('B', 'session-B'), isTrue);
+      expect(await other.hasActiveSession('A', 'session-A'), isFalse);
+    });
+
+    test('dauerhafte Konkurrenz endet nach vier Versuchen mit '
+        'KeyValueConflict', () async {
+      final db = InMemoryKeyValueStore();
+      final faults = AtomicStoreFaults(db);
+      var attempts = 0;
+      faults.beforeWrite = (_) async {
+        attempts++;
+        await SyncExecutionGuard(db).activate('X', 'session-X-$attempts');
+      };
+
+      await expectLater(
+        SyncExecutionGuard(faults).activate('A', 'session-A'),
+        throwsA(isA<KeyValueConflict>()),
+      );
+
+      expect(attempts, 4, reason: 'bounded retry, no livelock');
+      expect(
+        await SyncExecutionGuard(db).hasActiveSession('A', 'session-A'),
+        isFalse,
+      );
+    });
+
+    test('renew verliert gegen einen parallelen Claimwechsel', () async {
+      final db = InMemoryKeyValueStore();
+      final faults = AtomicStoreFaults(db);
+      final guard = SyncExecutionGuard(faults);
+      await guard.activate('A', 'session-A');
+      final claim = (await guard.tryClaim('A'))!;
+      const takeover = '{"generation":"other","token":"t","expires_at":"x"}';
+      faults.beforeWrite = (_) async {
+        await db.writeBatch({syncClaimKey('A'): takeover});
+      };
+
+      expect(await claim.renew(), isFalse);
+
+      faults.beforeWrite = null;
+      expect(await claim.isCurrent(), isFalse);
+      expect(await db.getString(syncClaimKey('A')), takeover);
+    });
+  });
+
+  test('activate verlangt Nutzer und Session', () async {
+    final guard = SyncExecutionGuard(InMemoryKeyValueStore());
+    await expectLater(guard.activate('', 'session'), throwsArgumentError);
+    await expectLater(guard.activate('A', ''), throwsArgumentError);
+    expect(await guard.tryClaim(''), isNull);
+  });
+
+  group('syncSessionIdFromAccessToken', () {
+    String token(Object? claims, {String? payload}) {
+      final body = payload ??
+          base64Url.encode(utf8.encode(jsonEncode(claims))).replaceAll('=', '');
+      return 'header.$body.sig';
+    }
+
+    test('liest die session_id aus dem Payload', () {
+      expect(syncSessionIdFromAccessToken(token({'session_id': 's-1'})), 's-1');
+      final longest = 'x' * 256;
+      expect(
+        syncSessionIdFromAccessToken(token({'session_id': longest})),
+        longest,
+      );
+    });
+
+    test('kaputte oder fremde Tokens ergeben null statt einer Exception', () {
+      expect(syncSessionIdFromAccessToken(''), isNull);
+      expect(syncSessionIdFromAccessToken('a.b'), isNull);
+      expect(syncSessionIdFromAccessToken('a.b.c.d'), isNull);
+      expect(syncSessionIdFromAccessToken(token(null, payload: '@@@')), isNull);
+      expect(
+        syncSessionIdFromAccessToken(token(null, payload: 'bm90LWpzb24')),
+        isNull,
+        reason: 'valid base64 of "not-json"',
+      );
+      expect(syncSessionIdFromAccessToken(token(['session_id'])), isNull);
+      expect(syncSessionIdFromAccessToken(token({'sub': 'A'})), isNull);
+      expect(syncSessionIdFromAccessToken(token({'session_id': ''})), isNull);
+      expect(syncSessionIdFromAccessToken(token({'session_id': 7})), isNull);
+      expect(
+        syncSessionIdFromAccessToken(token({'session_id': 'x' * 257})),
+        isNull,
+      );
+    });
   });
 }
