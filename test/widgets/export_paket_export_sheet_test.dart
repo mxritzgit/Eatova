@@ -158,6 +158,31 @@ void main() {
       expect(dateiname, endsWith('.json'));
     });
 
+    for (final (vollstaendig, titel) in [
+      (true, 'Datenauskunft'),
+      (false, 'Daten Snapshot'),
+    ]) {
+      testWidgets('der lesbare Bericht heisst wie das Sheet: $titel', (
+        tester,
+      ) async {
+        String? geteilt;
+        await zeigeSheet(
+          tester,
+          auskunft: _export(mahlzeiten: 1),
+          vollstaendig: vollstaendig,
+          dateiTeilen: (inhalt, name) async => geteilt = inhalt,
+        );
+        final knopf = find.byKey(const ValueKey('profile-export-share'));
+        await tester.ensureVisible(knopf);
+        await tester.pumpAndSettle();
+        await tester.tap(knopf);
+        await tester.pumpAndSettle();
+
+        // A session snapshot must not present itself as a full disclosure.
+        expect(geteilt, startsWith('$titel\n'));
+      });
+    }
+
     testWidgets('ohne Teilen-Weg gibt es den Knopf nicht', (tester) async {
       await zeigeSheet(tester, auskunft: _export());
 
