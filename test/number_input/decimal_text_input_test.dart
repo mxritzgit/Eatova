@@ -112,6 +112,17 @@ void main() {
       expect(neu.selection, const TextSelection.collapsed(offset: 6));
     });
 
+    test('markierter Text in einem vollen Feld wird ersetzt und gekuerzt', () {
+      // Select-all + paste into a full field, as the length limiter did.
+      const alt = TextEditingValue(
+        text: '10000',
+        selection: TextSelection(baseOffset: 0, extentOffset: 5),
+      );
+      final neu = budget.formatEditUpdate(alt, _wert('123456'));
+      expect(neu.text, '12345');
+      expect(neu.selection, const TextSelection.collapsed(offset: 5));
+    });
+
     test('ein zu langer Wert von aussen laesst sich kuerzen', () {
       final neu = budget.formatEditUpdate(_wert('1234567'), _wert('123456'));
       expect(neu.text, '123456');

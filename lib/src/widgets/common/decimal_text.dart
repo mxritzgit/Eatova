@@ -81,7 +81,11 @@ class DigitBudgetFormatter extends TextInputFormatter {
     if (digits <= maxDigits || digits <= _digits(oldValue.text)) {
       return newValue;
     }
-    if (_digits(oldValue.text) >= maxDigits) return oldValue;
+    // Typing into a full field is refused; replacing a selection is cut to the
+    // budget instead, like the length limiter.
+    if (_digits(oldValue.text) >= maxDigits && oldValue.selection.isCollapsed) {
+      return oldValue;
+    }
     var seen = 0;
     var end = 0;
     while (seen < maxDigits) {
