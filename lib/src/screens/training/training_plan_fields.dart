@@ -13,7 +13,11 @@ class _PlanText {
   String? validate(AppLocalizations l10n) {
     final value = controller.text;
     if (min != null) {
-      final number = int.tryParse(value);
+      // Whole numbers only: "3,5" sets get a hint instead of becoming 35.
+      final input = NumberInput.parse(value);
+      final hint = numberInputHint(input, l10n, wholeNumber: true);
+      if (hint != null) return hint;
+      final number = input.wholeValue;
       if (number == null || number < min! || number > maximum) {
         return l10n.trainingPageRange(min!, maximum);
       }
@@ -27,7 +31,8 @@ class _PlanText {
     return null;
   }
 
-  int get number => int.parse(controller.text);
+  /// Only read after [validate] passed.
+  int get number => NumberInput.parse(controller.text).wholeValue!;
   void dispose() => controller.dispose();
 }
 

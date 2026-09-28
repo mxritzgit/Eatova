@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
+import '../../models/number_input.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/decimal_text.dart';
 import '../../widgets/design/design.dart';
@@ -32,18 +33,14 @@ class _TrainingActualFieldsState extends State<TrainingActualFields> {
   final _weight = TextEditingController();
   bool _weightFilled = false;
   bool _showErrors = false;
-  int? get _repsValue => int.tryParse(_reps.text.trim());
-  double? get _weightValue =>
-      double.tryParse(_weight.text.trim().replaceAll(',', '.'));
+  int? get _repsValue => NumberInput.parse(_reps.text).wholeValue;
+  double? get _weightValue => NumberInput.parse(_weight.text).value;
   bool get _repsValid =>
       widget.timed ||
       (_repsValue != null && _repsValue! >= 0 && _repsValue! <= 1000);
   bool get _weightValid =>
       _weight.text.trim().isEmpty ||
-      (_weightValue != null &&
-          _weightValue!.isFinite &&
-          _weightValue! >= 0 &&
-          _weightValue! <= 2000);
+      (_weightValue != null && _weightValue! >= 0 && _weightValue! <= 2000);
 
   void _changed() {
     final valid = _repsValid && _weightValid;
@@ -98,7 +95,14 @@ class _TrainingActualFieldsState extends State<TrainingActualFields> {
             hint: decimal ? l.trainingActualOptional : l.trainingActualReps,
             enabled: widget.enabled,
             keyboardType: TextInputType.numberWithOptions(decimal: decimal),
-            errorText: _showErrors && !valid ? l.trainingActualInvalid : null,
+            errorText: _showErrors && !valid
+                ? numberInputHint(
+                        NumberInput.parse(controller.text),
+                        l,
+                        wholeNumber: !decimal,
+                      ) ??
+                      l.trainingActualInvalid
+                : null,
             onChanged: (_) => _changed(),
           ),
         ],
