@@ -8,12 +8,68 @@ import 'key_value_store.dart';
 
 /// A sanitized storage error: never includes SQL, bound values or file paths.
 class DurableStorageException implements Exception {
-  const DurableStorageException(this.reason);
+  const DurableStorageException(this.reason, {this.sqliteResultCode});
   final String reason;
 
+  /// SQLite's extended result code, a fixed numeric constant such as 517
+  /// (`SQLITE_BUSY_SNAPSHOT`); null when SQLite did not report the failure.
+  final int? sqliteResultCode;
+
+  /// The primary result-code name, for example `busy`, `ioerr` or `cantopen`.
+  String? get sqliteCode {
+    final code = sqliteResultCode;
+    if (code == null) return null;
+    return _sqlitePrimaryNames[code & 0xFF] ?? 'unknown';
+  }
+
   @override
-  String toString() => 'DurableStorageException: $reason';
+  String toString() {
+    final code = sqliteResultCode;
+    return code == null
+        ? 'DurableStorageException: $reason'
+        : 'DurableStorageException: $reason (sqlite $sqliteCode, code $code)';
+  }
 }
+
+// https://sqlite.org/rescode.html#primary_result_code_list
+const _sqlitePrimaryNames = <int, String>{
+  0: 'ok',
+  1: 'error',
+  2: 'internal',
+  3: 'perm',
+  4: 'abort',
+  5: 'busy',
+  6: 'locked',
+  7: 'nomem',
+  8: 'readonly',
+  9: 'interrupt',
+  10: 'ioerr',
+  11: 'corrupt',
+  12: 'notfound',
+  13: 'full',
+  14: 'cantopen',
+  15: 'protocol',
+  16: 'empty',
+  17: 'schema',
+  18: 'toobig',
+  19: 'constraint',
+  20: 'mismatch',
+  21: 'misuse',
+  22: 'nolfs',
+  23: 'auth',
+  24: 'format',
+  25: 'range',
+  26: 'notadb',
+  27: 'notice',
+  28: 'warning',
+  100: 'row',
+  101: 'done',
+};
+
+/// Only SQLite's numeric result code crosses the isolate boundary; the
+/// message, SQL and bound values of the exception never do.
+int? _sqliteResultCode(Object error) =>
+    error is SqliteException ? error.extendedResultCode : null;
 
 /// SQLite is synchronous, so the connection and every filesystem/SQL operation
 /// live in a dedicated isolate. Independent connections/processes coordinate
@@ -50,9 +106,14 @@ class SqliteKeyValueStore implements AtomicKeyValueStore {
       );
       await store._ready.future;
       return store;
-    } catch (_) {
+    } catch (error) {
       await store.close();
-      throw const DurableStorageException('database unavailable');
+      throw DurableStorageException(
+        'database unavailable',
+        sqliteResultCode: error is DurableStorageException
+            ? error.sqliteResultCode
+            : null,
+      );
     }
   }
 
@@ -66,7 +127,10 @@ class SqliteKeyValueStore implements AtomicKeyValueStore {
     if (parts[0] == 'openError') {
       if (!_ready.isCompleted) {
         _ready.completeError(
-          const DurableStorageException('database unavailable'),
+          DurableStorageException(
+            'database unavailable',
+            sqliteResultCode: parts[1] as int?,
+          ),
         );
       }
       return;
@@ -79,7 +143,10 @@ class SqliteKeyValueStore implements AtomicKeyValueStore {
       pending.completeError(const KeyValueConflict());
     } else {
       pending.completeError(
-        const DurableStorageException('database operation failed'),
+        DurableStorageException(
+          'database operation failed',
+          sqliteResultCode: parts[2] as int?,
+        ),
       );
     }
   }
@@ -231,7 +298,7 @@ void _databaseWorker(List<Object> arguments) {
       db.execute('PRAGMA user_version = 1');
       db.execute('COMMIT');
     } catch (_) {
-      db.execute('ROLLBACK');
+      _rollbackIfActive(db);
       rethrow;
     }
     final commands = ReceivePort();
@@ -255,7 +322,11 @@ void _databaseWorker(List<Object> arguments) {
             operation == 'abortInitialization') {
           if (!initializing) throw StateError('No initialization active');
           final commit = operation == 'commitInitialization' && !rollbackOnly;
-          db.execute(commit ? 'COMMIT' : 'ROLLBACK');
+          if (commit) {
+            db.execute('COMMIT');
+          } else {
+            _rollbackIfActive(db);
+          }
           initializing = false;
           if (operation == 'commitInitialization' && !commit) {
             throw StateError('Initialization failed');
@@ -292,15 +363,22 @@ void _databaseWorker(List<Object> arguments) {
       } on KeyValueConflict {
         if (initializing) rollbackOnly = true;
         replies.send([id, 'conflict', null]);
-      } catch (_) {
+      } catch (error) {
         if (initializing) rollbackOnly = true;
-        replies.send([id, 'error', null]);
+        replies.send([id, 'error', _sqliteResultCode(error)]);
       }
     });
-  } catch (_) {
+  } catch (error) {
     database?.close();
-    replies.send(['openError']);
+    replies.send(['openError', _sqliteResultCode(error)]);
   }
+}
+
+/// SQLite may already have rolled back on its own (RAISE(ROLLBACK), busy,
+/// full, ioerr, nomem). A second ROLLBACK would fail, replace the original
+/// error and, during initialization, leave the connection marked as active.
+void _rollbackIfActive(Database db) {
+  if (!db.autocommit) db.execute('ROLLBACK');
 }
 
 List<Object> _readDatabase(
@@ -337,7 +415,7 @@ List<Object> _readDatabase(
     if (ownTransaction) db.execute('COMMIT');
     return [values, versions];
   } catch (_) {
-    if (ownTransaction) db.execute('ROLLBACK');
+    if (ownTransaction) _rollbackIfActive(db);
     rethrow;
   }
 }
@@ -376,7 +454,7 @@ Map<String, int> _writeDatabase(
     if (ownTransaction) db.execute('COMMIT');
     return committed;
   } catch (_) {
-    if (ownTransaction) db.execute('ROLLBACK');
+    if (ownTransaction) _rollbackIfActive(db);
     rethrow;
   }
 }
