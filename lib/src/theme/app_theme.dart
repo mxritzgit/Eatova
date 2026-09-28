@@ -131,23 +131,29 @@ ThemeData buildEatovaTheme(Brightness brightness) {
     // stays so the day one appears it does not arrive in Material colours,
     // but it must not hand out the OLD selection language either: `forest` as
     // a selected fill measures 1.33:1 on `surf` in dark mode (P9-02). Same
-    // ink/bg pair as `SelectionTone` in the design library.
+    // accent pair as `SelectionTone` in the design library.
     chipTheme: ChipThemeData(
       backgroundColor: t.surf,
-      selectedColor: t.ink,
-      side: BorderSide(color: t.line),
-      labelStyle: AppType.ui(12, weight: FontWeight.w600, color: t.ink),
+      selectedColor: t.accentFill,
+      side: BorderSide(color: t.lineStrong),
+      labelStyle: AppType.ui(14, weight: FontWeight.w700, color: t.inkMuted),
       // The style of a SELECTED chip's label (Material's "secondary" slot).
-      secondaryLabelStyle: AppType.ui(12, weight: FontWeight.w600, color: t.bg),
+      secondaryLabelStyle: AppType.ui(
+        14,
+        weight: FontWeight.w700,
+        color: t.onAccentFill,
+      ),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(rChip),
+        borderRadius: BorderRadius.circular(rPill),
       ),
     ),
     // Material buttons without a local style used to fall back to
     // ColorScheme.primary = forest: 1.33:1 on `surf` in dark mode. One
-    // semantics for all three: text = quiet `ink` (a screen sets `accent`
-    // only for an explicitly affirmative action), filled = the primary action
-    // (ink/bg, like [PrimaryActionButton]), outlined = line edge + ink.
+    // semantics for all three (dark redesign 2026-09-28): text = quiet `ink`
+    // (a screen sets `accent` only for an explicitly affirmative action),
+    // filled = the primary action (accent pill, like [PrimaryActionButton]),
+    // outlined = the SECONDARY action, a tonal `surf2` pill with an `ink`
+    // label.
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
         foregroundColor: t.ink,
@@ -160,11 +166,11 @@ ThemeData buildEatovaTheme(Brightness brightness) {
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: t.ink,
-        foregroundColor: t.bg,
-        disabledBackgroundColor: t.ink.withValues(alpha: 0.4),
-        disabledForegroundColor: t.bg.withValues(alpha: 0.8),
-        textStyle: AppType.ui(15, weight: FontWeight.w700),
+        backgroundColor: t.accentFill,
+        foregroundColor: t.onAccentFill,
+        disabledBackgroundColor: t.accentFill.withValues(alpha: 0.4),
+        disabledForegroundColor: t.onAccentFill.withValues(alpha: 0.8),
+        textStyle: AppType.ui(15, weight: FontWeight.w800),
         // Touch floor, NOT the 54 px primary height: a FilledButton also
         // sits in dialogs next to a TextButton.
         minimumSize: const Size(64, kButtonMinHeight),
@@ -176,10 +182,12 @@ ThemeData buildEatovaTheme(Brightness brightness) {
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
+        backgroundColor: t.surf2,
         foregroundColor: t.ink,
+        disabledBackgroundColor: t.surf2.withValues(alpha: 0.5),
         disabledForegroundColor: t.ink2.withValues(alpha: 0.5),
-        side: BorderSide(color: t.line),
-        textStyle: AppType.ui(14, weight: FontWeight.w600),
+        side: BorderSide.none,
+        textStyle: AppType.ui(15, weight: FontWeight.w700),
         minimumSize: const Size(64, kButtonMinHeight),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         shape: RoundedRectangleBorder(

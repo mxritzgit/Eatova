@@ -78,13 +78,14 @@ void main() {
         await pumpLocalized(
           tester,
           Scaffold(
+            // Like the real shell: the body runs under the floating bar.
+            extendBody: true,
             body: SafeArea(
               bottom: false,
+              // The shell's tab inset: no bottom padding, the tab runs
+              // under the floating bar.
               child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 12,
-                ),
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
                 child: CoachChatScreen(service: _KeyboardCoach.create()),
               ),
             ),

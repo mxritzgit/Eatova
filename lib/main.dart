@@ -132,6 +132,10 @@ void _installGlobalErrorHandlers() {
   };
 }
 
+/// Test seam: the screen shown when booting fails.
+@visibleForTesting
+Widget buildBootErrorApp(Object error) => _BootErrorApp(error: error);
+
 class _BootErrorApp extends StatelessWidget {
   const _BootErrorApp({required this.error});
 
@@ -154,6 +158,11 @@ class _BootErrorApp extends StatelessWidget {
       theme: buildEatovaTheme(Brightness.light),
       darkTheme: buildEatovaTheme(Brightness.dark),
       themeMode: kDarkOnly ? ThemeMode.dark : ThemeMode.system,
+      // Same status/navigation bar styling as the app itself.
+      builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
+        value: eatovaSystemUiOverlayStyle(Theme.of(context)),
+        child: child ?? const SizedBox.shrink(),
+      ),
       home: Builder(
         builder: (context) {
           final t = context.t;

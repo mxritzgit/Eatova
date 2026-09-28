@@ -25,7 +25,7 @@ class _CoachTopBar extends StatelessWidget {
         style: AppType.pageTitle(context.t.ink),
       ),
       textDirection: Directionality.of(context),
-      textScaler: MediaQuery.textScalerOf(context),
+      textScaler: AppType.pageTitleScaler(context),
       maxLines: 1,
     )..layout(maxWidth: size.maxWidth);
     final wraps = title.didExceedMaxLines;
@@ -58,6 +58,7 @@ class _CoachTopBar extends StatelessWidget {
                       l10n.navCoach,
                       semanticsLabel: l10n.coachTitle,
                       style: AppType.pageTitle(t.ink),
+                      textScaler: AppType.pageTitleScaler(context),
                     ),
                   ),
                 ),
@@ -101,6 +102,7 @@ class _CoachTopBar extends StatelessWidget {
                             child: Text(
                               l10n.coachTitle,
                               style: AppType.pageTitle(t.ink),
+                              textScaler: AppType.pageTitleScaler(context),
                             ),
                           ),
                           const SizedBox(height: 3),

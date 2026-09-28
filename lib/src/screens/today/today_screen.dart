@@ -96,11 +96,18 @@ class TodayScreen extends StatelessWidget {
     final schritte = steps;
 
     // No SafeArea and no horizontal padding here: the shell supplies both,
-    // a second padding would double the margin. The bottom 12 only keeps the
-    // last card off the navigation bar.
+    // a second padding would double the margin. The shell hands the floating
+    // tab bar's band down as bottom padding: the pinned add action sits on it,
+    // and without that action the list itself ends above the bar.
+    final navInset = MediaQuery.paddingOf(context).bottom;
     final content = ListView(
       key: const ValueKey('screen-today'),
-      padding: const EdgeInsets.fromLTRB(0, 0, 0, 12),
+      padding: EdgeInsets.fromLTRB(
+        0,
+        0,
+        0,
+        12 + (onOpenMealSlot == null ? navInset : 0),
+      ),
       children: <Widget>[
         _Kopfzeile(
           title: l10n.navToday,
@@ -199,7 +206,7 @@ class TodayScreen extends StatelessWidget {
         Expanded(child: content),
         if (onOpenMealSlot != null)
           Padding(
-            padding: const EdgeInsets.only(top: 8),
+            padding: EdgeInsets.only(top: 8, bottom: navInset),
             child: FilledButton.icon(
               key: const ValueKey('today-add-meal'),
               onPressed: dayLoading
@@ -250,6 +257,7 @@ class _Kopfzeile extends StatelessWidget {
                 child: Text(
                   title,
                   style: AppType.pageTitle(t.ink),
+                  textScaler: AppType.pageTitleScaler(context),
                 ),
               ),
             ],

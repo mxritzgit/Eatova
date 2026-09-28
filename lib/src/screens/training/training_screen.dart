@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../widgets/common/persistence_action.dart';
@@ -274,9 +276,13 @@ class _TrainingScreenState extends State<TrainingScreen> {
       color: t.bg,
       child: LayoutBuilder(
         builder: (context, constraints) {
+          // The floating tab bar's band (from the shell): the pinned action
+          // sits on it, otherwise the list scrolls under the bar.
+          final navInset = MediaQuery.paddingOf(context).bottom;
           final pinned =
-              constraints.maxHeight >= 560 &&
+              constraints.maxHeight - navInset >= 560 &&
               MediaQuery.textScalerOf(context).scale(16) <= 24;
+          final actionPinned = action != null && pinned;
           return Column(
             children: [
               Expanded(
@@ -285,7 +291,9 @@ class _TrainingScreenState extends State<TrainingScreen> {
                   controller: _scroll,
                   keyboardDismissBehavior:
                       ScrollViewKeyboardDismissBehavior.onDrag,
-                  padding: const EdgeInsets.only(bottom: 16),
+                  padding: EdgeInsets.only(
+                    bottom: 16 + (actionPinned ? 0 : navInset),
+                  ),
                   children: [
                     Stack(
                       children: [
@@ -421,9 +429,14 @@ class _TrainingScreenState extends State<TrainingScreen> {
                   ],
                 ),
               ),
-              if (action != null && pinned)
+              if (actionPinned)
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
+                  padding: EdgeInsets.fromLTRB(
+                    20,
+                    10,
+                    20,
+                    math.max(18, navInset),
+                  ),
                   child: action,
                 ),
             ],
@@ -634,11 +647,11 @@ class _TrainingScreenState extends State<TrainingScreen> {
     builder: (context, constraints) {
       final l10n = context.l10n;
       final titleStyle = AppType.pageTitle(context.t.ink);
-      double measure(String text, TextStyle style) {
+      double measure(String text, TextStyle style, {TextScaler? scaler}) {
         final painter = TextPainter(
           text: TextSpan(text: text, style: style),
           textDirection: Directionality.of(context),
-          textScaler: MediaQuery.textScalerOf(context),
+          textScaler: scaler ?? MediaQuery.textScalerOf(context),
         )..layout();
         final width = painter.width;
         painter.dispose();
@@ -646,7 +659,11 @@ class _TrainingScreenState extends State<TrainingScreen> {
       }
 
       final inline =
-          measure(l10n.trainingPageTitle, titleStyle) +
+          measure(
+                l10n.trainingPageTitle,
+                titleStyle,
+                scaler: AppType.pageTitleScaler(context),
+              ) +
               measure(
                 l10n.trainingStudioPlans,
                 AppType.ui(14, weight: FontWeight.w600),
@@ -658,7 +675,11 @@ class _TrainingScreenState extends State<TrainingScreen> {
           constraints.maxWidth;
       final title = HeadingSemantics(
         level: 1,
-        child: Text(l10n.trainingPageTitle, style: titleStyle),
+        child: Text(
+          l10n.trainingPageTitle,
+          style: titleStyle,
+          textScaler: AppType.pageTitleScaler(context),
+        ),
       );
       final actions = Wrap(
         spacing: 2,

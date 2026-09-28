@@ -330,4 +330,46 @@ void main() {
       expect(rPill, greaterThanOrEqualTo(999));
     });
   });
+
+  group('Typo-Presets', () {
+    const ink = Color(0xFFFFFFFF);
+
+    test('Tab-Titel: Bricolage 36, -0.03 em, Zeilenhoehe 1.05, ExtraBold', () {
+      final title = AppType.pageTitle(ink);
+      expect(title.fontFamily, AppType.displayFamily);
+      expect(title.fontSize, 36);
+      expect(title.letterSpacing, closeTo(-36 * 0.03, 1e-9));
+      expect(title.height, 1.05);
+      expect(title.fontWeight, FontWeight.w800);
+      // Pushed pages keep their smaller title.
+      expect(AppType.pageTitle(ink, subpage: true).fontSize, 24);
+    });
+
+    testWidgets('Tab-Titel wachsen hoechstens auf 60 px, Fliesstext voll',
+        (tester) async {
+      late BuildContext context;
+      await tester.pumpWidget(
+        MediaQuery(
+          data: const MediaQueryData(textScaler: TextScaler.linear(2)),
+          child: Builder(
+            builder: (c) {
+              context = c;
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      );
+      expect(AppType.pageTitleScaler(context).scale(36), closeTo(60, 1e-9));
+      expect(MediaQuery.textScalerOf(context).scale(14), 28);
+    });
+
+    test('Eyebrow: 12 px, 700, 0.07 em Laufweite', () {
+      final eyebrow = AppType.sectionEyebrow(AppTokens.dark.accentText);
+      expect(eyebrow.fontFamily, AppType.uiFamily);
+      expect(eyebrow.fontSize, 12);
+      expect(eyebrow.fontWeight, FontWeight.w700);
+      expect(eyebrow.letterSpacing, closeTo(12 * 0.07, 1e-9));
+      expect(eyebrow.color, AppTokens.dark.accentText);
+    });
+  });
 }

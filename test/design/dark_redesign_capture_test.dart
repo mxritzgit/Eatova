@@ -8,7 +8,8 @@
 // With --dart-define=DARK_REDESIGN_CAPTURE=true the shots land in
 // build/dark-redesign/ for comparison with the design's shots/. Without it
 // the suite still checks that each tab renders on the dark page with the
-// floating nav bar and its own item selected.
+// floating nav bar and its own item selected, and that scrolled content runs
+// under the glass (`recipes-01`).
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
@@ -32,6 +33,9 @@ const _tabs = <(String, String)>[
   ('training', 'Training'),
   ('coach', 'Coach'),
 ];
+
+Rect _glass(WidgetTester tester) =>
+    tester.getRect(find.byKey(const ValueKey('nav-glass')));
 
 Future<void> _pumpHome(WidgetTester tester) async {
   pinDesignViewport(tester);
@@ -84,18 +88,11 @@ void main() {
           expect(scaffold.extendBody, isTrue);
 
           // The glass bar floats 14 px from the sides and 22 px above the
-          // 34 px home-indicator inset.
-          final glass = tester.getRect(
-            find.byKey(const ValueKey('nav-glass')),
-          );
+          // screen edge; the 34 px home indicator sits in that gap.
+          final glass = _glass(tester);
           expect(glass.left, AppNavBar.sideGap);
           expect(glass.right, kDesignViewport.width - AppNavBar.sideGap);
-          expect(
-            glass.bottom,
-            kDesignViewport.height -
-                kDesignSafeArea.bottom -
-                AppNavBar.bottomGap,
-          );
+          expect(glass.bottom, kDesignViewport.height - AppNavBar.bottomGap);
           expect(glass.height, AppNavBar.barHeight);
 
           await precacheDesignImages(tester);
@@ -107,4 +104,95 @@ void main() {
       });
     });
   }
+
+  testWidgets('pinned bottom elements sit on the bar\'s band, '
+      '12 px above the glass', (tester) async {
+    await withClock(Clock.fixed(_now), () async {
+      await _pumpHome(tester);
+      final band = AppNavBar.reservedHeightFor(kDesignSafeArea.bottom);
+      final line = kDesignViewport.height - band;
+      expect(line, _glass(tester).top - AppNavBar.clearance);
+
+      // Today: the add action.
+      expect(tester.getRect(find.byKey(const ValueKey('today-add-meal'))).bottom,
+          line);
+
+      // Food: the search/scan dock.
+      await tester.tap(find.byKey(const ValueKey('nav-Food')));
+      await tester.pumpAndSettle();
+      expect(tester.getRect(find.byKey(const ValueKey('food-entry-dock'))).bottom,
+          line);
+
+      // Coach: the composer capsule.
+      await tester.tap(find.byKey(const ValueKey('nav-Coach')));
+      await tester.pumpAndSettle();
+      final capsule = find.ancestor(
+        of: find.byKey(const ValueKey('coach-input')),
+        matching: find.byType(FieldCapsule),
+      );
+      // On the band; the composer keeps a few px of its own spacing below.
+      expect(
+        tester.getRect(capsule).bottom,
+        inInclusiveRange(line - 8, line),
+      );
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  testWidgets('recipes-01: scrolled content runs under the glass bar', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(_now), () async {
+      await _pumpHome(tester);
+      await tester.tap(find.byKey(const ValueKey('nav-Rezepte')));
+      await tester.pumpAndSettle();
+
+      final list = find.byKey(const ValueKey('screen-recipes'));
+      // The list reaches the screen edge (it scrolls under the bar) and pads
+      // its end by the bar's band, so its last item can still clear the bar.
+      expect(tester.getRect(list).bottom, kDesignViewport.height);
+      final scrollable = find
+          .descendant(of: list, matching: find.byType(Scrollable))
+          .first;
+      final offset = await scrollDesignTabBy(
+        tester,
+        383,
+        scrollable: scrollable,
+      );
+      expect(offset, 383, reason: 'design shot recipes-01 sits at 383');
+
+      final glass = _glass(tester);
+      final underGlass = tester
+          .renderObjectList<RenderBox>(
+            find.descendant(of: list, matching: find.byType(RichText)),
+          )
+          .where(
+            (box) => (box.localToGlobal(Offset.zero) & box.size).overlaps(
+              glass,
+            ),
+          );
+      expect(underGlass, isNotEmpty, reason: 'text scrolls under the glass');
+
+      await precacheDesignImages(tester);
+      await captureDesignShot(tester, 'recipes-01');
+
+      // Scrolled to the end, the last content ends above the bar's band.
+      final position = tester.state<ScrollableState>(scrollable).position;
+      position.jumpTo(position.maxScrollExtent);
+      await tester.pumpAndSettle();
+      final bottoms = tester
+          .renderObjectList<RenderBox>(
+            find.descendant(of: list, matching: find.byType(RichText)),
+          )
+          .map((box) => (box.localToGlobal(Offset.zero) & box.size).bottom);
+      expect(
+        bottoms.reduce((a, b) => a > b ? a : b),
+        lessThanOrEqualTo(
+          kDesignViewport.height -
+              AppNavBar.reservedHeightFor(kDesignSafeArea.bottom),
+        ),
+      );
+      expect(tester.takeException(), isNull);
+    });
+  });
 }

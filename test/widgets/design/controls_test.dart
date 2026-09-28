@@ -202,10 +202,10 @@ void main() {
         return box.decoration! as BoxDecoration;
       }
 
-      // Selection language since P9-02: `ink`, not `forest` — the latter is
-      // itself a dark surface and vanishes in dark mode
-      // (review0829_selection_contrast_test).
-      expect(decoFor('kg').color, AppTokens.light.ink);
+      // Selection language: the accent fill (dark redesign 2026-09-28), not
+      // `forest` — the latter is itself a dark surface and vanishes in dark
+      // mode (review0829_selection_contrast_test).
+      expect(decoFor('kg').color, AppTokens.light.accentFill);
       expect(decoFor('lb').color, Colors.transparent);
     });
   });
@@ -229,7 +229,8 @@ void main() {
       expect(taps, 1);
     });
 
-    testWidgets('ausgewaehlt wechselt die Flaeche auf ink', (tester) async {
+    testWidgets('ausgewaehlt wechselt die Flaeche auf die Akzentfuellung',
+        (tester) async {
       Material materialOf() => tester.widget<Material>(
             find
                 .descendant(
@@ -255,7 +256,130 @@ void main() {
           ),
         ),
       );
-      expect(materialOf().color, AppTokens.light.ink);
+      expect(materialOf().color, AppTokens.light.accentFill);
+    });
+
+    testWidgets('folgt dem Design: 42 px Pille, 14/700, Akzent vs. Karte',
+        (tester) async {
+      const t = AppTokens.dark;
+      Future<void> pump({required bool selected}) => tester.pumpWidget(
+            designHarness(
+              Align(child: FilterChipPill(label: 'Alle', selected: selected)),
+              brightness: Brightness.dark,
+            ),
+          );
+      BoxDecoration ring() => tester
+          .widget<Container>(
+            find
+                .descendant(
+                  of: find.byType(FilterChipPill),
+                  matching: find.byType(Container),
+                )
+                .first,
+          )
+          .decoration! as BoxDecoration;
+      Color fill() => tester
+          .widget<Material>(
+            find
+                .descendant(
+                  of: find.byType(FilterChipPill),
+                  matching: find.byType(Material),
+                )
+                .first,
+          )
+          .color!;
+      TextStyle label() => tester.widget<Text>(find.text('Alle')).style!;
+
+      await pump(selected: false);
+      expect(tester.getSize(find.byType(FilterChipPill)).height, 42);
+      expect(fill(), t.surf);
+      expect(ring().border, Border.all(color: t.lineStrong));
+      expect(ring().borderRadius, BorderRadius.circular(rPill));
+      expect(label().color, t.inkMuted);
+      expect(label().fontSize, 14);
+      expect(label().fontWeight, FontWeight.w700);
+
+      await pump(selected: true);
+      expect(fill(), t.accentFill);
+      expect(ring().border, Border.all(color: t.accentFill));
+      expect(label().color, t.onAccentFill);
+      expect(label().fontWeight, FontWeight.w700);
+    });
+  });
+
+  group('HeaderIconButton', () {
+    Material materialOf(WidgetTester tester) => tester.widget<Material>(
+          find
+              .descendant(
+                of: find.byType(HeaderIconButton),
+                matching: find.byType(Material),
+              )
+              .first,
+        );
+
+    testWidgets('neutral: 44-px-Kreis, Karte mit Umriss, inkMuted-Glyphe',
+        (tester) async {
+      final handle = tester.ensureSemantics();
+      var taps = 0;
+      await tester.pumpWidget(
+        designHarness(
+          Align(
+            child: HeaderIconButton(
+              icon: Icons.calendar_today_rounded,
+              semanticLabel: 'Kalender',
+              onTap: () => taps++,
+            ),
+          ),
+          brightness: Brightness.dark,
+        ),
+      );
+      const t = AppTokens.dark;
+
+      expect(tester.getSize(find.byType(HeaderIconButton)), const Size(44, 44));
+      final material = materialOf(tester);
+      expect(material.color, t.surf);
+      expect(material.shape, CircleBorder(side: BorderSide(color: t.lineStrong)));
+      expect(
+        tester.widget<Icon>(find.byIcon(Icons.calendar_today_rounded)).color ??
+            IconTheme.of(
+              tester.element(find.byIcon(Icons.calendar_today_rounded)),
+            ).color,
+        t.inkMuted,
+      );
+      expect(
+        tester.getSemantics(find.byType(HeaderIconButton)),
+        isSemantics(isButton: true, label: 'Kalender', hasTapAction: true),
+      );
+      await tester.tap(find.byType(HeaderIconButton));
+      expect(taps, 1);
+      await expectLater(tester, meetsGuideline(iOSTapTargetGuideline));
+      handle.dispose();
+    });
+
+    testWidgets('primary: Akzentfuellung, on-accent-Glyphe, kein Umriss',
+        (tester) async {
+      await tester.pumpWidget(
+        designHarness(
+          Align(
+            child: HeaderIconButton(
+              icon: Icons.add_rounded,
+              semanticLabel: 'Neu',
+              tone: HeaderIconTone.primary,
+              onTap: () {},
+            ),
+          ),
+          brightness: Brightness.dark,
+        ),
+      );
+      const t = AppTokens.dark;
+
+      final material = materialOf(tester);
+      expect(material.color, t.accentFill);
+      expect(material.shape, const CircleBorder());
+      expect(
+        IconTheme.of(tester.element(find.byIcon(Icons.add_rounded))).color,
+        t.onAccentFill,
+      );
     });
   });
 
@@ -293,7 +417,12 @@ void main() {
       await tester.pumpWidget(
         designHarness(PrimaryActionButton(label: 'Speichern', onTap: () {})),
       );
-      expect(materialOf().color, AppTokens.light.ink);
+      // Dark redesign: the primary action is the accent pill, label 800.
+      expect(materialOf().color, AppTokens.light.accentFill);
+      final label = tester.widget<Text>(find.text('Speichern')).style!;
+      expect(label.color, AppTokens.light.onAccentFill);
+      expect(label.fontWeight, FontWeight.w800);
+      expect(materialOf().borderRadius, BorderRadius.circular(rButton));
 
       await tester.pumpWidget(
         designHarness(
@@ -392,8 +521,8 @@ void main() {
       expect(find.text('Recipes'), findsOneWidget);
     });
 
-    testWidgets('schwebt als 68-px-Glasleiste 14 px vom Rand und 22 px ueber '
-        'der sicheren Zone, jedes Item bleibt ein 44-px-Tap-Ziel',
+    testWidgets('iPhone: 68-px-Glasleiste 14 px vom Rand und 22 px ueber '
+        'der Bildschirmkante, der Home-Indikator liegt darunter',
         (tester) async {
       pinIphone14Pro(tester);
       final handle = tester.ensureSemantics();
@@ -405,15 +534,58 @@ void main() {
       expect(glass.left, 14);
       expect(glass.right, 390 - 14);
       expect(glass.height, 68);
-      expect(glass.bottom, 844 - 34 - 22);
-      // The bar claims its whole band (fade, bar, gap, home indicator), so a
-      // body in a SafeArea ends above the fade instead of under the glass.
-      expect(tester.getSize(find.byType(AppNavBar)).height, 22 + 68 + 22 + 34);
+      // 22 px from the SCREEN edge: the 34 px home-indicator inset is only a
+      // gesture strip, the design lets the bar reach into it.
+      expect(glass.bottom, 844 - 22);
+      expect(AppNavBar.bottomOffsetFor(34), 22);
+      // The body runs under the bar and receives the band (offset, bar,
+      // 12 px clearance) as padding: scroll ends and docks sit on top of it.
+      expect(AppNavBar.reservedHeightFor(34), 22 + 68 + 12);
+      expect(tester.getSize(find.byType(AppNavBar)).height, 22 + 68 + 12);
       final body = tester.element(find.byKey(const ValueKey('nav-body')));
-      expect(MediaQuery.paddingOf(body).bottom, 22 + 68 + 22 + 34);
+      expect(MediaQuery.paddingOf(body).bottom, 22 + 68 + 12);
+      expect(tester.getRect(find.byKey(const ValueKey('nav-body'))).bottom,
+          844, reason: 'content scrolls under the bar, down to the edge');
 
       await expectLater(tester, meetsGuideline(iOSTapTargetGuideline));
       handle.dispose();
+    });
+
+    testWidgets('Android-Gestenleiste (24 px): ebenfalls 22 px ueber der Kante',
+        (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(412, 915);
+      tester.view.padding = const FakeViewPadding(top: 24, bottom: 24);
+      tester.view.viewPadding = tester.view.padding;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        _navShell(AppNavBar(index: 0, onChanged: (_) {}, items: _navItems)),
+      );
+
+      final glass = tester.getRect(find.byKey(const ValueKey('nav-glass')));
+      expect(glass.bottom, 915 - 22);
+      final body = tester.element(find.byKey(const ValueKey('nav-body')));
+      expect(MediaQuery.paddingOf(body).bottom, 22 + 68 + 12);
+    });
+
+    testWidgets('Android-3-Tasten-Leiste (48 px): Leiste 8 px ueber der '
+        'Systemleiste, Band waechst mit', (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(412, 915);
+      tester.view.padding = const FakeViewPadding(top: 24, bottom: 48);
+      tester.view.viewPadding = tester.view.padding;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        _navShell(AppNavBar(index: 0, onChanged: (_) {}, items: _navItems)),
+      );
+
+      final glass = tester.getRect(find.byKey(const ValueKey('nav-glass')));
+      expect(AppNavBar.bottomOffsetFor(48), 48 + 8);
+      expect(glass.bottom, 915 - 48 - 8,
+          reason: 'the bar must stay clear of the system buttons');
+      final body = tester.element(find.byKey(const ValueKey('nav-body')));
+      expect(MediaQuery.paddingOf(body).bottom, 48 + 8 + 68 + 12);
+      expect(tester.getSize(find.byType(AppNavBar)).height, 48 + 8 + 68 + 12);
     });
 
     testWidgets('Glas, Umriss, Unschaerfe und Schatten kommen aus den Tokens',

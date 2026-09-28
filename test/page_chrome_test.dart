@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/l10n/l10n.dart';
+import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
@@ -30,7 +31,9 @@ Future<void> _frames(WidgetTester tester) async {
 
 Finder _title(String title) => find.byWidgetPredicate(
   (widget) =>
-      widget is Text && widget.data == title && widget.style?.fontSize == 30,
+      widget is Text &&
+      widget.data == title &&
+      widget.style?.fontSize == AppType.pageTitle(const Color(0xFF000000)).fontSize,
 );
 
 void main() {

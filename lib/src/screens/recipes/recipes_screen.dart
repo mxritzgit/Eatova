@@ -826,7 +826,10 @@ class _RecipesScreenState extends State<RecipesScreen> {
       key: const PageStorageKey<String>('recipes-list'),
       child: ListView(
         key: const ValueKey('screen-recipes'),
-        padding: const EdgeInsets.only(bottom: 28),
+        // Ends above the floating tab bar's band (from the shell).
+        padding: EdgeInsets.only(
+          bottom: 28 + MediaQuery.paddingOf(context).bottom,
+        ),
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         children: [
           _RecipesHeader(

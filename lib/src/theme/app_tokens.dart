@@ -654,9 +654,23 @@ class AppType {
   static const String displayFamily = 'BricolageGrotesque';
   static const String uiFamily = 'Figtree';
 
-  /// The shared title scale for tabs and pushed pages.
-  static TextStyle pageTitle(Color color, {bool subpage = false}) =>
-      display(subpage ? 24 : 30, color: color, height: 1.1);
+  /// The shared title scale for tabs and pushed pages. Tab titles follow the
+  /// dark redesign: 36 px, -0.03 em, line height 1.05, ExtraBold (the design's
+  /// 750 has no static cut; 800 is the nearest bundled weight). Render tab
+  /// titles with [pageTitleScaler].
+  static TextStyle pageTitle(Color color, {bool subpage = false}) => subpage
+      ? display(24, color: color, height: 1.1)
+      : display(36, color: color, height: 1.05);
+
+  /// Largest text scale a tab title follows: at the app's 2.0x cap the 36 px
+  /// title reaches 60 px — what the pre-redesign 30 px title reached — so
+  /// "Training" stays one word on a 320 px phone. A 36 px heading is large
+  /// text already; body text keeps the full 2.0x.
+  static const double pageTitleMaxScale = 60 / 36;
+
+  /// The text scaler for a tab title (and for measuring one).
+  static TextScaler pageTitleScaler(BuildContext context) =>
+      MediaQuery.textScalerOf(context).clamp(maxScaleFactor: pageTitleMaxScale);
 
   /// Numbers and headings.
   static TextStyle display(
@@ -694,6 +708,20 @@ class AppType {
       height: height,
     );
   }
+
+  /// The dark redesign's eyebrow above a card or section title ("TONIGHT'S
+  /// PICK", "LEFT TODAY"): 12 px, weight 700, 0.07 em tracking; the design
+  /// colors it `accentText`. A style cannot uppercase: callers pass
+  /// `text.toUpperCase()` and keep the original as `semanticsLabel`, so screen
+  /// readers do not spell it out.
+  static TextStyle sectionEyebrow(Color color, {double size = 12}) =>
+      TextStyle(
+        fontFamily: uiFamily,
+        fontSize: size,
+        fontWeight: FontWeight.w700,
+        color: color,
+        letterSpacing: size * 0.07,
+      );
 
   /// Small all-caps caption above sections.
   static TextStyle eyebrow(Color color, {double size = 10}) => TextStyle(

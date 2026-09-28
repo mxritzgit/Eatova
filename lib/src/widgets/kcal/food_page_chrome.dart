@@ -30,7 +30,11 @@ class FoodPageHeader extends StatelessWidget {
         Flexible(
           child: HeadingSemantics(
             level: 1,
-            child: Text(l10n.navFood, style: AppType.pageTitle(t.ink)),
+            child: Text(
+              l10n.navFood,
+              style: AppType.pageTitle(t.ink),
+              textScaler: AppType.pageTitleScaler(context),
+            ),
           ),
         ),
       ],

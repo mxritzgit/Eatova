@@ -560,8 +560,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               // would shift the background behind the translucent barrier.
               resizeToAvoidBottomInset: tab != _tabFood,
               // The nav bar floats: the body runs under it and receives the
-              // bar's whole band (fade, bar, gap, safe area) as bottom
-              // padding, which the SafeArea below turns into the tab inset.
+              // bar's band as MediaQuery.padding.bottom, which the SafeArea
+              // below passes on (bottom: false) so each tab scrolls under the
+              // glass and pins its docks above it.
               extendBody: true,
               bottomNavigationBar: Builder(
                 builder: (context) {
@@ -580,7 +581,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               ),
               // Tabs scroll internally, so no outer SingleChildScrollView.
               // Large windows get a bounded column; phones are unaffected.
-              body: SafeArea(child: ReadableWidth(child: _buildTabStack(tab))),
+              body: SafeArea(
+                bottom: false,
+                child: ReadableWidth(child: _buildTabStack(tab)),
+              ),
             ),
           ),
         );
@@ -670,10 +674,11 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       key: ValueKey('lively-tab-$index'),
       child: Padding(
         // Food and Training own their scroll gutters; other tabs retain the shell's
-        // established inset even while mounted in the hidden stack.
+        // established inset even while mounted in the hidden stack. No bottom
+        // inset: every tab runs to the screen edge under the floating bar.
         padding: index == _tabTraining || index == _tabFood
             ? EdgeInsets.zero
-            : const EdgeInsets.fromLTRB(20, 12, 20, 12),
+            : const EdgeInsets.fromLTRB(20, 12, 20, 0),
         child: switch (index) {
           _tabFood => _foodTab(),
           _tabRezepte => _recipesTab(),

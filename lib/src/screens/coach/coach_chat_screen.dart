@@ -1992,11 +1992,18 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     final isHero = !_loading && _messages.isEmpty && !_historyUnavailable;
     return LayoutBuilder(
       builder: (context, constraints) {
+        // The floating tab bar's band (from the shell). The composer's own
+        // SafeArea sits it on the band, so the header decides on the height
+        // that is really left.
+        final navInset = MediaQuery.paddingOf(context).bottom;
         // Use the shell's available space, including keyboard and navigation.
         // Secondary header details must not consume the command picker viewport.
         final compactHeader = _CoachTopBar.needsCompactLayout(
           context,
-          constraints,
+          BoxConstraints(
+            maxWidth: constraints.maxWidth,
+            maxHeight: math.max(0, constraints.maxHeight - navInset),
+          ),
         );
         return Column(
           key: const ValueKey('screen-coach'),

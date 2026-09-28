@@ -397,11 +397,14 @@ class MealAnalysisScreen extends StatelessWidget {
     );
     return LayoutBuilder(
       builder: (context, constraints) {
+        // The floating tab bar's band (from the shell): the pinned dock sits
+        // on it, an unpinned page scrolls under the bar and ends above it.
+        final navInset = MediaQuery.paddingOf(context).bottom;
         // Large text and short landscape windows need the whole page to scroll.
         final pinned =
             constraints.hasBoundedHeight &&
             constraints.maxWidth >= 340 &&
-            constraints.maxHeight >= 560 &&
+            constraints.maxHeight - navInset >= 560 &&
             MediaQuery.textScalerOf(context).scale(14) <= 20;
         final content = Padding(
           key: const ValueKey('food-diary-content'),
@@ -428,12 +431,18 @@ class MealAnalysisScreen extends StatelessWidget {
                       content,
                       const SizedBox(height: 20),
                       pinned ? const SizedBox.shrink() : dock,
+                      SizedBox(height: pinned ? 0 : navInset),
                     ],
                   ),
                 ),
               ),
             ),
-            pinned ? dock : const SizedBox.shrink(),
+            pinned
+                ? Padding(
+                    padding: EdgeInsets.only(bottom: navInset),
+                    child: dock,
+                  )
+                : const SizedBox.shrink(),
           ],
         );
         return SizedBox(

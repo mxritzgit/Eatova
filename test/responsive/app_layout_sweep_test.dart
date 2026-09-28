@@ -107,10 +107,7 @@ Finder _keyPrefix(String prefix) => find.byWidgetPredicate(
 );
 
 final List<_Step> _journey = <_Step>[
-  // The page itself, like Rezepte/Coach: on 320x568 at 2.0x the floating
-  // tab bar leaves the hero just below the first view, and the scroll-through
-  // still lays it out.
-  _step('Heute', 'Heute', const [], _key('screen-today')),
+  _step('Heute', 'Heute', const [], _key('today-kcal-hero')),
   _step('Food', 'Food', const [], _key('food-entry-dock')),
   _step('Rezepte', 'Rezepte', const [], _key('screen-recipes')),
   _step('Training', 'Training', const [], _key('training-open-plans')),
@@ -405,9 +402,14 @@ Future<void> _visit(
     await _settle(tester);
   }
   if (step.pops > 0) {
+    // Closed = the home route is on top again. A hit test at the tab stack's
+    // centre used to stand in for this; since the tabs run under the floating
+    // bar, that centre can land on empty space of an open tab.
+    final home = find.byKey(const ValueKey<String>('home-tab-stack'));
+    expect(home, findsOneWidget, reason: '${step.name} nicht geschlossen');
     expect(
-      find.byKey(const ValueKey<String>('home-tab-stack')).hitTestable(),
-      findsOneWidget,
+      ModalRoute.of(tester.element(home))!.isCurrent,
+      isTrue,
       reason: '${step.name} nicht geschlossen',
     );
   }
