@@ -64,12 +64,15 @@ jobs:
       # Explicit whole-file partitions avoid loading every test suite in every
       # runner, as native --total-shards does. All discovered files are required.
       - name: Complete test shard with coverage and JSON evidence
-        run: python3 tool/flutter_ci.py run --shards 4 --shard ${{ matrix.shard }} --output .dart_tool/flutter-ci
+        run: python3 tool/flutter_ci.py run --shards 4 --shard ${{ matrix.shard }} --run-attempt ${{ github.run_attempt }} --output .dart_tool/flutter-ci
+      # A rerun keeps earlier attempts' artifacts in the run. Same-named
+      # artifacts would make the download pick by artifact ID, which is not
+      # chronological, so each attempt uploads its own name instead.
       - name: Upload shard evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: shard-${{ matrix.shard }}
+          name: shard-${{ matrix.shard }}-attempt-${{ github.run_attempt }}
           path: .dart_tool/flutter-ci/shard-${{ matrix.shard }}/
           include-hidden-files: true
           if-no-files-found: error
@@ -84,6 +87,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      # Every attempt's shard artifacts; the aggregate uses each shard's
+      # newest attempt and never falls back to an older one.
       - name: Download all shard evidence
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -93,11 +98,11 @@ jobs:
         env:
           FLUTTER_CI_NEEDS: ${{ toJSON(needs) }}
         run: |
-          python3 tool/flutter_ci.py aggregate --shards 4 --output .dart_tool/flutter-ci-download --floor 88
+          python3 tool/flutter_ci.py aggregate --shards 4 --run-attempt ${{ github.run_attempt }} --output .dart_tool/flutter-ci-download --floor 88
       - name: Upload merged coverage
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: flutter-ci-merged-coverage
+          name: flutter-ci-merged-coverage-attempt-${{ github.run_attempt }}
           path: .dart_tool/lcov.info
           include-hidden-files: true
           if-no-files-found: error
