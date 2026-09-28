@@ -31,8 +31,8 @@ Future<void> _signIn(SupabaseClient client, String id) => client.auth
           'id': id,
           'aud': 'authenticated',
           'created_at': '2026-01-01T00:00:00Z',
-          'app_metadata': {},
-          'user_metadata': {},
+          'app_metadata': <dynamic, dynamic>{},
+          'user_metadata': <dynamic, dynamic>{},
         },
       }),
     )
@@ -138,7 +138,7 @@ void main() {
     'tampered successful payload cannot produce a proposal',
     () => withClock(Clock.fixed(_now), () async {
       final raw = trainingReply();
-      firstExercise(raw['training_plan'])['sets'] = 1000;
+      firstExercise(raw['training_plan'] as Map<String, dynamic>)['sets'] = 1000;
       final client = _client((_) async => _json(raw));
       await _signIn(client, 'account-A');
       await expectLater(

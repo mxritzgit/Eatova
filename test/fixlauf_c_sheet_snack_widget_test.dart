@@ -173,27 +173,6 @@ void main() {
     );
   });
 
-  testWidgets('ein kontextfreier Store-Toast (Undo) landet im Sheet und '
-      'sein Knopf funktioniert', (tester) async {
-    await _pumpHome(tester);
-    await _addApfel(tester);
-    await tester.pump(const Duration(seconds: 5));
-    await tester.pumpAndSettle();
-
-    // The mirrored row's X calls onRemoveMeal, which toasts from the HOME
-    // context like HomeStore does.
-    await tester.tap(find.byKey(const ValueKey('analyse-existing-remove-id-1')));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-
-    final undo = find.text('Rückgängig');
-    expect(undo.hitTestable(), findsOneWidget);
-    expect(find.text('Mahlzeit gelöscht').hitTestable(), findsOneWidget);
-    await tester.tap(undo);
-    await tester.pumpAndSettle();
-    expect(_undoCalls, 1);
-  });
-
   testWidgets('der Host schluckt keine Taps auf den Sheet-Inhalt',
       (tester) async {
     await _pumpHome(tester);

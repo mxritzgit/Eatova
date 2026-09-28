@@ -771,7 +771,7 @@ class _ActivityPicker extends StatelessWidget {
             onTap: () => onChanged(level),
             title: level.label(l10n),
             subtitle: level.description(l10n),
-            trailing: '×${level.palFactor}',
+            trailing: '×${formatPalFactor(level, l10n)}',
           ),
           if (level != ActivityLevel.values.last) const SizedBox(height: 10),
         ],

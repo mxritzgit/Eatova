@@ -24,7 +24,8 @@ class SyncCapacityException implements Exception {
 }
 
 /// Capacity failures require a visible retained/blocked state, not timed retries.
-Never rethrowSyncFailure(PostgrestException error) {
+/// Other failures keep their original [stack] for crash diagnostics.
+Never rethrowSyncFailure(PostgrestException error, StackTrace stack) {
   if (error.code == 'PT507') {
     throw SyncCapacityException(switch (error.message) {
       'EX_RECIPE_HISTORY_CAPACITY' => SyncCapacityKind.recipeHistory,
@@ -32,7 +33,7 @@ Never rethrowSyncFailure(PostgrestException error) {
       _ => SyncCapacityKind.operationReceipts,
     });
   }
-  throw error;
+  Error.throwWithStackTrace(error, stack);
 }
 
 /// The same account-pinned transport serves foreground and background replay.
@@ -106,8 +107,8 @@ class SyncOperationSync {
             'p_training_protocol': 2,
         },
       );
-    } on PostgrestException catch (error) {
-      rethrowSyncFailure(error);
+    } on PostgrestException catch (error, stack) {
+      rethrowSyncFailure(error, stack);
     }
     if (response is! Map) throw const FormatException('Invalid sync receipt');
     final receipt = SyncOperationReceipt.fromJson(
@@ -217,7 +218,7 @@ class SyncOperationReceipt {
         state is! Map) {
       throw const FormatException('Invalid sync operation receipt');
     }
-    Map<String, dynamic>? value(Map source, String key) {
+    Map<String, dynamic>? value(Map<dynamic, dynamic> source, String key) {
       final item = source[key];
       if (item == null) return null;
       if (item is! Map) throw const FormatException('Invalid sync result');

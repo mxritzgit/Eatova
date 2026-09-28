@@ -4,6 +4,7 @@ import '../../l10n/l10n.dart';
 import '../../models/recipe_ingredient.dart';
 import '../../services/open_food_facts_product_service.dart';
 import '../../theme/app_tokens.dart';
+import '../common/decimal_text.dart';
 import '../design/design.dart';
 
 /// Controlled list editor. Only confirmed, valid ingredient snapshots escape.
@@ -67,7 +68,7 @@ class RecipeIngredientEditor extends StatelessWidget {
                         style: AppType.ui(15, color: context.t.ink),
                       ),
                       Text(
-                        '${_numberText(ingredients[i].grams)} g',
+                        '${_numberText(ingredients[i].grams, t)} g',
                         style: AppType.ui(14, color: context.t.ink2),
                       ),
                       if (!ingredients[i].per100g.isComplete)
@@ -139,18 +140,31 @@ class _IngredientSheetState extends State<_IngredientSheet> {
     _original = widget.initial;
     _form = widget.initial != null;
     _fields = List.generate(6, (_) => TextEditingController());
-    _fill(widget.initial);
+  }
+
+  bool _filled = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // The prefill uses the locale's decimal separator, unreadable in
+    // initState. Runs once, before the first build.
+    if (!_filled) {
+      _filled = true;
+      _fill(widget.initial);
+    }
   }
 
   void _fill(RecipeIngredient? ingredient) {
     final n = ingredient?.per100g;
+    final l10n = context.l10n;
     final values = [
       ingredient?.name ?? _query.text.trim(),
-      _numberText(ingredient?.grams ?? 100),
-      _numberText(n?.caloriesKcal),
-      _numberText(n?.proteinG),
-      _numberText(n?.carbsG),
-      _numberText(n?.fatG),
+      _numberText(ingredient?.grams ?? 100, l10n),
+      _numberText(n?.caloriesKcal, l10n),
+      _numberText(n?.proteinG, l10n),
+      _numberText(n?.carbsG, l10n),
+      _numberText(n?.fatG, l10n),
     ];
     for (var i = 0; i < _fields.length; i++) {
       _fields[i].text = values[i];
@@ -273,7 +287,10 @@ class _IngredientSheetState extends State<_IngredientSheet> {
         ? 900.0
         : 100.0;
     return value == null || !value.isFinite || value < min || value > max
-        ? context.l10n.ingredientNumberError(_numberText(min), _numberText(max))
+        ? context.l10n.ingredientNumberError(
+            _numberText(min, context.l10n),
+            _numberText(max, context.l10n),
+          )
         : null;
   }
 
@@ -408,8 +425,6 @@ class _IngredientSheetState extends State<_IngredientSheet> {
   }
 }
 
-String _numberText(double? n) => n == null
-    ? ''
-    : n == n.roundToDouble()
-    ? '${n.round()}'
-    : '$n';
+/// Six fraction digits keep imported per-100 g values intact in the fields.
+String _numberText(double? n, AppLocalizations l10n) =>
+    n == null ? '' : formatDecimal(n, l10n, maxFractionDigits: 6);

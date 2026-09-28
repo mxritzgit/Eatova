@@ -39,7 +39,7 @@ String _export() => jsonEncode({
   'format': DataExportService.formatKennung,
   'exportedAt': '2026-09-26T12:00:00Z',
   'userId': 'demo-account',
-  for (final table in DataExportService.alleExportTabellen) table: [],
+  for (final table in DataExportService.alleExportTabellen) table: <dynamic>[],
   'profiles': [
     {'display_name': 'Alex', 'daily_kcal_goal': 2200},
   ],

@@ -259,8 +259,8 @@ void main() {
         'nach einer lokalen Aenderung wird ein neuer Store-Stand TROTZDEM '
         'uebernommen (Wiedereinblendung nach verworfener Loesch-Op)',
         (tester) async {
-      // _restoreDroppedDeletes scenario: the delete op is dropped for good and
-      // the store brings the recipe back. With `_locallyMutated` the delete had
+      // Scenario: the delete does not stick and the store brings the recipe
+      // back. With `_locallyMutated` the delete had
       // set the lock, so the screen never showed it again.
       final zurueck = _recipe('user_zurueck', title: 'Wieder-da-Bowl');
       await _pumpHost(tester, _Host(

@@ -396,7 +396,7 @@ class FixlaufServer {
     final decoded = jsonDecode(body);
     if (decoded is List) {
       return decoded
-          .whereType<Map>()
+          .whereType<Map<dynamic, dynamic>>()
           .map((m) => m.cast<String, dynamic>())
           .toList();
     }

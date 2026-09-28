@@ -109,7 +109,7 @@ typedef TrendTotalsLoader = Future<List<TrendDayTotals>> Function();
 /// will see (add, edit, result rescale, delete and both undos —
 /// `_invalidateTrendWindow`). [ttl] is the backstop for anything that reaches
 /// the rows another way, which is why it is [defaultTtl] and not an hour.
-/// Only logged_meals matters here: [_projection] reads kcal and macros, so
+/// Only logged_meals matters here: `_projection` reads kcal and macros, so
 /// weight and step writes never move this window.
 class TrendTotalsCache {
   TrendTotalsCache({this.ttl = defaultTtl});

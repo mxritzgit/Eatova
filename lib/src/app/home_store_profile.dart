@@ -46,7 +46,7 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
   // Only content: the evening streak saver (streak_reminder_planner.dart).
   // The opt-in toggle + permission flow stay the hook for anything further.
 
-  /// Cache on the boot path. `_cache` is only set after [_hydrateThenBoot];
+  /// Cache on the boot path. `_cache` is only set after `_hydrateThenBoot`;
   /// tests fall back to the injected [debugCache], like `_clearCache`.
   LocalCache? get _notificationCache => _cache ?? debugCache;
 
@@ -261,7 +261,7 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
   /// Applies the profile + flags edited in "Profil & Ziele" (the screen itself
   /// lives in the context-carrying shell).
   ///
-  /// Gap D: the save goes through [_syncOrQueue] and thus the outbox — a
+  /// Gap D: the save goes through `_syncOrQueue` and thus the outbox — a
   /// direct Supabase write left offline edits in the cache only, and the next
   /// online boot overwrote them with the old server row. All profile ops share
   /// an entity key, so offline edits coalesce; last one wins. Not awaited —

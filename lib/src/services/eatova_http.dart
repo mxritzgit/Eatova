@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as dev;
 import 'dart:io';
+import 'dart:typed_data';
 
 /// Shared dart:io HTTP layer for all services on a raw [HttpClient]
 /// (Meilisearch mirror, OpenFoodFacts, analyze-meal Edge Function).
@@ -83,6 +84,21 @@ class HttpTimeoutPolicy {
 HttpClient createHttpClient(HttpTimeoutPolicy policy) =>
     HttpClient()..connectionTimeout = policy.connect;
 
+/// Largest response body [sendTextRequest] reads by default. Every endpoint
+/// answers with small JSON; the cap only stops a runaway or hostile body
+/// (after transparent decompression) from exhausting memory.
+const int maxHttpResponseBytes = 4 * 1024 * 1024;
+
+/// A response body beyond the caller's byte limit; nothing more is read.
+class HttpResponseTooLargeException implements Exception {
+  const HttpResponseTooLargeException(this.maxBytes);
+
+  final int maxBytes;
+
+  @override
+  String toString() => 'HTTP response exceeds $maxBytes bytes';
+}
+
 /// Fully read text response: status code plus UTF-8 decoded body.
 class HttpTextResponse {
   const HttpTextResponse({required this.statusCode, required this.body});
@@ -94,7 +110,8 @@ class HttpTextResponse {
 /// Runs a request with a timeout on every phase PLUS
 /// [HttpTimeoutPolicy.total] over their sum, and reads the body as UTF-8.
 /// [configure] sets headers before the body write; [body] is written before
-/// `close()`.
+/// `close()`. A body longer than [maxBodyBytes] throws
+/// [HttpResponseTooLargeException].
 ///
 /// Transport errors are logged once and rethrown unchanged; status-code
 /// handling stays with the caller (OFF answers 404 with a JSON body).
@@ -106,6 +123,7 @@ Future<HttpTextResponse> sendTextRequest(
   required String operation,
   void Function(HttpClientRequest request)? configure,
   String? body,
+  int maxBodyBytes = maxHttpResponseBytes,
 }) async {
   try {
     final work = _sendTextRequest(
@@ -115,6 +133,7 @@ Future<HttpTextResponse> sendTextRequest(
       policy: policy,
       configure: configure,
       body: body,
+      maxBodyBytes: maxBodyBytes,
     );
     final total = policy.total;
     return await (total == null ? work : work.timeout(total));
@@ -138,6 +157,7 @@ Future<HttpTextResponse> _sendTextRequest(
   required HttpTimeoutPolicy policy,
   required void Function(HttpClientRequest request)? configure,
   required String? body,
+  required int maxBodyBytes,
 }) async {
   final request = await client.openUrl(method, uri).timeout(policy.connect);
   // Do not follow redirects (security audit 2026-08-09): dart:io copies the
@@ -148,10 +168,25 @@ Future<HttpTextResponse> _sendTextRequest(
   configure?.call(request);
   if (body != null) request.write(body);
   final response = await request.close().timeout(policy.response);
-  final text = await response.transform(utf8.decoder).join().timeout(
+  if (response.contentLength > maxBodyBytes) {
+    throw HttpResponseTooLargeException(maxBodyBytes);
+  }
+  final text = await _readBounded(response, maxBodyBytes).timeout(
     policy.body,
   );
   return HttpTextResponse(statusCode: response.statusCode, body: text);
+}
+
+/// Reads at most [maxBytes], then decodes strictly as UTF-8.
+Future<String> _readBounded(Stream<List<int>> body, int maxBytes) async {
+  final bytes = BytesBuilder(copy: false);
+  await for (final chunk in body) {
+    if (bytes.length + chunk.length > maxBytes) {
+      throw HttpResponseTooLargeException(maxBytes);
+    }
+    bytes.add(chunk);
+  }
+  return utf8.decode(bytes.takeBytes());
 }
 
 /// One budget spanning a CHAIN of requests (review P10-02).

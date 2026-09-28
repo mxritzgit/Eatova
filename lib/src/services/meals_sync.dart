@@ -11,9 +11,10 @@ import '../models/meal_component.dart';
 import 'crash_reporter.dart';
 import 'local_day.dart';
 
-/// Reads and writes LoggedMeal + FavoriteMeal against public.logged_meals and
+/// Reads LoggedMeal + FavoriteMeal from public.logged_meals and
 /// public.favorite_meals. MealAnalysisResult travels as a JSONB payload plus a
-/// few denormalised filter columns. One instance belongs to one user_id.
+/// few denormalised filter columns. Writes are durable sync operations
+/// (`SyncOperationSync`). One instance belongs to one user_id.
 class MealsSync {
   MealsSync(this._client, this._userId);
 
@@ -76,30 +77,6 @@ class MealsSync {
       return _mealsFromRows(rows);
     } catch (e, stack) {
       dev.log('MealsSync.loadLoggedMeals failed',
-          error: e, stackTrace: stack, name: 'meals_sync');
-      rethrow;
-    }
-  }
-
-  /// Loads specific rows by id — WITHOUT the date window.
-  ///
-  /// Only caller is the re-display after a permanently dropped delete
-  /// (`_restoreDroppedDeletes`): that row can be arbitrarily old, so the
-  /// windowed [loadLoggedMeals] would miss it and the "it's back" hint would
-  /// lie. The id set is small, so the window limit suffices.
-  Future<List<LoggedMeal>> loadLoggedMealsByIds(Set<String> ids) async {
-    if (ids.isEmpty) return const <LoggedMeal>[];
-    try {
-      final rows = await _client
-          .from('logged_meals')
-          .select('id, logged_at, forced_slot, local_day, payload')
-          .eq('user_id', _userId)
-          .inFilter('id', ids.toList())
-          .order('logged_at', ascending: false)
-          .limit(loggedMealsMaxRows);
-      return _mealsFromRows(rows);
-    } catch (e, stack) {
-      dev.log('MealsSync.loadLoggedMealsByIds failed',
           error: e, stackTrace: stack, name: 'meals_sync');
       rethrow;
     }
@@ -194,82 +171,6 @@ class MealsSync {
     );
   }
 
-  Future<void> insertLoggedMeal(LoggedMeal meal) async {
-    try {
-      // Upsert on the client UUID instead of insert: a retry after an unclear
-      // network timeout (response lost, row written) stays idempotent.
-      await _client.from('logged_meals').upsert({
-        'id': meal.id,
-        'user_id': _userId,
-        'logged_at': meal.loggedAt.toUtc().toIso8601String(),
-        // DATA-6: canonical local day key from the entry's LOCAL wall clock,
-        // derived from loggedAt when not set, so entries share the same day
-        // without UTC drift across DST/zones.
-        'local_day': meal.effectiveLocalDay,
-        'forced_slot': meal.forcedSlot?.name,
-        'meal_name': meal.result.mealName,
-        'calories_kcal': meal.result.caloriesKcal,
-        'estimated_g': meal.result.estimatedGrams,
-        'protein_g': _macroToNumeric(meal.result.protein),
-        'carbs_g': _macroToNumeric(meal.result.carbs),
-        'fat_g': _macroToNumeric(meal.result.fat),
-        'barcode': meal.result.barcode,
-        'brand': meal.result.brand,
-        'source_label': meal.result.sourceLabel,
-        'payload': mealResultToJson(meal.result),
-      }, onConflict: 'id', ignoreDuplicates: false);
-    } catch (e, stack) {
-      dev.log('MealsSync.insertLoggedMeal failed',
-          error: e, stackTrace: stack, name: 'meals_sync');
-      rethrow;
-    }
-  }
-
-  Future<void> updateLoggedMeal(LoggedMeal meal) async {
-    try {
-      await _client
-          .from('logged_meals')
-          .update({
-            // An update can also move day/slot of an existing row, so
-            // logged_at + local_day always ride along; portion-only updates
-            // rewrite the same value.
-            'logged_at': meal.loggedAt.toUtc().toIso8601String(),
-            'local_day': meal.effectiveLocalDay,
-            'forced_slot': meal.forcedSlot?.name,
-            'meal_name': meal.result.mealName,
-            'calories_kcal': meal.result.caloriesKcal,
-            'estimated_g': meal.result.estimatedGrams,
-            'protein_g': _macroToNumeric(meal.result.protein),
-            'carbs_g': _macroToNumeric(meal.result.carbs),
-            'fat_g': _macroToNumeric(meal.result.fat),
-            'barcode': meal.result.barcode,
-            'brand': meal.result.brand,
-            'source_label': meal.result.sourceLabel,
-            'payload': mealResultToJson(meal.result),
-          })
-          .eq('id', meal.id)
-          .eq('user_id', _userId);
-    } catch (e, stack) {
-      dev.log('MealsSync.updateLoggedMeal failed',
-          error: e, stackTrace: stack, name: 'meals_sync');
-      rethrow;
-    }
-  }
-
-  Future<void> deleteLoggedMeal(String id) async {
-    try {
-      await _client
-          .from('logged_meals')
-          .delete()
-          .eq('id', id)
-          .eq('user_id', _userId);
-    } catch (e, stack) {
-      dev.log('MealsSync.deleteLoggedMeal failed',
-          error: e, stackTrace: stack, name: 'meals_sync');
-      rethrow;
-    }
-  }
-
   // ---------- favorite_meals ----------
 
   Future<List<FavoriteMeal>> loadFavorites() async {
@@ -298,42 +199,6 @@ class MealsSync {
     }
   }
 
-  Future<void> upsertFavorite(FavoriteMeal fav) async {
-    try {
-      await _client.from('favorite_meals').upsert({
-        'user_id': _userId,
-        'favorite_key': fav.id,
-        'meal_name': fav.result.mealName,
-        'calories_kcal': fav.result.caloriesKcal,
-        'estimated_g': fav.result.estimatedGrams,
-        'barcode': fav.result.barcode,
-        'brand': fav.result.brand,
-        'source_label': fav.result.sourceLabel,
-        'payload': mealResultToJson(fav.result),
-        'added_at': fav.addedAt.toUtc().toIso8601String(),
-        'pinned': fav.pinned,
-      }, onConflict: 'user_id,favorite_key');
-    } catch (e, stack) {
-      dev.log('MealsSync.upsertFavorite failed',
-          error: e, stackTrace: stack, name: 'meals_sync');
-      rethrow;
-    }
-  }
-
-  Future<void> deleteFavorite(String favoriteKey) async {
-    try {
-      await _client
-          .from('favorite_meals')
-          .delete()
-          .eq('favorite_key', favoriteKey)
-          .eq('user_id', _userId);
-    } catch (e, stack) {
-      dev.log('MealsSync.deleteFavorite failed',
-          error: e, stackTrace: stack, name: 'meals_sync');
-      rethrow;
-    }
-  }
-
   // ---------- helpers ----------
 
   static MealSlot? _parseSlot(String? raw) {
@@ -342,12 +207,6 @@ class MealsSync {
       if (v.name == raw) return v;
     }
     return null;
-  }
-
-  static num? _macroToNumeric(String macroText) {
-    final match = RegExp(r'(\d+(?:[.,]\d+)?)').firstMatch(macroText);
-    if (match == null) return null;
-    return num.tryParse(match.group(1)!.replaceAll(',', '.'));
   }
 }
 
@@ -395,7 +254,7 @@ MealAnalysisResult mealResultFromJson(Map<String, dynamic> j) {
   final itemsRaw = j['items'];
   final items = itemsRaw is List
       ? itemsRaw
-          .whereType<Map>()
+          .whereType<Map<dynamic, dynamic>>()
           .map((m) {
             final item = m.cast<String, dynamic>();
             return MealComponent(

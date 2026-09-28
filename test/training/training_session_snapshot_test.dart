@@ -35,8 +35,8 @@ void main() {
     'invalid exercise': (j) => j['exercise_index'] = 2,
     'invalid set': (j) => j['set_index'] = 2,
     'unknown phase': (j) => j['phase'] = 'warmup',
-    'invalid plan': (j) => j['plan'] = [],
-    'invalid ledger': (j) => j['completed_sets'] = {},
+    'invalid plan': (j) => j['plan'] = <dynamic>[],
+    'invalid ledger': (j) => j['completed_sets'] = <dynamic, dynamic>{},
     'invalid ledger entry': (j) => j['completed_sets'] = [false],
     'unknown ledger key': (j) => j['completed_sets'] = [
       {'exercise_index': 0, 'set_index': 0, 'calories': 99},
@@ -56,7 +56,7 @@ void main() {
       j['remaining_milliseconds'] = 0;
     },
     'progress gap': (j) => j['set_index'] = 1,
-    'oversized ledger': (j) => j['completed_sets'] = List.filled(201, {}),
+    'oversized ledger': (j) => j['completed_sets'] = List.filled(201, <dynamic, dynamic>{}),
   };
   for (final entry in invalid.entries) {
     test('rejects ${entry.key} with sanitized FormatException', () {

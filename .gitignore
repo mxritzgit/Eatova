@@ -69,3 +69,5 @@ p_hero_*.png
 /.claude/settings.json
 /.claude/settings.local.json
 /skills-lock.json
+# Widget Preview related
+.widget_preview/

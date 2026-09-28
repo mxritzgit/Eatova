@@ -210,7 +210,7 @@ void main() {
 
   test('rejects malformed responses instead of partially importing', () {
     for (final bad in <Map<String, dynamic>>[
-      {...responseJson(), 'status': 'ready', 'candidates': []},
+      {...responseJson(), 'status': 'ready', 'candidates': <dynamic>[]},
       {...responseJson(), 'status': 'no_recipe'},
       {
         ...responseJson(),
@@ -254,7 +254,7 @@ void main() {
       final result = RecipeImportResult.fromJson({
         'status': status,
         'source': {'url': null},
-        'candidates': [],
+        'candidates': <dynamic>[],
       });
       expect(result.candidates, isEmpty);
     }

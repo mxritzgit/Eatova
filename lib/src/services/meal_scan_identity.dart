@@ -25,6 +25,8 @@ class MealScanIdentity {
   static String? _supabaseUserId() {
     try {
       return Supabase.instance.client.auth.currentUser?.id;
+      // Supabase exposes no initialization check that does not assert.
+      // ignore: avoid_catching_errors
     } on AssertionError {
       // Widget previews use fake analyzers without initializing Supabase.
       // A real upload still requires the analyzer's authenticated session.

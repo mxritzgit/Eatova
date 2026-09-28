@@ -64,7 +64,7 @@ http.Response reply(Object? data) => http.Response(
 );
 
 Map<String, dynamic> receipt(
-  Map body, {
+  Map<dynamic, dynamic> body, {
   int requested = 0,
   int current = 1,
   String outcome = 'deleted',

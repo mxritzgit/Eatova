@@ -17,7 +17,7 @@ class _CoachHero extends StatelessWidget {
   /// drift; that file is Flutter-free and owns the ARB lookup.
   /// Drift test lives in `today_texts_test.dart`.
   String _timeGreeting(AppLocalizations l10n) =>
-      greetingForHour(DateTime.now().hour, l10n);
+      greetingForHour(clock.now().hour, l10n);
 
   String _firstName(AppLocalizations l10n) {
     final trimmed = name.trim();
@@ -48,7 +48,7 @@ class _CoachHero extends StatelessWidget {
             HeadingSemantics(
               level: 2,
               child: Text(
-                '${_timeGreeting(l10n)}, ${_firstName(l10n)}',
+                l10n.coachHeroGreeting(_timeGreeting(l10n), _firstName(l10n)),
                 textAlign: TextAlign.center,
                 style: AppType.display(26, color: t.ink, height: 1.15),
               ),

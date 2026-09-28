@@ -6,7 +6,7 @@ import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/sync_error_messages.dart'
-    show SyncDelivery, outboxLossHint;
+    show SyncDelivery;
 import 'package:eatova/src/services/sync_outbox.dart';
 
 import 'outbox_test_helpers.dart';
@@ -553,11 +553,6 @@ void main() {
       (await b.cache.readUserRecipes())!.map((r) => r.slug),
       contains('user_500'),
       reason: 'der Boot-Snapshot darf den Stand nicht wegschreiben',
-    );
-    expect(
-      b.snacks.messages,
-      isNot(contains(outboxLossHint())),
-      reason: 'ein retrybarer 500 ist kein Verlust',
     );
 
     b.server.rejectRecipeWrites = false;

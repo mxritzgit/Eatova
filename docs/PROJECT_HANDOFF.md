@@ -2038,3 +2038,79 @@ validation, protected-main delivery and CI evidence are recorded in the PR for
 `.agents/recipe-nutrition-2026-09-27/`; the original dirty checkout is untouched.
 The fix needs deployment of `recipe-import` and a rebuilt client. A merge alone
 does not establish either deployment or installation on the user's iPhone.
+
+## Review fixes and recipe-import v9, 2026-09-27
+
+[PR #114](https://github.com/mxritzgit/Eatova/pull/114) (squash `5255320`) fixed three
+review findings on #109–#113. `recipe-import` again accepts yields led by a recipe
+subject ("Zutaten für 4 Portionen", "Serves 4 people"), which #112 had rejected.
+Scaled ingredient amounts use the locale's decimal separator; shopping ids stay
+locale-neutral. The readable session export has the snapshot title.
+`recipe-import` v9 is live (JWT on; runtime graph equals merged source), and a
+disposable-account canary confirmed the per-serving division. No app build was
+installed.
+
+Sharded Flutter CI is not rerun-safe. After a shard fails, "Re-run failed jobs" leaves
+the stale `shard-N` artifact next to the new one, and the aggregate fails closed.
+Start a fresh run instead, for example by closing and reopening the PR.
+
+## Flutter/Dart skills applied with three agents, 2026-09-28
+
+The user installed the official `flutter/skills` and `dart-lang/skills` packages
+(`.agents/skills/` and `.claude/skills/`, both machine-local and ignored). Exactly three
+agents applied them in isolated worktrees: test suite, UI/layout/l10n, and Dart
+quality/data layer. The coordinator merged the three branches without conflicts,
+removed the now-unused outbox-loss ARB keys, and reviewed the combined diff.
+
+- Analysis: `strict-casts`, `strict-inference` and `strict-raw-types` plus
+  `avoid_catching_errors` are enabled. New code must avoid untyped empty literals,
+  raw generic types and implicit dynamic downcasts.
+- Fixed defects, each with a regression test that failed first:
+  - a pending weigh-in duplicated on every cold start;
+  - an offline cold start showed no planned meals when the slot held only plans or
+    checks;
+  - planned catalog recipes carried the "self-added" diary note;
+  - a JWT `exp` overflow was accepted;
+  - sync rethrows lost their stack;
+  - `sendTextRequest` bodies are now bounded to 4 MiB;
+  - German iOS speech errors reached the English UI;
+  - "1 Portionen" and dot decimals appeared under German;
+  - the profile streak ignored the frozen clock;
+  - a lost Coach recipe photo was masked by the success toast.
+- Layout: a sweep test covers 5 tabs and 22 sheets/pages at 320/390 px, 1.0x/2.0x,
+  DE/EN, light/dark and tablet/landscape. `ReadableWidth` centres content at
+  640 px above that breakpoint; phone geometry was verified unchanged. Widget
+  previews exist for four design components (`.widget_preview/` is ignored).
+- Tests:
+  - removed dead direct-write sync code (unused since #98), `capOutbox` and the loss
+    hints, plus their category-(a) tests;
+  - removed 12 subsumed or vacuous regression cases, each with a named covering test
+    and no line of lost coverage;
+  - fixed tests that could not fail (missing PostgREST request, clock-dependent
+    lunch default) and a real-time deadline test;
+  - two registry tests now guard the live `_mealRow` serializer instead of dead code.
+- With the user's approval, the dead `ScanSlotChips` widget (replaced by the compact
+  meal-context row in #86/#87) was removed together with its fixed-color allowlist
+  entry.
+- Result: 5,474 tests, 95.57% line coverage (baseline 5,350 / 95.20%), strict
+  analyzer clean. No backend, dependency or lockfile change.
+- Evaluated and not adopted, with reasons in the agents' reports:
+  - mockito;
+  - package:checks;
+  - integration_test in CI;
+  - go_router;
+  - primary constructors (need SDK lower bound `^3.13.0`);
+  - package:path as a direct dependency.
+- Open items for a user decision:
+  - v1 training checkpoints that can never be saved or discarded
+    (`training_session.dart:351`);
+  - weight cache timestamps without an offset;
+  - number fields that turn "3,5" into 35 or "1.000" into 1;
+  - German strings persisted in user data;
+  - the Android portrait lock versus tablets;
+  - larger controller extractions (Coach, add-meal sheet).
+- Rare SQLite test flakes remain unexplained:
+  - `sync_execution_guard_sqlite_test` once on Linux CI;
+  - `sqlite_process_crash_test` twice on Windows under load.
+  Adding the SQLite result-code name to `DurableStorageException` would make
+  them diagnosable.

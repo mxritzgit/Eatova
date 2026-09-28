@@ -188,7 +188,7 @@ void main() {
                 'operation_id': body['p_operation_id'],
                 'kind': body['p_kind'],
                 'entity_id': body['p_entity_id'],
-                'result': {},
+                'result': <dynamic, dynamic>{},
                 'current_state': {'entity_deleted': true},
               }),
               200,

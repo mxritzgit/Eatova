@@ -1,3 +1,4 @@
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -23,26 +24,33 @@ void main() {
 
   testWidgets('Tap auf eine Mahlzeit oeffnet das Hinzufuegen-Fenster fuer '
       'GENAU diesen Slot', (tester) async {
-    await bootHeute(tester);
+    // Breakfast time: at lunchtime the sheet's clock default is also lunch,
+    // and a dropped slot would pass unnoticed.
+    await withClock(Clock.fixed(DateTime(2026, 9, 28, 8)), () async {
+      await bootHeute(tester);
 
-    // ALWAYS scroll into view first: how far down the rows sit depends on the
-    // platform's font metrics, so on CI the tap missed silently.
-    final mittag = find.byKey(const ValueKey('today-meal-row-lunch'));
-    await tester.ensureVisible(mittag);
-    await tester.pumpAndSettle();
-    await tester.tap(mittag);
-    await tester.pumpAndSettle();
+      // ALWAYS scroll into view first: how far down the rows sit depends on
+      // the platform's font metrics, so on CI the tap missed silently.
+      final mittag = find.byKey(const ValueKey('today-meal-row-lunch'));
+      await tester.ensureVisible(mittag);
+      await tester.pumpAndSettle();
+      await tester.tap(mittag);
+      await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
-    expect(find.byKey(const ValueKey('add-meal-slot-select')), findsOneWidget);
-    // The key sits on the padding, the selector below it.
-    final waehler = tester.widget<MealSlotPicker>(
-      find.descendant(
-        of: find.byKey(const ValueKey('add-meal-slot-select')),
-        matching: find.byType(MealSlotPicker),
-      ),
-    );
-    expect(waehler.selected, MealSlot.lunch);
+      expect(find.byKey(const ValueKey('screen-kcal-tracker')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('add-meal-slot-select')),
+        findsOneWidget,
+      );
+      // The key sits on the padding, the selector below it.
+      final waehler = tester.widget<MealSlotPicker>(
+        find.descendant(
+          of: find.byKey(const ValueKey('add-meal-slot-select')),
+          matching: find.byType(MealSlotPicker),
+        ),
+      );
+      expect(waehler.selected, MealSlot.lunch);
+    });
   });
 
   testWidgets('ein zweiter Tap auf denselben Slot oeffnet kein zweites Fenster',

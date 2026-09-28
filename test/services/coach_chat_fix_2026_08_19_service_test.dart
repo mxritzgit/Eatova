@@ -31,10 +31,15 @@ CoachChatService _service(
   return CoachChatService(client, 'user-123');
 }
 
-http.Response _json(Object body, int status) => http.Response(
+// PostgREST reads `response.request`; without it every RPC answer fails with
+// a TypeError before the service sees the body. Pass [request] to test the
+// service's own handling of a response.
+http.Response _json(Object body, int status, [http.BaseRequest? request]) =>
+    http.Response(
       jsonEncode(body),
       status,
       headers: const {'Content-Type': 'application/json'},
+      request: request,
     );
 
 void main() {
@@ -117,7 +122,7 @@ void main() {
         () async {
       // The RPC promises a table; an object means the server changed,
       // typically after a migration.
-      final svc = _service((req) async => _json({'a': 1}, 200));
+      final svc = _service((req) async => _json({'a': 1}, 200, req));
 
       await expectLater(
         svc.loadSessions(),
@@ -125,17 +130,14 @@ void main() {
       );
       await pumpe();
 
-      // Only the operation tag is guaranteed, not the branch: an off-contract
-      // response already makes the PostgREST client throw, so the report comes
-      // from the catch rather than the shape check, which stays as a second
-      // line for responses the client still passes through.
-      expect(kontexte, hasLength(1));
-      expect(kontexte.single, startsWith('coach.loadSessions'));
+      // PostgREST passes the object through; the service's shape check
+      // reports it under its own tag.
+      expect(kontexte, <String>['coach.loadSessions.form']);
     });
 
     test('loadQuotaToday: Antwort ohne verwertbare Zahlen wird gemeldet',
         () async {
-      final svc = _service((req) async => _json(<Object>[], 200));
+      final svc = _service((req) async => _json(<Object>[], 200, req));
 
       await expectLater(
         svc.loadQuotaToday(),
@@ -143,9 +145,7 @@ void main() {
       );
       await pumpe();
 
-      // As above: the operation tag is the guarantee, the branch is not.
-      expect(kontexte, hasLength(1));
-      expect(kontexte.single, startsWith('coach.loadQuotaToday'));
+      expect(kontexte, <String>['coach.loadQuotaToday.form']);
     });
 
     test('deleteSession: „nicht geloescht" ist ein Vorfall', () async {
@@ -268,6 +268,56 @@ void main() {
         'coach.send.http',
         reason: 'das context-Tag ist IMMER ein Literal aus dem Quelltext',
       );
+    });
+  });
+
+  // The "new chat" button of the coach screen; a thrown error would leave the
+  // composer without a session, so every failure has to end in null.
+  group('createSession', () {
+    test('ruft create_chat_session mit dem Platzhaltertitel und liest die ID',
+        () async {
+      final bodies = <Object?>[];
+      final antworten = <Object>[
+        'neu-1',
+        <String>['neu-2', 'ignoriert'],
+        <String>[],
+        <String, Object>{'id': 'neu-3'},
+      ];
+      final svc = _service((req) async {
+        expect(req.url.path, '/rest/v1/rpc/create_chat_session');
+        bodies.add(jsonDecode(req.body));
+        return _json(antworten.removeAt(0), 200, req);
+      });
+
+      expect(await svc.createSession(title: 'Neue Unterhaltung'), 'neu-1');
+      expect(await svc.createSession(title: 'Neue Unterhaltung'), 'neu-2');
+      expect(await svc.createSession(title: 'Neue Unterhaltung'), isNull);
+      expect(await svc.createSession(title: 'Neue Unterhaltung'), isNull);
+      expect(bodies, List.filled(4, {'p_title': 'Neue Unterhaltung'}));
+      await pumpe();
+      expect(gemeldet, isEmpty, reason: 'unexpected shapes end in null');
+    });
+
+    test('ein Serverfehler ergibt null und wird mit Literal-Tag gemeldet',
+        () async {
+      final svc = _service((req) async => _json({'message': 'kaputt'}, 500));
+
+      expect(await svc.createSession(title: 'Mein Diaet-Chat'), isNull);
+      await pumpe();
+
+      expect(kontexte, <String>['coach.createSession']);
+      expect(gemeldet.single.toString(), isNot(contains('Diaet-Chat')));
+    });
+
+    test('ein Netzabbruch ergibt null ohne Report', () async {
+      final svc = _service((req) async {
+        throw http.ClientException('connection reset');
+      });
+
+      expect(await svc.createSession(title: 'Neue Unterhaltung'), isNull);
+      await pumpe();
+
+      expect(gemeldet, isEmpty);
     });
   });
 }

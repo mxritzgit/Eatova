@@ -196,14 +196,6 @@ void main() {
     });
   }
 
-  test('de/en-Parität der Gramm bleibt (Zwilling zum Paritätstest)', () {
-    for (var i = 0; i < recipeCatalogDe.length; i++) {
-      expect(recipeCatalogEn[i].estimatedGrams,
-          recipeCatalogDe[i].estimatedGrams,
-          reason: recipeCatalogDe[i].slug);
-    }
-  });
-
   group('foldRecipeSearchText', () {
     test('faltet Umlaute und ß und senkt die Schreibung', () {
       expect(foldRecipeSearchText('Hähnchen'), 'haehnchen');

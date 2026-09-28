@@ -70,7 +70,7 @@ Locale resolveEatovaLocale(List<Locale>? deviceLocales) {
 }
 
 /// Passes the [LocaleController] down to deep screens; mirror of
-/// [ThemeModeScope].
+/// `ThemeModeScope`.
 class LocaleScope extends InheritedNotifier<LocaleController> {
   const LocaleScope({
     super.key,

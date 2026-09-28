@@ -12,6 +12,7 @@ export 'controls.dart';
 export 'creation.dart';
 export 'dialogs.dart';
 export 'meters.dart';
+export 'readable_width.dart';
 export 'rows.dart';
 export 'sheets.dart';
 export 'steps_icon.dart';

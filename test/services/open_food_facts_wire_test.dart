@@ -370,7 +370,7 @@ void main() {
         json.keys,
         containsAll(<String>['count', 'page', 'page_size', 'products']),
       );
-      expect(json['products'], isA<List>());
+      expect(json['products'], isA<List<dynamic>>());
     });
   });
 }

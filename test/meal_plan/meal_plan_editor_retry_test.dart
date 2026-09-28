@@ -99,7 +99,7 @@ void main() {
                   );
                 }
               } else if (request.url.path.endsWith('/rpc/load_meal_plan')) {
-                response = {'plans': serverPlans.values.toList(), 'checks': []};
+                response = {'plans': serverPlans.values.toList(), 'checks': <dynamic>[]};
               } else {
                 response = request.url.path.endsWith('/profiles')
                     ? null

@@ -181,7 +181,9 @@ void main() {
     final server = h.FakeServer();
     final env = _sync(
       MockClient((request) async {
-        final response = server.syncOperations.apply(jsonDecode(request.body));
+        final response = server.syncOperations.apply(
+          jsonDecode(request.body) as Map<String, dynamic>,
+        );
         response['operation_id'] = _deletion;
         return http.Response(
           jsonEncode(response),

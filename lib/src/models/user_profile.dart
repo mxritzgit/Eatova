@@ -9,7 +9,7 @@ extension BiologicalSexLabel on BiologicalSex {
   /// User-facing label, localized via the ARB.
   ///
   /// Persistence still uses `sex.name`; only the display needs the active
-  /// language. Mirrors [MealSlotStyle.label].
+  /// language. Mirrors `MealSlotStyle.label`.
   String label(AppLocalizations l10n) => switch (this) {
         BiologicalSex.male => l10n.commonSexLabelMale,
         BiologicalSex.female => l10n.commonSexLabelFemale,
@@ -99,7 +99,7 @@ const double weeklyRateNoiseKg = 0.05;
 
 /// Weight goal as a weekly rate (kg/week). Sets the kcal delta on the
 /// maintenance requirement; steps are credited separately, see
-/// [KcalCalculator]. Assumes ~7700 kcal per kg → 1100 kcal/day ≙ 1 kg/week.
+/// `KcalCalculator`. Assumes ~7700 kcal per kg → 1100 kcal/day ≙ 1 kg/week.
 ///
 /// This is the *wish*. Achievability is decided by `KcalCalculator.calculate`,
 /// whose safety floor caps the deficit — anything shown to the user must use
@@ -364,7 +364,7 @@ class UserProfile {
   final DietPreference diet;
 
   /// True once the mandatory onboarding is done. Drives the gate in
-  /// [EatovaHomePage]; mirrored to public.profiles.onboarding_completed.
+  /// `EatovaHomePage`; mirrored to public.profiles.onboarding_completed.
   final bool onboardingCompleted;
 
   /// True when the user set kcal/macros by hand (goals page switch). False =

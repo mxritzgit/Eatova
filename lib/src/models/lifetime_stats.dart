@@ -51,8 +51,8 @@ class LifetimeStats {
 
   /// C7: the frozen legacy counters ([workoutsCompleted], [waterTotalMl],
   /// [stepsRecorded]) are deliberately not settable here and only passed
-  /// through; the constructor still takes them so [fromRow] and the LocalCache
-  /// can reconstruct existing values.
+  /// through; the constructor still takes them so [LifetimeStats.fromRow] and
+  /// the LocalCache can reconstruct existing values.
   LifetimeStats copyWith({
     int? mealsLogged,
     int? weightLogs,
