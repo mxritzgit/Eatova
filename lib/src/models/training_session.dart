@@ -243,8 +243,45 @@ final class TrainingSessionSnapshot {
   TrainingExercise get exercise => workout.exercises[exerciseIndex];
   int get totalSets => workout.totalSets;
 
-  factory TrainingSessionSnapshot.fromJson(Map<dynamic, dynamic> json) {
+  /// Decodes a v2 checkpoint. A v1 checkpoint recorded no start time and is
+  /// rejected until [upgradeLegacyJson] pins one; a start taken from the clock
+  /// on every read would never match the stored checkpoint again.
+  factory TrainingSessionSnapshot.fromJson(Map<dynamic, dynamic> json) =>
+      TrainingSessionSnapshot._decode(json, null);
+
+  /// Whether [json] is a v1 checkpoint, written only by builds from #70.
+  static bool isLegacyJson(Map<dynamic, dynamic> json) =>
+      json['schema_version'] == 1;
+
+  /// The v2 form of a v1 checkpoint, with its unknown start pinned to
+  /// [observedAt] (default: now), or to a recorded earlier pending completion;
+  /// null for any other version. Persist the result once: its digest ID and
+  /// ledger are stable, the pinned start is not.
+  static Map<String, dynamic>? upgradeLegacyJson(
+    Map<dynamic, dynamic> json, {
+    DateTime? observedAt,
+  }) {
+    if (!isLegacyJson(json)) return null;
+    final observed = (observedAt ?? clock.now()).toUtc();
+    final completion = json.containsKey('pending_completion_at')
+        ? trainingTimestamp(json['pending_completion_at'])
+        : null;
+    return TrainingSessionSnapshot._decode(
+      json,
+      completion != null && completion.isBefore(observed)
+          ? completion
+          : observed,
+    ).toJson();
+  }
+
+  factory TrainingSessionSnapshot._decode(
+    Map<dynamic, dynamic> json,
+    DateTime? legacyStartedAt,
+  ) {
     final version = TrainingJson.integer(json['schema_version'], 1, 2);
+    if (version == 1 && legacyStartedAt == null) {
+      throw const FormatException('Unpinned legacy training session');
+    }
     final pending =
         json.containsKey('pending_completion_at') ||
         json.containsKey('pending_completion_note');
@@ -350,7 +387,7 @@ final class TrainingSessionSnapshot {
       sessionId: version == 2 ? json['session_id'] as String : legacyId,
       startedAt: version == 2
           ? trainingTimestamp(json['started_at'])
-          : clock.now().toUtc(),
+          : legacyStartedAt,
       actualSets: rawActuals.map((raw) {
         if (raw is! Map) throw const FormatException('Invalid training actual');
         return TrainingSetActual.fromJson(raw);

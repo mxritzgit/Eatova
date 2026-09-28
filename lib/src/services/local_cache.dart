@@ -552,13 +552,30 @@ class LocalCache {
   Future<TrainingSessionSnapshot?> readTrainingSession({
     bool requireReadable = false,
   }) async {
-    final value = await _readJson(_trainingSessionKey);
+    var value = await _readJson(_trainingSessionKey);
     if (requireReadable && value == null) {
       try {
         await _assertSlotEmpty(_trainingSessionKey, 'training_session');
       } on UnreadableCacheSlot catch (error) {
         if (error.transient) rethrow;
         // Invalid JSON cannot recover; it must not block a fresh workout.
+      }
+    }
+    final legacy = value?['snapshot'];
+    if (legacy is Map && TrainingSessionSnapshot.isLegacyJson(legacy)) {
+      // Decode a v1 checkpoint only once its start is pinned durably. A closed
+      // or non-atomic cache cannot pin it; that is unreadable for now.
+      try {
+        final pinned = await _pinLegacyTrainingSession();
+        value = LocalCacheMutations._decode(
+          pinned.snapshot.values[_trainingSessionKey],
+        );
+      } catch (error) {
+        if (!requireReadable) return null;
+        throw UnreadableCacheSlot(
+          'training_session',
+          error.runtimeType.toString(),
+        );
       }
     }
     // A source change may have reached the server before the app stopped.

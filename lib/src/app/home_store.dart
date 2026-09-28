@@ -868,7 +868,7 @@ class HomeStore extends _HomeStoreBase
       } catch (_) {
         syncReadFailed = true;
       }
-      durable = await persistedCache.readMutationSnapshot(allowPartial: true);
+      durable = await persistedCache.readHydrationSnapshot();
       cache = LocalCache(
         InMemoryKeyValueStore({
           for (final entry in durable.snapshot.values.entries)
