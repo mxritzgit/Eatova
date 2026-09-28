@@ -28,7 +28,7 @@ class _MeasuredSteps extends NoopHealthService {
 }
 
 Future<void> _loadFonts() async {
-  for (final family in ['Archivo', 'BricolageGrotesque']) {
+  for (final family in ['Figtree', 'BricolageGrotesque']) {
     final loader = FontLoader(family);
     for (final file in Directory('assets/fonts').listSync().whereType<File>()) {
       if (file.uri.pathSegments.last.startsWith('$family-')) {
@@ -89,8 +89,14 @@ void main() {
         const EdgeInsets.only(top: 24, bottom: 24),
       ),
     ]) {
+      // The 2026-09-13 promise "complete in the first viewport" was made for
+      // the old slim bottom bar. The floating tab bar of the dark redesign
+      // (2026-09-28) claims a taller band, and the design itself moves
+      // activity below the fold (design shot today-01), so the card now has
+      // to be complete one short scroll away, still above the add action.
       testWidgets(
-        'complete steps card fits before the add action: $name $locale',
+        'complete steps card is one short scroll away, above the add action: '
+        '$name $locale',
         (tester) async {
           await withClock(Clock.fixed(_today), () async {
             await _pumpToday(
@@ -103,25 +109,34 @@ void main() {
               of: find.byKey(const ValueKey('screen-today')),
               matching: find.byType(Scrollable),
             );
-            expect(
-              tester.state<ScrollableState>(scrollable).position.pixels,
-              0,
+            final position = tester
+                .state<ScrollableState>(scrollable)
+                .position;
+            expect(position.pixels, 0);
+            final card = find.byKey(const ValueKey('today-steps-card'));
+            await Scrollable.ensureVisible(
+              tester.element(card),
+              alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
             );
-            final steps = tester.getRect(
-              find.byKey(const ValueKey('today-steps-card')),
-            );
+            await tester.pumpAndSettle();
+            final steps = tester.getRect(card);
             final viewport = tester.getRect(
               find.byKey(const ValueKey('screen-today')),
             );
             final action = tester.getRect(
               find.byKey(const ValueKey('today-add-meal')),
             );
+            expect(
+              position.pixels,
+              lessThanOrEqualTo(viewport.height / 4),
+              reason: 'The card must stay close to the first view.',
+            );
             expect(steps.top, greaterThanOrEqualTo(viewport.top));
             expect(
               steps.bottom,
               lessThanOrEqualTo(viewport.bottom),
               reason:
-                  'The entire card, including bottom padding, must be visible before scrolling.',
+                  'The entire card, including bottom padding, must be visible.',
             );
             expect(steps.bottom, lessThan(action.top));
             expect(action.height, greaterThanOrEqualTo(48));

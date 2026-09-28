@@ -12,10 +12,10 @@ import 'support/harness.dart';
 
 void main() {
   setUpAll(() async {
-    for (final family in ['Archivo', 'BricolageGrotesque']) {
+    for (final family in ['Figtree', 'BricolageGrotesque']) {
       final fonts = FontLoader(family);
       for (final weight
-          in family == 'Archivo'
+          in family == 'Figtree'
               ? ['Regular', 'Medium', 'SemiBold', 'Bold']
               : ['Bold', 'ExtraBold']) {
         fonts.addFont(rootBundle.load('assets/fonts/$family-$weight.ttf'));

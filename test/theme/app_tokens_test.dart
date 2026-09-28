@@ -169,13 +169,165 @@ void main() {
     });
 
     test('die gebuendelten Schriften sind verdrahtet', () {
-      final theme = buildEatovaTheme(Brightness.light);
-      expect(theme.textTheme.bodyMedium?.fontFamily, AppType.uiFamily,
-          reason: 'Archivo traegt die UI-Schrift');
+      for (final brightness in Brightness.values) {
+        final theme = buildEatovaTheme(brightness);
+        expect(theme.textTheme.bodyMedium?.fontFamily, AppType.uiFamily,
+            reason: 'Figtree traegt die UI-Schrift');
+      }
       // No google_fonts: families must come from the bundle, otherwise the
       // app fetches from Google at runtime (privacy + offline).
-      expect(AppType.uiFamily, 'Archivo');
+      expect(AppType.uiFamily, 'Figtree');
       expect(AppType.displayFamily, 'BricolageGrotesque');
+    });
+  });
+
+  // The dark redesign (2026-09-28) takes its palette verbatim from the
+  // design templates; these pins catch an accidental drift.
+  group('Dunkle Design-Palette', () {
+    const t = AppTokens.dark;
+
+    test('Flaechen, Linien und Text tragen die Design-Werte', () {
+      expect(t.bg, const Color(0xFF09090C));
+      expect(t.surf, const Color(0xFF131318));
+      expect(t.surfRaised, const Color(0xFF1B1A22));
+      expect(t.surf2, const Color(0xFF1F1E27));
+      expect(t.surfWell, const Color(0xFF16151C));
+      // A translucent tint (the settings pill track relies on that), which
+      // lands on the design's track tone on a card.
+      expect(t.tile.a, lessThan(1));
+      expect(Color.alphaBlend(t.tile, t.surf).toARGB32(), 0xFF24232D);
+      expect(t.arcTrack, const Color(0xFF24212F));
+      // rgba(255, 255, 255, 0.06 / 0.08) and rgba(24, 23, 31, 0.84)
+      expect(t.line, const Color(0x0FFFFFFF));
+      expect(t.cardBorder, t.line);
+      expect(t.lineStrong, const Color(0x14FFFFFF));
+      expect(t.navGlass, const Color(0xD618171F));
+      expect(t.ink, const Color(0xFFF5F3FA));
+      expect(t.inkSoft, const Color(0xFFE6E3EE));
+      expect(t.inkMuted, const Color(0xFFD9D6E4));
+      expect(t.ink2, const Color(0xFFB1AEC0));
+      expect(t.ink3, const Color(0xFF8B8898));
+      expect(t.inkDisabled, const Color(0xFF5E5B6B));
+      expect(t.inkFaint, const Color(0xFF4A4756));
+    });
+
+    test('Akzent, Makros und Aktivitaet tragen die Design-Werte', () {
+      expect(t.accentFill, const Color(0xFFB9A5FF));
+      expect(t.lime, t.accentFill, reason: 'Legacy-Name = Akzent-Fuellung');
+      expect(t.onAccentFill, const Color(0xFF16112A));
+      expect(t.onAccentMuted, const Color(0xFF3A2F66));
+      expect(t.accentText, const Color(0xFFC8B8FF));
+      expect(t.accentTint, const Color(0x24B9A5FF));
+      expect(t.accentTintStrong, const Color(0x29B9A5FF));
+      expect(t.arcStart, const Color(0xFF7C5CFF));
+      expect(t.arcEnd, const Color(0xFFD9CCFF));
+      expect(t.chartViolet, const Color(0xFF3A3354));
+      expect(t.protein, const Color(0xFF1DB071));
+      expect(t.carbs, const Color(0xFF4697E2));
+      expect(t.fat, const Color(0xFFD57C11));
+      expect(t.proteinInk, const Color(0xFF6FDCA4));
+      expect(t.carbsInk, const Color(0xFF8CC4FF));
+      expect(t.fatInk, const Color(0xFFFFB866));
+      expect(t.activity, const Color(0xFFFF9A4D));
+      expect(t.activityInk, const Color(0xFFFFB27A));
+      expect(t.activityTint, const Color(0x24FF914D));
+      expect(t.success, const Color(0xFF6FDCA4));
+    });
+
+    test('die opaken Tints sind die Design-Tints ueber der Karte', () {
+      Color ueber(Color c, double a) =>
+          Color.alphaBlend(c.withValues(alpha: a), t.surf);
+      void nah(Color ist, Color soll, String name) {
+        for (final (a, b) in <(double, double)>[
+          (ist.r, soll.r),
+          (ist.g, soll.g),
+          (ist.b, soll.b),
+        ]) {
+          expect((a - b).abs(), lessThanOrEqualTo(1 / 255), reason: name);
+        }
+      }
+
+      nah(t.forest, ueber(t.accentFill, 0.16), 'forest');
+      nah(t.proteinSurface, ueber(t.protein, 0.16), 'proteinSurface');
+      nah(t.carbsSurface, ueber(t.carbs, 0.16), 'carbsSurface');
+      nah(t.fatSurface, ueber(t.fat, 0.18), 'fatSurface');
+    });
+
+    // #8B8898 carries 84 captions in the templates, so it has to be body-text
+    // safe wherever it sits — except on the track/field fills, where hints
+    // stay ink2 (documented on the token).
+    test('Tertiaertext ink3 erreicht AA auf allen Kartenflaechen', () {
+      for (final entry in <String, Color>{
+        'bg': t.bg,
+        'surf': t.surf,
+        'surf2': t.surf2,
+        'surfRaised': t.surfRaised,
+        'surfWell': t.surfWell,
+      }.entries) {
+        expect(_contrast(t.ink3, entry.value), greaterThanOrEqualTo(4.5),
+            reason: 'ink3 auf ${entry.key}');
+      }
+    });
+
+    test('Akzent- und Makro-Toene sind als Text auf der Karte lesbar', () {
+      for (final entry in <String, Color>{
+        'accentText': t.accentText,
+        'proteinInk': t.proteinInk,
+        'carbsInk': t.carbsInk,
+        'fatInk': t.fatInk,
+        'activityInk': t.activityInk,
+        'success': t.success,
+        'inkMuted': t.inkMuted,
+        'inkSoft': t.inkSoft,
+      }.entries) {
+        expect(_contrast(entry.value, t.surf), greaterThanOrEqualTo(4.5),
+            reason: '${entry.key} auf surf');
+      }
+      expect(
+        _contrast(t.accentText, Color.alphaBlend(t.accentTint, t.surf)),
+        greaterThanOrEqualTo(4.5),
+        reason: 'Akzent-Text auf seiner Tint-Pille',
+      );
+      expect(
+        _contrast(t.onAccentFill, t.accentFill),
+        greaterThanOrEqualTo(4.5),
+      );
+      expect(
+        _contrast(t.onAccentMuted, t.accentFill),
+        greaterThanOrEqualTo(4.5),
+      );
+    });
+
+    test('die inaktiven Nav-Items bleiben auf dem Glas lesbar', () {
+      // Worst case: the glass over the plain page, nothing brighter behind.
+      final glas = Color.alphaBlend(t.navGlass, t.bg);
+      expect(_contrast(t.ink3, glas), greaterThanOrEqualTo(4.5));
+      final kapsel = Color.alphaBlend(t.accentTintStrong, glas);
+      expect(_contrast(t.accentText, kapsel), greaterThanOrEqualTo(4.5));
+    });
+
+    test('neue Tokens laufen durch copyWith und lerp', () {
+      const rot = Color(0xFFFF0000);
+      final kopie = t.copyWith(ink3: rot, navGlass: rot);
+      expect(kopie.ink3, rot);
+      expect(kopie.navGlass, rot);
+      expect(kopie.accentText, t.accentText);
+      expect(AppTokens.light.lerp(t, 1).ink3, t.ink3);
+      expect(AppTokens.light.lerp(t, 0).ink3, AppTokens.light.ink3);
+    });
+  });
+
+  group('Form-Skala', () {
+    test('folgt dem Design', () {
+      expect(rHero, 28, reason: 'Kalorien-Karte');
+      expect(rCard, 24, reason: 'Listen-Karten');
+      expect(rTile, 20, reason: 'Makro-Kacheln');
+      expect(rThumb, 18);
+      expect(rControl, 14, reason: 'Controls und Icon-Kacheln');
+      expect(rNav, 26);
+      // The design's primary buttons are pills: 54 px tall, radius 27.
+      expect(rButton, kPrimaryButtonHeight / 2);
+      expect(rPill, greaterThanOrEqualTo(999));
     });
   });
 }

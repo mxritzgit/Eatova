@@ -148,13 +148,17 @@ Future<void> _scroll(
 
 /// Reads the tokens actually attached at [schluessel] in the tree. The core of
 /// the audit: without it, pumping the dark palette twice would pass green.
+///
+/// While `kDarkOnly` holds the app renders the dark palette for BOTH device
+/// settings, so a light device must read the dark tokens too.
 void _erwartePalette(
   WidgetTester tester,
   String schluessel,
   Brightness brightness,
 ) {
-  final erwartet =
-      brightness == Brightness.light ? AppTokens.light : AppTokens.dark;
+  final erwartet = kDarkOnly || brightness == Brightness.dark
+      ? AppTokens.dark
+      : AppTokens.light;
   final gelesen = AppTokens.of(
     tester.element(find.byKey(ValueKey<String>(schluessel))),
   );
@@ -441,9 +445,11 @@ void main() {
     });
   }
 
-  testWidgets('der Anzeige-Modus folgt wirklich dem Geraet', (tester) async {
-    // Counter-check: if both runs were the same palette, the whole audit
-    // would be worthless.
+  testWidgets('der Anzeige-Modus folgt dem Geraet, ausser unter kDarkOnly',
+      (tester) async {
+    // Counter-check: if both runs were the same palette by accident, the
+    // whole audit would be worthless — under kDarkOnly they are the same ON
+    // PURPOSE, and a light device must still get the dark palette.
     _pin(tester, Brightness.light);
     await _boot(tester);
     final hell = AppTokens.of(
@@ -456,10 +462,16 @@ void main() {
       tester.element(find.byKey(const ValueKey('screen-today'))),
     );
 
-    expect(hell.bg, AppTokens.light.bg);
     expect(dunkel.bg, AppTokens.dark.bg);
-    expect(hell.bg.computeLuminance(), greaterThan(dunkel.bg.computeLuminance()),
-        reason: 'der helle Grund muss heller sein als der dunkle');
+    if (kDarkOnly) {
+      expect(hell.bg, AppTokens.dark.bg,
+          reason: 'dark-only: ein helles Geraet bekommt die dunkle Palette');
+    } else {
+      expect(hell.bg, AppTokens.light.bg);
+      expect(
+          hell.bg.computeLuminance(), greaterThan(dunkel.bg.computeLuminance()),
+          reason: 'der helle Grund muss heller sein als der dunkle');
+    }
   });
 
   // =========================================================================

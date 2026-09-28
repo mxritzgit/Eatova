@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -28,6 +29,12 @@ import '../theme/theme_mode_controller.dart';
 import 'auth_gate.dart';
 import 'eatova_home_page.dart';
 import 'locale_controller.dart';
+
+/// Dark-only rollout ("erstmal dunkel", user decision 2026-09-28): the app
+/// always renders the dark theme. [ThemeModeController] still loads and
+/// persists the stored choice; set this to false to bring back the
+/// light/dark/system switch and its settings row.
+const bool kDarkOnly = true;
 
 class EatovaApp extends StatefulWidget {
   const EatovaApp({
@@ -147,15 +154,17 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final repository = widget.authRepository ?? defaultAuthRepository();
 
+    final app = ListenableBuilder(
+      listenable: Listenable.merge([_themeMode, _locale]),
+      builder: (context, _) => _buildApp(context, repository),
+    );
     return LocaleScope(
       controller: _locale,
-      child: ThemeModeScope(
-        controller: _themeMode,
-        child: ListenableBuilder(
-          listenable: Listenable.merge([_themeMode, _locale]),
-          builder: (context, _) => _buildApp(context, repository),
-        ),
-      ),
+      // Without a ThemeModeScope the settings page drops its appearance row;
+      // under [kDarkOnly] that switch would change nothing.
+      child: kDarkOnly
+          ? app
+          : ThemeModeScope(controller: _themeMode, child: app),
     );
   }
 
@@ -165,7 +174,7 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
       title: 'Eatova',
       theme: buildEatovaTheme(Brightness.light),
       darkTheme: buildEatovaTheme(Brightness.dark),
-      themeMode: _themeMode.mode,
+      themeMode: kDarkOnly ? ThemeMode.dark : _themeMode.mode,
       // Override from settings; null = system, then resolveEatovaLocale
       // decides (German -> de, otherwise en).
       locale: _locale.override,
@@ -188,10 +197,15 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
           data: mq.copyWith(
             textScaler: mq.textScaler.clamp(maxScaleFactor: 2.0),
           ),
-          // Cover the Navigator, including pushed routes and auth transitions.
-          // Login credentials need the same protection as the private tabs.
-          child: SecureScreenGuard(
-            child: AppInteractions(child: child ?? const SizedBox.shrink()),
+          // Status and navigation bar icons readable on the page ground.
+          child: AnnotatedRegion<SystemUiOverlayStyle>(
+            value: eatovaSystemUiOverlayStyle(Theme.of(context)),
+            // Cover the Navigator, including pushed routes and auth
+            // transitions. Login credentials need the same protection as the
+            // private tabs.
+            child: SecureScreenGuard(
+              child: AppInteractions(child: child ?? const SizedBox.shrink()),
+            ),
           ),
         );
       },

@@ -52,7 +52,7 @@ class _KeyboardCoach extends CoachChatService {
 }
 
 Future<void> _loadFonts() async {
-  for (final family in ['Archivo', 'BricolageGrotesque']) {
+  for (final family in ['Figtree', 'BricolageGrotesque']) {
     final loader = FontLoader(family);
     for (final file in Directory('assets/fonts').listSync().whereType<File>()) {
       if (file.uri.pathSegments.last.startsWith('$family-')) {

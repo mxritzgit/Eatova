@@ -19,7 +19,7 @@ const _subtitle = ValueKey('today-steps-subtitle');
 const _value = ValueKey('today-steps-value');
 
 Future<void> _loadFonts() async {
-  for (final family in ['Archivo', 'BricolageGrotesque']) {
+  for (final family in ['Figtree', 'BricolageGrotesque']) {
     final loader = FontLoader(family);
     for (final file in Directory('assets/fonts').listSync().whereType<File>()) {
       if (file.uri.pathSegments.last.startsWith('$family-')) {

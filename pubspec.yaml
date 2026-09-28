@@ -155,25 +155,28 @@ flutter:
     - assets/recipes/
     - assets/training/
 
-  # Two bundled families: Bricolage Grotesque for numbers/headings, Archivo for
+  # Two bundled families: Bricolage Grotesque for numbers/headings, Figtree for
   # everything else. Bundled on purpose instead of via google_fonts:
   #   * no runtime request to fonts.gstatic.com (the privacy policy names no
   #     Google font fetch, and it must stay true),
   #   * no fallback-font flash on cold start,
   #   * identical offline — the app has an offline cache.
   # Static cuts (no variable fonts) so fontWeight works without fontVariations.
-  # Source: Google Fonts, SIL OFL 1.1.
+  # Source: Google Fonts (Figtree static cuts from its upstream,
+  # github.com/erikdkennedy/figtree), SIL OFL 1.1.
   fonts:
-    - family: Archivo
+    - family: Figtree
       fonts:
-        - asset: assets/fonts/Archivo-Regular.ttf
+        - asset: assets/fonts/Figtree-Regular.ttf
           weight: 400
-        - asset: assets/fonts/Archivo-Medium.ttf
+        - asset: assets/fonts/Figtree-Medium.ttf
           weight: 500
-        - asset: assets/fonts/Archivo-SemiBold.ttf
+        - asset: assets/fonts/Figtree-SemiBold.ttf
           weight: 600
-        - asset: assets/fonts/Archivo-Bold.ttf
+        - asset: assets/fonts/Figtree-Bold.ttf
           weight: 700
+        - asset: assets/fonts/Figtree-ExtraBold.ttf
+          weight: 800
     - family: BricolageGrotesque
       fonts:
         - asset: assets/fonts/BricolageGrotesque-Bold.ttf

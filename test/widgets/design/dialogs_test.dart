@@ -20,10 +20,10 @@ final _captureKey = GlobalKey();
 
 Future<void> _loadFonts() async {
   for (final family in {
-    'Archivo': [
-      'Archivo-Regular.ttf',
-      'Archivo-SemiBold.ttf',
-      'Archivo-Bold.ttf',
+    'Figtree': [
+      'Figtree-Regular.ttf',
+      'Figtree-SemiBold.ttf',
+      'Figtree-Bold.ttf',
     ],
     'BricolageGrotesque': ['BricolageGrotesque-Bold.ttf'],
     'MaterialIcons': ['MaterialIcons-Regular.otf'],

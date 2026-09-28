@@ -559,6 +559,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               // AddMealSheet does its own keyboard inset; a resizing scaffold
               // would shift the background behind the translucent barrier.
               resizeToAvoidBottomInset: tab != _tabFood,
+              // The nav bar floats: the body runs under it and receives the
+              // bar's whole band (fade, bar, gap, safe area) as bottom
+              // padding, which the SafeArea below turns into the tab inset.
+              extendBody: true,
               bottomNavigationBar: Builder(
                 builder: (context) {
                   final navigation = AppNavBar(

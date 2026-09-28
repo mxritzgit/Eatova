@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 
 import '../../theme/app_tokens.dart';
@@ -7,7 +9,7 @@ import 'readable_width.dart';
 
 // ---------------------------------------------------------------------------
 // CONTROLS — icon button, icon tile, toggle, segmented pill, filter chip,
-// primary action, nav bar.
+// primary action, floating nav bar.
 //
 // Material carries behavior and semantics, the tokens carry the pixels.
 //
@@ -541,7 +543,16 @@ class AppNavItem {
   final String keyId;
 }
 
-/// The bottom nav bar — lime capsule around the active icon.
+/// The floating glass tab bar (dark redesign, 2026-09-28).
+///
+/// Floats [sideGap] from the sides and [bottomGap] above the bottom safe
+/// area; the design's fade (page color to transparent) sits behind it so
+/// content passing under the bar dissolves instead of cutting off.
+///
+/// Its layout height is the whole band it claims: fade, bar, gap and safe
+/// area. In a `Scaffold(extendBody: true)` the body therefore receives exactly
+/// that band as bottom padding, and a tab body inside a `SafeArea` never ends
+/// under the bar.
 class AppNavBar extends StatelessWidget {
   const AppNavBar({
     super.key,
@@ -550,6 +561,28 @@ class AppNavBar extends StatelessWidget {
     required this.items,
   });
 
+  /// Height of the glass bar itself (it grows with very large text).
+  static const double barHeight = 68;
+
+  /// Minimum height of one item, well above the 44 px touch floor.
+  static const double itemHeight = 58;
+
+  /// Distance of the bar from the screen sides.
+  static const double sideGap = 14;
+
+  /// Distance of the bar above the bottom safe area.
+  static const double bottomGap = 22;
+
+  /// How far the fade reaches above the bar.
+  static const double fadeOverhang = 22;
+
+  /// Backdrop blur behind the glass (CSS `blur(24px)`).
+  static const double blurSigma = 24;
+
+  /// Share of the design's 112 px fade band that stays fully opaque (40 %).
+  static const double _fadeSolid =
+      (fadeOverhang + barHeight + bottomGap) * 0.4;
+
   final int index;
   final ValueChanged<int> onChanged;
   final List<AppNavItem> items;
@@ -557,83 +590,168 @@ class AppNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final bottomInset = MediaQuery.of(context).padding.bottom;
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
     // Reduce-motion aware, like the predecessor bar.
     final motion = motionDuration(context, const Duration(milliseconds: 180));
+    const radius = BorderRadius.all(Radius.circular(rNav));
 
-    return Container(
+    final bar = DecoratedBox(
       decoration: BoxDecoration(
-        color: t.surf.withValues(alpha: 0.94),
-        border: Border(top: BorderSide(color: t.line)),
+        borderRadius: radius,
+        boxShadow: floatingShadow(t),
       ),
-      // Flatter than the draft (~76 px): the bar sits on EVERY screen and takes
-      // that height from the content. The hit area stays above 44 px — the
-      // floor this shortening must not cross.
-      padding: EdgeInsets.fromLTRB(10, 6, 10, 6 + bottomInset),
-      // Keeps the items under the content column on large windows.
-      child: ReadableWidth(
-        child: Row(
-          children: List<Widget>.generate(items.length, (i) {
-            final item = items[i];
-            final active = i == index;
-            return Expanded(
-              child: Semantics(
-                selected: active,
-                button: true,
-                label: item.label,
-                child: InkWell(
-                  key: ValueKey<String>('nav-${item.keyId}'),
-                  onTap: () => onChanged(i),
-                  borderRadius: BorderRadius.circular(rControl),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        AnimatedContainer(
-                          duration: motion,
-                          curve: Curves.easeOut,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 1,
-                          ),
-                          decoration: BoxDecoration(
-                            color: active ? t.brandSurface : Colors.transparent,
-                            borderRadius: BorderRadius.circular(rChip),
-                          ),
-                          child: AppIcon(
-                            item.icon,
-                            selected: active,
-                            size: 23,
-                            color: active ? t.onBrandSurface : t.ink2,
-                          ),
+      child: ClipRRect(
+        borderRadius: radius,
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
+          child: DecoratedBox(
+            key: const ValueKey<String>('nav-glass'),
+            decoration: BoxDecoration(
+              color: t.navGlass,
+              borderRadius: radius,
+              border: Border.all(color: t.lineStrong),
+            ),
+            // Own ink layer: the ripple would otherwise land on the Material
+            // underneath the glass and be blurred away.
+            child: Material(
+              type: MaterialType.transparency,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: barHeight),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: Row(
+                    children: List<Widget>.generate(items.length, (i) {
+                      return Expanded(
+                        child: _NavItem(
+                          item: items[i],
+                          active: i == index,
+                          motion: motion,
+                          onTap: () => onChanged(i),
                         ),
-                        const SizedBox(height: 3),
-                        // The label is already the item's Semantics label;
-                        // without ExcludeSemantics it would be read twice.
-                        // Hard single line: at textScaler 2.0 it would not fit
-                        // into a third of the bar.
-                        ExcludeSemantics(
-                          child: Text(
-                            item.label,
-                            maxLines: 1,
-                            softWrap: false,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: AppType.ui(
-                              10,
-                              weight: active ? FontWeight.w700 : FontWeight.w500,
-                              color: active ? t.ink : t.ink2,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                      );
+                    }),
                   ),
                 ),
               ),
-            );
-          }),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    return Stack(
+      children: <Widget>[
+        // Decorative and never a hit target: taps in the fade and in the
+        // gaps around the bar reach whatever lies underneath.
+        Positioned.fill(
+          child: IgnorePointer(
+            child: Column(
+              key: const ValueKey<String>('nav-fade'),
+              children: <Widget>[
+                Expanded(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: <Color>[t.bg.withValues(alpha: 0), t.bg],
+                      ),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  height: _fadeSolid + bottomInset,
+                  width: double.infinity,
+                  child: ColoredBox(color: t.bg),
+                ),
+              ],
+            ),
+          ),
+        ),
+        Padding(
+          padding: EdgeInsets.fromLTRB(
+            sideGap,
+            fadeOverhang,
+            sideGap,
+            bottomGap + bottomInset,
+          ),
+          // Keeps the bar under the content column on large windows.
+          child: ReadableWidth(child: bar),
+        ),
+      ],
+    );
+  }
+}
+
+/// One tab of the [AppNavBar]: icon in a 48x28 capsule over an 11 px label.
+class _NavItem extends StatelessWidget {
+  const _NavItem({
+    required this.item,
+    required this.active,
+    required this.motion,
+    required this.onTap,
+  });
+
+  final AppNavItem item;
+  final bool active;
+  final Duration motion;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final ink = active ? t.accentText : t.ink3;
+    return Semantics(
+      selected: active,
+      button: true,
+      label: item.label,
+      child: InkWell(
+        key: ValueKey<String>('nav-${item.keyId}'),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(rCard),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: AppNavBar.itemHeight),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              AnimatedContainer(
+                duration: motion,
+                curve: Curves.easeOut,
+                width: 48,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: active ? t.accentTintStrong : Colors.transparent,
+                  borderRadius: BorderRadius.circular(rControl),
+                ),
+                child: AppIcon(
+                  item.icon,
+                  selected: active,
+                  size: 22,
+                  color: ink,
+                ),
+              ),
+              const SizedBox(height: 3),
+              // The label is already the item's Semantics label; without
+              // ExcludeSemantics it would be read twice. Hard single line: at
+              // textScaler 2.0 it would not fit into a fifth of the bar.
+              ExcludeSemantics(
+                child: Text(
+                  item.label,
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: AppType.ui(
+                    11,
+                    weight: active ? FontWeight.w800 : FontWeight.w600,
+                    color: ink,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

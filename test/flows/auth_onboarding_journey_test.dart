@@ -66,11 +66,11 @@ Future<void> _tap(WidgetTester tester, String key) async {
 void main() {
   setUpAll(() async {
     for (final family in {
-      'Archivo': [
-        'Archivo-Regular.ttf',
-        'Archivo-Medium.ttf',
-        'Archivo-SemiBold.ttf',
-        'Archivo-Bold.ttf',
+      'Figtree': [
+        'Figtree-Regular.ttf',
+        'Figtree-Medium.ttf',
+        'Figtree-SemiBold.ttf',
+        'Figtree-Bold.ttf',
       ],
       'BricolageGrotesque': [
         'BricolageGrotesque-Bold.ttf',

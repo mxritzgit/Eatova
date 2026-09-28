@@ -69,14 +69,14 @@ void main() {
   // The geometry claims are only worth something with the real app fonts: the
   // headless test font is about twice as wide (see diary_meal_card_macros).
   setUpAll(() async {
-    final archivo = FontLoader('Archivo');
+    final figtree = FontLoader('Figtree');
     for (final datei in const <String>[
-      'assets/fonts/Archivo-Regular.ttf',
-      'assets/fonts/Archivo-Medium.ttf',
-      'assets/fonts/Archivo-SemiBold.ttf',
-      'assets/fonts/Archivo-Bold.ttf',
+      'assets/fonts/Figtree-Regular.ttf',
+      'assets/fonts/Figtree-Medium.ttf',
+      'assets/fonts/Figtree-SemiBold.ttf',
+      'assets/fonts/Figtree-Bold.ttf',
     ]) {
-      archivo.addFont(
+      figtree.addFont(
         File(datei).readAsBytes().then((b) => ByteData.sublistView(b)),
       );
     }
@@ -89,7 +89,7 @@ void main() {
         File(datei).readAsBytes().then((b) => ByteData.sublistView(b)),
       );
     }
-    await Future.wait(<Future<void>>[archivo.load(), bricolage.load()]);
+    await Future.wait(<Future<void>>[figtree.load(), bricolage.load()]);
   });
 
   group('Mahlzeitenbereich', () {

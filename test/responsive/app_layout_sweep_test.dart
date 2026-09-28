@@ -107,7 +107,10 @@ Finder _keyPrefix(String prefix) => find.byWidgetPredicate(
 );
 
 final List<_Step> _journey = <_Step>[
-  _step('Heute', 'Heute', const [], _key('today-kcal-hero')),
+  // The page itself, like Rezepte/Coach: on 320x568 at 2.0x the floating
+  // tab bar leaves the hero just below the first view, and the scroll-through
+  // still lays it out.
+  _step('Heute', 'Heute', const [], _key('screen-today')),
   _step('Food', 'Food', const [], _key('food-entry-dock')),
   _step('Rezepte', 'Rezepte', const [], _key('screen-recipes')),
   _step('Training', 'Training', const [], _key('training-open-plans')),

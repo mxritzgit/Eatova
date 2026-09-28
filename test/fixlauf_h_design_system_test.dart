@@ -493,8 +493,10 @@ void main() {
     });
 
     test('rButton ist die eine Radius-Quelle fuer Primaer-Flaechen', () {
-      expect(rButton, 18);
+      // Dark redesign 2026-09-28: primary buttons are pills (54 px, r 27).
+      expect(rButton, 27);
       expect(kPrimaryButtonHeight, 54);
+      expect(rButton, kPrimaryButtonHeight / 2);
     });
 
     renderMatrix(

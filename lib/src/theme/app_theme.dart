@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../widgets/common/guarded_page_transitions.dart';
 
@@ -16,7 +17,7 @@ const InputBorder _noLine = OutlineInputBorder(
 /// screen reader, scroll physics, dialogs); the pixels come from the tokens.
 /// Hence a real [ColorScheme]: SDK widgets we do not draw ourselves
 /// (DatePicker, Snackbar, cursor) must look right without local special cases.
-/// Two fonts: Bricolage Grotesque for numbers/headings, Archivo for the rest.
+/// Two fonts: Bricolage Grotesque for numbers/headings, Figtree for the rest.
 ThemeData buildEatovaTheme(Brightness brightness) {
   final t = brightness == Brightness.light ? AppTokens.light : AppTokens.dark;
 
@@ -366,5 +367,20 @@ ThemeData buildEatovaTheme(Brightness brightness) {
         borderRadius: BorderRadius.circular(rSheet),
       ),
     ),
+  );
+}
+
+/// Native status and navigation bar styling for [theme]: a transparent
+/// status bar with icons readable on the page ground, and a navigation bar
+/// in the page color.
+SystemUiOverlayStyle eatovaSystemUiOverlayStyle(ThemeData theme) {
+  final t = theme.extension<AppTokens>()!;
+  final base = theme.brightness == Brightness.dark
+      ? SystemUiOverlayStyle.light
+      : SystemUiOverlayStyle.dark;
+  return base.copyWith(
+    statusBarColor: Colors.transparent,
+    systemNavigationBarColor: t.bg,
+    systemNavigationBarDividerColor: Colors.transparent,
   );
 }
