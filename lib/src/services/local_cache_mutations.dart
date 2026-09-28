@@ -658,6 +658,38 @@ extension LocalCacheMutations on LocalCache {
     );
   }
 
+  /// Hydration snapshot in which a v1 checkpoint is already pinned durably, so
+  /// the store never holds a legacy decode that storage does not contain. If
+  /// pinning fails, the v1 slot remains and reads as transiently unreadable.
+  Future<LocalMutationReceipt> readHydrationSnapshot() async {
+    final durable = await readMutationSnapshot(allowPartial: true);
+    final raw = durable.snapshot.values[_trainingSessionKey];
+    if (raw == null || !_holdsLegacyCheckpoint(raw)) return durable;
+    try {
+      await _pinLegacyTrainingSession();
+    } catch (_) {
+      return durable;
+    }
+    return readMutationSnapshot(allowPartial: true);
+  }
+
+  static bool _holdsLegacyCheckpoint(String raw) {
+    try {
+      return switch (jsonDecode(raw)) {
+        {'snapshot': final Map<dynamic, dynamic> snapshot} =>
+          TrainingSessionSnapshot.isLegacyJson(snapshot),
+        _ => false,
+      };
+    } on FormatException {
+      return false;
+    }
+  }
+
+  /// Persists the v2 form of a v1 checkpoint via [_decodeMutationSlot].
+  /// Idempotent: an already upgraded slot re-encodes unchanged.
+  Future<LocalMutationReceipt> _pinLegacyTrainingSession() =>
+      _atomicMutation((state, queue) {}, keys: {_trainingSessionKey});
+
   /// A checkpoint is valid only for the exact source/session snapshot read
   /// here. A concurrent retirement, even followed by re-adoption, invalidates
   /// this save instead of rebasing the old route onto the replacement source.
@@ -980,7 +1012,14 @@ extension LocalCacheMutations on LocalCache {
       if (key == _trainingSessionKey && decoded?['snapshot'] != null) {
         final snapshot = decoded!['snapshot'];
         if (snapshot is! Map) throw const FormatException('Invalid checkpoint');
-        TrainingSessionSnapshot.fromJson(snapshot);
+        // Pin a v1 checkpoint's start at its first observation. The first
+        // successful commit that reads this slot persists the v2 form.
+        final upgraded = TrainingSessionSnapshot.upgradeLegacyJson(snapshot);
+        if (upgraded != null) {
+          decoded['snapshot'] = upgraded;
+        } else {
+          TrainingSessionSnapshot.fromJson(snapshot);
+        }
       }
       return decoded;
     } on FormatException {
