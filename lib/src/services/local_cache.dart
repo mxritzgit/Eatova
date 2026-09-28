@@ -648,27 +648,96 @@ class LocalCache {
   Future<void> writeWeightLog(WeightLog log) =>
       _writeJson(_weightLogKey, _weightLogToJson(log));
 
+  // A weigh-in is an instant. Rows store it in UTC (`...Z`), which every
+  // DateTime.parse, including older builds' readers, resolves to the same
+  // instant. Reads convert to local time: the user-facing day is the local
+  // day of the instant, as for server rows. Older builds stored the local
+  // wall clock without offset; such a legacy row reads in the current zone,
+  // the only reading without its lost offset, unless it shows a queued
+  // weigh-in ([_queuedWeighInOf]), whose operation keeps the exact instant.
   static Map<String, dynamic> _weightLogToJson(WeightLog log) =>
       <String, dynamic>{
         'items': log.entries
             .map((e) => <String, dynamic>{
-                  't': e.timestamp.toIso8601String(),
+                  't': _weighInTime(e.timestamp),
                   'kg': e.weightKg,
                 })
             .toList(),
       };
 
+  static String _weighInTime(DateTime instant) =>
+      instant.toUtc().toIso8601String();
+
+  /// The queued weigh-in that cached [row] shows, or null.
+  ///
+  /// Projection rows carry the operation id. Store snapshots drop it, so an
+  /// id-less row at the operation's instant is that weigh-in. With the same
+  /// weight it is that weigh-in as well when one side is a legacy wall clock
+  /// (row or an operation queued before 2026-09-20) that equals the other
+  /// side's instant at a real UTC offset (-12:00 to +14:00, quarter hours);
+  /// with microsecond timestamps an unrelated match is practically
+  /// impossible.
+  static SyncOp? _queuedWeighInOf(
+    Map<String, dynamic> row,
+    Iterable<SyncOp> queue,
+  ) {
+    final raw = row['t'] as String;
+    final cached = DateTime.parse(raw);
+    for (final op in queue) {
+      final at = op.recordedAt;
+      if (op.kind != SyncOpKind.weightInsert || at == null) continue;
+      if (row['id'] == op.entityId) return op;
+      if (row['id'] != null) continue;
+      if (cached.isAtSameMomentAs(at)) return op;
+      if ((row['kg'] as num).toDouble() != op.weightKg) continue;
+      final queuedRaw = op.payload['recorded_at'] as String;
+      if (!cached.isUtc && _isWallClockOf(raw, at) ||
+          !DateTime.parse(queuedRaw).isUtc &&
+              _isWallClockOf(queuedRaw, cached)) {
+        return op;
+      }
+    }
+    return null;
+  }
+
+  static bool _isWallClockOf(String legacy, DateTime instant) {
+    final wall = DateTime.tryParse('${legacy}Z');
+    if (wall == null) return false;
+    final offset = wall.difference(instant.toUtc());
+    return offset >= const Duration(hours: -12) &&
+        offset <= const Duration(hours: 14) &&
+        offset.inMicroseconds % const Duration(minutes: 15).inMicroseconds == 0;
+  }
+
   Future<WeightLog?> readWeightLog() async {
     final items = await _readItems(_weightLogKey);
     if (items == null) return null;
     try {
-      final entries = items
-          .map((j) => WeightLogEntry(
-                timestamp: DateTime.parse(j['t'] as String),
-                weightKg: (j['kg'] as num).toDouble(),
-              ))
-          .toList();
-      return WeightLog(entries: entries);
+      final queued = [
+        ...?await readOutbox(),
+      ].where((op) => op.kind == SyncOpKind.weightInsert).toList();
+      final shown = <String>{};
+      final entries = <WeightLogEntry>[];
+      for (final j in items) {
+        final kg = (j['kg'] as num).toDouble();
+        final op = _queuedWeighInOf(
+          j,
+          queued.where((op) => !shown.contains(op.entityId)),
+        );
+        if (op != null) {
+          shown.add(op.entityId);
+          entries.add(WeightLogEntry(timestamp: op.recordedAt!, weightKg: kg));
+        } else if (_queuedWeighInOf(j, queued) == null) {
+          entries.add(
+            WeightLogEntry(
+              timestamp: DateTime.parse(j['t'] as String).toLocal(),
+              weightKg: kg,
+            ),
+          );
+        }
+        // Otherwise another row of an already shown queued weigh-in.
+      }
+      return WeightLog.capped(entries);
     } catch (e) {
       dev.log('LocalCache.readWeightLog parse failed', error: e,
           name: 'local_cache');
