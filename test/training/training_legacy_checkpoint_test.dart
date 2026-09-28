@@ -19,6 +19,7 @@ import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
 import '../outbox/outbox_test_helpers.dart' as h;
+import '../support/atomic_store_faults.dart';
 import 'legacy_checkpoint_fixture.dart';
 
 const _user = 'user-legacy';
@@ -37,7 +38,8 @@ class _Wall {
 }
 
 class _Env {
-  _Env(this.storage) : cache = LocalCache(storage, _user) {
+  _Env(this.storage, {KeyValueStore? backing})
+    : cache = LocalCache(backing ?? storage, _user) {
     client = SupabaseClient(
       'https://ci.invalid',
       'ci-dummy-key',
@@ -94,8 +96,11 @@ Map<String, dynamic>? _persisted(InMemoryKeyValueStore storage) =>
 Future<int> _version(InMemoryKeyValueStore storage) async =>
     (await storage.readSnapshot([_sessionKey])).versions[_sessionKey]!;
 
-Future<_Env> _bootLegacy(InMemoryKeyValueStore storage) async {
-  final env = _Env(storage);
+Future<_Env> _bootLegacy(
+  InMemoryKeyValueStore storage, {
+  KeyValueStore? backing,
+}) async {
+  final env = _Env(storage, backing: backing);
   addTearDown(env.dispose);
   await env.boot();
   return env;
@@ -249,6 +254,76 @@ void main() {
         ]);
         expect(persisted['exercise_index'], 1);
         expect(env.store.trainingSession!.toJson(), persisted);
+      });
+    },
+  );
+
+  test('a direct read pins a #70 checkpoint once before decoding it', () {
+    final wall = _Wall();
+    return withClock(Clock(() => wall.now), () async {
+      final storage = _legacyStorage();
+      final cache = LocalCache(storage, _user);
+      addTearDown(cache.close);
+
+      final first = await cache.readTrainingSession();
+      final pinned = storage.snapshot[_sessionKey];
+      final version = await _version(storage);
+      wall.advance(const Duration(hours: 5));
+      final second = await cache.readTrainingSession(requireReadable: true);
+
+      expect(first!.startedAt, _bootAt);
+      expect(first.completedSets, [_firstSquat]);
+      expect(second!.toJson(), first.toJson());
+      expect(_persisted(storage), first.toJson());
+      expect(storage.snapshot[_sessionKey], pinned);
+      expect(await _version(storage), version);
+    });
+  });
+
+  test(
+    'a cache that cannot pin a #70 checkpoint never reports it empty',
+    () async {
+      final storage = _legacyStorage();
+      final closed = LocalCache(storage, _user)..close();
+
+      expect(await closed.readTrainingSession(), isNull);
+      await expectLater(
+        closed.readTrainingSession(requireReadable: true),
+        throwsA(
+          isA<UnreadableCacheSlot>()
+              .having((error) => error.transient, 'transient', isTrue)
+              .having((error) => error.slot, 'slot', 'training_session'),
+        ),
+      );
+      expect(storage.snapshot[_sessionKey], legacyCheckpointSlot);
+    },
+  );
+
+  test(
+    'a failed hydration pin keeps the #70 recovery until a repair pins it',
+    () async {
+      final wall = _Wall();
+      await withClock(Clock(() => wall.now), () async {
+        final storage = _legacyStorage();
+        final faults = AtomicStoreFaults(storage);
+        var pinFailures = 1;
+        faults.beforeWrite = (changes) async {
+          if (changes.containsKey(_sessionKey) && pinFailures > 0) {
+            pinFailures--;
+            throw StateError('fixture pin failure');
+          }
+        };
+        final env = await _bootLegacy(storage, backing: faults);
+        expect(pinFailures, 0, reason: 'Hydration attempted the pin');
+        wall.advance(const Duration(minutes: 2));
+
+        final recovery = await env.store.prepareTrainingSessionRecovery();
+
+        expect(recovery, isNotNull);
+        expect(recovery!.completedSets, [_firstSquat]);
+        expect(_persisted(storage), recovery.toJson());
+        await env.store.saveTrainingSession(null);
+        expect(_persisted(storage), isNull);
       });
     },
   );
