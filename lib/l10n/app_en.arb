@@ -572,6 +572,18 @@
       "max": { "type": "int" }
     }
   },
+  "numberInputAmbiguous": "Did you mean {decimal} or {grouped}? Please type it without a thousands separator.",
+  "@numberInputAmbiguous": {
+    "description": "Field error for a typed number such as 1.000 or 2,500 that is either a decimal or a thousands group; both readings are shown, already formatted.",
+    "placeholders": {
+      "decimal": { "type": "String" },
+      "grouped": { "type": "String" }
+    }
+  },
+  "numberInputWholeNumber": "Please enter a whole number, without decimals.",
+  "@numberInputWholeNumber": {
+    "description": "Field error when a field that only stores whole numbers receives a decimal such as 3,5."
+  },
   "recipesNameTooLongError": "Name is too long — please shorten it.",
   "@recipesNameTooLongError": {
     "description": "Field error under the recipe name when it exceeds the server limit of 300 code points (Flutter's maxLength counts graphemes, so ZWJ emoji can overshoot)."
