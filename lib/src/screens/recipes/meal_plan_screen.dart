@@ -6,6 +6,7 @@ import '../../app/home_store.dart';
 import '../../l10n/l10n.dart';
 import '../../models/fitness_recipe.dart';
 import '../../models/logged_meal.dart';
+import '../../models/number_input.dart';
 import '../../models/planned_meal.dart';
 import '../../models/shopping_list.dart';
 import '../../services/local_day.dart';

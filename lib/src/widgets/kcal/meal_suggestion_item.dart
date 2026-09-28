@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../models/model_limits.dart';
+import '../../models/number_input.dart';
 import '../../theme/app_tokens.dart';
+import '../common/decimal_text.dart';
 import '../common/motion.dart';
 import '../design/sheets.dart';
 import 'saved_meal_presentation.dart';
@@ -151,11 +152,11 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
 
   /// Typed portions are **rejected, not clamped**.
   ///
-  /// `FilteringTextInputFormatter.digitsOnly` guards the type, not the range,
-  /// so typing 12000 would silently log 1000. The last valid value stays, the
-  /// button locks, and the user sees why.
+  /// Neither a range ("12000" would silently log 10000) nor a decimal ("3,5"
+  /// is not 35 g) is bent into shape. The last valid value stays, the button
+  /// locks, and the user sees why.
   void _onGramsTextChanged(String value) {
-    final parsed = int.tryParse(value.trim());
+    final parsed = NumberInput.parse(value).wholeValue;
     final gueltig = parsed != null && isPlausiblePortionGrams(parsed);
     setState(() {
       _gramsInvalid = !gueltig;
@@ -585,10 +586,15 @@ class _ExpandedBody extends StatelessWidget {
           if (gramsInvalid) ...[
             const SizedBox(height: 6),
             Text(
-              l10n.foodPortionRangeHint(
-                PlausibilityLimits.portionGramsMin,
-                PlausibilityLimits.portionGramsMax,
-              ),
+              numberInputHint(
+                    NumberInput.parse(gramsController.text),
+                    l10n,
+                    wholeNumber: true,
+                  ) ??
+                  l10n.foodPortionRangeHint(
+                    PlausibilityLimits.portionGramsMin,
+                    PlausibilityLimits.portionGramsMax,
+                  ),
               key: const ValueKey('kcal-suggestion-grams-hint'),
               style: AppType.ui(
                 11,
@@ -742,12 +748,12 @@ class _GramsFieldState extends State<_GramsField> {
                 signed: false,
                 decimal: false,
               ),
-              inputFormatters: [
-                FilteringTextInputFormatter.digitsOnly,
+              inputFormatters: const [
                 // Five digits because the upper bound
                 // (PlausibilityLimits.portionGramsMax = 10000 g) has five;
-                // four made the top of the valid range unenterable.
-                LengthLimitingTextInputFormatter(5),
+                // four made the top of the valid range unenterable. Digits,
+                // not characters: "1.000" must reach the validator whole.
+                DigitBudgetFormatter(5),
               ],
               textAlign: TextAlign.center,
               style: AppType.display(18, color: t.ink),

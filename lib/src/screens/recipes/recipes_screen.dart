@@ -18,6 +18,7 @@ import '../../models/fitness_recipe.dart';
 import '../../models/logged_meal.dart';
 import '../../models/macro_progress.dart';
 import '../../models/meal_analysis_result.dart';
+import '../../models/number_input.dart';
 import '../../models/user_profile.dart';
 import '../../services/meal_photo_input.dart';
 import '../../services/recipe_image_store.dart';

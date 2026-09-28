@@ -5,7 +5,9 @@ import '../../l10n/l10n.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../models/logged_meal.dart';
 import '../../models/model_limits.dart';
+import '../../models/number_input.dart';
 import '../../theme/app_tokens.dart';
+import '../common/decimal_text.dart';
 import '../common/persistence_action.dart';
 import '../design/sheets.dart';
 import 'meal_slot_picker.dart';
@@ -80,7 +82,8 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
   static const int _gramsMin = 1; // PlausibilityLimits.portionGramsMin
   static const int _gramsMax = 10000; // PlausibilityLimits.portionGramsMax
   static const int _macroMin = 0; // LoggedMealLimits.macroGMin
-  static const int _macroMax = 1000; // LoggedMealLimits.macroGMax
+  // Per 100 g, so the per-meal DB bound (1000) does not apply.
+  static const int _macroMax = PlausibilityLimits.macroPer100GMax;
 
   @override
   void initState() {
@@ -114,16 +117,19 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
   }
 
   /// Error text for an integer field, or null. An EMPTY field gets no error
-  /// on purpose; missing required values block via [_isValid] alone.
+  /// on purpose; missing required values block via [_isValid] alone. "3,5"
+  /// is refused with a hint: `MealAnalysisResult.manualEntry` takes ints.
   String? _bereichsFehler(
     TextEditingController controller, {
     required int min,
     required int max,
     required String Function(int min, int max) bereichstext,
   }) {
-    final text = controller.text.trim();
-    if (text.isEmpty) return null;
-    final wert = int.tryParse(text);
+    final eingabe = NumberInput.parse(controller.text);
+    if (eingabe is EmptyNumberInput) return null;
+    final hinweis = numberInputHint(eingabe, context.l10n, wholeNumber: true);
+    if (hinweis != null) return hinweis;
+    final wert = eingabe.wholeValue;
     if (wert == null || wert < min || wert > max) return bereichstext(min, max);
     return null;
   }
@@ -144,10 +150,13 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
 
   /// Macro fields carry DECIMALS (see [_makroOderNull]), so the range check
   /// runs on the parsed number rather than [_bereichsFehler], which expects
-  /// digits only. Bounds stay integers because the error text takes `int`.
+  /// whole numbers. Bounds stay integers because the error text takes `int`.
   String? _makroFehler(TextEditingController controller) {
-    if (controller.text.trim().isEmpty) return null;
-    final wert = _makroOderNull(controller);
+    final eingabe = NumberInput.parse(controller.text);
+    if (eingabe is EmptyNumberInput) return null;
+    final hinweis = numberInputHint(eingabe, context.l10n);
+    if (hinweis != null) return hinweis;
+    final wert = eingabe.value;
     if (wert == null || wert < _macroMin || wert > _macroMax) {
       return context.l10n.recipesRangeErrorGrams(_macroMin, _macroMax);
     }
@@ -166,18 +175,13 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
         _makroFehler(_fat) == null;
   }
 
-  int? _zahlOderNull(TextEditingController controller) {
-    final text = controller.text.trim();
-    return text.isEmpty ? null : int.tryParse(text);
-  }
+  int? _zahlOderNull(TextEditingController controller) =>
+      NumberInput.parse(controller.text).wholeValue;
 
   /// Macro value per 100 g as a decimal, comma OR dot as separator — 0.5 g of
-  /// fat must be enterable (same pattern as `_MacroField`).
-  double? _makroOderNull(TextEditingController controller) {
-    final text = controller.text.trim();
-    if (text.isEmpty) return null;
-    return double.tryParse(text.replaceAll(',', '.'));
-  }
+  /// fat must be enterable (same parser as `_MacroField`).
+  double? _makroOderNull(TextEditingController controller) =>
+      NumberInput.parse(controller.text).value;
 
   /// Computed portion for the preview line — only when both required numbers
   /// are valid, otherwise null.
@@ -619,7 +623,7 @@ class _ManualField extends StatefulWidget {
   final String? unit;
   final bool numeric;
 
-  /// Only meaningful with [numeric]: also allows comma and dot. Set only on
+  /// Only meaningful with [numeric]: offers the decimal keyboard. Set only on
   /// fields whose value may be fractional; kcal/100 g and portion grams stay
   /// integers.
   final bool decimal;
@@ -651,12 +655,9 @@ class _ManualFieldState extends State<_ManualField> {
     final zifferntastatur = widget.decimal
         ? const TextInputType.numberWithOptions(decimal: true)
         : TextInputType.number;
-    // `digitsOnly` swallows the separator SILENTLY: "3,5" becomes 35 — a
-    // factor of 10 in the rings, the database and the 90-day average, with
-    // the still-correct calories hiding it.
-    final ziffernfilter = widget.decimal
-        ? FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))
-        : FilteringTextInputFormatter.digitsOnly;
+    // No character filter: `digitsOnly` swallowed the separator SILENTLY
+    // ("3,5" became 35 — a factor of 10 in the rings, the database and the
+    // 90-day average). The validators refuse such text visibly instead.
     final kopfzeile = unit == null ? label : '$label · $unit';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -697,7 +698,6 @@ class _ManualFieldState extends State<_ManualField> {
                     keyboardType: widget.numeric
                         ? zifferntastatur
                         : TextInputType.text,
-                    inputFormatters: widget.numeric ? [ziffernfilter] : null,
                     textCapitalization: widget.numeric
                         ? TextCapitalization.none
                         : TextCapitalization.sentences,

@@ -284,7 +284,7 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
     final controller = TextEditingController(text: item.grams.toString());
     final posten = _Posten(item: item, controller: controller);
     controller.addListener(() {
-      final getippt = int.tryParse(controller.text.trim());
+      final getippt = NumberInput.parse(controller.text).wholeValue;
       final ungueltig = getippt == null || !_plausiblesPostenGewicht(getippt);
       // An implausible input keeps the last valid weight (P8-02).
       final neuesGramm = ungueltig ? posten.gramm : getippt;
@@ -621,7 +621,8 @@ class _ItemEditCard extends StatelessWidget {
   /// asserts no number (same reasoning as `MealSuggestionItem._setGrams`). An
   /// empty field falls back to the last valid weight, not to the original one.
   void _bump(int delta) {
-    final aktuell = int.tryParse(controller.text.trim()) ?? angepasst.grams;
+    final aktuell =
+        NumberInput.parse(controller.text).wholeValue ?? angepasst.grams;
     final neu = (aktuell + delta).clamp(_postenMinG, _postenMaxG);
     // P8-09: the `text` setter collapses the selection to offset -1
     // (editable_text.dart), and the stepper does not pull focus off the field,
@@ -710,13 +711,11 @@ class _ItemEditCard extends StatelessWidget {
                                 cursorOpacityAnimates: false,
                                 controller: controller,
                                 keyboardType: TextInputType.number,
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.digitsOnly,
+                                inputFormatters: const [
                                   // As many digits as _postenMaxG has; the
-                                  // range check below rejects the rest.
-                                  LengthLimitingTextInputFormatter(
-                                    _postenEingabeZiffern,
-                                  ),
+                                  // range check below rejects the rest. No
+                                  // `digitsOnly`: "3,5" must not become 35.
+                                  DigitBudgetFormatter(_postenEingabeZiffern),
                                 ],
                                 textAlign: TextAlign.center,
                                 style: AppType.display(18, color: t.ink),
@@ -759,13 +758,23 @@ class _ItemEditCard extends StatelessWidget {
             const SizedBox(height: 6),
             Padding(
               padding: const EdgeInsets.only(right: 6),
-              child: Text(
-                l10n.foodPortionRangeHint(_postenMinG, _postenMaxG),
-                key: ValueKey('analyse-item-weight-hint-$index'),
-                style: AppType.ui(
-                  11,
-                  weight: FontWeight.w600,
-                  color: t.warning,
+              // The sheet only rebuilds when validity flips; the reason can
+              // change while the field stays invalid ("3,5" -> "1.000").
+              child: ValueListenableBuilder<TextEditingValue>(
+                valueListenable: controller,
+                builder: (context, value, _) => Text(
+                  numberInputHint(
+                        NumberInput.parse(value.text),
+                        l10n,
+                        wholeNumber: true,
+                      ) ??
+                      l10n.foodPortionRangeHint(_postenMinG, _postenMaxG),
+                  key: ValueKey('analyse-item-weight-hint-$index'),
+                  style: AppType.ui(
+                    11,
+                    weight: FontWeight.w600,
+                    color: t.warning,
+                  ),
                 ),
               ),
             ),
@@ -913,7 +922,8 @@ class _RemovedItemCard extends StatelessWidget {
 const double _makroMaxG = LoggedMealLimits.macroGMax;
 
 /// One macro input: optional, grams, comma OR dot as decimal separator.
-/// Deliberately not `digitsOnly` — 0.5 g of fat must be typeable.
+/// Deliberately without a character filter — 0.5 g of fat must be typeable,
+/// and anything else is refused by the validator, not stripped.
 class _MacroField extends StatelessWidget {
   const _MacroField({
     required this.fieldKey,
@@ -934,9 +944,6 @@ class _MacroField extends StatelessWidget {
       cursorOpacityAnimates: false,
       controller: controller,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      inputFormatters: [
-        FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
-      ],
       decoration: InputDecoration(labelText: label, suffixText: 'g'),
     );
   }
@@ -1006,11 +1013,8 @@ class _AddItemDialogState extends State<_AddItemDialog> {
 
   /// Reads a macro field: empty -> `null` ("unknown"), else the number. `null`
   /// and `0` differ — "don't know" vs "none" ([MealComponent.hasMacros]).
-  static double? _makro(TextEditingController controller) {
-    final text = controller.text.trim();
-    if (text.isEmpty) return null;
-    return double.tryParse(text.replaceAll(',', '.'));
-  }
+  static double? _makro(TextEditingController controller) =>
+      NumberInput.parse(controller.text).value;
 
   /// `true` if the field is empty OR carries a number within range.
   static bool _makroFeldOk(TextEditingController controller) {
@@ -1042,11 +1046,28 @@ class _AddItemDialogState extends State<_AddItemDialog> {
   /// `true` if the field is empty OR carries a whole number within range —
   /// the integer twin of [_makroFeldOk], so an untouched field does not shout.
   static bool _zahlFeldOk(TextEditingController controller, int min, int max) {
-    final text = controller.text.trim();
-    if (text.isEmpty) return true;
-    final wert = int.tryParse(text);
+    final eingabe = NumberInput.parse(controller.text);
+    if (eingabe is EmptyNumberInput) return true;
+    final wert = eingabe.wholeValue;
     return wert != null && wert >= min && wert <= max;
   }
+
+  /// Why [controller] holds no usable number (ambiguous, or a fraction in a
+  /// whole-number field) — null when the range hint says enough.
+  String? _eingabeHinweis(
+    TextEditingController controller, {
+    bool wholeNumber = false,
+  }) => numberInputHint(
+    NumberInput.parse(controller.text),
+    context.l10n,
+    wholeNumber: wholeNumber,
+  );
+
+  /// The first macro field whose text needs more than the range hint.
+  String? get _makroEingabeHinweis =>
+      _eingabeHinweis(_protein) ??
+      _eingabeHinweis(_carbs) ??
+      _eingabeHinweis(_fat);
 
   /// P8-02b: `> 0` alone let 99999 g through, and everything downstream
   /// (`adjustedToGrams`) clamped it to 10000 g — the exact silent bend the
@@ -1058,8 +1079,8 @@ class _AddItemDialogState extends State<_AddItemDialog> {
 
   bool get _isValid {
     if (_name.text.trim().isEmpty) return false;
-    final g = int.tryParse(_grams.text.trim());
-    final k = int.tryParse(_kcal.text.trim());
+    final g = NumberInput.parse(_grams.text).wholeValue;
+    final k = NumberInput.parse(_kcal.text).wholeValue;
     return g != null &&
         _plausiblesPostenGewicht(g) &&
         k != null &&
@@ -1071,8 +1092,8 @@ class _AddItemDialogState extends State<_AddItemDialog> {
   void _submit() {
     if (!_isValid) return;
     final name = _name.text.trim();
-    final grams = int.tryParse(_grams.text.trim()) ?? 0;
-    final kcal = int.tryParse(_kcal.text.trim()) ?? 0;
+    final grams = NumberInput.parse(_grams.text).wholeValue ?? 0;
+    final kcal = NumberInput.parse(_kcal.text).wholeValue ?? 0;
     final per100 = grams > 0 ? kcal * 100 / grams : null;
     Navigator.pop(
       context,
@@ -1155,12 +1176,11 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                     cursorOpacityAnimates: false,
                     controller: _grams,
                     keyboardType: TextInputType.number,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
+                    inputFormatters: const [
                       // Same digit budget as the component row's field: as
                       // many as the bound has, the range check below rejects
                       // the rest (P8-02b).
-                      LengthLimitingTextInputFormatter(_postenEingabeZiffern),
+                      DigitBudgetFormatter(_postenEingabeZiffern),
                     ],
                     decoration: InputDecoration(
                       labelText: l10n.foodAddItemWeightLabel,
@@ -1175,9 +1195,8 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                     cursorOpacityAnimates: false,
                     controller: _kcal,
                     keyboardType: TextInputType.number,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(_postenEingabeZiffern),
+                    inputFormatters: const [
+                      DigitBudgetFormatter(_postenEingabeZiffern),
                     ],
                     decoration: InputDecoration(
                       labelText: l10n.foodAddItemCaloriesLabel,
@@ -1191,7 +1210,8 @@ class _AddItemDialogState extends State<_AddItemDialog> {
             if (!_grammGueltig) ...[
               const SizedBox(height: 6),
               Text(
-                l10n.foodPortionRangeHint(_postenMinG, _postenMaxG),
+                _eingabeHinweis(_grams, wholeNumber: true) ??
+                    l10n.foodPortionRangeHint(_postenMinG, _postenMaxG),
                 key: const ValueKey('analyse-add-item-grams-hint'),
                 style: AppType.ui(
                   11,
@@ -1203,7 +1223,8 @@ class _AddItemDialogState extends State<_AddItemDialog> {
             if (!_kcalGueltig) ...[
               const SizedBox(height: 6),
               Text(
-                l10n.foodAddItemCaloriesRangeHint(0, _postenMaxKcal),
+                _eingabeHinweis(_kcal, wholeNumber: true) ??
+                    l10n.foodAddItemCaloriesRangeHint(0, _postenMaxKcal),
                 key: const ValueKey('analyse-add-item-kcal-hint'),
                 style: AppType.ui(
                   11,
@@ -1277,7 +1298,8 @@ class _AddItemDialogState extends State<_AddItemDialog> {
               if (!_makrosGueltig) ...[
                 const SizedBox(height: 6),
                 Text(
-                  l10n.foodMacroRangeHint,
+                  _makroEingabeHinweis ?? l10n.foodMacroRangeHint,
+                  key: const ValueKey('analyse-add-item-macro-range-hint'),
                   style: AppType.ui(
                     11,
                     weight: FontWeight.w600,
