@@ -3,10 +3,12 @@ import 'package:flutter/material.dart';
 import '../../app/home_store.dart' show ReminderState;
 import '../../l10n/l10n.dart';
 import '../../models/model_limits.dart';
+import '../../models/number_input.dart';
 import '../../models/user_profile.dart';
 import '../../services/kcal_calculator.dart';
 import '../../services/secure_screen.dart';
 import '../../theme/app_tokens.dart';
+import '../../widgets/common/decimal_text.dart';
 import '../../widgets/common/persistence_action.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/shared/settings_sheet.dart' show SettingsResult;
@@ -173,11 +175,11 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
   // --- Field validation (C1) -----------------------------------------------
   //
-  // `FilteringTextInputFormatter.digitsOnly` is a TYPE guard, not a RANGE
-  // guard. Typing "75,5" drops the comma and sends 755 to
-  // `profiles.weight_kg` (`between 30 and 300`); the PostgreSQL 23514 message
-  // carries the whole failed row including the e-mail — the source of the
-  // Sentry leak C1.
+  // A character filter is no RANGE guard: with `digitsOnly`, typing "75,5"
+  // dropped the comma and sent 755 to `profiles.weight_kg`
+  // (`between 30 and 300`); the PostgreSQL 23514 message carries the whole
+  // failed row including the e-mail — the source of the Sentry leak C1. The
+  // filter is gone; [NumberInput] refuses the decimal with a hint instead.
   //
   // For user input REJECT is right, not clamp: clamping 755 to 300 would write
   // a number the user never meant. Bounds come from the SQL migrations
@@ -220,14 +222,19 @@ class _GoalsScreenState extends State<GoalsScreen> {
   );
 
   /// Error text for the field, or `null` if the value may go to the DB.
+  ///
+  /// Every `profiles` column here is an integer, so "75,5" is refused with a
+  /// hint rather than read as 755 or rounded.
   String? _fehler(
     TextEditingController c,
     bool Function(num) gueltig,
     String bereich,
   ) {
-    final text = c.text.trim();
-    if (text.isEmpty) return context.l10n.settingsFieldRequired;
-    final wert = int.tryParse(text);
+    final eingabe = NumberInput.parse(c.text);
+    if (eingabe is EmptyNumberInput) return context.l10n.settingsFieldRequired;
+    final hinweis = numberInputHint(eingabe, context.l10n, wholeNumber: true);
+    if (hinweis != null) return hinweis;
+    final wert = eingabe.wholeValue;
     if (wert == null || !gueltig(wert)) return bereich;
     return null;
   }
@@ -243,7 +250,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
   /// there is nothing to compare against and the weight field already shows its
   /// own error.
   int? get _gueltigesGewicht {
-    final wert = int.tryParse(_weight.text.trim());
+    final wert = NumberInput.parse(_weight.text).wholeValue;
     return (wert != null && isValidProfileWeightKg(wert)) ? wert : null;
   }
 
@@ -256,7 +263,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
   /// The target weight as a number, or `null` while it is empty or out of
   /// range — [_targetWeightError] carries that case.
   int? get _gueltigesZielgewicht {
-    final wert = int.tryParse(_targetWeight.text.trim());
+    final wert = NumberInput.parse(_targetWeight.text).wholeValue;
     return (wert != null && isValidProfileTargetWeightKg(wert)) ? wert : null;
   }
 
@@ -327,7 +334,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
     bool Function(num) gueltig,
     int fallback,
   ) {
-    final wert = int.tryParse(c.text.trim());
+    final wert = NumberInput.parse(c.text).wholeValue;
     return (wert != null && gueltig(wert)) ? wert : fallback;
   }
 

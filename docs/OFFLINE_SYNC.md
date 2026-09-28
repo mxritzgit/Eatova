@@ -238,6 +238,14 @@ The dispatcher cannot give those old endpoints universal idempotency or delete
 protection. Legacy counter receipts that had already expired before this rollout
 cannot be reconstructed retrospectively.
 
+Local slots written by older builds are upgraded on read:
+- Weight rows are stored as UTC instants. A legacy row without an offset is read
+  as wall-clock time in the current zone, unless it belongs to a queued weigh-in;
+  then the operation's exact instant wins, and duplicates collapse into one row.
+- A #70 (v1) training checkpoint is converted to v2 once and persisted. v1 never
+  recorded a start, so its start is the first observation, or an earlier pending
+  completion if one exists.
+
 The source [privacy notice](../PRIVACY.md) describes retained recipe history and
 operation results. Reconcile the separately hosted notice before releasing this
 new persistence behavior; editing this repository does not publish that page.

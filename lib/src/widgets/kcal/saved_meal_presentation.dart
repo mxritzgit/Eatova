@@ -71,7 +71,7 @@ class SavedMealHeader extends StatelessWidget {
               children: [
                 Expanded(
                   child: Text(
-                    result.mealName,
+                    result.resolvedMealName(l10n),
                     style: AppType.display(17, color: t.ink, height: 1.25),
                   ),
                 ),
@@ -164,15 +164,19 @@ class SavedMealNutrients extends StatelessWidget {
         for (final (value, label, color) in [
           (
             result.protein,
-            l10n.foodMacroProteinShort(result.protein),
+            l10n.foodMacroProteinShort(result.resolvedProtein(l10n)),
             t.proteinSurface,
           ),
           (
             result.carbs,
-            l10n.foodMacroCarbsShort(result.carbs),
+            l10n.foodMacroCarbsShort(result.resolvedCarbs(l10n)),
             t.carbsSurface,
           ),
-          (result.fat, l10n.foodMacroFatShort(result.fat), t.fatSurface),
+          (
+            result.fat,
+            l10n.foodMacroFatShort(result.resolvedFat(l10n)),
+            t.fatSurface,
+          ),
         ])
           if (value != '-' && value.trim().isNotEmpty)
             DecoratedBox(

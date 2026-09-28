@@ -198,11 +198,13 @@ void main() {
     }
     value['schema_version'] = 1;
     withClock(Clock.fixed(now), () {
-      final restored = TrainingSessionSnapshot.fromJson(value);
+      final restored = TrainingSessionSnapshot.fromJson(
+        TrainingSessionSnapshot.upgradeLegacyJson(value)!,
+      );
       expect(restored.actualSets, isEmpty);
       expect(restored.completedSets.length, 1);
       expect(
-        TrainingSessionSnapshot.fromJson(value).sessionId,
+        TrainingSessionSnapshot.upgradeLegacyJson(value)!['session_id'],
         restored.sessionId,
       );
       final controller = TrainingSessionController.fromSnapshot(

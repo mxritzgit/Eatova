@@ -111,7 +111,7 @@ class _MealSlotPickerSheetState extends State<_MealSlotPickerSheet> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          recipe.title,
+                          recipe.displayTitle(l10n),
                           style: AppType.display(
                             18,
                             color: t.onBrandSurface,
@@ -122,7 +122,7 @@ class _MealSlotPickerSheetState extends State<_MealSlotPickerSheet> {
                         Text(
                           result == null
                               ? _recipeSummary(recipe, l10n)
-                              : '${result.caloriesKcal} kcal · ${result.protein} ${l10n.todayMacroProtein}',
+                              : '${result.caloriesKcal} kcal · ${result.resolvedProtein(l10n)} ${l10n.todayMacroProtein}',
                           style: AppType.ui(13, color: t.ink2, height: 1.4),
                         ),
                       ],

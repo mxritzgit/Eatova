@@ -4,6 +4,7 @@ import '../l10n/l10n.dart';
 import '../services/food_kcal_db.dart';
 import 'meal_component.dart';
 import 'model_limits.dart';
+import 'persisted_labels.dart';
 
 /// Text marker for "macro unknown". Same string the parsers emit for missing
 /// macros; `MacroProgress._parseMacroG` reads 0 from it, so nothing invented
@@ -145,11 +146,9 @@ enum MealResultConfidence {
 /// [MealAnalysisResult.manualEntry].
 ///
 /// Only these four, not `portionNotes` in general: the field otherwise carries
-/// real model free text or the adjustment sentences built by
-/// `adjustedToGrams`/`adjustedToItems`, both of which stay hardcoded German
-/// (free text is effectively user data; the adjustment sentences are a
-/// documented remaining gap, see the hardcoding rule in
-/// `test/repo_rules_test.dart`).
+/// real model free text (effectively user data, never translated) or the
+/// adjustment sentences of `adjustedToGrams`/`adjustedToItems`
+/// ([MealResultAdjustmentNote]).
 enum MealResultPortionNote {
   autoSplit(
     'aiScanAutoSplitNote',
@@ -320,6 +319,161 @@ class MealResultOffNote {
   }
 }
 
+enum _AdjustmentKind { grams, items, itemsWithoutMacros }
+
+/// The notes [MealAnalysisResult.adjustedToGrams] and
+/// [MealAnalysisResult.adjustedToItems] write into `portionNotes`.
+///
+/// Persisted as the finished German sentence, because installed older builds
+/// render `portionNotes` verbatim and a neutral marker would reach them as
+/// raw code. The display resolves the sentence instead ([resolve], [text]).
+/// [encode] and the patterns are compatibility DATA: their wording must never
+/// change, or stored rows lose their translation. Under [deL10n], [text]
+/// reproduces the stored sentence byte for byte.
+class MealResultAdjustmentNote {
+  const MealResultAdjustmentNote._(this._kind, {this.grams, this.kcalPer100G});
+
+  /// Portion rescaled to [grams]; [kcalPer100G] when a density was known.
+  factory MealResultAdjustmentNote.grams(int grams, {int? kcalPer100G}) =>
+      MealResultAdjustmentNote._(
+        _AdjustmentKind.grams,
+        grams: '$grams',
+        kcalPer100G: kcalPer100G == null ? null : '$kcalPer100G',
+      );
+
+  /// Components confirmed or changed; without [macrosKnown] the macros could
+  /// not be derived from the new composition.
+  factory MealResultAdjustmentNote.items({required bool macrosKnown}) =>
+      MealResultAdjustmentNote._(
+        macrosKnown
+            ? _AdjustmentKind.items
+            : _AdjustmentKind.itemsWithoutMacros,
+      );
+
+  final _AdjustmentKind _kind;
+
+  /// Digits exactly as stored, so rendering never re-formats them.
+  final String? grams;
+  final String? kcalPer100G;
+
+  static const String _itemsDe =
+      'Einzelne Bestandteile wurden manuell bestätigt oder angepasst. '
+      'Gesamtwerte wurden aus der Summe der Positionen neu berechnet.';
+  static const String _itemsWithoutMacrosDe =
+      'Einzelne Bestandteile wurden manuell bestätigt oder angepasst. '
+      'Kalorien und Gramm wurden aus der Summe der Positionen neu berechnet. '
+      'Die Makro-Nährwerte lassen sich aus der geänderten Zusammensetzung '
+      'nicht mehr ableiten und werden deshalb nicht ausgewiesen.';
+  static final RegExp _gramsDe = RegExp(
+    r'^Manuell angepasst: (\d+) g statt der ursprünglichen Portion\.'
+    r'(?: Kalorien neu berechnet mit (\d+) kcal pro 100 g\.)?$',
+  );
+
+  /// The persisted value.
+  String encode() => switch (_kind) {
+    _AdjustmentKind.grams =>
+      'Manuell angepasst: $grams g statt der ursprünglichen Portion.'
+          '${kcalPer100G == null ? '' : ' Kalorien neu berechnet mit $kcalPer100G kcal pro 100 g.'}',
+    _AdjustmentKind.items => _itemsDe,
+    _AdjustmentKind.itemsWithoutMacros => _itemsWithoutMacrosDe,
+  };
+
+  /// Display text in the language of [l10n].
+  String text(AppLocalizations l10n) => switch (_kind) {
+    _AdjustmentKind.grams => kcalPer100G == null
+        ? l10n.foodAdjustedGramsNote(grams!)
+        : l10n.foodAdjustedGramsDensityNote(grams!, kcalPer100G!),
+    _AdjustmentKind.items => l10n.foodAdjustedItemsNote,
+    _AdjustmentKind.itemsWithoutMacros => l10n.foodAdjustedItemsNoMacrosNote,
+  };
+
+  /// Maps a raw persisted `portionNotes` to an adjustment note, or `null` for
+  /// anything else (pass-through).
+  static MealResultAdjustmentNote? resolve(String raw) {
+    if (raw == _itemsDe) {
+      return const MealResultAdjustmentNote._(_AdjustmentKind.items);
+    }
+    if (raw == _itemsWithoutMacrosDe) {
+      return const MealResultAdjustmentNote._(
+        _AdjustmentKind.itemsWithoutMacros,
+      );
+    }
+    final match = _gramsDe.firstMatch(raw);
+    if (match == null) return null;
+    return MealResultAdjustmentNote._(
+      _AdjustmentKind.grams,
+      grams: match.group(1),
+      kcalPer100G: match.group(2),
+    );
+  }
+}
+
+/// The note `FitnessRecipe.toMealResultForServings` writes into
+/// `portionNotes`: `<portion> · <description> <hint>`, composed in the
+/// language active when the meal was logged.
+///
+/// Only its placeholder parts resolve: the portion fallback or servings
+/// count, the own-recipe description and the self-created hint. Recipe text
+/// stays in its logging language like every other logged content. The result
+/// equals what the writer produces in the display language.
+abstract final class MealResultRecipeNote {
+  static String resolve(String raw, AppLocalizations l10n) {
+    for (final source in <AppLocalizations>[deL10n, enL10n]) {
+      final resolved = _resolveFrom(raw, source, l10n);
+      if (resolved != null) return resolved;
+    }
+    return raw;
+  }
+
+  static String? _resolveFrom(
+    String raw,
+    AppLocalizations source,
+    AppLocalizations l10n,
+  ) {
+    var text = raw;
+    var matched = false;
+    final portion = '${source.foodPortionFallback} · ';
+    final servings = _servingsPrefix(source).firstMatch(text);
+    if (text.startsWith(portion)) {
+      text = '${l10n.foodPortionFallback} · ${text.substring(portion.length)}';
+      matched = true;
+    } else if (servings != null) {
+      final count = servings[1]!.replaceAll(
+        RegExp('[.,]'),
+        l10n.localeName == 'de' ? ',' : '.',
+      );
+      text =
+          '${l10n.recipeCalcServingsCount(count)} · '
+          '${text.substring(servings.end)}';
+      matched = true;
+    }
+    final placeholders =
+        ' · ${source.recipesOwnTitle} ${source.recipesSelfCreatedHint}';
+    final hint = ' ${source.recipesSelfCreatedHint}';
+    if (text.endsWith(placeholders)) {
+      text =
+          '${text.substring(0, text.length - placeholders.length)} · '
+          '${l10n.recipesOwnTitle} ${l10n.recipesSelfCreatedHint}';
+      matched = true;
+    } else if (text.endsWith(hint)) {
+      text =
+          '${text.substring(0, text.length - hint.length)} '
+          '${l10n.recipesSelfCreatedHint}';
+      matched = true;
+    }
+    return matched ? text : null;
+  }
+
+  /// `<count> Portionen · ` / `<count> servings · ` from the ARB template.
+  static RegExp _servingsPrefix(AppLocalizations source) {
+    final parts = source.recipeCalcServingsCount('\u0000').split('\u0000');
+    return RegExp(
+      '^${RegExp.escape(parts.first)}(\\d+(?:[.,]\\d+)?)'
+      '${RegExp.escape(parts.last)} · ',
+    );
+  }
+}
+
 class MealAnalysisResult {
   const MealAnalysisResult({
     required this.mealName,
@@ -353,9 +507,9 @@ class MealAnalysisResult {
 
   /// RAW note text as persisted: a fallback marker from `fromEdgeFunction`
   /// ([MealResultPortionNote]), the encoded OFF product note
-  /// ([MealResultOffNote]), real model free text (`explanation`), or an
-  /// adjustment sentence from `adjustedToGrams`/`adjustedToItems`. The last
-  /// two stay hardcoded German by design. Render via [resolvedPortionNotes].
+  /// ([MealResultOffNote]), real model free text (`explanation`), a German
+  /// adjustment sentence ([MealResultAdjustmentNote]) or a logged recipe's
+  /// note ([MealResultRecipeNote]). Render via [resolvedPortionNotes].
   final String portionNotes;
   final List<MealComponent> items;
   final bool isAdjusted;
@@ -394,15 +548,95 @@ class MealAnalysisResult {
   }
 
   /// Scan/adjustment note in the language of [l10n]. Resolves the fallback
-  /// markers ([MealResultPortionNote]) and the OFF product note
-  /// ([MealResultOffNote], legacy German rows included); model free text and
-  /// the computed adjustment sentences stay unchanged (pass-through).
-  String resolvedPortionNotes(AppLocalizations l10n) {
-    final note = MealResultPortionNote.resolve(portionNotes);
+  /// markers ([MealResultPortionNote]), the OFF product note
+  /// ([MealResultOffNote], legacy German rows included) and the adjustment
+  /// sentences ([MealResultAdjustmentNote]); model free text stays unchanged
+  /// (pass-through).
+  String resolvedPortionNotes(AppLocalizations l10n) =>
+      resolvePortionNotes(portionNotes, l10n, sourceLabel: sourceLabel);
+
+  /// [resolvedPortionNotes] for a raw stored value, e.g. an export field.
+  /// [sourceLabel] enables the logged-recipe note ([MealResultRecipeNote]).
+  static String resolvePortionNotes(
+    String raw,
+    AppLocalizations l10n, {
+    String? sourceLabel,
+  }) {
+    final note = MealResultPortionNote.resolve(raw);
     if (note != null) return note.text(l10n);
-    final offNote = MealResultOffNote.resolve(portionNotes);
-    return offNote == null ? portionNotes : offNote.text(l10n);
+    final offNote = MealResultOffNote.resolve(raw);
+    if (offNote != null) return offNote.text(l10n);
+    final adjustment = MealResultAdjustmentNote.resolve(raw);
+    if (adjustment != null) return adjustment.text(l10n);
+    return sourceLabel != null &&
+            MealResultSource.resolve(sourceLabel) == MealResultSource.recipe
+        ? MealResultRecipeNote.resolve(raw, l10n)
+        : raw;
   }
+
+  /// Meal name in the language of [l10n]. Only the persisted fallbacks of
+  /// [PersistedLabels] resolve; model names, product names and user input
+  /// pass through unchanged.
+  String resolvedMealName(AppLocalizations l10n) =>
+      resolveMealName(mealName, l10n, barcode: barcode, sourceLabel: sourceLabel);
+
+  /// [resolvedMealName] for raw stored values, e.g. an export field.
+  static String resolveMealName(
+    String name,
+    AppLocalizations l10n, {
+    String? barcode,
+    String? sourceLabel,
+  }) {
+    if (name == PersistedLabels.unknownMealName) {
+      return l10n.foodUnknownMealName;
+    }
+    if (name == PersistedLabels.mealNameFallback) {
+      return l10n.foodMealNameFallback;
+    }
+    // A recipe logs its title; only the recipe fallback title is ours.
+    if (name == PersistedLabels.ownRecipeTitle &&
+        sourceLabel != null &&
+        MealResultSource.resolve(sourceLabel) == MealResultSource.recipe) {
+      return l10n.recipesOwnTitle;
+    }
+    return PersistedLabels.resolveProductName(name, barcode, l10n) ?? name;
+  }
+
+  /// Display name of one of [items] (or of [asSingleComponent], which the
+  /// components sheet builds from the meal itself).
+  String resolvedItemName(MealComponent item, AppLocalizations l10n) =>
+      resolveItemName(
+        item.name,
+        l10n,
+        mealName: mealName,
+        barcode: barcode,
+        sourceLabel: sourceLabel,
+      );
+
+  /// [resolvedItemName] for raw stored values, e.g. an export field.
+  static String resolveItemName(
+    String name,
+    AppLocalizations l10n, {
+    String? mealName,
+    String? barcode,
+    String? sourceLabel,
+  }) {
+    if (name == PersistedLabels.ingredientNameFallback) {
+      return l10n.foodIngredientFallbackName;
+    }
+    return name == mealName
+        ? resolveMealName(name, l10n, barcode: barcode, sourceLabel: sourceLabel)
+        : name;
+  }
+
+  /// Macro texts with the decimal separator of [l10n]; see
+  /// [PersistedLabels.macroText].
+  String resolvedProtein(AppLocalizations l10n) =>
+      PersistedLabels.macroText(protein, l10n);
+  String resolvedCarbs(AppLocalizations l10n) =>
+      PersistedLabels.macroText(carbs, l10n);
+  String resolvedFat(AppLocalizations l10n) =>
+      PersistedLabels.macroText(fat, l10n);
 
   /// Deliberately **not** via [effectiveKcalPer100G]: `0 kcal / 100 g` is valid
   /// in Open Food Facts (water, tea) but means "unknown" from the scan
@@ -484,9 +718,10 @@ class MealAnalysisResult {
       carbs: _scaleMacroText(carbs, factor),
       fat: _scaleMacroText(fat, factor),
       confidence: confidence,
-      portionNotes: neueDichte > 0
-          ? 'Manuell angepasst: $zielGramm g statt der ursprünglichen Portion. Kalorien neu berechnet mit ${neueDichte.round()} kcal pro 100 g.'
-          : 'Manuell angepasst: $zielGramm g statt der ursprünglichen Portion.',
+      portionNotes: MealResultAdjustmentNote.grams(
+        zielGramm,
+        kcalPer100G: neueDichte > 0 ? neueDichte.round() : null,
+      ).encode(),
       items: adjustedItems,
       isAdjusted: true,
       sourceLabel: sourceLabel,
@@ -541,12 +776,9 @@ class MealAnalysisResult {
       carbs: makro(carbs, summe?.carbs),
       fat: makro(fat, summe?.fat),
       confidence: confidence,
-      portionNotes: makrosUnbekannt
-          ? 'Einzelne Bestandteile wurden manuell bestätigt oder angepasst. '
-                'Kalorien und Gramm wurden aus der Summe der Positionen neu berechnet. '
-                'Die Makro-Nährwerte lassen sich aus der geänderten Zusammensetzung '
-                'nicht mehr ableiten und werden deshalb nicht ausgewiesen.'
-          : 'Einzelne Bestandteile wurden manuell bestätigt oder angepasst. Gesamtwerte wurden aus der Summe der Positionen neu berechnet.',
+      portionNotes: MealResultAdjustmentNote.items(
+        macrosKnown: !makrosUnbekannt,
+      ).encode(),
       items: adjustedItems,
       isAdjusted: true,
       sourceLabel: sourceLabel,
@@ -564,7 +796,7 @@ class MealAnalysisResult {
   /// not just `== null`.
   factory MealAnalysisResult.fromEdgeFunction(Map<String, dynamic> json) {
     final mealName = clampMealName(
-      json['mealName']?.toString() ?? 'Unbekannte Mahlzeit',
+      json['mealName']?.toString() ?? PersistedLabels.unknownMealName,
     );
     final items = _readItems(json);
     final itemCalories = items.fold<int>(
@@ -708,7 +940,7 @@ class MealAnalysisResult {
     final code = clampBarcode(barcode) ?? '';
     final productName =
         _firstNonEmptyString(product, const ['product_name', 'generic_name']) ??
-        'Produkt $code';
+        PersistedLabels.productName(code);
     final brand = clampBrand(_firstNonEmptyString(product, const ['brands']));
     final kcalPer100G = _offKcalPer100G(product, nutriments) ?? 0;
     final servingGrams = _offServingGrams(product);
@@ -1067,7 +1299,9 @@ class MealAnalysisResult {
   }
 
   /// Formats a macro value in grams, clamped to the DB limit (0..1000 g).
-  /// Whole values without a decimal, otherwise one digit with a German comma.
+  /// Whole values without a decimal, otherwise one digit with a German comma:
+  /// the stored format older builds read. Displays convert it with
+  /// [PersistedLabels.macroText].
   static String _formatMacroG(double wert) {
     if (!wert.isFinite) {
       return _makroUnbekannt;

@@ -368,7 +368,7 @@ class _EditMealSheetState extends State<EditMealSheet> {
           const _SheetHandle(),
           _Header(
             slot: _slot,
-            mealName: _result.mealName,
+            mealName: _result.resolvedMealName(context.l10n),
             onClose: () => Navigator.of(context).maybePop(),
           ),
           Flexible(

@@ -6,6 +6,7 @@ import '../../app/home_store.dart';
 import '../../l10n/l10n.dart';
 import '../../models/fitness_recipe.dart';
 import '../../models/logged_meal.dart';
+import '../../models/number_input.dart';
 import '../../models/planned_meal.dart';
 import '../../models/shopping_list.dart';
 import '../../services/local_day.dart';
@@ -413,7 +414,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                     ),
                     const SizedBox(height: 5),
                     Text(
-                      recipe.title,
+                      recipe.displayTitle(l),
                       style: AppType.display(18, color: t.ink, height: 1.2),
                     ),
                     const SizedBox(height: 7),
@@ -523,7 +524,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     final l = context.l10n;
     final t = context.t;
     final items = buildShoppingList(store.plannedMeals, _week,
-        decimalSeparator: l.localeName == 'de' ? ',' : '.');
+        decimalSeparator: l.localeName == 'de' ? ',' : '.', l10n: l);
     final done = items.where((i) => store.shoppingChecks[i.id] ?? false).length;
     final complete = items.isNotEmpty && done == items.length;
     return [

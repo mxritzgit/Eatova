@@ -2,6 +2,11 @@ import 'dart:convert';
 
 import 'fitness_recipe.dart';
 
+/// Readable text of one report field. [fields] is the whole flattened record
+/// (see [exportFields]), so a value can be read together with its siblings.
+typedef ExportValueText =
+    String Function(Map<String, dynamic> fields, String path, dynamic value);
+
 /// Presentation and portable output of an export. Unknown fields are retained.
 class ExportDocument {
   ExportDocument._(this.data, this.sections);
@@ -56,7 +61,13 @@ class ExportDocument {
   int get recordCount => sections.fold(0, (n, section) => n + section.count);
   String get json => const JsonEncoder.withIndent('  ').convert(data);
 
-  String report(String title, String Function(String) label) {
+  /// Readable text report. [value] may present stored values for reading;
+  /// [json] and [ExportSection.csv] always stay raw.
+  String report(
+    String title,
+    String Function(String) label, {
+    ExportValueText? value,
+  }) {
     final buffer = StringBuffer('$title\n${'=' * title.length}\n');
     for (final key in _metadata) {
       if (data.containsKey(key)) {
@@ -64,7 +75,7 @@ class ExportDocument {
       }
     }
     for (final section in sections) {
-      buffer.write('\n${section.report(label)}');
+      buffer.write('\n${section.report(label, value: value)}');
     }
     return buffer.toString();
   }
@@ -197,13 +208,17 @@ class ExportSection {
   }
   int get count => records.length;
 
-  String report(String Function(String) label) {
+  String report(String Function(String) label, {ExportValueText? value}) {
     final title = '${label(key)} ($count)';
     final buffer = StringBuffer('$title\n${'-' * title.length}\n');
     for (var i = 0; i < records.length; i++) {
       buffer.writeln('#${i + 1}');
-      for (final field in exportFields(records[i], expandLists: true).entries) {
-        buffer.writeln('${label(field.key)}: ${exportValue(field.value)}');
+      final fields = exportFields(records[i], expandLists: true);
+      for (final field in fields.entries) {
+        final text =
+            value?.call(fields, field.key, field.value) ??
+            exportValue(field.value);
+        buffer.writeln('${label(field.key)}: $text');
       }
       buffer.writeln();
     }

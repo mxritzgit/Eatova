@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../models/model_limits.dart';
+import '../../models/number_input.dart';
 import '../../theme/app_tokens.dart';
+import '../common/decimal_text.dart';
 import '../common/motion.dart';
 import '../design/sheets.dart';
 import 'saved_meal_presentation.dart';
@@ -151,11 +152,11 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
 
   /// Typed portions are **rejected, not clamped**.
   ///
-  /// `FilteringTextInputFormatter.digitsOnly` guards the type, not the range,
-  /// so typing 12000 would silently log 1000. The last valid value stays, the
-  /// button locks, and the user sees why.
+  /// Neither a range ("12000" would silently log 10000) nor a decimal ("3,5"
+  /// is not 35 g) is bent into shape. The last valid value stays, the button
+  /// locks, and the user sees why.
   void _onGramsTextChanged(String value) {
-    final parsed = int.tryParse(value.trim());
+    final parsed = NumberInput.parse(value).wholeValue;
     final gueltig = parsed != null && isPlausiblePortionGrams(parsed);
     setState(() {
       _gramsInvalid = !gueltig;
@@ -347,7 +348,7 @@ class _Header extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    result.mealName,
+                    result.resolvedMealName(context.l10n),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: AppType.ui(
@@ -585,10 +586,15 @@ class _ExpandedBody extends StatelessWidget {
           if (gramsInvalid) ...[
             const SizedBox(height: 6),
             Text(
-              l10n.foodPortionRangeHint(
-                PlausibilityLimits.portionGramsMin,
-                PlausibilityLimits.portionGramsMax,
-              ),
+              numberInputHint(
+                    NumberInput.parse(gramsController.text),
+                    l10n,
+                    wholeNumber: true,
+                  ) ??
+                  l10n.foodPortionRangeHint(
+                    PlausibilityLimits.portionGramsMin,
+                    PlausibilityLimits.portionGramsMax,
+                  ),
               key: const ValueKey('kcal-suggestion-grams-hint'),
               style: AppType.ui(
                 11,
@@ -630,9 +636,9 @@ class _ExpandedBody extends StatelessWidget {
           else
             _LivePreview(
               kcal: preview.caloriesKcal,
-              protein: preview.protein,
-              carbs: preview.carbs,
-              fat: preview.fat,
+              protein: preview.resolvedProtein(l10n),
+              carbs: preview.resolvedCarbs(l10n),
+              fat: preview.resolvedFat(l10n),
             ),
           const SizedBox(height: 12),
           SizedBox(
@@ -742,12 +748,12 @@ class _GramsFieldState extends State<_GramsField> {
                 signed: false,
                 decimal: false,
               ),
-              inputFormatters: [
-                FilteringTextInputFormatter.digitsOnly,
+              inputFormatters: const [
                 // Five digits because the upper bound
                 // (PlausibilityLimits.portionGramsMax = 10000 g) has five;
-                // four made the top of the valid range unenterable.
-                LengthLimitingTextInputFormatter(5),
+                // four made the top of the valid range unenterable. Digits,
+                // not characters: "1.000" must reach the validator whole.
+                DigitBudgetFormatter(5),
               ],
               textAlign: TextAlign.center,
               style: AppType.display(18, color: t.ink),
@@ -787,41 +793,95 @@ class _LivePreview extends StatelessWidget {
   final String carbs;
   final String fat;
 
+  // Room the macros need beside the kcal value before the row reflows.
+  static const double _minMacroWidth = 64;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Text(
-          '=',
-          style: AppType.ui(
-            14,
-            weight: FontWeight.w500,
-            color: t.ink2,
-            height: 1.0,
+    final equalsStyle = AppType.ui(
+      14,
+      weight: FontWeight.w500,
+      color: t.ink2,
+      height: 1.0,
+    );
+    final kcalStyle = AppType.display(20, color: t.ink, height: 1.0);
+    final macroStyle = AppType.display(
+      11.5,
+      weight: FontWeight.w600,
+      color: t.ink2,
+    );
+    final macros = _macroLine(context.l10n);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final base = DefaultTextStyle.of(context).style;
+        final painter = TextPainter(
+          text: TextSpan(
+            children: [
+              TextSpan(text: '=', style: base.merge(equalsStyle)),
+              TextSpan(text: '$kcal kcal', style: base.merge(kcalStyle)),
+            ],
           ),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          '$kcal kcal',
-          style: AppType.display(20, color: t.ink, height: 1.0),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            _macroLine(context.l10n),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.right,
-            style: AppType.display(
-              11.5,
-              weight: FontWeight.w600,
-              color: t.ink2,
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+          maxLines: 1,
+        )..layout();
+        // 8 px after "=" and 10 px before the macros, as in the single row.
+        final kcalWidth = painter.width + 8;
+        painter.dispose();
+        final fitsOneRow = kcalWidth + 10 +
+                (macros.isEmpty ? 0 : _minMacroWidth) <=
+            constraints.maxWidth;
+        if (fitsOneRow) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text('=', style: equalsStyle),
+              const SizedBox(width: 8),
+              Text(
+                '$kcal kcal',
+                key: const ValueKey('live-preview-kcal'),
+                style: kcalStyle,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  macros,
+                  key: const ValueKey('live-preview-macros'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
+                  style: macroStyle,
+                ),
+              ),
+            ],
+          );
+        }
+        // Large text on narrow phones: reflow instead of cutting values.
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(text: '= ', style: equalsStyle),
+                  TextSpan(text: '$kcal kcal', style: kcalStyle),
+                ],
+              ),
+              key: const ValueKey('live-preview-kcal'),
             ),
-          ),
-        ),
-      ],
+            if (macros.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                macros,
+                key: const ValueKey('live-preview-macros'),
+                textAlign: TextAlign.right,
+                style: macroStyle,
+              ),
+            ],
+          ],
+        );
+      },
     );
   }
 

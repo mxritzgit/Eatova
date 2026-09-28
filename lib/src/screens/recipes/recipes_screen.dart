@@ -18,6 +18,7 @@ import '../../models/fitness_recipe.dart';
 import '../../models/logged_meal.dart';
 import '../../models/macro_progress.dart';
 import '../../models/meal_analysis_result.dart';
+import '../../models/number_input.dart';
 import '../../models/user_profile.dart';
 import '../../services/meal_photo_input.dart';
 import '../../services/recipe_image_store.dart';
@@ -689,7 +690,9 @@ class _RecipesScreenState extends State<RecipesScreen> {
       context,
       // Plain sentence form: locally the recipe IS gone. If the commit later
       // only queues the delete, a second toast says so.
-      l10n.commonDeliverySuccess(l10n.recipesDeletedSuccess(recipe.title)),
+      l10n.commonDeliverySuccess(
+        l10n.recipesDeletedSuccess(recipe.displayTitle(l10n)),
+      ),
       icon: Icons.delete_outline_rounded,
       tone: SnackTone.error,
       action: SnackBarAction(
@@ -740,7 +743,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
     showAppSnack(
       context,
       deliveryHint(
-        context.l10n.recipesDeletedSuccess(recipe.title),
+        context.l10n.recipesDeletedSuccess(recipe.displayTitle(context.l10n)),
         ausgang,
         context.l10n,
       ),

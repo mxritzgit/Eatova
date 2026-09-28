@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
+import '../../models/number_input.dart';
 import '../../models/recipe_ingredient.dart';
 import '../../services/open_food_facts_product_service.dart';
 import '../../theme/app_tokens.dart';
@@ -64,7 +65,7 @@ class RecipeIngredientEditor extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        ingredients[i].name,
+                        ingredients[i].displayName(t),
                         style: AppType.ui(15, color: context.t.ink),
                       ),
                       Text(
@@ -160,11 +161,11 @@ class _IngredientSheetState extends State<_IngredientSheet> {
     final l10n = context.l10n;
     final values = [
       ingredient?.name ?? _query.text.trim(),
-      _numberText(ingredient?.grams ?? 100, l10n),
-      _numberText(n?.caloriesKcal, l10n),
-      _numberText(n?.proteinG, l10n),
-      _numberText(n?.carbsG, l10n),
-      _numberText(n?.fatG, l10n),
+      _inputText(ingredient?.grams ?? 100, l10n),
+      _inputText(n?.caloriesKcal, l10n),
+      _inputText(n?.proteinG, l10n),
+      _inputText(n?.carbsG, l10n),
+      _inputText(n?.fatG, l10n),
     ];
     for (var i = 0; i < _fields.length; i++) {
       _fields[i].text = values[i];
@@ -182,8 +183,9 @@ class _IngredientSheetState extends State<_IngredientSheet> {
     super.dispose();
   }
 
-  double? _value(int index) =>
-      double.tryParse(_fields[index].text.trim().replaceAll(',', '.'));
+  NumberInput _input(int index) => NumberInput.parse(_fields[index].text);
+
+  double? _value(int index) => _input(index).value;
 
   RecipeIngredient? get _draft {
     try {
@@ -279,6 +281,8 @@ class _IngredientSheetState extends State<_IngredientSheet> {
           ? context.l10n.ingredientNameError
           : null;
     }
+    final hint = numberInputHint(_input(index), context.l10n);
+    if (hint != null) return hint;
     final value = _value(index);
     final min = index == 1 ? 0.001 : 0.0;
     final max = index == 1
@@ -361,7 +365,7 @@ class _IngredientSheetState extends State<_IngredientSheet> {
               ListTile(
                 key: ValueKey('ingredient-result-$i'),
                 contentPadding: EdgeInsets.zero,
-                title: Text(_results[i].title),
+                title: Text(_results[i].result.resolvedMealName(t)),
                 subtitle: Text(_results[i].subtitle),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => _select(_results[i]),
@@ -428,3 +432,7 @@ class _IngredientSheetState extends State<_IngredientSheet> {
 /// Six fraction digits keep imported per-100 g values intact in the fields.
 String _numberText(double? n, AppLocalizations l10n) =>
     n == null ? '' : formatDecimal(n, l10n, maxFractionDigits: 6);
+
+/// [_numberText] for a field prefill: reads back as the same number.
+String _inputText(double? n, AppLocalizations l10n) =>
+    n == null ? '' : formatDecimalInput(n, l10n, maxFractionDigits: 6);

@@ -658,6 +658,38 @@ extension LocalCacheMutations on LocalCache {
     );
   }
 
+  /// Hydration snapshot in which a v1 checkpoint is already pinned durably, so
+  /// the store never holds a legacy decode that storage does not contain. If
+  /// pinning fails, the v1 slot remains and reads as transiently unreadable.
+  Future<LocalMutationReceipt> readHydrationSnapshot() async {
+    final durable = await readMutationSnapshot(allowPartial: true);
+    final raw = durable.snapshot.values[_trainingSessionKey];
+    if (raw == null || !_holdsLegacyCheckpoint(raw)) return durable;
+    try {
+      await _pinLegacyTrainingSession();
+    } catch (_) {
+      return durable;
+    }
+    return readMutationSnapshot(allowPartial: true);
+  }
+
+  static bool _holdsLegacyCheckpoint(String raw) {
+    try {
+      return switch (jsonDecode(raw)) {
+        {'snapshot': final Map<dynamic, dynamic> snapshot} =>
+          TrainingSessionSnapshot.isLegacyJson(snapshot),
+        _ => false,
+      };
+    } on FormatException {
+      return false;
+    }
+  }
+
+  /// Persists the v2 form of a v1 checkpoint via [_decodeMutationSlot].
+  /// Idempotent: an already upgraded slot re-encodes unchanged.
+  Future<LocalMutationReceipt> _pinLegacyTrainingSession() =>
+      _atomicMutation((state, queue) {}, keys: {_trainingSessionKey});
+
   /// A checkpoint is valid only for the exact source/session snapshot read
   /// here. A concurrent retirement, even followed by re-adoption, invalidates
   /// this save instead of rebasing the old route onto the replacement source.
@@ -980,7 +1012,14 @@ extension LocalCacheMutations on LocalCache {
       if (key == _trainingSessionKey && decoded?['snapshot'] != null) {
         final snapshot = decoded!['snapshot'];
         if (snapshot is! Map) throw const FormatException('Invalid checkpoint');
-        TrainingSessionSnapshot.fromJson(snapshot);
+        // Pin a v1 checkpoint's start at its first observation. The first
+        // successful commit that reads this slot persists the v2 form.
+        final upgraded = TrainingSessionSnapshot.upgradeLegacyJson(snapshot);
+        if (upgraded != null) {
+          decoded['snapshot'] = upgraded;
+        } else {
+          TrainingSessionSnapshot.fromJson(snapshot);
+        }
       }
       return decoded;
     } on FormatException {
@@ -1199,22 +1238,28 @@ extension LocalCacheMutations on LocalCache {
           throw const FormatException('Invalid weight');
         }
         final rows = _rows(state, _weightLogKey, 'items');
-        // Store snapshots carry no operation ids: like the store's own merge,
-        // an id-less row at the same instant is this pending weigh-in.
-        if (!rows.any(
-          (row) =>
-              row['id'] == op.entityId ||
-              row['id'] == null &&
-                  DateTime.parse(row['t'] as String).isAtSameMomentAs(ts),
-        )) {
-          rows.add({'id': op.entityId, 't': ts.toIso8601String(), 'kg': kg});
-          rows.sort((a, b) => DateTime.parse(a['t'] as String)
-              .compareTo(DateTime.parse(b['t'] as String)));
+        // Store snapshots carry no operation ids and older builds cached
+        // zone-less wall clocks: the weigh-in keeps one row at its instant.
+        final own = [
+          for (final row in rows)
+            if (LocalCache._queuedWeighInOf(row, [op]) != null) row,
+        ];
+        if (own.length != 1 ||
+            own.single['t'] != LocalCache._weighInTime(ts)) {
+          rows
+            ..removeWhere(own.contains)
+            ..add({
+              'id': op.entityId,
+              't': LocalCache._weighInTime(ts),
+              'kg': kg,
+            })
+            ..sort((a, b) => DateTime.parse(a['t'] as String)
+                .compareTo(DateTime.parse(b['t'] as String)));
           if (rows.length > WeightLog.maxEntries) {
             rows.removeRange(0, rows.length - WeightLog.maxEntries);
           }
           state[_weightLogKey] = {'items': rows};
-          if (countStats) {
+          if (countStats && own.isEmpty) {
             state[_statsKey] = LocalCache._statsToJson(
               LifetimeStats.fromRow(
                 state[_statsKey] ?? {},

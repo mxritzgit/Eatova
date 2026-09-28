@@ -377,16 +377,19 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   ///
   /// An empty field gets no error — "nothing typed yet" is not an input error.
   /// A missing required value is blocked by [_isValid] alone, so a freshly
-  /// opened sheet does not greet the user with red fields.
+  /// opened sheet does not greet the user with red fields. The recipe stores
+  /// whole numbers, so "3,5" is refused with a hint instead of becoming 35.
   String? _zahlFehler(
     TextEditingController controller, {
     required int min,
     required int max,
     required String Function(int min, int max) bereichstext,
   }) {
-    final text = controller.text.trim();
-    if (text.isEmpty) return null;
-    final wert = int.tryParse(text);
+    final eingabe = NumberInput.parse(controller.text);
+    if (eingabe is EmptyNumberInput) return null;
+    final hinweis = numberInputHint(eingabe, context.l10n, wholeNumber: true);
+    if (hinweis != null) return hinweis;
+    final wert = eingabe.wholeValue;
     if (wert == null || wert < min || wert > max) return bereichstext(min, max);
     return null;
   }
@@ -479,7 +482,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
   }
 
   int _zahl(TextEditingController controller) =>
-      int.tryParse(controller.text.trim()) ?? 0;
+      NumberInput.parse(controller.text).wholeValue ?? 0;
 
   RecipeCalculation? get _calculation =>
       !_structured || _structuredIngredients.isEmpty || _batchServings == null
@@ -1451,9 +1454,8 @@ class _RecipeSheetField extends StatelessWidget {
                               : maxLines > 1
                               ? TextInputType.multiline
                               : TextInputType.text,
-                          inputFormatters: numeric
-                              ? [FilteringTextInputFormatter.digitsOnly]
-                              : null,
+                          // No `digitsOnly`: it turned "3,5" into 35. The
+                          // typed text reaches the validator unchanged.
                           textCapitalization: numeric
                               ? TextCapitalization.none
                               : TextCapitalization.sentences,

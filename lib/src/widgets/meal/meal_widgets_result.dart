@@ -93,7 +93,7 @@ class _MealResultCardState extends State<MealResultCard> {
           ],
         ),
         Text(
-          result.mealName,
+          result.resolvedMealName(l10n),
           key: const ValueKey('analyse-meal-name'),
           style: AppType.display(26, color: t.ink, height: 1.15),
         ),
@@ -134,19 +134,19 @@ class _MealResultCardState extends State<MealResultCard> {
             final tiles = [
               MacroTile(
                 label: l10n.todayMacroProtein,
-                value: result.protein,
+                value: result.resolvedProtein(l10n),
                 color: t.protein,
                 surface: t.proteinSurface,
               ),
               MacroTile(
                 label: l10n.foodMacroTileCarbsLabel,
-                value: result.carbs,
+                value: result.resolvedCarbs(l10n),
                 color: t.carbs,
                 surface: t.carbsSurface,
               ),
               MacroTile(
                 label: l10n.todayMacroFat,
-                value: result.fat,
+                value: result.resolvedFat(l10n),
                 color: t.fat,
                 surface: t.fatSurface,
               ),
@@ -176,7 +176,7 @@ class _MealResultCardState extends State<MealResultCard> {
           const SizedBox(height: 24),
           FieldLabel(l10n.foodIngredientsCountLabel(result.items.length)),
           const SizedBox(height: 8),
-          _ItemBreakdownList(items: result.items),
+          _ItemBreakdownList(result: result),
         ],
         if (widget.showActions) ...[
           const SizedBox(height: 18),
@@ -208,7 +208,10 @@ class _MealResultCardState extends State<MealResultCard> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(result.mealName, style: AppType.display(18, color: t.ink)),
+              Text(
+                result.resolvedMealName(l10n),
+                style: AppType.display(18, color: t.ink),
+              ),
               const SizedBox(height: 12),
               if (result.brand != null && result.brand!.isNotEmpty)
                 _InfoLine(label: l10n.foodInfoBrandLabel, value: result.brand!),
@@ -357,17 +360,22 @@ class _AnimatedKcal extends StatelessWidget {
 }
 
 class _ItemBreakdownList extends StatelessWidget {
-  const _ItemBreakdownList({required this.items});
+  const _ItemBreakdownList({required this.result});
 
-  final List<MealComponent> items;
+  final MealAnalysisResult result;
 
   @override
   Widget build(BuildContext context) {
+    final items = result.items;
     return Column(
       key: const ValueKey('analyse-item-breakdown'),
       children: [
         for (var index = 0; index < items.length; index++) ...[
-          _ItemBreakdownRow(item: items[index], index: index),
+          _ItemBreakdownRow(
+            item: items[index],
+            name: result.resolvedItemName(items[index], context.l10n),
+            index: index,
+          ),
           if (index < items.length - 1) const SizedBox(height: 6),
         ],
       ],
@@ -376,9 +384,14 @@ class _ItemBreakdownList extends StatelessWidget {
 }
 
 class _ItemBreakdownRow extends StatelessWidget {
-  const _ItemBreakdownRow({required this.item, required this.index});
+  const _ItemBreakdownRow({
+    required this.item,
+    required this.name,
+    required this.index,
+  });
 
   final MealComponent item;
+  final String name;
   final int index;
 
   @override
@@ -394,7 +407,7 @@ class _ItemBreakdownRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            item.name,
+            name,
             style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
           ),
           const SizedBox(height: 5),

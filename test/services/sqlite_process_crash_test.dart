@@ -39,13 +39,16 @@ void main() {
           mode,
         ], workingDirectory: Directory.current.path);
         final stderr = child.stderr.transform(utf8.decoder).join();
-        final checkpoint = Completer<void>();
+        final checkpoint = Completer<int>();
         final output = child.stdout
             .transform(utf8.decoder)
             .transform(const LineSplitter())
             .listen((line) {
-              if (line == 'CRASH_CHECKPOINT' && !checkpoint.isCompleted) {
-                checkpoint.complete();
+              final match = RegExp(
+                r'^CRASH_CHECKPOINT (\d+)$',
+              ).firstMatch(line);
+              if (match != null && !checkpoint.isCompleted) {
+                checkpoint.complete(int.parse(match[1]!));
               }
             });
         unawaited(
@@ -57,8 +60,18 @@ void main() {
             }
           }),
         );
-        await checkpoint.future.timeout(const Duration(seconds: 90));
-        expect(child.kill(ProcessSignal.sigkill), isTrue);
+        final worker = await checkpoint.future.timeout(
+          const Duration(seconds: 90),
+        );
+        // On Windows `dart run` hosts the script in a separate VM process and
+        // the launcher is not the database holder. Killing only the launcher
+        // let the reopen race the worker's teardown: its locks were gone but
+        // its -shm view was still mapped, so SQLite's reset of the stale -shm
+        // failed (SQLITE_IOERR_TRUNCATE), or the cleanup hit its open files.
+        // Kill the process that holds the database; its launcher exits only
+        // once that process has terminated. On Linux and macOS `dart run`
+        // execs, so both are the same process.
+        expect(Process.killPid(worker, ProcessSignal.sigkill), isTrue);
         await child.exitCode;
         await output.cancel();
 

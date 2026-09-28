@@ -577,6 +577,18 @@
       "max": { "type": "int" }
     }
   },
+  "numberInputAmbiguous": "Meinst du {decimal} oder {grouped}? Bitte ohne Tausendertrennzeichen eingeben.",
+  "@numberInputAmbiguous": {
+    "description": "Field error for a typed number such as 1.000 or 2,500 that is either a decimal or a thousands group; both readings are shown, already formatted.",
+    "placeholders": {
+      "decimal": { "type": "String" },
+      "grouped": { "type": "String" }
+    }
+  },
+  "numberInputWholeNumber": "Bitte eine ganze Zahl eingeben, ohne Nachkommastellen.",
+  "@numberInputWholeNumber": {
+    "description": "Field error when a field that only stores whole numbers receives a decimal such as 3,5."
+  },
   "recipesNameTooLongError": "Name ist zu lang – bitte kürzen.",
   "@recipesNameTooLongError": {
     "description": "Field error under the recipe name when it exceeds the server limit of 300 code points (Flutter's maxLength counts graphemes, so ZWJ emoji can overshoot)."
@@ -1495,6 +1507,40 @@
   "foodScanNoteItemized": "KI-Schätzung aus dem Foto mit Einzelposten. Bitte Bestandteile und Gramm prüfen.",
   "foodScanNotePlain": "KI-Schätzung aus dem Foto. Die Größe wurde nicht exakt vermessen; bitte Portion bestätigen oder Gewicht anpassen.",
   "foodManualEntryNote": "Nährwerte manuell nach Etikett eingetragen (pro 100 g).",
+  "foodAdjustedGramsNote": "Manuell angepasst: {grams} g statt der ursprünglichen Portion.",
+  "@foodAdjustedGramsNote": {
+    "description": "Must stay byte-identical to the German note that MealAnalysisResult.adjustedToGrams persists.",
+    "placeholders": {
+      "grams": {
+        "type": "String"
+      }
+    }
+  },
+  "foodAdjustedGramsDensityNote": "Manuell angepasst: {grams} g statt der ursprünglichen Portion. Kalorien neu berechnet mit {kcal} kcal pro 100 g.",
+  "@foodAdjustedGramsDensityNote": {
+    "description": "Must stay byte-identical to the German note that MealAnalysisResult.adjustedToGrams persists.",
+    "placeholders": {
+      "grams": {
+        "type": "String"
+      },
+      "kcal": {
+        "type": "String"
+      }
+    }
+  },
+  "foodAdjustedItemsNote": "Einzelne Bestandteile wurden manuell bestätigt oder angepasst. Gesamtwerte wurden aus der Summe der Positionen neu berechnet.",
+  "foodAdjustedItemsNoMacrosNote": "Einzelne Bestandteile wurden manuell bestätigt oder angepasst. Kalorien und Gramm wurden aus der Summe der Positionen neu berechnet. Die Makro-Nährwerte lassen sich aus der geänderten Zusammensetzung nicht mehr ableiten und werden deshalb nicht ausgewiesen.",
+  "foodUnknownMealName": "Unbekannte Mahlzeit",
+  "foodMealNameFallback": "Mahlzeit",
+  "foodProductFallbackName": "Produkt {code}",
+  "@foodProductFallbackName": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "foodIngredientFallbackName": "Zutat",
   "foodManualEntryTitle": "Eigene Nährwerte",
   "foodManualEntrySubtitle": "Werte vom Etikett pro 100 g — deine Portion rechnet Eatova aus.",
   "foodManualEntryCta": "Manuell eintragen",

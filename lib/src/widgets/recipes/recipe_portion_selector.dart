@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
+import '../../models/number_input.dart';
 import '../../models/recipe_ingredient.dart';
 import '../../theme/app_tokens.dart';
 import '../common/decimal_text.dart';
@@ -35,7 +36,7 @@ class _RecipePortionSelectorState extends State<RecipePortionSelector> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _field ??= TextEditingController(
-      text: formatDecimal(
+      text: formatDecimalInput(
         widget.initialServings,
         context.l10n,
         maxFractionDigits: 3,
@@ -69,7 +70,10 @@ class _RecipePortionSelectorState extends State<RecipePortionSelector> {
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           maxLength: 12,
           onChanged: _changed,
-          errorText: value == null ? t.recipeCalcServingsError : null,
+          errorText: value == null
+              ? numberInputHint(NumberInput.parse(_controller.text), t) ??
+                    t.recipeCalcServingsError
+              : null,
         ),
         if (widget.showPresets)
           Wrap(

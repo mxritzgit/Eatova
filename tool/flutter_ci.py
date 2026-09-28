@@ -269,7 +269,36 @@ def validate_report(report: Path, expected: list[str], root: Path) -> dict:
     return {"tests": sum(visible.values()), "suites": sorted(suites.values()), "durations": durations}
 
 
-def validate_shards(manifest: dict, artifact_dir: Path, root: Path | None = None):
+def _valid_attempt(value) -> bool:
+    return type(value) is int and value >= 1
+
+
+def select_attempts(artifact_dir: Path, shard_count: int, run_attempt: int) -> dict[int, tuple[int, Path]]:
+    """Pick each shard's artifact from its latest workflow run attempt.
+
+    "Re-run failed jobs" keeps earlier attempts' artifacts in the same run,
+    so every attempt uploads its own name. Selection is by attempt number only:
+    a failed newer attempt never falls back to an older successful artifact.
+    """
+    if not _valid_attempt(run_attempt) or type(shard_count) is not int or shard_count < 1:
+        raise ValueError("Invalid run attempt or shard count")
+    latest = {}
+    for entry in artifact_dir.iterdir():
+        match = re.fullmatch(r"shard-(0|[1-9][0-9]*)-attempt-([1-9][0-9]*)", entry.name)
+        if not match or entry.is_symlink() or not entry.is_dir():
+            raise ValueError(f"Unexpected shard artifact: {entry.name}")
+        index, attempt = int(match[1]), int(match[2])
+        if index >= shard_count or attempt > run_attempt:
+            raise ValueError(f"Unexpected shard artifact: {entry.name}")
+        if index not in latest or attempt > latest[index][0]:
+            latest[index] = (attempt, entry)
+    if set(latest) != set(range(shard_count)):
+        raise ValueError("Missing shard artifacts")
+    return dict(sorted(latest.items()))
+
+
+def validate_shards(manifest: dict, artifact_dir: Path, root: Path | None = None,
+                    run_attempt: int | None = None):
     root = (root or Path.cwd()).resolve()
     shards = manifest.get("shards", [])
     if type(manifest.get("version")) is not int or manifest.get("version") != 1 or not shards:
@@ -281,12 +310,16 @@ def validate_shards(manifest: dict, artifact_dir: Path, root: Path | None = None
     for key in ("tests", "test_sha256", "sources"):
         if actual[key] != manifest.get(key):
             raise ValueError(f"Checkout no longer matches manifest {key}")
-    expected_dirs = {f"shard-{i}" for i in range(len(shards))}
-    if {p.name for p in artifact_dir.iterdir()} != expected_dirs:
-        raise ValueError("Missing or unexpected shard artifacts")
+    if run_attempt is None:
+        expected_dirs = {f"shard-{i}" for i in range(len(shards))}
+        if {p.name for p in artifact_dir.iterdir()} != expected_dirs:
+            raise ValueError("Missing or unexpected shard artifacts")
+        folders = {i: (None, artifact_dir / f"shard-{i}") for i in range(len(shards))}
+    else:
+        folders = select_attempts(artifact_dir, len(shards), run_attempt)
     coverages = []
     for index, files in enumerate(shards):
-        folder = artifact_dir / f"shard-{index}"
+        attempt, folder = folders[index]
         if _json(folder / "manifest.json") != manifest:
             raise ValueError("Shard manifest mismatch")
         result = _json(folder / "result.json")
@@ -295,6 +328,9 @@ def validate_shards(manifest: dict, artifact_dir: Path, root: Path | None = None
                 type(result.get("shard")) is not int or result.get("shard") != index or
                 type(result.get("exit_code")) is not int or result.get("exit_code") != 0):
             raise ValueError("Unsuccessful or mismatched shard")
+        # The artifact name and the evidence inside it must name the same attempt.
+        if attempt is not None and (not _valid_attempt(result.get("run_attempt")) or result["run_attempt"] != attempt):
+            raise ValueError("Shard artifact does not belong to its run attempt")
         report, lcov = folder / "report.jsonl", folder / "lcov.info"
         if (result.get("report_sha256") != _sha(report) or result.get("coverage_sha256") != _sha(lcov)
                 or result.get("coverage_bytes") != lcov.stat().st_size):
@@ -342,8 +378,12 @@ def main(argv=None) -> int:
     parser.add_argument("--output", type=Path, default=Path(".dart_tool/flutter-ci"))
     parser.add_argument("--flutter", default="flutter")
     parser.add_argument("--floor", type=float, default=88.0)
+    parser.add_argument("--run-attempt", type=int,
+                        help="GitHub run attempt; artifacts are then named shard-N-attempt-K")
     args = parser.parse_args(argv)
     root, output = args.root.resolve(), args.output.resolve()
+    if args.run_attempt is not None and not _valid_attempt(args.run_attempt):
+        raise ValueError("Invalid run attempt")
     if args.command == "aggregate" and os.environ.get("GITHUB_ACTIONS") == "true":
         check_dependencies(json.loads(os.environ.get("FLUTTER_CI_NEEDS", "{}")))
     manifest = build_manifest(root, args.shards, _timings(args.timings))
@@ -375,10 +415,15 @@ def main(argv=None) -> int:
                   "shard": args.shard, "exit_code": 0, "report_sha256": _sha(folder / "report.jsonl"),
                   "coverage_sha256": _sha(coverage_file), "coverage_bytes": coverage_file.stat().st_size,
                   "coverage_inventory": coverage_inventory(coverage), **summary}
+        if args.run_attempt is not None:
+            result["run_attempt"] = args.run_attempt
         _write(folder / "result.json", result)
         print(f"Validated {summary['tests']} tests across {len(files)} files", flush=True)
     else:
-        coverage = validate_shards(manifest, output, root)
+        if args.run_attempt is not None:
+            selected = select_attempts(output, args.shards, args.run_attempt)
+            print("Selected shard artifacts: " + ", ".join(path.name for _, path in selected.values()), flush=True)
+        coverage = validate_shards(manifest, output, root, args.run_attempt)
         percentage = coverage_percent(coverage)
         if not math.isfinite(args.floor) or not 88 <= args.floor <= 100:
             raise ValueError("Coverage floor may not be lowered below 88%")

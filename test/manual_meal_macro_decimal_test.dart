@@ -9,8 +9,10 @@ import 'support/harness.dart';
 // Macro input in the manual entry (Audit 2026-08-14): the digitsOnly
 // formatter silently turned "3,5" into 35, persisting a tenfold fat value
 // while the calories stayed right, so nothing looked wrong.
-// Comma AND dot must pass, and the 0..1000 g bound must then apply to the
-// DECIMAL value, not to the digit string.
+// Comma AND dot must pass, and the 0..100 g bound must then apply to the
+// DECIMAL value, not to the digit string. The bound is per 100 g of food
+// (PlausibilityLimits.macroPer100GMax): it used to be the per-meal DB bound of
+// 1000 g, which let an impossible 150 g of protein per 100 g through.
 
 class _ResultHalter {
   MealAnalysisResult? result;
@@ -110,7 +112,7 @@ void main() {
     expect(halter.result?.fat, '4,4 g');
   });
 
-  testWidgets('Bereichspruefung greift auf dem Dezimalwert (0..1000 g)', (
+  testWidgets('Bereichspruefung greift auf dem Dezimalwert (0..100 g)', (
     tester,
   ) async {
     await _open(tester);
@@ -122,19 +124,37 @@ void main() {
       isNull,
       reason: '1200,5 g/100 g liegt ueber der DB-Grenze',
     );
-    expect(find.text('0–1000 g'), findsOneWidget);
+    expect(find.text('0–100 g'), findsOneWidget);
 
-    // The formatter lets several separators through; unparseable input is
-    // rejected, not silently bent into shape.
+    // Below the old per-meal bound, above what 100 g of food can hold.
+    await _tippe(tester, 'manual-meal-carbs', '150');
+    await tester.pump();
+    expect(
+      _saveButton(tester).onPressed,
+      isNull,
+      reason: '150 g Kohlenhydrate in 100 g Lebensmittel gibt es nicht',
+    );
+    expect(find.text('0–100 g'), findsOneWidget);
+
+    // Several separators reach the validator; unparseable input is rejected,
+    // not silently bent into shape.
     await _tippe(tester, 'manual-meal-carbs', '3,,5');
     await tester.pump();
     expect(_saveButton(tester).onPressed, isNull);
-    expect(find.text('0–1000 g'), findsOneWidget);
+    expect(find.text('0–100 g'), findsOneWidget);
 
     await _tippe(tester, 'manual-meal-carbs', '12,5');
     await tester.pump();
     expect(_saveButton(tester).onPressed, isNotNull);
-    expect(find.text('0–1000 g'), findsNothing);
+    expect(find.text('0–100 g'), findsNothing);
+
+    await _tippe(tester, 'manual-meal-carbs', '100');
+    await tester.pump();
+    expect(
+      _saveButton(tester).onPressed,
+      isNotNull,
+      reason: '100 g/100 g (reiner Zucker) ist die inklusive Grenze',
+    );
   });
 
   testWidgets('ganzzahliger Normalfall liefert weiter die Factory-Werte', (

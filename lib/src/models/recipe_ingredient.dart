@@ -1,4 +1,7 @@
+import '../l10n/l10n.dart';
 import 'model_limits.dart';
+import 'number_input.dart';
+import 'persisted_labels.dart';
 
 enum IngredientSource { manual, openFoodFacts }
 
@@ -79,6 +82,14 @@ class RecipeIngredient {
   final RecipeNutrition per100g;
   final IngredientSource source;
   final String? productCode;
+
+  /// Display value of [name]: a product without a name was stored under its
+  /// German fallback (see [PersistedLabels.resolveProductName]).
+  String displayName(AppLocalizations l10n) =>
+      source == IngredientSource.openFoodFacts
+      ? PersistedLabels.resolveProductName(name, productCode ?? '', l10n) ??
+            name
+      : name;
 
   /// Exact identity for shopping aggregation; no free-text quantity guessing.
   String get shoppingKey => productCode != null
@@ -206,11 +217,10 @@ class RecipeCalculation {
 
 void validateRecipeServings(double value) => _number(value, 0.1, 100);
 
+/// Valid servings (0.1..100) or null. "1.000" is ambiguous, not 1.
 double? parseRecipeServings(String text) {
-  final value = double.tryParse(text.trim().replaceAll(',', '.'));
-  return value != null && value.isFinite && value >= 0.1 && value <= 100
-      ? value
-      : null;
+  final value = NumberInput.parse(text).value;
+  return value != null && value >= 0.1 && value <= 100 ? value : null;
 }
 
 double _number(Object? value, double min, double max) {

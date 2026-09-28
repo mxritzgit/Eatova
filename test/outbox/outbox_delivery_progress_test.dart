@@ -162,9 +162,10 @@ void main() {
           session.store.weightLog.entries,
           hasLength(WeightLog.maxEntries),
         );
+        // Cached weigh-ins are instants and are shown in local time.
         expect(
           session.store.weightLog.baseline!.timestamp,
-          entries[1].timestamp,
+          entries[1].timestamp.toLocal(),
         );
         expect(
           session.store.weightLog.latest!.timestamp.isAtSameMomentAs(_now),

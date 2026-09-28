@@ -3,6 +3,7 @@ import '../services/uuid.dart';
 import 'macro_progress.dart';
 import 'meal_analysis_result.dart';
 import 'model_limits.dart';
+import 'persisted_labels.dart';
 import 'recipe_catalog_de.dart';
 import 'recipe_catalog_en.dart';
 import 'recipe_ingredient.dart';
@@ -444,7 +445,7 @@ class FitnessRecipe {
       slug: slug,
       serverRevision: revision as int?,
       conflictOf: conflict as String?,
-      title: row['title']?.toString() ?? 'Eigenes Rezept',
+      title: row['title']?.toString() ?? PersistedLabels.ownRecipeTitle,
       description: row['description']?.toString() ?? '',
       portion: row['portion']?.toString() ?? '',
       ingredients: row['ingredients']?.toString() ?? '',
@@ -489,12 +490,45 @@ class FitnessRecipe {
     return value;
   }
 
+  /// Display value of [title]: the [fromRow] fallback for a row without a
+  /// title resolves; every real title passes through.
+  String displayTitle(AppLocalizations l10n) =>
+      userCreated && title == PersistedLabels.ownRecipeTitle
+      ? l10n.recipesOwnTitle
+      : title;
+
   /// Display value of [description]. The create sheet has no description field,
   /// so for [userCreated] this is practically always a placeholder; catalog
-  /// recipes return their text unchanged.
-  String displayDescription(AppLocalizations l10n) => userCreated
-      ? _resolvePlaceholder(description, l10n, (x) => x.recipesOwnTitle)
-      : description;
+  /// recipes return their text unchanged. An import's source line shows its
+  /// label in the active language.
+  String displayDescription(AppLocalizations l10n) {
+    if (!userCreated) return description;
+    final text = _resolvePlaceholder(
+      description,
+      l10n,
+      (x) => x.recipesOwnTitle,
+    );
+    return hasImportedIngredientContext
+        ? resolveImportSourceLine(text, l10n)
+        : text;
+  }
+
+  /// `RecipeImportCandidate.toRecipe` appends `<label>: <url>` as the last
+  /// paragraph, with the label of the language active at import time. That
+  /// label resolves; any other last paragraph passes through.
+  static String resolveImportSourceLine(String text, AppLocalizations l10n) {
+    final cut = text.lastIndexOf('\n\n');
+    final head = cut < 0 ? '' : text.substring(0, cut + 2);
+    final line = cut < 0 ? text : text.substring(cut + 2);
+    for (final source in <AppLocalizations>[deL10n, enL10n]) {
+      final label = '${source.recipeImportSourceLabel}: ';
+      if (!line.startsWith(label)) continue;
+      final url = line.substring(label.length);
+      if (url.isEmpty || url.contains(RegExp(r'\s'))) return text;
+      return '$head${l10n.recipeImportSourceLabel}: $url';
+    }
+    return text;
+  }
 
   /// Display value of [portion]. The sheet prefills it per locale
   /// (`foodPortionFallback`); leaving it untouched or empty persists the empty

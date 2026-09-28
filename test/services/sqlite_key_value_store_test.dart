@@ -6,7 +6,97 @@ import 'package:sqlite3/sqlite3.dart';
 import 'package:eatova/src/services/key_value_store.dart';
 import 'package:eatova/src/services/sqlite_key_value_store.dart';
 
+/// Diagnostics may name SQLite's fixed result code, never the message, the
+/// SQL, the bound values or the database path.
+Matcher _sanitizedFor(String path) => allOf([
+  isNot(contains('test fault')),
+  isNot(contains('cache_slots')),
+  isNot(contains('INSERT')),
+  isNot(contains('ROLLBACK')),
+  isNot(contains('new-op')),
+  isNot(contains('meal-')),
+  isNot(contains(path)),
+  isNot(contains('eatova_sqlite_')),
+]);
+
 void main() {
+  group('DurableStorageException SQLite codes', () {
+    test('maps every primary result code to its fixed SQLite name', () {
+      const names = {
+        1: 'error',
+        2: 'internal',
+        3: 'perm',
+        4: 'abort',
+        5: 'busy',
+        6: 'locked',
+        7: 'nomem',
+        8: 'readonly',
+        9: 'interrupt',
+        10: 'ioerr',
+        11: 'corrupt',
+        12: 'notfound',
+        13: 'full',
+        14: 'cantopen',
+        15: 'protocol',
+        16: 'empty',
+        17: 'schema',
+        18: 'toobig',
+        19: 'constraint',
+        20: 'mismatch',
+        21: 'misuse',
+        22: 'nolfs',
+        23: 'auth',
+        24: 'format',
+        25: 'range',
+        26: 'notadb',
+        27: 'notice',
+        28: 'warning',
+      };
+      for (final entry in names.entries) {
+        expect(
+          DurableStorageException('x', sqliteResultCode: entry.key).sqliteCode,
+          entry.value,
+          reason: 'primary code ${entry.key}',
+        );
+      }
+    });
+
+    test('extended codes keep their primary category', () {
+      const extended = {
+        261: 'busy', // SQLITE_BUSY_RECOVERY
+        517: 'busy', // SQLITE_BUSY_SNAPSHOT
+        262: 'locked', // SQLITE_LOCKED_SHAREDCACHE
+        1034: 'ioerr', // SQLITE_IOERR_FSYNC
+        4618: 'ioerr', // SQLITE_IOERR_SHMOPEN
+        3850: 'ioerr', // SQLITE_IOERR_LOCK
+        270: 'cantopen', // SQLITE_CANTOPEN_NOTEMPDIR
+        1811: 'constraint', // SQLITE_CONSTRAINT_TRIGGER
+      };
+      for (final entry in extended.entries) {
+        final error = DurableStorageException(
+          'database operation failed',
+          sqliteResultCode: entry.key,
+        );
+        expect(error.sqliteCode, entry.value, reason: 'code ${entry.key}');
+        expect(
+          error.toString(),
+          'DurableStorageException: database operation failed '
+          '(sqlite ${entry.value}, code ${entry.key})',
+        );
+      }
+    });
+
+    test('unknown or absent codes stay generic', () {
+      expect(
+        const DurableStorageException('x', sqliteResultCode: 99).sqliteCode,
+        'unknown',
+      );
+      const plain = DurableStorageException('database is closed');
+      expect(plain.sqliteCode, isNull);
+      expect(plain.toString(), 'DurableStorageException: database is closed');
+    });
+  });
+
   late Directory directory;
   late String path;
   final opened = <SqliteKeyValueStore>[];
@@ -61,7 +151,14 @@ void main() {
       connection.close();
       await expectLater(
         store.writeBatch({'entity': 'new', 'outbox': 'new-op'}),
-        throwsA(isA<DurableStorageException>()),
+        throwsA(
+          isA<DurableStorageException>()
+              .having((e) => e.reason, 'reason', 'database operation failed')
+              .having((e) => e.sqliteCode, 'sqliteCode', 'constraint')
+              // SQLITE_CONSTRAINT_TRIGGER
+              .having((e) => e.sqliteResultCode, 'sqliteResultCode', 1811)
+              .having((e) => '$e', 'toString', _sanitizedFor(path)),
+        ),
       );
       await store.close();
       final reopened = await open();
@@ -167,4 +264,97 @@ void main() {
       expect(await reopened.getString('migrated'), 'true');
     },
   );
+
+  test(
+    'an unreadable file reports the SQLite category, not its path',
+    () async {
+      await File(path).writeAsBytes(List<int>.filled(4096, 0x41));
+      await expectLater(
+        open(),
+        throwsA(
+          isA<DurableStorageException>()
+              .having((e) => e.reason, 'reason', 'database unavailable')
+              .having((e) => e.sqliteCode, 'sqliteCode', 'notadb')
+              .having((e) => e.sqliteResultCode, 'sqliteResultCode', 26)
+              .having((e) => '$e', 'toString', _sanitizedFor(path)),
+        ),
+      );
+    },
+  );
+
+  group('a transaction SQLite already rolled back', () {
+    void installRollbackTrigger() {
+      final connection = sqlite3.open(path);
+      connection.execute(
+        "CREATE TRIGGER fail_outbox BEFORE UPDATE ON cache_slots "
+        "WHEN NEW.key = 'outbox' BEGIN SELECT RAISE(ROLLBACK, 'test fault'); "
+        'END',
+      );
+      connection.close();
+    }
+
+    void dropRollbackTrigger() {
+      final connection = sqlite3.open(path);
+      connection.execute('DROP TRIGGER fail_outbox');
+      connection.close();
+    }
+
+    test(
+      'reports the original failure instead of the failed ROLLBACK',
+      () async {
+        final store = await open();
+        await store.writeBatch({'entity': 'old', 'outbox': 'old-op'});
+        installRollbackTrigger();
+        await expectLater(
+          store.writeBatch({'entity': 'new', 'outbox': 'new-op'}),
+          throwsA(
+            isA<DurableStorageException>()
+                .having((e) => e.sqliteCode, 'sqliteCode', 'constraint')
+                .having((e) => '$e', 'toString', _sanitizedFor(path)),
+          ),
+        );
+        dropRollbackTrigger();
+        expect((await store.writeBatch({'entity': 'next'})).versions, {
+          'entity': 2,
+        });
+        expect((await store.readSnapshot(['entity', 'outbox'])).values, {
+          'entity': 'next',
+          'outbox': 'old-op',
+        });
+      },
+    );
+
+    test('does not leave the connection in a phantom initialization', () async {
+      final store = await open();
+      await store.writeBatch({'entity': 'old', 'outbox': 'old-op'});
+      installRollbackTrigger();
+      await expectLater(
+        store.initializeExclusively(() async {
+          await store.writeBatch({'entity': 'imported'});
+          await store.writeBatch({'outbox': 'imported-op'});
+        }),
+        throwsA(
+          isA<DurableStorageException>().having(
+            (e) => e.sqliteCode,
+            'sqliteCode',
+            'constraint',
+          ),
+        ),
+      );
+      dropRollbackTrigger();
+      expect((await store.readSnapshot(['entity', 'outbox'])).values, {
+        'entity': 'old',
+        'outbox': 'old-op',
+      });
+      // A stuck initialization flag would reject this and run later batches
+      // without their own transaction.
+      await store.initializeExclusively(() async {
+        await store.writeBatch({'entity': 'imported', 'migrated': 'true'});
+      });
+      expect((await store.readSnapshot(['entity', 'migrated'])).values, {
+        'entity': 'imported',
+        'migrated': 'true',
+      });
+    });
+  });
 }

@@ -7,7 +7,8 @@ Future<void> main(List<String> arguments) async {
   final store = await SqliteKeyValueStore.open(arguments[0]);
   final mode = arguments[1];
   Future<void> checkpoint() async {
-    stdout.writeln('CRASH_CHECKPOINT');
+    // The pid of this process, which holds the database; not the launcher's.
+    stdout.writeln('CRASH_CHECKPOINT $pid');
     await stdout.flush();
     await stdin.first;
   }

@@ -566,9 +566,9 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
 
   void _onChanged() => setState(() {});
 
-  /// The typed value, or null when it is not a number.
-  double? get _value =>
-      double.tryParse(_controller.text.trim().replaceAll(',', '.'));
+  /// The typed value, or null when it is not a number (or an ambiguous
+  /// "1.000", which is 1 or 1000 kg).
+  double? get _value => NumberInput.parse(_controller.text).value;
 
   /// Range check against the `weight_log` table (20..400 kg, F7-02). Before
   /// this, "7.55" (slipped decimal) went to log, cache and HealthKit, the
@@ -581,6 +581,8 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
   /// Error text under the field; only once something is typed.
   String? _errorText(AppLocalizations l10n) {
     if (_controller.text.trim().isEmpty || _valid) return null;
+    final hinweis = numberInputHint(NumberInput.parse(_controller.text), l10n);
+    if (hinweis != null) return hinweis;
     return l10n.profileWeightInputRangeError(
       WeightLogLimits.weightKgMin.toInt(),
       WeightLogLimits.weightKgMax.toInt(),

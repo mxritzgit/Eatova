@@ -83,6 +83,13 @@ truncated, skipped or failed results fail the aggregate. These artifacts also
 retain per-file timings for future balancing; no earlier passing result is reused.
 The normal unsharded `flutter test --coverage` command above remains supported.
 
+"Re-run failed jobs" is safe. GitHub keeps the earlier attempt's artifacts in the
+same run, so CI names each one `shard-N-attempt-K` and passes `--run-attempt` to
+`run` and `aggregate`. The aggregate takes every shard from its newest attempt;
+it never falls back to an older successful artifact when the newest one is
+incomplete. The attempt recorded in `result.json` must match the artifact name.
+Local runs omit `--run-attempt` and keep the plain `shard-N` directories.
+
 Step 3 is required whenever you touch `supabase/functions/`; it is cheap
 enough to run every time. CI additionally builds a debug APK and a release
 AAB (R8 + AOT, throwaway keystore), scans secrets across the full history

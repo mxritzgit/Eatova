@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/coach_training_proposal.dart';
+import '../../models/number_input.dart';
 import '../../models/training_plan.dart';
 import '../../services/sync_error_messages.dart';
 import '../../services/uuid.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
+import '../../widgets/common/decimal_text.dart';
 import '../../widgets/design/design.dart';
 import 'training_exercise_list.dart';
 
@@ -476,12 +477,11 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
           keyboardType: value.min == null
               ? (lines > 1 ? TextInputType.multiline : TextInputType.text)
               : TextInputType.number,
+          // Four digits cover every bound (3600 s); separators pass through
+          // to [_PlanText.validate] instead of being dropped by `digitsOnly`.
           inputFormatters: value.min == null
               ? null
-              : [
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(4),
-                ],
+              : const [DigitBudgetFormatter(4)],
           errorText: value.error,
           onChanged: (_) {
             if (value.error != null) value.error = value.validate(context.l10n);
