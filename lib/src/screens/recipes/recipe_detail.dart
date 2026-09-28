@@ -347,7 +347,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                             HeadingSemantics(
                               level: 1,
                               child: Text(
-                                recipe.title,
+                                recipe.displayTitle(l10n),
                                 key: ValueKey('recipe-detail-${recipe.slug}'),
                                 style: AppType.display(
                                   28,
@@ -450,7 +450,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                       ? recipe.ingredientQuantityHint(l10n)
                       : l10n.recipeDetailIngredientsHint,
                   body: recipe.hasStructuredIngredients
-                      ? '${recipe.structuredIngredients.map((i) => '${_nutritionNumber(i.grams, l10n)} g ${i.name}').join('\n')}${recipe.ingredients.isEmpty ? '' : '\n\n${recipe.ingredients}'}'
+                      ? '${recipe.structuredIngredients.map((i) => '${_nutritionNumber(i.grams, l10n)} g ${i.displayName(l10n)}').join('\n')}${recipe.ingredients.isEmpty ? '' : '\n\n${recipe.ingredients}'}'
                       : recipe.displayIngredients(l10n),
                 ),
                 _RecipeInfoSection(

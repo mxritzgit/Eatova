@@ -465,13 +465,20 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                       for (var index = 0; index < _posten.length; index++) ...[
                         if (_removed.contains(index))
                           _RemovedItemCard(
-                            name: _posten[index].item.name,
+                            name: widget.result.resolvedItemName(
+                              _posten[index].item,
+                              l10n,
+                            ),
                             onUndo: () => _undoRemove(index),
                           )
                         else
                           _ItemEditCard(
                             index: index,
                             item: _posten[index].item,
+                            name: widget.result.resolvedItemName(
+                              _posten[index].item,
+                              l10n,
+                            ),
                             controller: _posten[index].controller,
                             angepasst: angepasstJeIndex[index]!,
                             gramsInvalid: _posten[index].ungueltig,
@@ -594,6 +601,7 @@ class _ItemEditCard extends StatelessWidget {
   const _ItemEditCard({
     required this.index,
     required this.item,
+    required this.name,
     required this.controller,
     required this.angepasst,
     required this.gramsInvalid,
@@ -602,6 +610,10 @@ class _ItemEditCard extends StatelessWidget {
 
   final int index;
   final MealComponent item;
+
+  /// Display name of [item]; persisted fallbacks resolve (the raw name stays
+  /// in the data).
+  final String name;
   final TextEditingController controller;
 
   /// Exactly the instance the total card sums — the row's grams and calories
@@ -650,7 +662,7 @@ class _ItemEditCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  item.name,
+                  name,
                   style: AppType.ui(14, weight: FontWeight.w700, color: t.ink),
                 ),
               ),
@@ -674,7 +686,7 @@ class _ItemEditCard extends StatelessWidget {
               children: [
                 _ItemStepperButton(
                   icon: Icons.remove_rounded,
-                  semanticLabel: l10n.foodDecreaseItemSemantics(item.name),
+                  semanticLabel: l10n.foodDecreaseItemSemantics(name),
                   onTap: () => _bump(-10),
                   onLongPress: () => _bump(-50),
                 ),
@@ -748,7 +760,7 @@ class _ItemEditCard extends StatelessWidget {
                 const SizedBox(width: 10),
                 _ItemStepperButton(
                   icon: Icons.add_rounded,
-                  semanticLabel: l10n.foodIncreaseItemSemantics(item.name),
+                  semanticLabel: l10n.foodIncreaseItemSemantics(name),
                   onTap: () => _bump(10),
                   onLongPress: () => _bump(50),
                 ),

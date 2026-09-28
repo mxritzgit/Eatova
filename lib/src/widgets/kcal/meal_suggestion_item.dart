@@ -347,7 +347,7 @@ class _Header extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    result.mealName,
+                    result.resolvedMealName(context.l10n),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: AppType.ui(
@@ -630,9 +630,9 @@ class _ExpandedBody extends StatelessWidget {
           else
             _LivePreview(
               kcal: preview.caloriesKcal,
-              protein: preview.protein,
-              carbs: preview.carbs,
-              fat: preview.fat,
+              protein: preview.resolvedProtein(l10n),
+              carbs: preview.resolvedCarbs(l10n),
+              fat: preview.resolvedFat(l10n),
             ),
           const SizedBox(height: 12),
           SizedBox(

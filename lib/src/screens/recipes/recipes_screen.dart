@@ -689,7 +689,9 @@ class _RecipesScreenState extends State<RecipesScreen> {
       context,
       // Plain sentence form: locally the recipe IS gone. If the commit later
       // only queues the delete, a second toast says so.
-      l10n.commonDeliverySuccess(l10n.recipesDeletedSuccess(recipe.title)),
+      l10n.commonDeliverySuccess(
+        l10n.recipesDeletedSuccess(recipe.displayTitle(l10n)),
+      ),
       icon: Icons.delete_outline_rounded,
       tone: SnackTone.error,
       action: SnackBarAction(
@@ -740,7 +742,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
     showAppSnack(
       context,
       deliveryHint(
-        context.l10n.recipesDeletedSuccess(recipe.title),
+        context.l10n.recipesDeletedSuccess(recipe.displayTitle(context.l10n)),
         ausgang,
         context.l10n,
       ),

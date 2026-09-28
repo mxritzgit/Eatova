@@ -74,7 +74,7 @@ String todayDateLabel(
 /// Subtitle of a slot row: the logged meal names, otherwise the empty text.
 String mealSlotSubtitle(List<LoggedMeal> meals, AppLocalizations l10n) {
   if (meals.isEmpty) return l10n.todayMealSlotEmpty;
-  return meals.map((m) => m.result.mealName).join(' · ');
+  return meals.map((m) => m.result.resolvedMealName(l10n)).join(' · ');
 }
 
 /// The coach banner teaser, built from the remaining macros: a banner that

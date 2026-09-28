@@ -111,7 +111,7 @@ class _RecipeNutritionBasisSheetState
               ),
               const SizedBox(height: 20),
               Text(
-                widget.recipe.title,
+                widget.recipe.displayTitle(l10n),
                 style: AppType.display(20, color: t.ink),
               ),
               const SizedBox(height: 12),

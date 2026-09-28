@@ -1464,6 +1464,40 @@
   "foodScanNoteItemized": "AI estimate from the photo with individual items. Please check items and grams.",
   "foodScanNotePlain": "AI estimate from the photo. The size wasn't measured exactly; please confirm the portion or adjust the weight.",
   "foodManualEntryNote": "Nutrition entered manually from the label (per 100 g).",
+  "foodAdjustedGramsNote": "Adjusted manually: {grams} g instead of the original portion.",
+  "@foodAdjustedGramsNote": {
+    "description": "Must stay byte-identical to the German note that MealAnalysisResult.adjustedToGrams persists.",
+    "placeholders": {
+      "grams": {
+        "type": "String"
+      }
+    }
+  },
+  "foodAdjustedGramsDensityNote": "Adjusted manually: {grams} g instead of the original portion. Calories recalculated at {kcal} kcal per 100 g.",
+  "@foodAdjustedGramsDensityNote": {
+    "description": "Must stay byte-identical to the German note that MealAnalysisResult.adjustedToGrams persists.",
+    "placeholders": {
+      "grams": {
+        "type": "String"
+      },
+      "kcal": {
+        "type": "String"
+      }
+    }
+  },
+  "foodAdjustedItemsNote": "Individual items were confirmed or adjusted manually. Totals were recalculated from the sum of the items.",
+  "foodAdjustedItemsNoMacrosNote": "Individual items were confirmed or adjusted manually. Calories and grams were recalculated from the sum of the items. Macros can no longer be derived from the changed composition and are therefore not shown.",
+  "foodUnknownMealName": "Unknown meal",
+  "foodMealNameFallback": "Meal",
+  "foodProductFallbackName": "Product {code}",
+  "@foodProductFallbackName": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "foodIngredientFallbackName": "Ingredient",
   "foodManualEntryTitle": "Custom nutrition",
   "foodManualEntrySubtitle": "Label values per 100 g — Eatova calculates your portion.",
   "foodManualEntryCta": "Add manually",

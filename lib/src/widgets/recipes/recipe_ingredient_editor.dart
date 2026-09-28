@@ -64,7 +64,7 @@ class RecipeIngredientEditor extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        ingredients[i].name,
+                        ingredients[i].displayName(t),
                         style: AppType.ui(15, color: context.t.ink),
                       ),
                       Text(
@@ -361,7 +361,7 @@ class _IngredientSheetState extends State<_IngredientSheet> {
               ListTile(
                 key: ValueKey('ingredient-result-$i'),
                 contentPadding: EdgeInsets.zero,
-                title: Text(_results[i].title),
+                title: Text(_results[i].result.resolvedMealName(t)),
                 subtitle: Text(_results[i].subtitle),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => _select(_results[i]),

@@ -31,12 +31,10 @@ class ProductSearchHeader extends StatelessWidget {
     final l10n = context.l10n;
     final brand = result.brand?.trim();
     final brandSuffix = brand == null || brand.isEmpty ? null : ' · $brand';
-    final title = brandSuffix != null && result.mealName.endsWith(brandSuffix)
-        ? result.mealName.substring(
-            0,
-            result.mealName.length - brandSuffix.length,
-          )
-        : result.mealName;
+    final name = result.resolvedMealName(l10n);
+    final title = brandSuffix != null && name.endsWith(brandSuffix)
+        ? name.substring(0, name.length - brandSuffix.length)
+        : name;
     final large = MediaQuery.textScalerOf(context).scale(16) > 24;
     final density = result.isRecipeWithoutCookedWeight
         ? 0
