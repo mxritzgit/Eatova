@@ -13,8 +13,10 @@ import '../../models/meal_component.dart';
 // the two bound holders, none of the clamp helpers.
 import '../../models/model_limits.dart'
     show LoggedMealLimits, PlausibilityLimits;
+import '../../models/number_input.dart';
 import '../../theme/app_tokens.dart';
 import '../common/basic_widgets.dart';
+import '../common/decimal_text.dart';
 import '../common/motion.dart';
 import '../design/design.dart';
 
