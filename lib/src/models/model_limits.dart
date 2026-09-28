@@ -285,6 +285,10 @@ abstract final class PlausibilityLimits {
   static const double kcalPer100GMin = 0;
   static const double kcalPer100GMax = 900;
 
+  /// 100 g of food cannot hold more than 100 g of one macro. Same bound as
+  /// `RecipeNutrition` (the ingredient editor).
+  static const int macroPer100GMax = 100;
+
   /// A 0 g portion is DB-legal (`estimated_g >= 0`) but meaningless as a meal
   /// and divides by the base portion in `adjustedToGrams`.
   static const int portionGramsMin = 1;

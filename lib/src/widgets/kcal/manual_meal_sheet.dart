@@ -80,7 +80,8 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
   static const int _gramsMin = 1; // PlausibilityLimits.portionGramsMin
   static const int _gramsMax = 10000; // PlausibilityLimits.portionGramsMax
   static const int _macroMin = 0; // LoggedMealLimits.macroGMin
-  static const int _macroMax = 1000; // LoggedMealLimits.macroGMax
+  // Per 100 g, so the per-meal DB bound (1000) does not apply.
+  static const int _macroMax = PlausibilityLimits.macroPer100GMax;
 
   @override
   void initState() {
