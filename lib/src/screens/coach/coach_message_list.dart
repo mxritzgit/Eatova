@@ -17,10 +17,20 @@ class _Conversation extends StatelessWidget {
     required this.planAddedFor,
     required this.planReviewEnabled,
     required this.onReviewPlan,
+    required this.onScroll,
+    required this.onMetricsChanged,
     this.onOpenTraining,
   });
 
   final ScrollController controller;
+
+  /// Scroll movement, from which the screen tells whether the reader is still
+  /// at the end.
+  final NotificationListenerCallback<ScrollNotification> onScroll;
+
+  /// Content or viewport size changed; a chat pinned to its end follows.
+  final NotificationListenerCallback<ScrollMetricsNotification>
+      onMetricsChanged;
   final FocusNode focus;
   final List<ChatMessage> messages;
   final bool sending;
@@ -47,45 +57,51 @@ class _Conversation extends StatelessWidget {
       key: const ValueKey('coach-message-list'),
       onTap: () => focus.unfocus(),
       behavior: HitTestBehavior.translucent,
-      child: ListView.builder(
-        controller: controller,
-        // Horizontal 0: the side inset comes from the shell.
-        padding: const EdgeInsets.fromLTRB(0, 18, 0, 10),
-        itemCount: messages.length + (sending ? 1 : 0),
-        itemBuilder: (context, i) {
-          if (sending && i == messages.length) {
-            // Dots until the first token, then the answer as it is written.
-            // Deliberately the same [_MessageView] the finished answer gets:
-            // the preview must not move or restyle when the authoritative
-            // `done` text replaces it a moment later.
-            return ValueListenableBuilder<String>(
-              valueListenable: preview,
-              builder: (context, text, _) {
-                if (text.isEmpty) return const _ThinkingRow();
-                return _MessageView(
-                  key: const ValueKey('coach-stream-preview'),
-                  message: ChatMessage(
-                    id: 'stream-preview',
-                    role: ChatRole.assistant,
-                    content: text,
-                    createdAt: DateTime.now(),
-                  ),
+      child: NotificationListener<ScrollMetricsNotification>(
+        onNotification: onMetricsChanged,
+        child: NotificationListener<ScrollNotification>(
+          onNotification: onScroll,
+          child: ListView.builder(
+            controller: controller,
+            // Horizontal 0: the side inset comes from the shell.
+            padding: const EdgeInsets.fromLTRB(0, 18, 0, 10),
+            itemCount: messages.length + (sending ? 1 : 0),
+            itemBuilder: (context, i) {
+              if (sending && i == messages.length) {
+                // Dots until the first token, then the answer as it is written.
+                // Deliberately the same [_MessageView] the finished answer gets:
+                // the preview must not move or restyle when the authoritative
+                // `done` text replaces it a moment later.
+                return ValueListenableBuilder<String>(
+                  valueListenable: preview,
+                  builder: (context, text, _) {
+                    if (text.isEmpty) return const _ThinkingRow();
+                    return _MessageView(
+                      key: const ValueKey('coach-stream-preview'),
+                      message: ChatMessage(
+                        id: 'stream-preview',
+                        role: ChatRole.assistant,
+                        content: text,
+                        createdAt: DateTime.now(),
+                      ),
+                    );
+                  },
                 );
-              },
-            );
-          }
-          final message = messages[i];
-          return _MessageView(
-            message: message,
-            recipeAdded: recipeAddedFor(message),
-            recipeAddEnabled: recipeAddEnabled,
-            onAddRecipe: () => onAddRecipe(message),
-            planAdded: planAddedFor(message),
-            planReviewEnabled: planReviewEnabled,
-            onReviewPlan: () => onReviewPlan(message),
-            onOpenTraining: onOpenTraining,
-          );
-        },
+              }
+              final message = messages[i];
+              return _MessageView(
+                message: message,
+                recipeAdded: recipeAddedFor(message),
+                recipeAddEnabled: recipeAddEnabled,
+                onAddRecipe: () => onAddRecipe(message),
+                planAdded: planAddedFor(message),
+                planReviewEnabled: planReviewEnabled,
+                onReviewPlan: () => onReviewPlan(message),
+                onOpenTraining: onOpenTraining,
+              );
+            },
+          ),
+        ),
       ),
     );
   }
