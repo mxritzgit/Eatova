@@ -123,6 +123,14 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   final ScrollController _scroll = ScrollController();
   final FocusNode _inputFocus = FocusNode();
 
+  /// Whether the chat is pinned to its end: then new messages, streamed text
+  /// and a shrinking viewport keep the newest line in view. Only the reader's
+  /// own scrolling unpins it; sending pins it again.
+  bool _chatAmEnde = true;
+
+  /// Distance from the end that still counts as "at the end".
+  static const double _endeToleranz = 48;
+
   List<ChatMessage> _messages = const <ChatMessage>[];
   List<ChatSession> _sessions = const <ChatSession>[];
 
@@ -716,7 +724,25 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     }
   }
 
+  /// Pins the chat to its end and moves there.
+  ///
+  /// No animation towards a precomputed target: a lazy list only estimates
+  /// its extent until the last rows are laid out, so such a target either
+  /// overshot (a visible bounce on iOS after every answer) or stopped short
+  /// (the chat opened above its newest message). Instead the pin follows each
+  /// metrics change in [_onChatMetrics] until the extent is exact.
   void _scrollToEnd() {
+    _chatAmEnde = true;
+    _springeAnsEnde();
+  }
+
+  /// Incoming content (a first token, a finished answer, an error) follows
+  /// only a reader who is still at the end; one reading further up stays put.
+  void _folgeDemEnde() {
+    if (_chatAmEnde) _springeAnsEnde();
+  }
+
+  void _springeAnsEnde() {
     // Deliberately not `_scroll.position`: the AnimatedSwitcher in [build]
     // gives both the outgoing and incoming `_Conversation` the same
     // controller, so two ListViews are attached briefly and
@@ -728,15 +754,25 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     // `maxScrollExtent` asserts `hasContentDimensions`; a just-attached list
     // has none yet, and calls from the send path have no guaranteed ordering.
     if (!liste.hasContentDimensions) return;
-    final ziel = liste.maxScrollExtent + 240;
-    final dauer = motionDuration(context, const Duration(milliseconds: 260));
-    // No `animateTo(..., Duration.zero)`: DrivenScrollActivity asserts
-    // `duration > Duration.zero`. Reduced motion jumps instead of gliding.
-    if (dauer == Duration.zero) {
-      liste.jumpTo(ziel.clamp(0.0, liste.maxScrollExtent));
-      return;
+    if ((liste.pixels - liste.maxScrollExtent).abs() > 0.5) {
+      liste.jumpTo(liste.maxScrollExtent);
     }
-    liste.animateTo(ziel, duration: dauer, curve: Curves.easeOutCubic);
+  }
+
+  /// New message, streamed text, keyboard or a refined extent estimate:
+  /// dispatched after layout, so jumping here is safe.
+  bool _onChatMetrics(ScrollMetricsNotification notification) {
+    if (_chatAmEnde) _springeAnsEnde();
+    return false;
+  }
+
+  /// Only movement decides the pin, never a content change: growth below a
+  /// pinned reader must not unpin them before [_onChatMetrics] follows it.
+  bool _onChatScroll(ScrollNotification notification) {
+    if (notification is ScrollUpdateNotification) {
+      _chatAmEnde = notification.metrics.extentAfter <= _endeToleranz;
+    }
+    return false;
   }
 
   Future<void> _send({
@@ -859,13 +895,13 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         // conversation must not type itself into this one.
         onPartialReply: (text) {
           if (!_matchesConversation(svc, sessionId, conversationRevision)) return;
-          // Once, when the dots turn into text: the bubble takes the row's
-          // place and has to be in view. Not per delta — that would animate
-          // against a user scrolling up to read what already arrived.
+          // When the dots turn into text the bubble takes the row's place; a
+          // reader at the end keeps it in view, and later deltas follow via
+          // [_onChatMetrics]. A reader scrolled up is never moved.
           final erstesZeichen = _streamVorschau.value.isEmpty;
           _streamVorschau.value = text;
           if (erstesZeichen) {
-            WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
+            WidgetsBinding.instance.addPostFrameCallback((_) => _folgeDemEnde());
           }
         },
       );
@@ -942,7 +978,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       // a session switch — otherwise the composer locks until cold start.
       _sendevorgangBeendet();
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _folgeDemEnde());
   }
 
   /// Whether a new attempt with [text] is the failed question typed again.
@@ -1347,7 +1383,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     } finally {
       _sendevorgangBeendet();
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _folgeDemEnde());
   }
 
   Future<void> _sendPlanRequest({
@@ -1458,7 +1494,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     } finally {
       _sendevorgangBeendet();
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _folgeDemEnde());
   }
 
   /// A paid plan can be valid even when its assistant history write failed.
@@ -2032,6 +2068,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                                   widget.onCreateTrainingPlan != null &&
                                   !_reviewingTrainingPlan,
                               onReviewPlan: _reviewTrainingPlan,
+                              onScroll: _onChatScroll,
+                              onMetricsChanged: _onChatMetrics,
                               onOpenTraining: widget.onOpenTraining,
                             ),
                     ),
