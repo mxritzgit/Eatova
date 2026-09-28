@@ -90,7 +90,9 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
         context: context,
         builder: (context) => AlertDialog(
           title: Text(l10n.recipeHistoryRestore),
-          content: Text(l10n.recipeHistoryRestoreConfirm(version.recipe.title)),
+          content: Text(
+            l10n.recipeHistoryRestoreConfirm(version.recipe.displayTitle(l10n)),
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -152,7 +154,7 @@ class _RecipeHistoryScreenState extends State<RecipeHistoryScreen> {
                 tilePadding: EdgeInsets.zero,
                 title: Text(
                   version.hasRecipeContent
-                      ? version.recipe.title
+                      ? version.recipe.displayTitle(l10n)
                       : l10n.recipeHistoryDeletionOnlyTitle,
                 ),
                 subtitle: Text(

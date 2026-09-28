@@ -189,7 +189,7 @@ class _ExistingMealRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  meal.result.mealName,
+                  meal.result.resolvedMealName(context.l10n),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),

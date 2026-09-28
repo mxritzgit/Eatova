@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 
+import '../l10n/l10n.dart';
 import '../services/local_day.dart';
 import 'planned_meal.dart';
 import 'recipe_ingredient_projection.dart';
@@ -26,11 +27,13 @@ class ShoppingItem {
 
 /// Combines only exact structured identities in grams. Free text retains its
 /// recipe and serving context without inferring units or parsing quantities.
-/// [decimalSeparator] only affects displayed names; ids stay locale-neutral.
+/// [decimalSeparator] and [l10n] only affect displayed names; ids stay
+/// locale-neutral.
 List<ShoppingItem> buildShoppingList(
   List<PlannedMeal> plans,
   DateTime weekStart, {
   String decimalSeparator = '.',
+  AppLocalizations? l10n,
 }) {
   final start = localDayKey(weekStart);
   final end = localDayKey(
@@ -67,7 +70,7 @@ List<ShoppingItem> buildShoppingList(
           originalQuantities: recipe.hasImportedIngredientContext && !projection.isScaled,
           originalBatchServings: recipe.ingredientsBasis == RecipeIngredientsBasis.perRecipe
               ? recipe.batchServings : recipe.ingredientsBasis == RecipeIngredientsBasis.perServing ? 1 : null,
-          recipeTitle: recipe.title,
+          recipeTitle: l10n == null ? recipe.title : recipe.displayTitle(l10n),
           servings: plan.servings,
         ),
       );
@@ -77,7 +80,9 @@ List<ShoppingItem> buildShoppingList(
       (sources[key] ??= {}).add(plan.id);
       final previous = groups[key];
       groups[key] = (
-        name: previous?.name ?? ingredient.name,
+        name:
+            previous?.name ??
+            (l10n == null ? ingredient.name : ingredient.displayName(l10n)),
         grams:
             (previous?.grams ?? 0) +
             ingredient.grams * plan.servings / recipe.batchServings,

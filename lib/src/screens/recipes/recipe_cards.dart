@@ -49,7 +49,7 @@ class _RecipeHeroCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      recipe.title,
+                      recipe.displayTitle(l),
                       style: AppType.display(
                         24,
                         color: t.onBrandSurface,
@@ -220,7 +220,7 @@ class _RecipeListTile extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      recipe.title,
+                      recipe.displayTitle(context.l10n),
                       style: AppType.display(17, color: t.ink, height: 1.2),
                     ),
                     const SizedBox(height: 6),

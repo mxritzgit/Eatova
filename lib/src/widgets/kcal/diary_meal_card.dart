@@ -66,13 +66,16 @@ class _DiaryMealCardState extends State<DiaryMealCard> {
     final title = empty
         ? l10n.todayMealSlotEmpty
         : entries.length == 1
-        ? entries.single.meal.result.mealName
+        ? entries.single.meal.result.resolvedMealName(l10n)
         : l10n.foodDiaryEntryCount(entries.length);
     final detail = empty
         ? l10n.foodSlotAddLabel(slot.label(l10n))
         : entries.length == 1
         ? formatMealTime(entries.single.meal.loggedAt)
-        : entries.take(2).map((e) => e.meal.result.mealName).join(', ');
+        : entries
+              .take(2)
+              .map((e) => e.meal.result.resolvedMealName(l10n))
+              .join(', ');
     final summary = LayoutBuilder(
       builder: (context, constraints) {
         final stacked =
@@ -435,7 +438,7 @@ class _HistoryEntry extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      meal.result.mealName,
+                      meal.result.resolvedMealName(l10n),
                       style: AppType.ui(
                         14,
                         weight: FontWeight.w600,

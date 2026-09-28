@@ -189,7 +189,7 @@ class _PlanEditorState extends State<_PlanEditor> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    recipe.title,
+                                    recipe.displayTitle(context.l10n),
                                     style: AppType.display(
                                       16,
                                       color: t.ink,
@@ -227,7 +227,7 @@ class _PlanEditorState extends State<_PlanEditor> {
                     photoWidth: 86,
                     photoHeight: 98,
                     child: Text(
-                      _recipe!.title,
+                      _recipe!.displayTitle(context.l10n),
                       style: AppType.display(
                         20,
                         color: t.onBrandSurface,

@@ -357,10 +357,9 @@ List<String> _eigeneUeberschriftFunde(String pfad, String quelle) {
 ///    `AppLocalizations.of` is structurally unreachable there.
 ///  * `lib/src/models/recipe_catalog_de.dart` — German content by design.
 ///  * `lib/src/models/meal_analysis_result.dart` — remaining hits are legacy
-///    compatibility DATA the `resolve()` methods must recognise, plus the
-///    `portionNotes` sentences in `adjustedToGrams`/`adjustedToItems` and
-///    `fromOpenFoodFacts`, which still need the same backwards-compatible
-///    care (old rows carry finished German free text). Documented follow-up.
+///    compatibility DATA the `resolve()` methods must recognise, including
+///    the German `portionNotes` sentences that `MealResultAdjustmentNote`
+///    still writes for installed older builds and resolves at display time.
 ///
 /// Service files without a BuildContext (`sync_error_messages.dart`,
 /// `coach_chat_service.dart`, `kcal_calculator.dart`, `meal_analyzer.dart`)

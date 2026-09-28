@@ -1,4 +1,5 @@
 import 'model_limits.dart';
+import 'persisted_labels.dart';
 
 class MealComponent {
   const MealComponent({
@@ -75,7 +76,7 @@ class MealComponent {
   factory MealComponent.fromJson(Map<String, dynamic> json) {
     final name =
         _firstNonEmptyString(json, const ['name', 'item', 'food', 'label']) ??
-        'Zutat';
+        PersistedLabels.ingredientNameFallback;
     final grams =
         _readInt(json, const [
           'grams',
