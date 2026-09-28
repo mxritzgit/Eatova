@@ -1,9 +1,12 @@
 """Prove sharded Flutter CI cannot omit tests or inflate merged coverage."""
+import contextlib
 import copy
 import hashlib
 import importlib.util
+import io
 import json
 from pathlib import Path
+import shutil
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -165,7 +168,7 @@ class FlutterCiFixtures(unittest.TestCase):
             self.stamp(directory, index)
         return destination
 
-    def stamp(self, directory, index):
+    def stamp(self, directory, index, run_attempt=None):
         coverage = MODULE.parse_lcov((directory / "lcov.info").read_text(encoding="utf-8"))
         result = {"version": 1, "revision": self.manifest["revision"],
                   "manifest_sha256": MODULE.manifest_digest(self.manifest), "shard": index,
@@ -173,7 +176,24 @@ class FlutterCiFixtures(unittest.TestCase):
                   "coverage_sha256": digest(directory / "lcov.info"),
                   "coverage_bytes": (directory / "lcov.info").stat().st_size,
                   "coverage_inventory": {source: sorted(lines) for source, lines in coverage.items()}}
+        if run_attempt is not None:
+            result["run_attempt"] = run_attempt
         (directory / "result.json").write_text(json.dumps(result), encoding="utf-8")
+
+    def attempt_artifacts(self, attempts):
+        """Lay out a download of every attempt's artifacts, as CI receives it."""
+        destination = self.root / "attempts"
+        for index, attempt in attempts:
+            directory = destination / f"shard-{index}-attempt-{attempt}"
+            directory.mkdir(parents=True)
+            (directory / "manifest.json").write_text(json.dumps(self.manifest), encoding="utf-8")
+            self.write_report(events(self.manifest["shards"][index]),
+                              f"attempts/shard-{index}-attempt-{attempt}/report.jsonl")
+            coverage = lcov("lib/a.dart", {1: int(index == 0), 2: int(index == 1)})
+            coverage += lcov("lib/b.dart", {1: 1})
+            (directory / "lcov.info").write_text(coverage, encoding="utf-8")
+            self.stamp(directory, index, attempt)
+        return destination
 
 
 class DiscoveryTests(FlutterCiFixtures):
@@ -442,13 +462,117 @@ class ArtifactTests(FlutterCiFixtures):
             self.validate(destination)
 
 
+class RerunTests(FlutterCiFixtures):
+    """A rerun keeps every earlier attempt's artifacts in the same workflow run."""
+
+    def validate(self, path, run_attempt):
+        return MODULE.validate_shards(self.manifest, path, self.root, run_attempt)
+
+    def fresh(self, attempts):
+        shutil.rmtree(self.root / "attempts", ignore_errors=True)
+        return self.attempt_artifacts(attempts)
+
+    def test_rerun_of_a_failed_shard_uses_that_shards_newest_attempt(self):
+        # Run 36347378169: shard 1 failed in attempt 1 (no result.json) and
+        # passed when "Re-run failed jobs" started attempt 2.
+        destination = self.attempt_artifacts([(0, 1), (1, 1), (1, 2)])
+        (destination / "shard-1-attempt-1/result.json").unlink()
+        selected = MODULE.select_attempts(destination, 2, 2)
+        self.assertEqual({index: path.name for index, (_, path) in selected.items()},
+                         {0: "shard-0-attempt-1", 1: "shard-1-attempt-2"})
+        merged = self.validate(destination, 2)
+        self.assertEqual(MODULE.coverage_percent(merged), 100)
+
+    def test_rerun_of_a_passing_shard_supersedes_its_earlier_artifact(self):
+        destination = self.attempt_artifacts([(0, 1), (0, 3), (1, 1), (1, 2)])
+        selected = MODULE.select_attempts(destination, 2, 3)
+        self.assertEqual([path.name for _, path in selected.values()],
+                         ["shard-0-attempt-3", "shard-1-attempt-2"])
+        self.validate(destination, 3)
+
+    def test_failed_newest_attempt_never_falls_back_to_an_older_success(self):
+        for filename in ["result.json", "report.jsonl", "lcov.info", "manifest.json"]:
+            with self.subTest(filename=filename):
+                destination = self.fresh([(0, 1), (1, 1), (1, 2)])
+                (destination / "shard-1-attempt-2" / filename).unlink()
+                with self.assertRaises((ValueError, FileNotFoundError)):
+                    self.validate(destination, 2)
+
+    def test_missing_shard_future_attempt_or_unexpected_artifact_fails(self):
+        cases = {
+            "missing shard": ([(0, 1), (0, 2)], None),
+            "attempt newer than the run": ([(0, 1), (1, 3)], None),
+            "shard outside the plan": ([(0, 1), (1, 1)], "shard-2-attempt-1"),
+            "unversioned name": ([(0, 1), (1, 1)], "shard-1"),
+            "attempt zero": ([(0, 1), (1, 1)], "shard-1-attempt-0"),
+            "padded attempt": ([(0, 1), (1, 1)], "shard-1-attempt-01"),
+            "padded shard": ([(0, 1), (1, 1)], "shard-01-attempt-1"),
+            "foreign artifact": ([(0, 1), (1, 1)], "shard-summary"),
+        }
+        for name, (attempts, extra) in cases.items():
+            with self.subTest(name=name):
+                destination = self.fresh(attempts)
+                if extra:
+                    (destination / extra).mkdir()
+                with self.assertRaises(ValueError):
+                    self.validate(destination, 2)
+
+    def test_artifact_file_in_place_of_a_directory_fails(self):
+        destination = self.attempt_artifacts([(0, 1), (1, 1)])
+        (destination / "shard-1-attempt-2").write_text("not a directory")
+        with self.assertRaises(ValueError):
+            self.validate(destination, 2)
+
+    def test_evidence_must_name_the_attempt_of_its_artifact(self):
+        destination = self.attempt_artifacts([(0, 1), (1, 1), (1, 2)])
+        target = destination / "shard-1-attempt-2/result.json"
+        original = json.loads(target.read_text())
+        # A stale attempt-1 result under the attempt-2 name, a missing
+        # attempt, or type aliases must not pass as the rerun's evidence.
+        for value in [1, None, True, 2.0, "2", 0]:
+            bad = {key: item for key, item in original.items() if key != "run_attempt"}
+            if value is not None:
+                bad["run_attempt"] = value
+            target.write_text(json.dumps(bad))
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                self.validate(destination, 2)
+        target.write_text(json.dumps(original))
+        self.validate(destination, 2)
+
+    def test_run_attempt_must_be_a_positive_integer(self):
+        destination = self.attempt_artifacts([(0, 1), (1, 1)])
+        for value in [0, -1, True, 1.0, None]:
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                MODULE.select_attempts(destination, 2, value)
+        with self.assertRaises(ValueError):
+            MODULE.main(["aggregate", "--root", str(self.root), "--shards", "2",
+                         "--output", str(destination), "--run-attempt", "0"])
+
+    def test_local_layout_rejects_attempt_named_artifacts(self):
+        destination = self.attempt_artifacts([(0, 1), (1, 1)])
+        with self.assertRaises(ValueError):
+            MODULE.validate_shards(self.manifest, destination, self.root)
+
+    def test_aggregate_command_verifies_and_reports_the_selected_attempts(self):
+        destination = self.attempt_artifacts([(0, 1), (1, 1), (1, 2)])
+        output = io.StringIO()
+        with mock.patch.object(MODULE, "build_manifest", return_value=self.manifest), \
+             mock.patch.object(MODULE, "_timings", return_value={}), \
+             mock.patch.dict(MODULE.os.environ, {"GITHUB_ACTIONS": "false", "GITHUB_STEP_SUMMARY": ""}), \
+             contextlib.redirect_stdout(output):
+            self.assertEqual(MODULE.main(["aggregate", "--root", str(self.root), "--shards", "2",
+                                          "--output", str(destination), "--run-attempt", "2"]), 0)
+        self.assertIn("Selected shard artifacts: shard-0-attempt-1, shard-1-attempt-2", output.getvalue())
+        self.assertIn("All 3 test files verified", output.getvalue())
+
+
 class RunnerTests(FlutterCiFixtures):
-    def run_shard(self, compiler, output):
+    def run_shard(self, compiler, output, *extra):
         with mock.patch.object(MODULE, "build_manifest", return_value=self.manifest), \
              mock.patch.object(MODULE, "_timings", return_value={}), \
              mock.patch.object(MODULE.subprocess, "run", side_effect=compiler):
             return MODULE.main(["run", "--root", str(self.root), "--shards", "2",
-                                "--shard", "0", "--output", str(output), "--flutter", "stub-flutter"])
+                                "--shard", "0", "--output", str(output), "--flutter", "stub-flutter", *extra])
 
     def test_failed_compiler_never_stamps_a_success_artifact(self):
         output = self.root / "run-output"
@@ -476,6 +600,18 @@ class RunnerTests(FlutterCiFixtures):
         result = json.loads((output / "shard-0/result.json").read_text())
         self.assertEqual(result["exit_code"], 0)
         self.assertEqual(result["coverage_inventory"], {"lib/a.dart": [1]})
+        self.assertNotIn("run_attempt", result)
+
+    def test_ci_run_stamps_its_attempt_into_the_evidence(self):
+        output = self.root / "run-output"
+
+        def compiler(command, **kwargs):
+            self.write_report(events(self.manifest["shards"][0]), "run-output/shard-0/report.jsonl")
+            (output / "shard-0/lcov.info").write_text(lcov("lib/a.dart", {1: 1}))
+            return SimpleNamespace(returncode=0)
+
+        self.assertEqual(self.run_shard(compiler, output, "--run-attempt", "3"), 0)
+        self.assertEqual(json.loads((output / "shard-0/result.json").read_text())["run_attempt"], 3)
 
     def test_stale_success_output_cannot_be_reused_instead_of_running_tests(self):
         output = self.root / "run-output"
