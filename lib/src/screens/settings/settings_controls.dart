@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../config/legal_links.dart';
@@ -44,8 +43,9 @@ class SettingsNumberRow extends StatelessWidget {
   final TextEditingController controller;
   final Key fieldKey;
 
-  /// C1: the allowed range, shown once the typed value leaves it. The
-  /// `digitsOnly` formatter filters characters only; the caller checks range.
+  /// C1: the allowed range, shown once the typed value leaves it. No
+  /// character filter: `digitsOnly` turned "75,5" into 755, so the caller
+  /// validates the unchanged text (whole number, ambiguity, range).
   final String? errorText;
 
   final ValueChanged<String>? onChanged;
@@ -85,9 +85,6 @@ class SettingsNumberRow extends StatelessWidget {
                     cursorColor: t.accent,
                     textAlign: TextAlign.right,
                     keyboardType: TextInputType.number,
-                    inputFormatters: <TextInputFormatter>[
-                      FilteringTextInputFormatter.digitsOnly,
-                    ],
                     onChanged: onChanged,
                     style: AppType.display(
                       17,
