@@ -208,6 +208,8 @@ class _DataExportSheetState extends State<DataExportSheet> {
               ? l10n.exportSheetTitleFull
               : l10n.exportSheetTitleSession,
           (key) => exportLabel(key, l10n),
+          value: (fields, path, value) =>
+              exportReadableValue(fields, path, value, l10n),
         );
 
   @override

@@ -2,8 +2,100 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/export_document.dart';
+import '../../models/fitness_recipe.dart';
+import '../../models/meal_analysis_result.dart';
+import '../../models/persisted_labels.dart';
 import '../../theme/app_tokens.dart';
 import '../design/design.dart';
+
+/// Readable value of one export field for the text report and the preview.
+///
+/// Persisted German fallbacks, adjustment notes, macro texts and origin codes
+/// resolve into [l10n], read together with their sibling fields exactly as
+/// the app screens do. Everything else, including all user text, stays as
+/// stored. The JSON and CSV outputs never pass through here.
+String exportReadableValue(
+  Map<String, dynamic> fields,
+  String path,
+  dynamic value,
+  AppLocalizations l10n,
+) {
+  if (value is! String) return exportValue(value);
+  final cut = path.lastIndexOf('/');
+  final parent = cut < 0 ? '' : path.substring(0, cut);
+  final key = path.substring(cut + 1);
+  String? text(String fieldPath) {
+    final field = fields[fieldPath];
+    return field is String ? field : null;
+  }
+
+  // Diary and favorite payloads carry `mealName` next to these fields.
+  if (text('$parent/mealName') != null) {
+    final barcode = text('$parent/barcode');
+    final source = text('$parent/sourceLabel');
+    switch (key) {
+      case 'mealName':
+        return MealAnalysisResult.resolveMealName(
+          value,
+          l10n,
+          barcode: barcode,
+          sourceLabel: source,
+        );
+      case 'portionNotes':
+        return MealAnalysisResult.resolvePortionNotes(value, l10n);
+      case 'protein' || 'carbs' || 'fat':
+        return PersistedLabels.macroText(value, l10n);
+      case 'sourceLabel':
+        return MealResultSource.resolve(value)?.label(l10n) ?? value;
+      case 'confidence':
+        return MealResultConfidence.resolve(value)?.label(l10n) ?? value;
+    }
+  }
+  final item = RegExp(r'^(.*)/items/\d+/name$').firstMatch(path);
+  if (item != null && text('${item[1]}/mealName') != null) {
+    return MealAnalysisResult.resolveItemName(
+      value,
+      l10n,
+      mealName: text('${item[1]}/mealName'),
+      barcode: text('${item[1]}/barcode'),
+      sourceLabel: text('${item[1]}/sourceLabel'),
+    );
+  }
+  // The `logged_meals.meal_name` column mirrors the payload's name.
+  if (path == '/meal_name') {
+    return MealAnalysisResult.resolveMealName(
+      value,
+      l10n,
+      barcode: text('/payload/barcode') ?? text('/barcode'),
+      sourceLabel: text('/payload/sourceLabel'),
+    );
+  }
+  // Recipe rows and snapshots (own recipes, plans, history) carry a slug.
+  if (text('$parent/slug') != null) {
+    if (key == 'title' && value == PersistedLabels.ownRecipeTitle) {
+      return l10n.recipesOwnTitle;
+    }
+    if (key == 'description' &&
+        (text('$parent/slug')!.startsWith('user_import_') ||
+            fields.entries.any(
+              (e) =>
+                  e.key.startsWith('$parent/categories/') &&
+                  e.value is String &&
+                  (e.value as String).startsWith(recipeIngredientsBasisPrefix),
+            ))) {
+      return FitnessRecipe.resolveImportSourceLine(value, l10n);
+    }
+  }
+  if (key == 'name' && text('$parent/source') == 'openFoodFacts') {
+    return PersistedLabels.resolveProductName(
+          value,
+          text('$parent/product_code') ?? '',
+          l10n,
+        ) ??
+        value;
+  }
+  return value;
+}
 
 String exportLabel(String key, AppLocalizations l10n) =>
     _sectionLabel(key, l10n) ??
@@ -206,7 +298,11 @@ class _ExportSectionViewState extends State<ExportSectionView>
               TextButton.icon(
                 key: ValueKey('export-copy-${section.key}'),
                 onPressed: () => widget.onCopy(
-                  section.report((key) => exportLabel(key, l10n)),
+                  section.report(
+                    (key) => exportLabel(key, l10n),
+                    value: (fields, path, value) =>
+                        exportReadableValue(fields, path, value, l10n),
+                  ),
                 ),
                 icon: const Icon(Icons.copy_outlined, size: 18),
                 label: Text(l10n.exportCopySection),
@@ -303,7 +399,12 @@ class _ExportRecord extends StatelessWidget {
                   field.value is String &&
                           RegExp(r'(?:_at|At|/date)$').hasMatch(field.key)
                       ? exportDisplayDate(context, field.value as String)
-                      : exportValue(field.value),
+                      : exportReadableValue(
+                          fields,
+                          field.key,
+                          field.value,
+                          l10n,
+                        ),
                 ),
                 style: AppType.ui(14, color: t.ink, height: 1.4),
               ),
