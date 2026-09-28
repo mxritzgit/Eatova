@@ -2089,6 +2089,9 @@ removed the now-unused outbox-loss ARB keys, and reviewed the combined diff.
   - fixed tests that could not fail (missing PostgREST request, clock-dependent
     lunch default) and a real-time deadline test;
   - two registry tests now guard the live `_mealRow` serializer instead of dead code.
+- With the user's approval, the dead `ScanSlotChips` widget (replaced by the compact
+  meal-context row in #86/#87) was removed together with its fixed-color allowlist
+  entry.
 - Result: 5,474 tests, 95.57% line coverage (baseline 5,350 / 95.20%), strict
   analyzer clean. No backend, dependency or lockfile change.
 - Evaluated and not adopted, with reasons in the agents' reports:
@@ -2099,7 +2102,6 @@ removed the now-unused outbox-loss ARB keys, and reviewed the combined diff.
   - primary constructors (need SDK lower bound `^3.13.0`);
   - package:path as a direct dependency.
 - Open items for a user decision:
-  - dead `ScanSlotChips` (deletion was blocked by the permission classifier);
   - v1 training checkpoints that can never be saved or discarded
     (`training_session.dart:351`);
   - weight cache timestamps without an offset;

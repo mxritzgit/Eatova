@@ -307,8 +307,6 @@ const Map<String, String> _festeFarbenErlaubt = <String, String>{
       'camera overlay on the live viewfinder: black/white scrims and glyphs on video, deliberately mode-independent',
   'lib/src/screens/meal_camera_sheet.dart':
       'camera overlay on the live viewfinder (see file comment), deliberately mode-independent',
-  'lib/src/widgets/kcal/scan_slot_chips.dart':
-      'slot chips drawn ON the camera overlay: black/white on video',
   'lib/src/screens/recipes/recipe_cards.dart':
       'legibility scrim over a recipe photo: black gradient on an image, not on a surface',
 };
