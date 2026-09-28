@@ -42,6 +42,17 @@ void main() {
             ],
           },
         },
+        <String, dynamic>{
+          'id': 'm2',
+          'logged_at': '2026-09-27T12:00:00Z',
+          'payload': <String, dynamic>{
+            'mealName': 'Linsensuppe',
+            'portionNotes':
+                '2 Portionen · Eigenes Rezept Selbst angelegt. Werte beruhen '
+                'auf deinen Angaben.',
+            'sourceLabel': 'recipe',
+          },
+        },
       ],
       'favorite_meals': <Map<String, dynamic>>[
         <String, dynamic>{
@@ -90,6 +101,8 @@ void main() {
         '/payload/confidence: Database',
         '/payload/items/1/name: Ingredient',
         '/payload/items/2/name: Mein Brot',
+        '/payload/portionNotes: 2 servings · Your recipe Self-added. Values '
+            'are based on what you entered.',
         '/payload/mealName: Unknown meal',
         '/payload/sourceLabel: Photo AI',
         '/title: Your recipe',

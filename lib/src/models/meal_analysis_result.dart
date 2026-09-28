@@ -408,6 +408,72 @@ class MealResultAdjustmentNote {
   }
 }
 
+/// The note `FitnessRecipe.toMealResultForServings` writes into
+/// `portionNotes`: `<portion> · <description> <hint>`, composed in the
+/// language active when the meal was logged.
+///
+/// Only its placeholder parts resolve: the portion fallback or servings
+/// count, the own-recipe description and the self-created hint. Recipe text
+/// stays in its logging language like every other logged content. The result
+/// equals what the writer produces in the display language.
+abstract final class MealResultRecipeNote {
+  static String resolve(String raw, AppLocalizations l10n) {
+    for (final source in <AppLocalizations>[deL10n, enL10n]) {
+      final resolved = _resolveFrom(raw, source, l10n);
+      if (resolved != null) return resolved;
+    }
+    return raw;
+  }
+
+  static String? _resolveFrom(
+    String raw,
+    AppLocalizations source,
+    AppLocalizations l10n,
+  ) {
+    var text = raw;
+    var matched = false;
+    final portion = '${source.foodPortionFallback} · ';
+    final servings = _servingsPrefix(source).firstMatch(text);
+    if (text.startsWith(portion)) {
+      text = '${l10n.foodPortionFallback} · ${text.substring(portion.length)}';
+      matched = true;
+    } else if (servings != null) {
+      final count = servings[1]!.replaceAll(
+        RegExp('[.,]'),
+        l10n.localeName == 'de' ? ',' : '.',
+      );
+      text =
+          '${l10n.recipeCalcServingsCount(count)} · '
+          '${text.substring(servings.end)}';
+      matched = true;
+    }
+    final placeholders =
+        ' · ${source.recipesOwnTitle} ${source.recipesSelfCreatedHint}';
+    final hint = ' ${source.recipesSelfCreatedHint}';
+    if (text.endsWith(placeholders)) {
+      text =
+          '${text.substring(0, text.length - placeholders.length)} · '
+          '${l10n.recipesOwnTitle} ${l10n.recipesSelfCreatedHint}';
+      matched = true;
+    } else if (text.endsWith(hint)) {
+      text =
+          '${text.substring(0, text.length - hint.length)} '
+          '${l10n.recipesSelfCreatedHint}';
+      matched = true;
+    }
+    return matched ? text : null;
+  }
+
+  /// `<count> Portionen · ` / `<count> servings · ` from the ARB template.
+  static RegExp _servingsPrefix(AppLocalizations source) {
+    final parts = source.recipeCalcServingsCount('\u0000').split('\u0000');
+    return RegExp(
+      '^${RegExp.escape(parts.first)}(\\d+(?:[.,]\\d+)?)'
+      '${RegExp.escape(parts.last)} · ',
+    );
+  }
+}
+
 class MealAnalysisResult {
   const MealAnalysisResult({
     required this.mealName,
@@ -441,9 +507,9 @@ class MealAnalysisResult {
 
   /// RAW note text as persisted: a fallback marker from `fromEdgeFunction`
   /// ([MealResultPortionNote]), the encoded OFF product note
-  /// ([MealResultOffNote]), real model free text (`explanation`), or a German
-  /// adjustment sentence ([MealResultAdjustmentNote]). Render via
-  /// [resolvedPortionNotes].
+  /// ([MealResultOffNote]), real model free text (`explanation`), a German
+  /// adjustment sentence ([MealResultAdjustmentNote]) or a logged recipe's
+  /// note ([MealResultRecipeNote]). Render via [resolvedPortionNotes].
   final String portionNotes;
   final List<MealComponent> items;
   final bool isAdjusted;
@@ -487,15 +553,25 @@ class MealAnalysisResult {
   /// sentences ([MealResultAdjustmentNote]); model free text stays unchanged
   /// (pass-through).
   String resolvedPortionNotes(AppLocalizations l10n) =>
-      resolvePortionNotes(portionNotes, l10n);
+      resolvePortionNotes(portionNotes, l10n, sourceLabel: sourceLabel);
 
   /// [resolvedPortionNotes] for a raw stored value, e.g. an export field.
-  static String resolvePortionNotes(String raw, AppLocalizations l10n) {
+  /// [sourceLabel] enables the logged-recipe note ([MealResultRecipeNote]).
+  static String resolvePortionNotes(
+    String raw,
+    AppLocalizations l10n, {
+    String? sourceLabel,
+  }) {
     final note = MealResultPortionNote.resolve(raw);
     if (note != null) return note.text(l10n);
     final offNote = MealResultOffNote.resolve(raw);
     if (offNote != null) return offNote.text(l10n);
-    return MealResultAdjustmentNote.resolve(raw)?.text(l10n) ?? raw;
+    final adjustment = MealResultAdjustmentNote.resolve(raw);
+    if (adjustment != null) return adjustment.text(l10n);
+    return sourceLabel != null &&
+            MealResultSource.resolve(sourceLabel) == MealResultSource.recipe
+        ? MealResultRecipeNote.resolve(raw, l10n)
+        : raw;
   }
 
   /// Meal name in the language of [l10n]. Only the persisted fallbacks of

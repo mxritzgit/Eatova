@@ -42,7 +42,11 @@ String exportReadableValue(
           sourceLabel: source,
         );
       case 'portionNotes':
-        return MealAnalysisResult.resolvePortionNotes(value, l10n);
+        return MealAnalysisResult.resolvePortionNotes(
+          value,
+          l10n,
+          sourceLabel: source,
+        );
       case 'protein' || 'carbs' || 'fat':
         return PersistedLabels.macroText(value, l10n);
       case 'sourceLabel':

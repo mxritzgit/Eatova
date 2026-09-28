@@ -339,6 +339,67 @@ void main() {
     });
   });
 
+  group('Anzeige: Hinweis eines protokollierten Rezepts', () {
+    // `toMealResultForServings` writes `<portion> · <description> <hint>` in
+    // the language active when logging. The placeholder parts must follow the
+    // display language; resolving must give exactly what the writer would
+    // have produced in that language.
+    String note(FitnessRecipe recipe, double servings, AppLocalizations l10n) =>
+        recipe.toMealResultForServings(servings, l10n).portionNotes;
+
+    test('Platzhalter-Teile folgen der Anzeigesprache, in beide Richtungen', () {
+      final recipe = _ownRecipe(title: 'Linsensuppe');
+      for (final servings in const <double>[1, 2, 1.5]) {
+        final german = recipe.toMealResultForServings(servings, deL10n);
+        final english = recipe.toMealResultForServings(servings, enL10n);
+        expect(german.resolvedPortionNotes(enL10n), english.portionNotes,
+            reason: '$servings');
+        expect(german.resolvedPortionNotes(deL10n), german.portionNotes);
+        expect(english.resolvedPortionNotes(deL10n), german.portionNotes,
+            reason: '$servings');
+      }
+      expect(
+        note(recipe, 1, deL10n),
+        '1 Portion · Eigenes Rezept Selbst angelegt. Werte beruhen auf deinen '
+        'Angaben.',
+      );
+      expect(
+        recipe
+            .toMealResultForServings(1.5, deL10n)
+            .resolvedPortionNotes(enL10n),
+        '1.5 servings · Your recipe Self-added. Values are based on what you '
+        'entered.',
+      );
+    });
+
+    test('Rezepttext des Nutzers und des Katalogs bleibt', () {
+      final own = _ownRecipe(title: 'Suppe').copyWith(
+        portion: '1 Teller',
+        description: 'Meine Suppe',
+      );
+      expect(
+        own.toMealResult(deL10n).resolvedPortionNotes(enL10n),
+        '1 Teller · Meine Suppe Self-added. Values are based on what you '
+        'entered.',
+      );
+      final catalog = recipeCatalogDe.first;
+      final logged = catalog.toMealResultForServings(2, deL10n);
+      expect(
+        logged.resolvedPortionNotes(enL10n),
+        '2 servings · ${catalog.description} ${catalog.professionalHint}',
+      );
+    });
+
+    test('ausserhalb eines Rezepts bleibt derselbe Text unberuehrt', () {
+      final raw = note(_ownRecipe(), 2, deL10n);
+      expect(_meal(notes: raw).resolvedPortionNotes(enL10n), raw);
+      expect(
+        _meal(notes: raw, source: 'manual').resolvedPortionNotes(enL10n),
+        raw,
+      );
+    });
+  });
+
   group('Anzeige: Makro-Texte', () {
     test('Dezimaltrennzeichen je Sprache, keine neue Rundung', () {
       expect(PersistedLabels.macroText('12,5 g', enL10n), '12.5 g');

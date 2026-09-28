@@ -11,11 +11,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
-import 'package:eatova/src/services/meals_sync.dart' show mealResultFromJson;
+import 'package:eatova/src/services/meals_sync.dart'
+    show mealResultFromJson, mealResultToJson;
 import 'package:eatova/src/widgets/kcal/diary_meal_card.dart';
 import 'package:eatova/src/widgets/kcal/saved_meal_presentation.dart';
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
@@ -289,6 +291,45 @@ void main() {
             .data,
         'Einzelne Bestandteile wurden manuell bestätigt oder angepasst. '
         'Gesamtwerte wurden aus der Summe der Positionen neu berechnet.',
+      );
+    });
+  });
+
+  group('Protokolliertes eigenes Rezept: Hinweis im Info-Sheet', () {
+    // Logged while the app was German, read back from storage.
+    final logged = mealResultFromJson(
+      mealResultToJson(
+        _userRecipe(title: 'Linsensuppe').toMealResultForServings(2, deL10n),
+      ),
+    );
+
+    testWidgets('en', (tester) async {
+      await _pumpResultCard(tester, logged, _en);
+      await tester.tap(find.byKey(const ValueKey('analyse-info-button')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('analyse-portion-notes')))
+            .data,
+        '2 servings · Your recipe Self-added. Values are based on what you '
+        'entered.',
+      );
+    });
+
+    testWidgets('de bleibt byte-gleich', (tester) async {
+      await _pumpResultCard(tester, logged, _de);
+      await tester.tap(find.byKey(const ValueKey('analyse-info-button')));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('analyse-portion-notes')))
+            .data,
+        logged.portionNotes,
+      );
+      expect(
+        logged.portionNotes,
+        '2 Portionen · Eigenes Rezept Selbst angelegt. Werte beruhen auf '
+        'deinen Angaben.',
       );
     });
   });
