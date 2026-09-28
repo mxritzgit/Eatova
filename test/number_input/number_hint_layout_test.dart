@@ -91,10 +91,9 @@ void main() {
     });
 
     testWidgets('Portions-Gramm [$code] bei 320 px und 200 %', (tester) async {
-      // The expanded item already overflows at this size on main: the
-      // `_LivePreview` row ("= 250 kcal ...") has no wrap. That is reported
-      // separately; this case pins that the hint adds no further error.
-      await collectOverflows(() async {
+      // The expanded item itself must fit first: its `_LivePreview` row
+      // ("= 250 kcal ...") used to overflow at this size.
+      final vorher = await collectOverflows(() async {
         await pumpLocalized(
           tester,
           ListView(
@@ -123,6 +122,7 @@ void main() {
         );
         await tester.pumpAndSettle();
       });
+      expect(vorher, isEmpty, reason: describeOverflows(vorher));
       final fehler = await collectOverflows(() async {
         await tester.enterText(find.byType(TextField), '1.000');
         await tester.pumpAndSettle();

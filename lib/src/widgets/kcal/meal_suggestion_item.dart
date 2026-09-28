@@ -793,41 +793,95 @@ class _LivePreview extends StatelessWidget {
   final String carbs;
   final String fat;
 
+  // Room the macros need beside the kcal value before the row reflows.
+  static const double _minMacroWidth = 64;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        Text(
-          '=',
-          style: AppType.ui(
-            14,
-            weight: FontWeight.w500,
-            color: t.ink2,
-            height: 1.0,
+    final equalsStyle = AppType.ui(
+      14,
+      weight: FontWeight.w500,
+      color: t.ink2,
+      height: 1.0,
+    );
+    final kcalStyle = AppType.display(20, color: t.ink, height: 1.0);
+    final macroStyle = AppType.display(
+      11.5,
+      weight: FontWeight.w600,
+      color: t.ink2,
+    );
+    final macros = _macroLine(context.l10n);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final base = DefaultTextStyle.of(context).style;
+        final painter = TextPainter(
+          text: TextSpan(
+            children: [
+              TextSpan(text: '=', style: base.merge(equalsStyle)),
+              TextSpan(text: '$kcal kcal', style: base.merge(kcalStyle)),
+            ],
           ),
-        ),
-        const SizedBox(width: 8),
-        Text(
-          '$kcal kcal',
-          style: AppType.display(20, color: t.ink, height: 1.0),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            _macroLine(context.l10n),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.right,
-            style: AppType.display(
-              11.5,
-              weight: FontWeight.w600,
-              color: t.ink2,
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+          maxLines: 1,
+        )..layout();
+        // 8 px after "=" and 10 px before the macros, as in the single row.
+        final kcalWidth = painter.width + 8;
+        painter.dispose();
+        final fitsOneRow = kcalWidth + 10 +
+                (macros.isEmpty ? 0 : _minMacroWidth) <=
+            constraints.maxWidth;
+        if (fitsOneRow) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text('=', style: equalsStyle),
+              const SizedBox(width: 8),
+              Text(
+                '$kcal kcal',
+                key: const ValueKey('live-preview-kcal'),
+                style: kcalStyle,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  macros,
+                  key: const ValueKey('live-preview-macros'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
+                  style: macroStyle,
+                ),
+              ),
+            ],
+          );
+        }
+        // Large text on narrow phones: reflow instead of cutting values.
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(text: '= ', style: equalsStyle),
+                  TextSpan(text: '$kcal kcal', style: kcalStyle),
+                ],
+              ),
+              key: const ValueKey('live-preview-kcal'),
             ),
-          ),
-        ),
-      ],
+            if (macros.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                macros,
+                key: const ValueKey('live-preview-macros'),
+                textAlign: TextAlign.right,
+                style: macroStyle,
+              ),
+            ],
+          ],
+        );
+      },
     );
   }
 
