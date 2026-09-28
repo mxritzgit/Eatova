@@ -55,7 +55,6 @@
     "test/outbox/outbox_rezepte_test.dart": 28.094,
     "test/outbox_read_error_test.dart": 21.174,
     "test/perf0901_recipes_memo_test.dart": 7.895,
-    "test/perf_b6_trends_server_write_test.dart": 7.122,
     "test/recipe_create_photo_test.dart": 6.975,
     "test/recipe_create_sheet_test.dart": 8.046,
     "test/recipe_edit_feature_test.dart": 2.716,
