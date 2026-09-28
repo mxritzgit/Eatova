@@ -1,4 +1,5 @@
 import 'model_limits.dart';
+import 'number_input.dart';
 
 enum IngredientSource { manual, openFoodFacts }
 
@@ -206,11 +207,10 @@ class RecipeCalculation {
 
 void validateRecipeServings(double value) => _number(value, 0.1, 100);
 
+/// Valid servings (0.1..100) or null. "1.000" is ambiguous, not 1.
 double? parseRecipeServings(String text) {
-  final value = double.tryParse(text.trim().replaceAll(',', '.'));
-  return value != null && value.isFinite && value >= 0.1 && value <= 100
-      ? value
-      : null;
+  final value = NumberInput.parse(text).value;
+  return value != null && value >= 0.1 && value <= 100 ? value : null;
 }
 
 double _number(Object? value, double min, double max) {

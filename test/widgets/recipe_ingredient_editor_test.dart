@@ -91,7 +91,19 @@ void main() {
           await _enter(tester, 0, 'Oats');
           await _enter(tester, 1, '123,5');
           await _enter(tester, 2, '350');
+          // "12.345" is 12.345 g or 12345 g: the editor asks instead of
+          // guessing; a fourth decimal makes the same value unambiguous.
           await _enter(tester, 3, '12.345');
+          expect(
+            find.text(
+              t.numberInputAmbiguous(
+                locale == 'de' ? '12,345' : '12.345',
+                '12345',
+              ),
+            ),
+            findsOneWidget,
+          );
+          await _enter(tester, 3, '12.3450');
           await _enter(tester, 5, '0');
           await _tap(tester, find.text(t.ingredientSave));
           expect(ingredients.single.grams, 123.5);

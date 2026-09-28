@@ -32,7 +32,7 @@ class _PlanEditorState extends State<_PlanEditor> {
     super.didChangeDependencies();
     if (!_servingsFilled) {
       _servingsFilled = true;
-      _servings.text = formatDecimal(
+      _servings.text = formatDecimalInput(
         widget.plan?.servings ?? 1,
         context.l10n,
         maxFractionDigits: 3,
@@ -330,7 +330,10 @@ class _PlanEditorState extends State<_PlanEditor> {
                     decimal: true,
                   ),
                   onChanged: (_) => setState(() {}),
-                  errorText: _amount == null ? l.mealPlanServingsError : null,
+                  errorText: _amount == null
+                      ? numberInputHint(NumberInput.parse(_servings.text), l) ??
+                            l.mealPlanServingsError
+                      : null,
                 ),
                 const SizedBox(height: 10),
                 Text(
