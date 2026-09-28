@@ -2114,3 +2114,45 @@ removed the now-unused outbox-loss ARB keys, and reviewed the combined diff.
   - `sqlite_process_crash_test` twice on Windows under load.
   Adding the SQLite result-code name to `DurableStorageException` would make
   them diagnosable.
+
+## Open findings fixed with five agents, 2026-09-28
+
+This section supersedes the open items and the flake and CI notes in the two
+entries above. The user asked for exactly five agents, one per finding. The
+coordinator merged their branches (only an import line conflicted), fixed an
+additional overflow, reviewed the result and delivered it through one PR.
+
+- Number input:
+  - One sealed parser (`models/number_input.dart`) serves every quantity field.
+  - "3,5" and "3.5" both parse. A possible thousands group such as "1.000" or
+    "2,500" is not guessed: a localized hint asks for clarification.
+  - Whole-number fields refuse decimals instead of stripping the separator (for
+    example, 7,5 kg used to become 75 kg).
+  - Manual macros per 100 g are bounded at 100 g.
+  - A source guard keeps `digitsOnly` and ad-hoc decimal parsing out of quantity
+    fields.
+  - Goal weights stay whole numbers, because `profiles.weight_kg` is an integer
+    column (a user decision).
+- Training: a #70 v1 checkpoint is upgraded once to v2 and persisted, so resume,
+  save and discard work again. The concurrency guard is unchanged.
+- Weight: cache rows are UTC instants; legacy offset-less rows migrate on read.
+  De-duplication compares instants, and display uses the local day.
+- Persisted German fallbacks (meal/product/recipe names, adjustment and recipe
+  notes, macro text, import source line) are resolved at display time only.
+  Stored bytes, favorite keys and shopping ids are unchanged.
+- CI:
+  - Shard artifacts are named `shard-N-attempt-K`, and the aggregate takes each
+    shard from its newest attempt without falling back. download-artifact picks
+    the highest artifact ID per name, and those IDs are not chronological, so
+    reruns previously used a stale artifact.
+  - "Re-run failed jobs" is now safe.
+- SQLite:
+  - `DurableStorageException` carries the sanitized result code.
+  - A ROLLBACK after SQLite's own rollback no longer masks the original error.
+  - The Windows crash-test flake is explained and fixed: the test killed only the
+    `dart run` launcher while the child still mapped the `-shm` file, which caused
+    `SQLITE_IOERR_TRUNCATE`.
+  - The Linux sync-guard flake is unproven but now reports its SQLite category.
+- Layout: the expanded search/favorite live preview reflowed poorly at 320 px and
+  200 % text, overflowing by 71 px. It now keeps one line when it fits and stacks
+  the macros otherwise.
