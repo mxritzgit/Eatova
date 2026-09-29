@@ -4,6 +4,7 @@ import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
 import '../auth/auth_repository.dart';
+import '../models/fitness_recipe.dart';
 import '../models/logged_meal.dart';
 import '../models/macro_progress.dart';
 import '../models/training_history.dart';
@@ -696,10 +697,19 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.lifetimeStats,
       _store.isLoadingFoodDay(_store.selectedFoodDate),
       _store.selectedFoodDateIsToday,
+      // Inputs of the recipe pick and the next workout (Task 7 rule: select
+      // the inputs, never the freshly built results).
+      _store.userRecipes,
+      _store.pendingRecipeDeletes,
+      _store.mealPlansRevision,
+      _store.trainingPlans,
+      _store.selectedTrainingPlanId,
+      _store.trainingHistory,
     ),
     builder: (context) {
       assert(_countTabBuild(_tabHeute));
       final tag = _store.selectedFoodDate;
+      final today = _store.selectedFoodDateIsToday;
       return TodayScreen(
         userName: _store.userName,
         profile: _store.profile,
@@ -713,20 +723,55 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         // null = no step source -> no steps card.
         steps: _store.stepsForFoodDate(tag),
         healthConnect: _store.health is HealthConnectAccess,
-        streak: _store.lifetimeStats.effectiveStreakOn(clock.now()),
+        streak: _store.loggingStreak,
         profileInitial: _store.profileInitial,
+        // Both are about today; archive days show neither.
+        pick: today
+            ? _store.nextMealPick(localeName: context.l10n.localeName)
+            : null,
+        nextWorkout: today ? _store.nextTrainingWorkoutForToday() : null,
         onDateSelected: _store.setFoodDate,
-        onOpenCoach: () => _store.setTab(_tabCoach),
+        // Settings moved behind the avatar: the profile page opens them.
         onOpenProfile: _openProfile,
-        onOpenSettings: _openSettings,
         onOpenMealSlot: (slot) {
           // The food tab builds lazily: set the request before it mounts.
           _addSlotRequest.value = slot;
           _store.setTab(_tabFood);
         },
+        onOpenRecipe: (pick) => _openTodayRecipe(pick.recipe),
+        onOpenMealPlan: () {
+          final ownerStore = _store;
+          if (_isStoreSessionCurrent(ownerStore)) {
+            unawaited(MealPlanScreen.open(context, ownerStore));
+          }
+        },
+        onOpenFoodLog: () => _store.setTab(_tabFood),
+        onOpenTraining: () => _store.setTab(_tabTraining),
       );
     },
   );
+
+  /// A suggested "Tonight's pick" opens the recipe's detail page; adding from
+  /// there logs to the shown day like the Recipes tab. Editing, history and
+  /// deletion stay with the Recipes tab, which owns their undo state.
+  void _openTodayRecipe(FitnessRecipe recipe) {
+    final ownerStore = _store;
+    if (!_isStoreSessionCurrent(ownerStore)) return;
+    unawaited(
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => RecipeDetailScreen(
+            recipe: recipe,
+            onAddMeal: (result, slot) =>
+                ownerStore.addResultToDailyTotal(result, slot: slot),
+            photoInput: widget.photoInput,
+            productService: widget.productService,
+            isSessionCurrent: () => _isStoreSessionCurrent(ownerStore),
+          ),
+        ),
+      ),
+    );
+  }
 
   // MealEditScope passes the edit callbacks around the screen signature;
   // FoodStoreScope does the same for the two lists the add-meal sheet renders.

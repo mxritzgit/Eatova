@@ -113,9 +113,8 @@ void main() {
       final line = kDesignViewport.height - band;
       expect(line, _glass(tester).top - AppNavBar.clearance);
 
-      // Today: the add action.
-      expect(tester.getRect(find.byKey(const ValueKey('today-add-meal'))).bottom,
-          line);
+      // Today has no pinned action since its redesign (Task 2): the page
+      // scrolls under the bar, see today_redesign_capture_test.dart.
 
       // Food: the search/scan dock.
       await tester.tap(find.byKey(const ValueKey('nav-Food')));

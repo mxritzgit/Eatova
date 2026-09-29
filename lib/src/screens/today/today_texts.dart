@@ -16,6 +16,11 @@ import '../../models/logged_meal.dart';
 import '../../services/day_math.dart';
 import '../../services/kcal_format.dart';
 
+/// Line height of the Today texts: CSS `normal` for Figtree and Bricolage
+/// (both 1.2 em by their metrics), as in the design. The theme's body
+/// default (1.45) would make every row of the redesign taller.
+const double todayLineHeight = 1.2;
+
 /// Time-of-day greeting. The only implementation: `_CoachHero` calls it with
 /// `DateTime.now().hour` instead of carrying its own thresholds.
 String greetingForHour(int hour, AppLocalizations l10n) {
@@ -47,10 +52,37 @@ String todayEyebrow(DateTime date, AppLocalizations l10n) {
   return DateFormat.MMMMEEEEd(l10n.localeName).format(date).toUpperCase();
 }
 
-/// Full localized date for the compact Today header.
-String todayCalendarDate(DateTime date, AppLocalizations l10n) {
+/// The header's date line: full weekday plus the short date, "Monday, Sep 28"
+/// / "Montag, 28. Sept." (intl has no such skeleton, so two are joined). A
+/// date outside [today]'s year carries its year.
+String todayHeaderDate(DateTime date, DateTime today, AppLocalizations l10n) {
   _ensureDateSymbols();
-  return DateFormat.MMMEd(l10n.localeName).format(date);
+  final locale = l10n.localeName;
+  final day = date.year == today.year
+      ? DateFormat.MMMd(locale).format(date)
+      : DateFormat.yMMMd(locale).format(date);
+  return '${DateFormat.EEEE(locale).format(date)}, $day';
+}
+
+/// Two-letter weekday for a day-strip cell: "Mo", "Tu" / "Mo", "Di" (the
+/// CLDR abbreviation without its trailing dot, cut to two letters; weekday
+/// abbreviations are plain BMP text, so a code-unit cut is safe).
+String todayWeekdayShort(DateTime date, AppLocalizations l10n) {
+  _ensureDateSymbols();
+  final short = DateFormat.E(l10n.localeName).format(date).replaceAll('.', '');
+  return short.length > 2 ? short.substring(0, 2) : short;
+}
+
+/// What a screen reader hears for a day-strip cell: the relative day and the
+/// full date, "Yesterday, Sunday, September 27".
+String todayDayCellLabel(
+  DateTime today,
+  DateTime date,
+  AppLocalizations l10n,
+) {
+  _ensureDateSymbols();
+  final full = DateFormat.MMMMEEEEd(l10n.localeName).format(date);
+  return '${todayDateLabel(today, date, l10n)}, $full';
 }
 
 /// kcal with the active locale's thousands separator, via the shared
@@ -71,33 +103,12 @@ String todayDateLabel(
   return l10n.todayDateDaysAgo(offset);
 }
 
-/// Subtitle of a slot row: the logged meal names, otherwise the empty text.
+/// Subtitle of a slot row: the logged meal names in log order, comma
+/// separated as in the design ("Skyr, Oats, Blueberries"), otherwise the
+/// empty text.
 String mealSlotSubtitle(List<LoggedMeal> meals, AppLocalizations l10n) {
   if (meals.isEmpty) return l10n.todayMealSlotEmpty;
-  return meals.map((m) => m.result.resolvedMealName(l10n)).join(' · ');
-}
-
-/// The coach banner teaser, built from the remaining macros: a banner that
-/// says the same thing daily stops being read.
-///
-/// [isToday] gates any claim about the open day — on an archive day both day
-/// statements would be wrong and the coach always reasons about TODAY.
-String coachTeaser({
-  required bool dayIsEmpty,
-  required int remainingProteinG,
-  required AppLocalizations l10n,
-  bool isToday = true,
-}) {
-  if (!isToday) {
-    return l10n.todayCoachTeaserNeutral;
-  }
-  if (dayIsEmpty) {
-    return l10n.todayCoachTeaserEmptyDay;
-  }
-  if (remainingProteinG > 0) {
-    return l10n.todayCoachTeaserProteinOpen(remainingProteinG);
-  }
-  return l10n.todayCoachTeaserProteinDone;
+  return meals.map((m) => m.result.resolvedMealName(l10n)).join(', ');
 }
 
 /// Initial for the profile badge, mirroring `HomeStore.profileInitial`. The

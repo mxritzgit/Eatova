@@ -14,6 +14,8 @@ import 'package:eatova/src/screens/onboarding_screen.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/screens/settings/goals_screen.dart';
 import 'package:eatova/src/screens/settings/settings_controls.dart';
+import 'package:eatova/src/services/day_math.dart';
+import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/theme/meal_slot_style.dart';
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
@@ -336,15 +338,18 @@ void main() {
         _erwartePalette(tester, 'screen-today', brightness);
         expect(find.byKey(const ValueKey('today-kcal-hero')), findsOneWidget);
 
-        // An archived day is its own color branch.
-        await tester.tap(find.byKey(const ValueKey('today-date-prev')));
+        // An archived day is its own color branch (yesterday in the strip).
+        final gestern = addDays(startOfDay(DateTime.now()), -1);
+        await tester.tap(
+          find.byKey(ValueKey('today-day-${localDayKey(gestern)}')),
+        );
         await tester.pumpAndSettle();
 
-        // Macro bars, slot rows and the coach banner sit below the fold and
-        // are never laid out or colored without scrolling.
+        // Macro tiles and slot rows sit below the fold and are colored only
+        // once scrolled to.
         await _scroll(tester, find.byKey(const ValueKey('screen-today')));
         expect(
-          find.byKey(const ValueKey('today-coach-banner')),
+          find.byKey(const ValueKey('today-meals-card')),
           findsOneWidget,
         );
       });

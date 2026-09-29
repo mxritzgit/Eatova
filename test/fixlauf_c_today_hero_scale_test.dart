@@ -1,23 +1,32 @@
 // Regression for system text scaling: detail text must never be shrunk.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:eatova/src/models/day_nutrition.dart';
+import 'package:eatova/src/models/macro_progress.dart';
+import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/today/today_hero.dart';
 import 'support/harness.dart';
 
 void main() {
   for (final brightness in Brightness.values) {
     for (final scale in [1.0, 1.3, 2.0]) {
-      testWidgets('hero remains readable at $scale / $brightness', (
+      testWidgets('calorie card remains readable at $scale / $brightness', (
         tester,
       ) async {
         await pumpLocalized(
           tester,
-          const SingleChildScrollView(
-            child: TodayCalorieHero(
-              consumedKcal: 12345,
-              burnedKcal: 1234,
-              kcalGoal: 2000,
-              streak: 365,
+          SingleChildScrollView(
+            child: TodayCalorieCard(
+              summary: DayNutritionSummary(
+                profile: const UserProfile(dailyKcalGoal: 2000),
+                burnedKcal: 1234,
+                consumed: const MacroProgress(
+                  proteinG: 0,
+                  carbsG: 0,
+                  fatG: 0,
+                  kcal: 12345,
+                ),
+              ),
             ),
           ),
           surfaceSize: const Size(320, 852),
@@ -27,10 +36,11 @@ void main() {
           settle: true,
         );
         expect(tester.takeException(), isNull);
+        // The stats keep the user's size: no FittedBox, full scale.
         for (final key in [
           'today-stat-eaten',
+          'today-kcal-goal',
           'today-stat-burned',
-          'today-stat-streak',
         ]) {
           final text = find.byKey(ValueKey(key));
           expect(
@@ -45,6 +55,7 @@ void main() {
             style.fontSize! * scale,
           );
         }
+        // Only the arc's centre may scale down, to stay inside the ring.
         final number = find.byKey(const ValueKey('today-kcal-remaining'));
         final fitted = find.ancestor(
           of: number,
@@ -54,12 +65,13 @@ void main() {
         final ring = tester.getRect(
           find.byKey(const ValueKey('today-kcal-ring')),
         );
-        final activity = tester.getRect(
-          find.byKey(const ValueKey('today-stat-burned')),
+        expect(tester.getRect(fitted).width, lessThanOrEqualTo(ring.width));
+        // The stats sit below the arc.
+        final eaten = tester.getRect(
+          find.byKey(const ValueKey('today-stat-eaten')),
         );
-        expect(ring.top, greaterThan(activity.bottom));
-        expect(find.text('100%'), findsOneWidget);
-        expect(tester.getSize(find.text('100%')).width, lessThan(ring.width));
+        expect(eaten.top, greaterThan(ring.bottom));
+        expect(find.text('100 % gegessen'), findsOneWidget);
       });
     }
   }

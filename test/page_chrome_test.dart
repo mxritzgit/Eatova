@@ -67,6 +67,7 @@ void main() {
         ];
         const nav = ['Heute', 'Food', 'Rezepte', 'Training', 'Coach'];
         final origin = tester.getTopLeft(_title(labels.first));
+        double? recipesTop;
         for (var index = 0; index < labels.length; index++) {
           await tester.tap(find.byKey(ValueKey('nav-${nav[index]}')));
           await _frames(tester);
@@ -77,14 +78,11 @@ void main() {
           );
           expect(paragraph.didExceedMaxLines, isFalse);
           // Dark redesign (2026-09-28): a redesigned tab sets its title in
-          // the design's header row (page padding 15, title centred on the
-          // 44 px buttons). Tabs still on the old header share Today's
-          // origin until their redesign lands; all share the 20 px gutter.
+          // the design's header row. All tabs share the 20 px gutter; Today
+          // and Training carry a line above their title, so only tabs still
+          // on the old header also share the top with each other.
           expect(tester.getTopLeft(title).dx, origin.dx, reason: labels[index]);
-          if (nav[index] == 'Training') {
-            // Training's plan name stands above its title, so only the gutter
-            // is shared.
-          } else if (nav[index] == 'Food') {
+          if (nav[index] == 'Food') {
             final button = tester.getRect(
               find.byKey(const ValueKey('food-date-calendar')),
             );
@@ -95,18 +93,23 @@ void main() {
               reason: labels[index],
             );
             expect(rect.center.dy, closeTo(button.center.dy, 1));
-          } else {
-            expect(tester.getTopLeft(title), origin, reason: labels[index]);
+          } else if (nav[index] == 'Rezepte') {
+            recipesTop = tester.getTopLeft(title).dy;
+          } else if (nav[index] == 'Coach') {
+            // Recipes and Coach still share the old header's title top.
+            expect(
+              tester.getTopLeft(title).dy,
+              recipesTop,
+              reason: labels[index],
+            );
           }
           expect(find.byKey(const ValueKey('food-options')), findsNothing);
           expect(
             find.byKey(const ValueKey('today-profile')),
             index == 0 ? findsOneWidget : findsNothing,
           );
-          expect(
-            find.byKey(const ValueKey('today-settings')),
-            index == 0 ? findsOneWidget : findsNothing,
-          );
+          // Settings moved behind the avatar (profile page) in the redesign.
+          expect(find.byKey(const ValueKey('today-settings')), findsNothing);
           expect(tester.takeException(), isNull);
         }
       });
@@ -135,20 +138,25 @@ void main() {
     FocusManager.instance.primaryFocus?.unfocus();
     await tester.tap(find.byKey(const ValueKey('nav-Heute')));
     await _frames(tester);
-    for (final action in ['profile', 'settings']) {
-      await tester.tap(find.byKey(ValueKey('today-$action')));
-      await tester.pumpAndSettle();
-      expect(find.byKey(ValueKey('screen-$action')), findsOneWidget);
+    // The avatar opens the profile; its gear opens the settings the old
+    // header linked directly.
+    await tester.tap(find.byKey(const ValueKey('today-profile')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('screen-profile')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('profile-open-settings')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
+    for (final route in ['settings', 'profile']) {
       final routeContext = tester.element(
-        find.byKey(ValueKey('screen-$action')),
+        find.byKey(ValueKey('screen-$route')),
       );
       Navigator.of(routeContext).pop();
       await tester.pumpAndSettle();
-      expect(
-        find.byKey(const ValueKey('today-settings')).hitTestable(),
-        findsOneWidget,
-      );
     }
+    expect(
+      find.byKey(const ValueKey('today-profile')).hitTestable(),
+      findsOneWidget,
+    );
     await tester.tap(find.byKey(const ValueKey('nav-Rezepte')));
     await _frames(tester);
     expect(

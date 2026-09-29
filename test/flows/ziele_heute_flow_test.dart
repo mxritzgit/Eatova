@@ -56,13 +56,12 @@ final UserProfile _startProfil = const KcalCalculator().applyLiveGoals(
 /// cannot pass by accident. Inside the DB bounds (800..7000).
 const int _manuellesZiel = 1750;
 
-/// The Today hero's goal line, verbatim.
+/// The Today card's Goal stat, verbatim.
 String _heuteZielText(WidgetTester tester) => tester
     .widget<Text>(find.byKey(const ValueKey('today-kcal-goal')))
     .data!;
 
-String _erwartet(int kcal) =>
-    enL10n.todayKcalGoalLabel(kcalThousands(kcal, enL10n));
+String _erwartet(int kcal) => kcalThousands(kcal, enL10n);
 
 HomeStore _storeOf(WidgetTester tester) =>
     (tester.state(find.byType(EatovaHomePage)) as HomePageDebugAccess)
@@ -132,6 +131,8 @@ Future<void> _speichernUndSchliessen(WidgetTester tester) async {
     );
   }
   await _tippe(tester, zurueck);
+  // Settings sit behind the avatar's profile page since the redesign.
+  await closeSettingsFromToday(tester);
 }
 
 /// Scrolls [finder] into view, then taps it.

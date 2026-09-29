@@ -1,9 +1,9 @@
-// The steps card on the Today tab.
+// The steps row of the Today tab's activity card (dark redesign).
 //
-// It sits under the calorie hero and shows the math behind the burned tile:
-// day total, progress towards the profile's step goal, estimated kcal. Without
-// a step source (`steps == null`) there is no card — "0 / 8.000" would be a
-// claim about data that does not exist.
+// It shows the math behind the Activity stat: day total, progress towards the
+// profile's step goal, the estimated kcal credit. Without a step source
+// (`steps == null`) there is no row — "0 / 8.000" would be a claim about
+// data that does not exist.
 //
 // Harness as in today_screen_test.dart: Eatova theme, phone viewport, shell
 // padding.
@@ -22,9 +22,10 @@ import 'package:eatova/src/services/day_math.dart';
 
 import '../../support/harness.dart';
 
-const ValueKey<String> _karte = ValueKey<String>('today-steps-card');
+const ValueKey<String> _zeile = ValueKey<String>('today-steps-card');
 const ValueKey<String> _wert = ValueKey<String>('today-steps-value');
-const ValueKey<String> _untertitel = ValueKey<String>('today-steps-subtitle');
+const ValueKey<String> _ziel = ValueKey<String>('today-steps-goal');
+const ValueKey<String> _kcal = ValueKey<String>('today-steps-kcal');
 const ValueKey<String> _balken = ValueKey<String>('today-steps-bar');
 
 Future<void> _pump(
@@ -33,7 +34,7 @@ Future<void> _pump(
   int burnedKcal = 0,
   int goal = 8000,
   bool dayLoading = false,
-  Brightness brightness = Brightness.light,
+  Brightness brightness = Brightness.dark,
   double textScale = 1.0,
   Locale locale = const Locale('de'),
 }) async {
@@ -60,7 +61,7 @@ Future<void> _pump(
     brightness: brightness,
     textScale: textScale,
     padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-    // The bar is a TweenAnimationBuilder over motionDuration(500ms). Under the
+    // The bar is a TweenAnimationBuilder over motionDuration(320ms). Under the
     // harness default (reducedMotion: true) that collapses to zero and the
     // "after the animation settles" assertions would read the first frame.
     reducedMotion: false,
@@ -82,8 +83,8 @@ double _balkenWert(WidgetTester tester) =>
     tester.widget<LinearProgressIndicator>(find.byKey(_balken)).value!;
 
 void main() {
-  group('TodayStepsCard', () {
-    testWidgets('Schrittziel bleibt bei 320 px und doppelter Schrift lesbar', (
+  group('Schritte-Zeile', () {
+    testWidgets('bleibt bei 320 px und doppelter Schrift lesbar', (
       tester,
     ) async {
       tester.view.physicalSize = const Size(320, 800);
@@ -92,97 +93,108 @@ void main() {
       await pumpLocalized(
         tester,
         const SingleChildScrollView(
-          child: TodayStepsCard(steps: 7000, goal: 8000, burnedKcal: 261),
+          child: TodayStepsRow(steps: 7000, goal: 8000, burnedKcal: 261),
         ),
         textScale: 2,
         padding: const EdgeInsets.all(20),
         settle: true,
       );
-      final subtitle = tester.renderObject<RenderParagraph>(
-        find.byKey(_untertitel),
-      );
-      expect(
-        subtitle.didExceedMaxLines,
-        isFalse,
-        reason: 'Burned calories and the step goal must both remain visible.',
-      );
+      // Credit and step goal both stay visible, whole.
+      for (final key in [_wert, _ziel, _kcal]) {
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.descendant(of: find.byKey(key), matching: find.byType(RichText)),
+        );
+        expect(paragraph.didExceedMaxLines, isFalse, reason: '$key');
+      }
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('ohne Schrittquelle gibt es keine Karte', (tester) async {
+    testWidgets('ohne Schrittquelle gibt es keine Zeile', (tester) async {
       await _pump(tester, steps: null, burnedKcal: 261);
 
-      expect(find.byKey(_karte), findsNothing);
-      expect(find.byType(TodayStepsCard), findsNothing);
+      expect(find.byKey(_zeile), findsNothing);
+      expect(find.byType(TodayStepsRow), findsNothing);
       // The rest of the day is unchanged.
       expect(find.byKey(const ValueKey('today-kcal-hero')), findsOneWidget);
       expect(find.byKey(const ValueKey('today-macros-card')), findsOneWidget);
     });
 
-    testWidgets('Stand, Einheit, kcal und Ziel — mit Tausenderpunkt', (
-      tester,
-    ) async {
+    testWidgets('Stand, Ziel und kcal — mit Tausenderpunkt', (tester) async {
       await _pump(tester, steps: 7000, burnedKcal: 261);
 
-      expect(find.byKey(_karte), findsOneWidget);
-      expect(find.text('Schritte'), findsOneWidget);
+      expect(find.byKey(_zeile), findsOneWidget);
       expect(_text(tester, _wert), '7.000');
-      expect(_text(tester, const ValueKey('today-steps-goal')), '/ 8.000');
-      expect(_text(tester, _untertitel), '≈ 261 kcal verbrannt');
+      expect(_text(tester, _ziel), '/ 8.000 Schritte');
+      expect(_text(tester, _kcal), '+261 kcal');
       // 7000 / 8000 after the animation settles.
       expect(_balkenWert(tester), closeTo(0.875, 0.001));
     });
 
-    testWidgets('die Karte folgt auf Hero und Makros', (tester) async {
+    testWidgets('die Aktivitaetskarte folgt auf die Mahlzeiten', (
+      tester,
+    ) async {
       await _pump(tester, steps: 7000, burnedKcal: 261);
 
+      final mahlzeiten = tester.getRect(
+        find.byKey(const ValueKey('today-meals-card')),
+      );
+      final karte = tester.getRect(
+        find.byKey(const ValueKey('today-activity-card')),
+      );
       final hero = tester.getRect(
         find.byKey(const ValueKey('today-kcal-hero')),
       );
-      final karte = tester.getRect(find.byKey(_karte));
-      final makros = tester.getRect(
-        find.byKey(const ValueKey('today-macros-card')),
-      );
-      expect(makros.top, greaterThanOrEqualTo(hero.bottom));
-      expect(karte.top, greaterThanOrEqualTo(makros.bottom));
+      expect(karte.top, greaterThanOrEqualTo(mahlzeiten.bottom));
       // Same column as its neighbours - no second side margin.
       expect(karte.left, hero.left);
       expect(karte.right, hero.right);
     });
 
-    testWidgets('ohne Verbranntes steht nur das Ziel', (tester) async {
+    testWidgets('ohne Gutschrift steht nur das Ziel', (tester) async {
       await _pump(tester, steps: 7000, burnedKcal: 0);
 
-      expect(find.byKey(_untertitel), findsNothing);
-      expect(_text(tester, const ValueKey('today-steps-goal')), '/ 8.000');
+      expect(find.byKey(_kcal), findsNothing);
+      expect(_text(tester, _ziel), '/ 8.000 Schritte');
     });
 
-    testWidgets('Ziel erreicht: der Untertitel sagt es, der Balken ist voll', (
-      tester,
-    ) async {
-      await _pump(tester, steps: 9000, burnedKcal: 300);
+    testWidgets('ohne Schrittziel steht nur die Einheit', (tester) async {
+      await _pump(tester, steps: 7000, goal: 0);
 
-      expect(_text(tester, _wert), '9.000');
-      expect(
-        _text(tester, _untertitel),
-        '≈ 300 kcal verbrannt · Ziel erreicht',
-      );
-      expect(_balkenWert(tester), 1.0);
+      expect(_text(tester, _ziel), 'Schritte');
+      expect(_balkenWert(tester), 0.0);
     });
+
+    testWidgets(
+      'Ziel erreicht: der Balken ist voll, der Screenreader hoert es',
+      (tester) async {
+        final handle = tester.ensureSemantics();
+        await _pump(tester, steps: 9000, burnedKcal: 300);
+
+        expect(_text(tester, _wert), '9.000');
+        expect(_balkenWert(tester), 1.0);
+        expect(
+          tester
+              .getSemantics(find.bySemanticsLabel(RegExp('Schrittziel')))
+              .value,
+          '9.000 von 8.000 Schritten, Ziel erreicht',
+        );
+        handle.dispose();
+      },
+    );
 
     testWidgets('eine echte 0 (Quelle da, noch kein Schritt) bleibt sichtbar', (
       tester,
     ) async {
       await _pump(tester, steps: 0, burnedKcal: 0);
 
-      expect(find.byKey(_karte), findsOneWidget);
+      expect(find.byKey(_zeile), findsOneWidget);
       expect(_text(tester, _wert), '0');
-      expect(find.byKey(_untertitel), findsNothing);
-      expect(_text(tester, const ValueKey('today-steps-goal')), '/ 8.000');
+      expect(find.byKey(_kcal), findsNothing);
+      expect(_text(tester, _ziel), '/ 8.000 Schritte');
       expect(_balkenWert(tester), 0.0);
     });
 
-    testWidgets('auf Englisch: Komma-Tausender, STEPS, Goal', (tester) async {
+    testWidgets('auf Englisch: Komma-Tausender und steps', (tester) async {
       await _pump(
         tester,
         steps: 7000,
@@ -190,18 +202,17 @@ void main() {
         locale: const Locale('en'),
       );
 
-      expect(find.text('Steps'), findsOneWidget);
       expect(_text(tester, _wert), '7,000');
-      expect(_text(tester, const ValueKey('today-steps-goal')), '/ 8,000');
-      expect(_text(tester, _untertitel), '≈ 261 kcal burned');
+      expect(_text(tester, _ziel), '/ 8,000 steps');
+      expect(_text(tester, _kcal), '+261 kcal');
     });
 
-    testWidgets('waehrend der Tag laedt, fehlt auch die Schritte-Karte', (
+    testWidgets('waehrend der Tag laedt, fehlt auch die Schritte-Zeile', (
       tester,
     ) async {
       await _pump(tester, steps: 7000, burnedKcal: 261, dayLoading: true);
 
-      expect(find.byKey(_karte), findsNothing);
+      expect(find.byKey(_zeile), findsNothing);
       expect(find.byKey(const ValueKey('today-day-loading')), findsOneWidget);
     });
 
@@ -211,8 +222,6 @@ void main() {
       final handle = tester.ensureSemantics();
       await _pump(tester, steps: 7000, burnedKcal: 261);
 
-      // RegExp + contains: the card merges the bar node with the texts above
-      // it, so label and value do not stand alone in the node.
       final balken = find.bySemanticsLabel(RegExp('Schrittziel'));
       expect(balken, findsOneWidget);
       expect(
@@ -235,15 +244,13 @@ void main() {
           );
 
           expect(tester.takeException(), isNull);
-          // At 2.0 the hero's metric tiles stack (F8-09) and push the card
-          // below the lazy ListView's viewport; scroll it into existence.
           await tester.scrollUntilVisible(
-            find.byKey(_karte),
+            find.byKey(_zeile),
             200,
             scrollable: find.byType(Scrollable).first,
           );
           expect(tester.takeException(), isNull);
-          expect(find.byKey(_karte), findsOneWidget);
+          expect(find.byKey(_zeile), findsOneWidget);
           expect(_text(tester, _wert), '12.345');
         },
       );

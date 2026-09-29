@@ -7,6 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/main.dart';
 import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/screens/trends_screen.dart';
+import 'package:eatova/src/services/day_math.dart';
+import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/trend_service.dart';
 
 import 'support/harness.dart';
@@ -199,9 +201,12 @@ void main() {
       await _bootApp(tester);
       expect(find.byKey(const ValueKey('today-kcal-hero')), findsOneWidget);
 
-      // An archive day is its own branch: relative date in the pill, a dash
-      // instead of a number in the burned tile, a different coach line.
-      await tester.tap(find.byKey(const ValueKey('today-date-prev')));
+      // An archive day is its own branch: "that day" wording, no pick, no
+      // next workout. Yesterday is the strip's second-to-last day.
+      final gestern = addDays(startOfDay(DateTime.now()), -1);
+      await tester.tap(
+        find.byKey(ValueKey('today-day-${localDayKey(gestern)}')),
+      );
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('today-date-selected-label')),
           findsOneWidget);
@@ -212,7 +217,7 @@ void main() {
         find.byKey(const ValueKey('screen-today')),
         schritte: 4,
       );
-      expect(find.byKey(const ValueKey('today-coach-banner')), findsOneWidget);
+      expect(find.byKey(const ValueKey('today-meals-card')), findsOneWidget);
     });
   });
 
@@ -419,11 +424,16 @@ void main() {
   testWidgets('Today account actions remain reachable at large text', (tester) async {
     _pinViewport(tester);
     await _bootApp(tester);
-    for (final key in ['today-profile', 'today-settings']) {
-      final item = find.byKey(ValueKey(key));
-      expect(item.hitTestable(), findsOneWidget);
-      expect(tester.getSize(item).height, greaterThanOrEqualTo(44));
-    }
+    // The avatar is the one account entry; settings sit behind it.
+    final avatar = find.byKey(const ValueKey('today-profile'));
+    expect(avatar.hitTestable(), findsOneWidget);
+    expect(tester.getSize(avatar).height, greaterThanOrEqualTo(44));
+    await tester.tap(avatar);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('profile-open-settings')).hitTestable(),
+      findsOneWidget,
+    );
     expect(find.byKey(const ValueKey('food-options')), findsNothing);
     expect(tester.takeException(), isNull);
   });

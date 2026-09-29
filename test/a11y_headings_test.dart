@@ -112,7 +112,6 @@ Widget _heuteTab() => TodayScreen(
       selectedDate: startOfDay(_jetzt),
       streak: 3,
       onOpenProfile: () {},
-      onOpenCoach: () {},
     );
 
 /// The coach greeting reads the wall clock (`DateTime.now()`), not the
@@ -423,19 +422,23 @@ void main() {
         marken,
         <Sprungmarke>[
           (label: l10n.navToday, level: 1),
-          (label: l10n.todayMacrosTitle, level: 2),
-          (label: l10n.todayMealsTitleToday, level: 2),
+          (label: l10n.todayCaloriesTitle, level: 2),
+          (label: l10n.todayMealsTitleArchive, level: 2),
         ],
         reason: 'der Tab hatte nur Abschnitte (Ebene 2) und keinen '
             'Seitentitel — im Navigationsmodus „Überschriften" landet der '
             'Nutzer mitten in der Seite',
       );
-      // Der Bildschirm ist eine ListView: ohne eigenen Knoten haette die
-      // Marke die Augenbraue („SONNTAG, 9. AUGUST 2026") mitgelesen.
+      // Ohne eigenen Knoten haette die Marke die Datumszeile darueber
+      // („Sonntag, 9. Aug.") mitgelesen.
       expect(
         marken.first.label,
-        isNot(contains(todayEyebrow(startOfDay(_jetzt), l10n))),
-        reason: 'IndexedSemantics verschmilzt die Kopfzeile zu EINEM Knoten',
+        isNot(
+          contains(
+            todayHeaderDate(startOfDay(_jetzt), startOfDay(_jetzt), l10n),
+          ),
+        ),
+        reason: 'die Kopfzeile darf nicht zu EINEM Knoten verschmelzen',
       );
       // Gegenprobe: die Profil-Kachel neben dem Titel bleibt tippbar.
       expect(

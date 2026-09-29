@@ -2,25 +2,32 @@ import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
+import '../../models/day_nutrition.dart';
 import '../../models/lifetime_stats.dart';
 import '../../models/logged_meal.dart';
 import '../../models/macro_progress.dart';
+import '../../models/recipe_pick.dart';
+import '../../models/training_insights.dart';
 import '../../models/user_profile.dart';
 import '../../services/day_math.dart';
+import '../../services/meal_totals.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/design/design.dart';
 import 'today_day_strip.dart';
+import 'today_glyphs.dart';
 import 'today_hero.dart';
 import 'today_macros.dart';
 import 'today_sections.dart';
 import 'today_texts.dart';
 
-/// The day dashboard tab.
+/// The day dashboard tab (dark redesign, 2026-09-28): header with streak and
+/// profile, the 7-day strip, the calorie card, macro tiles, the recipe pick,
+/// the four meal slots and the activity card.
 ///
 /// Pure display widget: data in as parameters, actions out as callbacks. It
 /// knows neither store nor sync, so it can be pumped without a backend and
-/// the shell keeps control over tabs and routes. It answers "where do I
-/// stand?"; the food tab owns editing meals.
+/// the shell keeps control over tabs and routes. The numbers follow
+/// [DayNutritionSummary], the rule every tab shares.
 class TodayScreen extends StatelessWidget {
   const TodayScreen({
     super.key,
@@ -36,11 +43,15 @@ class TodayScreen extends StatelessWidget {
     this.healthConnect = false,
     this.profileInitial,
     this.dayLoading = false,
+    this.pick,
+    this.nextWorkout,
     this.onDateSelected,
-    this.onOpenCoach,
     this.onOpenProfile,
-    this.onOpenSettings,
     this.onOpenMealSlot,
+    this.onOpenRecipe,
+    this.onOpenMealPlan,
+    this.onOpenFoodLog,
+    this.onOpenTraining,
   });
 
   final String userName;
@@ -49,13 +60,13 @@ class TodayScreen extends StatelessWidget {
   /// Calories eaten on [selectedDate].
   final int consumedKcal;
 
-  /// Estimated from steps. No activity line is shown for an absent credit.
+  /// Activity credit estimated from steps; no Activity stat without one.
   final int burnedKcal;
 
   final MacroProgress macroProgress;
 
   /// Step count for [selectedDate]; `null` means no step source, and the
-  /// steps card is dropped rather than claiming zero. Goal comes from profile.
+  /// steps row is dropped rather than claiming zero. Goal comes from profile.
   final int? steps;
   final bool healthConnect;
 
@@ -65,193 +76,195 @@ class TodayScreen extends StatelessWidget {
   final DateTime selectedDate;
 
   /// Already resolved via [LifetimeStats.effectiveStreakOn]: a broken chain
-  /// arrives as 0.
+  /// arrives as 0 and hides the pill.
   final int streak;
 
   final String? profileInitial;
   final bool dayLoading;
 
-  final ValueChanged<DateTime>? onDateSelected;
-  final VoidCallback? onOpenCoach;
-  final VoidCallback? onOpenProfile;
-  final VoidCallback? onOpenSettings;
+  /// Today's recipe for the next open main meal; shown on today only.
+  final RecipePick? pick;
 
-  /// Slot rows and the fixed add action lead into the food tab.
+  /// The selected plan's next workout; shown on today only.
+  final TrainingNextWorkout? nextWorkout;
+
+  final ValueChanged<DateTime>? onDateSelected;
+
+  /// The avatar and the streak pill. The profile page also holds the
+  /// settings entry the old header carried.
+  final VoidCallback? onOpenProfile;
+
+  /// A slot's add button: the Food tab's add flow for that slot and day.
   final ValueChanged<MealSlot>? onOpenMealSlot;
+
+  /// A suggested pick opens its recipe detail (add = one serving, chosen
+  /// slot).
+  final ValueChanged<RecipePick>? onOpenRecipe;
+
+  /// A planned pick opens the meal plan: only its "eat" action logs through
+  /// `HomeStore.eatPlannedMeal` (planned servings, entry marked eaten). The
+  /// recipe detail's generic add would log one serving, leave the entry open
+  /// and later duplicate the diary row.
+  final VoidCallback? onOpenMealPlan;
+  final VoidCallback? onOpenFoodLog;
+  final VoidCallback? onOpenTraining;
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
     final l10n = context.l10n;
 
-    // Exactly one clock read per build, or heading and day strip could land
-    // on opposite sides of midnight.
+    // Exactly one clock read per build, or heading, strip and next slot could
+    // land on opposite sides of midnight.
     final jetzt = clock.now();
     final heute = startOfDay(jetzt);
     final istHeute = daysBetween(heute, selectedDate) == 0;
 
-    final restProtein = (profile.proteinGoalG - macroProgress.proteinG)
-        .round()
-        .clamp(0, 99999);
-    final schritte = steps;
-
-    // No SafeArea and no horizontal padding here: the shell supplies both,
-    // a second padding would double the margin. The shell hands the floating
-    // tab bar's band down as bottom padding: the pinned add action sits on it,
-    // and without that action the list itself ends above the bar.
-    final navInset = MediaQuery.paddingOf(context).bottom;
-    final content = ListView(
-      key: const ValueKey('screen-today'),
-      padding: EdgeInsets.fromLTRB(
-        0,
-        0,
-        0,
-        12 + (onOpenMealSlot == null ? navInset : 0),
+    final summary = DayNutritionSummary(
+      profile: profile,
+      burnedKcal: burnedKcal,
+      consumed: MacroProgress(
+        proteinG: macroProgress.proteinG,
+        carbsG: macroProgress.carbsG,
+        fatG: macroProgress.fatG,
+        kcal: consumedKcal,
       ),
-      children: <Widget>[
-        _Kopfzeile(
-          title: l10n.navToday,
-          initial: profileInitial ?? todayInitial(userName),
-          onOpenProfile: onOpenProfile,
-          onOpenSettings: onOpenSettings,
-        ),
-        const SizedBox(height: 2),
-        TodayDayStrip(
-          selectedDate: selectedDate,
-          today: heute,
-          onSelected: onDateSelected,
-        ),
-        const SizedBox(height: 4),
-        // Hero and macros share the loading state of the meals card below:
-        // while an archive day loads, both values are still zero and would
-        // assert numbers that do not exist yet. The single loading card under
-        // the heading carries that state.
-        if (!dayLoading) ...<Widget>[
-          TodayCalorieHero(
-            consumedKcal: consumedKcal,
-            burnedKcal: burnedKcal,
-            kcalGoal: profile.dailyKcalGoal,
+    );
+    final slots = mealSlotSummariesForFoodDate(meals, selectedDate);
+    // The accent add button marks the slot the recipe pick serves: the same
+    // rule (nextOpenMainMealSlot) on the same meals and clock.
+    final nextSlot = istHeute && !dayLoading
+        ? nextOpenMainMealSlot(now: jetzt, todaysMeals: meals)
+        : null;
+    final shownPick = istHeute && !dayLoading ? pick : null;
+    final workout = istHeute ? nextWorkout : null;
+    final healthMissing = steps == null && healthConnect;
+    final showActivity =
+        !dayLoading &&
+        TodayActivityCard.hasContent(
+          steps: steps,
+          healthConnectMissing: healthMissing,
+          workout: workout,
+        );
+
+    // No SafeArea and no side padding: the shell supplies both. The page runs
+    // under the floating tab bar and pads its end by the bar's band (plus the
+    // design's clearance), so the last card can scroll clear of the glass.
+    final navInset = MediaQuery.paddingOf(context).bottom;
+    return SingleChildScrollView(
+      key: const ValueKey('screen-today'),
+      // Unclipped: the selected day's glow reaches into the shell's side
+      // gutter as in the design; the tab stack still clips at the screen.
+      clipBehavior: Clip.none,
+      // Top 3: the shell's 12 plus 3 put the header 62 px below the screen
+      // top on the design's phone, as in the reference.
+      padding: EdgeInsets.only(top: 3, bottom: navInset + 68),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          _TodayHeader(
+            dateLine: todayHeaderDate(selectedDate, heute, l10n),
+            dateSemantics: todayDateLabel(heute, selectedDate, l10n),
+            title: l10n.navToday,
             streak: streak,
-            isToday: istHeute,
+            initial: profileInitial ?? todayInitial(userName),
+            onOpenProfile: onOpenProfile,
           ),
-          const SizedBox(height: 8),
-          TodayMacros(progress: macroProgress, profile: profile),
-          if (schritte != null) ...<Widget>[
-            const SizedBox(height: 8),
-            TodayStepsCard(
-              steps: schritte,
-              goal: profile.dailyStepsGoal,
-              burnedKcal: burnedKcal,
+          const SizedBox(height: 16),
+          TodayDayStrip(
+            selectedDate: selectedDate,
+            today: heute,
+            onSelected: onDateSelected,
+          ),
+          const SizedBox(height: 16),
+          // While an archive day loads its numbers are still zero; the one
+          // loading card under the heading carries that state instead.
+          if (!dayLoading) ...<Widget>[
+            TodayCalorieCard(summary: summary, isToday: istHeute),
+            const SizedBox(height: 16),
+            TodayMacros(summary: summary),
+            if (shownPick != null) ...<Widget>[
+              const SizedBox(height: 16),
+              TodayPickRow(pick: shownPick, onTap: _pickAction(shownPick)),
+            ],
+          ],
+          const SizedBox(height: 16),
+          TodayMealsHeader(onOpenFoodLog: onOpenFoodLog),
+          if (dayLoading)
+            const TodayDayLoadingCard()
+          else
+            TodayMealsCard(
+              slots: slots,
+              summary: summary,
+              isToday: istHeute,
+              accentSlot: nextSlot,
+              onAdd: onOpenMealSlot,
             ),
-          ] else if (healthConnect) ...<Widget>[
-            const SizedBox(height: 14),
-            AppCard(
-              key: const ValueKey('today-health-connect-missing'),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l10n.healthConnectMissingTitle,
-                    style: AppType.display(
-                      17,
-                      weight: FontWeight.w700,
-                      color: t.ink,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    l10n.healthConnectMissingHint,
-                    style: AppType.ui(12, color: t.ink2, height: 1.4),
-                  ),
-                  if (onOpenProfile != null)
-                    TextButton(
-                      onPressed: onOpenProfile,
-                      child: Text(l10n.healthConnectReview),
-                    ),
-                ],
-              ),
+          if (showActivity) ...<Widget>[
+            const SizedBox(height: 16),
+            TodayActivityCard(
+              steps: steps,
+              stepsGoal: profile.dailyStepsGoal,
+              burnedKcal: burnedKcal,
+              healthConnectMissing: healthMissing,
+              onReviewHealth: onOpenProfile,
+              workout: workout,
+              onOpenTraining: onOpenTraining,
             ),
           ],
-          const SizedBox(height: 14),
         ],
-        // Archive days need a different title. No `trailing`: it would look
-        // like a link but be dead, and the slot rows already lead to the
-        // food tab.
-        SectionHeading(
-          title: istHeute
-              ? l10n.todayMealsTitleToday
-              : l10n.todayMealsTitleArchive,
-        ),
-        const SizedBox(height: 8),
-        if (dayLoading)
-          const TodayDayLoadingCard()
-        else
-          TodayMealsCard(meals: meals, onOpenSlot: onOpenMealSlot),
-        const SizedBox(height: 14),
-        TodayCoachBanner(
-          teaser: coachTeaser(
-            // While the day loads `meals` is empty without the day being
-            // empty, so the teaser must not claim it is.
-            dayIsEmpty: !dayLoading && meals.isEmpty,
-            remainingProteinG: restProtein,
-            l10n: l10n,
-            isToday: istHeute,
-          ),
-          onTap: onOpenCoach,
-        ),
-      ],
+      ),
     );
-    return Column(
-      children: [
-        Expanded(child: content),
-        if (onOpenMealSlot != null)
-          Padding(
-            padding: EdgeInsets.only(top: 8, bottom: navInset),
-            child: FilledButton.icon(
-              key: const ValueKey('today-add-meal'),
-              onPressed: dayLoading
-                  ? null
-                  : () => onOpenMealSlot!(currentMealSlot()),
-              style: FilledButton.styleFrom(
-                backgroundColor: t.brandSurface,
-                foregroundColor: t.onBrandSurface,
-                minimumSize: const Size(double.infinity, kPrimaryButtonHeight),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(rPill),
-                ),
-              ),
-              icon: const AppIcon(AppSymbol.addMeal, size: 23),
-              label: Text(l10n.todayAddMeal),
-            ),
-          ),
-      ],
-    );
+  }
+
+  /// Where the pick row leads; see [onOpenRecipe] and [onOpenMealPlan].
+  /// Lives here until the Food tab's shared pick actions are merged.
+  VoidCallback? _pickAction(RecipePick pick) {
+    if (pick.source == RecipePickSource.planned) return onOpenMealPlan;
+    final open = onOpenRecipe;
+    return open == null ? null : () => open(pick);
   }
 }
 
-class _Kopfzeile extends StatelessWidget {
-  const _Kopfzeile({
+/// Date line and title on the left; streak pill and profile avatar on the
+/// right, both 44 px high.
+class _TodayHeader extends StatelessWidget {
+  const _TodayHeader({
+    required this.dateLine,
+    required this.dateSemantics,
     required this.title,
+    required this.streak,
     required this.initial,
     this.onOpenProfile,
-    this.onOpenSettings,
   });
 
-  final String title;
-  final String initial;
+  final String dateLine, dateSemantics, title, initial;
+  final int streak;
   final VoidCallback? onOpenProfile;
-  final VoidCallback? onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
+              Semantics(
+                container: true,
+                label: dateSemantics,
+                child: Text(
+                  dateLine,
+                  key: const ValueKey('today-date-selected-label'),
+                  style: AppType.ui(
+                    14,
+                    weight: FontWeight.w600,
+                    color: t.ink2,
+                    height: todayLineHeight,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 2),
               HeadingSemantics(
                 level: 1,
                 child: Text(
@@ -263,49 +276,116 @@ class _Kopfzeile extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(width: 8),
-        if (onOpenSettings != null) ...[
-          SquareIconButton.custom(
-            key: const ValueKey('today-settings'),
-            onTap: onOpenSettings,
-            semanticLabel: context.l10n.foodSemanticsSettings,
-            child: const AppIcon(AppSymbol.settings),
-          ),
+        const SizedBox(width: 12),
+        if (streak > 0) ...<Widget>[
+          _StreakPill(streak: streak, onTap: onOpenProfile),
           const SizedBox(width: 8),
         ],
-        Semantics(
-          button: true,
-          label: context.l10n.todaySemanticsOpenProfile,
-          child: Material(
-            color: t.brandSurface,
-            borderRadius: BorderRadius.circular(rPill),
-            child: InkWell(
-              key: const ValueKey('today-profile'),
-              borderRadius: BorderRadius.circular(rPill),
-              onTap: onOpenProfile,
-              child: SizedBox(
-                width: 44,
-                height: 44,
-                child: Center(
-                  // FittedBox like MealAvatar: fixed tile, letter grows with
-                  // the system font.
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      initial,
+        _ProfileAvatar(initial: initial, onTap: onOpenProfile),
+      ],
+    );
+  }
+}
+
+/// Flame and count on the activity tint. Opens the profile, where the
+/// streak and the record live.
+class _StreakPill extends StatelessWidget {
+  const _StreakPill({required this.streak, this.onTap});
+  final int streak;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Semantics(
+      button: onTap != null,
+      label: context.l10n.todayStreakSemantics(streak),
+      child: Material(
+        color: t.activityTint,
+        shape: const StadiumBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: const ValueKey('today-streak'),
+          onTap: onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 44),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: ExcludeSemantics(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    TodayGlyphIcon(
+                      TodayGlyph.flame,
+                      size: 18,
+                      color: t.activityInk,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '$streak',
+                      key: const ValueKey('today-streak-count'),
                       style: AppType.ui(
-                        14,
-                        weight: FontWeight.w700,
-                        color: t.onBrandSurface,
+                        15,
+                        weight: FontWeight.w800,
+                        color: t.activityInk,
+                        height: todayLineHeight,
                       ),
                     ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The initial in a 44 px circle with an accent ring: profile and settings.
+class _ProfileAvatar extends StatelessWidget {
+  const _ProfileAvatar({required this.initial, this.onTap});
+  final String initial;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final shape = CircleBorder(
+      side: BorderSide(color: t.accent.withValues(alpha: 0.45), width: 1.5),
+    );
+    return Semantics(
+      button: true,
+      label: context.l10n.todayProfileAndSettings,
+      child: Material(
+        color: t.surf2,
+        shape: shape,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: const ValueKey('today-profile'),
+          customBorder: shape,
+          onTap: onTap,
+          child: SizedBox.square(
+            dimension: 44,
+            child: Center(
+              // FittedBox like MealAvatar: fixed circle, the letter grows
+              // with the system font until it fills it.
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  initial,
+                  style: AppType.ui(
+                    16,
+                    weight: FontWeight.w800,
+                    color: t.inkSoft,
+                    height: todayLineHeight,
                   ),
                 ),
               ),
             ),
           ),
         ),
-      ],
+      ),
     );
   }
 }

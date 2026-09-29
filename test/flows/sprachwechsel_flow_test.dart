@@ -54,8 +54,8 @@ const List<_Kernscreen> _tour = <_Kernscreen>[
 ];
 
 // Tear-offs instead of closures: a const list may hold no lambdas.
-String _budgetEyebrow(AppLocalizations l) => l.todayBalanceRemaining;
-String _makros(AppLocalizations l) => l.todayMacroCarbs;
+String _budgetEyebrow(AppLocalizations l) => l.todayArcLeftToday.toUpperCase();
+String _makros(AppLocalizations l) => l.todayCaloriesTitle;
 String _empfehlungen(AppLocalizations l) => l.recipesForYou;
 String _alleRezepte(AppLocalizations l) => l.recipesAllTitle;
 String _coachTitel(AppLocalizations l) => l.coachTitle;
@@ -168,6 +168,8 @@ Future<void> _schliesseEinstellungen(WidgetTester tester) async {
   await _zumSeitenanfang(tester);
   await _tippe(tester, find.byKey(const ValueKey('settings-back')));
   expect(find.byKey(const ValueKey('screen-settings')), findsNothing);
+  // Settings sit behind the avatar's profile page since the redesign.
+  await closeSettingsFromToday(tester);
 }
 
 /// Scrolls the language pill into range and takes one of its three options.

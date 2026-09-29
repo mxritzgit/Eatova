@@ -119,19 +119,21 @@ final List<_Step> _journey = <_Step>[
     _key('screen-profile'),
     column: _key('screen-profile'),
   ),
+  // Settings sit behind the avatar's profile page (dark redesign).
   _step(
     'Einstellungen',
     'Heute',
-    const ['today-settings'],
+    const ['today-profile', 'profile-open-settings'],
     _key('screen-settings'),
     column: _key('screen-settings'),
+    pops: 2,
   ),
   _step(
     'Ziele',
     'Heute',
-    const ['today-settings', 'settings-open-goals'],
+    const ['today-profile', 'profile-open-settings', 'settings-open-goals'],
     _key('settings-save'),
-    pops: 2,
+    pops: 3,
   ),
   _step('Mahlzeit hinzufuegen', 'Food', const [
     'food-slot-add-dinner',

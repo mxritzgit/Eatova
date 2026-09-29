@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/main.dart';
+import 'package:eatova/src/screens/today/today_macros.dart';
 
 import 'flow_test_helpers.dart';
 
@@ -108,8 +109,15 @@ void main() {
       ),
     );
 
-    // Before logging: protein 0 / 130 g (cold start lands on the today tab).
-    expect(find.text('0 / 130 g'), findsOneWidget);
+    // The Today protein tile (eaten grams against the 130 g goal).
+    int proteinHeute() => tester
+        .widgetList<TodayMacroTile>(find.byType(TodayMacroTile))
+        .firstWhere((tile) => tile.label == 'Protein')
+        .value;
+
+    // Before logging: protein 0 of 130 g (cold start lands on the today tab).
+    expect(proteinHeute(), 0);
+    expect(find.text('/130 g'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('nav-Food')));
     await tester.pumpAndSettle();
@@ -150,8 +158,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('nav-Heute')));
     await tester.pumpAndSettle();
 
-    expect(find.text('40 / 130 g'), findsOneWidget);
-    expect(find.text('30 / 130 g'), findsNothing);
+    expect(proteinHeute(), 40);
   });
 
   // PROD-4: the favorite heart renders on the analysis result and tapping it
