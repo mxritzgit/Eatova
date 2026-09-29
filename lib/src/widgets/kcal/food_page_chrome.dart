@@ -108,7 +108,7 @@ class FoodDayNavigation extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 6),
       decoration: BoxDecoration(
         color: t.surf,
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(rPill),
         border: Border.all(color: t.cardBorder),
       ),
       child: Row(
@@ -354,7 +354,7 @@ class FoodMacroBar extends StatelessWidget {
     return ExcludeSemantics(
       child: ClipRRect(
         key: const ValueKey('food-macro-bar'),
-        borderRadius: BorderRadius.circular(5),
+        borderRadius: BorderRadius.circular(rPill),
         child: SizedBox(
           height: 10,
           child: segments.isEmpty
@@ -445,7 +445,7 @@ class FoodEntryDock extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    const radius = BorderRadius.all(Radius.circular(height / 2));
+    const radius = BorderRadius.all(Radius.circular(rPill));
     // An input look without an input: borderless soft capsule (standing
     // input rule), the search itself lives in the sheet.
     final search = DecoratedBox(

@@ -12,15 +12,20 @@ import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/l10n/l10n.dart';
+import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/models/planned_meal.dart';
+import 'package:eatova/src/models/recipe_pick.dart';
 import 'package:eatova/src/screens/barcode_scanner_sheet.dart';
+import 'package:eatova/src/screens/recipes/meal_plan_screen.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/meal_camera_launcher.dart';
 import 'package:eatova/src/services/local_day.dart';
@@ -164,6 +169,21 @@ Finder _row(String name) => find.ancestor(
   ),
 );
 
+/// Flex of the protein, carbs and fat segments; null for a missing one.
+List<int?> _barFlex(WidgetTester tester) => [
+  for (final macro in ['protein', 'carbs', 'fat'])
+    _key('food-macro-bar-$macro').evaluate().isEmpty
+        ? null
+        : tester
+              .widget<Expanded>(
+                find.ancestor(
+                  of: _key('food-macro-bar-$macro'),
+                  matching: find.byType(Expanded),
+                ),
+              )
+              .flex,
+];
+
 Future<void> _tapVisible(WidgetTester tester, Finder finder) async {
   await tester.ensureVisible(finder);
   await tester.pumpAndSettle();
@@ -246,17 +266,7 @@ void main() {
           expect(find.text(grams), findsOneWidget);
         }
         // Stacked bar: segments sized by kcal share (444 : 576 : 180).
-        int flex(String macro) => tester
-            .widget<Expanded>(
-              find.ancestor(
-                of: _key('food-macro-bar-$macro'),
-                matching: find.byType(Expanded),
-              ),
-            )
-            .flex;
-        expect(flex('protein'), 370);
-        expect(flex('carbs'), 480);
-        expect(flex('fat'), 150);
+        expect(_barFlex(tester), <int?>[370, 480, 150]);
 
         // Logging (store) updates every figure.
         await store.addResultToDailyTotal(
@@ -270,6 +280,8 @@ void main() {
         expect(find.text('40 g'), findsOneWidget);
         expect(_inCard(MealSlot.dinner, find.text('Salmon')), findsOneWidget);
         expect(_text(tester, 'food-slot-kcal-dinner'), '300');
+        // 564 : 576 : 360 kcal.
+        expect(_barFlex(tester), <int?>[376, 384, 240]);
 
         // Over budget: the label says so and the number turns into a state.
         await store.addResultToDailyTotal(
@@ -283,6 +295,8 @@ void main() {
           tester.widget<Text>(_key('food-day-left')).style!.color,
           AppTokens.dark.warning,
         );
+        // 724 : 976 : 720 kcal.
+        expect(_barFlex(tester), <int?>[299, 403, 298]);
 
         // Deleting through the row's swipe action, then undo.
         await tester.pump(const Duration(seconds: 5));
@@ -303,10 +317,21 @@ void main() {
         );
         expect(_text(tester, 'food-day-total'), '1,521');
         expect(find.text('LEFT'), findsOneWidget);
+        expect(_barFlex(tester), <int?>[376, 384, 240]);
         await tester.tap(find.text('Undo'));
         await tester.pumpAndSettle();
         expect(_text(tester, 'food-day-total'), '2,521');
         expect(_row('Pizza'), findsOneWidget);
+        expect(_barFlex(tester), <int?>[299, 403, 298]);
+
+        // The day switch takes the whole summary along, the bar included.
+        await _tapVisible(tester, _key('food-date-previous'));
+        expect(_text(tester, 'food-day-total'), '0');
+        expect(_barFlex(tester), <int?>[null, null, null]);
+        expect(find.text('0 g'), findsNWidgets(3));
+        await _tapVisible(tester, _key('food-date-next'));
+        expect(_text(tester, 'food-day-total'), '2,521');
+        expect(_barFlex(tester), <int?>[299, 403, 298]);
       });
     });
 
@@ -364,6 +389,7 @@ void main() {
         expect(_inCard(MealSlot.breakfast, find.text('250 g')), findsOneWidget);
 
         expect(_key('food-slot-macros-breakfast'), findsNothing);
+        expect(_key('food-entry-time-b1'), findsNothing);
         await tester.tap(_key('food-slot-toggle-breakfast'));
         await tester.pumpAndSettle();
         expect(
@@ -371,9 +397,15 @@ void main() {
           'P 35 g · C 51 g · F 4 g',
         );
         expect(find.text('P 27 g · C 10 g · F 1 g'), findsOneWidget);
+        // Each entry's logged time comes back with the details.
+        for (final id in ['b1', 'b2', 'b3']) {
+          expect(_text(tester, 'food-entry-time-$id'), '08:10');
+        }
+        expect(_key('food-entry-time-l1'), findsNothing);
         await tester.tap(_key('food-slot-toggle-breakfast'));
         await tester.pumpAndSettle();
         expect(_key('food-slot-macros-breakfast'), findsNothing);
+        expect(_key('food-entry-time-b1'), findsNothing);
       });
     });
 
@@ -453,6 +485,7 @@ void main() {
         const title = 'Turkey Steak with Quinoa & Roasted Vegetables';
         expect(find.text(title), findsOneWidget);
 
+        final before = store.loggedMeals.length;
         await _tapVisible(tester, _key('food-pick-row'));
         final detail = tester.widget<RecipeDetailScreen>(
           find.byType(RecipeDetailScreen),
@@ -464,6 +497,8 @@ void main() {
           (m) => m.slot == MealSlot.dinner,
         );
         expect(logged.single.result.caloriesKcal, 610);
+        // Exactly one new diary row.
+        expect(store.loggedMeals.length, before + 1);
 
         // Back on Food: dinner is filled, so the pick is gone.
         Navigator.of(tester.element(find.byType(RecipeDetailScreen))).pop();
@@ -471,6 +506,103 @@ void main() {
         expect(_key('food-pick-row'), findsNothing);
         expect(_text(tester, 'food-slot-kcal-dinner'), '610');
         expect(_text(tester, 'food-day-left'), '292');
+      });
+    });
+
+    testWidgets('a planned pick (2 servings) opens the meal plan, whose Eat '
+        'logs the shown kcal once and marks the plan eaten', (tester) async {
+      await withClock(Clock.fixed(foodDesignNow), () async {
+        final store = await _pumpFood(tester);
+        final recipe = recipeCatalogForLocale('en').firstWhere(
+          (r) => recipeSuitsSlot(r, MealSlot.dinner) && r.canLogServings(2),
+        );
+        final plan = PlannedMeal.create(
+          recipe: recipe,
+          day: foodDesignNow,
+          slot: MealSlot.dinner,
+          servings: 2,
+        );
+        await store.savePlannedMeal(plan);
+        await tester.pumpAndSettle();
+
+        final pick = store.nextMealPick(localeName: 'en')!;
+        expect(pick.source, RecipePickSource.planned);
+        expect(pick.servings, 2);
+        final shown = pick.kcal!;
+        final label =
+            'PLANNED · ${NumberFormat.decimalPattern('en').format(shown)} KCAL';
+        expect(_inCard(MealSlot.dinner, find.text(label)), findsOneWidget);
+        final before = store.loggedMeals.length;
+
+        await _tapVisible(tester, _key('food-pick-row'));
+        expect(find.byType(MealPlanScreen), findsOneWidget);
+        expect(find.byType(RecipeDetailScreen), findsNothing);
+        await _tapVisible(tester, _key('meal-plan-eat-${plan.id}'));
+
+        // One row, the planned servings, the plan entry eaten.
+        expect(store.loggedMeals.length, before + 1);
+        final dinner = store.loggedMeals.where(
+          (m) => m.slot == MealSlot.dinner,
+        );
+        expect(dinner.single.id, plan.id);
+        expect(dinner.single.result.caloriesKcal, shown);
+        expect(
+          store.plannedMeals.singleWhere((p) => p.id == plan.id).isEaten,
+          isTrue,
+        );
+        // The plan offers no second "Eat".
+        expect(_key('meal-plan-eat-${plan.id}'), findsNothing);
+
+        Navigator.of(tester.element(find.byType(MealPlanScreen))).pop();
+        await tester.pumpAndSettle();
+        expect(_key('food-pick-row'), findsNothing);
+        expect(
+          _text(tester, 'food-slot-kcal-dinner'),
+          NumberFormat.decimalPattern('en').format(shown),
+        );
+        expect(store.loggedMeals.length, before + 1);
+      });
+    });
+
+    testWidgets('a planned pick without loggable nutrition opens the meal '
+        'plan and logs nothing', (tester) async {
+      await withClock(Clock.fixed(foodDesignNow), () async {
+        final store = await _pumpFood(tester);
+        const pending = FitnessRecipe(
+          slug: 'user_pending_stew',
+          title: 'Pending stew',
+          description: '',
+          portion: '1 plate',
+          ingredients: '',
+          preparation: '',
+          professionalHint: '',
+          imageAsset: '',
+          caloriesKcal: 500,
+          proteinG: 30,
+          carbsG: 40,
+          fatG: 15,
+          estimatedGrams: 400,
+          categories: [recipeNutritionPendingCategory],
+          userCreated: true,
+        );
+        await store.savePlannedMeal(
+          PlannedMeal.create(
+            recipe: pending,
+            day: foodDesignNow,
+            slot: MealSlot.dinner,
+          ),
+        );
+        await tester.pumpAndSettle();
+        final pick = store.nextMealPick(localeName: 'en')!;
+        expect(pick.source, RecipePickSource.planned);
+        expect(pick.kcal, isNull);
+        expect(_inCard(MealSlot.dinner, find.text('PLANNED')), findsOneWidget);
+        final before = store.loggedMeals.length;
+
+        await _tapVisible(tester, _key('food-pick-row'));
+        expect(find.byType(MealPlanScreen), findsOneWidget);
+        expect(find.byType(RecipeDetailScreen), findsNothing);
+        expect(store.loggedMeals.length, before);
       });
     });
 
@@ -496,6 +628,21 @@ void main() {
         expect(
           tester.widget<MealSlotPicker>(find.byType(MealSlotPicker)).selected,
           MealSlot.dinner,
+        );
+        expect(
+          _text(tester, 'add-meal-date-context'),
+          allOf(contains('Sep 28'), contains('Dinner')),
+        );
+        await tester.tap(_key('add-meal-sheet-close'));
+        await tester.pumpAndSettle();
+
+        // On an archive day the search books onto THAT day.
+        await _tapVisible(tester, _key('food-date-previous'));
+        await tester.tap(_key('food-search'));
+        await tester.pumpAndSettle();
+        expect(
+          _text(tester, 'add-meal-date-context'),
+          allOf(contains('Sep 27'), contains('Dinner')),
         );
       });
     });
@@ -626,6 +773,18 @@ void main() {
         expect(
           tester.getSize(_row('Skyr, natural')).height,
           greaterThanOrEqualTo(44),
+        );
+        // The capsule is the dock's route to manual entry: a long-press
+        // action with its hint, next to the tap that opens search.
+        expect(
+          tester.getSemantics(_key('food-search')),
+          isSemantics(
+            label: l10n.foodDockSearchLabel,
+            isButton: true,
+            hasTapAction: true,
+            hasLongPressAction: true,
+            onLongPressHint: l10n.foodManualEntryCta,
+          ),
         );
         // The slot names are headings, the pick row a button with a hint.
         expect(

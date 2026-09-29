@@ -40,7 +40,7 @@ import '../widgets/kcal/manual_meal_sheet.dart';
 import '../widgets/kcal/meal_analysis_sheet.dart';
 import '../widgets/kcal/meal_scan_preview_sheet.dart';
 import 'barcode_scanner_sheet.dart';
-import 'recipes/recipes_screen.dart' show RecipeDetailScreen;
+import '../widgets/recipes/recipe_pick_actions.dart';
 import 'trends_screen.dart';
 
 /// The Food diary (dark redesign): title with calendar, day switcher, day
@@ -71,6 +71,7 @@ class MealAnalysisScreen extends StatelessWidget {
     this.addSlotRequest,
     this.nutrition,
     this.recipePick,
+    this.onOpenMealPlan,
   }) : analyzer = analyzer ?? const EdgeFunctionMealAnalyzer(),
        productService = productService ?? _defaultProductService(),
        photoInput = photoInput ?? DeviceMealPhotoInput(),
@@ -154,6 +155,9 @@ class MealAnalysisScreen extends StatelessWidget {
   /// Today's recipe pick (`nextMealPick`); shown in its empty slot only
   /// while today is on screen.
   final RecipePick? recipePick;
+
+  /// Opens the meal plan: where a planned pick is eaten.
+  final VoidCallback? onOpenMealPlan;
 
   void _openAddSheet(
     BuildContext context,
@@ -370,25 +374,25 @@ class MealAnalysisScreen extends StatelessWidget {
     );
   }
 
-  /// The pick row opens the recipe's detail page; adding from there asks for
-  /// the slot and logs through [onAddMeal] (the shown day).
+  /// The pick row: a suggestion opens its recipe (adding there logs through
+  /// [onAddMeal]); a planned meal opens the meal plan ([onOpenMealPlan]),
+  /// whose "Eat" is the plan conversion. See [openRecipePick].
   void _openPick(BuildContext context, RecipePick pick) {
     final identity = MealScanIdentity();
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => RecipeDetailScreen(
-          recipe: pick.recipe,
-          onAddMeal: (result, slot) async {
-            if (!identity.isCurrent) throw StateError('Meal owner changed');
-            await onAddMeal(result, slot);
-          },
-          photoInput: photoInput,
-          productService: productService,
-          isSessionCurrent: () => identity.isCurrent,
-        ),
-      ),
+    openRecipePick(
+      context,
+      pick,
+      addMeal: onAddMeal,
+      openMealPlan: onOpenMealPlan ?? () {},
+      isSessionCurrent: () => identity.isCurrent,
+      photoInput: photoInput,
+      productService: productService,
     );
   }
+
+  /// A planned pick needs the meal plan; without it the row stays inert.
+  bool _canOpenPick(RecipePick pick) =>
+      pick.source != RecipePickSource.planned || onOpenMealPlan != null;
 
   Future<void> _selectDate(BuildContext context) async {
     // This screen context survives relocation of the visible date controls.
@@ -468,7 +472,7 @@ class MealAnalysisScreen extends StatelessWidget {
                                 bySlot[slot]!.isEmpty
                             ? pick
                             : null,
-                        onOpenPick: pick == null
+                        onOpenPick: pick == null || !_canOpenPick(pick)
                             ? null
                             : () => _openPick(context, pick),
                         onAddToSlot: (s) => _openAddSheet(context, s),

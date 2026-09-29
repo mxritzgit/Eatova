@@ -344,6 +344,23 @@ void main() {
         find.byKey(const ValueKey('kcal-product-search-input')),
         findsNothing,
       );
+      // Every dock action is off, and says so, while the day loads.
+      final semantics = tester.ensureSemantics();
+      for (final key in ['food-search', 'food-action-barcode', 'food-action-ai']) {
+        final action = tester.widget<InkWell>(find.byKey(ValueKey(key)));
+        expect(action.onTap, isNull, reason: key);
+        expect(action.onLongPress, isNull, reason: key);
+        expect(
+          tester.getSemantics(find.byKey(ValueKey(key))),
+          isSemantics(hasEnabledState: true, isEnabled: false, isButton: true),
+          reason: key,
+        );
+      }
+      semantics.dispose();
+      await tester.tap(find.byKey(const ValueKey('food-action-barcode')));
+      await tester.tap(find.byKey(const ValueKey('food-action-ai')));
+      await tester.pump();
+      expect(find.byType(BottomSheet), findsNothing);
       expect(tester.takeException(), isNull);
     });
   });

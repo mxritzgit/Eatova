@@ -170,9 +170,7 @@
     }
   },
   "foodDiaryEmptyHint": "Tap AI Scan, barcode, or search above.",
-  "foodActionBarcode": "Barcode",
   "foodActionAiScan": "AI Scan",
-  "foodSearchPlaceholder": "Search food or meals…",
   "foodSectionHistoryTitle": "History",
   "foodSemanticsTrends": "Trends",
   "foodSemanticsSettings": "Settings",

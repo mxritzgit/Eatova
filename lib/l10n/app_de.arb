@@ -170,9 +170,7 @@
     }
   },
   "foodDiaryEmptyHint": "Tippe oben auf KI-Scan, Barcode oder Suche.",
-  "foodActionBarcode": "Barcode",
   "foodActionAiScan": "KI-Scan",
-  "foodSearchPlaceholder": "Lebensmittel oder Mahlzeiten suchen…",
   "foodSectionHistoryTitle": "Verlauf",
   "foodSemanticsTrends": "Trends",
   "foodSemanticsSettings": "Einstellungen",
@@ -2381,7 +2379,7 @@
   "foodOptions": "Weitere Optionen",
   "foodSummaryLogged": "Erfasst",
   "foodSummaryLeft": "Übrig",
-  "foodSummaryOver": "Drüber",
+  "foodSummaryOver": "Zu viel",
   "foodSlotMeta": "{time} · {count, plural, one{1 Eintrag} other{{count} Einträge}}",
   "@foodSlotMeta": {
     "placeholders": {

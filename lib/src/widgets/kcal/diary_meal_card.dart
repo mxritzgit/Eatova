@@ -45,8 +45,8 @@ const double _cardPad = 14;
 /// `Add to <slot>` row. An empty slot shows its suggested kcal band and, when
 /// the day's recipe pick targets it, the pick row.
 ///
-/// Tapping a filled slot's header shows or hides the macro details (per-slot
-/// sum and per-entry P/C/F) that the compact rows leave out.
+/// Tapping a filled slot's header shows or hides the details the compact
+/// rows leave out: the slot's P/C/F sum, each entry's P/C/F and logged time.
 class DiaryMealCard extends StatefulWidget {
   const DiaryMealCard({
     super.key,
@@ -340,7 +340,7 @@ class FoodPickRow extends StatelessWidget {
       hint: l10n.recipesViewRecipe,
       child: Material(
         color: t.surfRaised,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(rControl),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           key: const ValueKey('food-pick-row'),
@@ -350,7 +350,7 @@ class FoodPickRow extends StatelessWidget {
             child: Row(
               children: [
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(11),
+                  borderRadius: BorderRadius.circular(rChip),
                   child: SizedBox.square(
                     dimension: 40,
                     child: ExcludeSemantics(
@@ -596,7 +596,8 @@ class _DeleteMealAction extends StatelessWidget {
 }
 
 /// One entry: name over its amount, kcal on the right; with the slot's macro
-/// details open, the entry's own P/C/F line joins the amount.
+/// details open, the entry's own P/C/F line joins the amount and its logged
+/// time the kcal.
 class _HistoryEntry extends StatelessWidget {
   const _HistoryEntry({
     super.key,
@@ -616,7 +617,7 @@ class _HistoryEntry extends StatelessWidget {
     final macros = MacroProgress.empty.add(meal.result);
     final hasMacros =
         macros.proteinG > 0 || macros.carbsG > 0 || macros.fatG > 0;
-    final kcal = Text(
+    final kcalText = Text(
       formatThousands(meal.result.caloriesKcal, l10n.localeName),
       style: foodText(
         14,
@@ -624,6 +625,23 @@ class _HistoryEntry extends StatelessWidget {
         color: t.ink2,
       ).copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
     );
+    // With the details open, the logged time joins the kcal (as the rows
+    // before the redesign showed it).
+    final kcal = showMacros
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              kcalText,
+              const SizedBox(height: 1),
+              Text(
+                formatMealTime(meal.loggedAt),
+                key: ValueKey('food-entry-time-${meal.id}'),
+                style: foodText(12, color: t.ink3),
+              ),
+            ],
+          )
+        : kcalText;
     // Opaque row: it slides over the delete action.
     return Semantics(
       button: onTap != null,

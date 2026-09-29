@@ -234,7 +234,7 @@ void main() {
         expect(overflows, isEmpty, reason: describeOverflows(overflows));
         // Five digits and "OVER" still render (scaled down, not clipped).
         expect(find.text('12.221'), findsOneWidget);
-        expect(find.text('DRÜBER'), findsOneWidget);
+        expect(find.text('ZU VIEL'), findsOneWidget);
       }
     });
   });

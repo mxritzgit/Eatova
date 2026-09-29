@@ -754,6 +754,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     ),
     builder: (context) {
       assert(_countTabBuild(_tabFood));
+      final ownerStore = _store;
       return FoodStoreScope(
         store: _store,
         // Read at call time, not captured: the sheet asks again on every
@@ -797,6 +798,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             recipePick: _store.selectedFoodDateIsToday
                 ? _store.nextMealPick(localeName: context.l10n.localeName)
                 : null,
+            // A planned pick is eaten in the plan (eatPlannedMeal).
+            onOpenMealPlan: () {
+              if (_isStoreSessionCurrent(ownerStore)) {
+                unawaited(MealPlanScreen.open(context, ownerStore));
+              }
+            },
           ),
         ),
       );
