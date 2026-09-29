@@ -168,8 +168,9 @@ Future<AppLocalizations> _pump(
     ),
     locale: locale,
     textScale: textScale,
-    // The shell's tab inset (eatova_home_page.dart).
-    padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+    // Like the shell (eatova_home_page.dart): the coach tab owns its
+    // gutters, so it gets the full width.
+    padding: EdgeInsets.zero,
     safeArea: false,
     settle: true,
   );
@@ -551,6 +552,58 @@ void main() {
       expect(svc.sent, isEmpty);
     });
 
+    testWidgets('the chip row takes taps and drags up to the screen edge', (
+      tester,
+    ) async {
+      // The row runs past the content inset to the screen edge (design).
+      // Every visible pixel of it must be live, not only the part inside
+      // the 20 px inset.
+      final svc = _Coach.create();
+      await _pump(tester, service: svc);
+      final row = find.byKey(const ValueKey('coach-try-row'));
+      await tester.ensureVisible(row);
+      await tester.pumpAndSettle();
+      final screenWidth = tester.getSize(find.byType(CoachChatScreen)).width;
+      expect(
+        screenWidth,
+        _usableSize.width,
+        reason: 'the tab owns the full width',
+      );
+      final plan = tester.getRect(find.byKey(const ValueKey('coach-try-plan')));
+      expect(
+        plan.right,
+        greaterThan(screenWidth),
+        reason: 'precondition: the second chip runs off the edge',
+      );
+      // 3 px from the edge: 17 px outside the old slot's reach.
+      final edge = Offset(screenWidth - 3, plan.center.dy);
+      expect(edge.dx, greaterThan(screenWidth - 20));
+
+      final position = tester
+          .state<ScrollableState>(
+            find.descendant(of: row, matching: find.byType(Scrollable)),
+          )
+          .position;
+      await tester.dragFrom(edge, const Offset(-120, 0));
+      await tester.pumpAndSettle();
+      expect(
+        position.pixels,
+        greaterThan(0),
+        reason: 'a drag from the edge scrolls the row',
+      );
+      position.jumpTo(0);
+      await tester.pumpAndSettle();
+
+      await tester.tapAt(edge);
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('coach-brief-submit')),
+        findsOneWidget,
+        reason: 'the visible right end of the chip opens the brief',
+      );
+      expect(svc.sent, isEmpty);
+    });
+
     testWidgets('recipe from the chip: the card writes nothing until the '
         'sheet is confirmed', (tester) async {
       final svc = _Coach.create();
@@ -713,21 +766,65 @@ void main() {
       });
     }
 
-    testWidgets('a pending question keeps the pills disabled', (tester) async {
+    testWidgets('while a question is in flight, a new chat shows the start '
+        'state with every pill and chip disabled', (tester) async {
+      // The one reachable way to see the start state mid-request: send from
+      // the card, then open History and start a new conversation while the
+      // answer is still pending (_startNewSession).
+      final handle = tester.ensureSemantics();
       final gate = Completer<CoachChatReply>();
       final svc = _GatedCoach(gate);
-      await _pump(tester, service: svc);
-      final primary = find.byKey(const ValueKey('coach-log-primary'));
-      await tester.ensureVisible(primary);
-      await tester.pumpAndSettle();
-      await tester.tap(primary);
-      await tester.pump();
+      final l10n = await _pump(tester, service: svc);
+      await _tap(tester, find.byKey(const ValueKey('coach-log-primary')));
       expect(svc.calls, 1);
+      expect(find.byKey(const ValueKey('coach-empty')), findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey('coach-sessions-open')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('coach-sessions-new')));
+      await tester.pumpAndSettle();
+      expect(svc.created, <String>[l10n.coachSessionDefaultTitle]);
+      expect(
+        find.byKey(const ValueKey('coach-empty')),
+        findsOneWidget,
+        reason: 'the new conversation opens on the start state',
+      );
+
+      const controls = <String>[
+        'coach-log-primary',
+        'coach-log-secondary',
+        'coach-try-recipe',
+        'coach-try-plan',
+      ];
+      for (final key in controls) {
+        expect(
+          tester.getSemantics(find.byKey(ValueKey(key))),
+          isSemantics(isButton: true, isEnabled: false, hasEnabledState: true),
+          reason: '$key must be off while the first question is in flight',
+        );
+        await _tap(tester, find.byKey(ValueKey(key)));
+      }
+      expect(svc.calls, 1, reason: 'no second question went out');
+      expect(_field(tester), isEmpty, reason: '/recipe was not prepared');
+      expect(
+        find.byKey(const ValueKey('coach-brief-submit')),
+        findsNothing,
+        reason: 'the training brief did not open',
+      );
+
+      // Counter-check: once the first answer is in, the same controls work.
       gate.complete(
         const CoachChatReply(reply: 'ok', refusal: false, sessionId: 's1'),
       );
       await tester.pumpAndSettle();
-      expect(svc.calls, 1);
+      for (final key in controls) {
+        expect(
+          tester.getSemantics(find.byKey(ValueKey(key))),
+          isSemantics(isButton: true, isEnabled: true, hasEnabledState: true),
+          reason: key,
+        );
+      }
+      handle.dispose();
     });
   });
 }
@@ -746,6 +843,28 @@ class _GatedCoach extends _Coach {
 
   final Completer<CoachChatReply> gate;
   int calls = 0;
+
+  /// Titles of the sessions started through "New".
+  final List<String> created = <String>[];
+
+  @override
+  Future<String?> createSession({required String title}) async {
+    created.add(title);
+    return 's${created.length + 1}';
+  }
+
+  @override
+  Future<List<ChatSession>> loadSessions() async => <ChatSession>[
+    for (var i = created.length; i >= 1; i--)
+      ChatSession(
+        id: 's${i + 1}',
+        title: created[i - 1],
+        createdAt: DateTime(2026, 9, 28, 19),
+        lastMessageAt: DateTime(2026, 9, 28, 19),
+        messageCount: 0,
+      ),
+    ...await super.loadSessions(),
+  ];
 
   @override
   Future<CoachChatReply> send(

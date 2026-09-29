@@ -165,9 +165,9 @@ Future<void> _pumpCoach(
         ),
         child: Scaffold(
           body: Padding(
-            // Same shell as eatova_home_page.dart: the tab gets its side
-            // padding from outside, the screen uses 0 inside.
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+            // Same shell as eatova_home_page.dart: the coach tab owns its
+            // gutters, the shell passes no padding.
+            padding: EdgeInsets.zero,
             child: CoachChatScreen(
               service: service,
               userName: 'Moritz',

@@ -21,6 +21,7 @@ import 'package:eatova/src/models/chat_session.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/kcal_format.dart';
@@ -292,6 +293,87 @@ void main() {
         isSemantics(isButton: true, isEnabled: false, hasEnabledState: true),
       );
       handle.dispose();
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  testWidgets('in the real shell the chip row is live up to the screen '
+      'edge', (tester) async {
+    await withClock(Clock.fixed(_now), () async {
+      await _pumpShell(tester, _ShellCoach.create());
+      final screen = tester.getSize(find.byType(EatovaHomePage)).width;
+      expect(
+        tester.getSize(find.byType(CoachChatScreen)).width,
+        screen,
+        reason: 'the shell hands the coach tab its full width',
+      );
+      final row = find.byKey(const ValueKey('coach-try-row'));
+      await tester.ensureVisible(row);
+      await settleFrames(tester);
+      final plan = tester.getRect(find.byKey(const ValueKey('coach-try-plan')));
+      expect(plan.right, greaterThan(screen));
+      await tester.tapAt(Offset(screen - 3, plan.center.dy));
+      await settleFrames(tester);
+      expect(
+        find.byKey(const ValueKey('coach-brief-submit')),
+        findsOneWidget,
+        reason: 'the chip end outside the content inset takes the tap',
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
+
+  testWidgets('with no store change, card and greeting follow the clock '
+      'across hour boundaries', (tester) async {
+    var now = DateTime(2026, 9, 28, 14, 59);
+    await withClock(Clock(() => now), () async {
+      await _pumpShell(tester, _ShellCoach.create());
+      final l10n = _l10n(tester);
+      String pill(String key) => tester
+          .widget<Text>(
+            find.descendant(
+              of: find.byKey(ValueKey(key)),
+              matching: find.byType(Text),
+            ),
+          )
+          .data!;
+      Finder greeting(String part) =>
+          find.text(l10n.coachHeroGreeting(part, 'Moritz'));
+      // Nothing is logged and nothing in the store changes below: only the
+      // clock moves, as on a phone left open on the Coach tab.
+      Future<void> passTo(DateTime next) async {
+        now = next;
+        // The hour ticker fires at most an hour and a second after arming.
+        await tester.pump(const Duration(minutes: 61));
+        await settleFrames(tester);
+      }
+
+      expect(pill('coach-log-primary'), l10n.coachLogSuggestMeal('lunch'));
+      expect(pill('coach-log-secondary'), l10n.coachLogPlanDay);
+      expect(greeting(l10n.todayGreetingDay), findsOneWidget);
+
+      await passTo(DateTime(2026, 9, 28, 15, 0, 30));
+      expect(
+        pill('coach-log-primary'),
+        l10n.coachLogSuggestMeal('dinner'),
+        reason: 'lunch is over at 15:00',
+      );
+      expect(greeting(l10n.todayGreetingDay), findsOneWidget);
+
+      await passTo(DateTime(2026, 9, 28, 17, 0, 30));
+      expect(
+        greeting(l10n.todayGreetingEvening),
+        findsOneWidget,
+        reason: 'the greeting turns to evening at 17:00',
+      );
+
+      await passTo(DateTime(2026, 9, 28, 21, 0, 30));
+      expect(
+        pill('coach-log-primary'),
+        l10n.coachLogSuggestMeal('snack'),
+        reason: 'no main meal is ahead from 21:00',
+      );
+      expect(pill('coach-log-secondary'), l10n.coachLogPlanTomorrow);
       await tester.pumpWidget(const SizedBox.shrink());
     });
   });

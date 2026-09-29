@@ -81,6 +81,7 @@ class _CoachTopBar extends StatelessWidget {
         // Wrap instead of Row: at large text sizes title and buttons no
         // longer fit on one line; the buttons move down.
         : Wrap(
+            key: const ValueKey('coach-header-full'),
             spacing: 12,
             runSpacing: 12,
             alignment: WrapAlignment.spaceBetween,

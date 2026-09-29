@@ -145,7 +145,8 @@ Future<void> _pumpApp(
       tester,
       CoachChatScreen(service: service, userName: 'Moritz'),
       reducedMotion: bewegungAus,
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+      // The coach tab owns its gutters (the shell passes no padding).
+      padding: EdgeInsets.zero,
       safeArea: false,
     );
 

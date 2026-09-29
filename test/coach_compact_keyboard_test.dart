@@ -82,10 +82,10 @@ void main() {
             extendBody: true,
             body: SafeArea(
               bottom: false,
-              // The shell's tab inset: no bottom padding, the tab runs
-              // under the floating bar.
+              // The shell's tab inset: none for the coach, which owns its
+              // gutters; the tab runs under the floating bar.
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                padding: EdgeInsets.zero,
                 child: CoachChatScreen(service: _KeyboardCoach.create()),
               ),
             ),
@@ -123,6 +123,7 @@ void main() {
           settle: true,
         );
         // The full header (title, status, buttons), not the compact row.
+        expect(find.byKey(const ValueKey('coach-header-full')), findsOneWidget);
         expect(find.byKey(const ValueKey('coach-header-compact')), findsNothing);
         await tester.enterText(find.byKey(const ValueKey('coach-input')), '/');
         tester.view.viewInsets = const FakeViewPadding(bottom: 220);
@@ -184,6 +185,7 @@ void main() {
         tester.view.viewInsets = FakeViewPadding.zero;
         await tester.pumpAndSettle();
         // The full header (title, status, buttons), not the compact row.
+        expect(find.byKey(const ValueKey('coach-header-full')), findsOneWidget);
         expect(find.byKey(const ValueKey('coach-header-compact')), findsNothing);
         expect(tester.takeException(), isNull);
       },

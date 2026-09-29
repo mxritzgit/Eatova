@@ -147,12 +147,22 @@ class _ComposerState extends State<_Composer> {
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
           if (showQuotaHint)
-            _QuotaHint(remaining: widget.remaining, onTap: widget.onQuotaTap),
-          if (showLengthHint) _LengthHint(used: widget.draft.length),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: _kShellInset),
+              child: _QuotaHint(
+                remaining: widget.remaining,
+                onTap: widget.onQuotaTap,
+              ),
+            ),
+          if (showLengthHint)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: _kShellInset),
+              child: _LengthHint(used: widget.draft.length),
+            ),
           // A 56 px capsule 14 px from the screen edges, flush with the tab
-          // bar: it runs 6 px past the shell's 20 px inset on each side.
-          _Bleed(
-            horizontal: _kShellInset - AppNavBar.sideGap,
+          // bar (the content above keeps the 20 px inset).
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppNavBar.sideGap),
             child: FieldCapsule(
               focused: _focused,
               shape: SheetFieldShape.pill,

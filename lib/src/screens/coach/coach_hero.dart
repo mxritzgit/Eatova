@@ -1,7 +1,8 @@
 part of 'coach_chat_screen.dart';
 
-/// Horizontal inset the shell gives the coach tab (eatova_home_page.dart).
-/// The chip row and the composer run past it like the design.
+/// The coach tab's side inset. The shell hands the tab its full width
+/// (eatova_home_page.dart), like Food and Training, so the chip row can run
+/// to the screen edges and still take taps there; the rest sits inside this.
 const double _kShellInset = 20;
 
 // ---------------------------------------------------------------------------
@@ -67,7 +68,12 @@ class _CoachHero extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             Padding(
-              padding: const EdgeInsets.fromLTRB(0, 14, 0, 6),
+              padding: const EdgeInsets.fromLTRB(
+                _kShellInset,
+                14,
+                _kShellInset,
+                6,
+              ),
               child: Column(
                 children: <Widget>[
                   const CoachOrb(),
@@ -99,12 +105,18 @@ class _CoachHero extends StatelessWidget {
             ),
             if (brief != null) ...<Widget>[
               const SizedBox(height: 14),
-              _DayLogCard(brief: brief, enabled: canAsk, onAsk: onAsk),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: _kShellInset),
+                child: _DayLogCard(brief: brief, enabled: canAsk, onAsk: onAsk),
+              ),
             ],
             const SizedBox(height: 14),
             _TryAsking(enabled: canAsk, onCommand: onCommand),
             const SizedBox(height: 14),
-            _CoachDisclaimer(onTap: onDisclosureTap),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: _kShellInset),
+              child: _CoachDisclaimer(onTap: onDisclosureTap),
+            ),
           ],
         ),
       ),
@@ -372,7 +384,7 @@ class _TryAsking extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
+          padding: const EdgeInsets.symmetric(horizontal: _kShellInset + 4),
           child: HeadingSemantics(
             level: 2,
             child: Text(
@@ -387,29 +399,27 @@ class _TryAsking extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 10),
-        // The row runs to the screen edges like the design; its padding keeps
-        // the first chip on the content line.
-        _Bleed(
-          horizontal: _kShellInset,
-          child: SingleChildScrollView(
-            key: const ValueKey('coach-try-row'),
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: _kShellInset),
-            child: Row(
-              children: <Widget>[
-                _TryChip(
-                  key: const ValueKey('coach-try-recipe'),
-                  label: l10n.coachTryRecipe,
-                  onTap: enabled ? () => onCommand('/recipe') : null,
-                ),
-                const SizedBox(width: 8),
-                _TryChip(
-                  key: const ValueKey('coach-try-plan'),
-                  label: l10n.coachTryPlan,
-                  onTap: enabled ? () => onCommand('/plan') : null,
-                ),
-              ],
-            ),
+        // The row owns the full screen width like the design: every visible
+        // part of a chip takes taps and the row drags from edge to edge; its
+        // padding keeps the first chip on the content line.
+        SingleChildScrollView(
+          key: const ValueKey('coach-try-row'),
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: _kShellInset),
+          child: Row(
+            children: <Widget>[
+              _TryChip(
+                key: const ValueKey('coach-try-recipe'),
+                label: l10n.coachTryRecipe,
+                onTap: enabled ? () => onCommand('/recipe') : null,
+              ),
+              const SizedBox(width: 8),
+              _TryChip(
+                key: const ValueKey('coach-try-plan'),
+                label: l10n.coachTryPlan,
+                onTap: enabled ? () => onCommand('/plan') : null,
+              ),
+            ],
           ),
         ),
       ],
@@ -520,30 +530,6 @@ class _CoachDisclaimer extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Lets [child] run [horizontal] px past both sides of its slot, e.g. past
-/// the shell's inset to the screen edges.
-///
-/// Taps only land inside the slot itself; the overhang is visual.
-class _Bleed extends StatelessWidget {
-  const _Bleed({required this.horizontal, required this.child});
-
-  final double horizontal;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      final width = constraints.maxWidth + 2 * horizontal;
-      return OverflowBox(
-        minWidth: width,
-        maxWidth: width,
-        fit: OverflowBoxFit.deferToChild,
-        child: child,
-      );
-    },
-  );
 }
 
 /// The design's single four-point sparkle (the eyebrow of the day card), on

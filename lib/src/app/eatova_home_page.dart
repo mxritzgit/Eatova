@@ -16,6 +16,7 @@ import '../services/background_sync_scheduler.dart';
 import '../services/eatova_sync.dart';
 import '../services/health_service.dart';
 import '../services/local_cache.dart';
+import '../services/local_hour_ticker.dart';
 import '../services/meal_analyzer.dart';
 import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_input.dart';
@@ -36,6 +37,7 @@ import '../screens/recipes/recipe_import_sheet.dart';
 import '../screens/settings/goals_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../screens/today/today_screen.dart';
+import '../screens/today/today_texts.dart' show greetingForHour;
 import '../screens/training/training_screen.dart';
 import '../screens/training/training_history_screen.dart';
 import '../screens/training/training_player_screen.dart';
@@ -145,6 +147,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     null,
   );
   final ValueNotifier<int> _planDraftRequest = ValueNotifier<int>(0);
+
+  /// Hour boundaries for the coach's time-of-day content (greeting, the
+  /// start card's meal slot), which change without any store change.
+  final LocalHourTicker _coachHours = LocalHourTicker();
   TrainingPlan? _selectedPlanForCoach;
   bool _trainingRouteOpen = false;
   bool _trainingAdoptionReviewOpen = false;
@@ -208,6 +214,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     _profileRefresh.dispose();
     _addSlotRequest.dispose();
     _planDraftRequest.dispose();
+    _coachHours.dispose();
     _store.dispose();
     super.dispose();
   }
@@ -665,12 +672,15 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     child: LivelyEntrance(
       key: ValueKey('lively-tab-$index'),
       child: Padding(
-        // Food, Recipes and Training own their scroll gutters; other tabs retain
-        // the shell's established inset even while mounted in the hidden stack.
-        // No bottom inset: every tab runs to the screen edge under the
-        // floating bar.
+        // Food, Recipes, Training and Coach own their gutters; the other tab
+        // retains the shell's established inset even while mounted in the
+        // hidden stack. No bottom inset: every tab runs to the screen edge
+        // under the floating bar.
         padding:
-            index == _tabTraining || index == _tabFood || index == _tabRezepte
+            index == _tabTraining ||
+                index == _tabFood ||
+                index == _tabRezepte ||
+                index == _tabCoach
             ? EdgeInsets.zero
             : const EdgeInsets.fromLTRB(20, 12, 20, 0),
         child: switch (index) {
@@ -1339,10 +1349,13 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   Widget _coachTab() => ValueListenableBuilder<int>(
     valueListenable: _planDraftRequest,
     builder: (context, planRequest, _) => StoreSelector(
-      store: _store,
+      // Plus the hour: greeting and meal slot move on with the clock alone.
+      store: Listenable.merge(<Listenable>[_store, _coachHours]),
       // The INPUTS of `coachContext`; the getter itself builds a fresh
       // string per call and must stay out.
       selector: () => (
+        greetingForHour(clock.now().hour, context.l10n),
+        mealSlotForHour(clock.now().hour),
         _store.userName,
         _store.profile,
         _store.dailyConsumedKcal,

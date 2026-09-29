@@ -63,9 +63,13 @@ class _Conversation extends StatelessWidget {
           onNotification: onScroll,
           child: ListView.builder(
             controller: controller,
-            // Horizontal 0: the side inset comes from the shell. Top and
-            // bottom clear the screen's edge fades.
-            padding: const EdgeInsets.fromLTRB(0, 20, 0, 16),
+            // The tab's side inset; top and bottom clear the edge fades.
+            padding: const EdgeInsets.fromLTRB(
+              _kShellInset,
+              20,
+              _kShellInset,
+              16,
+            ),
             itemCount: messages.length + (sending ? 1 : 0),
             itemBuilder: (context, i) {
               if (sending && i == messages.length) {

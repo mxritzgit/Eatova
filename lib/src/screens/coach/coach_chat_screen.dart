@@ -12,7 +12,6 @@ import 'dart:math' as math;
 import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show OverflowBoxFit;
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -2012,11 +2011,13 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         final navInset = MediaQuery.paddingOf(context).bottom;
         // Use the shell's available space, including keyboard and navigation.
         // Secondary header details must not consume the command picker viewport.
+        // The tab owns its gutters (20 px sides, 12 px top), so they come
+        // off here too.
         final compactHeader = _CoachTopBar.needsCompactLayout(
           context,
           BoxConstraints(
-            maxWidth: constraints.maxWidth,
-            maxHeight: math.max(0, constraints.maxHeight - navInset),
+            maxWidth: math.max(0, constraints.maxWidth - 2 * _kShellInset),
+            maxHeight: math.max(0, constraints.maxHeight - navInset - 12),
           ),
         );
         return Column(
@@ -2024,11 +2025,20 @@ class _CoachChatScreenState extends State<CoachChatScreen>
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // No divider: the content below fades out under the header.
-            _CoachTopBar(
-              compact: compactHeader,
-              contextShared: widget.userContext != null,
-              onInfoTap: _openCoachInfoSheet,
-              onSessionsTap: _openSessionsSheet,
+            // 12 px on top: the shell's title line, shared by every tab.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                _kShellInset,
+                12,
+                _kShellInset,
+                0,
+              ),
+              child: _CoachTopBar(
+                compact: compactHeader,
+                contextShared: widget.userContext != null,
+                onInfoTap: _openCoachInfoSheet,
+                onSessionsTap: _openSessionsSheet,
+              ),
             ),
             Expanded(
               child: _CoachConversationArea(
@@ -2118,9 +2128,14 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                           _commandMenuVisibleFor(draft)
                           ? Align(
                               alignment: Alignment.bottomCenter,
-                              child: _CommandSuggestions(
-                                draft: draft,
-                                onPick: _applyCommand,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: _kShellInset,
+                                ),
+                                child: _CommandSuggestions(
+                                  draft: draft,
+                                  onPick: _applyCommand,
+                                ),
                               ),
                             )
                           : const SizedBox.shrink(),
@@ -2213,6 +2228,7 @@ class _CoachConversationArea extends StatelessWidget {
             constraints: BoxConstraints(maxHeight: constraints.maxHeight * .6),
             child: SingleChildScrollView(
               key: const ValueKey('coach-feedback-scroll'),
+              padding: const EdgeInsets.symmetric(horizontal: _kShellInset),
               child: feedback,
             ),
           ),
