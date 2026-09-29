@@ -17,8 +17,9 @@ import '../../support/harness.dart';
 // ---------------------------------------------------------------------------
 // Macros per slot and per meal in the food tab's slot card.
 //
-// Slot header and each history row carry their own P/C/F line, both from
-// `MacroProgress` and the ARB key `foodMacroSummary`.
+// Tapping the slot header opens the macro details: a P/C/F line for the slot
+// and one per history row, both from `MacroProgress` and the ARB key
+// `foodMacroSummary` (`expandFoodEntries` opens them).
 //
 // The width measurements run with the REAL app fonts: the headless renderer's
 // test font is about twice as wide and would falsify any "fits an iPhone"
@@ -152,7 +153,7 @@ void main() {
 
       // The existing totals line is unchanged (other tests read it).
       expect(find.text('530'), findsOneWidget);
-      expect(find.text('2 Einträge'), findsOneWidget);
+      expect(find.text('12:30 · 2 Einträge'), findsOneWidget);
 
       expect(_makroZeilen(tester), <String>[
         'P 42 g · K 59 g · F 26 g', // slot header: sum 42.4 / 58.6 / 26
@@ -160,10 +161,10 @@ void main() {
         'P 30 g · K 11 g · F 20 g', // Quark: 30.4 / 10.6 / 20
       ]);
 
-      // The "slot · amount" line stays its own Text widget with an unchanged
-      // format; edit_meal_sheet_test reads exactly that.
-      expect(find.text('Mittagessen · ~250 g'), findsOneWidget);
-      expect(find.text('Mittagessen · ~1200 g'), findsOneWidget);
+      // The amount line stays its own Text widget; an AI estimate keeps
+      // its "~".
+      expect(find.text('~250 g'), findsOneWidget);
+      expect(find.text('~1200 g'), findsOneWidget);
     });
 
     testWidgets('auf Englisch steht C statt K', (tester) async {
@@ -174,7 +175,7 @@ void main() {
       );
 
       expect(find.text('530'), findsOneWidget);
-      expect(find.text('2 entries'), findsOneWidget);
+      expect(find.text('12:30 · 2 items'), findsOneWidget);
       expect(_makroZeilen(tester), <String>[
         'P 42 g · C 59 g · F 26 g',
         'P 12 g · C 48 g · F 6 g',
@@ -252,9 +253,9 @@ void main() {
                   '$scale abgeschnitten (Breite ${paragraph.size.width})',
             );
           }
-          // The slot line must not be clipped by its new neighbour either.
+          // The amount line must not be clipped by its neighbour either.
           final slotZeile = tester.renderObject<RenderParagraph>(
-            find.text('Mittagessen · ~1200 g'),
+            find.text('~1200 g'),
           );
           expect(slotZeile.didExceedMaxLines, isFalse);
         },

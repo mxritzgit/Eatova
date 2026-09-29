@@ -116,8 +116,11 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.text(c.l10n.navFood), findsOneWidget);
       expect(_inSlotkarte(MealSlot.breakfast.label(c.l10n)), findsOneWidget);
-      // Lunch and dinner stay empty — their placeholder comes from the ARB.
-      expect(find.text(c.l10n.todayMealSlotEmpty), findsNWidgets(2));
+      // Lunch and dinner stay empty: today's empty slots show their
+      // suggested band (from the ARB), filled ones their total.
+      expect(find.byKey(const ValueKey('food-slot-empty-lunch')), findsOneWidget);
+      expect(find.byKey(const ValueKey('food-slot-empty-dinner')), findsOneWidget);
+      expect(find.byKey(const ValueKey('food-slot-kcal-breakfast')), findsOneWidget);
     },
     locales: const <Locale>[Locale('de'), Locale('en')],
     textScales: const <double>[1.0, 2.0],
@@ -134,7 +137,8 @@ void main() {
     expect(find.text('Food'), findsOneWidget);
     expect(find.text('Ernährung'), findsNothing);
     expect(_inSlotkarte('Breakfast'), findsOneWidget);
-    expect(find.text('Nothing logged yet'), findsNWidgets(4));
+    expect(find.textContaining('Suggested '), findsNWidgets(4));
+    expect(find.textContaining('Empfohlen'), findsNothing);
   });
 
   testWidgets('Vier Slot-Karten tragen die deutschen Slot-Namen',
@@ -152,14 +156,17 @@ void main() {
     }
   });
 
-  testWidgets('Ein leerer Tag zeigt vier Add-Slots und „Noch nichts geloggt"',
+  testWidgets('Ein leerer Tag zeigt vier Add-Slots mit ihrer Empfehlung',
       (tester) async {
     await _pumpFoodTab(tester);
 
     for (final slot in MealSlot.values) {
       expect(find.byKey(ValueKey('food-slot-empty-${slot.name}')), findsOneWidget);
     }
-    expect(find.text('Noch nichts geloggt'), findsNWidgets(4));
+    expect(find.textContaining('Empfohlen '), findsNWidgets(4));
+    for (final slot in MealSlot.values) {
+      expect(find.byKey(ValueKey('food-slot-add-${slot.name}')), findsOneWidget);
+    }
     expect(
       find.byKey(const ValueKey('food-entry-dock')),
       findsOneWidget,
@@ -175,8 +182,9 @@ void main() {
     );
 
     expect(find.text('Haferbrei'), findsOneWidget);
-    expect(find.text('320'), findsNWidgets(2));
-    expect(find.text('Noch nichts geloggt'), findsNWidgets(3));
+    // Day total, slot total and the entry row.
+    expect(find.text('320'), findsNWidgets(3));
+    expect(find.textContaining('Empfohlen '), findsNWidgets(3));
     expect(
       find.text('Tippe oben auf KI-Scan, Barcode oder Suche.'),
       findsNothing,
@@ -203,7 +211,7 @@ void main() {
     await _pumpFoodTab(tester, dailyConsumedKcal: 1234);
 
     expect(find.text('1.234'), findsOneWidget);
-    expect(find.text('KCAL ERFASST'), findsOneWidget);
+    expect(find.text('ERFASST'), findsOneWidget);
     // The tab's ONLY kcal figure keeps number and unit separate; the flow
     // tests rely on that.
     expect(find.text('1.234 kcal'), findsNothing);
@@ -321,10 +329,10 @@ void main() {
     );
 
     expect(find.text('Haferbrei'), findsOneWidget);
-    expect(find.text('320'), findsNWidgets(2));
+    expect(find.text('320'), findsNWidgets(3));
     await expandFoodEntries(tester);
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget);
-    expect(find.text('Noch nichts geloggt'), findsNWidgets(3));
+    expect(find.textContaining('Empfohlen '), findsNWidgets(3));
   });
 
   testWidgets('Food keeps trends and has no account menu', (tester) async {

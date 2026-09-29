@@ -240,8 +240,17 @@ void main() {
     // ---- 4. Diary shows it, slot total and day total agree -----------------
     await expandFoodEntries(tester);
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget);
-    expect(find.text('252'), findsNWidgets(2),
-        reason: 'die Slot-Summe der Frühstückskarte fehlt');
+    // Day total, slot total and the entry row each show the 252.
+    expect(find.text('252'), findsNWidgets(3));
+    expect(
+      tester.widget<Text>(find.byKey(const ValueKey('food-slot-kcal-breakfast'))).data,
+      '252',
+      reason: 'die Slot-Summe der Frühstückskarte fehlt',
+    );
+    expect(
+      tester.widget<Text>(find.byKey(const ValueKey('food-day-total'))).data,
+      '252',
+    );
     expect(store.loggedMeals.single.slot, MealSlot.breakfast);
     // The write reached the fake server as ONE row.
     expect(server.mealRows.length, 1);
@@ -303,8 +312,11 @@ void main() {
 
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget);
     expect(store.loggedMeals.single.slot, MealSlot.breakfast);
-    expect(find.text('252'), findsNWidgets(2),
-        reason: 'nach dem Undo stimmt die Slot-Summe nicht mehr');
+    expect(
+      tester.widget<Text>(find.byKey(const ValueKey('food-slot-kcal-breakfast'))).data,
+      '252',
+      reason: 'nach dem Undo stimmt die Slot-Summe nicht mehr',
+    );
     // Restored server-side too — and as the SAME row, not a second one.
     expect(server.mealRows.length, 1);
 

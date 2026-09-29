@@ -80,6 +80,14 @@ class AppTokens extends ThemeExtension<AppTokens> {
     required this.fieldFocus,
     required this.fieldError,
     required this.scrim,
+    required this.slotBreakfastTint,
+    required this.slotBreakfastInk,
+    required this.slotLunchTint,
+    required this.slotLunchInk,
+    required this.slotDinnerTint,
+    required this.slotDinnerInk,
+    required this.slotSnackTint,
+    required this.slotSnackInk,
   });
 
   /// Page ground (scaffold).
@@ -252,6 +260,13 @@ class AppTokens extends ThemeExtension<AppTokens> {
   /// Modal barrier behind sheets and dialogs.
   final Color scrim;
 
+  /// Meal-slot icon tiles (translucent tint + glyph ink), the design's slot
+  /// hues. Dedicated tokens: macro colors encode nutrients only (lock 1).
+  final Color slotBreakfastTint, slotBreakfastInk;
+  final Color slotLunchTint, slotLunchInk;
+  final Color slotDinnerTint, slotDinnerInk;
+  final Color slotSnackTint, slotSnackInk;
+
   /// Dormant since the dark-only rollout (2026-09-28); kept compiling so the
   /// light theme can come back with the `kDarkOnly` switch.
   static const AppTokens light = AppTokens(
@@ -311,6 +326,14 @@ class AppTokens extends ThemeExtension<AppTokens> {
     fieldFocus: Color(0xFFF2EFF8),
     fieldError: Color(0xFFF9EDE7),
     scrim: Color(0x8C16151F),
+    slotBreakfastTint: Color(0x1F4697E2),
+    slotBreakfastInk: Color(0xFF1F6F85),
+    slotLunchTint: Color(0x1F1DB071),
+    slotLunchInk: Color(0xFF2E7D55),
+    slotDinnerTint: Color(0x24D57C11),
+    slotDinnerInk: Color(0xFF8A6212),
+    slotSnackTint: Color(0x1F6550A8),
+    slotSnackInk: Color(0xFF6550A8),
   );
 
   static const AppTokens dark = AppTokens(
@@ -379,6 +402,16 @@ class AppTokens extends ThemeExtension<AppTokens> {
     fieldFocus: Color(0xFF2F2E39),
     fieldError: Color(0xFF3A2F36),
     scrim: Color(0xA60C0914),
+    // rgba(70,151,226,.16) / (29,176,113,.16) / (213,124,17,.18) /
+    // (185,165,255,.16) with the design's glyph inks.
+    slotBreakfastTint: Color(0x294697E2),
+    slotBreakfastInk: Color(0xFF8CC4FF),
+    slotLunchTint: Color(0x291DB071),
+    slotLunchInk: Color(0xFF6FDCA4),
+    slotDinnerTint: Color(0x2ED57C11),
+    slotDinnerInk: Color(0xFFFFB866),
+    slotSnackTint: Color(0x29B9A5FF),
+    slotSnackInk: Color(0xFFC8B8FF),
   );
 
   /// Tokens of the nearest theme. Throws deliberately when the extension is
@@ -454,6 +487,14 @@ class AppTokens extends ThemeExtension<AppTokens> {
     Color? fieldFocus,
     Color? fieldError,
     Color? scrim,
+    Color? slotBreakfastTint,
+    Color? slotBreakfastInk,
+    Color? slotLunchTint,
+    Color? slotLunchInk,
+    Color? slotDinnerTint,
+    Color? slotDinnerInk,
+    Color? slotSnackTint,
+    Color? slotSnackInk,
   }) {
     return AppTokens(
       bg: bg ?? this.bg,
@@ -512,6 +553,14 @@ class AppTokens extends ThemeExtension<AppTokens> {
       fieldFocus: fieldFocus ?? this.fieldFocus,
       fieldError: fieldError ?? this.fieldError,
       scrim: scrim ?? this.scrim,
+      slotBreakfastTint: slotBreakfastTint ?? this.slotBreakfastTint,
+      slotBreakfastInk: slotBreakfastInk ?? this.slotBreakfastInk,
+      slotLunchTint: slotLunchTint ?? this.slotLunchTint,
+      slotLunchInk: slotLunchInk ?? this.slotLunchInk,
+      slotDinnerTint: slotDinnerTint ?? this.slotDinnerTint,
+      slotDinnerInk: slotDinnerInk ?? this.slotDinnerInk,
+      slotSnackTint: slotSnackTint ?? this.slotSnackTint,
+      slotSnackInk: slotSnackInk ?? this.slotSnackInk,
     );
   }
 
@@ -576,6 +625,14 @@ class AppTokens extends ThemeExtension<AppTokens> {
       fieldFocus: c(fieldFocus, other.fieldFocus),
       fieldError: c(fieldError, other.fieldError),
       scrim: c(scrim, other.scrim),
+      slotBreakfastTint: c(slotBreakfastTint, other.slotBreakfastTint),
+      slotBreakfastInk: c(slotBreakfastInk, other.slotBreakfastInk),
+      slotLunchTint: c(slotLunchTint, other.slotLunchTint),
+      slotLunchInk: c(slotLunchInk, other.slotLunchInk),
+      slotDinnerTint: c(slotDinnerTint, other.slotDinnerTint),
+      slotDinnerInk: c(slotDinnerInk, other.slotDinnerInk),
+      slotSnackTint: c(slotSnackTint, other.slotSnackTint),
+      slotSnackInk: c(slotSnackInk, other.slotSnackInk),
     );
   }
 }

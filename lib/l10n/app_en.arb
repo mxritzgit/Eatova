@@ -2347,17 +2347,46 @@
     }
   },
   "foodOptions": "More options",
-  "foodKcalLoggedLabel": "KCAL LOGGED",
-  "foodDiaryEntryCount": "{count, plural, one{1 entry} other{{count} entries}}",
-  "foodDiaryExpand": "Show all entries",
-  "foodDiaryCollapse": "Collapse entries",
-  "@foodDiaryEntryCount": {
+  "foodSummaryLogged": "Logged",
+  "foodSummaryLeft": "Left",
+  "foodSummaryOver": "Over",
+  "foodSlotMeta": "{time} · {count, plural, one{1 item} other{{count} items}}",
+  "@foodSlotMeta": {
     "placeholders": {
-      "count": {
-        "type": "int"
-      }
+      "time": { "type": "String" },
+      "count": { "type": "int" }
     }
   },
+  "foodSlotSuggested": "Suggested {min}–{max} kcal",
+  "@foodSlotSuggested": {
+    "placeholders": {
+      "min": { "type": "String" },
+      "max": { "type": "String" }
+    }
+  },
+  "foodSlotShowMacros": "Show macros",
+  "foodSlotHideMacros": "Hide macros",
+  "foodPickFitsTonight": "Fits tonight · {kcal} kcal",
+  "@foodPickFitsTonight": {
+    "placeholders": {
+      "kcal": { "type": "String" }
+    }
+  },
+  "foodPickFitsDay": "Fits your day · {kcal} kcal",
+  "@foodPickFitsDay": {
+    "placeholders": {
+      "kcal": { "type": "String" }
+    }
+  },
+  "foodPickPlanned": "Planned · {kcal} kcal",
+  "@foodPickPlanned": {
+    "placeholders": {
+      "kcal": { "type": "String" }
+    }
+  },
+  "foodPickPlannedNoKcal": "Planned",
+  "foodDockSearchLabel": "Search food or meals",
+  "foodDockCameraLabel": "Log a meal with the camera",
   "recipesForYou": "For you",
   "recipesTryToday": "Try something today",
   "recipesViewRecipe": "View recipe",

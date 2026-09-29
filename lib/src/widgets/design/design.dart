@@ -15,6 +15,7 @@ export 'meters.dart';
 export 'readable_width.dart';
 export 'rows.dart';
 export 'sheets.dart';
+export 'slot_icon_tile.dart';
 export 'steps_icon.dart';
 export 'surfaces.dart';
 export 'text_scale.dart';

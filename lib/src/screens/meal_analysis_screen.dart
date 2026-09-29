@@ -10,9 +10,12 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../l10n/l10n.dart';
+import '../models/day_nutrition.dart';
 import '../models/favorite_meal.dart';
 import '../models/logged_meal.dart';
+import '../models/macro_progress.dart';
 import '../models/meal_analysis_result.dart';
+import '../models/recipe_pick.dart';
 import '../models/user_profile.dart';
 import '../config/search_config.dart';
 import '../services/day_math.dart';
@@ -37,9 +40,12 @@ import '../widgets/kcal/manual_meal_sheet.dart';
 import '../widgets/kcal/meal_analysis_sheet.dart';
 import '../widgets/kcal/meal_scan_preview_sheet.dart';
 import 'barcode_scanner_sheet.dart';
+import 'recipes/recipes_screen.dart' show RecipeDetailScreen;
 import 'trends_screen.dart';
 
-/// The Food diary: day navigation, expandable meal sections and a capture dock.
+/// The Food diary (dark redesign): title with calendar, day switcher, day
+/// summary, one card per meal slot and a floating capture dock above the tab
+/// bar that the diary scrolls under.
 class MealAnalysisScreen extends StatelessWidget {
   MealAnalysisScreen({
     super.key,
@@ -63,6 +69,8 @@ class MealAnalysisScreen extends StatelessWidget {
     this.trendTotalsLoader,
     this.trendBurnedKcalFor,
     this.addSlotRequest,
+    this.nutrition,
+    this.recipePick,
   }) : analyzer = analyzer ?? const EdgeFunctionMealAnalyzer(),
        productService = productService ?? _defaultProductService(),
        photoInput = photoInput ?? DeviceMealPhotoInput(),
@@ -137,6 +145,15 @@ class MealAnalysisScreen extends StatelessWidget {
   /// Step bonus per day for the trends corridor (F7-05), the store's
   /// `burnedKcalForFoodDate`. Null keeps Trends on the base goal.
   final int Function(DateTime day)? trendBurnedKcalFor;
+
+  /// The shown day's numbers (the store's `nutritionSummaryForFoodDate`:
+  /// budget incl. activity credit). Null (tests, previews) derives them from
+  /// [profile], [loggedMeals] and [dailyConsumedKcal] without a credit.
+  final DayNutritionSummary? nutrition;
+
+  /// Today's recipe pick (`nextMealPick`); shown in its empty slot only
+  /// while today is on screen.
+  final RecipePick? recipePick;
 
   void _openAddSheet(
     BuildContext context,
@@ -303,7 +320,9 @@ class MealAnalysisScreen extends StatelessWidget {
     return TrendService(client, userId).loadDailyTotals();
   }
 
-  /// Entries of the shown day, newest first, each with its index in THIS list.
+  /// Entries of the shown day per slot, oldest first (the diary order of
+  /// `mealSlotSummariesForFoodDate`), each with its index in the DAY list
+  /// sorted newest first.
   ///
   /// Indices are assigned once per day, not per slot card, so
   /// `food-history-entry-0` stays the day's newest entry, which several flows
@@ -314,15 +333,61 @@ class MealAnalysisScreen extends StatelessWidget {
   /// would let a meal with a persisted `local_day` count in the header but
   /// drop out of the diary.
   Map<MealSlot, List<DiaryEntry>> _entriesBySlot() {
-    final sorted = mealsForFoodDate(loggedMeals, selectedDate).toList()
+    final newestFirst = mealsForFoodDate(loggedMeals, selectedDate).toList()
       ..sort((a, b) => b.loggedAt.compareTo(a.loggedAt));
-    final map = <MealSlot, List<DiaryEntry>>{
-      for (final slot in MealSlot.values) slot: <DiaryEntry>[],
-    };
-    for (var i = 0; i < sorted.length; i++) {
-      map[sorted[i].slot]!.add(DiaryEntry(sorted[i], i));
+    final dayIndex = Map<LoggedMeal, int>.identity();
+    for (var i = 0; i < newestFirst.length; i++) {
+      dayIndex[newestFirst[i]] = i;
     }
-    return map;
+    return {
+      for (final summary in mealSlotSummariesForFoodDate(
+        loggedMeals,
+        selectedDate,
+      ))
+        summary.slot: [
+          for (final meal in summary.meals) DiaryEntry(meal, dayIndex[meal]!),
+        ],
+    };
+  }
+
+  /// [nutrition], or the same numbers from the screen's own inputs.
+  DayNutritionSummary _summary() {
+    final given = nutrition;
+    if (given != null) return given;
+    final macros = mealsForFoodDate(loggedMeals, selectedDate).fold(
+      MacroProgress.empty,
+      (sum, meal) => sum.add(meal.result),
+    );
+    return DayNutritionSummary(
+      profile: profile,
+      burnedKcal: 0,
+      consumed: MacroProgress(
+        proteinG: macros.proteinG,
+        carbsG: macros.carbsG,
+        fatG: macros.fatG,
+        kcal: dailyConsumedKcal,
+      ),
+    );
+  }
+
+  /// The pick row opens the recipe's detail page; adding from there asks for
+  /// the slot and logs through [onAddMeal] (the shown day).
+  void _openPick(BuildContext context, RecipePick pick) {
+    final identity = MealScanIdentity();
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => RecipeDetailScreen(
+          recipe: pick.recipe,
+          onAddMeal: (result, slot) async {
+            if (!identity.isCurrent) throw StateError('Meal owner changed');
+            await onAddMeal(result, slot);
+          },
+          photoInput: photoInput,
+          productService: productService,
+          isSessionCurrent: () => identity.isCurrent,
+        ),
+      ),
+    );
   }
 
   Future<void> _selectDate(BuildContext context) async {
@@ -341,25 +406,37 @@ class MealAnalysisScreen extends StatelessWidget {
     if (picked != null && context.mounted) onDateSelected(picked);
   }
 
+  /// Gap between the page's blocks (design: 14).
+  static const double _gap = 14;
+
+  /// Space the design keeps between the dock and the diary's end.
+  static const double _dockClearance = 44;
+
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final bySlot = _entriesBySlot();
-    final pageHeader = Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        FoodPageHeader(
-          consumedKcal: dailyConsumedKcal,
-          loading: dayLoading,
-          onTrends: () => _openTrends(context),
-        ),
-        FoodDayNavigation(
-          day: selectedDate,
-          label: foodHeaderDateLabel(selectedDate, context.l10n),
-          onSelected: onDateSelected,
-          onCalendar: () => _selectDate(context),
-        ),
-      ],
-    );
+    final summary = _summary();
+    final today = DateUtils.dateOnly(clock.now());
+    final showsToday = DateUtils.isSameDay(selectedDate, today);
+    final pick = showsToday ? recipePick : null;
+    final chrome = <Widget>[
+      FoodPageHeader(onCalendar: () => _selectDate(context)),
+      const SizedBox(height: _gap),
+      FoodDayNavigation(
+        day: selectedDate,
+        headline: foodDateSelectedLabel(today, selectedDate, l10n),
+        dateLabel: foodHeaderDateLabel(selectedDate, l10n),
+        onSelected: onDateSelected,
+      ),
+      const SizedBox(height: _gap),
+      FoodDaySummaryCard(
+        summary: summary,
+        loading: dayLoading,
+        onTap: () => _openTrends(context),
+      ),
+      const SizedBox(height: _gap),
+    ];
     final diary = dayLoading
         ? const _DayLoadingCard()
         : SlidableAutoCloseBehavior(
@@ -369,18 +446,36 @@ class MealAnalysisScreen extends StatelessWidget {
               children: [
                 Column(
                   key: const ValueKey('food-history'),
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    for (final slot in MealSlot.values)
+                    for (final slot in MealSlot.values) ...[
+                      if (slot != MealSlot.values.first)
+                        const SizedBox(height: _gap),
                       DiaryMealCard(
                         key: ValueKey(
                           'food-slot-${selectedDate.toIso8601String()}-${slot.name}',
                         ),
                         slot: slot,
                         entries: bySlot[slot]!,
+                        // A guide for today's open slots; past days just say
+                        // nothing was logged.
+                        suggestedRange: showsToday
+                            ? summary.suggestedKcalRange(slot)
+                            : null,
+                        pick:
+                            pick != null &&
+                                pick.slot == slot &&
+                                bySlot[slot]!.isEmpty
+                            ? pick
+                            : null,
+                        onOpenPick: pick == null
+                            ? null
+                            : () => _openPick(context, pick),
                         onAddToSlot: (s) => _openAddSheet(context, s),
                         onMealTap: (s) => _openAddSheet(context, s),
                         onRemoveMeal: onRemoveMeal,
                       ),
+                    ],
                   ],
                 ),
               ],
@@ -397,52 +492,72 @@ class MealAnalysisScreen extends StatelessWidget {
     );
     return LayoutBuilder(
       builder: (context, constraints) {
-        // The floating tab bar's band (from the shell): the pinned dock sits
-        // on it, an unpinned page scrolls under the bar and ends above it.
+        // The floating tab bar's band (from the shell): the dock floats on
+        // it and the diary scrolls under both.
         final navInset = MediaQuery.paddingOf(context).bottom;
-        // Large text and short landscape windows need the whole page to scroll.
-        final pinned =
+        // Very short windows (landscape) keep the dock at the diary's end
+        // instead of letting it cover most of the view.
+        final floating =
             constraints.hasBoundedHeight &&
-            constraints.maxWidth >= 340 &&
-            constraints.maxHeight - navInset >= 560 &&
-            MediaQuery.textScalerOf(context).scale(14) <= 20;
-        final content = Padding(
-          key: const ValueKey('food-diary-content'),
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: diary,
-        );
+            constraints.maxHeight - navInset >= 380;
+        final t = context.t;
         // Keep the scrollable and diary at the same element paths when the
         // keyboard or rotation changes available space, even in a hidden tab.
-        final body = Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        final body = Stack(
           children: [
-            pinned ? pageHeader : const SizedBox.shrink(),
-            Flexible(
-              key: const ValueKey('food-scroll-region'),
-              fit: pinned ? FlexFit.tight : FlexFit.loose,
-              child: ColoredBox(
-                color: context.t.surf,
-                child: SingleChildScrollView(
-                  key: const ValueKey('food-diary-scroll'),
-                  child: Column(
-                    children: [
-                      pinned ? const SizedBox.shrink() : pageHeader,
-                      content,
-                      const SizedBox(height: 20),
-                      pinned ? const SizedBox.shrink() : dock,
-                      SizedBox(height: pinned ? 0 : navInset),
-                    ],
-                  ),
+            Positioned.fill(
+              child: SingleChildScrollView(
+                key: const ValueKey('food-diary-scroll'),
+                padding: EdgeInsets.fromLTRB(
+                  20,
+                  15,
+                  20,
+                  navInset +
+                      (floating ? FoodEntryDock.height + _dockClearance : 20),
+                ),
+                child: Column(
+                  key: const ValueKey('food-diary-content'),
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ...chrome,
+                    diary,
+                    floating
+                        ? const SizedBox.shrink()
+                        : const SizedBox(height: 20),
+                    floating ? const SizedBox.shrink() : dock,
+                  ],
                 ),
               ),
             ),
-            pinned
-                ? Padding(
-                    padding: EdgeInsets.only(bottom: navInset),
-                    child: dock,
-                  )
-                : const SizedBox.shrink(),
+            // The design's fade behind the dock: the diary dissolves into
+            // the page before it reaches the dock and the bar.
+            if (floating)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: navInset + FoodEntryDock.height + _dockClearance,
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    key: const ValueKey('food-dock-fade'),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        stops: const [0, 0.4, 1],
+                        colors: [t.bg.withValues(alpha: 0), t.bg, t.bg],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            if (floating)
+              Positioned(
+                left: 14,
+                right: 14,
+                bottom: navInset,
+                child: ReadableWidth(child: dock),
+              ),
           ],
         );
         return SizedBox(
@@ -454,7 +569,8 @@ class MealAnalysisScreen extends StatelessWidget {
                 _openAddSheet(listenerContext, slot),
             child: KeyedSubtree(
               key: const ValueKey('screen-kcal-tracker'),
-              // A new date starts at the first meal, not at the old scroll offset.
+              // A new date starts at the first meal, not at the old scroll
+              // offset.
               child: KeyedSubtree(key: ValueKey(selectedDate), child: body),
             ),
           ),
@@ -531,14 +647,17 @@ void _ensureDateSymbols() {
   _dateSymbolsReady = true;
 }
 
-/// The selected diary date; archived years stay unambiguous.
+/// The selected diary date, "Monday, Sep 28" ("Montag, 28. Sept."); archived
+/// years stay unambiguous.
 @visibleForTesting
 String foodHeaderDateLabel(DateTime date, AppLocalizations l10n) {
   _ensureDateSymbols();
-  if (date.year != clock.now().year) {
-    return DateFormat.yMMMMEEEEd(l10n.localeName).format(date);
-  }
-  return DateFormat.MMMMEEEEd(l10n.localeName).format(date);
+  final locale = l10n.localeName;
+  final weekday = DateFormat.EEEE(locale).format(date);
+  final day = date.year != clock.now().year
+      ? DateFormat.yMMMd(locale).format(date)
+      : DateFormat.MMMd(locale).format(date);
+  return '$weekday, $day';
 }
 
 // ---------------------------------------------------------------------------

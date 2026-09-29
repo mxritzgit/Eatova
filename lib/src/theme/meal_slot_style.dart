@@ -37,6 +37,22 @@ extension MealSlotStyle on MealSlot {
   /// Convenience accessor where a [BuildContext] is at hand.
   Color accentIn(BuildContext context) => accentOn(context.t);
 
+  /// Translucent fill of the redesign's slot icon tile (`SlotIconTile`).
+  Color tileTint(AppTokens t) => switch (this) {
+    MealSlot.breakfast => t.slotBreakfastTint,
+    MealSlot.lunch => t.slotLunchTint,
+    MealSlot.dinner => t.slotDinnerTint,
+    MealSlot.snack => t.slotSnackTint,
+  };
+
+  /// Glyph color on [tileTint].
+  Color tileInk(AppTokens t) => switch (this) {
+    MealSlot.breakfast => t.slotBreakfastInk,
+    MealSlot.lunch => t.slotLunchInk,
+    MealSlot.dinner => t.slotDinnerInk,
+    MealSlot.snack => t.slotSnackInk,
+  };
+
   // Slot colors come exclusively from [accentOn]/[accentIn]; the old fixed
   // dark-palette `accent` getter is gone.
 

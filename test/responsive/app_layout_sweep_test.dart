@@ -143,11 +143,13 @@ final List<_Step> _journey = <_Step>[
     _key('favorites-sheet'),
     pops: 2,
   ),
+  // Manual entry from the dock: long-press on the search capsule (the add
+  // sheet's "Add manually" row is pinned in the Food wiring tests).
   _step('Manuell', 'Food', const [
-    'food-action-manual',
+    'long:food-search',
   ], _key('manual-meal-sheet')),
+  // Entries are always listed; no expand tap before editing.
   _step('Mahlzeit bearbeiten', 'Food', const [
-    'food-slot-toggle-breakfast',
     'food-history-entry-',
   ], _key('edit-meal-sheet')),
   _step('Kalender', 'Food', const [
@@ -230,8 +232,11 @@ Future<void> _settle(WidgetTester tester) async {
 }
 
 /// Taps [key] (or the first widget whose key starts with it, for keys ending
-/// in '-'), scrolling the visible list to it first when it is not built yet.
+/// in '-'; a `long:` prefix long-presses), scrolling the visible list to it
+/// first when it is not built yet.
 Future<void> _tap(WidgetTester tester, String key, String step) async {
+  final longPress = key.startsWith('long:');
+  if (longPress) key = key.substring('long:'.length);
   final target = key.endsWith('-') ? _keyPrefix(key) : _key(key);
   final list = find
       .byWidgetPredicate(
@@ -247,7 +252,11 @@ Future<void> _tap(WidgetTester tester, String key, String step) async {
   expect(target, findsWidgets, reason: '$step: $key fehlt');
   await tester.ensureVisible(target.first);
   await _settle(tester);
-  await tester.tap(target.first);
+  if (longPress) {
+    await tester.longPress(target.first);
+  } else {
+    await tester.tap(target.first);
+  }
   await _settle(tester);
 }
 

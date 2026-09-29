@@ -2379,17 +2379,46 @@
     }
   },
   "foodOptions": "Weitere Optionen",
-  "foodKcalLoggedLabel": "KCAL ERFASST",
-  "foodDiaryEntryCount": "{count, plural, one{1 Eintrag} other{{count} Einträge}}",
-  "foodDiaryExpand": "Alle Einträge anzeigen",
-  "foodDiaryCollapse": "Einträge zuklappen",
-  "@foodDiaryEntryCount": {
+  "foodSummaryLogged": "Erfasst",
+  "foodSummaryLeft": "Übrig",
+  "foodSummaryOver": "Drüber",
+  "foodSlotMeta": "{time} · {count, plural, one{1 Eintrag} other{{count} Einträge}}",
+  "@foodSlotMeta": {
     "placeholders": {
-      "count": {
-        "type": "int"
-      }
+      "time": { "type": "String" },
+      "count": { "type": "int" }
     }
   },
+  "foodSlotSuggested": "Empfohlen {min}–{max} kcal",
+  "@foodSlotSuggested": {
+    "placeholders": {
+      "min": { "type": "String" },
+      "max": { "type": "String" }
+    }
+  },
+  "foodSlotShowMacros": "Makros anzeigen",
+  "foodSlotHideMacros": "Makros ausblenden",
+  "foodPickFitsTonight": "Passt heute Abend · {kcal} kcal",
+  "@foodPickFitsTonight": {
+    "placeholders": {
+      "kcal": { "type": "String" }
+    }
+  },
+  "foodPickFitsDay": "Passt in deinen Tag · {kcal} kcal",
+  "@foodPickFitsDay": {
+    "placeholders": {
+      "kcal": { "type": "String" }
+    }
+  },
+  "foodPickPlanned": "Geplant · {kcal} kcal",
+  "@foodPickPlanned": {
+    "placeholders": {
+      "kcal": { "type": "String" }
+    }
+  },
+  "foodPickPlannedNoKcal": "Geplant",
+  "foodDockSearchLabel": "Lebensmittel suchen",
+  "foodDockCameraLabel": "Mahlzeit mit der Kamera erfassen",
   "recipesForYou": "Für dich",
   "recipesTryToday": "Heute ausprobieren",
   "recipesViewRecipe": "Rezept ansehen",

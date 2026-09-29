@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
@@ -84,24 +85,35 @@ void main() {
   // covered by food_diary_screen_test.dart, the goal itself by
   // kcal_goal_consistency_test.dart.
 
-  testWidgets('Food action labels remain fully readable', (tester) async {
+  testWidgets('Food dock controls keep their targets and full labels', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
     await _pumpFoodTab(tester, textScale: 1.3);
 
-    // The labels used to wrap to two lines and overflow the 64 px button.
-    for (final key in const [
-      ValueKey('food-action-barcode'),
-      ValueKey('food-action-ai'),
-      ValueKey('food-action-manual'),
+    // The round buttons are icon-only; their names live in semantics, and
+    // the capsule's placeholder never wraps out of the 54 px dock.
+    for (final (key, label) in [
+      ('food-action-barcode', deL10n.foodScanBarcodeTooltip),
+      ('food-action-ai', deL10n.foodDockCameraLabel),
+      ('food-search', deL10n.foodDockSearchLabel),
     ]) {
-      final label = tester.widget<Text>(
-        find.descendant(of: find.byKey(key), matching: find.byType(Text)),
-      );
-      expect(label.data, isNot(contains('\n')));
-      final paragraph = tester.renderObject<RenderParagraph>(
-        find.descendant(of: find.byKey(key), matching: find.byType(Text)),
-      );
-      expect(paragraph.didExceedMaxLines, isFalse);
-      expect(tester.getSize(find.byKey(key)).height, greaterThanOrEqualTo(44));
+      final size = tester.getSize(find.byKey(ValueKey(key)));
+      expect(size.height, greaterThanOrEqualTo(44), reason: key);
+      expect(size.width, greaterThanOrEqualTo(44), reason: key);
+      expect(find.bySemanticsLabel(label), findsOneWidget, reason: key);
     }
+    final placeholder = tester.renderObject<RenderParagraph>(
+      find.descendant(
+        of: find.byKey(const ValueKey('food-search')),
+        matching: find.byType(RichText),
+      ),
+    );
+    expect(placeholder.maxLines, 1);
+    expect(
+      tester.getSize(find.byKey(const ValueKey('food-entry-dock'))).height,
+      54,
+    );
+    semantics.dispose();
   });
 }

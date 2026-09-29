@@ -747,6 +747,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.userName,
       _store.isLoadingFoodDay(_store.selectedFoodDate),
       _store.selectedFoodDateIsToday,
+      // The recipe pick's other inputs (Task 7 selector rule).
+      _store.userRecipes,
+      _store.pendingRecipeDeletes,
+      _store.mealPlansRevision,
     ),
     builder: (context) {
       assert(_countTabBuild(_tabFood));
@@ -787,6 +791,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             // the Today tab (F7-05).
             trendBurnedKcalFor: _store.burnedKcalForFoodDate,
             addSlotRequest: _addSlotRequest,
+            nutrition: _store.nutritionSummaryForFoodDate(
+              _store.selectedFoodDate,
+            ),
+            recipePick: _store.selectedFoodDateIsToday
+                ? _store.nextMealPick(localeName: context.l10n.localeName)
+                : null,
           ),
         ),
       );

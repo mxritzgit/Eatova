@@ -132,7 +132,14 @@ void main() {
     testWidgets('englisch zeigt das ausgeschriebene Datum', (tester) async {
       final overflows = await _pumpFoodTab(tester, const Locale('en'));
       final heute = DateTime.now();
-      expect(find.text(DateFormat.MMMMEEEEd('en').format(heute)), findsWidgets);
+      // Weekday written out, short month ("Monday, Sep 28").
+      expect(
+        find.text(
+          '${DateFormat.EEEE('en').format(heute)}, '
+          '${DateFormat.MMMd('en').format(heute)}',
+        ),
+        findsWidgets,
+      );
       expect(find.text('${heute.day}.${heute.month}.'), findsNothing);
       expect(overflows, isEmpty, reason: overflows.join('\n'));
     });
@@ -140,7 +147,13 @@ void main() {
     testWidgets('deutsch zeigt das ausgeschriebene Datum', (tester) async {
       final overflows = await _pumpFoodTab(tester, const Locale('de'));
       final heute = DateTime.now();
-      expect(find.text(DateFormat.MMMMEEEEd('de').format(heute)), findsWidgets);
+      expect(
+        find.text(
+          '${DateFormat.EEEE('de').format(heute)}, '
+          '${DateFormat.MMMd('de').format(heute)}',
+        ),
+        findsWidgets,
+      );
       expect(overflows, isEmpty, reason: overflows.join('\n'));
     });
   });

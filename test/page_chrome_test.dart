@@ -76,11 +76,25 @@ void main() {
             find.descendant(of: title, matching: find.byType(RichText)),
           );
           expect(paragraph.didExceedMaxLines, isFalse);
+          // Dark redesign (2026-09-28): a redesigned tab sets its title in
+          // the design's header row (page padding 15, title centred on the
+          // 44 px buttons). Tabs still on the old header share Today's
+          // origin until their redesign lands; all share the 20 px gutter.
+          expect(tester.getTopLeft(title).dx, origin.dx, reason: labels[index]);
           if (nav[index] == 'Training') {
-            // Training follows the dark redesign's header (page padding 15,
-            // title centred on the 44 px buttons, plan name above it); the
-            // other tabs keep the shell's origin until their redesigns land.
-            expect(tester.getTopLeft(title).dx, origin.dx);
+            // Training's plan name stands above its title, so only the gutter
+            // is shared.
+          } else if (nav[index] == 'Food') {
+            final button = tester.getRect(
+              find.byKey(const ValueKey('food-date-calendar')),
+            );
+            final rect = tester.getRect(title);
+            expect(
+              rect.top < button.top ? rect.top : button.top,
+              15,
+              reason: labels[index],
+            );
+            expect(rect.center.dy, closeTo(button.center.dy, 1));
           } else {
             expect(tester.getTopLeft(title), origin, reason: labels[index]);
           }

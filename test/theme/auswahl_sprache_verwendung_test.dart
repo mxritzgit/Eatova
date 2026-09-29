@@ -42,6 +42,7 @@ import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/design/controls.dart';
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
+import 'package:eatova/src/widgets/kcal/food_glyphs.dart';
 
 import '../support/harness.dart';
 
@@ -279,9 +280,20 @@ void main() {
           final label = tester.widget<Text>(
             find.byKey(const ValueKey('food-date-selected-label')),
           );
-          final glyph = _iconFarbe(tester, const ValueKey('food-date-calendar'));
-          expect(label.style!.color, t.ink);
-          expect(_kontrast(label.style!.color!, t.bg), greaterThanOrEqualTo(_text));
+          // Dark redesign: the date is the meta line of the day pill (a
+          // `surf` capsule), the calendar a round header button whose glyph
+          // inherits the button's icon ink.
+          final glyph = IconTheme.of(
+            tester.element(
+              find.descendant(
+                of: find.byKey(const ValueKey('food-date-calendar')),
+                matching: find.byType(FoodGlyphIcon),
+              ),
+            ),
+          ).color!;
+          expect(label.style!.color, t.ink3);
+          expect(_kontrast(label.style!.color!, t.surf), greaterThanOrEqualTo(_text));
+          expect(_kontrast(glyph, t.surf), greaterThanOrEqualTo(_zustand));
           expect(_kontrast(glyph, t.bg), greaterThanOrEqualTo(_zustand));
           expect(tester.getSize(find.byKey(const ValueKey('food-date-calendar'))).height,
             greaterThanOrEqualTo(44));
