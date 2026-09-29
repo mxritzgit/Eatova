@@ -2,6 +2,7 @@ import '../support/food_navigation.dart';
 
 import 'dart:math' as math;
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -14,8 +15,6 @@ import 'package:eatova/src/screens/onboarding_screen.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/screens/settings/goals_screen.dart';
 import 'package:eatova/src/screens/settings/settings_controls.dart';
-import 'package:eatova/src/services/day_math.dart';
-import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/theme/meal_slot_style.dart';
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
@@ -333,25 +332,30 @@ void main() {
 
     testWidgets('$modus: Heute-Tab rendert sauber', (tester) async {
       _pin(tester, brightness);
-      await _ohneFehler('Heute-Tab', brightness, () async {
-        await _boot(tester);
-        _erwartePalette(tester, 'screen-today', brightness);
-        expect(find.byKey(const ValueKey('today-kcal-hero')), findsOneWidget);
+      // Frozen day: the archive cell's key is a date.
+      await withClock(Clock.fixed(DateTime(2026, 9, 28, 12)), () async {
+        await _ohneFehler('Heute-Tab', brightness, () async {
+          await _boot(tester);
+          _erwartePalette(tester, 'screen-today', brightness);
+          expect(
+            find.byKey(const ValueKey('today-kcal-hero')),
+            findsOneWidget,
+          );
 
-        // An archived day is its own color branch (yesterday in the strip).
-        final gestern = addDays(startOfDay(DateTime.now()), -1);
-        await tester.tap(
-          find.byKey(ValueKey('today-day-${localDayKey(gestern)}')),
-        );
-        await tester.pumpAndSettle();
+          // An archived day is its own color branch (yesterday in the strip).
+          await tester.tap(
+            find.byKey(const ValueKey('today-day-2026-09-27')),
+          );
+          await tester.pumpAndSettle();
 
-        // Macro tiles and slot rows sit below the fold and are colored only
-        // once scrolled to.
-        await _scroll(tester, find.byKey(const ValueKey('screen-today')));
-        expect(
-          find.byKey(const ValueKey('today-meals-card')),
-          findsOneWidget,
-        );
+          // Macro tiles and slot rows sit below the fold and are colored only
+          // once scrolled to.
+          await _scroll(tester, find.byKey(const ValueKey('screen-today')));
+          expect(
+            find.byKey(const ValueKey('today-meals-card')),
+            findsOneWidget,
+          );
+        });
       });
     });
 

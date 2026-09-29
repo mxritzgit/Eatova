@@ -7,6 +7,7 @@ import '../../services/local_day.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
+import 'today_sections.dart' show TodayTapTarget;
 import 'today_texts.dart';
 
 /// The 7-day strip of the dark redesign; it replaces the old previous/next
@@ -142,7 +143,7 @@ class _DayCell extends StatelessWidget {
     final isToday = daysBetween(date, today) == 0;
     final radius = BorderRadius.circular(rThumb);
     return Semantics(
-      button: true,
+      button: onTap != null,
       selected: selected,
       enabled: onTap != null,
       label: todayDayCellLabel(today, date, l10n),
@@ -162,7 +163,7 @@ class _DayCell extends StatelessWidget {
         ),
         child: Material(
           type: MaterialType.transparency,
-          child: InkWell(
+          child: TodayTapTarget(
             key: ValueKey<String>('today-day-${localDayKey(date)}'),
             borderRadius: radius,
             onTap: onTap,

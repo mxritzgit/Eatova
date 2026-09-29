@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/harness.dart';
+import '../support/today_summary.dart';
 
 void main() {
   testWidgets('profile goals distinguish missing steps from measured zero', (tester) async {
@@ -119,9 +120,12 @@ void main() {
     Widget today(int? steps) => TodayScreen(
       userName: 'Test',
       profile: const UserProfile(),
-      consumedKcal: 0,
-      burnedKcal: 0,
-      macroProgress: MacroProgress.empty,
+      summary: todaySummary(
+        profile: const UserProfile(),
+        consumedKcal: 0,
+        burnedKcal: 0,
+        macroProgress: MacroProgress.empty,
+      ),
       meals: const [],
       selectedDate: DateTime(2026, 9, 10),
       streak: 0,

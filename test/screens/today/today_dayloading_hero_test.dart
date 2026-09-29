@@ -16,6 +16,7 @@ import 'package:eatova/src/screens/today/today_screen.dart';
 import 'package:eatova/src/screens/today/today_macros.dart';
 
 import '../../support/harness.dart';
+import '../../support/today_summary.dart';
 
 /// 2026-08-09, 10:00 — far from any day boundary.
 final DateTime _jetzt = DateTime(2026, 8, 9, 10);
@@ -44,9 +45,12 @@ Future<void> _pumpToday(
     TodayScreen(
       userName: 'Moritz',
       profile: _profil,
-      consumedKcal: consumedKcal,
-      burnedKcal: 0,
-      macroProgress: macroProgress,
+      summary: todaySummary(
+        profile: _profil,
+        consumedKcal: consumedKcal,
+        burnedKcal: 0,
+        macroProgress: macroProgress,
+      ),
       meals: const [],
       selectedDate: _archivtag,
       streak: 4,

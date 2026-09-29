@@ -5,7 +5,6 @@ import '../../l10n/l10n.dart';
 import '../../models/day_nutrition.dart';
 import '../../models/lifetime_stats.dart';
 import '../../models/logged_meal.dart';
-import '../../models/macro_progress.dart';
 import '../../models/recipe_pick.dart';
 import '../../models/training_insights.dart';
 import '../../models/user_profile.dart';
@@ -33,9 +32,7 @@ class TodayScreen extends StatelessWidget {
     super.key,
     required this.userName,
     required this.profile,
-    required this.consumedKcal,
-    required this.burnedKcal,
-    required this.macroProgress,
+    required this.summary,
     required this.meals,
     required this.selectedDate,
     required this.streak,
@@ -45,6 +42,7 @@ class TodayScreen extends StatelessWidget {
     this.dayLoading = false,
     this.pick,
     this.nextWorkout,
+    this.accentSlot,
     this.onDateSelected,
     this.onOpenProfile,
     this.onOpenMealSlot,
@@ -57,13 +55,10 @@ class TodayScreen extends StatelessWidget {
   final String userName;
   final UserProfile profile;
 
-  /// Calories eaten on [selectedDate].
-  final int consumedKcal;
-
-  /// Activity credit estimated from steps; no Activity stat without one.
-  final int burnedKcal;
-
-  final MacroProgress macroProgress;
+  /// The store's day numbers for [selectedDate]
+  /// (`HomeStore.nutritionSummaryForFoodDate`): budget = goal + activity
+  /// credit, eaten, macros. No Activity stat without a credit.
+  final DayNutritionSummary summary;
 
   /// Step count for [selectedDate]; `null` means no step source, and the
   /// steps row is dropped rather than claiming zero. Goal comes from profile.
@@ -87,6 +82,11 @@ class TodayScreen extends StatelessWidget {
 
   /// The selected plan's next workout; shown on today only.
   final TrainingNextWorkout? nextWorkout;
+
+  /// Today's next open main meal (`HomeStore.nextOpenMainSlot`, the rule
+  /// behind [pick]); its add button is accent-filled. Ignored on archive
+  /// days and while a day loads.
+  final MealSlot? accentSlot;
 
   final ValueChanged<DateTime>? onDateSelected;
 
@@ -119,22 +119,8 @@ class TodayScreen extends StatelessWidget {
     final heute = startOfDay(jetzt);
     final istHeute = daysBetween(heute, selectedDate) == 0;
 
-    final summary = DayNutritionSummary(
-      profile: profile,
-      burnedKcal: burnedKcal,
-      consumed: MacroProgress(
-        proteinG: macroProgress.proteinG,
-        carbsG: macroProgress.carbsG,
-        fatG: macroProgress.fatG,
-        kcal: consumedKcal,
-      ),
-    );
     final slots = mealSlotSummariesForFoodDate(meals, selectedDate);
-    // The accent add button marks the slot the recipe pick serves: the same
-    // rule (nextOpenMainMealSlot) on the same meals and clock.
-    final nextSlot = istHeute && !dayLoading
-        ? nextOpenMainMealSlot(now: jetzt, todaysMeals: meals)
-        : null;
+    final nextSlot = istHeute && !dayLoading ? accentSlot : null;
     final shownPick = istHeute && !dayLoading ? pick : null;
     final workout = istHeute ? nextWorkout : null;
     final healthMissing = steps == null && healthConnect;
@@ -204,7 +190,7 @@ class TodayScreen extends StatelessWidget {
             TodayActivityCard(
               steps: steps,
               stepsGoal: profile.dailyStepsGoal,
-              burnedKcal: burnedKcal,
+              burnedKcal: summary.burnedKcal,
               healthConnectMissing: healthMissing,
               onReviewHealth: onOpenProfile,
               workout: workout,
@@ -304,7 +290,7 @@ class _StreakPill extends StatelessWidget {
         color: t.activityTint,
         shape: const StadiumBorder(),
         clipBehavior: Clip.antiAlias,
-        child: InkWell(
+        child: TodayTapTarget(
           key: const ValueKey('today-streak'),
           onTap: onTap,
           child: ConstrainedBox(
@@ -355,13 +341,13 @@ class _ProfileAvatar extends StatelessWidget {
       side: BorderSide(color: t.accent.withValues(alpha: 0.45), width: 1.5),
     );
     return Semantics(
-      button: true,
+      button: onTap != null,
       label: context.l10n.todayProfileAndSettings,
       child: Material(
         color: t.surf2,
         shape: shape,
         clipBehavior: Clip.antiAlias,
-        child: InkWell(
+        child: TodayTapTarget(
           key: const ValueKey('today-profile'),
           customBorder: shape,
           onTap: onTap,

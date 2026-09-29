@@ -12,6 +12,7 @@ import 'package:eatova/src/screens/today/today_screen.dart';
 import 'package:eatova/src/screens/today/today_sections.dart';
 
 import '../../support/harness.dart';
+import '../../support/today_summary.dart';
 
 const _row = ValueKey('today-steps-card');
 const _value = ValueKey('today-steps-value');
@@ -43,9 +44,12 @@ void main() {
           TodayScreen(
             userName: 'Moritz',
             profile: const UserProfile(),
-            consumedKcal: 1420,
-            burnedKcal: 261,
-            macroProgress: MacroProgress.empty,
+            summary: todaySummary(
+              profile: const UserProfile(),
+              consumedKcal: 1420,
+              burnedKcal: 261,
+              macroProgress: MacroProgress.empty,
+            ),
             meals: const [],
             selectedDate: DateTime(2026, 9, 8),
             streak: 3,

@@ -23,7 +23,9 @@ import 'package:eatova/src/screens/profile_screen.dart';
 import 'package:eatova/src/screens/recipes/meal_plan_screen.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
+import 'package:eatova/src/screens/today/today_macros.dart';
 import 'package:eatova/src/screens/today/today_progress.dart';
+import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/services/kcal_format.dart';
 import 'package:eatova/src/widgets/kcal/meal_slot_picker.dart';
 
@@ -80,16 +82,67 @@ void _expectDayNumbers(WidgetTester tester, HomeStore store, DateTime day) {
     tester.widget<TodayCalorieArc>(find.byType(TodayCalorieArc)).progress,
     summary.eatenFraction,
   );
-  final proteinOver = summary.consumed.proteinG.round() - summary.proteinGoalG;
-  expect(
-    find.text(
-      summary.proteinLeftG > 0 || proteinOver <= 0
-          ? _en.todayMacroLeft(summary.proteinLeftG)
-          : _en.todayMacroOver(proteinOver),
+  // Each macro tile against its own numbers (not just "some text on
+  // screen"): eaten, goal and grams left.
+  final tiles = {
+    for (final tile in tester.widgetList<TodayMacroTile>(
+      find.byType(TodayMacroTile),
+    ))
+      tile.label: tile,
+  };
+  expect(tiles.keys, [
+    _en.todayMacroProtein,
+    _en.todayMacroCarbs,
+    _en.todayMacroFat,
+  ]);
+  for (final (label, eaten, goal, left) in [
+    (
+      _en.todayMacroProtein,
+      summary.consumed.proteinG,
+      summary.proteinGoalG,
+      summary.proteinLeftG,
     ),
-    findsWidgets,
-  );
-  expect(find.text('${summary.consumed.proteinG.round()}'), findsWidgets);
+    (
+      _en.todayMacroCarbs,
+      summary.consumed.carbsG,
+      summary.carbsGoalG,
+      summary.carbsLeftG,
+    ),
+    (
+      _en.todayMacroFat,
+      summary.consumed.fatG,
+      summary.fatGoalG,
+      summary.fatLeftG,
+    ),
+  ]) {
+    final tile = tiles[label]!;
+    expect(tile.value, eaten.round(), reason: label);
+    expect(tile.goal, goal, reason: label);
+    expect(tile.left, left, reason: label);
+  }
+}
+
+/// Which slot's "+" carries the accent fill; null when none does.
+MealSlot? _accentSlot(WidgetTester tester) {
+  MealSlot? accent;
+  for (final slot in MealSlot.values) {
+    final circle = find.descendant(
+      of: find.byKey(ValueKey<String>('today-meal-add-${slot.name}')),
+      matching: find.byWidgetPredicate(
+        (w) =>
+            w is Container &&
+            w.decoration is BoxDecoration &&
+            (w.decoration! as BoxDecoration).shape == BoxShape.circle,
+      ),
+    );
+    final fill =
+        (tester.widget<Container>(circle).decoration! as BoxDecoration).color;
+    if (fill == AppTokens.dark.accentFill) {
+      expect(accent, isNull, reason: 'one accent at most');
+      accent = slot;
+    }
+  }
+  return accent;
 }
 
 MealAnalysisResult _dinner() => const MealAnalysisResult(
@@ -201,6 +254,7 @@ void main() {
     await withClock(Clock.fixed(designNow), () async {
       final store = await pumpDesignToday(tester);
       expect(find.byKey(const ValueKey('today-pick')), findsOneWidget);
+      expect(_accentSlot(tester), MealSlot.dinner);
 
       final id = await store.addResultToDailyTotal(
         _dinner(),
@@ -215,11 +269,13 @@ void main() {
       // Dinner is logged: no open main meal is left at 19:00, so neither a
       // pick nor an accent button remains.
       expect(find.byKey(const ValueKey('today-pick')), findsNothing);
+      expect(_accentSlot(tester), isNull);
 
       await store.removeLoggedMeal(id);
       await tester.pumpAndSettle();
       _expectDayNumbers(tester, store, designNow);
       expect(_text(tester, 'today-stat-eaten'), '1,221');
+      expect(_accentSlot(tester), MealSlot.dinner);
 
       // The shell's undo snack brings the meal and the numbers back.
       final undo = find.widgetWithText(SnackBarAction, _en.commonUndo);
@@ -229,6 +285,36 @@ void main() {
       _expectDayNumbers(tester, store, designNow);
       expect(_text(tester, 'today-stat-eaten'), '1,871');
       expect(_text(tester, 'today-meal-kcal-dinner'), '650 kcal');
+      expect(_accentSlot(tester), isNull);
+    });
+  });
+
+  testWidgets('the accent "+" follows the store: logging the next main meal '
+      'moves it on, a snack leaves it', (tester) async {
+    // 08:30 on an empty day: breakfast is the next open main meal.
+    await withClock(Clock.fixed(DateTime(2026, 9, 28, 8, 30)), () async {
+      final store = await pumpDesignToday(tester, emptyDay: true);
+      expect(_accentSlot(tester), MealSlot.breakfast);
+      expect(store.nextOpenMainSlot(), MealSlot.breakfast);
+
+      // A snack is not a main meal: the accent stays.
+      await store.addResultToDailyTotal(_dinner(), slot: MealSlot.snack);
+      await tester.pumpAndSettle();
+      expect(_accentSlot(tester), MealSlot.breakfast);
+
+      await store.addResultToDailyTotal(_dinner(), slot: MealSlot.breakfast);
+      await tester.pumpAndSettle();
+      expect(_accentSlot(tester), MealSlot.lunch);
+      expect(_accentSlot(tester), store.nextOpenMainSlot());
+      _expectDayNumbers(tester, store, DateTime(2026, 9, 28));
+
+      await store.addResultToDailyTotal(_dinner(), slot: MealSlot.lunch);
+      await tester.pumpAndSettle();
+      expect(_accentSlot(tester), MealSlot.dinner);
+
+      // Another day shown: no accent at all.
+      await _tap(tester, 'today-day-2026-09-27');
+      expect(_accentSlot(tester), isNull);
     });
   });
 

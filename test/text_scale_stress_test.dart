@@ -1,5 +1,6 @@
 ﻿import 'support/food_navigation.dart';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
@@ -7,8 +8,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/main.dart';
 import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/screens/trends_screen.dart';
-import 'package:eatova/src/services/day_math.dart';
-import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/trend_service.dart';
 
 import 'support/harness.dart';
@@ -197,27 +196,30 @@ void main() {
     // by side, three macro bars (label/bar/value in ONE row) and four slot
     // rows — all classic breaking points at 200 % system font.
     _pinViewport(tester);
-    await _expectNoOverflow(tester, 'Heute-Tab', () async {
-      await _bootApp(tester);
-      expect(find.byKey(const ValueKey('today-kcal-hero')), findsOneWidget);
+    // Frozen day: the archive cell's key is a date.
+    await withClock(Clock.fixed(DateTime(2026, 9, 28, 12)), () async {
+      await _expectNoOverflow(tester, 'Heute-Tab', () async {
+        await _bootApp(tester);
+        expect(find.byKey(const ValueKey('today-kcal-hero')), findsOneWidget);
 
-      // An archive day is its own branch: "that day" wording, no pick, no
-      // next workout. Yesterday is the strip's second-to-last day.
-      final gestern = addDays(startOfDay(DateTime.now()), -1);
-      await tester.tap(
-        find.byKey(ValueKey('today-day-${localDayKey(gestern)}')),
-      );
-      await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('today-date-selected-label')),
-          findsOneWidget);
+        // An archive day is its own branch: "that day" wording, no pick, no
+        // next workout. Yesterday is the strip's second-to-last day.
+        await tester.tap(find.byKey(const ValueKey('today-day-2026-09-27')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('today-date-selected-label')),
+            findsOneWidget);
 
-      // The cards below the fold are only laid out once scrolled to.
-      await _scrollDurch(
-        tester,
-        find.byKey(const ValueKey('screen-today')),
-        schritte: 4,
-      );
-      expect(find.byKey(const ValueKey('today-meals-card')), findsOneWidget);
+        // The cards below the fold are only laid out once scrolled to.
+        await _scrollDurch(
+          tester,
+          find.byKey(const ValueKey('screen-today')),
+          schritte: 4,
+        );
+        expect(
+          find.byKey(const ValueKey('today-meals-card')),
+          findsOneWidget,
+        );
+      });
     });
   });
 

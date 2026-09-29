@@ -22,6 +22,7 @@ import 'package:eatova/src/screens/today/today_screen.dart';
 import 'package:eatova/src/services/day_math.dart';
 
 import 'support/harness.dart';
+import 'support/today_summary.dart';
 
 /// Sunday, 9 August 2026, 10:00 — far from any day boundary.
 final DateTime _jetzt = DateTime(2026, 8, 9, 10);
@@ -119,9 +120,12 @@ Future<_Aussage> _heute(
       TodayScreen(
         userName: 'Moritz',
         profile: profile,
-        consumedKcal: consumedKcal,
-        burnedKcal: burnedKcal,
-        macroProgress: MacroProgress.empty,
+        summary: todaySummary(
+          profile: profile,
+          consumedKcal: consumedKcal,
+          burnedKcal: burnedKcal,
+          macroProgress: MacroProgress.empty,
+        ),
         meals: const <LoggedMeal>[],
         selectedDate: selectedDate,
         streak: 3,

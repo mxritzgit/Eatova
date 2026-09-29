@@ -39,6 +39,7 @@ import 'package:eatova/src/theme/theme_mode_controller.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
+import 'support/today_summary.dart';
 
 /// One jump mark: what a screen reader announces and at which rank.
 typedef Sprungmarke = ({String label, int level});
@@ -105,9 +106,12 @@ final DateTime _jetzt = DateTime(2026, 8, 9, 10);
 Widget _heuteTab() => TodayScreen(
       userName: 'Moritz Schneider',
       profile: const UserProfile(),
-      consumedKcal: 900,
-      burnedKcal: 200,
-      macroProgress: MacroProgress.empty,
+      summary: todaySummary(
+        profile: const UserProfile(),
+        consumedKcal: 900,
+        burnedKcal: 200,
+        macroProgress: MacroProgress.empty,
+      ),
       meals: const [],
       selectedDate: startOfDay(_jetzt),
       streak: 3,

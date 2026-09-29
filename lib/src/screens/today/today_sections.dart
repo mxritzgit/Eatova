@@ -15,6 +15,34 @@ import '../../widgets/recipes/recipe_photo.dart';
 import 'today_glyphs.dart';
 import 'today_texts.dart';
 
+/// An [InkWell] only when there is something to do. Without [onTap] the
+/// child keeps its key but shows no ripple and no tap action, so a control
+/// without a destination never looks or reads as live.
+class TodayTapTarget extends StatelessWidget {
+  const TodayTapTarget({
+    super.key,
+    required this.onTap,
+    required this.child,
+    this.borderRadius,
+    this.customBorder,
+  });
+
+  final VoidCallback? onTap;
+  final Widget child;
+  final BorderRadius? borderRadius;
+  final ShapeBorder? customBorder;
+
+  @override
+  Widget build(BuildContext context) => onTap == null
+      ? child
+      : InkWell(
+          onTap: onTap,
+          borderRadius: borderRadius,
+          customBorder: customBorder,
+          child: child,
+        );
+}
+
 /// Glyph on a 44 px tinted tile (radius 14), as in the design's rows.
 class _GlyphTile extends StatelessWidget {
   const _GlyphTile({
@@ -105,7 +133,7 @@ class TodayPickRow extends StatelessWidget {
             side: BorderSide(color: t.cardBorder),
           ),
           clipBehavior: Clip.antiAlias,
-          child: InkWell(
+          child: TodayTapTarget(
             key: const ValueKey('today-pick'),
             onTap: onTap,
             child: Padding(
@@ -783,7 +811,7 @@ class _WorkoutRow extends StatelessWidget {
     return MergeSemantics(
       child: Semantics(
         button: onTap != null,
-        child: InkWell(
+        child: TodayTapTarget(
           key: const ValueKey('today-workout-row'),
           borderRadius: BorderRadius.circular(rControl),
           onTap: onTap,

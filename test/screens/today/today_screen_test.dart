@@ -26,6 +26,7 @@ import 'package:eatova/src/services/day_math.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 
 import '../../support/harness.dart';
+import '../../support/today_summary.dart';
 
 /// Sunday, 9 August 2026, 10:00 — far from any day boundary.
 final DateTime _jetzt = DateTime(2026, 8, 9, 10);
@@ -129,6 +130,7 @@ TodayScreen _today({
   bool dayLoading = false,
   RecipePick? pick,
   TrainingNextWorkout? nextWorkout,
+  MealSlot? accentSlot,
   ValueChanged<DateTime>? onDateSelected,
   VoidCallback? onOpenProfile,
   ValueChanged<MealSlot>? onOpenMealSlot,
@@ -139,9 +141,12 @@ TodayScreen _today({
 }) => TodayScreen(
   userName: userName,
   profile: profile,
-  consumedKcal: consumedKcal,
-  burnedKcal: burnedKcal,
-  macroProgress: macroProgress,
+  summary: todaySummary(
+    profile: profile,
+    consumedKcal: consumedKcal,
+    burnedKcal: burnedKcal,
+    macroProgress: macroProgress,
+  ),
   meals: meals,
   selectedDate: selectedDate ?? startOfDay(clock.now()),
   streak: streak,
@@ -150,6 +155,7 @@ TodayScreen _today({
   dayLoading: dayLoading,
   pick: pick,
   nextWorkout: nextWorkout,
+  accentSlot: accentSlot,
   onDateSelected: onDateSelected,
   onOpenProfile: onOpenProfile,
   onOpenMealSlot: onOpenMealSlot,
@@ -535,55 +541,17 @@ void main() {
       expect(find.textContaining('Empfohlen'), findsNothing);
     });
 
-    testWidgets('der naechste offene Hauptslot hat den Akzent-Plus', (
+    testWidgets('der uebergebene naechste Hauptslot hat den Akzent-Plus', (
       tester,
     ) async {
+      // The shell passes `HomeStore.nextOpenMainSlot()`; the rule itself is
+      // pinned in today_wiring_flow_test.dart and recipe_pick_test.dart.
       const t = AppTokens.dark;
-      // 10:00: breakfast is the current slot and still open.
-      await withClock(Clock.fixed(_jetzt), () async {
-        await _pump(tester, _today(onOpenMealSlot: (_) {}));
-      });
-      await _scrollTo(
-        tester,
-        find.byKey(const ValueKey('today-meal-add-snack')),
-      );
-      expect(_addFill(tester, MealSlot.breakfast), t.accentFill);
-      for (final slot in [MealSlot.lunch, MealSlot.dinner, MealSlot.snack]) {
-        expect(_addFill(tester, slot), t.accentTint, reason: slot.name);
-      }
-
-      // Breakfast logged: the accent moves on to lunch.
-      await withClock(Clock.fixed(_jetzt), () async {
-        await _pump(
-          tester,
-          _today(
-            onOpenMealSlot: (_) {},
-            meals: <LoggedMeal>[
-              _meal('Skyr', MealSlot.breakfast, 200, at: _jetzt),
-            ],
-          ),
-        );
-      });
-      await _scrollTo(
-        tester,
-        find.byKey(const ValueKey('today-meal-add-snack')),
-      );
-      expect(_addFill(tester, MealSlot.breakfast), t.accentTint);
-      expect(_addFill(tester, MealSlot.lunch), t.accentFill);
-    });
-
-    testWidgets('ab 21 Uhr und auf Archivtagen gibt es keinen Akzent-Plus', (
-      tester,
-    ) async {
-      const t = AppTokens.dark;
-      for (final (now, day) in <(DateTime, DateTime?)>[
-        (DateTime(2026, 8, 9, 21, 30), null),
-        (_jetzt, DateTime(2026, 8, 8)),
-      ]) {
-        await withClock(Clock.fixed(now), () async {
+      for (final accent in [MealSlot.breakfast, MealSlot.lunch]) {
+        await withClock(Clock.fixed(_jetzt), () async {
           await _pump(
             tester,
-            _today(onOpenMealSlot: (_) {}, selectedDate: day),
+            _today(onOpenMealSlot: (_) {}, accentSlot: accent),
           );
         });
         await _scrollTo(
@@ -591,7 +559,40 @@ void main() {
           find.byKey(const ValueKey('today-meal-add-snack')),
         );
         for (final slot in MealSlot.values) {
-          expect(_addFill(tester, slot), t.accentTint, reason: '$now $slot');
+          expect(
+            _addFill(tester, slot),
+            slot == accent ? t.accentFill : t.accentTint,
+            reason: '$accent: ${slot.name}',
+          );
+        }
+      }
+    });
+
+    testWidgets('ohne naechsten Hauptslot und auf Archivtagen kein Akzent', (
+      tester,
+    ) async {
+      const t = AppTokens.dark;
+      for (final (accent, day) in <(MealSlot?, DateTime?)>[
+        (null, null),
+        // A stale slot must not light up a past day.
+        (MealSlot.dinner, DateTime(2026, 8, 8)),
+      ]) {
+        await withClock(Clock.fixed(_jetzt), () async {
+          await _pump(
+            tester,
+            _today(
+              onOpenMealSlot: (_) {},
+              accentSlot: accent,
+              selectedDate: day,
+            ),
+          );
+        });
+        await _scrollTo(
+          tester,
+          find.byKey(const ValueKey('today-meal-add-snack')),
+        );
+        for (final slot in MealSlot.values) {
+          expect(_addFill(tester, slot), t.accentTint, reason: '$day $slot');
         }
       }
     });
@@ -724,7 +725,10 @@ void main() {
       final handle = tester.ensureSemantics();
       await withClock(Clock.fixed(_jetzt), () async {
         // Picked in the Food tab's calendar, 20 days back.
-        await _pump(tester, _today(selectedDate: DateTime(2026, 7, 20)));
+        await _pump(
+          tester,
+          _today(selectedDate: DateTime(2026, 7, 20), onDateSelected: (_) {}),
+        );
       });
       expect(
         tester.getSemantics(find.byKey(const ValueKey('today-day-2026-07-20'))),
@@ -844,8 +848,17 @@ void main() {
     });
 
     testWidgets('ohne Callbacks gibt es keine toten Knoepfe', (tester) async {
+      final handle = tester.ensureSemantics();
       await withClock(Clock.fixed(_jetzt), () async {
-        await _pump(tester, _today(pick: _pick(), nextWorkout: _workout()));
+        await _pump(
+          tester,
+          _today(
+            streak: 4,
+            steps: 3000,
+            pick: _pick(),
+            nextWorkout: _workout(),
+          ),
+        );
       });
       expect(find.byKey(const ValueKey('today-open-food-log')), findsNothing);
       for (final slot in MealSlot.values) {
@@ -857,6 +870,30 @@ void main() {
           findsNothing,
         );
       }
+      // Shown, but neither a ripple nor a button for a screen reader.
+      for (final key in <String>[
+        'today-profile',
+        'today-streak',
+        'today-pick',
+        'today-workout-row',
+        'today-day-2026-08-09',
+      ]) {
+        final target = find.byKey(ValueKey<String>(key), skipOffstage: false);
+        expect(target, findsOneWidget, reason: key);
+        expect(
+          find.descendant(of: target, matching: find.byType(InkWell)),
+          findsNothing,
+          reason: key,
+        );
+        await tester.ensureVisible(target);
+        await tester.pumpAndSettle();
+        expect(
+          tester.getSemantics(target),
+          isSemantics(isButton: false, hasTapAction: false),
+          reason: key,
+        );
+      }
+      handle.dispose();
     });
   });
 

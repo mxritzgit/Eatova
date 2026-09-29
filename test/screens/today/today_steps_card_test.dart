@@ -21,6 +21,7 @@ import 'package:eatova/src/screens/today/today_sections.dart';
 import 'package:eatova/src/services/day_math.dart';
 
 import '../../support/harness.dart';
+import '../../support/today_summary.dart';
 
 const ValueKey<String> _zeile = ValueKey<String>('today-steps-card');
 const ValueKey<String> _wert = ValueKey<String>('today-steps-value');
@@ -48,9 +49,12 @@ Future<void> _pump(
     TodayScreen(
       userName: 'Moritz',
       profile: const UserProfile().copyWith(dailyStepsGoal: goal),
-      consumedKcal: 0,
-      burnedKcal: burnedKcal,
-      macroProgress: MacroProgress.empty,
+      summary: todaySummary(
+        profile: const UserProfile().copyWith(dailyStepsGoal: goal),
+        consumedKcal: 0,
+        burnedKcal: burnedKcal,
+        macroProgress: MacroProgress.empty,
+      ),
       meals: const <LoggedMeal>[],
       selectedDate: startOfDay(clock.now()),
       streak: 0,

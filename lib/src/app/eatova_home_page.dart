@@ -714,12 +714,11 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         userName: _store.userName,
         profile: _store.profile,
         selectedDate: tag,
-        consumedKcal: _store.consumedKcalForFoodDate(tag),
-        macroProgress: _store.macroProgressForFoodDate(tag),
+        // One shared day summary (budget incl. activity credit: today live,
+        // archive days from the value frozen per day).
+        summary: _store.nutritionSummaryForFoodDate(tag),
         meals: _store.mealsForFoodDate(tag),
         dayLoading: _store.isLoadingFoodDay(tag),
-        // Today live, archive days from the value frozen per day.
-        burnedKcal: _store.burnedKcalForFoodDate(tag),
         // null = no step source -> no steps card.
         steps: _store.stepsForFoodDate(tag),
         healthConnect: _store.health is HealthConnectAccess,
@@ -730,6 +729,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             ? _store.nextMealPick(localeName: context.l10n.localeName)
             : null,
         nextWorkout: today ? _store.nextTrainingWorkoutForToday() : null,
+        accentSlot: today ? _store.nextOpenMainSlot() : null,
         onDateSelected: _store.setFoodDate,
         // Settings moved behind the avatar: the profile page opens them.
         onOpenProfile: _openProfile,
