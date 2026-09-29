@@ -664,10 +664,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     child: LivelyEntrance(
       key: ValueKey('lively-tab-$index'),
       child: Padding(
-        // Food and Training own their scroll gutters; other tabs retain the shell's
-        // established inset even while mounted in the hidden stack. No bottom
-        // inset: every tab runs to the screen edge under the floating bar.
-        padding: index == _tabTraining || index == _tabFood
+        // Food, Recipes and Training own their scroll gutters; other tabs retain
+        // the shell's established inset even while mounted in the hidden stack.
+        // No bottom inset: every tab runs to the screen edge under the
+        // floating bar.
+        padding:
+            index == _tabTraining || index == _tabFood || index == _tabRezepte
             ? EdgeInsets.zero
             : const EdgeInsets.fromLTRB(20, 12, 20, 0),
         child: switch (index) {
@@ -862,11 +864,48 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.recipePhotoReferences,
       _store.profile,
       _store.macroProgress,
+      // Inputs of the hero pick and its bookmark (G11: never the pick).
+      _store.loggedMeals,
+      _store.dailyActivity,
+      _store.stepsForFoodDate(clock.now()),
+      _store.mealPlansRevision,
+      _store.favorites,
     ),
     builder: (context) {
       assert(_countTabBuild(_tabRezepte));
       final ownerStore = _store;
       return RecipesScreen(
+        // "Picked for tonight": the pick Today and Food show too.
+        mealPick: _store.nextMealPick(localeName: context.l10n.localeName),
+        // The pick is for today, so it logs to today whatever day the food
+        // tab shows.
+        onAddPickToToday: (result, slot) {
+          if (!_isStoreSessionCurrent(ownerStore)) {
+            throw StateError('Recipes session ended');
+          }
+          return ownerStore.addResultToDailyTotal(
+            result,
+            slot: slot,
+            foodDate: clock.now(),
+          );
+        },
+        onEatPlannedMeal: (id) {
+          if (!_isStoreSessionCurrent(ownerStore)) {
+            throw StateError('Recipes session ended');
+          }
+          return ownerStore.eatPlannedMeal(id);
+        },
+        onUndoAddedMeal: (id) async {
+          if (_isStoreSessionCurrent(ownerStore)) {
+            await ownerStore.removeLoggedMeal(id);
+          }
+        },
+        isFavorite: ownerStore.isFavorite,
+        onToggleFavorite: (result) async {
+          if (_isStoreSessionCurrent(ownerStore)) {
+            await ownerStore.toggleFavorite(result);
+          }
+        },
         productService: widget.productService,
         // No hard foodDate: falls back to the store's selectedFoodDate,
         // read at call time, so adding lands on the food tab's day.

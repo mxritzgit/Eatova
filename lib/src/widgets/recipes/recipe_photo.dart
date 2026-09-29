@@ -59,6 +59,8 @@ class RecipePhoto extends StatelessWidget {
     super.key,
     required this.recipe,
     this.placeholderRadius = 0,
+    this.alignment = Alignment.center,
+    this.placeholder,
   });
 
   final FitnessRecipe recipe;
@@ -69,26 +71,47 @@ class RecipePhoto extends StatelessWidget {
     for (final recipe in recipeCatalogDe) recipe.slug: recipe.imageAsset,
   };
 
+  /// Whether [build] shows a bundled catalog photo for [recipe] (case 2).
+  static bool showsCatalogPhoto(FitnessRecipe recipe) =>
+      recipe.imageAsset.isNotEmpty &&
+      !RecipeImageStore.isLocalReference(recipe.imageAsset) &&
+      (!recipe.userCreated ||
+          _catalogPhotos[recipe.slug] == recipe.imageAsset);
+
+  /// Whether the photo shown for [recipe] is known to be AI-generated: the
+  /// bundled catalog photos are (their pixels carry an "AI Generated" mark).
+  /// A `local:` photo may be the user's own shot — a coach recipe's photo can
+  /// be replaced in the editor — so it is never claimed as AI.
+  static bool isAiGenerated(FitnessRecipe recipe) => showsCatalogPhoto(recipe);
+
   /// The placeholder draws its own corner; real assets are clipped by the
   /// calling card.
   final double placeholderRadius;
+
+  /// Crop anchor of the cover-fitted photo.
+  final Alignment alignment;
+
+  /// Replaces the striped [ImagePlaceholder] (no photo, or a local file that
+  /// is missing on this device).
+  final WidgetBuilder? placeholder;
+
+  Widget _placeholder(BuildContext context) =>
+      placeholder?.call(context) ??
+      ImagePlaceholder(
+        radius: placeholderRadius,
+        label: context.l10n.recipesImagePlaceholderLabel,
+      );
 
   @override
   Widget build(BuildContext context) {
     if (RecipeImageStore.isLocalReference(recipe.imageAsset)) {
       return _LocalRecipeImage(
         reference: recipe.imageAsset,
-        placeholderRadius: placeholderRadius,
+        alignment: alignment,
+        placeholder: _placeholder,
       );
     }
-    if (recipe.imageAsset.isEmpty ||
-        (recipe.userCreated &&
-            _catalogPhotos[recipe.slug] != recipe.imageAsset)) {
-      return ImagePlaceholder(
-        radius: placeholderRadius,
-        label: context.l10n.recipesImagePlaceholderLabel,
-      );
-    }
+    if (!showsCatalogPhoto(recipe)) return _placeholder(context);
     // Tie decode resolution to the actual slot width: the recipe PNGs are
     // ~1800px/2.4MB and would otherwise decode in full for every size.
     return LayoutBuilder(
@@ -100,6 +123,7 @@ class RecipePhoto extends StatelessWidget {
         return Image.asset(
           recipe.imageAsset,
           fit: BoxFit.cover,
+          alignment: alignment,
           cacheWidth: (logicalWidth * dpr).round().clamp(1, 1600),
         );
       },
@@ -115,11 +139,13 @@ class RecipePhoto extends StatelessWidget {
 class _LocalRecipeImage extends StatefulWidget {
   const _LocalRecipeImage({
     required this.reference,
-    required this.placeholderRadius,
+    required this.alignment,
+    required this.placeholder,
   });
 
   final String reference;
-  final double placeholderRadius;
+  final Alignment alignment;
+  final WidgetBuilder placeholder;
 
   @override
   State<_LocalRecipeImage> createState() => _LocalRecipeImageState();
@@ -160,12 +186,7 @@ class _LocalRecipeImageState extends State<_LocalRecipeImage> {
   @override
   Widget build(BuildContext context) {
     final datei = _file;
-    if (datei == null) {
-      return ImagePlaceholder(
-        radius: widget.placeholderRadius,
-        label: context.l10n.recipesImagePlaceholderLabel,
-      );
-    }
+    if (datei == null) return widget.placeholder(context);
     return LayoutBuilder(
       builder: (context, constraints) {
         final dpr = MediaQuery.devicePixelRatioOf(context);
@@ -175,12 +196,10 @@ class _LocalRecipeImageState extends State<_LocalRecipeImage> {
         return Image.file(
           datei,
           fit: BoxFit.cover,
+          alignment: widget.alignment,
           cacheWidth: (logicalWidth * dpr).round().clamp(1, 1600),
           // The file can vanish between the existence check and decoding.
-          errorBuilder: (context, error, stack) => ImagePlaceholder(
-            radius: widget.placeholderRadius,
-            label: context.l10n.recipesImagePlaceholderLabel,
-          ),
+          errorBuilder: (context, error, stack) => widget.placeholder(context),
         );
       },
     );

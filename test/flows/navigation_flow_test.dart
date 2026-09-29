@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/main.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
+import 'package:eatova/src/models/recipe_shelf.dart';
 
 import 'flow_test_helpers.dart';
 
@@ -95,45 +96,54 @@ void main() {
       expect(
           find.byKey(const ValueKey('recipes-search-input')), findsOneWidget);
 
-      // The carousel shows the pinned day's window of the catalog. Expected
-      // titles come from the same rotation the screen uses, so a reordered
-      // catalog moves the expectation along instead of turning the flow red —
-      // but the assertion still names the two concrete cards of THIS day, not
-      // "some recipe". Scoped to `recipe-recommended`, otherwise a same-named
-      // tile in the list below could stand in for a missing card.
-      // The app passes no `diet`, so the pool is the whole German catalog.
-      final karussell = find.byKey(const ValueKey('recipe-recommended'));
-      expect(karussell, findsOneWidget);
-      final empfohlen = rotatedRecommendations(recipeCatalogDe, _jetzt);
-      // Without this the loop below can have ZERO iterations: an empty
-      // rotation would satisfy every assertion and the flow would stay green
-      // while the carousel showed nothing.
+      // For you (dark redesign 2026-09-28): the hero is the shared pick for
+      // the next open main meal (12:30: lunch), the "High protein, under
+      // 500 kcal" shelf shows the pinned day's rotation of its catalog hits.
+      // Expectations come from the same functions the screen uses, scoped to
+      // hero and shelf, so a same-named list tile cannot stand in for them.
+      final pick = storeOf(tester).nextMealPick(localeName: 'de');
+      expect(pick, isNotNull, reason: '12:30 ist das Mittagessen offen');
       expect(
-        empfohlen,
-        hasLength(recipeRecommendationCount),
-        reason: 'ohne Empfehlungen prueft die Schleife unten nichts',
+        find.descendant(
+          of: find.byKey(const ValueKey('recipe-hero')),
+          matching: find.text(pick!.recipe.title),
+        ),
+        findsOneWidget,
       );
-      // Gegenprobe zur geteilten Quelle: Erwartung UND Bildschirm rufen
-      // dieselbe Funktion, also wandert die Erwartung mit, wenn die Rotation
-      // selbst verschwindet — der Karussell-Block wuerde gruen bleiben,
-      // waehrend jeder Tag dieselben vier Karten zeigt. Diese Zeile haelt
-      // fest, dass der Tag ueberhaupt noch etwas bewegt.
+      final regal = find.byKey(const ValueKey('recipe-shelf-lean'));
+      await tester.dragUntilVisible(
+        regal,
+        find.byKey(const ValueKey('screen-recipes')),
+        const Offset(0, -200),
+      );
+      await tester.pumpAndSettle();
+      final treffer = recipeCatalogDe
+          .where(isLeanHighProtein)
+          .where((r) => r.slug != pick.recipe.slug)
+          .toList(growable: false);
+      final heute = rotatedRecommendations(
+        treffer,
+        _jetzt,
+        count: treffer.length,
+      );
+      // Without this the check below proves nothing: an empty shelf would
+      // satisfy it.
+      expect(heute, isNotEmpty, reason: 'das Regal hat keine Treffer');
+      // The day still moves something (shared-source counter-check).
       expect(
         rotatedRecommendations(
-          recipeCatalogDe,
+          treffer,
           _jetzt.add(const Duration(days: 1)),
+          count: treffer.length,
         ),
-        isNot(empfohlen),
-        reason: 'die Empfehlungen rotieren nicht mehr mit dem Kalendertag',
+        isNot(heute),
+        reason: 'das Regal rotiert nicht mehr mit dem Kalendertag',
       );
-      // Two of the four cards fit the 393 px viewport (280 px each).
-      for (final rezept in empfohlen.take(2)) {
-        expect(
-          find.descendant(of: karussell, matching: find.text(rezept.title)),
-          findsOneWidget,
-          reason: 'die Empfehlungskarte „${rezept.title}" fehlt',
-        );
-      }
+      expect(
+        find.descendant(of: regal, matching: find.text(heute.first.title)),
+        findsOneWidget,
+        reason: 'die erste Regalkarte „${heute.first.title}" fehlt',
+      );
 
       // The main list below is NOT rotated: it always holds the whole catalog.
       final putenTile = find.byKey(

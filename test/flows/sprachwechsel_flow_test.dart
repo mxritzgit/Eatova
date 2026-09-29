@@ -57,7 +57,9 @@ const List<_Kernscreen> _tour = <_Kernscreen>[
 String _budgetEyebrow(AppLocalizations l) => l.todayArcLeftToday.toUpperCase();
 String _makros(AppLocalizations l) => l.todayCaloriesTitle;
 String _empfehlungen(AppLocalizations l) => l.recipesForYou;
-String _alleRezepte(AppLocalizations l) => l.recipesAllTitle;
+// The chip bar's own-recipes chip (dark redesign); "All recipes" is now a
+// list heading that only appears once a list is shown.
+String _alleRezepte(AppLocalizations l) => l.recipesChipMine;
 String _coachTitel(AppLocalizations l) => l.coachTitle;
 String _coachStatus(AppLocalizations l) => l.coachStatusLine;
 

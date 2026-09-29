@@ -25,6 +25,7 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 
 import 'support/harness.dart';
+import 'support/recipe_navigation.dart';
 
 const _eigenes = FitnessRecipe(
   slug: 'user_mein_teller',
@@ -112,7 +113,7 @@ Future<void> _suche(WidgetTester tester, String query) async {
 }
 
 const _tilePrefix = 'recipe-tile-';
-const _cardPrefix = 'recipe-recommended-';
+const _cardPrefix = 'recipe-shelf-lean-';
 
 /// Slugs carried by the keys with [prefix], in tree order.
 List<String> _keySlugs(WidgetTester tester, String prefix) => tester
@@ -126,8 +127,9 @@ List<String> _keySlugs(WidgetTester tester, String prefix) => tester
 /// Slugs of the rendered result list, in list order.
 List<String> _slugs(WidgetTester tester) => _keySlugs(tester, _tilePrefix);
 
-/// Slugs of the rendered recommendation cards. Only the carousel keys its
-/// cards; the goal-match cards carry no key, so this cannot mix them up.
+/// Slugs of the rendered lean-shelf cards (For you's carousel since the dark
+/// redesign). Goal-match cards carry their own prefix, so this cannot mix
+/// them up.
 List<String> _empfehlungen(WidgetTester tester) =>
     _keySlugs(tester, _cardPrefix);
 
@@ -327,10 +329,15 @@ void main() {
         await _pump(tester, remaining: _rest);
         final diet = RecipeMemoStats.dietRuns;
         final goal = RecipeMemoStats.goalRuns;
-        final vorher = _empfehlungen(tester);
+        // For you's recipe list is `catalogPool`; the lean shelf is the
+        // carousel since the dark redesign.
+        final vorher = _slugs(tester);
         expect(vorher.any((slug) => !_istVegan(slug)), isTrue,
+            reason: 'Vorbedingung: ohne Diaet steht mindestens ein nicht '
+                'veganes Rezept im Pool, sonst zeigt der Wechsel nichts.');
+        expect(_empfehlungen(tester).any((slug) => !_istVegan(slug)), isTrue,
             reason: 'Vorbedingung: ohne Diaet steht mindestens eine nicht '
-                'vegane Karte im Karussell, sonst zeigt der Wechsel nichts.');
+                'vegane Karte im Regal.');
 
         await _pump(
           tester,
@@ -344,9 +351,11 @@ void main() {
         // ungeprueft: die Zaehler oben laufen ueber `forDiet`/`goalMatches`.
         // Ein Wechsel der Ernaehrungsform in den Einstellungen liess den alten
         // Pool stehen — der Screen bleibt im IndexedStack gemountet.
-        final nachher = _empfehlungen(tester);
+        final nachher = _slugs(tester);
         expect(nachher, isNotEmpty);
-        for (final slug in nachher) {
+        // The shelf may empty out (no vegan catalog hit) and hide; whatever
+        // it still shows must be vegan too.
+        for (final slug in [...nachher, ..._empfehlungen(tester)]) {
           expect(_istVegan(slug), isTrue,
               reason: '„$slug" ist nicht vegan und darf nach dem Wechsel nicht '
                   'mehr empfohlen werden.');
@@ -470,12 +479,12 @@ void main() {
           final l10n =
               await AppLocalizations.delegate.load(Locale(locale));
           await _pump(tester, locale: Locale(locale), userRecipes: _einRezept);
-          await tester.tap(find.byKey(ValueKey(
-            filter == 'Eigene' ? 'recipes-tab-own' : 'recipes-tab-all')));
-          await tester.pumpAndSettle();
+          await selectRecipeSection(
+            tester,
+            filter == 'Eigene' ? 'own' : 'all',
+          );
           if (filter != 'Alle' && filter != 'Eigene') {
-            await tester.tap(find.byKey(ValueKey('recipe-filter-$filter')));
-            await tester.pumpAndSettle();
+            await selectRecipeFilter(tester, filter);
           }
 
           for (final query in queries) {

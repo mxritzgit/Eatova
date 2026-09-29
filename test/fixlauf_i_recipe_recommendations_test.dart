@@ -1,9 +1,16 @@
 // Fix-Lauf 2026-08-27, Paket I (F6-04): Empfehlungs-Karussell.
 //
-//   * Eigene Rezepte (Platzhalter-Streifen statt Foto) sind keine
-//     „Empfehlung" — sie bleiben draußen, der Badge gehört dem Katalog.
+// Seit dem Dark-Redesign (2026-09-28) ist das Karussell von "Für dich" das
+// Regal „Viel Protein, unter 500 kcal": ein Filter über die sichtbaren
+// Rezepte statt einer Katalog-Empfehlung. Was von F6-04 bleibt:
+//
 //   * Die Auswahl rotiert mit dem Kalendertag (`clock.now()`), statt immer
-//     dieselben vier Karten zu zeigen.
+//     dieselben Katalog-Karten zu zeigen.
+//   * Der Ernährungsfilter greift vor der Auswahl.
+//
+// Neu nach der Design-Vorgabe: eigene Rezepte, die den Filter erfüllen,
+// stehen vorne — mit der leuchtenden Platzhalter-Grafik statt des Streifens —,
+// eigene Rezepte, die ihn nicht erfüllen, nie.
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
@@ -12,28 +19,31 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/models/recipe_shelf.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
 
-const _eigenes = FitnessRecipe(
-  slug: 'user_mein_teller',
-  title: 'Mein Testteller',
-  description: '',
-  portion: '',
-  ingredients: '',
-  preparation: '',
-  professionalHint: '',
-  imageAsset: '',
-  caloriesKcal: 520,
-  proteinG: 40,
-  carbsG: 50,
-  fatG: 15,
-  estimatedGrams: 300,
-  categories: <String>['Eigene'],
-  userCreated: true,
-);
+FitnessRecipe _eigenes(String slug, {int kcal = 420, int protein = 38}) =>
+    FitnessRecipe(
+      slug: 'user_$slug',
+      title: 'Mein $slug',
+      description: '',
+      portion: '',
+      ingredients: '',
+      preparation: '',
+      professionalHint: '',
+      imageAsset: '',
+      caloriesKcal: kcal,
+      proteinG: protein,
+      carbsG: 50,
+      fatG: 15,
+      estimatedGrams: 300,
+      categories: const <String>['Eigene'],
+      userCreated: true,
+    );
 
 Future<void> _pumpApp(
   WidgetTester tester, {
@@ -47,7 +57,6 @@ Future<void> _pumpApp(
       initialUserRecipes: userRecipes,
       diet: diet,
     ),
-    padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
   );
 }
 
@@ -58,89 +67,75 @@ void _pinViewport(WidgetTester tester) {
   addTearDown(tester.view.resetDevicePixelRatio);
 }
 
-Finder _karussell() => find.byKey(const ValueKey('recipe-recommended'));
+Finder _regal() => find.byKey(const ValueKey('recipe-shelf-lean'));
 
-Finder _karte(String slug) => find.descendant(
-      of: _karussell(),
-      matching: find.byKey(ValueKey('recipe-recommended-$slug')),
-    );
-
-/// Pinned day for the cases that do not test the rotation itself (K-02): the
-/// carousel picks its cards off `clock.now()` at BUILD time while the
-/// expectation reads the clock again at assertion time, so on the real clock a
-/// midnight rollover between the two would compare two different days.
-final DateTime _tag = DateTime(2026, 8, 15, 12);
-
-void main() {
-  testWidgets('eigene Rezepte stehen nie im Karussell — auch nicht an '
-      'erster Stelle', (tester) async {
-    _pinViewport(tester);
-    await withClock(Clock.fixed(_tag), () async {
-      await _pumpApp(tester, userRecipes: [_eigenes]);
-      await tester.pumpAndSettle();
-
-      expect(_karussell(), findsOneWidget);
-      // Wäre es drin, stünde es (wie in der Liste) vorne und wäre gerendert.
-      expect(_karte(_eigenes.slug), findsNothing);
-      // Der Katalog ist es, der empfohlen wird.
-      final erste = rotatedRecommendations(recipeCatalogDe, _tag).first;
-      expect(_karte(erste.slug), findsOneWidget);
-      // Eigene Rezepte bleiben im eigenen Bereich erreichbar.
-      await tester.tap(find.byKey(const ValueKey('recipes-tab-own')));
-      await tester.pumpAndSettle();
-      expect(
-          find.byKey(ValueKey('recipe-tile-${_eigenes.slug}')), findsOneWidget);
-    });
-  });
-
-  testWidgets('Spotlight-Empfehlungen enthalten nur Katalog-Karten',
-      (tester) async {
-    _pinViewport(tester);
-    await withClock(Clock.fixed(_tag), () async {
-      await _pumpApp(tester, userRecipes: [_eigenes]);
-      await tester.pumpAndSettle();
-
-      // Jede gerenderte Karte im Karussell trägt den Badge — und jede davon
-      // ist eine Katalog-Karte. Der eigene Eintrag muss dabei WIRKLICH im
-      // Fenster liegen, sonst prüft die Schleife nur, dass ein Katalog-Rezept
-      // ein Katalog-Rezept ist: mit dem eigenen Rezept im Topf stünde es an
-      // Position `_tag % (n + 1)`, und ein Deckel auf die Kartenzahl könnte es
-      // sonst zufällig hinausschieben.
-      final mitEigenem = rotatedRecommendations(
-        <FitnessRecipe>[_eigenes, ...recipeCatalogDe],
-        _tag,
-      );
-      expect(mitEigenem.first.slug, _eigenes.slug,
-          reason: 'Vorbedingung: an diesem Tag WÜRDE das eigene Rezept ins '
-              'Fenster fallen, wenn der Topf es enthielte');
-
-      final karten = find.descendant(
-        of: _karussell(),
+/// Slugs der Regal-Karten in Reihenfolge.
+List<String> _karten(WidgetTester tester) => tester
+    .widgetList(
+      find.descendant(
+        of: _regal(),
         matching: find.byWidgetPredicate(
           (w) =>
               w.key is ValueKey<String> &&
-              (w.key! as ValueKey<String>)
-                  .value
-                  .startsWith('recipe-recommended-'),
+              (w.key! as ValueKey<String>).value.startsWith(
+                'recipe-shelf-lean-',
+              ),
         ),
+      ),
+    )
+    .map(
+      (w) => (w.key! as ValueKey<String>).value.substring(
+        'recipe-shelf-lean-'.length,
+      ),
+    )
+    .toList(growable: false);
+
+List<FitnessRecipe> get _katalogTreffer =>
+    recipeCatalogDe.where(isLeanHighProtein).toList(growable: false);
+
+/// Fester Tag für die Fälle, die nicht die Rotation selbst prüfen (K-02).
+final DateTime _tag = DateTime(2026, 8, 15, 12);
+
+void main() {
+  testWidgets('eigene Treffer stehen vorne, mit Platzhalter-Grafik; eigene '
+      'Nicht-Treffer nie', (tester) async {
+    _pinViewport(tester);
+    final treffer = _eigenes('bowl');
+    final schwer = _eigenes('schwer', kcal: 650, protein: 50);
+    await withClock(Clock.fixed(_tag), () async {
+      await _pumpApp(tester, userRecipes: [treffer, schwer]);
+      await tester.pumpAndSettle();
+
+      final karten = _karten(tester);
+      expect(karten.first, treffer.slug);
+      expect(karten, isNot(contains(schwer.slug)));
+      expect(
+        karten.skip(1),
+        rotatedRecommendations(
+          _katalogTreffer,
+          _tag,
+          count: _katalogTreffer.length,
+        ).map((r) => r.slug),
       );
-      final badges = find.descendant(
-        of: _karussell(),
-        matching: find.text('Heute ausprobieren'),
+      // Kein Foto: die leuchtende Grafik des Designs, nie der Streifen.
+      final karte = find.byKey(ValueKey('recipe-shelf-lean-${treffer.slug}'));
+      expect(
+        find.descendant(of: karte, matching: find.byType(ImagePlaceholder)),
+        findsNothing,
       );
-      expect(karten, findsWidgets);
-      expect(badges.evaluate().length, karten.evaluate().length);
-      for (final karte in karten.evaluate()) {
-        final slug = (karte.widget.key! as ValueKey<String>)
-            .value
-            .substring('recipe-recommended-'.length);
-        expect(slug, isNot(_eigenes.slug));
-        expect(recipeCatalogDe.any((r) => r.slug == slug), isTrue, reason: slug);
-      }
+      expect(
+        find.descendant(
+          of: karte,
+          matching: find.byKey(const ValueKey('recipe-art-bowl')),
+        ),
+        findsOneWidget,
+      );
     });
   });
 
-  testWidgets('die Auswahl rotiert mit dem Kalendertag', (tester) async {
+  testWidgets('die Katalog-Auswahl rotiert mit dem Kalendertag', (
+    tester,
+  ) async {
     _pinViewport(tester);
     final tag1 = DateTime(2026, 8, 27, 12);
     final tag2 = DateTime(2026, 8, 28, 12);
@@ -148,36 +143,53 @@ void main() {
     await withClock(Clock.fixed(tag1), () async {
       await _pumpApp(tester);
       await tester.pumpAndSettle();
-      final erwartet = rotatedRecommendations(recipeCatalogDe, tag1).first;
-      expect(_karte(erwartet.slug), findsOneWidget);
+      expect(
+        _karten(tester).first,
+        rotatedRecommendations(_katalogTreffer, tag1).first.slug,
+      );
     });
 
     await withClock(Clock.fixed(tag2), () async {
       await _pumpApp(tester);
       await tester.pumpAndSettle();
-      final erwartet1 = rotatedRecommendations(recipeCatalogDe, tag1).first;
-      final erwartet2 = rotatedRecommendations(recipeCatalogDe, tag2).first;
+      final erwartet1 = rotatedRecommendations(_katalogTreffer, tag1).first;
+      final erwartet2 = rotatedRecommendations(_katalogTreffer, tag2).first;
       expect(erwartet2.slug, isNot(erwartet1.slug));
-      expect(_karte(erwartet2.slug), findsOneWidget);
-      expect(_karte(erwartet1.slug), findsNothing,
-          reason: 'Die Karte von gestern ist heute nicht mehr die erste.');
+      expect(
+        _karten(tester).first,
+        erwartet2.slug,
+        reason: 'Die Karte von gestern ist heute nicht mehr die erste.',
+      );
     });
   });
 
-  testWidgets('Ernährungsfilter greift weiterhin: vegan sieht kein Hähnchen '
-      'im Karussell', (tester) async {
+  testWidgets('Ernährungsfilter greift weiterhin: vegetarisch sieht keinen '
+      'Caesar Salad, vegan ein leeres und damit verstecktes Regal', (
+    tester,
+  ) async {
     _pinViewport(tester);
     await withClock(Clock.fixed(DateTime(2026, 8, 27, 12)), () async {
+      await _pumpApp(tester, diet: DietPreference.vegetarian);
+      await tester.pumpAndSettle();
+      final karten = _karten(tester);
+      expect(karten, isNotEmpty);
+      expect(karten, isNot(contains('hahnchen_caesar_salat')));
+      for (final slug in karten) {
+        final rezept = recipeCatalogDe.firstWhere((r) => r.slug == slug);
+        expect(
+          rezept.matchesDiet(DietPreference.vegetarian),
+          isTrue,
+          reason: slug,
+        );
+      }
+
       await _pumpApp(tester, diet: DietPreference.vegan);
       await tester.pumpAndSettle();
-
-      final vegan = recipeCatalogDe
-          .where((r) => r.matchesDiet(DietPreference.vegan))
-          .toList(growable: false);
-      final erwartet =
-          rotatedRecommendations(vegan, DateTime(2026, 8, 27, 12)).first;
-      expect(_karte(erwartet.slug), findsOneWidget);
-      expect(_karte('hahnchen_mit_reis_and_brokkoli'), findsNothing);
+      expect(
+        _regal(),
+        findsNothing,
+        reason: 'Kein veganer Katalog-Treffer: das Regal blendet sich aus.',
+      );
     });
   });
 }

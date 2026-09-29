@@ -28,6 +28,7 @@ import 'package:eatova/src/theme/app_tokens.dart' show AppType, AppTokens;
 import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
+import 'support/recipe_navigation.dart';
 
 const _remaining = MacroProgress(
   proteinG: 90,
@@ -56,9 +57,10 @@ final _eigenes = FitnessRecipe(
   userCreated: true,
 );
 
-/// The recipes tab. In its real environment the home shell pads every tab
-/// with `EdgeInsets.fromLTRB(20, 12, 20, 12)` — see [_schalenrand]; without
-/// that padding the test would measure a width that does not exist in the app.
+/// The recipes tab. Since the dark redesign the tab owns its gutters (its
+/// chips and shelves run to the screen edge), so the home shell pads it with
+/// nothing — see [_schalenrand]; any other padding would measure a width that
+/// does not exist in the app.
 Widget _tab({List<FitnessRecipe> userRecipes = const <FitnessRecipe>[]}) =>
     RecipesScreen(
       onAddMeal: (MealAnalysisResult _, MealSlot __) {},
@@ -67,7 +69,7 @@ Widget _tab({List<FitnessRecipe> userRecipes = const <FitnessRecipe>[]}) =>
       initialUserRecipes: userRecipes,
     );
 
-const EdgeInsets _schalenrand = EdgeInsets.fromLTRB(20, 12, 20, 12);
+const EdgeInsets _schalenrand = EdgeInsets.zero;
 
 /// Mounts the tab for one matrix case.
 Future<void> _pumpTab(
@@ -172,7 +174,12 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.byKey(const ValueKey('screen-recipes')), findsOneWidget);
       expect(find.text(c.l10n.navRecipes), findsOneWidget);
-      expect(find.text(c.l10n.recipesTryToday), findsWidgets);
+      // Without a pick the hero is the best goal match.
+      expect(find.byKey(const ValueKey('recipe-hero')), findsOneWidget);
+      expect(
+        find.text(c.l10n.recipesGoalMatchTitle.toUpperCase()),
+        findsOneWidget,
+      );
     },
     locales: const <Locale>[Locale('de'), Locale('en')],
   );
@@ -259,21 +266,23 @@ void main() {
     expect(find.text(c.l10n.recipesWhenToLogTitle), findsOneWidget);
   });
 
-  renderMatrix('Spotlight: lesbarer Titel unter dem Foto', (tester, c) async {
+  // Dark redesign: the hero replaced the spotlight carousel. Its title still
+  // sits below the photo, on the card surface, readable at 4.5:1.
+  renderMatrix('Hero: lesbarer Titel unter dem Foto', (tester, c) async {
     await _pumpTab(tester, c);
-    final carousel = find.byKey(const ValueKey('recipe-recommended'));
+    final hero = find.byKey(const ValueKey('recipe-hero'));
     final title = find.descendant(
-      of: carousel,
+      of: hero,
       matching: find.byWidgetPredicate((w) => w is Text &&
           w.style?.fontFamily == AppType.displayFamily &&
           w.style?.fontSize == 24),
     ).first;
-    final photo = find.descendant(of: carousel, matching: find.byType(Image)).first;
+    final photo = find.descendant(of: hero, matching: find.byType(Image)).first;
     expect(tester.getTopLeft(title).dy, greaterThan(tester.getBottomLeft(photo).dy));
     final text = tester.widget<Text>(title);
     final t = AppTokens.of(tester.element(title));
     final a = text.style!.color!.computeLuminance();
-    final b = t.brandSurface.computeLuminance();
+    final b = t.surf.computeLuminance();
     expect((a > b ? (a + .05) / (b + .05) : (b + .05) / (a + .05)),
         greaterThanOrEqualTo(4.5));
   });
@@ -281,8 +290,7 @@ void main() {
   renderMatrix('Das Anlege-Sheet rendert overflow-frei', (tester, c) async {
     await _pumpTab(tester, c);
 
-    await tester.tap(find.byKey(const ValueKey('recipe-create-button')));
-    await tester.pumpAndSettle();
+    await openRecipeCreateSheet(tester);
 
     expect(tester.takeException(), isNull);
     expect(find.byKey(const ValueKey('recipe-create-sheet')), findsOneWidget);
@@ -342,8 +350,7 @@ void main() {
       'Das Anlege-Sheet overflowt bei doppelter Schrift nicht',
       (tester, c) async {
         await _pumpTab(tester, c);
-        await tester.tap(find.byKey(const ValueKey('recipe-create-button')));
-        await tester.pumpAndSettle();
+        await openRecipeCreateSheet(tester);
       },
       brightnesses: const <Brightness>[Brightness.dark],
       textScales: const <double>[2.0],
@@ -355,7 +362,21 @@ void main() {
 
     expect(find.byKey(const ValueKey('screen-recipes')), findsOneWidget);
     expect(find.byKey(const ValueKey('recipes-search-input')), findsOneWidget);
-    expect(find.byKey(const ValueKey('recipe-create-button')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('recipe-add-choice-button')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('recipes-filter-button')), findsOneWidget);
+    expect(find.byKey(const ValueKey('recipes-chip-bar')), findsOneWidget);
+    // The bookmark needs the favorites hooks (wired in the home page and
+    // pinned in recipes_redesign_wiring_test.dart); this tab has none.
+    for (final key in const [
+      'recipe-hero',
+      'recipe-hero-add',
+      'recipe-hero-view',
+    ]) {
+      expect(find.byKey(ValueKey(key)), findsOneWidget, reason: key);
+    }
 
     // The search field carries the key DIRECTLY on the TextField; other suites
     // cast on it.
@@ -399,8 +420,17 @@ void main() {
     }
     expect(gesehen, containsAll(recipeFilters));
 
-    await tester.tap(find.byKey(const ValueKey('recipes-tab-for-you')));
-    await tester.pumpAndSettle();
+    await selectRecipeSection(tester, 'for-you');
+    for (final key in const [
+      'recipe-shelf-lean',
+      'recipe-lean-see-all',
+      'recipes-your-recipes',
+      'recipe-create-button',
+      'recipes-more-see-all',
+    ]) {
+      await _scrollTo(tester, find.byKey(ValueKey(key)));
+      expect(find.byKey(ValueKey(key)), findsOneWidget, reason: key);
+    }
     await _scrollTo(tester, find.byKey(const ValueKey('recipe-goal-matches')));
     expect(find.byKey(const ValueKey('recipe-goal-matches')), findsOneWidget);
   });
@@ -425,8 +455,7 @@ void main() {
     testWidgets('Loeschen eines Eigen-Rezepts meldet den Titel',
         (tester) async {
       await _pumpTabPlain(tester, userRecipes: [_eigenes]);
-      await tester.tap(find.byKey(const ValueKey('recipes-tab-own')));
-      await tester.pumpAndSettle();
+      await selectRecipeSection(tester, 'own');
 
       final tile = find.byKey(ValueKey('recipe-tile-${_eigenes.slug}'));
       await _scrollTo(tester, tile);
@@ -445,8 +474,7 @@ void main() {
         (tester) async {
       await _pumpTabPlain(tester, brightness: Brightness.light);
 
-      await tester.tap(find.byKey(const ValueKey('recipe-create-button')));
-      await tester.pumpAndSettle();
+      await openRecipeCreateSheet(tester);
       await tester.enterText(
         find.byKey(const ValueKey('recipe-create-name')),
         'Protein-Bowl',
@@ -476,8 +504,7 @@ void main() {
     final semantics = tester.ensureSemantics();
     await _pumpTabPlain(tester);
 
-    await tester.tap(find.byKey(const ValueKey('recipe-create-button')));
-    await tester.pumpAndSettle();
+    await openRecipeCreateSheet(tester);
 
     const felder = <String, String>{
       'recipe-create-name': 'Name',
@@ -534,8 +561,7 @@ void main() {
     testWidgets('ein Eigen-Rezept ohne Bild bekommt den Platzhalter',
         (tester) async {
       await _pumpTabPlain(tester, userRecipes: [_eigenes]);
-      await tester.tap(find.byKey(const ValueKey('recipes-tab-own')));
-      await tester.pumpAndSettle();
+      await selectRecipeSection(tester, 'own');
 
       expect(find.byType(ImagePlaceholder), findsWidgets);
     });
@@ -562,7 +588,7 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('Recipes'), findsOneWidget);
-    expect(find.text('Try something today'), findsWidgets);
+    expect(find.text('FITS YOUR GOAL'), findsOneWidget);
     await _scrollTo(tester, find.byKey(const ValueKey('recipe-tile-hahnchen_mit_reis_and_brokkoli')));
     expect(find.text('Chicken with Rice & Broccoli'), findsWidgets);
   });

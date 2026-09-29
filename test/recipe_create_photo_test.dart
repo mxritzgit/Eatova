@@ -197,8 +197,7 @@ Widget _app(
 );
 
 Future<void> _openSheet(WidgetTester tester) async {
-  await tester.tap(find.byKey(const ValueKey('recipe-create-button')));
-  await tester.pumpAndSettle();
+  await openRecipeCreateSheet(tester);
   expect(find.byKey(const ValueKey('recipe-create-sheet')), findsOneWidget);
 }
 

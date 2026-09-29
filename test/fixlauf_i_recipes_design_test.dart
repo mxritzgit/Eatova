@@ -3,7 +3,8 @@
 //
 //   * Suchfeld und Sheet-Felder sind RAHMENLOS: weiche Kapsel mit Schatten,
 //     Fokus = Flächen-Aufhellung, Fehler = Danger-Tönung plus Textzeile.
-//   * Die Spotlight-Karte verwendet die gemeinsame Lavendelfläche.
+//   * Die Hero-Karte (Dark-Redesign 2026-09-28, vorher die Spotlight-Karte)
+//     steht auf der Kartenfläche mit Kartenrand, die Eyebrow im Akzent.
 //   * Keine lokalen Farbkopien mehr auf Buttons (Theme entscheidet); nur das
 //     destruktive Rot bleibt.
 
@@ -11,17 +12,27 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 
 import 'support/harness.dart';
+import 'support/recipe_navigation.dart';
 
-/// The recipes screen in the tab's own padding.
-Future<void> _pumpApp(WidgetTester tester, Brightness brightness) =>
+/// The recipes screen in the tab's own padding; [remaining] brings the
+/// goal-match hero.
+Future<void> _pumpApp(
+  WidgetTester tester,
+  Brightness brightness, {
+  MacroProgress? remaining,
+}) =>
     pumpLocalized(
       tester,
-      RecipesScreen(onAddMeal: (MealAnalysisResult _, MealSlot __) {}),
+      RecipesScreen(
+        onAddMeal: (MealAnalysisResult _, MealSlot __) {},
+        remainingMacros: remaining,
+      ),
       reducedMotion: false,
       brightness: brightness,
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
@@ -53,10 +64,7 @@ BoxDecoration _kapsel(WidgetTester tester, String key) {
       as BoxDecoration;
 }
 
-Future<void> _openSheet(WidgetTester tester) async {
-  await tester.tap(find.byKey(const ValueKey('recipe-create-button')));
-  await tester.pumpAndSettle();
-}
+Future<void> _openSheet(WidgetTester tester) => openRecipeCreateSheet(tester);
 
 void main() {
   for (final (modus, brightness, t) in <(String, Brightness, AppTokens)>[
@@ -123,15 +131,32 @@ void main() {
         expect(find.text('1–10000 kcal'), findsOneWidget);
       });
 
-      testWidgets('Spotlight verwendet die gemeinsame Lavendelflaeche',
+      testWidgets('Hero steht auf der Kartenflaeche, Eyebrow im Akzent',
           (tester) async {
         _pinViewport(tester);
-        await _pumpApp(tester, brightness);
+        await _pumpApp(
+          tester,
+          brightness,
+          remaining: const MacroProgress(
+            proteinG: 90,
+            carbsG: 180,
+            fatG: 50,
+            kcal: 1600,
+          ),
+        );
         await tester.pumpAndSettle();
-        final label = find.text('Heute ausprobieren').first;
-        final card = find.ancestor(of: label, matching: find.byType(Material)).first;
-        expect(tester.widget<Material>(card).color, t.brandSurface);
-        expect(tester.widget<Text>(label).style?.color, t.accent);
+        final hero = tester.widget<Container>(
+          find.byKey(const ValueKey('recipe-hero')),
+        );
+        final decoration = hero.decoration! as BoxDecoration;
+        expect(decoration.color, t.surf);
+        expect((decoration.border! as Border).top.color, t.cardBorder);
+        expect(decoration.borderRadius, BorderRadius.circular(rHero));
+        final eyebrow = tester.widget<Text>(
+          find.byKey(const ValueKey('recipe-hero-eyebrow')),
+        );
+        expect(eyebrow.data, 'PASST ZU DEINEM ZIEL');
+        expect(eyebrow.style?.color, t.accentText);
       });
 
       testWidgets('Buttons verwenden die gemeinsame Aktionshierarchie',
