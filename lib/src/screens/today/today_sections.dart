@@ -67,42 +67,6 @@ class _GlyphTile extends StatelessWidget {
   );
 }
 
-/// The design's slot tiles: sunrise, bowl, moon and apple on their hues.
-///
-/// Today-only stand-in: the Food task owns the shared slot style and its
-/// `SlotIconTile`; Today switches to it when the tabs are merged. The values
-/// equal the design's (breakfast tint rgba(70,151,226,.16) + #8CC4FF, lunch
-/// rgba(29,176,113,.16) + #6FDCA4, dinner rgba(213,124,17,.18) + #FFB866,
-/// snacks rgba(185,165,255,.16) + #C8B8FF).
-class _SlotTile extends StatelessWidget {
-  const _SlotTile(this.slot);
-  final MealSlot slot;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final (glyph, tint, ink) = switch (slot) {
-      MealSlot.breakfast => (
-        TodayGlyph.sunrise,
-        t.carbs.withValues(alpha: 0.16),
-        t.carbsInk,
-      ),
-      MealSlot.lunch => (
-        TodayGlyph.bowl,
-        t.protein.withValues(alpha: 0.16),
-        t.proteinInk,
-      ),
-      MealSlot.dinner => (
-        TodayGlyph.moon,
-        t.fat.withValues(alpha: 0.18),
-        t.fatInk,
-      ),
-      MealSlot.snack => (TodayGlyph.apple, t.accentTintStrong, t.accentText),
-    };
-    return _GlyphTile(glyph: glyph, tint: tint, ink: ink);
-  }
-}
-
 /// "Tonight's pick": the recipe for today's next open main meal
 /// (`HomeStore.nextMealPick`), opening that recipe. The line under the
 /// numbers says what the day has left after it; a planned meal that does not
@@ -423,7 +387,7 @@ class TodayMealRow extends StatelessWidget {
           final inline = constraints.maxWidth - fixed - kcalWidth >= 72;
           return Row(
             children: <Widget>[
-              _SlotTile(slot.slot),
+              SlotIconTile(slot: slot.slot),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(

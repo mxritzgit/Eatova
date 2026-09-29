@@ -4,9 +4,9 @@ import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
 import '../auth/auth_repository.dart';
-import '../models/fitness_recipe.dart';
 import '../models/logged_meal.dart';
 import '../models/macro_progress.dart';
+import '../models/recipe_pick.dart';
 import '../models/training_history.dart';
 import '../models/training_plan.dart';
 import '../models/training_session.dart';
@@ -48,6 +48,7 @@ import '../widgets/common/store_selector.dart';
 import '../widgets/design/design.dart';
 import '../widgets/kcal/add_meal_sheet.dart' show FoodStoreScope;
 import '../widgets/kcal/edit_meal_sheet.dart';
+import '../widgets/recipes/recipe_pick_actions.dart';
 import '../widgets/shared/settings_sheet.dart';
 import 'auth_gate.dart';
 import 'home_store.dart';
@@ -738,38 +739,31 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           _addSlotRequest.value = slot;
           _store.setTab(_tabFood);
         },
-        onOpenRecipe: (pick) => _openTodayRecipe(pick.recipe),
-        onOpenMealPlan: () {
-          final ownerStore = _store;
-          if (_isStoreSessionCurrent(ownerStore)) {
-            unawaited(MealPlanScreen.open(context, ownerStore));
-          }
-        },
+        onOpenPick: (pick) => _openTodayPick(context, pick),
         onOpenFoodLog: () => _store.setTab(_tabFood),
         onOpenTraining: () => _store.setTab(_tabTraining),
       );
     },
   );
 
-  /// A suggested "Tonight's pick" opens the recipe's detail page; adding from
-  /// there logs to the shown day like the Recipes tab. Editing, history and
-  /// deletion stay with the Recipes tab, which owns their undo state.
-  void _openTodayRecipe(FitnessRecipe recipe) {
+  /// "Tonight's pick" through the shared pick actions: a suggestion opens
+  /// its recipe detail (adding there logs to the shown day), a planned meal
+  /// the meal plan, whose "Eat" is `eatPlannedMeal`.
+  void _openTodayPick(BuildContext context, RecipePick pick) {
     final ownerStore = _store;
-    if (!_isStoreSessionCurrent(ownerStore)) return;
-    unawaited(
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => RecipeDetailScreen(
-            recipe: recipe,
-            onAddMeal: (result, slot) =>
-                ownerStore.addResultToDailyTotal(result, slot: slot),
-            photoInput: widget.photoInput,
-            productService: widget.productService,
-            isSessionCurrent: () => _isStoreSessionCurrent(ownerStore),
-          ),
-        ),
-      ),
+    openRecipePick(
+      context,
+      pick,
+      addMeal: (result, slot) =>
+          ownerStore.addResultToDailyTotal(result, slot: slot),
+      openMealPlan: () {
+        if (_isStoreSessionCurrent(ownerStore)) {
+          unawaited(MealPlanScreen.open(context, ownerStore));
+        }
+      },
+      isSessionCurrent: () => _isStoreSessionCurrent(ownerStore),
+      photoInput: widget.photoInput,
+      productService: widget.productService,
     );
   }
 

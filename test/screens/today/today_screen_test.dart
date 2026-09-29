@@ -134,8 +134,7 @@ TodayScreen _today({
   ValueChanged<DateTime>? onDateSelected,
   VoidCallback? onOpenProfile,
   ValueChanged<MealSlot>? onOpenMealSlot,
-  ValueChanged<RecipePick>? onOpenRecipe,
-  VoidCallback? onOpenMealPlan,
+  ValueChanged<RecipePick>? onOpenPick,
   VoidCallback? onOpenFoodLog,
   VoidCallback? onOpenTraining,
 }) => TodayScreen(
@@ -159,8 +158,7 @@ TodayScreen _today({
   onDateSelected: onDateSelected,
   onOpenProfile: onOpenProfile,
   onOpenMealSlot: onOpenMealSlot,
-  onOpenRecipe: onOpenRecipe,
-  onOpenMealPlan: onOpenMealPlan,
+  onOpenPick: onOpenPick,
   onOpenFoodLog: onOpenFoodLog,
   onOpenTraining: onOpenTraining,
 );
@@ -784,7 +782,7 @@ void main() {
             nextWorkout: _workout(),
             onOpenProfile: () => profil++,
             onOpenMealSlot: slots.add,
-            onOpenRecipe: rezepte.add,
+            onOpenPick: rezepte.add,
             onOpenFoodLog: () => tagebuch++,
             onOpenTraining: () => training++,
           ),
@@ -823,7 +821,7 @@ void main() {
             onDateSelected: (_) {},
             onOpenProfile: () {},
             onOpenMealSlot: (_) {},
-            onOpenRecipe: (_) {},
+            onOpenPick: (_) {},
             onOpenFoodLog: () {},
             onOpenTraining: () {},
           ),
@@ -952,55 +950,30 @@ void main() {
       expect(leaves.style!.color, t.warning);
     });
 
-    testWidgets('ein geplanter Tipp fuehrt in den Wochenplan, nie ins '
-        'Rezept', (tester) async {
-      // Only the plan's "eat" logs planned servings and marks the entry
-      // eaten; the recipe's generic add would log one serving and duplicate
-      // the diary row later.
+    testWidgets('die Zeile reicht genau ihren Tipp weiter, geplant oder '
+        'vorgeschlagen', (tester) async {
+      // Where a pick leads is the shared `openRecipePick`'s job (planned ->
+      // meal plan / eatPlannedMeal, suggested -> recipe detail); the shell
+      // calls it, see today_wiring_flow_test.dart. The row must hand over
+      // the pick it shows, including a planned one without kcal.
       final planned = PlannedMeal.create(
         recipe: _recipe,
         day: _jetzt,
         slot: MealSlot.dinner,
         servings: 2,
       );
-      for (final kcal in <int?>[1220, null]) {
-        var plan = 0;
-        final rezepte = <RecipePick>[];
+      for (final pick in <RecipePick>[
+        _pick(kcal: 1220, source: RecipePickSource.planned, planned: planned),
+        _pick(kcal: null, source: RecipePickSource.planned, planned: planned),
+        _pick(),
+      ]) {
+        final gemeldet = <RecipePick>[];
         await withClock(Clock.fixed(_jetzt), () async {
-          await _pump(
-            tester,
-            _today(
-              pick: _pick(
-                kcal: kcal,
-                source: RecipePickSource.planned,
-                planned: planned,
-              ),
-              onOpenRecipe: rezepte.add,
-              onOpenMealPlan: () => plan++,
-            ),
-          );
+          await _pump(tester, _today(pick: pick, onOpenPick: gemeldet.add));
           await _tap(tester, 'today-pick');
         });
-        expect(plan, 1, reason: 'kcal $kcal');
-        expect(rezepte, isEmpty, reason: 'kcal $kcal');
+        expect(gemeldet, [same(pick)]);
       }
-
-      // A suggestion still opens its recipe.
-      var plan = 0;
-      final rezepte = <RecipePick>[];
-      await withClock(Clock.fixed(_jetzt), () async {
-        await _pump(
-          tester,
-          _today(
-            pick: _pick(),
-            onOpenRecipe: rezepte.add,
-            onOpenMealPlan: () => plan++,
-          ),
-        );
-        await _tap(tester, 'today-pick');
-      });
-      expect(rezepte, hasLength(1));
-      expect(plan, 0);
     });
 
     testWidgets('unbekannte kcal behaupten keine Zahlen', (tester) async {
@@ -1176,7 +1149,7 @@ void main() {
                   onDateSelected: (_) {},
                   onOpenProfile: () {},
                   onOpenMealSlot: (_) {},
-                  onOpenRecipe: (_) {},
+                  onOpenPick: (_) {},
                   onOpenFoodLog: () {},
                   onOpenTraining: () {},
                   meals: <LoggedMeal>[

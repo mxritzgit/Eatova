@@ -46,8 +46,7 @@ class TodayScreen extends StatelessWidget {
     this.onDateSelected,
     this.onOpenProfile,
     this.onOpenMealSlot,
-    this.onOpenRecipe,
-    this.onOpenMealPlan,
+    this.onOpenPick,
     this.onOpenFoodLog,
     this.onOpenTraining,
   });
@@ -97,15 +96,10 @@ class TodayScreen extends StatelessWidget {
   /// A slot's add button: the Food tab's add flow for that slot and day.
   final ValueChanged<MealSlot>? onOpenMealSlot;
 
-  /// A suggested pick opens its recipe detail (add = one serving, chosen
-  /// slot).
-  final ValueChanged<RecipePick>? onOpenRecipe;
-
-  /// A planned pick opens the meal plan: only its "eat" action logs through
-  /// `HomeStore.eatPlannedMeal` (planned servings, entry marked eaten). The
-  /// recipe detail's generic add would log one serving, leave the entry open
-  /// and later duplicate the diary row.
-  final VoidCallback? onOpenMealPlan;
+  /// The pick row. The shell routes it through the shared
+  /// `openRecipePick`: a suggestion opens its recipe detail, a planned meal
+  /// the meal plan, whose "eat" is `HomeStore.eatPlannedMeal`.
+  final ValueChanged<RecipePick>? onOpenPick;
   final VoidCallback? onOpenFoodLog;
   final VoidCallback? onOpenTraining;
 
@@ -170,7 +164,10 @@ class TodayScreen extends StatelessWidget {
             TodayMacros(summary: summary),
             if (shownPick != null) ...<Widget>[
               const SizedBox(height: 16),
-              TodayPickRow(pick: shownPick, onTap: _pickAction(shownPick)),
+              TodayPickRow(
+                pick: shownPick,
+                onTap: onOpenPick == null ? null : () => onOpenPick!(shownPick),
+              ),
             ],
           ],
           const SizedBox(height: 16),
@@ -200,14 +197,6 @@ class TodayScreen extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  /// Where the pick row leads; see [onOpenRecipe] and [onOpenMealPlan].
-  /// Lives here until the Food tab's shared pick actions are merged.
-  VoidCallback? _pickAction(RecipePick pick) {
-    if (pick.source == RecipePickSource.planned) return onOpenMealPlan;
-    final open = onOpenRecipe;
-    return open == null ? null : () => open(pick);
   }
 }
 
