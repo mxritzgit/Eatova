@@ -2517,6 +2517,131 @@
   },
   "trainingAdoptionDiscardAction": "Entwurf verwerfen",
   "trainingAdoptionDiscardBody": "Nur dein abgelehnter Entwurf wird von diesem Gerät entfernt. Der aktuelle Plan auf dem Server bleibt erhalten.",
+  "trainingNextWorkout": "Nächstes Training",
+  "trainingDoneToday": "Heute erledigt",
+  "trainingMinutesEstimate": "≈ {minutes} Min.",
+  "@trainingMinutesEstimate": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingSetsRepsShort": "{sets} × {reps}",
+  "@trainingSetsRepsShort": {
+    "placeholders": {
+      "sets": {
+        "type": "int"
+      },
+      "reps": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLastTimeWeight": "Letztes Mal {weight} kg × {reps}",
+  "@trainingLastTimeWeight": {
+    "placeholders": {
+      "weight": {
+        "type": "String"
+      },
+      "reps": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLastTimeReps": "Letztes Mal {reps} Wdh.",
+  "@trainingLastTimeReps": {
+    "placeholders": {
+      "reps": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingMoreExercises": "+ {names}",
+  "@trainingMoreExercises": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingWeekTitle": "Diese Woche",
+  "trainingWeekDoneOf": "{done} von {planned}",
+  "@trainingWeekDoneOf": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "planned": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingWeekDone": "erledigt",
+  "trainingWeekDayToday": "heute",
+  "trainingWeekDayDone": "Training erledigt",
+  "trainingWeekDayOpen": "kein Training",
+  "trainingQuickStartTitle": "Schnellstart",
+  "trainingQuickChooseWorkout": "Einheit wählen",
+  "trainingQuickCoach": "Coach fragen",
+  "trainingVolumeTitle": "Wochenvolumen",
+  "trainingVolumeLastWeek": "Tonnen letzte Woche",
+  "trainingVolumeUp": "↑ {percent} % gegenüber der Vorwoche",
+  "@trainingVolumeUp": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingVolumeDown": "↓ {percent} % gegenüber der Vorwoche",
+  "@trainingVolumeDown": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingVolumeSame": "Wie in der Vorwoche",
+  "trainingVolumeNow": "Jetzt",
+  "trainingVolumeEmpty": "Trag beim Training Gewichte ein, dann siehst du hier dein Wochenvolumen.",
+  "trainingVolumeWeekSemantics": "Woche ab {date}: {tonnes} Tonnen",
+  "@trainingVolumeWeekSemantics": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      },
+      "tonnes": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingVolumeCurrentSemantics": "Diese Woche bisher: {tonnes} Tonnen",
+  "@trainingVolumeCurrentSemantics": {
+    "placeholders": {
+      "tonnes": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingRecentTitle": "Zuletzt",
+  "trainingRecentAll": "Alle Trainings",
+  "trainingRecentPrs": "{count, plural, =1{1 Rekord} other{{count} Rekorde}}",
+  "@trainingRecentPrs": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingDurationMinutes": "{minutes} Min.",
+  "@trainingDurationMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
   "exportOverview": "Deine Daten im Überblick",
   "exportSummary": "{sections, plural, one{1 Bereich} other{{sections} Bereiche}} · {records, plural, one{1 Datensatz} other{{records} Datensätze}}",
   "@exportSummary": {

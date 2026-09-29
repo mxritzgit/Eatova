@@ -124,12 +124,12 @@ void main() {
       tester.getTopLeft(find.byKey(const ValueKey('training-create'))).dy,
       greaterThan(tester.getBottomLeft(find.text('Training')).dy),
     );
-    final workout = find.byKey(const ValueKey('training-workout-0'));
-    await tester.scrollUntilVisible(workout, 200);
-    await tester.tap(workout);
+    final chooser = find.byKey(const ValueKey('training-quick-workouts'));
+    await tester.scrollUntilVisible(chooser, 200);
+    await tester.tap(chooser);
     await tester.pumpAndSettle();
-    expect(find.text('Kniebeugen'), findsOneWidget);
-    final selected = find.ancestor(
+    final workout = find.byKey(const ValueKey('training-workout-0'));
+    final selected = find.descendant(
       of: workout,
       matching: find.byType(Semantics),
     );
@@ -139,6 +139,9 @@ void main() {
           .any((node) => node.properties.selected == true),
       isTrue,
     );
+    await tester.tap(workout);
+    await tester.pumpAndSettle();
+    expect(find.text('Kniebeugen'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -177,7 +180,9 @@ void main() {
       ),
       hasLength(1),
     );
-    await tester.tap(find.byKey(const ValueKey('training-open-plans')));
+    final plans = find.byKey(const ValueKey('training-open-plans'));
+    await tester.scrollUntilVisible(plans, 200);
+    await tester.tap(plans);
     await tester.pumpAndSettle();
     final planTitle = find.descendant(
       of: find.byType(BottomSheet),

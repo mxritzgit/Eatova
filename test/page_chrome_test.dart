@@ -76,7 +76,14 @@ void main() {
             find.descendant(of: title, matching: find.byType(RichText)),
           );
           expect(paragraph.didExceedMaxLines, isFalse);
-          expect(tester.getTopLeft(title), origin, reason: labels[index]);
+          if (nav[index] == 'Training') {
+            // Training follows the dark redesign's header (page padding 15,
+            // title centred on the 44 px buttons, plan name above it); the
+            // other tabs keep the shell's origin until their redesigns land.
+            expect(tester.getTopLeft(title).dx, origin.dx);
+          } else {
+            expect(tester.getTopLeft(title), origin, reason: labels[index]);
+          }
           expect(find.byKey(const ValueKey('food-options')), findsNothing);
           expect(
             find.byKey(const ValueKey('today-profile')),

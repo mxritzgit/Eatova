@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../auth/auth_repository.dart';
 import '../models/logged_meal.dart';
 import '../models/macro_progress.dart';
+import '../models/training_history.dart';
 import '../models/training_plan.dart';
 import '../models/training_session.dart';
 import '../services/data_export.dart';
@@ -21,6 +22,7 @@ import '../services/open_food_facts_product_service.dart';
 import '../services/recipe_import_inbox.dart';
 import '../services/recipe_import_service.dart';
 import '../services/meal_scan_identity.dart';
+import '../services/sync_error_messages.dart';
 import '../services/sync_connectivity.dart';
 import '../screens/coach/coach_chat_screen.dart';
 import '../screens/meal_analysis_screen.dart';
@@ -38,7 +40,6 @@ import '../screens/training/training_player_screen.dart';
 import '../screens/training/training_plan_editor.dart';
 import '../l10n/l10n.dart';
 import '../theme/app_tokens.dart';
-import '../theme/training_studio_theme.dart';
 import '../widgets/auth/welcome_screen.dart';
 import '../widgets/common/app_snack.dart';
 import '../widgets/common/lively.dart';
@@ -550,41 +551,29 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             if (keyboardOpen) return;
             _store.setTab(0);
           },
-          child: TrainingStudioChrome(
-            active: tab == _tabTraining,
-            child: Scaffold(
-              backgroundColor: tab == _tabTraining
-                  ? AppTokens.dark.bg
-                  : context.t.bg,
-              // AddMealSheet does its own keyboard inset; a resizing scaffold
-              // would shift the background behind the translucent barrier.
-              resizeToAvoidBottomInset: tab != _tabFood,
-              // The nav bar floats: the body runs under it and receives the
-              // bar's band as MediaQuery.padding.bottom, which the SafeArea
-              // below passes on (bottom: false) so each tab scrolls under the
-              // glass and pins its docks above it.
-              extendBody: true,
-              bottomNavigationBar: Builder(
-                builder: (context) {
-                  final navigation = AppNavBar(
-                    index: tab,
-                    onChanged: (index) {
-                      FocusManager.instance.primaryFocus?.unfocus();
-                      _store.setTab(index);
-                    },
-                    items: _navItems(context),
-                  );
-                  return tab == _tabTraining
-                      ? TrainingStudioTheme(child: navigation)
-                      : navigation;
-                },
-              ),
-              // Tabs scroll internally, so no outer SingleChildScrollView.
-              // Large windows get a bounded column; phones are unaffected.
-              body: SafeArea(
-                bottom: false,
-                child: ReadableWidth(child: _buildTabStack(tab)),
-              ),
+          child: Scaffold(
+            backgroundColor: context.t.bg,
+            // AddMealSheet does its own keyboard inset; a resizing scaffold
+            // would shift the background behind the translucent barrier.
+            resizeToAvoidBottomInset: tab != _tabFood,
+            // The nav bar floats: the body runs under it and receives the
+            // bar's band as MediaQuery.padding.bottom, which the SafeArea
+            // below passes on (bottom: false) so each tab scrolls under the
+            // glass and pins its docks above it.
+            extendBody: true,
+            bottomNavigationBar: AppNavBar(
+              index: tab,
+              onChanged: (index) {
+                FocusManager.instance.primaryFocus?.unfocus();
+                _store.setTab(index);
+              },
+              items: _navItems(context),
+            ),
+            // Tabs scroll internally, so no outer SingleChildScrollView.
+            // Large windows get a bounded column; phones are unaffected.
+            body: SafeArea(
+              bottom: false,
+              child: ReadableWidth(child: _buildTabStack(tab)),
             ),
           ),
         );
@@ -954,37 +943,43 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     _store.setTab(_tabCoach);
   }
 
-  Future<void> _openTrainingHistory() async {
+  /// The workout history; with [entry] that one workout's detail instead
+  /// (a "Recent" row of the Training tab).
+  Future<void> _openTrainingHistory([TrainingHistoryEntry? entry]) async {
     if (_trainingHistoryRouteOpen || !_isStoreSessionCurrent(_store)) return;
     _trainingHistoryRouteOpen = true;
     final ownerStore = _store;
+    Future<SyncDelivery> delete(String id) async {
+      if (!_isStoreSessionCurrent(ownerStore)) {
+        throw StateError('Training session ended');
+      }
+      return ownerStore.deleteTrainingHistory(id);
+    }
+
     try {
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
-          builder: (_) => StoreSelector(
-            store: ownerStore,
-            selector: () => (
-              ownerStore.trainingHistory,
-              ownerStore.trainingHistoryLoading,
-              ownerStore.trainingHistoryLoadFailed,
-            ),
-            builder: (_) => TrainingHistoryScreen(
-              entries: ownerStore.trainingHistory,
-              loading: ownerStore.trainingHistoryLoading,
-              loadFailed: ownerStore.trainingHistoryLoadFailed,
-              onRetry: () {
-                if (_isStoreSessionCurrent(ownerStore)) {
-                  ownerStore.retryTrainingHistory();
-                }
-              },
-              onDelete: (id) async {
-                if (!_isStoreSessionCurrent(ownerStore)) {
-                  throw StateError('Training session ended');
-                }
-                return ownerStore.deleteTrainingHistory(id);
-              },
-            ),
-          ),
+          builder: (_) => entry != null
+              ? TrainingHistoryDetail(entry: entry, onDelete: delete)
+              : StoreSelector(
+                  store: ownerStore,
+                  selector: () => (
+                    ownerStore.trainingHistory,
+                    ownerStore.trainingHistoryLoading,
+                    ownerStore.trainingHistoryLoadFailed,
+                  ),
+                  builder: (_) => TrainingHistoryScreen(
+                    entries: ownerStore.trainingHistory,
+                    loading: ownerStore.trainingHistoryLoading,
+                    loadFailed: ownerStore.trainingHistoryLoadFailed,
+                    onRetry: () {
+                      if (_isStoreSessionCurrent(ownerStore)) {
+                        ownerStore.retryTrainingHistory();
+                      }
+                    },
+                    onDelete: delete,
+                  ),
+                ),
         ),
       );
     } finally {
@@ -1195,6 +1190,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.trainingPlansLoadFailed,
       _store.trainingSession,
       _store.pendingTrainingAdoptions,
+      // Inputs of the derivations below (never their fresh results), plus
+      // the day: the week strip and the rotation follow midnight.
+      _store.trainingHistory,
+      DateUtils.dateOnly(clock.now()),
     ),
     builder: (context) {
       assert(_countTabBuild(_tabTraining));
@@ -1223,6 +1222,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         ],
         onReviewAdoption: _reviewTrainingAdoption,
         onDiscardAdoption: _discardTrainingAdoption,
+        nextWorkout: _store.nextTrainingWorkoutForToday(),
+        week: _store.currentTrainingWeek(),
+        volume: _store.weeklyTrainingVolume(),
+        recentWorkouts: _store.recentWorkoutSummaries(limit: 3),
+        history: _store.trainingHistory,
+        onOpenWorkout: (entry) => unawaited(_openTrainingHistory(entry)),
       );
     },
   );
