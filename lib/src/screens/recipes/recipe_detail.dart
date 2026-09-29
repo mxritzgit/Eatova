@@ -14,6 +14,7 @@ class RecipeDetailScreen extends StatefulWidget {
     this.photoInput,
     this.isSessionCurrent,
     this.productService,
+    this.showAddAction = true,
   });
 
   final FitnessRecipe recipe;
@@ -27,6 +28,11 @@ class RecipeDetailScreen extends StatefulWidget {
   final MealPhotoInput? photoInput;
   final bool Function()? isSessionCurrent;
   final ProductLookupService? productService;
+
+  /// False opens the recipe read-only for logging: no "add to tracker" card.
+  /// A planned meal from the Recipes hero is logged through the meal plan
+  /// (planned servings, plan marked eaten), never through this generic path.
+  final bool showAddAction;
 
   @override
   State<RecipeDetailScreen> createState() => _RecipeDetailScreenState();
@@ -246,7 +252,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
         MediaQuery.textScalerOf(context).scale(14) <= 19;
     return Scaffold(
       backgroundColor: t.bg,
-      bottomNavigationBar: pinAction
+      bottomNavigationBar: pinAction && widget.showAddAction
           ? SafeArea(
               top: false,
               child: ReadableWidth(
@@ -431,7 +437,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                   ),
                 ],
                 const SizedBox(height: 18),
-                if (!pinAction)
+                if (!pinAction && widget.showAddAction)
                   _AddToMealCard(
                     recipe: recipe,
                     onTap: _canUseRecipe ? () => _showMealPicker(context) : null,

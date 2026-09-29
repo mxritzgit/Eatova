@@ -17,6 +17,8 @@ class _HeroModel {
     required this.proteinG,
     required this.addLabel,
     required this.onAdd,
+    this.opensPlan = false,
+    this.readOnlyDetail = false,
   });
 
   final FitnessRecipe recipe;
@@ -28,10 +30,20 @@ class _HeroModel {
   /// What the add button would log; null prints a dash.
   final num? kcal, proteinG;
 
-  final String addLabel;
+  /// Null: no primary button at all (a planned meal that cannot be logged
+  /// and no meal plan to fix it in).
+  final String? addLabel;
 
-  /// Null disables the add button (nothing loggable, or no hook).
+  /// Null disables the add button (no hook).
   final VoidCallback? onAdd;
+
+  /// The primary button opens the meal plan instead of adding: a planned
+  /// meal whose nutrition cannot be logged is fixed there.
+  final bool opensPlan;
+
+  /// "View recipe" shows a planned meal's snapshot without its own add
+  /// action; the plan entry is logged by the hero only.
+  final bool readOnlyDetail;
 }
 
 /// Crop anchor of the hero photo. Above centre on purpose: the catalog photos
@@ -175,23 +187,39 @@ class _RecipeHeroCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 12),
-                _PillPair(
-                  first: _Pill(
-                    key: const ValueKey('recipe-hero-add'),
-                    label: model.addLabel,
-                    glyph: _RecipeGlyph.plus,
-                    glyphStroke: 2.6,
-                    primary: true,
-                    grow: true,
-                    horizontalPadding: 16,
-                    onTap: model.onAdd,
+                if (model.addLabel == null)
+                  SizedBox(
+                    width: double.infinity,
+                    child: _Pill(
+                      key: const ValueKey('recipe-hero-view'),
+                      label: l10n.recipesViewRecipe,
+                      onTap: onView,
+                    ),
+                  )
+                else
+                  _PillPair(
+                    first: _Pill(
+                      key: ValueKey(
+                        model.opensPlan
+                            ? 'recipe-hero-open-plan'
+                            : 'recipe-hero-add',
+                      ),
+                      label: model.addLabel!,
+                      glyph: model.opensPlan
+                          ? _RecipeGlyph.calendar
+                          : _RecipeGlyph.plus,
+                      glyphStroke: model.opensPlan ? 1.9 : 2.6,
+                      primary: true,
+                      grow: true,
+                      horizontalPadding: 16,
+                      onTap: model.onAdd,
+                    ),
+                    second: _Pill(
+                      key: const ValueKey('recipe-hero-view'),
+                      label: l10n.recipesViewRecipe,
+                      onTap: onView,
+                    ),
                   ),
-                  second: _Pill(
-                    key: const ValueKey('recipe-hero-view'),
-                    label: l10n.recipesViewRecipe,
-                    onTap: onView,
-                  ),
-                ),
               ],
             ),
           ),

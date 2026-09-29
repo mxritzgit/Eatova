@@ -20,6 +20,7 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/planned_meal.dart';
+import 'package:eatova/src/models/recipe_pick.dart';
 import 'package:eatova/src/models/recipe_shelf.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/recipes/meal_plan_screen.dart';
@@ -140,6 +141,26 @@ Future<Set<String>> _selectedChips(WidgetTester tester) async {
   }
   return selected;
 }
+
+/// An own recipe whose nutrition is still missing: it cannot be logged, so a
+/// planned entry of it has no kcal.
+const _pendingRecipe = FitnessRecipe(
+  slug: 'user_pending',
+  title: 'Imported stew',
+  description: '',
+  portion: '',
+  ingredients: 'Beans',
+  preparation: '',
+  professionalHint: '',
+  imageAsset: '',
+  caloriesKcal: 0,
+  proteinG: 0,
+  carbsG: 0,
+  fatG: 0,
+  estimatedGrams: 0,
+  categories: <String>[recipeNutritionPendingCategory],
+  userCreated: true,
+);
 
 FitnessRecipe _catalog(String slug) =>
     recipeCatalogEn.firstWhere((r) => r.slug == slug);
@@ -434,6 +455,111 @@ void main() {
       });
     });
 
+    testWidgets('a planned pick with 2 servings logs exactly what the hero '
+        'shows, marks the plan eaten and leaves one diary row', (tester) async {
+      await withClock(Clock.fixed(_now), () async {
+        final store = await _pumpHome(tester);
+        final recipe = _catalog('hahnchen_caesar_salat');
+        final plan = PlannedMeal.create(
+          recipe: recipe,
+          day: _now,
+          slot: MealSlot.dinner,
+          servings: 2,
+        );
+        await store.savePlannedMeal(plan);
+        await tester.pumpAndSettle();
+
+        final pick = store.nextMealPick(localeName: 'en')!;
+        expect(pick.source, RecipePickSource.planned);
+        expect(pick.servings, 2);
+        expect(pick.kcal, recipe.caloriesKcal * 2);
+        expect(
+          find.descendant(
+            of: _key('recipe-hero-kcal'),
+            matching: find.text('${pick.kcal}'),
+          ),
+          findsOneWidget,
+        );
+        final before = store.loggedMeals.length;
+
+        await _tapVisible(tester, _key('recipe-hero-add'));
+
+        expect(store.loggedMeals.length, before + 1);
+        final rows = store.loggedMeals
+            .where((m) => m.result.mealName == recipe.title)
+            .toList();
+        expect(rows, hasLength(1), reason: 'no duplicate diary row');
+        expect(rows.single.id, plan.id);
+        expect(rows.single.result.caloriesKcal, pick.kcal);
+        expect(rows.single.forcedSlot, MealSlot.dinner);
+        expect(
+          store.plannedMeals.firstWhere((p) => p.id == plan.id).isEaten,
+          isTrue,
+        );
+        expect(find.text('Added ${pick.kcal} kcal to Dinner.'), findsOneWidget);
+        // The eaten plan is no longer the pick: no second tap can log it.
+        expect(
+          store.nextMealPick(localeName: 'en')?.plannedMeal?.id,
+          isNot(plan.id),
+        );
+      });
+    });
+
+    testWidgets('a planned pick without loggable kcal offers the meal plan, '
+        'not a dead add; "View recipe" opens it read-only', (tester) async {
+      await withClock(Clock.fixed(_now), () async {
+        final store = await _pumpHome(tester);
+        await store.savePlannedMeal(
+          PlannedMeal.create(
+            recipe: _pendingRecipe,
+            day: _now,
+            slot: MealSlot.dinner,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(store.nextMealPick(localeName: 'en')!.kcal, isNull);
+
+        expect(_key('recipe-hero-add'), findsNothing);
+        expect(_key('recipe-hero-fits'), findsNothing);
+        expect(
+          find.descendant(
+            of: _key('recipe-hero-kcal'),
+            matching: find.text('—'),
+          ),
+          findsOneWidget,
+        );
+        await _tapVisible(tester, _key('recipe-hero-view'));
+        expect(_key('recipe-detail-${_pendingRecipe.slug}'), findsOneWidget);
+        expect(_key('recipe-add-card'), findsNothing);
+        expect(_key('recipe-add-button'), findsNothing);
+        expect(_key('recipe-detail-delete'), findsNothing);
+        await tester.tap(_key('recipe-detail-back'));
+        await tester.pumpAndSettle();
+
+        await _tapVisible(tester, _key('recipe-hero-open-plan'));
+        expect(find.byType(MealPlanScreen), findsOneWidget);
+      });
+    });
+
+    testWidgets('"View recipe" of a loggable planned pick is read-only too: '
+        'the plan entry is logged by the hero only', (tester) async {
+      await withClock(Clock.fixed(_now), () async {
+        final store = await _pumpHome(tester);
+        await store.savePlannedMeal(
+          PlannedMeal.create(
+            recipe: _catalog('hahnchen_caesar_salat'),
+            day: _now,
+            slot: MealSlot.dinner,
+          ),
+        );
+        await tester.pumpAndSettle();
+        await _tapVisible(tester, _key('recipe-hero-view'));
+        expect(_key('recipe-detail-hahnchen_caesar_salat'), findsOneWidget);
+        expect(_key('recipe-add-button'), findsNothing);
+        expect(_key('recipe-add-card'), findsNothing);
+      });
+    });
+
     testWidgets('"Fits your day" and the pick follow the remaining kcal', (
       tester,
     ) async {
@@ -539,6 +665,8 @@ void main() {
         await _pumpHome(tester);
         await _tapVisible(tester, _key('recipe-hero-view'));
         expect(_key('recipe-detail-$_turkey'), findsOneWidget);
+        // A suggestion's detail keeps its own add action.
+        expect(_key('recipe-add-button'), findsOneWidget);
       });
     });
 
@@ -690,6 +818,38 @@ void main() {
       await tester.pumpAndSettle();
       expect(_key('recipe-add-choice-sheet'), findsNothing);
       expect(_key('recipe-create-sheet'), findsOneWidget);
+    });
+
+    testWidgets('a planned pick without kcal and without a meal plan hook '
+        'shows no primary button', (tester) async {
+      pinPhoneViewport(tester);
+      await pumpLocalized(
+        tester,
+        RecipesScreen(
+          onAddMeal: (MealAnalysisResult _, MealSlot __) {},
+          onEatPlannedMeal: (_) async => SyncDelivery.delivered,
+          mealPick: RecipePick(
+            recipe: _pendingRecipe,
+            slot: MealSlot.dinner,
+            source: RecipePickSource.planned,
+            servings: 1,
+            kcal: null,
+            proteinG: null,
+            remainingKcalBefore: 900,
+            plannedMeal: PlannedMeal.create(
+              recipe: _pendingRecipe,
+              day: _now,
+              slot: MealSlot.dinner,
+            ),
+          ),
+        ),
+        locale: const Locale('en'),
+        settle: true,
+      );
+      expect(_key('recipe-hero'), findsOneWidget);
+      expect(_key('recipe-hero-add'), findsNothing);
+      expect(_key('recipe-hero-open-plan'), findsNothing);
+      expect(_key('recipe-hero-view'), findsOneWidget);
     });
 
     testWidgets('recipe history stays reachable from My recipes', (

@@ -711,21 +711,38 @@ class _RecipesScreenState extends State<RecipesScreen> {
     final pick = widget.mealPick;
     if (pick != null) {
       final planned = pick.source == RecipePickSource.planned;
+      final eyebrow = planned
+          ? l10n.recipesHeroPlannedEyebrow
+          : l10n.recipesHeroPickedEyebrow(pick.slot.name);
+      // A planned meal whose nutrition cannot be logged (kcal unknown) gets
+      // no add button that could not log: the meal plan, where it can be
+      // fixed, or nothing.
+      if (planned && (pick.kcal == null || pick.plannedMeal == null)) {
+        final openPlan = widget.onOpenMealPlan;
+        return _HeroModel(
+          recipe: pick.recipe,
+          eyebrow: eyebrow,
+          fits: false,
+          kcal: pick.kcal,
+          proteinG: pick.proteinG,
+          addLabel: openPlan == null ? null : l10n.recipeEditMealPlan,
+          onAdd: openPlan,
+          opensPlan: true,
+          readOnlyDetail: true,
+        );
+      }
       final loggable = planned
-          ? widget.onEatPlannedMeal != null &&
-                pick.plannedMeal != null &&
-                pick.kcal != null
+          ? widget.onEatPlannedMeal != null
           : widget.onAddPickToToday != null;
       return _HeroModel(
         recipe: pick.recipe,
-        eyebrow: planned
-            ? l10n.recipesHeroPlannedEyebrow
-            : l10n.recipesHeroPickedEyebrow(pick.slot.name),
+        eyebrow: eyebrow,
         fits: pick.fits,
         kcal: pick.kcal,
         proteinG: pick.proteinG,
         addLabel: l10n.recipesHeroAddToSlot(pick.slot.name),
         onAdd: loggable ? () => _addPick(pick) : null,
+        readOnlyDetail: planned,
       );
     }
     if (goalMatches.isEmpty) return null;
@@ -853,15 +870,19 @@ class _RecipesScreenState extends State<RecipesScreen> {
     diet: widget.diet,
   );
 
-  void _openRecipe(FitnessRecipe recipe) {
+  /// [readOnly]: a planned meal's snapshot — viewing only; it is logged by
+  /// the hero through the meal plan, and edits belong to the recipe itself.
+  void _openRecipe(FitnessRecipe recipe, {bool readOnly = false}) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => RecipeDetailScreen(
           recipe: recipe,
           onAddMeal: widget.onAddMeal,
-          onEdit: recipe.userCreated ? _editRecipe : null,
+          showAddAction: !readOnly,
+          onEdit: recipe.userCreated && !readOnly ? _editRecipe : null,
           onOpenHistory:
-              recipe.userCreated &&
+              !readOnly &&
+                  recipe.userCreated &&
                   widget.onLoadRecipeHistory != null &&
                   widget.onRestoreRecipe != null
               ? (slug) => _openHistory(slug: slug)
@@ -873,7 +894,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
               !_disposing &&
               (widget.isSessionCurrent?.call() ?? true),
           // Offer delete only for self-created recipes.
-          onDelete: recipe.userCreated
+          onDelete: recipe.userCreated && !readOnly
               ? (slug) {
                   if (!mounted ||
                       _disposing ||
@@ -1141,7 +1162,8 @@ class _RecipesScreenState extends State<RecipesScreen> {
           gutter(
             _RecipeHeroCard(
               model: hero,
-              onView: () => _openRecipe(hero.recipe),
+              onView: () =>
+                  _openRecipe(hero.recipe, readOnly: hero.readOnlyDetail),
               saved: canSave && isFavorite(favorite),
               onToggleSave: canSave ? () => _toggleFavorite(favorite) : null,
             ),
