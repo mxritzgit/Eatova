@@ -7,6 +7,7 @@ import '../../models/coach_training_proposal.dart';
 import '../../models/training_history.dart';
 import '../../models/training_insights.dart';
 import '../../models/training_plan.dart';
+import '../../models/training_session.dart';
 import '../../services/sync_error_messages.dart';
 import '../../services/uuid.dart';
 import '../../theme/app_tokens.dart';
@@ -33,10 +34,10 @@ class TrainingScreen extends StatefulWidget {
     this.loadFailed = false,
     this.onRetry,
     this.hasActiveSession = false,
+    this.activeSession,
     this.onResumeWorkout,
     this.onOpenHistory,
     this.onDiscussPlan,
-    this.discussPlanLabel,
     this.adoptionConflicts = const [],
     this.onReviewAdoption,
     this.onDiscardAdoption,
@@ -61,10 +62,13 @@ class TrainingScreen extends StatefulWidget {
   final bool loadFailed;
   final VoidCallback? onRetry;
   final bool hasActiveSession;
+
+  /// The saved session behind [hasActiveSession]: the card shows its
+  /// workout, so "Resume" continues exactly what is on screen.
+  final TrainingSessionSnapshot? activeSession;
   final VoidCallback? onResumeWorkout;
   final VoidCallback? onOpenHistory;
   final ValueChanged<TrainingPlan>? onDiscussPlan;
-  final String? discussPlanLabel;
   final List<TrainingPlan> adoptionConflicts;
   final Future<void> Function(TrainingPlan)? onReviewAdoption;
   final Future<void> Function(TrainingPlan)? onDiscardAdoption;
@@ -132,21 +136,34 @@ class _TrainingScreenState extends State<TrainingScreen> {
     );
   }
 
-  /// What the card shows: the rotation's workout, or the hand-picked one
-  /// with its "Last time" from the same model helpers.
+  /// The saved session, if the card must show it (see [activeSession]).
+  TrainingSessionSnapshot? get _session =>
+      widget.hasActiveSession ? widget.activeSession : null;
+
+  /// What the card shows: a saved session's workout, else the hand-picked
+  /// one, else the rotation's.
   TrainingNextWorkout _shown(TrainingPlan plan, TrainingNextWorkout next) {
+    final session = _session;
+    if (session != null) {
+      return _withLastTime(session.plan, session.workoutIndex);
+    }
     final chosen = _chosenWorkout;
     if (chosen == null ||
         chosen == next.workoutIndex ||
         chosen >= plan.workouts.length) {
       return next;
     }
+    return _withLastTime(plan, chosen);
+  }
+
+  /// Workout [index] of [plan] with "Last time" from the model helpers.
+  TrainingNextWorkout _withLastTime(TrainingPlan plan, int index) {
     return TrainingNextWorkout(
       plan: plan,
-      workoutIndex: chosen,
+      workoutIndex: index,
       completedToday: false,
       exercises: [
-        for (final exercise in plan.workouts[chosen].exercises)
+        for (final exercise in plan.workouts[index].exercises)
           TrainingExercisePreview(
             exercise: exercise,
             lastTopSet: exercise.id == null
@@ -561,6 +578,8 @@ class _TrainingScreenState extends State<TrainingScreen> {
     final done = shown.completedToday;
     final eyebrow = done
         ? l10n.trainingDoneToday
+        : _session != null
+        ? l10n.trainingInProgress
         : identical(shown, next)
         ? l10n.trainingNextWorkout
         : l10n.trainingPageWorkoutNumber(shown.workoutIndex + 1);
@@ -710,12 +729,14 @@ class _TrainingScreenState extends State<TrainingScreen> {
               ink: t.accentText,
               onTap: () => _edit(context),
             ),
-            if (plan.workouts.length > 1)
+            // A saved session owns the card until it is resumed or ended.
+            if (plan.workouts.length > 1 && !widget.hasActiveSession)
               Builder(
                 builder: (anchor) => TrainingQuickTile(
                   key: const ValueKey('training-quick-workouts'),
                   icon: const Icon(Icons.format_list_numbered_rounded),
-                  label: l10n.trainingQuickChooseWorkout,
+                  label: l10n.trainingQuickWorkouts,
+                  semanticLabel: l10n.trainingQuickChooseWorkout,
                   tint: t.activityTint,
                   ink: t.activityInk,
                   onTap: () => _chooseWorkout(anchor, plan, shown),

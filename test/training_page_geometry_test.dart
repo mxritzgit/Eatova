@@ -198,6 +198,43 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  for (final locale in ['de', 'en']) {
+    testWidgets('quick start labels stay on one line at 390 ($locale)', (
+      tester,
+    ) async {
+      await pumpLocalized(
+        tester,
+        TrainingScreen(
+          plans: [_draft().toTrainingPlan(id: 'quick')],
+          onCreatePlan: (_) async => SyncDelivery.delivered,
+          onUpdatePlan: (_, _) async => SyncDelivery.delivered,
+          onDeletePlan: (_) async => SyncDelivery.delivered,
+          onSelectPlan: (_) {},
+          onStartWorkout: (_, _) {},
+          onOpenCoach: () {},
+        ),
+        locale: Locale(locale),
+        surfaceSize: const Size(390, 844),
+      );
+      for (final key in [
+        'training-quick-create',
+        'training-quick-workouts',
+        'training-open-plans',
+        'training-discuss-plan',
+      ]) {
+        final label = find
+            .descendant(of: find.byKey(ValueKey(key)), matching: find.byType(Text))
+            .last;
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.descendant(of: label, matching: find.byType(RichText)),
+        );
+        // One line of 14 px at line height 1.2.
+        expect(paragraph.size.height, lessThan(20), reason: '$key ($locale)');
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
+
   testWidgets(
     'actual fonts keep exercise ordinals unbroken and within their column',
     (tester) async {

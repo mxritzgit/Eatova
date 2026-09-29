@@ -2487,6 +2487,7 @@
   "trainingAdoptionDiscardBody": "Only your rejected draft will be removed from this device. The current plan on the server will be kept.",
   "trainingNextWorkout": "Next workout",
   "trainingDoneToday": "Done today",
+  "trainingInProgress": "In progress",
   "trainingMinutesEstimate": "≈ {minutes} min",
   "@trainingMinutesEstimate": {
     "placeholders": {
@@ -2551,6 +2552,7 @@
   "trainingWeekDayOpen": "no workout",
   "trainingQuickStartTitle": "Quick start",
   "trainingQuickChooseWorkout": "Choose workout",
+  "trainingQuickWorkouts": "Workouts",
   "trainingQuickCoach": "Ask Coach",
   "trainingVolumeTitle": "Weekly volume",
   "trainingVolumeLastWeek": "tonnes last week",

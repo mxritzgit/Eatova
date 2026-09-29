@@ -4,7 +4,8 @@
 // design scenario (test/training/training_overview_fixture.dart), at the
 // design's reference geometry and clock (Mon 2026-09-28 19:00), and shoots
 // the tab at the design's scroll positions: training-00 (top), training-01
-// (700) and training-02 (858, the end).
+// (700) and training-02 (the end: 858 in the design, 734 here without the
+// omitted kcal card and muscle chips).
 //
 // With --dart-define=DARK_REDESIGN_CAPTURE=true the PNGs land in
 // build/dark-redesign/ for comparison with design/shots/training-new-*.png.

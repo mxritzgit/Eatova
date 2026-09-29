@@ -631,6 +631,7 @@ class TrainingQuickTile extends StatelessWidget {
     required this.tint,
     required this.ink,
     required this.onTap,
+    this.semanticLabel,
   });
 
   /// An [Icon] or [AppIcon]; it inherits size and color.
@@ -640,13 +641,16 @@ class TrainingQuickTile extends StatelessWidget {
   final Color ink;
   final VoidCallback onTap;
 
+  /// Spoken instead of the short visible [label], when that needs context.
+  final String? semanticLabel;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     return Semantics(
       container: true,
       button: true,
-      label: label,
+      label: semanticLabel ?? label,
       child: Material(
         color: t.surf,
         clipBehavior: Clip.antiAlias,
@@ -995,20 +999,25 @@ class TrainingRecentSection extends StatelessWidget {
             ),
             if (onOpenAll != null)
               Flexible(
-                child: TextButton(
-                  key: const ValueKey('training-recent-all'),
-                  onPressed: onOpenAll,
-                  style: TextButton.styleFrom(
-                    foregroundColor: t.accentText,
-                    minimumSize: const Size(44, 44),
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    textStyle: AppType.ui(
-                      14,
-                      weight: FontWeight.w700,
-                      height: kTrainingLine,
+                // Flexible keeps the title safe on narrow phones; Align
+                // pins the link to the right edge of its share.
+                child: Align(
+                  alignment: AlignmentDirectional.centerEnd,
+                  child: TextButton(
+                    key: const ValueKey('training-recent-all'),
+                    onPressed: onOpenAll,
+                    style: TextButton.styleFrom(
+                      foregroundColor: t.accentText,
+                      minimumSize: const Size(44, 44),
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      textStyle: AppType.ui(
+                        14,
+                        weight: FontWeight.w700,
+                        height: kTrainingLine,
+                      ),
                     ),
+                    child: Text(l10n.trainingRecentAll),
                   ),
-                  child: Text(l10n.trainingRecentAll),
                 ),
               ),
           ],

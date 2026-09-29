@@ -2519,6 +2519,7 @@
   "trainingAdoptionDiscardBody": "Nur dein abgelehnter Entwurf wird von diesem Gerät entfernt. Der aktuelle Plan auf dem Server bleibt erhalten.",
   "trainingNextWorkout": "Nächstes Training",
   "trainingDoneToday": "Heute erledigt",
+  "trainingInProgress": "Begonnen",
   "trainingMinutesEstimate": "≈ {minutes} Min.",
   "@trainingMinutesEstimate": {
     "placeholders": {
@@ -2583,6 +2584,7 @@
   "trainingWeekDayOpen": "kein Training",
   "trainingQuickStartTitle": "Schnellstart",
   "trainingQuickChooseWorkout": "Einheit wählen",
+  "trainingQuickWorkouts": "Einheiten",
   "trainingQuickCoach": "Coach fragen",
   "trainingVolumeTitle": "Wochenvolumen",
   "trainingVolumeLastWeek": "Tonnen letzte Woche",

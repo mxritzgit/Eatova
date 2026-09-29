@@ -12,9 +12,11 @@ import 'package:eatova/src/models/coach_training_proposal.dart';
 import 'package:eatova/src/models/training_history.dart';
 import 'package:eatova/src/models/training_insights.dart';
 import 'package:eatova/src/models/training_plan.dart';
+import 'package:eatova/src/models/training_session.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/screens/training/training_history_screen.dart';
 import 'package:eatova/src/screens/training/training_player_screen.dart';
+import 'package:eatova/src/screens/training/training_plan_editor.dart';
 import 'package:eatova/src/screens/training/training_plan_picker.dart';
 import 'package:eatova/src/screens/training/training_screen.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
@@ -41,6 +43,17 @@ Future<void> _tap(WidgetTester tester, String key) async {
   await tester.tap(target);
   await settleFrames(tester);
 }
+
+/// The plan-name field of the open plan editor.
+String _editorTitle(WidgetTester tester) => tester
+    .widget<EditableText>(
+      find.descendant(
+        of: find.byKey(const ValueKey('training-editor-title')),
+        matching: find.byType(EditableText),
+      ),
+    )
+    .controller
+    .text;
 
 String _weekSummary(WidgetTester tester) => tester
     .widget<Text>(find.byKey(const ValueKey('training-week-summary')))
@@ -108,7 +121,9 @@ void main() {
       tester,
     ) async {
       await withClock(Clock.fixed(kTrainingDesignNow), () async {
-        final (:store, server: _) = await pumpTrainingDesignHome(tester);
+        final (:store, server: _, storage: _) = await pumpTrainingDesignHome(
+          tester,
+        );
         await _openTraining(tester);
         final semantics = tester.ensureSemantics();
         expect(
@@ -134,13 +149,7 @@ void main() {
           find.byKey(const ValueKey('training-editor-title')),
           findsOneWidget,
         );
-        final title = tester.widget<EditableText>(
-          find.descendant(
-            of: find.byKey(const ValueKey('training-editor-title')),
-            matching: find.byType(EditableText),
-          ),
-        );
-        expect(title.controller.text, isEmpty, reason: 'a new, empty plan');
+        expect(_editorTitle(tester), isEmpty, reason: 'a new, empty plan');
         expect(store.trainingPlans, hasLength(1), reason: 'nothing written');
         await _leave(tester);
       });
@@ -150,7 +159,9 @@ void main() {
       tester,
     ) async {
       await withClock(Clock.fixed(kTrainingDesignNow), () async {
-        final (:store, server: _) = await pumpTrainingDesignHome(tester);
+        final (:store, server: _, storage: _) = await pumpTrainingDesignHome(
+          tester,
+        );
         await _openTraining(tester);
         final next = store.nextTrainingWorkoutForToday()!;
         expect(next.workoutIndex, 0, reason: 'Lower Body was last: Push');
@@ -176,7 +187,9 @@ void main() {
       tester,
     ) async {
       await withClock(Clock.fixed(kTrainingDesignNow), () async {
-        final (:store, server: _) = await pumpTrainingDesignHome(tester);
+        final (:store, server: _, storage: _) = await pumpTrainingDesignHome(
+          tester,
+        );
         await _openTraining(tester);
         expect(_weekSummary(tester), '0 of 3 done · Sep 28 – Oct 4');
         expect(
@@ -233,7 +246,9 @@ void main() {
     ) async {
       var now = DateTime(2026, 9, 28, 19);
       await withClock(Clock(() => now), () async {
-        final (:store, server: _) = await pumpTrainingDesignHome(tester);
+        final (:store, server: _, storage: _) = await pumpTrainingDesignHome(
+          tester,
+        );
         await _openTraining(tester);
         await _finishPushToday(tester, store);
         expect(find.text('DONE TODAY'), findsOneWidget);
@@ -263,7 +278,9 @@ void main() {
       tester,
     ) async {
       await withClock(Clock.fixed(kTrainingDesignNow), () async {
-        final (:store, server: _) = await pumpTrainingDesignHome(tester);
+        final (:store, server: _, storage: _) = await pumpTrainingDesignHome(
+          tester,
+        );
         await _openTraining(tester);
         await _tap(tester, 'training-plan-menu');
         await tester.tap(find.text('Edit'));
@@ -313,7 +330,9 @@ void main() {
       'quick start: Plans opens the library, Ask Coach the plan brief',
       (tester) async {
         await withClock(Clock.fixed(kTrainingDesignNow), () async {
-          final (:store, :server) = await pumpTrainingDesignHome(tester);
+          final (:store, :server, storage: _) = await pumpTrainingDesignHome(
+            tester,
+          );
           await _openTraining(tester);
           await _tap(tester, 'training-open-plans');
           expect(find.byType(TrainingPlanPicker), findsOneWidget);
@@ -330,7 +349,10 @@ void main() {
             find.byKey(const ValueKey('training-editor-title')),
             findsOneWidget,
           );
+          expect(_editorTitle(tester), isEmpty, reason: 'a new, empty plan');
           await _tap(tester, 'training-editor-close');
+          expect(store.trainingPlans, hasLength(1), reason: 'nothing written');
+          expect(server.trainingRows.keys, [kTrainingDesignPlanId]);
 
           await _tap(tester, 'training-discuss-plan');
           expect(store.selectedTab, 4);
@@ -348,9 +370,72 @@ void main() {
       },
     );
 
+    testWidgets(
+      'a saved hand-picked workout owns the card after a restart; Resume '
+      'continues it',
+      (tester) async {
+        await withClock(Clock.fixed(kTrainingDesignNow), () async {
+          final first = await pumpTrainingDesignHome(tester);
+          await _openTraining(tester);
+          expect(first.store.nextTrainingWorkoutForToday()!.workoutIndex, 0);
+          await _tap(tester, 'training-quick-workouts');
+          await tester.tap(find.byKey(const ValueKey('training-workout-2')));
+          await settleFrames(tester);
+          await _tap(tester, 'training-start');
+          await _tap(tester, 'training-timer-back');
+          await _tap(tester, 'training-timer-confirm-exit');
+          await pumpRealUntil(
+            tester,
+            () => find.byType(TrainingPlayerScreen).evaluate().isEmpty,
+            'save and leave finishes',
+          );
+          final saved = first.store.trainingSession!;
+          expect(saved.workoutIndex, 2);
+          expect(find.text('IN PROGRESS'), findsOneWidget);
+
+          // Restart on the same backend and device cache: the pick is gone,
+          // the saved session still decides what the card shows.
+          await _leave(tester);
+          final (:store, server: _, storage: _) = await pumpTrainingDesignHome(
+            tester,
+            server: first.server,
+            storage: first.storage,
+          );
+          await pumpRealUntil(
+            tester,
+            () => store.trainingSession != null,
+            'the saved session is restored',
+          );
+          await _openTraining(tester);
+          expect(store.nextTrainingWorkoutForToday()!.workoutIndex, 0);
+          expect(
+            tester
+                .widget<Text>(find.byKey(const ValueKey('training-card-title')))
+                .data,
+            'Lower Body',
+          );
+          expect(find.text('IN PROGRESS'), findsOneWidget);
+          expect(find.byKey(const ValueKey('training-start')), findsNothing);
+          expect(
+            find.byKey(const ValueKey('training-quick-workouts')),
+            findsNothing,
+          );
+          await _tap(tester, 'training-resume');
+          final player = tester.widget<TrainingPlayerScreen>(
+            find.byType(TrainingPlayerScreen),
+          );
+          expect(player.initialSnapshot?.sessionId, saved.sessionId);
+          expect(player.initialSnapshot?.workoutIndex, 2);
+          await _leave(tester);
+        });
+      },
+    );
+
     testWidgets('weekly volume renders the store\'s trend', (tester) async {
       await withClock(Clock.fixed(kTrainingDesignNow), () async {
-        final (:store, server: _) = await pumpTrainingDesignHome(tester);
+        final (:store, server: _, storage: _) = await pumpTrainingDesignHome(
+          tester,
+        );
         await _openTraining(tester);
         final trend = store.weeklyTrainingVolume();
         expect(
@@ -399,7 +484,9 @@ void main() {
       tester,
     ) async {
       await withClock(Clock.fixed(kTrainingDesignNow), () async {
-        final (:store, server: _) = await pumpTrainingDesignHome(tester);
+        final (:store, server: _, storage: _) = await pumpTrainingDesignHome(
+          tester,
+        );
         await _openTraining(tester);
         final recent = store.recentWorkoutSummaries(limit: 3);
         expect(recent.map((s) => s.title), [
@@ -433,6 +520,14 @@ void main() {
         await _tap(tester, 'training-history-detail-back');
         expect(find.byType(TrainingHistoryDetail), findsNothing);
 
+        // "All workouts" sits at the right edge, flush with the card.
+        final link = find.byKey(const ValueKey('training-recent-all'));
+        await tester.ensureVisible(link);
+        await settleFrames(tester);
+        expect(
+          tester.getRect(link).right,
+          tester.getRect(find.byKey(const ValueKey('training-recent'))).right,
+        );
         await _tap(tester, 'training-recent-all');
         expect(find.byType(TrainingHistoryScreen), findsOneWidget);
         await _leave(tester);
@@ -443,7 +538,7 @@ void main() {
       tester,
     ) async {
       await withClock(Clock.fixed(kTrainingDesignNow), () async {
-        final (:store, server: _) = await pumpTrainingDesignHome(
+        final (:store, server: _, storage: _) = await pumpTrainingDesignHome(
           tester,
           plans: const [],
           history: const [],
@@ -567,6 +662,104 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('training-delete-confirm')));
       await tester.pumpAndSettle();
       expect(deleted, [plan.id]);
+    });
+
+    testWidgets('Review adoption opens the review of the selected conflict', (
+      tester,
+    ) async {
+      final reviewed = <TrainingPlan>[];
+      var starts = 0;
+      await pumpLocalized(
+        tester,
+        TrainingScreen(
+          plans: [plan],
+          selectedPlanId: plan.id,
+          adoptionConflicts: [plan],
+          onReviewAdoption: (conflict) async {
+            reviewed.add(conflict);
+            final context = tester.element(find.byType(TrainingScreen));
+            await showTrainingPlanEditor(
+              context,
+              initialDraft: conflict.proposal,
+              explanation: 'Review before confirming',
+              onSave: (_) async => SyncDelivery.delivered,
+            );
+          },
+          onCreatePlan: (_) async => SyncDelivery.delivered,
+          onUpdatePlan: (_, _) async => SyncDelivery.delivered,
+          onSelectPlan: (_) {},
+          onDeletePlan: (_) async => SyncDelivery.delivered,
+          onStartWorkout: (_, _) => starts++,
+          onOpenCoach: () {},
+        ),
+        locale: const Locale('en'),
+        surfaceSize: const Size(390, 844),
+        settle: true,
+      );
+      expect(find.byKey(const ValueKey('training-start')), findsNothing);
+      final primary = find.byKey(
+        const ValueKey('training-review-adoption-primary'),
+      );
+      await tester.ensureVisible(primary);
+      await tester.pumpAndSettle();
+      await tester.tap(primary);
+      await tester.pumpAndSettle();
+      expect(reviewed.map((p) => p.id), [plan.id]);
+      expect(find.text('Review before confirming'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('training-editor-scroll')),
+          matching: find.text('Strength plan'),
+        ),
+        findsWidgets,
+      );
+      expect(starts, 0);
+    });
+
+    testWidgets('a saved session shows its own workout under Resume', (
+      tester,
+    ) async {
+      final session = TrainingSessionSnapshot(
+        plan: plan,
+        sessionId: '00000000-0000-4000-8000-00000000abcd',
+        startedAt: kTrainingDesignNow.subtract(const Duration(minutes: 5)),
+        workoutIndex: 2,
+        exerciseIndex: 0,
+        setIndex: 0,
+        phase: TrainingSessionPhase.exercise,
+        remainingMilliseconds: 0,
+      );
+      var resumed = 0;
+      await pumpLocalized(
+        tester,
+        TrainingScreen(
+          plans: [plan],
+          onCreatePlan: (_) async => SyncDelivery.delivered,
+          onUpdatePlan: (_, _) async => SyncDelivery.delivered,
+          onSelectPlan: (_) {},
+          onDeletePlan: (_) async => SyncDelivery.delivered,
+          onStartWorkout: (_, _) {},
+          onOpenCoach: () {},
+          nextWorkout: nextTrainingWorkout(
+            plan: plan,
+            history: history,
+            now: kTrainingDesignNow,
+          ),
+          history: history,
+          hasActiveSession: true,
+          activeSession: session,
+          onResumeWorkout: () => resumed++,
+        ),
+        locale: const Locale('en'),
+        surfaceSize: const Size(390, 844),
+        settle: true,
+      );
+      expect(find.text('Lower Body'), findsOneWidget);
+      expect(find.text('Upper Body Push'), findsNothing);
+      expect(find.text('IN PROGRESS'), findsOneWidget);
+      expect(find.text('Last time 95 kg × 5'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('training-resume')));
+      expect(resumed, 1);
     });
 
     testWidgets('a hand-picked workout shows its own Last time', (

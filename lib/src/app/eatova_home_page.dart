@@ -1208,12 +1208,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         onStartWorkout: _startTrainingWorkout,
         onOpenCoach: _openTrainingCoach,
         onDiscussPlan: _discussTrainingPlan,
-        discussPlanLabel: context.l10n.coachBriefDiscussAction,
         onOpenHistory: () => unawaited(_openTrainingHistory()),
         loading: _store.trainingPlansLoading,
         loadFailed: _store.trainingPlansLoadFailed,
         onRetry: _store.retryTrainingPlans,
         hasActiveSession: _store.trainingSession != null,
+        activeSession: _store.trainingSession,
         onResumeWorkout: _resumeTrainingWorkout,
         adoptionConflicts: [
           for (final op in _store.pendingTrainingAdoptions)

@@ -202,27 +202,36 @@ List<TrainingHistoryEntry> trainingDesignHistory(TrainingPlan plan) {
 ///
 /// The history response exceeds postgrest's 10 kB isolate threshold, so the
 /// wait lets real time pass (`runAsync`) for the JSON isolate to answer.
-Future<({HomeStore store, FixlaufServer server})> pumpTrainingDesignHome(
+///
+/// Pass the [server] and [storage] of an earlier mount to "restart" the app
+/// on the same backend and device cache.
+Future<({HomeStore store, FixlaufServer server, InMemoryKeyValueStore storage})>
+pumpTrainingDesignHome(
   WidgetTester tester, {
   List<TrainingPlan>? plans,
   List<TrainingHistoryEntry>? history,
   Locale locale = const Locale('en'),
+  FixlaufServer? server,
+  InMemoryKeyValueStore? storage,
 }) async {
   pinDesignViewport(tester);
   final plan = trainingDesignPlan();
-  final server = FixlaufServer()
+  final backend = server ?? FixlaufServer()
     ..profileRow = serverProfileRow(completedProfile);
-  for (final p in plans ?? [plan]) {
-    server.trainingRows[p.id] = p.toRow();
+  final device = storage ?? InMemoryKeyValueStore();
+  if (server == null) {
+    for (final p in plans ?? [plan]) {
+      backend.trainingRows[p.id] = p.toRow();
+    }
+    for (final entry in history ?? trainingDesignHistory(plan)) {
+      backend.trainingHistoryRows[entry.id] = entry.toRow();
+    }
   }
-  final entries = history ?? trainingDesignHistory(plan);
-  for (final entry in entries) {
-    server.trainingHistoryRows[entry.id] = entry.toRow();
-  }
+  final entries = backend.trainingHistoryRows.length;
   final client = SupabaseClient(
     'https://example.supabase.co',
     'test-anon-key',
-    httpClient: server.client(),
+    httpClient: backend.client(),
     authOptions: const AuthClientOptions(autoRefreshToken: false),
   );
   await tester.pumpWidget(
@@ -230,7 +239,7 @@ Future<({HomeStore store, FixlaufServer server})> pumpTrainingDesignHome(
       localizedApp(
         EatovaHomePage(
           sync: EatovaSync.forUser(client, kFixlaufUser),
-          debugCache: LocalCache(InMemoryKeyValueStore(), kFixlaufUser),
+          debugCache: LocalCache(device, kFixlaufUser),
         ),
         locale: locale,
         safeArea: false,
@@ -246,12 +255,10 @@ Future<({HomeStore store, FixlaufServer server})> pumpTrainingDesignHome(
   final store = storeOf(tester);
   await pumpRealUntil(
     tester,
-    () =>
-        !store.bootLoadInFlight &&
-        store.trainingHistory.length == entries.length,
+    () => !store.bootLoadInFlight && store.trainingHistory.length == entries,
     'plans and history are loaded',
   );
-  return (store: store, server: server);
+  return (store: store, server: backend, storage: device);
 }
 
 /// [pumpUntil] with real time between frames, for isolate-backed work.
