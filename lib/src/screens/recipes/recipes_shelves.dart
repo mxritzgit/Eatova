@@ -217,6 +217,12 @@ class _ShelfCard extends StatelessWidget {
                       children: [
                         Text(
                           recipe.displayTitle(l10n),
+                          key: const ValueKey('recipe-shelf-card-title'),
+                          // Two lines at most: the row shares the tallest
+                          // card's height, so one long title would stretch
+                          // every card.
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style: _ui(
                             14,
                             weight: FontWeight.w700,

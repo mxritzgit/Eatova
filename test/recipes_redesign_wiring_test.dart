@@ -12,7 +12,6 @@ import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/l10n/generated/app_localizations.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
@@ -31,11 +30,9 @@ import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/services/user_recipe_reads.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
-import 'design/recipes_redesign_capture_test.dart'
-    show designDay, designOwnRecipes;
-import 'flows/flow_test_helpers.dart' show storeOf;
 import 'support/design_capture.dart' show loadDesignFonts, pinDesignViewport;
 import 'support/harness.dart';
+import 'support/recipes_design_fixtures.dart';
 import 'support/recipe_navigation.dart' show recipesList, revealRecipeChip;
 
 final _now = DateTime(2026, 9, 28, 18, 30);
@@ -58,29 +55,14 @@ late AppLocalizations _en;
 Future<HomeStore> _pumpHome(
   WidgetTester tester, {
   bool ownRecipes = false,
-}) async {
-  pinDesignViewport(tester);
-  await tester.pumpWidget(
-    localizedApp(
-      EatovaHomePage(),
-      locale: const Locale('en'),
-      safeArea: false,
-      scaffold: false,
-    ),
-  );
-  await tester.pumpAndSettle();
-  final store = storeOf(tester)
-    ..profile = _profile
-    ..loggedMeals = designDay();
-  if (ownRecipes) {
-    for (final recipe in designOwnRecipes) {
-      await store.saveUserRecipe(recipe);
-    }
-  }
-  await tester.tap(_key('nav-Rezepte'));
-  await tester.pumpAndSettle();
-  return store;
-}
+  UserProfile profile = _profile,
+  List<LoggedMeal>? meals,
+}) => pumpDesignRecipes(
+  tester,
+  ownRecipes: ownRecipes,
+  profile: profile,
+  meals: meals,
+);
 
 /// Builds [finder] in the lazy recipes list (from the top, downwards) and
 /// scrolls it on screen, clear of the floating tab bar.
@@ -125,7 +107,12 @@ List<(String, bool)> get _chipKeys => <(String, bool)>[
   ('recipes-tab-for-you', true),
   ('recipes-tab-all', true),
   ('recipes-tab-own', true),
-  for (final filter in recipeFilters.skip(1)) ('recipe-filter-$filter', false),
+  for (final filter in <String>[
+    recipeFilters[1],
+    lightMealFilter,
+    ...recipeFilters.skip(2),
+  ])
+    ('recipe-filter-$filter', false),
 ];
 
 /// Which chips are selected right now (builds the whole lazy bar first).
@@ -313,11 +300,16 @@ void main() {
               expect(_rowSlugs(tester).toSet(), own);
             default:
               final filter = key.substring('recipe-filter-'.length);
-              // Own recipes with the tag count too (the poke is "Fisch").
+              bool matches(FitnessRecipe r) => filter == lightMealFilter
+                  ? isUnder600Kcal(r)
+                  : r.categories.contains(filter);
+              // Own recipes count too (the poke is "Fisch", all three are
+              // under 600 kcal).
               final expected = <FitnessRecipe>[
                 ...designOwnRecipes,
                 ...recipeCatalogEn,
-              ].where((r) => r.categories.contains(filter)).length;
+              ].where(matches).length;
+              expect(expected, greaterThan(0), reason: key);
               expect(
                 find.text('$expected matches'),
                 findsOneWidget,
@@ -328,8 +320,8 @@ void main() {
                   <FitnessRecipe>[
                     ...designOwnRecipes,
                     ...recipeCatalogEn,
-                  ].firstWhere((r) => r.slug == slug).categories,
-                  contains(filter),
+                  ].where((r) => r.slug == slug).where(matches),
+                  hasLength(1),
                   reason: slug,
                 );
               }
@@ -670,6 +662,74 @@ void main() {
       });
     });
 
+    testWidgets('over budget: no pick, a neutral recommendation, and only '
+        '"View recipe" — no add', (tester) async {
+      await withClock(Clock.fixed(_now), () async {
+        final store = await _pumpHome(
+          tester,
+          meals: [
+            ...designDay(),
+            LoggedMeal(
+              id: 'feast',
+              loggedAt: DateTime(2026, 9, 28, 17),
+              localDay: localDayKey(_now),
+              forcedSlot: MealSlot.snack,
+              result: _meal('Feast', 1000),
+            ),
+          ],
+        );
+        expect(store.nutritionSummaryForFoodDate(_now).remainingKcal, -98);
+        expect(store.nextMealPick(localeName: 'en'), isNull);
+        expect(_key('recipe-hero'), findsOneWidget);
+        expect(find.text('RECOMMENDED'), findsOneWidget);
+        expect(find.text('FITS YOUR GOAL'), findsNothing);
+        expect(_key('recipe-hero-fits'), findsNothing);
+        expect(_key('recipe-hero-add'), findsNothing);
+        expect(_key('recipe-hero-view'), findsOneWidget);
+        await _tapVisible(tester, _key('recipe-hero-view'));
+        expect(
+          find.byWidgetPredicate(
+            (w) =>
+                w.key is ValueKey<String> &&
+                (w.key! as ValueKey<String>).value.startsWith('recipe-detail-'),
+          ),
+          findsWidgets,
+        );
+      });
+    });
+
+    testWidgets('nothing logged, no pick (22:00): the neutral recommendation '
+        'keeps its add', (tester) async {
+      await withClock(Clock.fixed(DateTime(2026, 9, 28, 22)), () async {
+        final store = await _pumpHome(tester, meals: const <LoggedMeal>[]);
+        expect(store.loggedMeals, isEmpty);
+        expect(store.nextMealPick(localeName: 'en'), isNull);
+        expect(find.text('RECOMMENDED'), findsOneWidget);
+        expect(_key('recipe-hero-fits'), findsNothing);
+        expect(_key('recipe-hero-add'), findsOneWidget);
+        expect(find.text('Add to tracker'), findsOneWidget);
+      });
+    });
+
+    testWidgets('the hero follows the clock across a slot boundary on the '
+        'next store update', (tester) async {
+      var now = DateTime(2026, 9, 28, 10, 59);
+      await withClock(Clock(() => now), () async {
+        final store = await _pumpHome(tester, meals: const <LoggedMeal>[]);
+        expect(find.text('PICKED FOR BREAKFAST'), findsOneWidget);
+
+        now = DateTime(2026, 9, 28, 11, 1);
+        expect(mealSlotForHour(now.hour), MealSlot.lunch);
+        // Any notify that changes none of the other inputs (the food tab's
+        // day) must still rebuild: the slot is one of the inputs.
+        store.setFoodDate(DateTime(2026, 9, 27));
+        await tester.pumpAndSettle();
+        expect(find.text('PICKED FOR BREAKFAST'), findsNothing);
+        expect(find.text('PICKED FOR LUNCH'), findsOneWidget);
+        expect(find.text('Add to lunch'), findsOneWidget);
+      });
+    });
+
     testWidgets('without a pick the hero is the best goal match: no "fits" '
         'claim, and its add button logs through the slot sheet', (
       tester,
@@ -679,7 +739,7 @@ void main() {
         final store = await _pumpHome(tester);
         expect(store.nextMealPick(localeName: 'en'), isNull);
         expect(_key('recipe-hero'), findsOneWidget);
-        expect(find.text('FITS YOUR GOAL'), findsOneWidget);
+        expect(find.text('RECOMMENDED'), findsOneWidget);
         expect(_key('recipe-hero-fits'), findsNothing);
         expect(find.text('Add to tracker'), findsOneWidget);
         final title = tester.widget<Text>(_key('recipe-hero-title')).data!;
@@ -720,6 +780,36 @@ void main() {
         expect(find.text('${expected.length} matches'), findsOneWidget);
         expect(_rowSlugs(tester), expected.map((r) => r.slug).toList());
         expect(await _selectedChips(tester), isEmpty);
+      });
+    });
+
+    testWidgets('the real app passes the profile diet: vegan hides the shelf '
+        'and keeps the fallback hero and the list vegan', (tester) async {
+      // 22:00: no pick, so the hero is the goal-match fallback.
+      await withClock(Clock.fixed(DateTime(2026, 9, 28, 22)), () async {
+        await _pumpHome(
+          tester,
+          profile: _profile.copyWith(diet: DietPreference.vegan),
+          meals: const <LoggedMeal>[],
+        );
+        expect(_key('recipe-hero'), findsOneWidget);
+        final title = tester.widget<Text>(_key('recipe-hero-title')).data!;
+        final hero = recipeCatalogEn.firstWhere((r) => r.title == title);
+        expect(hero.matchesDiet(DietPreference.vegan), isTrue, reason: title);
+        // No vegan catalog recipe is lean: the shelf is gone.
+        expect(_key('recipe-shelf-lean'), findsNothing);
+        await _reveal(tester, _key('recipes-more-see-all'));
+        await tester.drag(recipesList(), const Offset(0, -400));
+        await tester.pumpAndSettle();
+        final rows = _rowSlugs(tester);
+        expect(rows, isNotEmpty);
+        for (final slug in rows) {
+          expect(
+            _catalog(slug).matchesDiet(DietPreference.vegan),
+            isTrue,
+            reason: slug,
+          );
+        }
       });
     });
 
@@ -777,6 +867,11 @@ void main() {
       await withClock(Clock.fixed(_now), () async {
         await _pumpHome(tester);
         await _tapVisible(tester, _key('recipes-more-see-all'));
+        // The full list, from its top.
+        expect(tester.state<ScrollableState>(recipesList()).position.pixels, 0);
+        expect(find.text('All recipes'), findsOneWidget);
+        expect(find.text('${recipeCatalogEn.length} matches'), findsOneWidget);
+        expect(_rowSlugs(tester).first, recipeCatalogEn.first.slug);
         expect(await _selectedChips(tester), {'recipes-tab-all'});
       });
     });

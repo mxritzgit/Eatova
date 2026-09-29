@@ -155,7 +155,7 @@ void main() {
         final eyebrow = tester.widget<Text>(
           find.byKey(const ValueKey('recipe-hero-eyebrow')),
         );
-        expect(eyebrow.data, 'PASST ZU DEINEM ZIEL');
+        expect(eyebrow.data, 'EMPFEHLUNG');
         expect(eyebrow.style?.color, t.accentText);
       });
 

@@ -80,3 +80,19 @@ List<FitnessRecipe> leanHighProteinShelf(
     ...rotatedRecommendations(catalog, now, count: catalog.length),
   ].take(count).toList(growable: false);
 }
+
+/// Exclusive kcal ceiling of the "Under 600 kcal" chip.
+const int lightMealMaxKcal = 600;
+
+/// Filter identity of the "Under 600 kcal" chip. Never a category and never
+/// part of [recipeFilters]; double-quoted because it is matching data.
+const String lightMealFilter = "Unter 600 kcal";
+
+/// Whether [recipe] belongs under the "Under 600 kcal" chip: its per-portion
+/// kcal (the value the list shows) is known and in (0, [lightMealMaxKcal]).
+/// A list filter like the categories, so no diet pre-filter.
+bool isUnder600Kcal(FitnessRecipe recipe) {
+  if (recipe.hasPendingNutrition) return false;
+  final kcal = recipe.displayNutrition.caloriesKcal;
+  return kcal != null && kcal > 0 && kcal < lightMealMaxKcal;
+}

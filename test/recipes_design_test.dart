@@ -174,10 +174,11 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.byKey(const ValueKey('screen-recipes')), findsOneWidget);
       expect(find.text(c.l10n.navRecipes), findsOneWidget);
-      // Without a pick the hero is the best goal match.
+      // Without a pick the hero is the best goal match, as a neutral
+      // recommendation.
       expect(find.byKey(const ValueKey('recipe-hero')), findsOneWidget);
       expect(
-        find.text(c.l10n.recipesGoalMatchTitle.toUpperCase()),
+        find.text(c.l10n.recipesHeroRecommendedEyebrow.toUpperCase()),
         findsOneWidget,
       );
     },
@@ -588,7 +589,7 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.text('Recipes'), findsOneWidget);
-    expect(find.text('FITS YOUR GOAL'), findsOneWidget);
+    expect(find.text('RECOMMENDED'), findsOneWidget);
     await _scrollTo(tester, find.byKey(const ValueKey('recipe-tile-hahnchen_mit_reis_and_brokkoli')));
     expect(find.text('Chicken with Rice & Broccoli'), findsWidgets);
   });

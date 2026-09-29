@@ -176,4 +176,26 @@ void main() {
     expect(all.first.slug, 'user_soup');
     expect(all, hasLength(4));
   });
+
+  group('isUnder600Kcal ("Under 600 kcal" chip)', () {
+    test('per-portion kcal in (0, 600), own and catalog alike', () {
+      expect(isUnder600Kcal(_own('a', kcal: 599)), isTrue);
+      expect(isUnder600Kcal(_own('b', kcal: 600)), isFalse);
+      expect(isUnder600Kcal(_own('c', kcal: 0)), isFalse);
+      final pending = _own(
+        'd',
+        kcal: 300,
+        categories: const <String>[recipeNutritionPendingCategory],
+      );
+      expect(isUnder600Kcal(pending), isFalse);
+      expect(
+        recipeCatalogDe.where(isUnder600Kcal).map((r) => r.slug).toSet(),
+        recipeCatalogDe
+            .where((r) => r.caloriesKcal < 600)
+            .map((r) => r.slug)
+            .toSet(),
+      );
+      expect(recipeCatalogDe.where(isUnder600Kcal), isNotEmpty);
+    });
+  });
 }

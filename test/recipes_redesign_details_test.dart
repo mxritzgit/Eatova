@@ -4,6 +4,7 @@
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/fitness_recipe.dart';
@@ -14,7 +15,7 @@ import 'package:eatova/src/models/recipe_pick.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/widgets/recipes/recipe_photo.dart';
 
-import 'design/recipes_redesign_capture_test.dart'
+import 'support/recipes_design_fixtures.dart'
     show designOwnRecipes, pumpDesignRecipes;
 import 'support/design_capture.dart' show loadDesignFonts;
 import 'support/harness.dart';
@@ -241,5 +242,59 @@ void main() {
         expect(errors, isEmpty, reason: errors.join('\n'));
       });
     }
+  });
+
+  testWidgets('a very long shelf title stops at two lines and does not '
+      'stretch the other cards', (tester) async {
+    pinPhoneViewport(tester);
+    FitnessRecipe lean(String slug, String title) => FitnessRecipe(
+      slug: slug,
+      title: title,
+      description: '',
+      portion: '',
+      ingredients: '',
+      preparation: '',
+      professionalHint: '',
+      imageAsset: '',
+      caloriesKcal: 420,
+      proteinG: 38,
+      carbsG: 30,
+      fatG: 10,
+      estimatedGrams: 300,
+      categories: const <String>[],
+      userCreated: true,
+    );
+    final long = lean(
+      'user_long',
+      'Slow-roasted chicken thighs with smoked paprika, lemon, garlic, '
+          'charred broccolini, herbed quinoa and a very long yogurt sauce',
+    );
+    final short = lean('user_short', 'Soup');
+    await pumpLocalized(
+      tester,
+      RecipesScreen(
+        onAddMeal: (MealAnalysisResult _, MealSlot __) {},
+        initialUserRecipes: [long, short],
+      ),
+      locale: const Locale('en'),
+      settle: true,
+    );
+    final longCard = find.byKey(const ValueKey('recipe-shelf-lean-user_long'));
+    final shortCard = find.byKey(
+      const ValueKey('recipe-shelf-lean-user_short'),
+    );
+    final title = tester.renderObject<RenderParagraph>(
+      find.descendant(
+        of: find.descendant(
+          of: longCard,
+          matching: find.byKey(const ValueKey('recipe-shelf-card-title')),
+        ),
+        matching: find.byType(RichText),
+      ),
+    );
+    expect(title.didExceedMaxLines, isTrue);
+    expect(tester.getSize(longCard).height, tester.getSize(shortCard).height);
+    // Photo 112 + two title lines + meta + padding: the design's ~188 px.
+    expect(tester.getSize(longCard).height, lessThan(200));
   });
 }

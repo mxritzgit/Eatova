@@ -2870,5 +2870,7 @@
   "recipesShelfLeanTitle": "Viel Protein, unter 500 kcal",
   "recipesYourRecipesTitle": "Deine Rezepte",
   "recipesYourRecipesBody": "Importiere eins von einer Website oder leg dein eigenes an.",
-  "recipesCreateButton": "Erstellen"
+  "recipesCreateButton": "Erstellen",
+  "recipesHeroRecommendedEyebrow": "Empfehlung",
+  "recipesChipUnder600": "Unter 600 kcal"
 }

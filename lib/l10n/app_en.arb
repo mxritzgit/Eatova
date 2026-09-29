@@ -2823,5 +2823,7 @@
   "recipesShelfLeanTitle": "High protein, under 500 kcal",
   "recipesYourRecipesTitle": "Your recipes",
   "recipesYourRecipesBody": "Import one from a website or add your own.",
-  "recipesCreateButton": "Create"
+  "recipesCreateButton": "Create",
+  "recipesHeroRecommendedEyebrow": "Recommended",
+  "recipesChipUnder600": "Under 600 kcal"
 }

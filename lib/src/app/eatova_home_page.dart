@@ -870,6 +870,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.stepsForFoodDate(clock.now()),
       _store.mealPlansRevision,
       _store.favorites,
+      // The pick's slot follows the clock (11/15/21:00): any notify after a
+      // boundary moves the hero on.
+      mealSlotForHour(clock.now().hour),
     ),
     builder: (context) {
       assert(_countTabBuild(_tabRezepte));
@@ -877,6 +880,11 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       return RecipesScreen(
         // "Picked for tonight": the pick Today and Food show too.
         mealPick: _store.nextMealPick(localeName: context.l10n.localeName),
+        // Promoted lists (shelves, fallback hero) follow the profile diet
+        // like the pick does.
+        diet: _store.profile.diet,
+        todayOverBudget:
+            _store.nutritionSummaryForFoodDate(clock.now()).remainingKcal <= 0,
         // The pick is for today, so it logs to today whatever day the food
         // tab shows.
         onAddPickToToday: (result, slot) {

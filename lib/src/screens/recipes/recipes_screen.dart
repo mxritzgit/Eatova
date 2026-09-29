@@ -80,6 +80,7 @@ class RecipesScreen extends StatefulWidget {
     this.onUndoAddedMeal,
     this.isFavorite,
     this.onToggleFavorite,
+    this.todayOverBudget = false,
   });
 
   final FutureOr<void> Function(MealAnalysisResult result, MealSlot slot)
@@ -108,6 +109,10 @@ class RecipesScreen extends StatefulWidget {
   /// bookmark. Either null hides the bookmark.
   final bool Function(MealAnalysisResult result)? isFavorite;
   final Future<void> Function(MealAnalysisResult result)? onToggleFavorite;
+
+  /// Today's remaining kcal (budget incl. activity) are used up. Then there
+  /// is no pick, and the fallback hero offers no add — only "View recipe".
+  final bool todayOverBudget;
 
   /// Remaining daily macros (target minus consumed). When set, the screen
   /// shows a goal-match section ranking recipes by macro fit; null hides it.
@@ -346,6 +351,7 @@ class _RecipeIndex {
         "Eigene" => recipe.userCreated,
         leanShelfFilter =>
           recipe.matchesDiet(diet) && isLeanHighProtein(recipe),
+        lightMealFilter => isUnder600Kcal(recipe),
         _ => recipe.categories.contains(filter),
       };
       if (!matchesFilter) return false;
@@ -661,11 +667,19 @@ class _RecipesScreenState extends State<RecipesScreen> {
       selected: !_forYou && selectedFilter == "Eigene",
       onTap: () => _showFilter("Eigene"),
     ),
-    for (final filter in recipeFilters.skip(1))
+    // The design's order: High protein, then Under 600 kcal, then the
+    // remaining categories.
+    for (final filter in <String>[
+      recipeFilters[1],
+      lightMealFilter,
+      ...recipeFilters.skip(2),
+    ])
       _RecipeChip(
         id: filter,
         filterKey: 'recipe-filter-$filter',
-        label: recipeCategoryLabel(filter, l10n),
+        label: filter == lightMealFilter
+            ? l10n.recipesChipUnder600
+            : recipeCategoryLabel(filter, l10n),
         selected: !_forYou && selectedFilter == filter,
         onTap: () => _showFilter(filter),
       ),
@@ -746,16 +760,19 @@ class _RecipesScreenState extends State<RecipesScreen> {
       );
     }
     if (goalMatches.isEmpty) return null;
+    // No pick: a neutral recommendation that never claims to fit, and over
+    // budget nothing to add at all (Today and Food show no pick then).
     final recipe = goalMatches.first;
     final nutrition = recipe.displayNutrition;
+    final overBudget = widget.todayOverBudget;
     return _HeroModel(
       recipe: recipe,
-      eyebrow: l10n.recipesGoalMatchTitle,
+      eyebrow: l10n.recipesHeroRecommendedEyebrow,
       fits: false,
       kcal: nutrition.caloriesKcal,
       proteinG: nutrition.proteinG,
-      addLabel: l10n.recipesAddToTrackerTitle,
-      onAdd: () => _logViaSlotPicker(recipe),
+      addLabel: overBudget ? null : l10n.recipesAddToTrackerTitle,
+      onAdd: overBudget ? null : () => _logViaSlotPicker(recipe),
     );
   }
 
@@ -1243,6 +1260,8 @@ class _RecipesScreenState extends State<RecipesScreen> {
                 ? l10n.recipesChipMine
                 : selectedFilter == leanShelfFilter
                 ? l10n.recipesShelfLeanTitle
+                : selectedFilter == lightMealFilter
+                ? l10n.recipesChipUnder600
                 : selectedFilter == recipeFilters.first
                 ? l10n.recipesAllTitle
                 : recipeCategoryLabel(selectedFilter, l10n),
