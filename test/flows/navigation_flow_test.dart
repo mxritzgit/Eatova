@@ -171,7 +171,7 @@ void main() {
       }
       expect(_sichtbarerTab(tester), 4);
       expect(find.byKey(const ValueKey('screen-coach')), findsOneWidget);
-      expect(find.byKey(const ValueKey('coach-streak')), findsOneWidget);
+      expect(find.byKey(const ValueKey('coach-sessions-open')), findsOneWidget);
 
       await tester.tap(find.byKey(const ValueKey('nav-Food')));
       // The CoachOrb ticks while its tab is visible; after the switch

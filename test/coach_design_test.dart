@@ -17,9 +17,10 @@ import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 
-// Coach design refactor: this file pins what the redesign guarantees (header,
-// bubbles, composer without a theme box) and what it must not change. The
-// state assertions live in the existing coach_* files; this one is about
+// Coach design: this file pins what the dark redesign (2026-09-28) guarantees
+// (header, bubbles, composer without a theme box) and what it must not
+// change. The state assertions live in the existing coach_* files, the
+// start-state wiring in coach_start_wiring_test.dart; this one is about
 // appearance.
 
 /// Usable area of an iPhone 16 Pro. The binding's 800x600 default view is
@@ -170,7 +171,8 @@ Future<void> _pumpCoach(
             child: CoachChatScreen(
               service: service,
               userName: 'Moritz',
-              streak: 3,
+              // The shell always hands the day context to a signed-in coach.
+              userContext: 'Kontext',
               speechInput: speechInput,
             ),
           ),
@@ -193,16 +195,26 @@ BoxDecoration _bubbleDecoration(WidgetTester tester, String text) {
 }
 
 void main() {
-  testWidgets('Kopf traegt Marke, Zustandszeile und die drei Bedienelemente',
+  testWidgets('Kopf traegt Titel, Zustandszeile und die zwei runden Knoepfe',
       (tester) async {
     for (final brightness in <Brightness>[Brightness.dark, Brightness.light]) {
       await _pumpCoach(tester, service: _FakeCoach.create(), brightness: brightness);
 
-      expect(find.text('KI-Coach'), findsOneWidget);
+      // Visible "Coach" like the design; screen readers hear "KI-Coach".
+      expect(tester.widget<Text>(find.text('Coach')).semanticsLabel, 'KI-Coach');
       expect(find.text('Sieht dein heutiges Log'), findsOneWidget);
-      expect(find.byKey(const ValueKey('coach-streak')), findsOneWidget);
-      expect(find.byKey(const ValueKey('coach-info')), findsOneWidget);
-      expect(find.byKey(const ValueKey('coach-sessions-open')), findsOneWidget);
+      expect(find.byKey(const ValueKey('coach-streak')), findsNothing,
+          reason: 'die Serie steht im Heute-Tab, nicht mehr im Coach-Kopf');
+      for (final key in ['coach-sessions-open', 'coach-info']) {
+        final button = find.byKey(ValueKey(key));
+        expect(button, findsOneWidget);
+        expect(tester.getSize(button), const Size(44, 44));
+      }
+      // Design order: past chats left of the info button.
+      expect(
+        tester.getCenter(find.byKey(const ValueKey('coach-sessions-open'))).dx,
+        lessThan(tester.getCenter(find.byKey(const ValueKey('coach-info'))).dx),
+      );
       expect(tester.takeException(), isNull);
     }
   });
@@ -527,8 +539,13 @@ void main() {
         expect(tester.takeException(), isNull,
             reason: 'Rendering unter en/$brightness ist fehlgeschlagen');
         // The German header strings become their English counterparts.
-        expect(find.text('AI Coach'), findsOneWidget);
+        expect(
+          tester.widget<Text>(find.text('Coach')).semanticsLabel,
+          'AI Coach',
+        );
+        expect(find.text("Sees today's log"), findsOneWidget);
         expect(find.text('How can I help you?'), findsOneWidget);
+        expect(find.text('Try asking'), findsOneWidget);
       });
     }
   });

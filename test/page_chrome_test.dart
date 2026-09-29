@@ -63,7 +63,8 @@ void main() {
           l10n.navFood,
           l10n.navRecipes,
           l10n.trainingPageTitle,
-          l10n.coachTitle,
+          // Visible "Coach"; "AI Coach" is its semantics label.
+          l10n.navCoach,
         ];
         const nav = ['Heute', 'Food', 'Rezepte', 'Training', 'Coach'];
         final origin = tester.getTopLeft(_title(labels.first));

@@ -63,8 +63,9 @@ class _Conversation extends StatelessWidget {
           onNotification: onScroll,
           child: ListView.builder(
             controller: controller,
-            // Horizontal 0: the side inset comes from the shell.
-            padding: const EdgeInsets.fromLTRB(0, 18, 0, 10),
+            // Horizontal 0: the side inset comes from the shell. Top and
+            // bottom clear the screen's edge fades.
+            padding: const EdgeInsets.fromLTRB(0, 20, 0, 16),
             itemCount: messages.length + (sending ? 1 : 0),
             itemBuilder: (context, i) {
               if (sending && i == messages.length) {
@@ -241,9 +242,9 @@ class _MessageView extends StatelessWidget {
                         child: Text(
                           message.content,
                           style: AppType.ui(
-                            15,
+                            16,
                             color: t.onForest,
-                            height: 1.5,
+                            height: 1.45,
                           ),
                         ),
                       )
@@ -253,7 +254,7 @@ class _MessageView extends StatelessWidget {
                       SelectionArea(
                         child: Text(
                           message.content,
-                          style: AppType.ui(15, color: t.ink, height: 1.5),
+                          style: AppType.ui(16, color: t.ink, height: 1.45),
                         ),
                       ),
                   ],

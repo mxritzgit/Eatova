@@ -452,7 +452,8 @@ void main() {
     });
 
     testWidgets('Coach: der Kopfzeilen-Titel ist Ebene 1, die '
-        'Hero-Begruessung darunter Ebene 2', (tester) async {
+        'Hero-Begruessung und „Frag zum Beispiel" darunter Ebene 2',
+        (tester) async {
       final l10n = _de;
       final handle = tester.ensureSemantics();
       await pumpLocalized(
@@ -475,11 +476,13 @@ void main() {
         <Sprungmarke>[
           (label: l10n.coachTitle, level: 1),
           (label: _coachBegruessung(l10n, 'Moritz'), level: 2),
+          // The redesign's "Try asking" section (an h2 in the design).
+          (label: l10n.coachTryTitle, level: 2),
         ],
         reason: 'der Tab trug gar keine Marke. Genau EINE Ebene 1 (die '
             'immer sichtbare Kopfzeile), die Begruessung des Leerzustands '
-            'haengt als Ebene 2 darunter — zwei Ebene-1-Marken waeren eine '
-            'Sackgasse',
+            'und die Beispiel-Sektion haengen als Ebene 2 darunter — zwei '
+            'Ebene-1-Marken waeren eine Sackgasse',
       );
       // Gegenprobe: die beiden Knoepfe der Kopfzeile behalten ihre Aktion.
       expect(

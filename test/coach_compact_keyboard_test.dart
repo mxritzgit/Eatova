@@ -122,7 +122,8 @@ void main() {
           scaffold: false,
           settle: true,
         );
-        expect(find.byKey(const ValueKey('coach-streak')), findsOneWidget);
+        // The full header (title, status, buttons), not the compact row.
+        expect(find.byKey(const ValueKey('coach-header-compact')), findsNothing);
         await tester.enterText(find.byKey(const ValueKey('coach-input')), '/');
         tester.view.viewInsets = const FakeViewPadding(bottom: 220);
         await tester.pumpAndSettle();
@@ -182,7 +183,8 @@ void main() {
         );
         tester.view.viewInsets = FakeViewPadding.zero;
         await tester.pumpAndSettle();
-        expect(find.byKey(const ValueKey('coach-streak')), findsOneWidget);
+        // The full header (title, status, buttons), not the compact row.
+        expect(find.byKey(const ValueKey('coach-header-compact')), findsNothing);
         expect(tester.takeException(), isNull);
       },
     );

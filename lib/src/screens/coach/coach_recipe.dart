@@ -33,7 +33,12 @@ class _RecipeProposalCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        Text(l10n.coachRecipeCardEyebrow, style: AppType.eyebrow(t.accent)),
+        // The redesign's eyebrow (as on the start card); the ARB text is
+        // already in capitals.
+        Text(
+          l10n.coachRecipeCardEyebrow,
+          style: AppType.sectionEyebrow(t.accentText),
+        ),
         const SizedBox(height: 8),
         ClipRRect(
           borderRadius: BorderRadius.circular(rCard),

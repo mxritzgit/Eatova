@@ -246,7 +246,6 @@ class _CoachRecipeShellState extends State<_CoachRecipeShell> {
                 child: CoachChatScreen(
                   service: widget.service,
                   userName: 'Moritz',
-                  streak: 3,
                   onCreateRecipe: _create,
                   // Like eatova_home_page.dart: the visible list, not the
                   // full one (2026-09-02).

@@ -4,6 +4,7 @@ import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
 import '../auth/auth_repository.dart';
+import '../models/coach_day_brief.dart';
 import '../models/logged_meal.dart';
 import '../models/macro_progress.dart';
 import '../models/recipe_pick.dart';
@@ -1343,7 +1344,6 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       // string per call and must stay out.
       selector: () => (
         _store.userName,
-        _store.lifetimeStats,
         _store.profile,
         _store.dailyConsumedKcal,
         // Includes the snapshot's day validity without timestamp churn.
@@ -1365,7 +1365,13 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           // session when AuthGate rebuilds on a same-user token refresh.
           service: _store.sync?.coachChat,
           userName: _store.userName,
-          streak: _store.lifetimeStats.effectiveStreakOn(clock.now()),
+          // The start card reads the same budget as Today (inputs above:
+          // profile, burned kcal, logged meals).
+          dayBrief: coachDayBrief(
+            summary: _store.nutritionSummaryForFoodDate(clock.now()),
+            loggedToday: _store.mealsForFoodDate(clock.now()).isNotEmpty,
+            nextMainSlot: _store.nextOpenMainSlot(),
+          ),
           userContext: widget.sync != null ? _store.coachContext : null,
           // Confirmed /recipe suggestions take the manual form's path.
           onCreateRecipe: widget.sync == null ? null : _store.createUserRecipe,

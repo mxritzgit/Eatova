@@ -47,9 +47,11 @@ const List<_Kernscreen> _tour = <_Kernscreen>[
     'screen-recipes',
     <String Function(AppLocalizations)>[_empfehlungen, _alleRezepte],
   ),
+  // The visible title is "Coach" in both languages (the full "AI Coach" is
+  // its semantics label), so the start state's own texts prove the switch.
   _Kernscreen('nav-Coach', 'screen-coach', <String Function(AppLocalizations)>[
-    _coachTitel,
-    _coachStatus,
+    _coachFrag,
+    _coachRezept,
   ]),
 ];
 
@@ -60,8 +62,8 @@ String _empfehlungen(AppLocalizations l) => l.recipesForYou;
 // The chip bar's own-recipes chip (dark redesign); "All recipes" is now a
 // list heading that only appears once a list is shown.
 String _alleRezepte(AppLocalizations l) => l.recipesChipMine;
-String _coachTitel(AppLocalizations l) => l.coachTitle;
-String _coachStatus(AppLocalizations l) => l.coachStatusLine;
+String _coachFrag(AppLocalizations l) => l.coachTryTitle;
+String _coachRezept(AppLocalizations l) => l.coachTryRecipe;
 
 /// Settings texts, checked on the pushed route rather than in the tab tour.
 const List<String Function(AppLocalizations)> _einstellungenTexte =

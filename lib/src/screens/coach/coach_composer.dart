@@ -135,6 +135,9 @@ class _ComposerState extends State<_Composer> {
     // (dictation writes the controller directly); typing stops at the cap.
     final overLimit = !_CoachInputLimit.fits(widget.draft);
     final showLengthHint = widget.draft.length >= _lengthHintFrom || overLimit;
+    // With the floating tab bar below, the capsule sits right on the bar's
+    // band (the design's dock line); on the keyboard it keeps a small gap.
+    final onBand = MediaQuery.paddingOf(context).bottom > 0;
     // No viewInsets padding: the home scaffold uses
     // `resizeToAvoidBottomInset: true`, so the keyboard is already accounted
     // for.
@@ -146,92 +149,103 @@ class _ComposerState extends State<_Composer> {
           if (showQuotaHint)
             _QuotaHint(remaining: widget.remaining, onTap: widget.onQuotaTap),
           if (showLengthHint) _LengthHint(used: widget.draft.length),
-          // Horizontal 0: the side margin comes from the shell. The shadow is
-          // the only raised surface on this screen (composer above the list).
-          FieldCapsule(
-            focused: _focused,
-            constraints: const BoxConstraints(minHeight: 52, maxHeight: 160),
-            padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: <Widget>[
-                _ComposerIcon(
-                  key: const ValueKey('coach-attach'),
-                  icon: Icons.add_rounded,
-                  enabled: widget.canSend,
-                  onTap: widget.onAttach,
-                  semanticLabel: l10n.coachAttachSemanticLabel,
-                ),
-                const SizedBox(width: 2),
-                Expanded(
-                  child: TextField(
-                    key: const ValueKey('coach-input'),
-                    cursorOpacityAnimates: false,
-                    controller: widget.controller,
-                    focusNode: widget.focus,
-                    enabled: widget.enabled,
-                    maxLines: 5,
-                    minLines: 1,
-                    // No `maxLength`: it would hang Flutter's own counter under
-                    // the capsule AND enforce the cap in grapheme clusters,
-                    // which is not how the server counts.
-                    inputFormatters: const <TextInputFormatter>[
-                      _CoachInputLimit(),
-                    ],
-                    textInputAction: TextInputAction.newline,
-                    textCapitalization: TextCapitalization.sentences,
-                    style: AppType.ui(15.5, color: t.ink, height: 1.3),
-                    cursorColor: t.accent,
-                    decoration: InputDecoration(
-                      // All four borders AND `filled` are needed: the app's
-                      // inputDecorationTheme fills and outlines fields, so
-                      // setting only `border` would leave a second boxed
-                      // field inside the capsule (same as SheetField).
-                      filled: false,
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      disabledBorder: InputBorder.none,
-                      isCollapsed: true,
-                      contentPadding: const EdgeInsets.symmetric(
-                          vertical: 14, horizontal: 6),
-                      // C8: the placeholder names the AI — in a running chat
-                      // the composer is the only always-visible spot.
-                      // A wrapped hint must not reserve five input lines on
-                      // narrow screens while the actual draft is one line.
-                      hintMaxLines: 1,
-                      hintText: limitReached
-                          ? l10n.coachComposerHintLimitReached
-                          : widget.listening
-                              ? l10n.coachComposerHintListening
-                              : l10n.coachComposerHintDefault,
-                      hintStyle: AppType.ui(15.5, color: t.ink2),
+          // A 56 px capsule 14 px from the screen edges, flush with the tab
+          // bar: it runs 6 px past the shell's 20 px inset on each side.
+          _Bleed(
+            horizontal: _kShellInset - AppNavBar.sideGap,
+            child: FieldCapsule(
+              focused: _focused,
+              shape: SheetFieldShape.pill,
+              constraints: const BoxConstraints(minHeight: 56, maxHeight: 160),
+              padding: const EdgeInsets.all(6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: <Widget>[
+                  _ComposerIcon(
+                    key: const ValueKey('coach-attach'),
+                    icon: Icons.add_rounded,
+                    enabled: widget.canSend,
+                    onTap: widget.onAttach,
+                    semanticLabel: l10n.coachAttachSemanticLabel,
+                  ),
+                  const SizedBox(width: 2),
+                  Expanded(
+                    child: TextField(
+                      key: const ValueKey('coach-input'),
+                      cursorOpacityAnimates: false,
+                      controller: widget.controller,
+                      focusNode: widget.focus,
+                      enabled: widget.enabled,
+                      maxLines: 5,
+                      minLines: 1,
+                      // No `maxLength`: it would hang Flutter's own counter
+                      // under the capsule AND enforce the cap in grapheme
+                      // clusters, which is not how the server counts.
+                      inputFormatters: const <TextInputFormatter>[
+                        _CoachInputLimit(),
+                      ],
+                      textInputAction: TextInputAction.newline,
+                      textCapitalization: TextCapitalization.sentences,
+                      style: AppType.ui(16, color: t.ink, height: 1.25),
+                      cursorColor: t.accent,
+                      decoration: InputDecoration(
+                        // All four borders AND `filled` are needed: the app's
+                        // inputDecorationTheme fills and outlines fields, so
+                        // setting only `border` would leave a second boxed
+                        // field inside the capsule (same as SheetField).
+                        filled: false,
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        disabledBorder: InputBorder.none,
+                        isCollapsed: true,
+                        // 12 + 20 + 12 = 44: one line sits centred in the
+                        // 56 px capsule next to the 44 px buttons.
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: 12,
+                          horizontal: 6,
+                        ),
+                        // C8: the placeholder names the AI — in a running
+                        // chat the composer is the only always-visible spot.
+                        // A wrapped hint must not reserve five input lines on
+                        // narrow screens while the actual draft is one line.
+                        hintMaxLines: 1,
+                        hintText: limitReached
+                            ? l10n.coachComposerHintLimitReached
+                            : widget.listening
+                            ? l10n.coachComposerHintListening
+                            : l10n.coachComposerHintDefault,
+                        // ink2, not the design's ink3: on the field fill ink3
+                        // stays under 4.5:1.
+                        hintStyle: AppType.ui(16, color: t.ink2, height: 1.25),
+                      ),
                     ),
                   ),
-                ),
-                // The `eatova/speech` channel is implemented in the iOS
-                // runner only; elsewhere the button could merely fail.
-                // `defaultTargetPlatform` honours the test override.
-                if (defaultTargetPlatform == TargetPlatform.iOS) ...<Widget>[
+                  // The `eatova/speech` channel is implemented in the iOS
+                  // runner only; elsewhere the button could merely fail.
+                  // `defaultTargetPlatform` honours the test override.
+                  if (defaultTargetPlatform == TargetPlatform.iOS) ...<Widget>[
+                    const SizedBox(width: 2),
+                    _MicButton(
+                      enabled: widget.canSend,
+                      listening: widget.listening,
+                      onTap: widget.onMic,
+                    ),
+                  ],
                   const SizedBox(width: 2),
-                  _MicButton(
-                    enabled: widget.canSend,
-                    listening: widget.listening,
-                    onTap: widget.onMic,
+                  _SendButton(
+                    active: hasText,
+                    // `!overLimit`: sending would spend both rate-limit
+                    // windows on a guaranteed 413 and clear the field on the
+                    // way.
+                    enabled: widget.canSend && hasText && !overLimit,
+                    onTap: widget.onSubmit,
                   ),
                 ],
-                const SizedBox(width: 2),
-                _SendButton(
-                  active: hasText,
-                  // `!overLimit`: sending would spend both rate-limit windows
-                  // on a guaranteed 413 and clear the field on the way.
-                  enabled: widget.canSend && hasText && !overLimit,
-                  onTap: widget.onSubmit,
-                ),
-              ],
+              ),
             ),
           ),
-          const SizedBox(height: 4),
+          SizedBox(height: onBand ? 0 : 8),
         ],
       ),
     );
@@ -361,24 +375,20 @@ class _ComposerIcon extends StatelessWidget {
       button: true,
       enabled: enabled,
       label: semanticLabel,
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 2),
-        child: Material(
-          color: Colors.transparent,
-          shape: const CircleBorder(),
-          child: InkWell(
-            onTap: enabled ? onTap : null,
-            customBorder: const CircleBorder(),
-            child: SizedBox(
-              width: 38,
-              height: 44,
-              child: Center(
-                // Plain glyph without a chip — the capsule carries the fill.
-                child: Icon(
-                  icon,
-                  color: enabled ? t.ink2 : t.ink2.withValues(alpha: 0.5),
-                  size: 20,
-                ),
+      child: Material(
+        color: Colors.transparent,
+        shape: const CircleBorder(),
+        child: InkWell(
+          onTap: enabled ? onTap : null,
+          customBorder: const CircleBorder(),
+          child: SizedBox.square(
+            dimension: 44,
+            child: Center(
+              // Plain glyph without a chip — the capsule carries the fill.
+              child: Icon(
+                icon,
+                color: enabled ? t.ink2 : t.ink2.withValues(alpha: 0.5),
+                size: 20,
               ),
             ),
           ),
@@ -461,47 +471,43 @@ class _MicButtonState extends State<_MicButton>
       label: widget.listening
           ? l10n.coachMicLabelListening
           : l10n.coachMicLabelIdle,
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: 2),
-        child: Material(
+      child: Material(
         // Fill also via `accent`: `forest` at 18 % sits practically on `surf`
         // in dark mode and was invisible there.
-          color: widget.listening
-              ? t.accent.withValues(alpha: 0.16)
-              : Colors.transparent,
-          shape: const CircleBorder(),
-          child: InkWell(
-            onTap: widget.enabled ? widget.onTap : null,
-            customBorder: const CircleBorder(),
-            child: SizedBox(
-              width: 42,
-              height: 44,
-              child: Stack(
-                alignment: Alignment.center,
-                children: <Widget>[
-                  if (widget.listening && !reduce)
-                    RepaintBoundary(
-                      child: AnimatedBuilder(
-                        animation: _pulse,
-                        builder: (_, __) {
-                          final v = _pulse.value;
-                          return Container(
-                            width: 24 + 14 * v,
-                            height: 24 + 14 * v,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: t.accent.withValues(alpha: 0.5 * (1 - v)),
-                                width: 1.5,
-                              ),
+        color: widget.listening
+            ? t.accent.withValues(alpha: 0.16)
+            : Colors.transparent,
+        shape: const CircleBorder(),
+        child: InkWell(
+          onTap: widget.enabled ? widget.onTap : null,
+          customBorder: const CircleBorder(),
+          child: SizedBox.square(
+            dimension: 44,
+            child: Stack(
+              alignment: Alignment.center,
+              children: <Widget>[
+                if (widget.listening && !reduce)
+                  RepaintBoundary(
+                    child: AnimatedBuilder(
+                      animation: _pulse,
+                      builder: (_, __) {
+                        final v = _pulse.value;
+                        return Container(
+                          width: 24 + 14 * v,
+                          height: 24 + 14 * v,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: t.accent.withValues(alpha: 0.5 * (1 - v)),
+                              width: 1.5,
                             ),
-                          );
-                        },
-                      ),
+                          ),
+                        );
+                      },
                     ),
-                  Icon(Icons.mic_none_rounded, color: color, size: 20),
-                ],
-              ),
+                  ),
+                Icon(Icons.mic_none_rounded, color: color, size: 20),
+              ],
             ),
           ),
         ),
@@ -510,8 +516,9 @@ class _MicButtonState extends State<_MicButton>
   }
 }
 
-/// Send button: forest tile with lime arrow once a draft is in the field,
-/// quiet tile otherwise.
+/// Send button: the design's round accent button with an up arrow once a
+/// draft can go out; a faint accent circle while it cannot (empty field,
+/// request in flight, quota used up), so it never looks live when dead.
 class _SendButton extends StatelessWidget {
   const _SendButton({
     required this.active,
@@ -534,26 +541,33 @@ class _SendButton extends StatelessWidget {
       button: true,
       enabled: enabled,
       label: context.l10n.coachSendLabel,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
-        child: GestureDetector(
-          key: const ValueKey('coach-send'),
-          onTap: enabled ? onTap : null,
-          behavior: HitTestBehavior.opaque,
-          child: AnimatedContainer(
-            duration:
-                motionDuration(context, const Duration(milliseconds: 200)),
-            curve: Curves.easeOutCubic,
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(13),
-              color: scharf ? t.forest : t.tile,
-            ),
-            child: Icon(
-              Icons.send_rounded,
-              color: scharf ? t.lime : t.ink2,
-              size: 16,
+      child: GestureDetector(
+        key: const ValueKey('coach-send'),
+        onTap: enabled ? onTap : null,
+        behavior: HitTestBehavior.opaque,
+        // 44 px target around the design's 42 px circle.
+        child: SizedBox.square(
+          dimension: 44,
+          child: Center(
+            child: AnimatedContainer(
+              duration: motionDuration(
+                context,
+                const Duration(milliseconds: 200),
+              ),
+              curve: Curves.easeOutCubic,
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: scharf ? t.accentFill : t.accentTint,
+              ),
+              child: Icon(
+                Icons.arrow_upward_rounded,
+                color: scharf
+                    ? t.onAccentFill
+                    : t.accentText.withValues(alpha: 0.5),
+                size: 20,
+              ),
             ),
           ),
         ),
