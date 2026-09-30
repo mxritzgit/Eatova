@@ -783,6 +783,15 @@ extension LocalCacheMutations on LocalCache {
       _trainingHistoryKey,
       _trainingHistoryDeletionsKey,
     },
+    // Read for the checks above, never written here. Re-encoding them to
+    // diff cost the UI isolate ~20 ms per checkpoint with 300 workouts in the
+    // history (the player saves every 5 s).
+    readOnlyKeys: {
+      _trainingPlansKey,
+      _trainingHeadsKey,
+      _trainingHistoryKey,
+      _trainingHistoryDeletionsKey,
+    },
     tolerateUnreadable: {_trainingPlansKey},
     guards: guards,
     retryConflicts: false,
@@ -905,7 +914,13 @@ extension LocalCacheMutations on LocalCache {
     Set<String> Function(List<SyncOp>)? keysForQueue,
     Set<String> tolerateUnreadable = const {},
     bool retryConflicts = true,
+    Set<String> readOnlyKeys = const {},
   }) {
+    assert(
+      !readOnlyKeys.contains(_outboxKey) &&
+          !readOnlyKeys.contains(_pendingStatsKey),
+      'The outbox and the stats bundle are rewritten by every mutation',
+    );
     final store = atomicStore;
     if (_closed || store == null) {
       return Future.error(StateError('Atomic local storage unavailable'));
@@ -968,6 +983,17 @@ extension LocalCacheMutations on LocalCache {
         for (final entry in state.entries) {
           if (!selectedKeys.contains(entry.key) ||
               !snapshot.values.containsKey(entry.key)) {
+            continue;
+          }
+          // Still read and version-guarded, but [change] promised not to
+          // touch them, so they skip the encode-and-compare. Debug builds
+          // (and so every test) verify the promise.
+          if (readOnlyKeys.contains(entry.key)) {
+            assert(
+              jsonEncode(entry.value) ==
+                  jsonEncode(_decode(snapshot.values[entry.key])),
+              'Read-only slot ${entry.key} was changed',
+            );
             continue;
           }
           final value = entry.value == null ? null : jsonEncode(entry.value);
