@@ -15,25 +15,7 @@ import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/meal_camera_launcher.dart';
 
-import 'support/harness.dart' hide testWidgetsRobust;
-
-void testWidgetsRobust(String description, WidgetTesterCallback callback) {
-  testWidgets(description, (tester) async {
-    tester.view.physicalSize = const Size(1179, 2556);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    final prior = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exception.toString().contains('overflowed')) return;
-      prior?.call(details);
-    };
-    addTearDown(() => FlutterError.onError = prior);
-
-    await callback(tester);
-  });
-}
+import 'support/harness.dart';
 
 /// In-app camera the user leaves without a photo: `showModalBottomSheet`
 /// returns `null` on swipe/back dismiss.

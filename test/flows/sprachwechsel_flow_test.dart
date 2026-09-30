@@ -24,8 +24,7 @@ import 'package:eatova/main.dart';
 import 'package:eatova/src/app/locale_controller.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 
-import '../support/harness.dart' hide testWidgetsRobust;
-import 'flow_test_helpers.dart';
+import '../support/harness.dart';
 
 /// One core screen of the tour: how to reach it, how to recognise it, and the
 /// texts that must follow the language.

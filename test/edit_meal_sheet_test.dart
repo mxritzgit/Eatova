@@ -11,37 +11,13 @@ import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
 
-// `testWidgetsRobust` is declared locally below; the local one shadows the
-// harness export.
-import 'support/harness.dart' hide testWidgetsRobust;
+import 'support/harness.dart';
 import 'support/meal_slot_picker.dart';
 
 // Edit sheet: tapping a logged meal opens a sheet that changes portion/items,
 // slot and day and saves through the outbox-safe store path. Standalone tests
 // drive the sheet directly; the integration tests run through the real app
 // shell (EatovaApp) and thus MealEditScope + HomeStore.
-
-// Viewport pinning + overflow tolerance, as in widget_test.dart.
-void testWidgetsRobust(
-  String description,
-  WidgetTesterCallback callback,
-) {
-  testWidgets(description, (tester) async {
-    tester.view.physicalSize = const Size(1179, 2556);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    final prior = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exception.toString().contains('overflowed')) return;
-      prior?.call(details);
-    };
-    addTearDown(() => FlutterError.onError = prior);
-
-    await callback(tester);
-  });
-}
 
 MealAnalysisResult _result() => const MealAnalysisResult(
       mealName: 'Test-Bowl',

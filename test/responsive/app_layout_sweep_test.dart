@@ -32,7 +32,7 @@ import 'package:eatova/src/widgets/design/readable_width.dart';
 import 'package:eatova/src/widgets/kcal/food_date_picker.dart';
 
 import '../flows/flow_test_helpers.dart' show storeOf;
-import '../support/harness.dart' hide testWidgetsRobust;
+import '../support/harness.dart';
 
 // A Wednesday; recommendations rotate by date, so the clock is frozen.
 final _now = DateTime(2026, 9, 16, 12);

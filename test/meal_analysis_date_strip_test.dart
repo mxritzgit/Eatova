@@ -26,24 +26,6 @@ final AppLocalizations _de = lookupAppLocalizations(const Locale('de'));
 ({int y, int m, int d}) ymd(DateTime value) =>
     (y: value.year, m: value.month, d: value.day);
 
-void testWidgetsRobust(String description, WidgetTesterCallback callback) {
-  testWidgets(description, (tester) async {
-    tester.view.physicalSize = const Size(1179, 2556);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    final prior = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exception.toString().contains('overflowed')) return;
-      prior?.call(details);
-    };
-    addTearDown(() => FlutterError.onError = prior);
-
-    await callback(tester);
-  });
-}
-
 Future<void> _pumpFoodTab(
   WidgetTester tester, {
   ValueChanged<DateTime>? onDateSelected,

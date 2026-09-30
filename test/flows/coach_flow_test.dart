@@ -20,8 +20,7 @@ import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 
 // `testWidgetsRobust` exists in both files; the flows keep their own.
-import '../support/harness.dart' hide testWidgetsRobust;
-import 'flow_test_helpers.dart';
+import '../support/harness.dart';
 
 const String _question = 'What should I eat tonight?';
 const String _answer = 'Try salmon with sweet potato and broccoli.';

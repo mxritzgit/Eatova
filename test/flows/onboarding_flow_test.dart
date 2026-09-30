@@ -20,8 +20,7 @@ import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/local_cache.dart';
 
-import '../support/harness.dart' hide testWidgetsRobust;
-import 'flow_test_helpers.dart';
+import '../support/harness.dart';
 
 const String _userId = 'user-onboarding-flow';
 

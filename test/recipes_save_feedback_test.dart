@@ -22,7 +22,7 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 
-import 'support/harness.dart' hide testWidgetsRobust;
+import 'support/harness.dart';
 
 FitnessRecipe _recipe(String slug, {String title = 'Server-Bowl'}) =>
     FitnessRecipe(
@@ -81,25 +81,6 @@ class _HostState extends State<_Host> {
 /// [_Host] in the localized harness (dark, de) — same tree as before.
 Future<void> _pumpHost(WidgetTester tester, _Host host) =>
     pumpLocalized(tester, host, reducedMotion: false, safeArea: false);
-
-/// Viewport pinning plus overflow tolerance.
-void testWidgetsRobust(String description, WidgetTesterCallback callback) {
-  testWidgets(description, (tester) async {
-    tester.view.physicalSize = const Size(1179, 2556);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    final prior = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exception.toString().contains('overflowed')) return;
-      prior?.call(details);
-    };
-    addTearDown(() => FlutterError.onError = prior);
-
-    await callback(tester);
-  });
-}
 
 /// Creates a recipe named [name] through the sheet.
 Future<void> _legeRezeptAn(WidgetTester tester, {String name = 'Protein-Bowl', bool settle = true}) async {

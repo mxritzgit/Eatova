@@ -48,10 +48,8 @@
 //    (harness_self_test pins both directions).
 //  * `pumpLocalized` pumps exactly one frame, like `pumpWidget`. Pass
 //    `settle: true` for `pumpAndSettle` — but remember it eats snackbars.
-//  * Suites that already declare their own `testWidgetsRobust` keep theirs
-//    (a local declaration shadows the import). Suites importing
-//    `test/flows/flow_test_helpers.dart` AND this file must hide one of the
-//    two: `import '../support/harness.dart' hide testWidgetsRobust;`.
+//  * `testWidgetsRobust` lives here only; `test/flows/flow_test_helpers.dart`
+//    re-exports it, so a suite may import both files.
 //  * This file re-exports `design_harness.dart` but NOT the app libraries.
 //    Keep your own `import 'package:eatova/src/theme/app_tokens.dart';` — drop
 //    only the `design_harness.dart` import, otherwise `unnecessary_import`
@@ -470,19 +468,9 @@ String _caseLabel(Locale locale, Brightness brightness, double textScale) =>
 /// not reset `tester.view`, so both must happen inside the test body.
 ///
 /// Use [renderMatrix] instead when the overflow is the thing under test.
-///
-/// [skip] is the REASON a case is parked. `testWidgets` only takes `bool? skip`
-/// (unlike `test`, which also takes a String), so the reason would be dropped
-/// on the floor — it goes into the test name instead and stays readable in the
-/// runner output.
 @isTest
-void testWidgetsRobust(
-  String description,
-  WidgetTesterCallback callback, {
-  String? skip,
-}) {
-  final name = skip == null ? description : '$description [skip: $skip]';
-  testWidgets(name, skip: skip != null, (tester) async {
+void testWidgetsRobust(String description, WidgetTesterCallback callback) {
+  testWidgets(description, (tester) async {
     tester.view.physicalSize = const Size(1179, 2556);
     tester.view.devicePixelRatio = 3.0;
     addTearDown(tester.view.resetPhysicalSize);

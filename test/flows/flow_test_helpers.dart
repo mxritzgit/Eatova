@@ -1,5 +1,6 @@
 // Shared test infrastructure for the end-to-end flow tests in test/flows/:
-// the testWidgetsRobust wrapper and the fake services several suites use.
+// the fake services several suites use, plus a re-export of the shared
+// testWidgetsRobust wrapper.
 // Deliberately no `_test` suffix — this file is not a suite.
 
 import 'package:flutter/material.dart';
@@ -23,36 +24,8 @@ import 'package:eatova/src/theme/app_theme.dart';
 
 import '../fixlauf_a_helpers.dart';
 
-// testWidgets wrapper for the CI setup:
-//
-// 1. Pins the viewport to iPhone 14 portrait (393x852 @ DPR 3). The 800x600
-//    default shifts grid rows and makes scroll drags non-deterministic.
-// 2. Swallows RenderFlex overflow exceptions, which come from the headless
-//    render pass; on a real device the app sits in scroll containers.
-//
-// `testWidgets` installs its own FlutterError.onError AFTER setUp and does
-// not reset `tester.view`, so both must happen inside the test body.
-void testWidgetsRobust(
-  String description,
-  WidgetTesterCallback callback, {
-  String? skip,
-}) {
-  testWidgets(description, skip: skip != null, (tester) async {
-    tester.view.physicalSize = const Size(1179, 2556);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    final prior = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exception.toString().contains('overflowed')) return;
-      prior?.call(details);
-    };
-    addTearDown(() => FlutterError.onError = prior);
-
-    await callback(tester);
-  });
-}
+// The flows use the shared wrapper (viewport pin + overflow filter).
+export '../support/harness.dart' show testWidgetsRobust;
 
 /// Switches to the Today tab and checks the eaten tile of the calorie hero.
 ///

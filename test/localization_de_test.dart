@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/main.dart';
 
+import 'support/harness.dart';
+
 // German Material localization. EatovaApp no longer pins locale to de; it
 // follows the device via resolveEatovaLocale. This file checks the de branch:
 // a German device still gets German SDK dialogs in 24h format instead of
@@ -13,28 +15,6 @@ import 'package:eatova/main.dart';
 // The tests boot the REAL app shell and check both the localization values on
 // a context from the app tree (the path showTimePicker uses internally) and a
 // really opened TimePicker.
-
-// Viewport pinning + overflow tolerance as in widget_test.dart.
-void testWidgetsRobust(
-  String description,
-  WidgetTesterCallback callback,
-) {
-  testWidgets(description, (tester) async {
-    tester.view.physicalSize = const Size(1179, 2556);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    final prior = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exception.toString().contains('overflowed')) return;
-      prior?.call(details);
-    };
-    addTearDown(() => FlutterError.onError = prior);
-
-    await callback(tester);
-  });
-}
 
 void main() {
   testWidgetsRobust(
