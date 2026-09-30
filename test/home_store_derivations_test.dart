@@ -331,4 +331,106 @@ void main() {
       expect(recent.single.personalRecords, 0);
     });
   });
+
+  // Perf polish 2026-10-01: the PR count replays the whole history, so the
+  // store memoizes the recent list on the history's identity. The memo must
+  // follow every history change and must never cross into another account's
+  // store.
+  test('recentWorkoutSummaries: memo folgt der Historie und bleibt pro '
+      'Store (Konto)', () async {
+    await withClock(Clock.fixed(_now), () async {
+      final env = h.setup();
+      final store = env.store;
+      await h.bootUntilIdle(store);
+      await store.saveTrainingPlan(
+        TrainingPlan(
+          id: 'memo',
+          proposal: CoachTrainingProposal(
+            title: 'Memo plan',
+            workouts: [
+              TrainingWorkout(
+                title: 'Bench day',
+                exercises: [
+                  TrainingExercise(
+                    id: 'bench',
+                    name: 'Bench press',
+                    sets: 1,
+                    reps: 8,
+                    restSeconds: 90,
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+      final plan = store.trainingPlans.single;
+      TrainingHistoryEntry workout(int n, double kg) {
+        final start = DateTime(2026, 9, 20 + n, 7);
+        return TrainingHistoryEntry(
+          snapshot: TrainingSessionSnapshot(
+            plan: plan,
+            sessionId: '00000000-0000-4000-8000-00000000010$n',
+            startedAt: start,
+            actualSets: [
+              TrainingSetActual(
+                reference: const TrainingSetReference(
+                  exerciseIndex: 0,
+                  setIndex: 0,
+                ),
+                completedAt: start.add(const Duration(minutes: 1)),
+                reps: 8,
+                weightKg: kg,
+              ),
+            ],
+            workoutIndex: 0,
+            exerciseIndex: 0,
+            setIndex: 0,
+            phase: TrainingSessionPhase.review,
+            remainingMilliseconds: 0,
+            completedSets: const [
+              TrainingSetReference(exerciseIndex: 0, setIndex: 0),
+            ],
+          ),
+          finishedAt: start.add(Duration(minutes: 40 + n)),
+        );
+      }
+
+      expect(store.recentWorkoutSummaries(), isEmpty);
+      await store.completeTrainingSession(
+        workout(1, 70),
+        generation: store.trainingSessionGeneration,
+      );
+      final one = store.recentWorkoutSummaries();
+      expect(one.map((w) => w.personalRecords), [0]);
+      // Unchanged history: the same instance, no second replay.
+      expect(identical(store.recentWorkoutSummaries(), one), isTrue);
+      // A different limit is its own question.
+      expect(store.recentWorkoutSummaries(limit: 0), isEmpty);
+
+      await store.completeTrainingSession(
+        workout(2, 80),
+        generation: store.trainingSessionGeneration,
+      );
+      final two = store.recentWorkoutSummaries();
+      expect(identical(two, one), isFalse);
+      expect(two.map((w) => w.entry.id), [
+        workout(2, 80).id,
+        workout(1, 70).id,
+      ]);
+      expect(two.map((w) => w.personalRecords), [1, 0]);
+
+      await store.deleteTrainingHistory(workout(2, 80).id);
+      expect(
+        store.recentWorkoutSummaries().map((w) => w.entry.id),
+        [workout(1, 70).id],
+      );
+
+      // Account switch = a new store: nothing of the first store's memo.
+      final other = h.setup().store;
+      await h.bootUntilIdle(other);
+      expect(other.recentWorkoutSummaries(), isEmpty);
+      expect(store.recentWorkoutSummaries(), hasLength(1));
+    });
+  });
 }

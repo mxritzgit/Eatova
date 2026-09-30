@@ -3,10 +3,11 @@ part of 'home_store.dart';
 /// Read-only derivations for the redesigned tabs: thin bindings of the store
 /// state to the pure functions in `models/day_nutrition.dart`,
 /// `models/recipe_pick.dart`, `models/training_insights.dart` and
-/// `services/meal_totals.dart`. No state, no writes, no notifications.
+/// `services/meal_totals.dart`. No writes, no notifications; the only state
+/// is one identity-keyed memo ([recentWorkoutSummaries]).
 ///
-/// Every call computes a fresh value, so a `StoreSelector` must select the
-/// INPUTS named per member (G11), never the result.
+/// Every other call computes a fresh value, so a `StoreSelector` must select
+/// the INPUTS named per member (G11), never the result.
 mixin _HomeStoreDerivationsPart on _HomeStoreBase {
   /// The logging streak for the header pill: the server-kept
   /// [LifetimeStats.currentStreak] while its last tracked day is today or
@@ -99,7 +100,30 @@ mixin _HomeStoreDerivationsPart on _HomeStoreBase {
   /// The newest [limit] workouts with duration and PR count
   /// ([recentTrainingWorkouts]).
   ///
+  /// Memoized on the identity of [trainingHistory] and [limit]: the PR count
+  /// replays the WHOLE history (up to 2000 workouts, ~5 ms), and the Training
+  /// tab rebuilds on every set of a running session. The history list is
+  /// unmodifiable and replaced on every change, so identity is a complete
+  /// fingerprint; the memo lives on this store, i.e. per account session.
+  ///
   /// Selector inputs: [trainingHistory].
-  List<TrainingWorkoutSummary> recentWorkoutSummaries({int limit = 3}) =>
-      recentTrainingWorkouts(trainingHistory, limit: limit);
+  List<TrainingWorkoutSummary> recentWorkoutSummaries({int limit = 3}) {
+    final history = trainingHistory;
+    final memo = _recentWorkoutsMemo;
+    if (memo != null &&
+        identical(memo.history, history) &&
+        memo.limit == limit) {
+      return memo.value;
+    }
+    final value = recentTrainingWorkouts(history, limit: limit);
+    _recentWorkoutsMemo = (history: history, limit: limit, value: value);
+    return value;
+  }
+
+  ({
+    List<TrainingHistoryEntry> history,
+    int limit,
+    List<TrainingWorkoutSummary> value,
+  })?
+  _recentWorkoutsMemo;
 }
