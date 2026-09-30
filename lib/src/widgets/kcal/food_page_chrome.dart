@@ -179,11 +179,13 @@ class FoodDaySummaryCard extends StatelessWidget {
     final locale = l10n.localeName;
     final remaining = summary.remainingKcal;
     final over = remaining < 0;
-    // Loading shows a dash; loaded numbers count to their value.
-    Widget number(Key key, int value, TextStyle style) => loading
+    // Loading shows a dash; loaded numbers count to their value ("left"
+    // down from the budget, like the Today tab).
+    Widget number(Key key, int value, TextStyle style, int from) => loading
         ? Text('—', key: key, style: style)
         : CountingText(
             value: value.toDouble(),
+            from: from.toDouble(),
             format: (v) => formatThousands(v.round(), locale),
             textKey: key,
             style: style,
@@ -203,6 +205,7 @@ class FoodDaySummaryCard extends StatelessWidget {
     Widget amount(
       Key key,
       int value,
+      int from,
       TextStyle style,
       double unitSize,
       double gap,
@@ -215,7 +218,7 @@ class FoodDaySummaryCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.baseline,
         textBaseline: TextBaseline.alphabetic,
         children: [
-          number(key, value, style),
+          number(key, value, style, from),
           SizedBox(width: gap),
           Text(
             'kcal',
@@ -233,6 +236,7 @@ class FoodDaySummaryCard extends StatelessWidget {
         amount(
           const ValueKey('food-day-total'),
           summary.consumedKcal,
+          0,
           AppType.display(40, color: t.ink, height: 1),
           15,
           6,
@@ -249,6 +253,7 @@ class FoodDaySummaryCard extends StatelessWidget {
         amount(
           const ValueKey('food-day-left'),
           remaining.abs(),
+          over ? 0 : summary.budgetKcal,
           AppType.display(
             26,
             weight: FontWeight.w700,

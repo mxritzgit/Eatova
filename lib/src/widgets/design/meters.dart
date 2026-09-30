@@ -41,8 +41,8 @@ class TickGauge extends StatelessWidget {
       tween: Tween<double>(begin: 0, end: safe),
       // DESIGN_REFACTOR §5: reduced motion snaps the bar to its value instead
       // of ramping it up over half a second.
-      duration: motionDuration(context, const Duration(milliseconds: 550)),
-      curve: Curves.easeOutCubic,
+      duration: motionDuration(context, kMotionValue),
+      curve: kMotionCurve,
       builder: (context, value, _) => SizedBox(
         height: height,
         width: double.infinity,
@@ -142,11 +142,8 @@ class MacroBar extends StatelessWidget {
           Expanded(
             child: TweenAnimationBuilder<double>(
               tween: Tween<double>(begin: 0, end: pct),
-              duration: motionDuration(
-                context,
-                const Duration(milliseconds: 500),
-              ),
-              curve: Curves.easeOutCubic,
+              duration: motionDuration(context, kMotionValue),
+              curve: kMotionCurve,
               // Deliberate literal (bar cap = half of the 9 px bar), outside
               // the rChip/rControl scale on purpose.
               builder: (context, v, _) => ClipRRect(

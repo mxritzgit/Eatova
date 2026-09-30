@@ -124,6 +124,9 @@ class TodayCalorieCard extends StatelessWidget {
                         progress: summary.eatenFraction,
                         eyebrow: eyebrow,
                         remaining: remaining.abs(),
+                        // Left counts down from the budget as the arc
+                        // fills; "over" counts up from zero.
+                        remainingFrom: over ? 0 : summary.budgetKcal,
                         budgetLine: over
                             ? l10n.todayArcBudgetOver(budget)
                             : l10n.todayArcBudget(budget),
@@ -187,6 +190,7 @@ class _ArcWithCentre extends StatelessWidget {
     required this.progress,
     required this.eyebrow,
     required this.remaining,
+    required this.remainingFrom,
     required this.budgetLine,
   });
 
@@ -194,8 +198,9 @@ class _ArcWithCentre extends StatelessWidget {
   final int percent;
   final double progress;
 
-  /// Kcal left (or over), counted up in step with the arc.
-  final int remaining;
+  /// Kcal left (or over), counted in step with the arc from
+  /// [remainingFrom].
+  final int remaining, remainingFrom;
   final String eyebrow, budgetLine;
 
   @override
@@ -251,6 +256,7 @@ class _ArcWithCentre extends StatelessWidget {
                       ),
                       CountingText(
                         value: remaining.toDouble(),
+                        from: remainingFrom.toDouble(),
                         format: (v) => kcalThousands(v.round(), l10n),
                         textKey: const ValueKey('today-kcal-remaining'),
                         style: AppType.display(

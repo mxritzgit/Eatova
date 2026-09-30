@@ -592,20 +592,26 @@ class _PressScaleState extends State<PressScale>
   }
 }
 
-/// A number that counts to its new [value] instead of jumping: from 0 on
-/// first display, from the number on screen when [value] changes.
+/// A number that counts to its new [value] instead of jumping: from [from]
+/// on first display, from the number on screen when [value] changes.
 ///
 /// [format] turns the running value into the text (thousands separators,
 /// units, "58% eaten"); it receives doubles, so round there. The text carries
 /// [textKey] and, at rest, is exactly `Text(format(value), style: style)`, so
-/// finders, `Text.data` and pixels are those of a plain text. In flight,
-/// every digit that is still changing uses tabular figures, so the row does
-/// not wobble, and screen readers hear the final text.
+/// finders, `Text.data` and pixels are those of a plain text.
+///
+/// In flight the box keeps the RESTING text's size (an invisible copy lays
+/// it out), so nothing around the number reflows while it counts — a wider
+/// or narrower running figure would otherwise wrap a neighbour or nudge a
+/// card's height every frame. The running figure paints over that box,
+/// aligned like the text, with tabular figures for the digits that still
+/// change. Screen readers hear the final text.
 class CountingText extends StatelessWidget {
   const CountingText({
     super.key,
     required this.value,
     required this.format,
+    this.from = 0,
     this.textKey,
     this.style,
     this.textAlign,
@@ -617,6 +623,10 @@ class CountingText extends StatelessWidget {
 
   final double value;
   final String Function(double value) format;
+
+  /// Where the first display starts. A "left" figure starts at the full
+  /// budget, so it counts down while the eaten share fills up.
+  final double from;
   final Key? textKey;
   final TextStyle? style;
   final TextAlign? textAlign;
@@ -630,7 +640,7 @@ class CountingText extends StatelessWidget {
     final target = value.isFinite ? value : 0.0;
     final end = format(target);
     return TweenAnimationBuilder<double>(
-      tween: Tween<double>(begin: 0, end: target),
+      tween: Tween<double>(begin: from.isFinite ? from : 0, end: target),
       duration: motionDuration(context, kMotionValue),
       curve: kMotionCurve,
       builder: (context, shown, _) {
@@ -647,16 +657,50 @@ class CountingText extends StatelessWidget {
             semanticsLabel: semanticsLabel,
           );
         }
-        return Text.rich(
-          TextSpan(children: countingSpans(now, end, style)),
-          key: textKey,
-          style: style,
-          textAlign: textAlign,
-          maxLines: maxLines,
-          // Intermediate text may be a little wider: never wrap for a frame.
-          softWrap: false,
-          textScaler: textScaler,
-          semanticsLabel: semanticsLabel ?? end,
+        final align = switch (textAlign) {
+          TextAlign.center => AlignmentDirectional.center,
+          TextAlign.end => AlignmentDirectional.centerEnd,
+          TextAlign.right =>
+            Directionality.of(context) == TextDirection.ltr
+                ? AlignmentDirectional.centerEnd
+                : AlignmentDirectional.centerStart,
+          _ => AlignmentDirectional.centerStart,
+        };
+        return Stack(
+          clipBehavior: Clip.none,
+          children: <Widget>[
+            // Sizes the box like the resting text; not painted, not read.
+            Visibility(
+              visible: false,
+              maintainState: true,
+              maintainAnimation: true,
+              maintainSize: true,
+              child: Text(
+                end,
+                style: style,
+                textAlign: textAlign,
+                maxLines: maxLines,
+                softWrap: softWrap,
+                textScaler: textScaler,
+              ),
+            ),
+            Positioned.fill(
+              child: OverflowBox(
+                maxWidth: double.infinity,
+                alignment: align,
+                child: Text.rich(
+                  TextSpan(children: countingSpans(now, end, style)),
+                  key: textKey,
+                  style: style,
+                  textAlign: textAlign,
+                  maxLines: 1,
+                  softWrap: false,
+                  textScaler: textScaler,
+                  semanticsLabel: semanticsLabel ?? end,
+                ),
+              ),
+            ),
+          ],
         );
       },
     );
