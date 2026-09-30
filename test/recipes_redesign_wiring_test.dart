@@ -8,6 +8,8 @@
 // scenario: Mon 2026-09-28 18:30, a 2,123 kcal goal, 1,221 kcal logged,
 // dinner open, so the shared pick is the turkey steak (610 kcal, 58 g).
 
+import 'dart:async';
+
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -410,6 +412,54 @@ void main() {
           findsOneWidget,
         );
       });
+    });
+
+    testWidgets('a quick double tap on "Add to dinner" logs one entry', (
+      tester,
+    ) async {
+      // A slow write keeps the first tap's log in flight while the second
+      // tap lands (the real store usually commits within one frame).
+      final recipe = recipeCatalogForLocale(
+        'en',
+      ).firstWhere((r) => r.slug == _turkey);
+      final gate = Completer<void>();
+      final diary = <(MealAnalysisResult, MealSlot)>[];
+      pinPhoneViewport(tester);
+      await pumpLocalized(
+        tester,
+        RecipesScreen(
+          onAddMeal: (MealAnalysisResult _, MealSlot __) {},
+          onAddPickToToday: (result, slot) async {
+            diary.add((result, slot));
+            await gate.future;
+            return 'meal-${diary.length}';
+          },
+          mealPick: RecipePick(
+            recipe: recipe,
+            slot: MealSlot.dinner,
+            source: RecipePickSource.suggested,
+            servings: 1,
+            kcal: 610,
+            proteinG: 58,
+            remainingKcalBefore: 902,
+          ),
+        ),
+        locale: const Locale('en'),
+        settle: true,
+      );
+      final add = _key('recipe-hero-add');
+      await _reveal(tester, add);
+
+      await tester.tap(add);
+      await tester.pump();
+      await tester.tap(add);
+      await tester.pump();
+      expect(diary, hasLength(1), reason: 'the second tap logs nothing');
+
+      gate.complete();
+      await tester.pumpAndSettle();
+      expect(diary.single.$2, MealSlot.dinner);
+      expect(find.text('Added 610 kcal to Dinner.'), findsOneWidget);
     });
 
     testWidgets('a planned dinner is the pick and is eaten through the plan', (

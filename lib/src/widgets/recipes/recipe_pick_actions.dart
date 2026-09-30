@@ -76,7 +76,9 @@ void openRecipePick(
 /// - suggested: [addMeal] with the pick's servings into the pick's slot.
 ///
 /// Returns true when a meal was committed. A failed write shows the app's
-/// "could not save" snack ([tryPersistChange]).
+/// "could not save" snack ([tryPersistChange]). While a pick's write is in
+/// flight, logging the same pick again returns false and writes nothing, so
+/// a double tap cannot log it twice.
 Future<bool> logRecipePick(
   BuildContext context,
   RecipePick pick, {
@@ -86,17 +88,32 @@ Future<bool> logRecipePick(
   bool Function()? isSessionCurrent,
 }) async {
   if (isSessionCurrent?.call() == false) return false;
-  final planned = pick.plannedMeal;
-  if (pick.source == RecipePickSource.planned && planned != null) {
-    if (pick.kcal == null) {
-      openMealPlan();
-      return false;
-    }
-    return tryPersistChange(context, () => eatPlannedMeal(planned.id));
+  final planned = pick.source == RecipePickSource.planned
+      ? pick.plannedMeal
+      : null;
+  if (planned != null && pick.kcal == null) {
+    openMealPlan();
+    return false;
   }
-  final result = pick.recipe.toMealResultForServings(
-    pick.servings,
-    context.l10n,
-  );
-  return tryPersistChange(context, () => addMeal(result, pick.slot));
+  final Object key = planned?.id ?? (pick.recipe.slug, pick.slot);
+  if (!_picksInFlight.add(key)) return false;
+  try {
+    if (planned != null) {
+      return await tryPersistChange(
+        context,
+        () => eatPlannedMeal(planned.id),
+      );
+    }
+    final result = pick.recipe.toMealResultForServings(
+      pick.servings,
+      context.l10n,
+    );
+    return await tryPersistChange(context, () => addMeal(result, pick.slot));
+  } finally {
+    _picksInFlight.remove(key);
+  }
 }
+
+/// Picks whose write [logRecipePick] is awaiting: the plan entry's id, or a
+/// suggestion's (recipe slug, slot).
+final Set<Object> _picksInFlight = <Object>{};

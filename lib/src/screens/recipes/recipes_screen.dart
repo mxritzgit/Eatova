@@ -481,9 +481,6 @@ class _RecipesScreenState extends State<RecipesScreen> {
   /// caught by the next start's sweep.
   bool _photoSweepDone = false;
 
-  /// True while "Add to `<slot>`" is logging, so a double tap logs once.
-  bool _addingPick = false;
-
   @override
   void initState() {
     super.initState();
@@ -780,47 +777,43 @@ class _RecipesScreenState extends State<RecipesScreen> {
   /// "Add to `<slot>`" of the pick, through the shared [logRecipePick]: a
   /// planned meal is eaten through the meal plan (planned servings, plan and
   /// diary in one step); a suggestion logs `pick.servings` into TODAY's
-  /// `pick.slot` with an undo that removes exactly that entry again. The
-  /// busy flag keeps a double tap from logging twice.
+  /// `pick.slot` with an undo that removes exactly that entry again. A
+  /// double tap logs once: the helper ignores a pick whose write is still
+  /// in flight.
   Future<void> _addPick(RecipePick pick) async {
-    if (_addingPick || !_sessionCurrent) return;
+    if (!_sessionCurrent) return;
     final l10n = context.l10n;
-    setState(() => _addingPick = true);
-    try {
-      MealAnalysisResult? added;
-      String? mealId;
-      final saved = await logRecipePick(
-        context,
-        pick,
-        addMeal: (result, slot) async {
-          added = result;
-          mealId = await widget.onAddPickToToday!(result, slot);
-        },
-        eatPlannedMeal: (id) async {
-          await widget.onEatPlannedMeal!(id);
-        },
-        openMealPlan: widget.onOpenMealPlan ?? () {},
-        isSessionCurrent: () => _sessionCurrent,
-      );
-      if (!saved || !mounted || !_sessionCurrent) return;
-      final undo = widget.onUndoAddedMeal;
-      final id = mealId;
-      final kcal = added?.caloriesKcal ?? pick.kcal!;
-      showAppSnack(
-        context,
-        l10n.commonKcalAddedToSlot(kcal, pick.slot.label(l10n)),
-        icon: Icons.check_circle_rounded,
-        // Only a suggestion has an inverse; the plan conversion has none.
-        action: added == null || undo == null || id == null
-            ? null
-            : SnackBarAction(
-                label: l10n.commonUndo,
-                onPressed: () => unawaited(undo(id)),
-              ),
-      );
-    } finally {
-      if (mounted && !_disposing) setState(() => _addingPick = false);
-    }
+    MealAnalysisResult? added;
+    String? mealId;
+    final saved = await logRecipePick(
+      context,
+      pick,
+      addMeal: (result, slot) async {
+        added = result;
+        mealId = await widget.onAddPickToToday!(result, slot);
+      },
+      eatPlannedMeal: (id) async {
+        await widget.onEatPlannedMeal!(id);
+      },
+      openMealPlan: widget.onOpenMealPlan ?? () {},
+      isSessionCurrent: () => _sessionCurrent,
+    );
+    if (!saved || !mounted || !_sessionCurrent) return;
+    final undo = widget.onUndoAddedMeal;
+    final id = mealId;
+    final kcal = added?.caloriesKcal ?? pick.kcal!;
+    showAppSnack(
+      context,
+      l10n.commonKcalAddedToSlot(kcal, pick.slot.label(l10n)),
+      icon: Icons.check_circle_rounded,
+      // Only a suggestion has an inverse; the plan conversion has none.
+      action: added == null || undo == null || id == null
+          ? null
+          : SnackBarAction(
+              label: l10n.commonUndo,
+              onPressed: () => unawaited(undo(id)),
+            ),
+    );
   }
 
 

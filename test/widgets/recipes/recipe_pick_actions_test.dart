@@ -2,6 +2,8 @@
 // pick is only ever logged through the plan conversion, never through the
 // generic recipe add; a suggestion opens its recipe or logs its servings.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -228,6 +230,87 @@ void main() {
       }
       expect(calls.added, isEmpty);
       expect(calls.eaten, isEmpty);
+    });
+
+    testWidgets('logging a pick again while its write is in flight writes '
+        'nothing; afterwards it logs again', (tester) async {
+      final context = await _context(tester);
+      for (final pick in [_suggested(), _planned()]) {
+        var gate = Completer<void>();
+        var writes = 0;
+        Future<void> slowWrite() async {
+          writes++;
+          await gate.future;
+        }
+
+        Future<bool> log() => logRecipePick(
+          context,
+          pick,
+          addMeal: (_, _) => slowWrite(),
+          eatPlannedMeal: (_) => slowWrite(),
+          openMealPlan: () {},
+        );
+
+        final first = log();
+        final second = log();
+        await tester.pump();
+        expect(writes, 1, reason: 'a double tap: ${pick.source}');
+        gate.complete();
+        expect(await first, isTrue);
+        expect(await second, isFalse);
+
+        // The guard is released: a later, deliberate log writes again.
+        gate = Completer<void>()..complete();
+        expect(await log(), isTrue);
+        expect(writes, 2);
+      }
+    });
+
+    testWidgets('different picks do not block each other, and a failed '
+        'write releases its pick', (tester) async {
+      final context = await _context(tester);
+      final gate = Completer<void>();
+      final calls = _Calls();
+      final suggested = logRecipePick(
+        context,
+        _suggested(),
+        addMeal: (result, slot) async {
+          calls.add(result, slot);
+          await gate.future;
+        },
+        eatPlannedMeal: calls.eat,
+        openMealPlan: calls.openPlan,
+      );
+      final planned = _planned();
+      expect(
+        await logRecipePick(
+          context,
+          planned,
+          addMeal: calls.add,
+          eatPlannedMeal: calls.eat,
+          openMealPlan: calls.openPlan,
+        ),
+        isTrue,
+        reason: 'another pick logs while the first is in flight',
+      );
+      gate.complete();
+      expect(await suggested, isTrue);
+      expect(calls.added, hasLength(1));
+      expect(calls.eaten, [planned.plannedMeal!.id]);
+
+      calls.failEat = true;
+      final failing = _planned();
+      Future<bool> eat() => logRecipePick(
+        context,
+        failing,
+        addMeal: calls.add,
+        eatPlannedMeal: calls.eat,
+        openMealPlan: calls.openPlan,
+      );
+      expect(await eat(), isFalse);
+      calls.failEat = false;
+      expect(await eat(), isTrue, reason: 'the failure released the pick');
+      await tester.pump();
     });
   });
 }
