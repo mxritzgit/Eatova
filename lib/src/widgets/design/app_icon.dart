@@ -86,20 +86,8 @@ class _AppIconPainter extends CustomPainter {
         drawing.dinner();
       case AppSymbol.snack:
         drawing.snack();
-      case AppSymbol.protein:
-        drawing.protein();
-      case AppSymbol.carbs:
-        drawing.carbs();
-      case AppSymbol.fat:
-        drawing.fat();
-      case AppSymbol.energy:
-        drawing.energy();
       case AppSymbol.steps:
         drawing.steps();
-      case AppSymbol.settings:
-        drawing.settings();
-      case AppSymbol.addMeal:
-        drawing.addMeal();
     }
     canvas.restore();
   }
@@ -383,82 +371,6 @@ class _SymbolDrawing {
     );
   }
 
-  void protein() {
-    shape(
-      Path()
-        ..moveTo(12, 3)
-        ..cubicTo(8.3, 3, 4.5, 9.5, 4.5, 14)
-        ..cubicTo(4.5, 23.1, 19.5, 23.1, 19.5, 14)
-        ..cubicTo(19.5, 9.5, 15.7, 3, 12, 3)
-        ..close(),
-    );
-    shape(oval(8.1, 11, 15.9, 18.6));
-    path(
-      Path()
-        ..moveTo(8, 8.6)
-        ..quadraticBezierTo(8.7, 6.9, 10, 6.1),
-    );
-  }
-
-  void carbs() {
-    line(6, 21, 17, 3);
-    for (final (x, y) in [(8.6, 16.5), (11.4, 12.0), (14.2, 7.5)]) {
-      shape(
-        Path()
-          ..moveTo(x, y)
-          ..quadraticBezierTo(x - 5.2, y + .1, x - 4.1, y - 4.4)
-          ..quadraticBezierTo(x - .2, y - 4.1, x, y)
-          ..close(),
-      );
-      shape(
-        Path()
-          ..moveTo(x, y)
-          ..quadraticBezierTo(x + .2, y + 4.3, x + 4.4, y + 3.5)
-          ..quadraticBezierTo(x + 4.1, y - .2, x, y)
-          ..close(),
-      );
-    }
-  }
-
-  void fat() {
-    shape(
-      Path()
-        ..moveTo(11.5, 7)
-        ..quadraticBezierTo(13.8, 1.9, 21, 3)
-        ..quadraticBezierTo(19.8, 9.3, 11.5, 7)
-        ..close(),
-    );
-    line(9, 11, 16.5, 5.2);
-    shape(oval(3.5, 10, 12.5, 21));
-    path(
-      Path()
-        ..moveTo(6.5, 14)
-        ..quadraticBezierTo(5.5, 16, 6.4, 17.5),
-    );
-    shape(oval(14, 10, 21, 18.5));
-    line(17.2, 10, 15, 7.5);
-  }
-
-  void energy() {
-    shape(
-      Path()
-        ..moveTo(12, 2.5)
-        ..quadraticBezierTo(15.1, 7, 14, 10)
-        ..quadraticBezierTo(17, 9, 17.3, 6.7)
-        ..cubicTo(23, 13, 20.6, 21, 12, 21)
-        ..cubicTo(3.1, 21, 2.8, 14, 6, 9.4)
-        ..lineTo(7.5, 12)
-        ..quadraticBezierTo(11.5, 8.3, 12, 2.5)
-        ..close(),
-    );
-    path(
-      Path()
-        ..moveTo(10, 17.4)
-        ..quadraticBezierTo(9.3, 14.6, 12, 12.8)
-        ..quadraticBezierTo(12, 16, 14, 17.4),
-    );
-  }
-
   void steps() {
     void shoe() {
       shape(
@@ -487,25 +399,5 @@ class _SymbolDrawing {
     canvas.scale(-1, 1);
     shoe();
     canvas.restore();
-  }
-
-  void settings() {
-    line(3, 7, 6, 7);
-    line(12, 7, 21, 7);
-    line(3, 17, 12, 17);
-    line(18, 17, 21, 17);
-    shape(oval(6, 4, 12, 10));
-    shape(oval(12, 14, 18, 20));
-  }
-
-  void addMeal() {
-    bowl();
-    path(
-      Path()
-        ..moveTo(5, 8)
-        ..quadraticBezierTo(6.5, 4.7, 10, 5.5),
-    );
-    line(18, 2.5, 18, 8.5);
-    line(15, 5.5, 21, 5.5);
   }
 }

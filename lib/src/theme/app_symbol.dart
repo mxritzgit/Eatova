@@ -9,11 +9,5 @@ enum AppSymbol {
   lunch,
   dinner,
   snack,
-  protein,
-  carbs,
-  fat,
-  energy,
   steps,
-  settings,
-  addMeal,
 }
