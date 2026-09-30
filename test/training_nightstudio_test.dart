@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
-import 'package:flutter/services.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
-import 'package:eatova/src/theme/training_studio_theme.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/models/coach_training_proposal.dart';
 import 'package:eatova/src/models/training_plan.dart';
@@ -73,15 +71,20 @@ Future<void> _tap(WidgetTester tester, String key) async {
   if (finder.evaluate().isEmpty) {
     await tester.scrollUntilVisible(
       finder,
-      key.startsWith('training-workout-') || key == 'training-open-plans'
-          ? -180
-          : 180,
+      180,
       scrollable: find.byType(Scrollable).last,
     );
   }
   await tester.ensureVisible(finder);
   await tester.pumpAndSettle();
   await tester.tap(finder);
+  await tester.pumpAndSettle();
+}
+
+/// Picks workout [index] through Quick start's "Choose workout" menu.
+Future<void> _chooseWorkout(WidgetTester tester, int index) async {
+  await _tap(tester, 'training-quick-workouts');
+  await tester.tap(find.byKey(ValueKey('training-workout-$index')));
   await tester.pumpAndSettle();
 }
 
@@ -98,10 +101,23 @@ void main() {
         surfaceSize: const Size(393, 852),
         settle: true,
       );
+      // The chooser is a labelled button that opens the workout menu.
+      final chooser = find.byKey(const ValueKey('training-quick-workouts'));
+      await tester.ensureVisible(chooser);
+      await tester.pumpAndSettle();
+      tester.semantics.performAction(
+        find.semantics.byLabel('Choose workout'),
+        SemanticsAction.tap,
+      );
+      await tester.pumpAndSettle();
       final tab = find.bySemanticsLabel('Workout 2: Mobility');
       expect(tab, findsOneWidget);
       final node = tester.getSemantics(tab);
       expect(node.getSemanticsData().hasAction(SemanticsAction.tap), isTrue);
+      expect(
+        tester.getSemantics(find.bySemanticsLabel('Workout 1: Upper body')),
+        isSemantics(isSelected: true),
+      );
       tester.semantics.performAction(
         find.semantics.byLabel('Workout 2: Mobility'),
         SemanticsAction.tap,
@@ -131,7 +147,7 @@ void main() {
       expect(find.text('45s rest'), findsOneWidget);
       await _tap(tester, 'training-all-exercises');
       expect(find.text('Exercise 6'), findsOneWidget);
-      await _tap(tester, 'training-workout-1');
+      await _chooseWorkout(tester, 1);
       expect(find.text('Timed movement'), findsOneWidget);
       expect(find.text('Technique note 1'), findsNothing);
       expect(starts, 0);
@@ -169,7 +185,7 @@ void main() {
       surfaceSize: const Size(393, 852),
       settle: true,
     );
-    await _tap(tester, 'training-workout-1');
+    await _chooseWorkout(tester, 1);
     update!(() => plans = [b]);
     await tester.pumpAndSettle();
     expect(find.text('New first workout'), findsOneWidget);
@@ -276,7 +292,7 @@ void main() {
     await pumpLocalized(
       tester,
       _screen(
-        plans: [],
+        plans: [_plan('a')],
         create: (_) async {
           writes++;
           return SyncDelivery.delivered;
@@ -321,8 +337,11 @@ void main() {
   }
 
   testWidgets(
-    'studio remains dark in light appearance and keeps the start action visible',
+    'Training follows the app theme and shows Start in the first viewport',
     (tester) async {
+      // The forced dark studio theme is gone (the app is dark now): a light
+      // app theme reaches the tab unchanged, so a later switch back to light
+      // needs no Training-specific code.
       await pumpLocalized(
         tester,
         _screen(plans: [_plan('a')]),
@@ -333,12 +352,15 @@ void main() {
       );
       final start = find.byKey(const ValueKey('training-start'));
       expect(start.hitTestable(), findsOneWidget);
-      expect(AppTokens.of(tester.element(start)).bg, AppTokens.dark.bg);
+      expect(AppTokens.of(tester.element(start)).bg, AppTokens.light.bg);
+      // Start sits in the workout card, not pinned below the list: the page
+      // scrolls as one down to the tab's bottom edge.
       final scroll = tester.getRect(
         find.byKey(const PageStorageKey('training-scroll')),
       );
-      expect(scroll.bottom, lessThanOrEqualTo(tester.getTopLeft(start).dy));
-      expect(scroll.height, greaterThan(852 * .7));
+      final page = tester.getRect(find.byType(TrainingScreen));
+      expect(scroll.bottom, page.bottom);
+      expect(tester.getRect(start).bottom, lessThan(page.bottom));
     },
   );
 
@@ -381,25 +403,5 @@ void main() {
     Navigator.of(rootContext).pop();
     await tester.pumpAndSettle();
     expect(SnackHost.hasLiveHost, isTrue);
-  });
-
-  testWidgets('native bar contrast follows studio entry and exit', (
-    tester,
-  ) async {
-    for (final active in [true, false]) {
-      await pumpLocalized(
-        tester,
-        TrainingStudioChrome(active: active, child: const Text('Chrome')),
-        brightness: Brightness.light,
-        settle: true,
-      );
-      final region = tester.widget<AnnotatedRegion<SystemUiOverlayStyle>>(
-        find.byType(AnnotatedRegion<SystemUiOverlayStyle>).last,
-      );
-      expect(
-        region.value.statusBarIconBrightness,
-        active ? Brightness.light : Brightness.dark,
-      );
-    }
   });
 }

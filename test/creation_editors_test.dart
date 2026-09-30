@@ -9,13 +9,14 @@ import 'package:eatova/src/screens/training/training_plan_editor.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 
 import 'support/harness.dart';
+import 'support/recipe_navigation.dart';
 
 void main() {
   setUpAll(() async {
-    for (final family in ['Archivo', 'BricolageGrotesque']) {
+    for (final family in ['Figtree', 'BricolageGrotesque']) {
       final fonts = FontLoader(family);
       for (final weight
-          in family == 'Archivo'
+          in family == 'Figtree'
               ? ['Regular', 'Medium', 'SemiBold', 'Bold']
               : ['Bold', 'ExtraBold']) {
         fonts.addFont(rootBundle.load('assets/fonts/$family-$weight.ttf'));
@@ -49,12 +50,12 @@ void main() {
               surfaceSize: const Size(320, 568),
               textScale: 2,
             );
-            await tester.tap(
-              training
-                  ? find.text('Open')
-                  : find.byKey(const ValueKey('recipe-create-button')),
-            );
-            await tester.pumpAndSettle();
+            if (training) {
+              await tester.tap(find.text('Open'));
+              await tester.pumpAndSettle();
+            } else {
+              await openRecipeCreateSheet(tester);
+            }
             final field = find.byKey(
               ValueKey(
                 training ? 'training-editor-title' : 'recipe-create-name',
@@ -174,8 +175,7 @@ void main() {
       surfaceSize: const Size(320, 568),
       textScale: 2,
     );
-    await tester.tap(find.byKey(const ValueKey('recipe-create-button')));
-    await tester.pumpAndSettle();
+    await openRecipeCreateSheet(tester);
     for (final name in ['camera', 'gallery']) {
       final action = find.byKey(ValueKey('recipe-create-photo-$name'));
       await tester.ensureVisible(action);
@@ -206,8 +206,7 @@ void main() {
         ),
         surfaceSize: const Size(390, 844),
       );
-      await tester.tap(find.byKey(const ValueKey('recipe-create-button')));
-      await tester.pumpAndSettle();
+      await openRecipeCreateSheet(tester);
       final name = find.byKey(const ValueKey('recipe-create-name'));
       await tester.enterText(name, 'Mein Rezept');
       await tester.pumpAndSettle();

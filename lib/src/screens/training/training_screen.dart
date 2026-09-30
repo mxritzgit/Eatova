@@ -4,13 +4,17 @@ import '../../widgets/common/persistence_action.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/coach_training_proposal.dart';
+import '../../models/training_history.dart';
+import '../../models/training_insights.dart';
 import '../../models/training_plan.dart';
+import '../../models/training_session.dart';
 import '../../services/sync_error_messages.dart';
 import '../../services/uuid.dart';
 import '../../theme/app_tokens.dart';
-import '../../theme/training_studio_theme.dart';
 import '../../widgets/common/app_snack.dart';
+import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
+import 'training_overview_widgets.dart';
 import 'training_plan_picker.dart';
 import 'training_studio_widgets.dart';
 import 'training_plan_editor.dart';
@@ -30,13 +34,19 @@ class TrainingScreen extends StatefulWidget {
     this.loadFailed = false,
     this.onRetry,
     this.hasActiveSession = false,
+    this.activeSession,
     this.onResumeWorkout,
     this.onOpenHistory,
     this.onDiscussPlan,
-    this.discussPlanLabel,
     this.adoptionConflicts = const [],
     this.onReviewAdoption,
     this.onDiscardAdoption,
+    this.nextWorkout,
+    this.week,
+    this.volume,
+    this.recentWorkouts = const [],
+    this.history = const [],
+    this.onOpenWorkout,
   });
 
   final List<TrainingPlan> plans;
@@ -52,29 +62,122 @@ class TrainingScreen extends StatefulWidget {
   final bool loadFailed;
   final VoidCallback? onRetry;
   final bool hasActiveSession;
+
+  /// The saved session behind [hasActiveSession]: the card shows its
+  /// workout, so "Resume" continues exactly what is on screen.
+  final TrainingSessionSnapshot? activeSession;
   final VoidCallback? onResumeWorkout;
   final VoidCallback? onOpenHistory;
   final ValueChanged<TrainingPlan>? onDiscussPlan;
-  final String? discussPlanLabel;
   final List<TrainingPlan> adoptionConflicts;
   final Future<void> Function(TrainingPlan)? onReviewAdoption;
   final Future<void> Function(TrainingPlan)? onDiscardAdoption;
+
+  /// The selected plan's workout for today (`nextTrainingWorkoutForToday`);
+  /// without it the card starts the plan at its first workout.
+  final TrainingNextWorkout? nextWorkout;
+
+  /// This week's finished workouts (`currentTrainingWeek`); hidden if null.
+  final TrainingWeek? week;
+
+  /// Weekly load (`weeklyTrainingVolume`); hidden if null.
+  final TrainingVolumeTrend? volume;
+
+  /// The newest workouts (`recentWorkoutSummaries`); the section hides when
+  /// empty.
+  final List<TrainingWorkoutSummary> recentWorkouts;
+
+  /// Completed workouts, for "Last time" of a workout picked by hand.
+  final List<TrainingHistoryEntry> history;
+
+  /// Opens one finished workout (a "Recent" row).
+  final ValueChanged<TrainingHistoryEntry>? onOpenWorkout;
 
   @override
   State<TrainingScreen> createState() => _TrainingScreenState();
 }
 
 class _TrainingScreenState extends State<TrainingScreen> {
-  int _workoutIndex = 0;
+  /// A workout picked with "Choose workout"; null follows the rotation.
+  int? _chosenWorkout;
   bool _deleting = false;
   bool _reviewingAdoption = false;
   final _scroll = ScrollController();
+  final _cardKey = GlobalKey();
 
-  TrainingPlan? get _plan {
-    if (widget.plans.isEmpty) return null;
-    return widget.plans.firstWhere(
-      (plan) => plan.id == widget.selectedPlanId,
-      orElse: () => widget.plans.first,
+  TrainingPlan? get _plan => _selectedPlan(widget);
+
+  static TrainingPlan? _selectedPlan(TrainingScreen screen) {
+    if (screen.plans.isEmpty) return null;
+    return screen.plans.firstWhere(
+      (plan) => plan.id == screen.selectedPlanId,
+      orElse: () => screen.plans.first,
+    );
+  }
+
+  /// The rotation's workout for [plan]: the store's pick when it belongs to
+  /// this plan, else the plan's first workout (nothing trained yet).
+  TrainingNextWorkout? _next(TrainingPlan? plan) {
+    if (plan == null || plan.workouts.isEmpty) return null;
+    final next = widget.nextWorkout;
+    if (next != null &&
+        next.plan.id == plan.id &&
+        next.workoutIndex < plan.workouts.length) {
+      return next;
+    }
+    return TrainingNextWorkout(
+      plan: plan,
+      workoutIndex: 0,
+      completedToday: false,
+      exercises: [
+        for (final exercise in plan.workouts.first.exercises)
+          TrainingExercisePreview(exercise: exercise),
+      ],
+    );
+  }
+
+  /// The saved session, if the card must show it (see [activeSession]).
+  TrainingSessionSnapshot? get _session =>
+      widget.hasActiveSession ? widget.activeSession : null;
+
+  /// What the card shows: a saved session's workout, else the hand-picked
+  /// one, else the rotation's.
+  TrainingNextWorkout _shown(TrainingPlan plan, TrainingNextWorkout next) {
+    final session = _session;
+    if (session != null) {
+      return _withLastTime(session.plan, session.workoutIndex);
+    }
+    final chosen = _chosenWorkout;
+    if (chosen == null ||
+        chosen == next.workoutIndex ||
+        chosen >= plan.workouts.length) {
+      return next;
+    }
+    return _withLastTime(plan, chosen);
+  }
+
+  /// Workout [index] of [plan] with "Last time" from the model helpers.
+  TrainingNextWorkout _withLastTime(TrainingPlan plan, int index) {
+    return TrainingNextWorkout(
+      plan: plan,
+      workoutIndex: index,
+      completedToday: false,
+      exercises: [
+        for (final exercise in plan.workouts[index].exercises)
+          TrainingExercisePreview(
+            exercise: exercise,
+            lastTopSet: exercise.id == null
+                ? null
+                : topTrainingSet(
+                    lastTrainingPerformance(
+                      widget.history,
+                      plan.id,
+                      exercise.id!,
+                      isTimed: exercise.isTimed,
+                    ),
+                  ),
+          ),
+      ],
     );
   }
 
@@ -87,23 +190,25 @@ class _TrainingScreenState extends State<TrainingScreen> {
   @override
   void didUpdateWidget(covariant TrainingScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final oldPlan = oldWidget.plans.isEmpty
-        ? null
-        : oldWidget.plans.firstWhere(
-            (plan) => plan.id == oldWidget.selectedPlanId,
-            orElse: () => oldWidget.plans.first,
-          );
+    final oldPlan = _selectedPlan(oldWidget);
     final plan = _plan;
     final sourceChanged =
         oldPlan?.id != plan?.id ||
         oldPlan?.incarnation != plan?.incarnation ||
         oldWidget.selectedPlanId != widget.selectedPlanId;
-    var nextWorkoutIndex = 0;
+    // A finished (or deleted) workout moves the rotation: the card follows
+    // it again instead of a pick made before.
+    final historyChanged = !identical(oldWidget.history, widget.history);
+    final chosen = _chosenWorkout;
+    int? next;
     if (!sourceChanged &&
+        !historyChanged &&
+        chosen != null &&
         oldPlan != null &&
         plan != null &&
-        _workoutIndex < oldPlan.workouts.length) {
-      final exerciseIds = oldPlan.workouts[_workoutIndex].exercises
+        chosen < oldPlan.workouts.length) {
+      // Plan edits may reorder workouts; exercise ids keep the pick.
+      final exerciseIds = oldPlan.workouts[chosen].exercises
           .map((exercise) => exercise.id)
           .whereType<String>()
           .toSet();
@@ -112,10 +217,10 @@ class _TrainingScreenState extends State<TrainingScreen> {
           (exercise) => exerciseIds.contains(exercise.id),
         ),
       );
-      if (match >= 0) nextWorkoutIndex = match;
+      if (match >= 0) next = match;
     }
-    if (sourceChanged || _workoutIndex != nextWorkoutIndex) {
-      _workoutIndex = nextWorkoutIndex;
+    _chosenWorkout = next;
+    if (sourceChanged) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _scroll.hasClients) _scroll.jumpTo(0);
       });
@@ -222,36 +327,273 @@ class _TrainingScreenState extends State<TrainingScreen> {
       if (!await tryPersistChange(context, () => select(result)) || !mounted) {
         return;
       }
-      setState(() => _workoutIndex = 0);
+      setState(() => _chosenWorkout = null);
       if (_scroll.hasClients) _scroll.jumpTo(0);
     }
   }
 
-  @override
-  Widget build(BuildContext context) =>
-      TrainingStudioTheme(child: Builder(builder: _page));
-
-  Widget _page(BuildContext context) {
-    return SnackHost(
-      enabled: TickerMode.valuesOf(context).enabled,
-      currentRouteOnly: true,
-      child: _pageBody(context),
+  /// A popup menu anchored at [anchor] (the tapped control).
+  Future<T?> _menu<T>(BuildContext anchor, List<PopupMenuEntry<T>> items) {
+    final box = anchor.findRenderObject()! as RenderBox;
+    final overlay =
+        Navigator.of(anchor).overlay!.context.findRenderObject()! as RenderBox;
+    return showMenu<T>(
+      context: anchor,
+      position: RelativeRect.fromRect(
+        Rect.fromPoints(
+          box.localToGlobal(Offset.zero, ancestor: overlay),
+          box.localToGlobal(
+            box.size.bottomRight(Offset.zero),
+            ancestor: overlay,
+          ),
+        ),
+        Offset.zero & overlay.size,
+      ),
+      items: items,
     );
   }
+
+  /// "Choose workout": shows the picked workout on the card and scrolls the
+  /// card (with its Start) into view. Starting stays an explicit tap.
+  Future<void> _chooseWorkout(
+    BuildContext anchor,
+    TrainingPlan plan,
+    int shown,
+  ) async {
+    final t = context.t;
+    final l10n = context.l10n;
+    final picked = await _menu<int>(anchor, [
+      for (var i = 0; i < plan.workouts.length; i++)
+        PopupMenuItem<int>(
+          key: ValueKey('training-workout-$i'),
+          value: i,
+          child: Semantics(
+            selected: i == shown,
+            label:
+                '${l10n.trainingPageWorkoutNumber(i + 1)}: '
+                '${plan.workouts[i].title}',
+            excludeSemantics: true,
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 24,
+                  child: i == shown
+                      ? Icon(Icons.check_rounded, size: 20, color: t.accentText)
+                      : null,
+                ),
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Text(
+                    plan.workouts[i].title,
+                    style: AppType.ui(
+                      15,
+                      weight: FontWeight.w600,
+                      color: t.ink,
+                      height: kTrainingLine,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+    ]);
+    final current = _plan;
+    if (!mounted ||
+        picked == null ||
+        current == null ||
+        current.id != plan.id ||
+        picked >= current.workouts.length) {
+      return;
+    }
+    setState(() => _chosenWorkout = picked);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final card = _cardKey.currentContext;
+      if (!mounted || card == null || !card.mounted) return;
+      Scrollable.ensureVisible(
+        card,
+        duration: motionDuration(context, const Duration(milliseconds: 280)),
+        curve: Curves.easeOutCubic,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtStart,
+      );
+    });
+  }
+
+  /// The round "adjust" button: edit or delete the plan.
+  Future<void> _planMenu(BuildContext anchor, TrainingPlan plan) async {
+    final l10n = context.l10n;
+    final conflict = widget.adoptionConflicts.any(
+      (entry) => entry.id == plan.id,
+    );
+    final action = await _menu<String>(anchor, [
+      PopupMenuItem(value: 'edit', child: Text(l10n.trainingPageEdit)),
+      PopupMenuItem(
+        value: 'delete',
+        child: Text(
+          conflict
+              ? l10n.trainingAdoptionDiscardAction
+              : l10n.trainingPageDelete,
+        ),
+      ),
+    ]);
+    if (!mounted) return;
+    if (action == 'edit') {
+      await _edit(context, plan);
+    } else if (action == 'delete') {
+      await _delete(context, plan);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => SnackHost(
+    enabled: TickerMode.valuesOf(context).enabled,
+    currentRouteOnly: true,
+    child: _pageBody(context),
+  );
 
   Widget _pageBody(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
     final plan = _plan;
-    final workout = plan?.workouts[_workoutIndex];
+    final next = _next(plan);
     final selectedConflict = widget.adoptionConflicts
         .where((entry) => entry.id == plan?.id)
         .firstOrNull;
     final conflict = selectedConflict ?? widget.adoptionConflicts.firstOrNull;
+    final volume = widget.volume;
+    final hasHistory = widget.recentWorkouts.isNotEmpty;
+    // The floating tab bar's band (from the shell): the page scrolls under
+    // the glass and its end clears the bar like the design (150 px at 102).
+    final navInset = MediaQuery.paddingOf(context).bottom;
+    const gap = SizedBox(height: 14);
+    return ColoredBox(
+      color: t.bg,
+      child: SingleChildScrollView(
+        key: const PageStorageKey('training-scroll'),
+        controller: _scroll,
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        padding: EdgeInsets.fromLTRB(
+          20,
+          TabChrome.topInset(context),
+          20,
+          navInset + 48,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _header(context, plan),
+            gap,
+            if (conflict != null) ...[
+              _notice(
+                context,
+                l10n.trainingAdoptionReviewBody(conflict.title),
+                icon: Icons.sync_problem_rounded,
+                action: Wrap(
+                  children: [
+                    TextButton(
+                      key: const ValueKey('training-review-adoption'),
+                      onPressed: _reviewingAdoption || _deleting
+                          ? null
+                          : () => _reviewAdoption(conflict),
+                      child: Text(l10n.trainingAdoptionReviewAction),
+                    ),
+                    if (widget.onDiscardAdoption != null)
+                      TextButton(
+                        key: const ValueKey('training-discard-adoption'),
+                        onPressed: _reviewingAdoption || _deleting
+                            ? null
+                            : () => _discardAdoption(conflict),
+                        child: Text(l10n.trainingAdoptionDiscardAction),
+                      ),
+                  ],
+                ),
+              ),
+              gap,
+            ],
+            if (widget.hasActiveSession) ...[
+              _notice(
+                context,
+                l10n.trainingPageInProgress,
+                icon: Icons.pause_circle_outline_rounded,
+              ),
+              gap,
+            ],
+            if (widget.loadFailed) ...[
+              _notice(
+                context,
+                l10n.trainingPageLoadError,
+                action: TextButton.icon(
+                  onPressed: widget.onRetry,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: Text(l10n.trainingPageRetry),
+                ),
+              ),
+              gap,
+            ],
+            if (widget.week case final week?) ...[
+              TrainingWeekCard(
+                key: const ValueKey('training-week'),
+                week: week,
+              ),
+              gap,
+            ],
+            if (plan != null && next != null)
+              _workoutCard(context, plan, next, selectedConflict)
+            else if (widget.loading)
+              _loadingState(context)
+            else if (!widget.loadFailed)
+              _empty(context),
+            if (plan != null && next != null) ...[
+              const SizedBox(height: 20),
+              _quickStart(context, plan, next),
+            ],
+            if (volume != null &&
+                (hasHistory || volume.weeks.any((w) => w.volumeKg > 0))) ...[
+              gap,
+              TrainingVolumeCard(
+                key: const ValueKey('training-volume'),
+                trend: volume,
+              ),
+            ],
+            if (hasHistory) ...[
+              gap,
+              TrainingRecentSection(
+                key: const ValueKey('training-recent'),
+                workouts: widget.recentWorkouts,
+                onOpen: widget.onOpenWorkout,
+                onOpenAll: widget.onOpenHistory,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _workoutCard(
+    BuildContext context,
+    TrainingPlan plan,
+    TrainingNextWorkout next,
+    TrainingPlan? selectedConflict,
+  ) {
+    final t = context.t;
+    final l10n = context.l10n;
+    final shown = _shown(plan, next);
+    final workout = shown.workout;
+    final done = shown.completedToday;
+    final eyebrow = done
+        ? l10n.trainingDoneToday
+        : _session != null
+        ? l10n.trainingInProgress
+        : identical(shown, next)
+        ? l10n.trainingNextWorkout
+        : l10n.trainingPageWorkoutNumber(shown.workoutIndex + 1);
+    final eyebrowColor = done ? t.success : t.accentText;
     final action = selectedConflict != null
         ? TrainingStartButton(
             key: const ValueKey('training-review-adoption-primary'),
             label: l10n.trainingAdoptionReviewAction,
+            icon: Icons.sync_problem_rounded,
             onPressed: _reviewingAdoption
                 ? null
                 : () => _reviewAdoption(selectedConflict),
@@ -262,277 +604,167 @@ class _TrainingScreenState extends State<TrainingScreen> {
             label: l10n.trainingPageResume,
             onPressed: widget.onResumeWorkout,
           )
-        : plan != null && workout != null
-        ? TrainingStartButton(
+        : TrainingStartButton(
             key: const ValueKey('training-start'),
             label: l10n.trainingPageStart,
-            onPressed: () => widget.onStartWorkout(plan, _workoutIndex),
-          )
-        : null;
-
-    return ColoredBox(
-      color: t.bg,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final pinned =
-              constraints.maxHeight >= 560 &&
-              MediaQuery.textScalerOf(context).scale(16) <= 24;
-          return Column(
+            onPressed: () => widget.onStartWorkout(plan, shown.workoutIndex),
+          );
+    return TrainingHeroCard(
+      key: _cardKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            key: const ValueKey('training-card-eyebrow'),
             children: [
-              Expanded(
-                child: ListView(
-                  key: const PageStorageKey('training-scroll'),
-                  controller: _scroll,
-                  keyboardDismissBehavior:
-                      ScrollViewKeyboardDismissBehavior.onDrag,
-                  padding: const EdgeInsets.only(bottom: 16),
-                  children: [
-                    Stack(
-                      children: [
-                        const Positioned.fill(
-                          child: Align(
-                            alignment: Alignment.topCenter,
-                            child: SizedBox(
-                              height: 350,
-                              width: double.infinity,
-                              child: TrainingStudioArtwork(),
-                            ),
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              _header(context),
-                              const SizedBox(height: 18),
-                              if (conflict != null) ...[
-                                _notice(
-                                  context,
-                                  l10n.trainingAdoptionReviewBody(
-                                    conflict.title,
-                                  ),
-                                  icon: Icons.sync_problem_rounded,
-                                  action: Wrap(
-                                    children: [
-                                      TextButton(
-                                        key: const ValueKey(
-                                          'training-review-adoption',
-                                        ),
-                                        onPressed:
-                                            _reviewingAdoption || _deleting
-                                            ? null
-                                            : () => _reviewAdoption(conflict),
-                                        child: Text(
-                                          l10n.trainingAdoptionReviewAction,
-                                        ),
-                                      ),
-                                      if (widget.onDiscardAdoption != null)
-                                        TextButton(
-                                          key: const ValueKey(
-                                            'training-discard-adoption',
-                                          ),
-                                          onPressed:
-                                              _reviewingAdoption || _deleting
-                                              ? null
-                                              : () =>
-                                                    _discardAdoption(conflict),
-                                          child: Text(
-                                            l10n.trainingAdoptionDiscardAction,
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                              ],
-                              if (widget.hasActiveSession) ...[
-                                _notice(
-                                  context,
-                                  l10n.trainingPageInProgress,
-                                  icon: Icons.pause_circle_outline_rounded,
-                                ),
-                                const SizedBox(height: 16),
-                              ],
-                              if (widget.loadFailed) ...[
-                                _notice(
-                                  context,
-                                  l10n.trainingPageLoadError,
-                                  action: TextButton.icon(
-                                    onPressed: widget.onRetry,
-                                    icon: const Icon(Icons.refresh_rounded),
-                                    label: Text(l10n.trainingPageRetry),
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                              ],
-                              if (plan != null && workout != null)
-                                _hero(context, plan, workout)
-                              else if (widget.loading)
-                                Semantics(
-                                  label: l10n.trainingPageLoading,
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 32,
-                                    ),
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        LinearProgressIndicator(color: t.lime),
-                                        const SizedBox(height: 20),
-                                        Text(
-                                          l10n.trainingPageLoading,
-                                          style: AppType.ui(15, color: t.ink),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                )
-                              else if (!widget.loadFailed)
-                                _empty(context),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (plan != null && workout != null)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            TrainingExercisePreview(
-                              key: ValueKey(
-                                'training-preview-${plan.id}-$_workoutIndex',
-                              ),
-                              exercises: workout.exercises,
-                            ),
-                            const SizedBox(height: 12),
-                            _coachAction(context, plan),
-                          ],
-                        ),
-                      ),
-                    if (action != null && !pinned)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-                        child: action,
-                      ),
-                  ],
+              if (done) ...[
+                Icon(Icons.check_circle_rounded, size: 15, color: eyebrowColor),
+                const SizedBox(width: 6),
+              ],
+              Flexible(
+                child: Text(
+                  eyebrow.toUpperCase(),
+                  semanticsLabel: eyebrow,
+                  style: AppType.ui(
+                    12,
+                    weight: FontWeight.w800,
+                    color: eyebrowColor,
+                    letterSpacing: 0.96,
+                    height: kTrainingLine,
+                  ),
                 ),
               ),
-              if (action != null && pinned)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 18),
-                  child: action,
-                ),
             ],
-          );
-        },
+          ),
+          const SizedBox(height: 6),
+          HeadingSemantics(
+            level: 2,
+            child: Text(
+              workout.title,
+              key: const ValueKey('training-card-title'),
+              textScaler: trainingHeadingScaler(context),
+              style: AppType.display(30, color: t.ink, height: 1.05),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 14,
+            runSpacing: 6,
+            children: [
+              TrainingMetaItem(
+                icon: Icons.sort_rounded,
+                text: l10n.trainingPageExerciseCount(shown.exerciseCount),
+              ),
+              TrainingMetaItem(
+                icon: Icons.schedule_rounded,
+                text: l10n.trainingMinutesEstimate(shown.estimatedMinutes),
+              ),
+            ],
+          ),
+          if (workout.description.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Text(
+              workout.description,
+              style: AppType.ui(13, color: t.ink2, height: 1.45),
+            ),
+          ],
+          const SizedBox(height: 14),
+          TrainingExerciseRows(
+            key: ValueKey('training-rows-${plan.id}'),
+            exercises: shown.exercises,
+          ),
+          // The 44 px names line already ends in the design's 14 px gap.
+          SizedBox(height: shown.exercises.length > 3 ? 0 : 14),
+          Row(
+            children: [
+              Expanded(child: action),
+              const SizedBox(width: 10),
+              Builder(
+                builder: (anchor) => TrainingRoundButton(
+                  key: const ValueKey('training-plan-menu'),
+                  icon: Icons.tune_rounded,
+                  semanticLabel: l10n.trainingPageMore,
+                  busy: _deleting,
+                  onTap: _deleting ? null : () => _planMenu(anchor, plan),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
 
-  Widget _hero(
+  Widget _quickStart(
     BuildContext context,
     TrainingPlan plan,
-    TrainingWorkout workout,
+    TrainingNextWorkout next,
   ) {
     final t = context.t;
     final l10n = context.l10n;
-    final largeText = MediaQuery.textScalerOf(context).scale(16) > 24;
+    final discuss = widget.onDiscussPlan;
+    final shown = _shown(plan, next).workoutIndex;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton(
-                  key: const ValueKey('training-switch-plan'),
-                  onPressed: () => _choosePlan(context),
-                  style: TextButton.styleFrom(
-                    foregroundColor: t.ink2,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Flexible(
-                        child: Text(
-                          plan.title,
-                          style: AppType.ui(16, weight: FontWeight.w600),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      const Icon(Icons.keyboard_arrow_down_rounded, size: 20),
-                    ],
-                  ),
-                ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: HeadingSemantics(
+            level: 2,
+            child: Text(
+              l10n.trainingQuickStartTitle,
+              style: AppType.display(
+                20,
+                weight: FontWeight.w700,
+                color: t.ink,
+                letterSpacing: -0.2,
+                height: kTrainingLine,
               ),
             ),
-            PopupMenuButton<String>(
-              key: const ValueKey('training-plan-menu'),
-              enabled: !_deleting,
-              tooltip: l10n.trainingPageMore,
-              onSelected: (action) {
-                if (action == 'edit') _edit(context, plan);
-                if (action == 'delete') _delete(context, plan);
-              },
-              itemBuilder: (_) => [
-                PopupMenuItem(
-                  value: 'edit',
-                  child: Text(l10n.trainingPageEdit),
-                ),
-                PopupMenuItem(
-                  value: 'delete',
-                  child: Text(
-                    widget.adoptionConflicts.any((entry) => entry.id == plan.id)
-                        ? l10n.trainingAdoptionDiscardAction
-                        : l10n.trainingPageDelete,
-                  ),
-                ),
-              ],
-              icon: _deleting
-                  ? SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(color: t.lime),
-                    )
-                  : Icon(Icons.more_horiz_rounded, color: t.ink2),
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-        Text(
-          workout.title,
-          style: AppType.display(
-            largeText ? 24 : 34,
-            color: t.ink,
-            height: 1.08,
           ),
         ),
         const SizedBox(height: 10),
-        Text(
-          l10n.trainingPageExerciseCount(workout.exercises.length),
-          style: AppType.ui(15, color: t.ink2),
+        TrainingQuickGrid(
+          tiles: [
+            TrainingQuickTile(
+              key: const ValueKey('training-quick-create'),
+              icon: const Icon(Icons.add_rounded),
+              label: l10n.trainingPageCreateTitle,
+              tint: t.accentTintStrong,
+              ink: t.accentText,
+              onTap: () => _edit(context),
+            ),
+            // A saved session owns the card until it is resumed or ended.
+            if (plan.workouts.length > 1 && !widget.hasActiveSession)
+              Builder(
+                builder: (anchor) => TrainingQuickTile(
+                  key: const ValueKey('training-quick-workouts'),
+                  icon: const Icon(Icons.format_list_numbered_rounded),
+                  label: l10n.trainingQuickWorkouts,
+                  semanticLabel: l10n.trainingQuickChooseWorkout,
+                  tint: t.activityTint,
+                  ink: t.activityInk,
+                  onTap: () => _chooseWorkout(anchor, plan, shown),
+                ),
+              ),
+            TrainingQuickTile(
+              key: const ValueKey('training-open-plans'),
+              icon: const Icon(Icons.menu_book_rounded),
+              label: l10n.trainingStudioPlans,
+              tint: t.carbsSurface,
+              ink: t.carbsInk,
+              onTap: () => _choosePlan(context),
+            ),
+            TrainingQuickTile(
+              key: const ValueKey('training-discuss-plan'),
+              icon: const AppIcon(AppSymbol.coach),
+              label: l10n.trainingQuickCoach,
+              tint: t.proteinSurface,
+              ink: t.proteinInk,
+              onTap: discuss != null ? () => discuss(plan) : widget.onOpenCoach,
+            ),
+          ],
         ),
-        if (workout.description.isNotEmpty) ...[
-          const SizedBox(height: 10),
-          Text(
-            workout.description,
-            style: AppType.ui(14, color: t.ink2, height: 1.45),
-          ),
-        ],
-        const SizedBox(height: 22),
-        if (plan.workouts.length > 1)
-          TrainingWorkoutTabs(
-            workouts: plan.workouts,
-            selected: _workoutIndex,
-            onSelected: (index) => setState(() => _workoutIndex = index),
-          ),
-        const SizedBox(height: 26),
       ],
     );
   }
@@ -544,85 +776,79 @@ class _TrainingScreenState extends State<TrainingScreen> {
     Widget? action,
   }) {
     final t = context.t;
-    return Container(
+    return AppCard(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: t.surf,
-        borderRadius: BorderRadius.circular(rControl),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (icon != null) ...[
-            Icon(icon, color: t.lime),
+            Icon(icon, color: t.accentText),
             const SizedBox(height: 10),
           ],
           Text(text, style: AppType.ui(14, color: t.ink2, height: 1.45)),
-          if (action != null) action,
+          ?action,
         ],
       ),
     );
   }
 
-  Widget _coachAction(BuildContext context, TrainingPlan plan) {
-    final discuss = widget.onDiscussPlan;
-    return TextButton(
-      key: const ValueKey('training-discuss-plan'),
-      onPressed: discuss != null ? () => discuss(plan) : widget.onOpenCoach,
-      style: TextButton.styleFrom(
-        foregroundColor: context.t.ink2,
-        backgroundColor: context.t.surf,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(rControl),
-          side: BorderSide(color: context.t.line),
-        ),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.chat_bubble_outline_rounded, size: 22),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              discuss != null
-                  ? widget.discussPlanLabel ??
-                        context.l10n.coachBriefDiscussAction
-                  : context.l10n.trainingPageCoach,
-              style: AppType.ui(14, weight: FontWeight.w600),
+  Widget _loadingState(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    return Semantics(
+      label: l10n.trainingPageLoading,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            LinearProgressIndicator(color: t.accent),
+            const SizedBox(height: 20),
+            Text(
+              l10n.trainingPageLoading,
+              style: AppType.ui(15, color: t.ink, height: kTrainingLine),
             ),
-          ),
-          const Icon(Icons.chevron_right_rounded, size: 20),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   Widget _empty(BuildContext context) {
+    final t = context.t;
     final l10n = context.l10n;
-    return Padding(
-      padding: const EdgeInsets.only(top: 56, bottom: 24),
+    return TrainingHeroCard(
+      key: const ValueKey('training-empty'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            l10n.trainingPageEmptyTitle,
-            style: AppType.display(32, color: context.t.ink, height: 1.15),
+          HeadingSemantics(
+            level: 2,
+            child: Text(
+              l10n.trainingPageEmptyTitle,
+              textScaler: trainingHeadingScaler(context),
+              style: AppType.display(30, color: t.ink, height: 1.1),
+            ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
           Text(
             l10n.trainingPageEmptyBody,
-            style: AppType.ui(15, color: context.t.ink2, height: 1.5),
+            style: AppType.ui(14, color: t.ink2, height: 1.45),
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 20),
           TrainingStartButton(
             key: const ValueKey('training-empty-coach'),
             label: l10n.trainingPageCoach,
             icon: Icons.chat_bubble_outline_rounded,
             onPressed: widget.onOpenCoach,
           ),
-          const SizedBox(height: 12),
-          TextButton(
+          const SizedBox(height: 10),
+          OutlinedButton(
+            key: const ValueKey('training-empty-create'),
             onPressed: () => _edit(context),
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(kPrimaryButtonHeight),
+            ),
             child: Text(l10n.trainingPageCreate),
           ),
         ],
@@ -630,76 +856,82 @@ class _TrainingScreenState extends State<TrainingScreen> {
     );
   }
 
-  Widget _header(BuildContext context) => LayoutBuilder(
+  Widget _header(BuildContext context, TrainingPlan? plan) => LayoutBuilder(
+    key: TabChrome.headerKey,
     builder: (context, constraints) {
+      final t = context.t;
       final l10n = context.l10n;
-      final titleStyle = AppType.pageTitle(context.t.ink);
-      double measure(String text, TextStyle style) {
-        final painter = TextPainter(
-          text: TextSpan(text: text, style: style),
-          textDirection: Directionality.of(context),
-          textScaler: MediaQuery.textScalerOf(context),
-        )..layout();
-        final width = painter.width;
-        painter.dispose();
-        return width;
-      }
-
-      final inline =
-          measure(l10n.trainingPageTitle, titleStyle) +
-              measure(
-                l10n.trainingStudioPlans,
-                AppType.ui(14, weight: FontWeight.w600),
-              ) +
-              24 +
-              44 +
-              (widget.onOpenHistory != null ? 44 : 0) +
-              16 <=
-          constraints.maxWidth;
-      final title = HeadingSemantics(
-        level: 1,
-        child: Text(l10n.trainingPageTitle, style: titleStyle),
-      );
-      final actions = Wrap(
-        spacing: 2,
-        crossAxisAlignment: WrapCrossAlignment.center,
+      final titleStyle = AppType.pageTitle(t.ink);
+      final painter = TextPainter(
+        text: TextSpan(text: l10n.trainingPageTitle, style: titleStyle),
+        textDirection: Directionality.of(context),
+        textScaler: AppType.pageTitleScaler(context),
+      )..layout();
+      final titleWidth = painter.width;
+      painter.dispose();
+      final actionsWidth =
+          HeaderIconButton.size +
+          (widget.onOpenHistory != null ? HeaderIconButton.size + 8 : 0);
+      final inline = titleWidth + 12 + actionsWidth <= constraints.maxWidth;
+      final heading = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          TextButton(
-            key: const ValueKey('training-open-plans'),
-            onPressed: () => _choosePlan(context),
-            style: TextButton.styleFrom(
-              foregroundColor: context.t.ink,
-              backgroundColor: context.t.surf,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          if (plan != null) ...[
+            Text(
+              plan.title,
+              key: const ValueKey('training-plan-title'),
+              style: AppType.ui(
+                14,
+                weight: FontWeight.w600,
+                color: t.ink2,
+                height: kTrainingLine,
+              ),
             ),
+            const SizedBox(height: 2),
+          ],
+          HeadingSemantics(
+            level: 1,
             child: Text(
-              l10n.trainingStudioPlans,
-              style: AppType.ui(14, weight: FontWeight.w600),
+              l10n.trainingPageTitle,
+              style: titleStyle,
+              textScaler: AppType.pageTitleScaler(context),
             ),
           ),
-          if (widget.onOpenHistory != null)
-            IconButton(
+        ],
+      );
+      final actions = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (widget.onOpenHistory != null) ...[
+            HeaderIconButton(
               key: const ValueKey('training-open-history'),
-              onPressed: widget.onOpenHistory,
-              tooltip: l10n.trainingHistoryTitle,
-              icon: const Icon(Icons.history_rounded),
+              icon: Icons.history_rounded,
+              semanticLabel: l10n.trainingHistoryTitle,
+              onTap: widget.onOpenHistory,
             ),
-          IconButton(
+            const SizedBox(width: 8),
+          ],
+          HeaderIconButton(
             key: const ValueKey('training-create'),
-            onPressed: () => _edit(context),
-            tooltip: l10n.trainingPageCreate,
-            icon: const Icon(Icons.add_rounded),
+            icon: Icons.add_rounded,
+            tone: HeaderIconTone.primary,
+            semanticLabel: l10n.trainingPageCreateTitle,
+            onTap: () => _edit(context),
           ),
         ],
       );
       return inline
           ? Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [title, const Spacer(), actions],
+              children: [
+                Expanded(child: heading),
+                const SizedBox(width: 12),
+                actions,
+              ],
             )
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: [title, const SizedBox(height: 12), actions],
+              children: [heading, const SizedBox(height: 12), actions],
             );
     },
   );

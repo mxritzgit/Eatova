@@ -1,6 +1,9 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/design/controls.dart';
 import 'package:eatova/src/widgets/design/app_icon.dart';
@@ -21,6 +24,20 @@ const List<AppNavItem> _navItems = <AppNavItem>[
     label: 'Coach',
   ),
 ];
+
+/// The nav bar where the shell mounts it: a floating bottom bar over an
+/// extended body, in the dark app theme.
+Widget _navShell(Widget nav, {Widget? body}) => MaterialApp(
+  theme: buildEatovaTheme(Brightness.dark),
+  home: Scaffold(
+    extendBody: true,
+    body: KeyedSubtree(
+      key: const ValueKey('nav-body'),
+      child: body ?? const SizedBox.expand(),
+    ),
+    bottomNavigationBar: nav,
+  ),
+);
 
 void main() {
   group('SquareIconButton', () {
@@ -185,10 +202,10 @@ void main() {
         return box.decoration! as BoxDecoration;
       }
 
-      // Selection language since P9-02: `ink`, not `forest` — the latter is
-      // itself a dark surface and vanishes in dark mode
-      // (review0829_selection_contrast_test).
-      expect(decoFor('kg').color, AppTokens.light.ink);
+      // Selection language: the accent fill (dark redesign 2026-09-28), not
+      // `forest` — the latter is itself a dark surface and vanishes in dark
+      // mode (review0829_selection_contrast_test).
+      expect(decoFor('kg').color, AppTokens.light.accentFill);
       expect(decoFor('lb').color, Colors.transparent);
     });
   });
@@ -212,7 +229,8 @@ void main() {
       expect(taps, 1);
     });
 
-    testWidgets('ausgewaehlt wechselt die Flaeche auf ink', (tester) async {
+    testWidgets('ausgewaehlt wechselt die Flaeche auf die Akzentfuellung',
+        (tester) async {
       Material materialOf() => tester.widget<Material>(
             find
                 .descendant(
@@ -238,7 +256,130 @@ void main() {
           ),
         ),
       );
-      expect(materialOf().color, AppTokens.light.ink);
+      expect(materialOf().color, AppTokens.light.accentFill);
+    });
+
+    testWidgets('folgt dem Design: 42 px Pille, 14/700, Akzent vs. Karte',
+        (tester) async {
+      const t = AppTokens.dark;
+      Future<void> pump({required bool selected}) => tester.pumpWidget(
+            designHarness(
+              Align(child: FilterChipPill(label: 'Alle', selected: selected)),
+              brightness: Brightness.dark,
+            ),
+          );
+      BoxDecoration ring() => tester
+          .widget<Container>(
+            find
+                .descendant(
+                  of: find.byType(FilterChipPill),
+                  matching: find.byType(Container),
+                )
+                .first,
+          )
+          .decoration! as BoxDecoration;
+      Color fill() => tester
+          .widget<Material>(
+            find
+                .descendant(
+                  of: find.byType(FilterChipPill),
+                  matching: find.byType(Material),
+                )
+                .first,
+          )
+          .color!;
+      TextStyle label() => tester.widget<Text>(find.text('Alle')).style!;
+
+      await pump(selected: false);
+      expect(tester.getSize(find.byType(FilterChipPill)).height, 42);
+      expect(fill(), t.surf);
+      expect(ring().border, Border.all(color: t.lineStrong));
+      expect(ring().borderRadius, BorderRadius.circular(rPill));
+      expect(label().color, t.inkMuted);
+      expect(label().fontSize, 14);
+      expect(label().fontWeight, FontWeight.w700);
+
+      await pump(selected: true);
+      expect(fill(), t.accentFill);
+      expect(ring().border, Border.all(color: t.accentFill));
+      expect(label().color, t.onAccentFill);
+      expect(label().fontWeight, FontWeight.w700);
+    });
+  });
+
+  group('HeaderIconButton', () {
+    Material materialOf(WidgetTester tester) => tester.widget<Material>(
+          find
+              .descendant(
+                of: find.byType(HeaderIconButton),
+                matching: find.byType(Material),
+              )
+              .first,
+        );
+
+    testWidgets('neutral: 44-px-Kreis, Karte mit Umriss, inkMuted-Glyphe',
+        (tester) async {
+      final handle = tester.ensureSemantics();
+      var taps = 0;
+      await tester.pumpWidget(
+        designHarness(
+          Align(
+            child: HeaderIconButton(
+              icon: Icons.calendar_today_rounded,
+              semanticLabel: 'Kalender',
+              onTap: () => taps++,
+            ),
+          ),
+          brightness: Brightness.dark,
+        ),
+      );
+      const t = AppTokens.dark;
+
+      expect(tester.getSize(find.byType(HeaderIconButton)), const Size(44, 44));
+      final material = materialOf(tester);
+      expect(material.color, t.surf);
+      expect(material.shape, CircleBorder(side: BorderSide(color: t.lineStrong)));
+      expect(
+        tester.widget<Icon>(find.byIcon(Icons.calendar_today_rounded)).color ??
+            IconTheme.of(
+              tester.element(find.byIcon(Icons.calendar_today_rounded)),
+            ).color,
+        t.inkMuted,
+      );
+      expect(
+        tester.getSemantics(find.byType(HeaderIconButton)),
+        isSemantics(isButton: true, label: 'Kalender', hasTapAction: true),
+      );
+      await tester.tap(find.byType(HeaderIconButton));
+      expect(taps, 1);
+      await expectLater(tester, meetsGuideline(iOSTapTargetGuideline));
+      handle.dispose();
+    });
+
+    testWidgets('primary: Akzentfuellung, on-accent-Glyphe, kein Umriss',
+        (tester) async {
+      await tester.pumpWidget(
+        designHarness(
+          Align(
+            child: HeaderIconButton(
+              icon: Icons.add_rounded,
+              semanticLabel: 'Neu',
+              tone: HeaderIconTone.primary,
+              onTap: () {},
+            ),
+          ),
+          brightness: Brightness.dark,
+        ),
+      );
+      const t = AppTokens.dark;
+
+      final material = materialOf(tester);
+      expect(material.color, t.accentFill);
+      expect(material.shape, const CircleBorder());
+      expect(
+        IconTheme.of(tester.element(find.byIcon(Icons.add_rounded))).color,
+        t.onAccentFill,
+      );
     });
   });
 
@@ -276,7 +417,12 @@ void main() {
       await tester.pumpWidget(
         designHarness(PrimaryActionButton(label: 'Speichern', onTap: () {})),
       );
-      expect(materialOf().color, AppTokens.light.ink);
+      // Dark redesign: the primary action is the accent pill, label 800.
+      expect(materialOf().color, AppTokens.light.accentFill);
+      final label = tester.widget<Text>(find.text('Speichern')).style!;
+      expect(label.color, AppTokens.light.onAccentFill);
+      expect(label.fontWeight, FontWeight.w800);
+      expect(materialOf().borderRadius, BorderRadius.circular(rButton));
 
       await tester.pumpWidget(
         designHarness(
@@ -375,26 +521,214 @@ void main() {
       expect(find.text('Recipes'), findsOneWidget);
     });
 
-    testWidgets('bleibt flach, aber jedes Item bleibt ein 44-px-Tap-Ziel',
+    testWidgets('iPhone: 68-px-Glasleiste 14 px vom Rand und 22 px ueber '
+        'der Bildschirmkante, der Home-Indikator liegt darunter',
         (tester) async {
+      pinIphone14Pro(tester);
       final handle = tester.ensureSemantics();
       await tester.pumpWidget(
-        designHarness(
-          AppNavBar(index: 0, onChanged: (_) {}, items: _navItems),
+        _navShell(AppNavBar(index: 0, onChanged: (_) {}, items: _navItems)),
+      );
+
+      final glass = tester.getRect(find.byKey(const ValueKey('nav-glass')));
+      expect(glass.left, 14);
+      expect(glass.right, 390 - 14);
+      expect(glass.height, 68);
+      // 22 px from the SCREEN edge: the 34 px home-indicator inset is only a
+      // gesture strip, the design lets the bar reach into it.
+      expect(glass.bottom, 844 - 22);
+      expect(AppNavBar.bottomOffsetFor(34), 22);
+      // The body runs under the bar and receives the band (offset, bar,
+      // 12 px clearance) as padding: scroll ends and docks sit on top of it.
+      expect(AppNavBar.reservedHeightFor(34), 22 + 68 + 12);
+      expect(tester.getSize(find.byType(AppNavBar)).height, 22 + 68 + 12);
+      final body = tester.element(find.byKey(const ValueKey('nav-body')));
+      expect(MediaQuery.paddingOf(body).bottom, 22 + 68 + 12);
+      expect(tester.getRect(find.byKey(const ValueKey('nav-body'))).bottom,
+          844, reason: 'content scrolls under the bar, down to the edge');
+
+      await expectLater(tester, meetsGuideline(iOSTapTargetGuideline));
+      handle.dispose();
+    });
+
+    // Final review B-M1: the design's fade is 112 px from the screen edge,
+    // 10 px more than the band; over a docked tab it ends at the dock line.
+    testWidgets('der Verlauf ist 112 px hoch wie im Design, ueber einem Dock '
+        'endet er an dessen Linie', (tester) async {
+      pinIphone14Pro(tester);
+      for (final (docked, top) in [(false, 844 - 112.0), (true, 844 - 102.0)]) {
+        await tester.pumpWidget(
+          _navShell(
+            AppNavBar(
+              index: 0,
+              onChanged: (_) {},
+              items: _navItems,
+              docked: docked,
+            ),
+          ),
+        );
+        final fade = tester.getRect(find.byKey(const ValueKey('nav-fade')));
+        expect(fade.top, top, reason: 'docked: $docked');
+        expect(fade.bottom, 844);
+        expect(
+          tester.getSize(find.byType(AppNavBar)).height,
+          22 + 68 + 12,
+          reason: 'the claimed band stays the same',
+        );
+      }
+    });
+
+    testWidgets('Android-Gestenleiste (24 px): ebenfalls 22 px ueber der Kante',
+        (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(412, 915);
+      tester.view.padding = const FakeViewPadding(top: 24, bottom: 24);
+      tester.view.viewPadding = tester.view.padding;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        _navShell(AppNavBar(index: 0, onChanged: (_) {}, items: _navItems)),
+      );
+
+      final glass = tester.getRect(find.byKey(const ValueKey('nav-glass')));
+      expect(glass.bottom, 915 - 22);
+      final body = tester.element(find.byKey(const ValueKey('nav-body')));
+      expect(MediaQuery.paddingOf(body).bottom, 22 + 68 + 12);
+    });
+
+    testWidgets('Android-3-Tasten-Leiste (48 px): Leiste 8 px ueber der '
+        'Systemleiste, Band waechst mit', (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(412, 915);
+      tester.view.padding = const FakeViewPadding(top: 24, bottom: 48);
+      tester.view.viewPadding = tester.view.padding;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        _navShell(AppNavBar(index: 0, onChanged: (_) {}, items: _navItems)),
+      );
+
+      final glass = tester.getRect(find.byKey(const ValueKey('nav-glass')));
+      expect(AppNavBar.bottomOffsetFor(48), 48 + 8);
+      expect(glass.bottom, 915 - 48 - 8,
+          reason: 'the bar must stay clear of the system buttons');
+      final body = tester.element(find.byKey(const ValueKey('nav-body')));
+      expect(MediaQuery.paddingOf(body).bottom, 48 + 8 + 68 + 12);
+      expect(tester.getSize(find.byType(AppNavBar)).height, 48 + 8 + 68 + 12);
+    });
+
+    testWidgets('Glas, Umriss, Unschaerfe und Schatten kommen aus den Tokens',
+        (tester) async {
+      pinIphone14Pro(tester);
+      await tester.pumpWidget(
+        _navShell(AppNavBar(index: 0, onChanged: (_) {}, items: _navItems)),
+      );
+      const t = AppTokens.dark;
+
+      final glass = tester
+          .widget<DecoratedBox>(find.byKey(const ValueKey('nav-glass')))
+          .decoration as BoxDecoration;
+      expect(glass.color, t.navGlass);
+      expect(glass.border, Border.all(color: t.lineStrong));
+      expect(glass.borderRadius, BorderRadius.circular(rNav));
+
+      final blur = tester.widget<BackdropFilter>(
+        find.descendant(
+          of: find.byType(AppNavBar),
+          matching: find.byType(BackdropFilter),
+        ),
+      );
+      expect(
+        blur.filter,
+        ImageFilter.blur(
+          sigmaX: AppNavBar.blurSigma,
+          sigmaY: AppNavBar.blurSigma,
         ),
       );
 
-      // The bar was shortened from ~76 to ~58 px because it sits on every
-      // screen; growing it again should break this test deliberately.
-      expect(
-        tester.getSize(find.byType(AppNavBar)).height,
-        lessThanOrEqualTo(62),
-      );
+      final shadowed = tester
+          .widgetList<DecoratedBox>(
+            find.descendant(
+              of: find.byType(AppNavBar),
+              matching: find.byType(DecoratedBox),
+            ),
+          )
+          .map((box) => box.decoration)
+          .whereType<BoxDecoration>()
+          .where((d) => d.boxShadow != null);
+      expect(shadowed.single.boxShadow, floatingShadow(t));
+    });
 
-      // The floor of that shortening: 44 px hit area per item. The guideline
-      // check runs over the semantics nodes, i.e. what a finger hits.
-      await expectLater(tester, meetsGuideline(iOSTapTargetGuideline));
-      handle.dispose();
+    testWidgets('aktiv = Akzent-Kapsel und Akzent-Label in 800, '
+        'inaktiv = ink3 in 600', (tester) async {
+      pinIphone14Pro(tester);
+      await tester.pumpWidget(
+        _navShell(AppNavBar(index: 1, onChanged: (_) {}, items: _navItems)),
+      );
+      const t = AppTokens.dark;
+
+      TextStyle label(String text) =>
+          tester.widget<Text>(find.text(text)).style!;
+      expect(label('Rezepte').color, t.accentText);
+      expect(label('Rezepte').fontWeight, FontWeight.w800);
+      expect(label('Rezepte').fontSize, 11);
+      expect(label('Rezepte').fontFamily, AppType.uiFamily);
+      for (final idle in <String>['Food', 'Coach']) {
+        expect(label(idle).color, t.ink3);
+        expect(label(idle).fontWeight, FontWeight.w600);
+      }
+
+      final capsules = tester
+          .widgetList<AnimatedContainer>(
+            find.descendant(
+              of: find.byType(AppNavBar),
+              matching: find.byType(AnimatedContainer),
+            ),
+          )
+          .map((c) => (c.decoration! as BoxDecoration).color)
+          .toList();
+      expect(capsules, <Color>[
+        Colors.transparent,
+        t.accentTintStrong,
+        Colors.transparent,
+      ]);
+
+      final icons = tester.widgetList<AppIcon>(find.byType(AppIcon)).toList();
+      expect(icons.map((icon) => icon.color), <Color>[
+        t.ink3,
+        t.accentText,
+        t.ink3,
+      ]);
+      expect(icons.every((icon) => icon.size == 22), isTrue);
+    });
+
+    testWidgets('Fade und Luecken um die Leiste fangen keine Taps ab',
+        (tester) async {
+      pinIphone14Pro(tester);
+      var bodyTaps = 0;
+      var navTaps = 0;
+      await tester.pumpWidget(
+        _navShell(
+          AppNavBar(index: 0, onChanged: (_) => navTaps++, items: _navItems),
+          body: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => bodyTaps++,
+          ),
+        ),
+      );
+      final glass = tester.getRect(find.byKey(const ValueKey('nav-glass')));
+
+      // In the fade above the bar, in the side gap and below the bar.
+      for (final point in <Offset>[
+        Offset(glass.center.dx, glass.top - 10),
+        Offset(glass.left / 2, glass.center.dy),
+        Offset(glass.center.dx, glass.bottom + 10),
+      ]) {
+        await tester.tapAt(point);
+      }
+      expect(bodyTaps, 3);
+      expect(navTaps, 0);
+
+      await tester.tapAt(glass.center);
+      expect(navTaps, 1);
     });
   });
 

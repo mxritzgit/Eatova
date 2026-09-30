@@ -1,90 +1,54 @@
-# Today — Balance Duo
+# Today — dark redesign
 
-The user selected the “02 / Balance Duo” reference on 2026-09-11. This
-implementation redesigns Today and carries its lavender palette into the
-existing screens. Other tabs retain their structure and features.
+The user's `Design.html` (2026-09-28) replaces the "Balance Duo" layout of
+2026-09-11. The design, not this file, is the authority for the look; this
+file records the data and interaction contract behind it.
 
-## Acceptance
+## Layout (top to bottom)
 
-- [x] Split calorie hero, three pastel macro rows, compact steps, meal rows and
-  a fixed “Mahlzeit erfassen” action follow the selected reference.
-- [x] Light lavender replaces the dark green brand surfaces; dark mode uses
-  neutral violet surfaces. Recipe photographs and camera overlays stay legible.
-- [x] Calorie arithmetic, selected dates, meal slots, Health Connect recovery,
-  loading states and navigation retain their existing behavior.
-- [x] Complete final review, full-suite verification and delivery record.
+1. Header: date line ("Monday, Sep 28"), the "Today" title, a streak pill
+   (hidden at 0) and the 44 px profile avatar.
+2. Seven-day strip: the six days before today plus today on the right. A
+   horizontal swipe, or the "Earlier days"/"Later days" screen-reader actions,
+   pages by a week; there is no page after today. It replaces the old
+   previous/next arrows.
+3. Calorie card: eaten share, 270° arc with the kcal left in its centre,
+   Eaten / Goal / Activity. The Activity stat is omitted without a credit.
+4. Three macro tiles (compact names; screen readers hear the full name).
+5. Recipe pick for today's next open main meal (`HomeStore.nextMealPick`),
+   opening the recipe's detail page. Hidden without a pick, on archive days
+   and while a day loads.
+6. "Meals" with "Open food log" (switches to the Food tab), and the four slot
+   rows. Each row's "+" opens the Food tab's add flow for that slot on the
+   shown day; the next open main meal's "+" is accent-filled.
+7. Activity card: steps against the goal with the kcal credit, then the
+   selected plan's next workout (switches to the Training tab). Without a step
+   source the steps row is dropped; on Health Connect a missing source shows
+   the review hint instead.
 
-## Design contract
+The page runs under the floating tab bar and pads its end by the bar's band.
 
-`lib/src/theme/app_tokens.dart` remains the color source of truth. Existing
-`forest`/`onForest` and `lime`/`onLime` names are compatibility fields;
-they now describe lavender surfaces and contrasting violet accents.
-New code uses `brandSurface`/`onBrandSurface`. Do not use the pale surface
-alone to communicate selection; existing selection controls retain their
-contrasting ink/background pairing.
+## Data rules
 
-The light palette uses background `#F8F8FC`, white cards, brand surface
-`#EAE5FF`, text `#16151F`, and contrasting accent `#6550A8`.
-Protein, carbohydrate and fat surfaces are `#DDF5E4`, `#DDF3FC` and
-`#FFEFC1`. A separate `progressAccent` (`#9782DC`) keeps the rings softer
-than action/text ink while retaining 3:1 contrast against their tracks.
-Nutrient progress colors follow the same contract. Photo/camera foregrounds
-use `onImage` and `imageAccent`; they must not follow the dark text on a
-light brand surface.
+- All numbers come from one `DayNutritionSummary` (budget = raw goal +
+  activity credit), the rule every tab shares. The Goal stat stays the raw
+  profile goal; over budget the centre says "over" with the magnitude.
+- Archive days say "that day", show no suggested kcal bands and no pick or
+  workout. Loading days show one loading card instead of numbers.
+- The accent "+" marks `store.nextOpenMainSlot()` (today only), which the
+  shell passes in as `accentSlot`; the same rule picks the recipe.
 
-The existing Archivo/Bricolage Grotesque fonts and radius scale remain.
-Small screens and large system text stack the hero and macro labels instead
-of shrinking detail text. Only the large remaining-calorie number can scale
-down. The calorie ring, macro amounts, date controls and headings retain
-localized semantics. Input focus remains borderless, with a distinct soft fill.
+## Moved functions
 
-## Data and interaction boundaries
+- Settings: avatar -> profile page -> its gear (was a header button).
+- "Log a meal" (pinned button): each slot's own "+".
+- Coach banner: removed; the Coach tab is one tap away in the tab bar.
 
-The hero still calculates remaining calories as raw goal + activity credit -
-consumed calories. It labels the raw goal and activity separately. Negative
-remaining values mean “kcal drüber”; progress rings stop at 100%. Archive
-days have their own heading, and loading never displays invented zero totals.
-Missing steps remain distinct from measured zero.
+## Verification
 
-The fixed add action reuses the existing meal-slot callback into Food. It reads
-the suggested slot when tapped, preserves the selected diary day, and is
-disabled during loading. All four meal slots, Profile, Settings, Coach and day controls
-remain reachable. Meals use icons because logged meals do not currently retain
-a photo; sample photos are not substituted for user data.
-
-No schema, backend, dependency, permission or cache changes are required.
-
-The [2026-09-13 app polish](APP-POLISH-2026-09-13.md) adds a direct Settings
-action alongside the profile avatar and aligns the title with the other tabs.
-Reduced spacing around the date, hero and macros keeps the complete Steps card
-above the fixed add action on a regular phone, including activity and streak
-text. Enlarged text and small screens retain scrolling.
-
-## Verification evidence
-
-Final validation on Flutter 3.47.2:
-
-- 4,329 Flutter tests passed; zero failures or skips. The final run contains
-  exactly the same cases as default full-suite discovery, with slow training
-  suites scheduled first.
-- 95.11% line coverage excluding generated localization code (floor: 88%).
-- Strict analyzer: no warnings or infos. Final independent Codex review: no
-  actionable findings. Source and whitespace checks passed.
-- Android x64 debug APK built successfully with dummy configuration. Existing
-  AGP/Kotlin support advisories remain; no dependency changes were made.
-- The new archive-day add/manual-save flow passed through the real app shell.
-
-
-Ignored local evidence lives in `.agents/today-balance/` and
-`build/today-balance/`. Flutter-rendered previews cover light/dark, German/
-English, normal phone widths and 320 px with 2x system text. Recipe detail and
-profile previews were also inspected.
-
-The complete application compiled in an isolated local web preview, using
-`PreviewAuthRepository`, no sync and dummy configuration. Direct browser UI
-automation was unavailable in this session. Automated UI flows exercise the
-real app shell, including archive-day manual entry through the new action.
-
-Delivery follows the PR from `design/today-balance-duo` after green CI. The PR
-records the final merge status. This client-only change needs a new app build
-to appear on an installed device; no backend or schema rollout is required.
+Widget and flow tests: `test/screens/today/`,
+`test/flows/today_wiring_flow_test.dart` (every control against the real
+shell), `test/flows/today_first_viewport_test.dart` (header, strip and the
+complete calorie card above the glass at scroll offset 0). Captures:
+`test/design/today_redesign_capture_test.dart` with
+`--dart-define=DARK_REDESIGN_CAPTURE=true`, written to `build/dark-redesign/`.

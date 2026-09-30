@@ -100,9 +100,9 @@ void main() {
           ),
         ),
       );
-      // ONE primary semantics (F8-10): the sheet action is the same ink
-      // surface as PrimaryActionButton, not a forest block.
-      expect(actionMaterial().color, AppTokens.light.ink);
+      // ONE primary semantics (F8-10): the sheet action is the same accent
+      // pill as PrimaryActionButton, not a forest block.
+      expect(actionMaterial().color, AppTokens.light.accentFill);
 
       await tester.pumpWidget(
         designHarness(

@@ -49,10 +49,10 @@ CoachTrainingProposal _draft() => CoachTrainingProposal(
 );
 
 Future<void> _fonts() async {
-  for (final family in ['Archivo', 'BricolageGrotesque']) {
+  for (final family in ['Figtree', 'BricolageGrotesque']) {
     final loader = FontLoader(family);
     for (final weight
-        in family == 'Archivo'
+        in family == 'Figtree'
             ? ['Regular', 'Medium', 'SemiBold', 'Bold']
             : ['Bold', 'ExtraBold']) {
       loader.addFont(rootBundle.load('assets/fonts/$family-$weight.ttf'));
@@ -124,12 +124,12 @@ void main() {
       tester.getTopLeft(find.byKey(const ValueKey('training-create'))).dy,
       greaterThan(tester.getBottomLeft(find.text('Training')).dy),
     );
-    final workout = find.byKey(const ValueKey('training-workout-0'));
-    await tester.scrollUntilVisible(workout, 200);
-    await tester.tap(workout);
+    final chooser = find.byKey(const ValueKey('training-quick-workouts'));
+    await tester.scrollUntilVisible(chooser, 200);
+    await tester.tap(chooser);
     await tester.pumpAndSettle();
-    expect(find.text('Kniebeugen'), findsOneWidget);
-    final selected = find.ancestor(
+    final workout = find.byKey(const ValueKey('training-workout-0'));
+    final selected = find.descendant(
       of: workout,
       matching: find.byType(Semantics),
     );
@@ -139,6 +139,9 @@ void main() {
           .any((node) => node.properties.selected == true),
       isTrue,
     );
+    await tester.tap(workout);
+    await tester.pumpAndSettle();
+    expect(find.text('Kniebeugen'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -177,7 +180,9 @@ void main() {
       ),
       hasLength(1),
     );
-    await tester.tap(find.byKey(const ValueKey('training-open-plans')));
+    final plans = find.byKey(const ValueKey('training-open-plans'));
+    await tester.scrollUntilVisible(plans, 200);
+    await tester.tap(plans);
     await tester.pumpAndSettle();
     final planTitle = find.descendant(
       of: find.byType(BottomSheet),
@@ -192,6 +197,43 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  for (final locale in ['de', 'en']) {
+    testWidgets('quick start labels stay on one line at 390 ($locale)', (
+      tester,
+    ) async {
+      await pumpLocalized(
+        tester,
+        TrainingScreen(
+          plans: [_draft().toTrainingPlan(id: 'quick')],
+          onCreatePlan: (_) async => SyncDelivery.delivered,
+          onUpdatePlan: (_, _) async => SyncDelivery.delivered,
+          onDeletePlan: (_) async => SyncDelivery.delivered,
+          onSelectPlan: (_) {},
+          onStartWorkout: (_, _) {},
+          onOpenCoach: () {},
+        ),
+        locale: Locale(locale),
+        surfaceSize: const Size(390, 844),
+      );
+      for (final key in [
+        'training-quick-create',
+        'training-quick-workouts',
+        'training-open-plans',
+        'training-discuss-plan',
+      ]) {
+        final label = find
+            .descendant(of: find.byKey(ValueKey(key)), matching: find.byType(Text))
+            .last;
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.descendant(of: label, matching: find.byType(RichText)),
+        );
+        // One line of 14 px at line height 1.2.
+        expect(paragraph.size.height, lessThan(20), reason: '$key ($locale)');
+      }
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets(
     'actual fonts keep exercise ordinals unbroken and within their column',

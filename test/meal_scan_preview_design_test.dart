@@ -37,7 +37,7 @@ void main() {
   late Uint8List photo;
   setUpAll(() async {
     photo = File('assets/recipes/lachs_poke_bowl.jpg').readAsBytesSync();
-    for (final family in ['Archivo', 'BricolageGrotesque']) {
+    for (final family in ['Figtree', 'BricolageGrotesque']) {
       final loader = FontLoader(family);
       for (final file in Directory(
         'assets/fonts',

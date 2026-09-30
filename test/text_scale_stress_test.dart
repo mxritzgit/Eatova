@@ -1,5 +1,6 @@
 ﻿import 'support/food_navigation.dart';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show RenderParagraph;
 import 'package:flutter_test/flutter_test.dart';
@@ -195,24 +196,30 @@ void main() {
     // by side, three macro bars (label/bar/value in ONE row) and four slot
     // rows — all classic breaking points at 200 % system font.
     _pinViewport(tester);
-    await _expectNoOverflow(tester, 'Heute-Tab', () async {
-      await _bootApp(tester);
-      expect(find.byKey(const ValueKey('today-kcal-hero')), findsOneWidget);
+    // Frozen day: the archive cell's key is a date.
+    await withClock(Clock.fixed(DateTime(2026, 9, 28, 12)), () async {
+      await _expectNoOverflow(tester, 'Heute-Tab', () async {
+        await _bootApp(tester);
+        expect(find.byKey(const ValueKey('today-kcal-hero')), findsOneWidget);
 
-      // An archive day is its own branch: relative date in the pill, a dash
-      // instead of a number in the burned tile, a different coach line.
-      await tester.tap(find.byKey(const ValueKey('today-date-prev')));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('today-date-selected-label')),
-          findsOneWidget);
+        // An archive day is its own branch: "that day" wording, no pick, no
+        // next workout. Yesterday is the strip's second-to-last day.
+        await tester.tap(find.byKey(const ValueKey('today-day-2026-09-27')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('today-date-selected-label')),
+            findsOneWidget);
 
-      // The cards below the fold are only laid out once scrolled to.
-      await _scrollDurch(
-        tester,
-        find.byKey(const ValueKey('screen-today')),
-        schritte: 4,
-      );
-      expect(find.byKey(const ValueKey('today-coach-banner')), findsOneWidget);
+        // The cards below the fold are only laid out once scrolled to.
+        await _scrollDurch(
+          tester,
+          find.byKey(const ValueKey('screen-today')),
+          schritte: 4,
+        );
+        expect(
+          find.byKey(const ValueKey('today-meals-card')),
+          findsOneWidget,
+        );
+      });
     });
   });
 
@@ -419,11 +426,16 @@ void main() {
   testWidgets('Today account actions remain reachable at large text', (tester) async {
     _pinViewport(tester);
     await _bootApp(tester);
-    for (final key in ['today-profile', 'today-settings']) {
-      final item = find.byKey(ValueKey(key));
-      expect(item.hitTestable(), findsOneWidget);
-      expect(tester.getSize(item).height, greaterThanOrEqualTo(44));
-    }
+    // The avatar is the one account entry; settings sit behind it.
+    final avatar = find.byKey(const ValueKey('today-profile'));
+    expect(avatar.hitTestable(), findsOneWidget);
+    expect(tester.getSize(avatar).height, greaterThanOrEqualTo(44));
+    await tester.tap(avatar);
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('profile-open-settings')).hitTestable(),
+      findsOneWidget,
+    );
     expect(find.byKey(const ValueKey('food-options')), findsNothing);
     expect(tester.takeException(), isNull);
   });

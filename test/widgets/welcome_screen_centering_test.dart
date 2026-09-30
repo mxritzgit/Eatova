@@ -90,7 +90,7 @@ void main() {
   setUpAll(() async {
     for (final (family, file) in [
       ('BricolageGrotesque', 'BricolageGrotesque-Bold.ttf'),
-      ('Archivo', 'Archivo-Regular.ttf'),
+      ('Figtree', 'Figtree-Regular.ttf'),
     ]) {
       await (FontLoader(
         family,

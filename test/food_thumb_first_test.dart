@@ -133,7 +133,9 @@ void main() {
         for (final key in [
           'food-slot-add-breakfast',
           'food-slot-add-snack',
-          'food-action-manual',
+          'food-search',
+          'food-action-barcode',
+          'food-action-ai',
         ]) {
           final target = find.byKey(ValueKey(key));
           await tester.ensureVisible(target);
@@ -145,7 +147,7 @@ void main() {
   );
 
   testWidgets(
-    'Resizing for another tab keyboard preserves expanded diary and scroll',
+    'Resizing for another tab keyboard preserves open macros and scroll',
     (tester) async {
       await withClock(Clock.fixed(_day), () async {
         await _pump(tester, meals: List.generate(10, _meal));
@@ -153,6 +155,8 @@ void main() {
           find.byKey(const ValueKey('food-slot-toggle-breakfast')),
         );
         await tester.pumpAndSettle();
+        const macros = ValueKey('food-slot-macros-breakfast');
+        expect(find.byKey(macros), findsOneWidget);
         await tester.drag(
           find.byKey(const ValueKey('food-diary-scroll')),
           const Offset(0, -300),
@@ -181,13 +185,14 @@ void main() {
           findsOneWidget,
         );
         expect(position().pixels, closeTo(offset, 0.1));
+        expect(find.byKey(macros), findsOneWidget);
         expect(tester.takeException(), isNull);
       });
     },
   );
 
   testWidgets(
-    'Changing the day resets the diary scroll and expanded sections',
+    'Changing the day resets the diary scroll and open macro details',
     (tester) async {
       await withClock(Clock.fixed(_day), () async {
         tester.view.devicePixelRatio = 1;
@@ -210,11 +215,19 @@ void main() {
           find.byKey(const ValueKey('food-slot-toggle-breakfast')),
         );
         await tester.pumpAndSettle();
-        await tester.drag(
-          find.byKey(const ValueKey('food-diary-scroll')),
-          const Offset(0, -600),
-        );
+        // The day pill scrolls with the diary (design): scroll a little, so
+        // the arrow stays on screen and the offset is not zero.
+        final diary = tester
+            .state<ScrollableState>(
+              find.descendant(
+                of: find.byKey(const ValueKey('food-diary-scroll')),
+                matching: find.byType(Scrollable),
+              ),
+            )
+            .position;
+        diary.jumpTo(40);
         await tester.pumpAndSettle();
+        expect(diary.pixels, 40);
         await tester.tap(find.byKey(const ValueKey('food-date-previous')));
         await tester.pumpAndSettle();
         final scroll = tester
@@ -232,9 +245,9 @@ void main() {
         );
         await tester.tap(find.byKey(const ValueKey('food-date-next')));
         await tester.pumpAndSettle();
-        expect(find.text('10 entries'), findsOneWidget);
+        expect(find.text('08:00 · 10 items'), findsOneWidget);
         expect(
-          find.byKey(const ValueKey('food-history-entry-0')),
+          find.byKey(const ValueKey('food-slot-macros-breakfast')),
           findsNothing,
         );
       });
@@ -242,27 +255,21 @@ void main() {
   );
 
   testWidgets(
-    'Ten breakfast entries stay compact and every entry can be revealed',
+    'Ten breakfast entries are all listed and the dock stays put',
     (tester) async {
       await withClock(Clock.fixed(_day), () async {
         await _pump(tester, meals: List.generate(10, _meal));
-        expect(find.text('10 entries'), findsOneWidget);
+        // Header "08:00 · 10 items"; day and slot total 1,045.
+        expect(find.text('08:00 · 10 items'), findsOneWidget);
         expect(find.text('1,045'), findsNWidgets(2));
-        expect(
-          find.byKey(const ValueKey('food-history-entry-9')),
-          findsNothing,
-        );
         final dock = find.byKey(const ValueKey('food-entry-dock'));
         final dockTop = tester.getTopLeft(dock).dy;
-        expect(dockTop, greaterThan(550));
+        expect(dockTop, greaterThan(650));
+        // Every entry is listed without an expand step, oldest first.
         expect(
-          find.byKey(const ValueKey('food-slot-add-lunch')).hitTestable(),
-          findsOneWidget,
+          tester.getTopLeft(find.text('Food 0')).dy,
+          lessThan(tester.getTopLeft(find.text('Food 9')).dy),
         );
-        await tester.tap(
-          find.byKey(const ValueKey('food-slot-toggle-breakfast')),
-        );
-        await tester.pumpAndSettle();
         for (var i = 0; i < 10; i++) {
           expect(find.text('Food $i'), findsOneWidget);
           expect(find.byKey(ValueKey('food-history-entry-$i')), findsOneWidget);
@@ -305,22 +312,16 @@ void main() {
             brightness: brightness,
             locale: const Locale('de'),
           );
-          await tester.ensureVisible(
-            find.byKey(const ValueKey('food-slot-toggle-breakfast')),
-          );
-          await tester.tap(
-            find.byKey(const ValueKey('food-slot-toggle-breakfast')),
-          );
-          await tester.pumpAndSettle();
           final fullTitle = tester.widget<Text>(find.text(longName));
           expect(fullTitle.maxLines, isNull);
-          await tester.ensureVisible(
-            find.byKey(const ValueKey('food-action-manual')),
-          );
-          expect(
-            find.byKey(const ValueKey('food-action-manual')).hitTestable(),
-            findsOneWidget,
-          );
+          for (final key in ['food-search', 'food-action-ai']) {
+            await tester.ensureVisible(find.byKey(ValueKey(key)));
+            expect(
+              find.byKey(ValueKey(key)).hitTestable(),
+              findsOneWidget,
+              reason: key,
+            );
+          }
           expect(tester.takeException(), isNull);
         });
       },
@@ -333,7 +334,8 @@ void main() {
     await withClock(Clock.fixed(_day), () async {
       await _pump(tester, meals: [_meal(1)], loading: true);
       expect(find.byKey(const ValueKey('food-day-loading')), findsOneWidget);
-      expect(find.text('—'), findsOneWidget);
+      // Logged, left and the three macro grams are placeholders.
+      expect(find.text('—'), findsNWidgets(5));
       expect(find.text('101'), findsNothing);
       expect(find.byKey(const ValueKey('food-history')), findsNothing);
       await tester.tap(find.byKey(const ValueKey('food-search')));
@@ -342,6 +344,23 @@ void main() {
         find.byKey(const ValueKey('kcal-product-search-input')),
         findsNothing,
       );
+      // Every dock action is off, and says so, while the day loads.
+      final semantics = tester.ensureSemantics();
+      for (final key in ['food-search', 'food-action-barcode', 'food-action-ai']) {
+        final action = tester.widget<InkWell>(find.byKey(ValueKey(key)));
+        expect(action.onTap, isNull, reason: key);
+        expect(action.onLongPress, isNull, reason: key);
+        expect(
+          tester.getSemantics(find.byKey(ValueKey(key))),
+          isSemantics(hasEnabledState: true, isEnabled: false, isButton: true),
+          reason: key,
+        );
+      }
+      semantics.dispose();
+      await tester.tap(find.byKey(const ValueKey('food-action-barcode')));
+      await tester.tap(find.byKey(const ValueKey('food-action-ai')));
+      await tester.pump();
+      expect(find.byType(BottomSheet), findsNothing);
       expect(tester.takeException(), isNull);
     });
   });
@@ -355,9 +374,9 @@ void main() {
         tester,
         StatefulBuilder(
           builder: (context, setState) => FoodDayNavigation(
-            onCalendar: () {},
             day: day,
-            label: '${day.year}-${day.month}-${day.day}',
+            headline: 'Day',
+            dateLabel: '${day.year}-${day.month}-${day.day}',
             onSelected: (value) => setState(() => day = value),
           ),
         ),
@@ -378,7 +397,7 @@ void main() {
   });
 
   testWidgets(
-    'Manual dock entry lets the user choose the meal and saves only on confirmation',
+    'Manual entry from the dock lets the user choose the meal and saves only on confirmation',
     (tester) async {
       await withClock(Clock.fixed(DateTime(2026, 9, 11, 20)), () async {
         final added = <(MealAnalysisResult, MealSlot)>[];
@@ -389,13 +408,14 @@ void main() {
             return 'new-meal';
           },
         );
-        await tester.tap(find.byKey(const ValueKey('food-action-manual')));
+        // The dock's shortcut to manual entry: long-press the search capsule.
+        await tester.longPress(find.byKey(const ValueKey('food-search')));
         await tester.pumpAndSettle();
         expect(added, isEmpty);
         expect(
           find.descendant(
             of: find.byKey(const ValueKey('manual-meal-sheet')),
-            matching: find.text('Friday, September 11'),
+            matching: find.text('Friday, Sep 11'),
           ),
           findsOneWidget,
         );
@@ -425,7 +445,7 @@ void main() {
     },
   );
 
-  testWidgets('Expanded meals keep the real edit route and stable identity', (
+  testWidgets('Listed meals keep the real edit route and stable identity', (
     tester,
   ) async {
     await withClock(Clock.fixed(_day), () async {
@@ -448,10 +468,6 @@ void main() {
         locale: const Locale('en'),
         settle: true,
       );
-      await tester.tap(
-        find.byKey(const ValueKey('food-slot-toggle-breakfast')),
-      );
-      await tester.pumpAndSettle();
       final oldest = find.byKey(const ValueKey('food-history-entry-9'));
       await tester.ensureVisible(oldest);
       await tester.tap(oldest);

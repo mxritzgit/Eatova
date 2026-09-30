@@ -168,7 +168,8 @@ Future<void> _pumpCoach(
       userRecipeSlugs: userRecipeSlugs ?? const <String>{},
     ),
     locale: locale,
-    padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+    // The coach tab owns its gutters (the shell passes no padding).
+    padding: EdgeInsets.zero,
     safeArea: false,
     settle: true,
   );

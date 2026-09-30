@@ -45,7 +45,7 @@ Later focused polish takes precedence over an earlier baseline in the same area.
 | Area | Current references |
 | --- | --- |
 | Today | [Balance Duo](TODAY-DESIGN.md), [first-viewport/account polish](APP-POLISH-2026-09-13.md) |
-| Food and favorites | [Thumb First](FOOD-DESIGN.md), [Favorites](FAVORITES-DESIGN.md) |
+| Food and favorites | [Food (dark redesign)](FOOD-DESIGN.md), [Favorites](FAVORITES-DESIGN.md) |
 | Meal entry and calendar | [Entry baseline](MEAL-ENTRY-DESIGN.md), [camera/manual/search/calendar polish](FOOD-ENTRY-POLISH-2026-09-14.md) |
 | Recipes, plan and shopping | [Spotlight](RECIPES-DESIGN.md) |
 | Training | [Nachtstudio](TRAINING-DESIGN.md), [artwork provenance](../assets/training/README.md) |

@@ -102,7 +102,9 @@ auseinander: solche Zahlen an die Skala koppeln, statt sie stehen zu lassen.
 
 `AppType.display(size, {weight, color, letterSpacing, height})` — Bricolage
 Grotesque, für Zahlen und Überschriften, tabellarische Ziffern.
-`AppType.ui(...)` — Archivo, für alles Übrige.
+`AppType.ui(...)` — Figtree (seit dem Dark-Redesign 2026-09-28; vorher
+Archivo), für alles Übrige; fehlende Glyphen wie „≈“ fallen auf Bricolage
+zurück (`AppType.uiFallback`).
 `AppType.eyebrow(color, {size})` — kleine Versalien über Abschnitten.
 
 Beide Familien liegen gebündelt unter `assets/fonts`. **Niemals `google_fonts`

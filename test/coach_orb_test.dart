@@ -1,24 +1,20 @@
-// CoachOrb — the SHAPE of the tree, not the look (perf audit 2026-09-01, B5).
+// CoachOrb — the dark redesign's violet sphere (2026-09-28): a static glow,
+// a breathing core and a pulsing halo.
 //
-// The orb stacks three layers, two of them animated endlessly and two of them
-// blurred: a 40px shadow glow, a Gaussian-blurred sweep gradient that rotates,
-// and a gradient core that breathes. Whether those blurs are rasterised once
-// or sixty times a second is invisible on screen — it only shows up as heat
-// and battery drain — so no rendering test would ever catch a regression here.
-// This file pins the structure that keeps the cost down:
+// Two halves. The SHAPE of the tree (perf audit 2026-09-01, B5): whether a
+// blur is rasterised once or sixty times a second is invisible on screen and
+// only shows up as heat and battery drain, so no rendering test would catch a
+// regression. This file pins the structure that keeps the cost down:
 //
-//   * the blurred sweep hangs on the AnimatedBuilder's `child`, so it is BUILT
-//     once instead of once per frame,
-//   * a RepaintBoundary sits between the rotation and the blur, so it is
-//     PAINTED once and every frame only swaps the transform matrix,
-//   * both animated layers sit behind their own boundary, so neither drags the
-//     glow's 40px shadow blur into a per-frame repaint.
+//   * the glow's 36 px shadow blur sits outside both animated layers, so it
+//     is recorded once and never repainted while the orb breathes,
+//   * each animated layer (halo, core) sits behind its own RepaintBoundary,
+//     so its per-frame change never dirties the Stack layer,
+//   * the animated layers keep their decoration as the transition's child:
+//     built once, never per frame.
 //
-// The last two tests pin the look the restructure had to leave alone (sigma,
-// gradient, one turn per seven seconds) and the reduced-motion contract.
-
-import 'dart:math' as math;
-import 'dart:ui' show ImageFilter;
+// And the LOOK the design specifies: the gradient stops, the 5 s breath and
+// the reduced-motion contract.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart'
@@ -26,244 +22,182 @@ import 'package:flutter/rendering.dart'
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
+import 'package:eatova/src/theme/app_tokens.dart';
 
 import 'support/harness.dart';
 
-// ---------------------------------------------------------------------------
-// Probes
-// ---------------------------------------------------------------------------
-
-Finder get _blur => find.byType(ImageFiltered);
-
-/// The one AnimatedBuilder driving the ring.
-AnimatedBuilder _ringBuilder(WidgetTester tester) =>
-    tester.widget<AnimatedBuilder>(
-      find.ancestor(of: _blur, matching: find.byType(AnimatedBuilder)).first,
-    );
-
-/// The glow: the only DecoratedBox in the orb carrying a box shadow.
-Finder get _glow => find.descendant(
-      of: find.byType(CoachOrb),
-      matching: find.byWidgetPredicate(
-        (w) =>
-            w is DecoratedBox &&
-            w.decoration is BoxDecoration &&
-            (w.decoration as BoxDecoration).boxShadow != null,
-      ),
-    );
-
-/// The breathing core: the radial gradient. Not `gradient != null` — the
-/// ring's Container builds a DecoratedBox of its own (sweep gradient).
-Finder get _core => find.descendant(
-      of: find.byType(CoachOrb),
-      matching: find.byWidgetPredicate(
-        (w) =>
-            w is DecoratedBox &&
-            w.decoration is BoxDecoration &&
-            (w.decoration as BoxDecoration).gradient is RadialGradient,
-      ),
-    );
+Finder get _halo => find.byKey(const ValueKey('coach-orb-halo'));
+Finder get _glow => find.byKey(const ValueKey('coach-orb-glow'));
+Finder get _core => find.byKey(const ValueKey('coach-orb-core'));
 
 /// Widget types on the path from [start] up to (and including) [CoachOrb].
 /// Index 0 is the immediate parent, so a smaller index means "further inside".
-List<Type> _pfadNachOben(WidgetTester tester, Finder start) {
-  final typen = <Type>[];
+List<Type> _pathUp(WidgetTester tester, Finder start) {
+  final types = <Type>[];
   tester.element(start).visitAncestorElements((e) {
-    typen.add(e.widget.runtimeType);
+    types.add(e.widget.runtimeType);
     return e.widget.runtimeType != CoachOrb;
   });
-  return typen;
+  return types;
 }
 
-/// Rotation of the ring, read back out of the Transform's matrix.
-double _ringWinkel(WidgetTester tester) {
-  final t = tester.widget<Transform>(
-    find.ancestor(of: _blur, matching: find.byType(Transform)).first,
-  );
-  final m = t.transform.storage; // [cos, sin, ...] for a rotation about Z
-  return math.atan2(m[1], m[0]);
-}
+RenderRepaintBoundary _boundaryAbove(WidgetTester tester, Finder layer) =>
+    tester.renderObject<RenderRepaintBoundary>(
+      find.ancestor(of: layer, matching: find.byType(RepaintBoundary)).first,
+    );
 
-/// One mounted, freely animating orb whose ticker has already had its first
-/// (zero-elapsed) tick — from here on `pump(d)` advances the spin by exactly
-/// `d`.
+double _coreScale(WidgetTester tester) => tester
+    .widget<ScaleTransition>(
+      find.ancestor(of: _core, matching: find.byType(ScaleTransition)).first,
+    )
+    .scale
+    .value;
+
+double _haloOpacity(WidgetTester tester) => tester
+    .widget<FadeTransition>(
+      find.ancestor(of: _halo, matching: find.byType(FadeTransition)).first,
+    )
+    .opacity
+    .value;
+
+/// One mounted, freely animating orb whose ticker has had its first tick.
 Future<void> _pumpOrb(WidgetTester tester) async {
   await pumpLocalized(tester, const CoachOrb(), reducedMotion: false);
   await tester.pump();
 }
 
 void main() {
-  // -------------------------------------------------------------------------
-  // Rotating ring
-  // -------------------------------------------------------------------------
-  group('Ring: der Weichzeichner haengt ausserhalb des Frame-Rumpfs', () {
-    testWidgets('der Blur ist das child des AnimatedBuilders, nicht sein Rumpf',
-        (tester) async {
-      await _pumpOrb(tester);
-
-      final kind = _ringBuilder(tester).child;
-      expect(kind, isNotNull,
-          reason: 'ohne child baut der Builder den Blur pro Frame neu');
-      expect(kind, isA<RepaintBoundary>());
-      expect((kind! as RepaintBoundary).child, isA<ImageFiltered>());
-    });
-
-    testWidgets('ueber Frames hinweg bleibt es dieselbe Widget-Instanz',
-        (tester) async {
-      await _pumpOrb(tester);
-      final vorher = tester.widget<ImageFiltered>(_blur);
-
-      for (var i = 0; i < 6; i++) {
-        await tester.pump(const Duration(milliseconds: 16));
-      }
-
-      expect(identical(tester.widget<ImageFiltered>(_blur), vorher), isTrue,
-          reason: 'eine neue Instanz heisst: der Builder-Rumpf baut ihn wieder');
-    });
-
-    testWidgets('zwischen Drehung und Blur steht eine RepaintBoundary',
-        (tester) async {
-      await _pumpOrb(tester);
-      final pfad = _pfadNachOben(tester, _blur);
-
-      final innen = pfad.indexOf(RepaintBoundary);
-      final drehung = pfad.indexOf(Transform);
-      expect(innen, isNonNegative);
-      expect(drehung, isNonNegative);
-      expect(innen, lessThan(drehung),
-          reason: 'die Boundary muss UNTER der Drehung liegen, sonst gibt es '
-              'kein Raster, das die Drehung wiederverwenden kann');
-      // Inner boundary plus the outer one around the whole AnimatedBuilder.
-      expect(pfad.where((t) => t == RepaintBoundary).length,
-          greaterThanOrEqualTo(2));
-    });
-
-    testWidgets('der Blur wird einmal gezeichnet, danach nur noch gedreht',
-        (tester) async {
-      await _pumpOrb(tester);
-
-      final innen = tester.renderObject<RenderRepaintBoundary>(
-        find.byWidget(_ringBuilder(tester).child!),
-      )..debugResetMetrics();
-      final aussen = tester.renderObject<RenderRepaintBoundary>(
-        find
-            .ancestor(
-                of: find.byType(AnimatedBuilder),
-                matching: find.byType(RepaintBoundary))
-            .first,
-      )..debugResetMetrics();
-
-      for (var i = 0; i < 8; i++) {
-        await tester.pump(const Duration(milliseconds: 16));
-      }
-
-      // symmetric = "repainted together with the parent" = the boundary bought
-      // nothing that frame; asymmetric = parent and child went separate ways.
-      expect(innen.debugSymmetricPaintCount, 0,
-          reason: 'der Blur wurde waehrend der Drehung neu gezeichnet');
-      expect(innen.debugAsymmetricPaintCount, greaterThan(0),
-          reason: 'das gehaltene Raster wurde nie wiederverwendet');
-
-      // The outer boundary earns its place by repainting WITHOUT its parent:
-      // the per-frame rotation stops here instead of dirtying the Stack layer.
-      expect(aussen.debugSymmetricPaintCount, 0);
-      expect(aussen.debugAsymmetricPaintCount, greaterThan(0));
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // Glow and breathing core
-  // -------------------------------------------------------------------------
-  group('Die beiden anderen Lagen zahlen nicht fuer die Animationen', () {
-    testWidgets('der 40px-Schattenblur wird waehrend der Animation nicht neu '
-        'gezeichnet', (tester) async {
+  group('the animated layers pay for themselves only', () {
+    testWidgets('the glow\'s shadow blur is not repainted while it breathes', (
+      tester,
+    ) async {
       await _pumpOrb(tester);
       final glow = tester.renderObject(_glow);
 
-      var male = 0;
+      var paints = 0;
       debugOnProfilePaint = (ro) {
-        if (identical(ro, glow)) male += 1;
+        if (identical(ro, glow)) paints += 1;
       };
       try {
         for (var i = 0; i < 8; i++) {
           await tester.pump(const Duration(milliseconds: 16));
         }
       } finally {
-        // Must be reset: flutter_test fails a test that leaves a render debug
-        // variable set.
+        // flutter_test fails a test that leaves a render debug variable set.
         debugOnProfilePaint = null;
       }
 
-      expect(male, 0,
-          reason: 'eine der Animationen zieht die Stack-Ebene mit hoch und '
-              'laesst den Schattenblur pro Frame neu aufzeichnen');
+      expect(
+        paints,
+        0,
+        reason:
+            'an animation drags the Stack layer along and re-records '
+            'the shadow blur every frame',
+      );
+      expect(
+        _pathUp(tester, _glow),
+        isNot(contains(ScaleTransition)),
+        reason: 'the glow must not scale with the core',
+      );
     });
 
-    testWidgets('der atmende Kern haelt seine Neuzeichnung bei sich',
-        (tester) async {
-      await _pumpOrb(tester);
-      final pfad = _pfadNachOben(tester, _core);
+    // The halo's fade is a repaint boundary of its own while its opacity is
+    // between 0 and 1, so the explicit boundary above it only has to keep the
+    // Stack out (at full opacity it is the one that catches the scale).
+    for (final (name, layer, transition, ownRepaints)
+        in <(String, Finder, Type, bool)>[
+          ('halo', _halo, ScaleTransition, false),
+          ('core', _core, ScaleTransition, true),
+        ]) {
+      testWidgets('the $name repaints behind its own boundary', (tester) async {
+        await _pumpOrb(tester);
+        final path = _pathUp(tester, layer);
+        expect(path.indexOf(transition), isNonNegative);
+        expect(
+          path.indexOf(RepaintBoundary),
+          greaterThan(path.indexOf(transition)),
+          reason: 'the boundary sits ABOVE the animation',
+        );
 
-      // Opposite of the ring on purpose: the boundary sits ABOVE the scale.
-      // The core carries no filter and has to be redrawn at the new scale
-      // anyway, so a cached layer under the scale would only add compositing;
-      // what is worth having is the isolation from the glow next door.
-      final skalierung = pfad.indexOf(ScaleTransition);
-      final boundary = pfad.indexOf(RepaintBoundary);
-      expect(skalierung, isNonNegative);
-      expect(boundary, greaterThan(skalierung));
+        final boundary = _boundaryAbove(tester, layer)..debugResetMetrics();
+        for (var i = 0; i < 8; i++) {
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        expect(
+          boundary.debugSymmetricPaintCount,
+          0,
+          reason: 'the $name was painted together with its parent',
+        );
+        if (ownRepaints) {
+          expect(
+            boundary.debugAsymmetricPaintCount,
+            greaterThan(0),
+            reason: 'the $name never repainted on its own — not animating?',
+          );
+        }
+      });
 
-      final kern = tester.renderObject<RenderRepaintBoundary>(
-        find.ancestor(of: _core, matching: find.byType(RepaintBoundary)).first,
-      )..debugResetMetrics();
-      for (var i = 0; i < 8; i++) {
-        await tester.pump(const Duration(milliseconds: 16));
-      }
-      expect(kern.debugSymmetricPaintCount, 0,
-          reason: 'die Atmung wurde zusammen mit ihrer Elternebene gezeichnet');
-    });
+      testWidgets('the $name decoration is built once, not per frame', (
+        tester,
+      ) async {
+        await _pumpOrb(tester);
+        final before = tester.widget(layer);
+        for (var i = 0; i < 6; i++) {
+          await tester.pump(const Duration(milliseconds: 16));
+        }
+        expect(identical(tester.widget(layer), before), isTrue);
+      });
+    }
   });
 
-  // -------------------------------------------------------------------------
-  // What the restructure had to leave alone
-  // -------------------------------------------------------------------------
-  group('Aussehen unveraendert', () {
-    testWidgets('Sigma 1.5 isotrop auf einem Sweep-Kreis', (tester) async {
-      await _pumpOrb(tester);
+  group('look (design: coach/template.html)', () {
+    testWidgets('76 px sphere lit from the upper left, 180 px halo', (
+      tester,
+    ) async {
+      await pumpLocalized(tester, const CoachOrb());
+      const t = AppTokens.dark;
+      expect(tester.getSize(find.byType(CoachOrb)), const Size(76, 76));
+      expect(tester.getSize(_halo).width, closeTo(180, 0.01));
 
-      expect(tester.widget<ImageFiltered>(_blur).imageFilter,
-          ImageFilter.blur(sigmaX: 1.5, sigmaY: 1.5));
+      final core =
+          tester.widget<DecoratedBox>(_core).decoration as BoxDecoration;
+      final gradient = core.gradient! as RadialGradient;
+      expect(gradient.colors, [t.orbLight, t.accentFill, t.orbMid, t.orbDeep]);
+      expect(gradient.stops, const [0, 0.26, 0.62, 1]);
+      expect(gradient.center, const Alignment(-0.32, -0.44));
 
-      final ring = tester.widget<Container>(
-        find.descendant(of: _blur, matching: find.byType(Container)),
+      final glow =
+          tester.widget<DecoratedBox>(_glow).decoration as BoxDecoration;
+      expect(glow.boxShadow!.single.blurRadius, 36);
+      expect(
+        glow.boxShadow!.single.color,
+        t.accentGlow.withValues(alpha: 0.55),
       );
-      final deko = ring.decoration! as BoxDecoration;
-      expect(deko.shape, BoxShape.circle);
-      expect(deko.gradient, isA<SweepGradient>(),
-          reason: 'nur ein voller, mittig gedrehter Kreis darf ueberhaupt '
-              'vorgerastert und dann gedreht werden');
     });
 
-    testWidgets('ein Umlauf dauert weiterhin sieben Sekunden', (tester) async {
+    testWidgets('one breath takes five seconds: 1 -> 1.06 -> 1', (
+      tester,
+    ) async {
       await _pumpOrb(tester);
-      final start = _ringWinkel(tester);
+      expect(_coreScale(tester), closeTo(1, 0.001));
+      expect(_haloOpacity(tester), closeTo(0.55, 0.001));
 
-      // A quarter of 7 s must be a quarter turn.
-      await tester.pump(const Duration(milliseconds: 1750));
+      await tester.pump(CoachOrb.period ~/ 2);
+      expect(_coreScale(tester), closeTo(1.06, 0.001));
+      expect(_haloOpacity(tester), closeTo(1, 0.001));
 
-      expect(_ringWinkel(tester) - start, closeTo(math.pi / 2, 0.05));
+      await tester.pump(CoachOrb.period ~/ 2);
+      expect(_coreScale(tester), closeTo(1, 0.001));
     });
 
-    testWidgets('bei reduzierter Bewegung steht der Ring still',
-        (tester) async {
+    testWidgets('under reduced motion the orb holds still', (tester) async {
       // Harness default: disableAnimations = true.
       await pumpLocalized(tester, const CoachOrb());
       await tester.pump();
-      final start = _ringWinkel(tester);
-
-      await tester.pump(const Duration(milliseconds: 1750));
-
-      expect(_ringWinkel(tester), start);
+      await tester.pump(CoachOrb.period ~/ 2);
+      expect(_coreScale(tester), 1);
+      expect(_haloOpacity(tester), 0.55);
+      expect(tester.hasRunningAnimations, isFalse);
     });
   });
 }

@@ -107,10 +107,10 @@ void main() {
     final icons = FontLoader('MaterialIcons');
     icons.addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'));
     await icons.load();
-    for (final family in ['Archivo', 'BricolageGrotesque']) {
+    for (final family in ['Figtree', 'BricolageGrotesque']) {
       final loader = FontLoader(family);
       for (final weight
-          in family == 'Archivo'
+          in family == 'Figtree'
               ? ['Regular', 'Medium', 'SemiBold', 'Bold']
               : ['Bold', 'ExtraBold']) {
         loader.addFont(rootBundle.load('assets/fonts/$family-$weight.ttf'));

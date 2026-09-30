@@ -1,5 +1,16 @@
 # Training — Nachtstudio
 
+> **Superseded on the tab root by the dark redesign (2026-09-28).** The app is
+> dark-only now, so the Training-only forced theme (`TrainingStudioTheme`,
+> `TrainingStudioChrome`) is gone and the tab follows the app theme. The root
+> shows the design's header, "This week" strip, next-workout card, Quick
+> start, Weekly volume and Recent, fed by the store's training derivations
+> (`models/training_insights.dart`). Workouts are chosen through Quick start
+> instead of A–G tabs, and plan edit/delete sit behind the card's round
+> adjust button. The plan library (with its studio artwork), editor, player
+> and history below are unchanged. Report:
+> `.agents/dark-redesign-2026-09-28/worktree/.superpowers/sdd/plan/task-5-report.md`.
+
 Concept 09, selected on 2026-09-13, is implemented as a native Flutter Training
 page. The dark studio photography, expressive headings, lavender start action
 and open exercise rows give Training its own character within Eatova.

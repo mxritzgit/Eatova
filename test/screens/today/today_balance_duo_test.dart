@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:eatova/src/models/day_nutrition.dart';
 import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/today/today_hero.dart';
@@ -37,23 +38,26 @@ void main() {
       expect(t.lerp(t, .5).progressAccent, t.progressAccent);
     });
     testWidgets(
-      'macro rows preserve quantities and clamp their bars in $brightness',
+      'macro tiles preserve quantities and clamp their bars in $brightness',
       (tester) async {
         final semantics = tester.ensureSemantics();
         await pumpLocalized(
           tester,
-          const SingleChildScrollView(
+          SingleChildScrollView(
             child: TodayMacros(
-              progress: MacroProgress(
-                proteinG: 160,
-                carbsG: 0,
-                fatG: 20,
-                kcal: 500,
-              ),
-              profile: UserProfile(
-                proteinGoalG: 130,
-                carbsGoalG: 240,
-                fatGoalG: 0,
+              summary: DayNutritionSummary(
+                profile: const UserProfile(
+                  proteinGoalG: 130,
+                  carbsGoalG: 240,
+                  fatGoalG: 0,
+                ),
+                burnedKcal: 0,
+                consumed: const MacroProgress(
+                  proteinG: 160,
+                  carbsG: 0,
+                  fatG: 20,
+                  kcal: 500,
+                ),
               ),
             ),
           ),
@@ -69,8 +73,12 @@ void main() {
         );
         expect(bars.map((bar) => bar.value).toList(), [1.0, 0.0, 0.0]);
         final protein = find.bySemanticsLabel('Protein');
-        expect(tester.getSemantics(protein).value, '160 von 130 Gramm');
-        expect(find.text('160 / 130 g'), findsOneWidget);
+        expect(
+          tester.getSemantics(protein).value,
+          '160 von 130 Gramm, 30 g drüber',
+        );
+        expect(find.text('160'), findsOneWidget);
+        expect(find.text('/130 g'), findsOneWidget);
         semantics.dispose();
       },
     );
@@ -83,24 +91,28 @@ void main() {
     (10, 0, 0, 1.0, '9'),
   ]) {
     testWidgets(
-      'calorie ring uses the activity-adjusted budget: $eaten/$goal+$burned',
+      'calorie arc uses the activity-adjusted budget: $eaten/$goal+$burned',
       (tester) async {
         await pumpLocalized(
           tester,
           SingleChildScrollView(
-            child: TodayCalorieHero(
-              consumedKcal: eaten,
-              burnedKcal: burned,
-              kcalGoal: goal,
-              streak: 1,
+            child: TodayCalorieCard(
+              summary: DayNutritionSummary(
+                profile: UserProfile(dailyKcalGoal: goal),
+                burnedKcal: burned,
+                consumed: MacroProgress(
+                  proteinG: 0,
+                  carbsG: 0,
+                  fatG: 0,
+                  kcal: eaten,
+                ),
+              ),
             ),
           ),
           settle: true,
         );
         expect(
-          tester
-              .widget<TodayProgressRing>(find.byType(TodayProgressRing))
-              .progress,
+          tester.widget<TodayCalorieArc>(find.byType(TodayCalorieArc)).progress,
           expected,
         );
         expect(
@@ -109,7 +121,6 @@ void main() {
               .data,
           remaining,
         );
-        expect(find.text('1 Tag in Folge'), findsOneWidget);
         expect(tester.takeException(), isNull);
       },
     );

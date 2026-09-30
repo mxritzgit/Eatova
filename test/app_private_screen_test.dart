@@ -106,11 +106,18 @@ void main() {
         ], reason: 'tab $tab must not release protection');
       }
 
-      await tester.tap(find.byKey(const ValueKey('today-settings')));
+      // Settings sit behind the avatar's profile page (dark redesign).
+      await tester.tap(find.byKey(const ValueKey('today-profile')));
+      await settleFrames(tester);
+      await tester.tap(find.byKey(const ValueKey('profile-open-settings')));
       await settleFrames(tester);
       expect(find.byType(SettingsScreen), findsOneWidget);
       expect(SecureScreen.instance.activeCount, greaterThan(1));
       Navigator.of(tester.element(find.byType(SettingsScreen))).pop();
+      await settleFrames(tester);
+      Navigator.of(
+        tester.element(find.byKey(const ValueKey('screen-profile'))),
+      ).pop();
       await settleFrames(tester);
       expect(find.byType(TodayScreen), findsOneWidget);
       expect(calls, [

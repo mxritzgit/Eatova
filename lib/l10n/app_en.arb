@@ -97,32 +97,12 @@
     }
   },
   "todayMealSlotEmpty": "Nothing logged yet",
-  "todayCoachTeaserNeutral": "Ask the coach for ideas for your goals.",
-  "todayCoachTeaserEmptyDay": "Log your first meal — I'll build your day around it.",
-  "todayCoachTeaserProteinOpen": "You still need {remainingProteinG} g of protein. Want a suggestion?",
-  "@todayCoachTeaserProteinOpen": {
-    "placeholders": {
-      "remainingProteinG": { "type": "int" }
-    }
-  },
-  "todayCoachTeaserProteinDone": "Your protein goal is met. Want me to look at the rest of your day?",
   "todayMacrosTitle": "Macros",
-  "todayMacrosTrailing": "Daily goals",
   "todayMacroProtein": "Protein",
   "todayMacroCarbs": "Carbs",
   "todayMacroFat": "Fat",
-  "todayMealsTitleToday": "Today's meals",
-  "todayMealsTitleArchive": "Meals",
+  "todayMealsTitle": "Meals",
   "todaySemanticsOpenProfile": "Open profile",
-  "todayKcalBudgetEyebrow": "CALORIE BUDGET",
-  "todayKcalGoalLabel": "Goal {goal} kcal",
-  "@todayKcalGoalLabel": {
-    "placeholders": {
-      "goal": { "type": "String" }
-    }
-  },
-  "todayKcalOver": "kcal over",
-  "todayKcalRemaining": "kcal left",
   "todaySemanticsCalorieProgress": "Calorie progress",
   "todaySemanticsCalorieProgressValue": "{percent} percent of daily goal eaten",
   "@todaySemanticsCalorieProgressValue": {
@@ -130,24 +110,7 @@
       "percent": { "type": "int" }
     }
   },
-  "todayStatEaten": "EATEN",
-  "todayStatBurned": "BURNED",
-  "todayStatStreak": "DAY STREAK",
-  "todayStepsTitle": "Steps",
-  "todayStepsUnit": "STEPS",
-  "todayStepsGoal": "Goal {goal}",
-  "@todayStepsGoal": {
-    "placeholders": {
-      "goal": { "type": "String" }
-    }
-  },
   "todayStepsGoalReached": "Goal reached",
-  "todayStepsBurned": "≈ {kcal} kcal burned",
-  "@todayStepsBurned": {
-    "placeholders": {
-      "kcal": { "type": "String" }
-    }
-  },
   "todaySemanticsStepsProgress": "Step goal",
   "todaySemanticsStepsProgressValue": "{steps} of {goal} steps",
   "@todaySemanticsStepsProgressValue": {
@@ -156,9 +119,6 @@
       "goal": { "type": "String" }
     }
   },
-  "todayMealKcalLabel": "KCAL",
-  "todayCoachEyebrow": "AI COACH",
-  "todayCoachCta": "Go to coach",
   "todayDayLoading": "Loading day…",
   "todaySemanticsDatePrev": "Previous day",
   "todaySemanticsDateNext": "Next day",
@@ -169,16 +129,9 @@
       "code": { "type": "String" }
     }
   },
-  "foodDiaryEmptyHint": "Tap AI Scan, barcode, or search above.",
-  "foodActionBarcode": "Barcode",
-  "foodActionAiScan": "AI Scan",
-  "foodSearchPlaceholder": "Search food or meals…",
-  "foodSectionHistoryTitle": "History",
   "foodSemanticsTrends": "Trends",
   "foodSemanticsSettings": "Settings",
   "foodTitle": "Nutrition",
-  "foodKcalTodayLabel": "KCAL TODAY",
-  "foodKcalOnDayLabel": "KCAL THAT DAY",
   "foodDatePickerHelpText": "Choose day",
   "foodCalendarToday": "Back to today",
   "foodCalendarOpenDay": "Open this day",
@@ -195,13 +148,6 @@
     }
   },
   "foodSlotTotalLabel": "Total",
-  "foodDiarySlotSummary": "{kcal} kcal · {count, plural, one{{count} entry} other{{count} entries}}",
-  "@foodDiarySlotSummary": {
-    "placeholders": {
-      "kcal": { "type": "int" },
-      "count": { "type": "int" }
-    }
-  },
   "foodSlotAddLabel": "Add to {slot}",
   "@foodSlotAddLabel": {
     "placeholders": {
@@ -244,8 +190,6 @@
   "foodScanBarcodeTooltip": "Scan barcode",
   "foodSearchInputHint": "What did you eat?",
   "foodSearchButtonTooltip": "Search",
-  "foodEmptyStateTitle": "Search above or scan a barcode",
-  "foodEmptyStateSubtitle": "Entries appear directly in the list above.",
   "foodAnalysisTimeoutMessage": "That's taking too long. Please try again in a moment.",
   "foodAnalysisErrorTitle": "That didn't work",
   "foodAnalysisRetryButton": "Try again",
@@ -365,7 +309,6 @@
     }
   },
   "foodPhotoCardTitle": "Photo",
-  "foodPhotoCardPreviewAction": "Preview",
   "foodNoImageSelected": "No image selected yet",
   "foodLoadingStageDetect": "Detecting food...",
   "foodLoadingStageEstimate": "Estimating amounts...",
@@ -474,24 +417,16 @@
   "foodScanMealTitle": "Scan meal",
   "recipesSubtitle": "Clean meals with AI images and macros ready to track.",
   "recipesCreateSemantics": "Create your own recipe",
-  "recipesSearchHint": "Search dish, goal, or category",
   "recipesSearchClearTooltip": "Clear search",
-  "recipesRecommendedTitle": "Recommendations",
-  "recipesFitnessDishesCount": "{count} fitness dishes",
-  "@recipesFitnessDishesCount": {
-    "placeholders": {
-      "count": { "type": "int" }
-    }
-  },
   "recipesAllTitle": "All recipes",
   "recipesFilterAll": "All",
-  "recipesFilterHighProtein": "High Protein",
-  "recipesFilterMainCourse": "Main Course",
+  "recipesFilterHighProtein": "High protein",
+  "recipesFilterMainCourse": "Main course",
   "recipesFilterBreakfast": "Breakfast",
   "recipesFilterFish": "Fish",
   "recipesFilterVegetarian": "Vegetarian",
   "recipesFilterVegan": "Vegan",
-  "recipesFilterLowCarb": "Low Carb",
+  "recipesFilterLowCarb": "Low carb",
   "recipesCategoryOwn": "Own",
   "recipesResultsCount": "{count, plural, one{1 match} other{{count} matches}}",
   "@recipesResultsCount": {
@@ -501,7 +436,6 @@
   },
   "recipesGoalMatchTitle": "Fits your goal",
   "recipesGoalMatchTrailing": "by remaining macros",
-  "recipesGoalMatchBadge": "Match",
   "recipesDeletedSuccess": "\"{title}\" deleted",
   "@recipesDeletedSuccess": {
     "placeholders": {
@@ -515,27 +449,8 @@
       "title": { "type": "String" }
     }
   },
-  "recipesRecommendedBadge": "RECOMMENDED",
   "recipesEmptyStateMessage": "No recipe found. Try a different category or search term.",
   "recipesImagePlaceholderLabel": "RECIPE",
-  "recipesMetricProtein": "{grams}g P",
-  "@recipesMetricProtein": {
-    "placeholders": {
-      "grams": { "type": "int" }
-    }
-  },
-  "recipesMetricCarbs": "{grams}g C",
-  "@recipesMetricCarbs": {
-    "placeholders": {
-      "grams": { "type": "int" }
-    }
-  },
-  "recipesMetricFat": "{grams}g F",
-  "@recipesMetricFat": {
-    "placeholders": {
-      "grams": { "type": "int" }
-    }
-  },
   "recipesOwnTitle": "Your recipe",
   "recipesBrandTitle": "Eatova recipe",
   "recipesDeleteSemantics": "Delete recipe",
@@ -625,11 +540,30 @@
   "coachHeroSubtitle": "How can I help you?",
   "coachHeroGreeting": "{greeting}, {name}",
   "coachFallbackName": "Champion",
-  "coachAiNoteBody": "An AI answers here. The tips are an AI estimate, not medical advice.",
-  "coachAiNoteCta": "Which data is sent",
+  "coachHeroDayStands": "Here's where your day stands.",
+  "coachLogEyebrow": "From today's log",
+  "coachLogKcal": "{value} kcal",
+  "coachLogProtein": "{value} g protein",
+  "coachLogNothingLogged": "Nothing logged yet today. Your budget is {kcal} with {protein}.",
+  "coachLogLeft": "You have {kcal} and {protein} left.",
+  "coachLogLeftProteinMet": "You have {kcal} left and your protein goal is met.",
+  "coachLogProteinHint": "{slot, select, breakfast{A lean breakfast closes the protein gap without going over.} lunch{A lean lunch closes the protein gap without going over.} dinner{A lean dinner closes the protein gap without going over.} other{A lean meal closes the protein gap without going over.}}",
+  "coachLogAtBudget": "You've reached today's budget.",
+  "coachLogOver": "You're {kcal} over today's budget.",
+  "coachLogProteinOpen": "Still open: {protein}.",
+  "coachLogSuggestMeal": "{slot, select, breakfast{Suggest a breakfast} lunch{Suggest a lunch} dinner{Suggest a dinner} other{Suggest a snack}}",
+  "coachLogPlanDay": "Plan my day",
+  "coachLogPlanTomorrow": "Plan tomorrow",
+  "coachLogPromptSuggestMeal": "{slot, select, breakfast{Suggest a breakfast that fits the rest of my day.} lunch{Suggest a lunch that fits the rest of my day.} dinner{Suggest a dinner that fits the rest of my day.} other{Suggest a snack that fits the rest of my day.}}",
+  "coachLogPromptPlanDay": "Help me plan my meals for today.",
+  "coachLogPromptPlanTomorrow": "Help me plan my meals for tomorrow.",
+  "coachTryTitle": "Try asking",
+  "coachTryRecipe": "Create a recipe for me",
+  "coachTryPlan": "Build me a training plan",
+  "coachDisclaimer": "Answers are AI estimates, not medical advice.",
+  "coachDisclaimerLink": "What's shared",
   "coachRecipeEmptyHint": "Tell me what recipe you want — e.g. \"/recipe chicken casserole with a photo\".",
   "coachCommandRecipeDescription": "Creates a new recipe with a matching photo",
-  "coachCommandUnknownHint": "Unknown command. Type \"/\" to see available commands.",
   "coachRecipeCardEyebrow": "RECIPE IDEA",
   "coachRecipeAiImageBadge": "AI image",
   "coachRecipeAddButton": "Add recipe",
@@ -803,12 +737,6 @@
   },
   "profileWeightCaptionToday": "today",
   "profileBmiInfoTooltip": "About BMI",
-  "profileBmiZoneLabel": "BMI {zone}",
-  "@profileBmiZoneLabel": {
-    "placeholders": {
-      "zone": { "type": "String" }
-    }
-  },
   "profileAgeAbbreviation": "{age} yrs",
   "@profileAgeAbbreviation": {
     "placeholders": {
@@ -959,7 +887,6 @@
   "commonUnitCm": "cm",
   "commonUnitKg": "kg",
   "commonUnitG": "g",
-  "commonUnitMl": "ml",
   "commonKcalOutcomeLabel": "Results in {kcal} kcal/day · {paceLabel}",
   "@commonKcalOutcomeLabel": {
     "placeholders": {
@@ -1081,13 +1008,6 @@
       "max": { "type": "int" }
     }
   },
-  "settingsRangeErrorMl": "{min}–{max} ml",
-  "@settingsRangeErrorMl": {
-    "placeholders": {
-      "min": { "type": "int" },
-      "max": { "type": "int" }
-    }
-  },
   "settingsRangeErrorKcal": "{min}–{max} kcal",
   "@settingsRangeErrorKcal": {
     "placeholders": {
@@ -1127,15 +1047,6 @@
   "goalsGroupDailyTargets": "Daily goals",
   "goalsFieldSteps": "Steps",
   "goalsUnitPerDay": "/day",
-  "goalsFieldWater": "Water",
-  "goalsFieldSleep": "Sleep goal",
-  "goalsSleepGoalValue": "{hours}h {minutes}m",
-  "@goalsSleepGoalValue": {
-    "placeholders": {
-      "hours": { "type": "int" },
-      "minutes": { "type": "String" }
-    }
-  },
   "goalsDailyTargetsNote": "The step goal only drives the steps card – it doesn't change your calorie goal.",
   "goalsGroupReminders": "REMINDERS",
   "goalsFieldReminders": "Reminders",
@@ -1149,7 +1060,6 @@
   "goalsDiscardChangesBody": "Your entries in \"Profile & Goals\" haven't been saved yet.",
 
   "settingsPageTitle": "Settings",
-  "settingsGroupAccount": "ACCOUNT",
   "settingsEmailLabel": "Email address",
   "settingsChangePasswordTitle": "Change password",
   "settingsChangePasswordSubtitle": "With a confirmation code to your email",
@@ -1157,13 +1067,11 @@
   "settingsChangeEmailSubtitle": "Confirmation to the old and the new address",
   "settingsPasswordChangedSnack": "Password changed.",
   "settingsEmailChangedSnack": "Email address changed.",
-  "settingsGroupPreferences": "PREFERENCES",
   "settingsOpenGoalsSubtitle": "Body data, activity, calorie and macro goals",
   "settingsAppearanceTitle": "Appearance",
   "settingsAppearanceSubtitle": "System follows your device's setting.",
   "settingsThemeModeLight": "Light",
   "settingsThemeModeDark": "Dark",
-  "settingsGroupDataPrivacy": "DATA & PRIVACY",
   "settingsExportDataTitle": "Export data",
   "settingsExportDataSubtitle": "Your data as a report, JSON or CSV",
   "settingsLegalPrivacy": "Privacy",
@@ -1171,7 +1079,6 @@
   "settingsLegalImprint": "Imprint",
   "settingsAboutTitle": "About Eatova",
   "settingsAboutSubtitle": "Version, sources & privacy",
-  "settingsGroupDangerZone": "DANGER ZONE",
   "settingsSignOutTitle": "Sign out",
   "settingsSignOutFailed": "Sign-out failed. Please try again.",
   "settingsDeleteAccountTitle": "Delete account",
@@ -1292,7 +1199,6 @@
   },
 
   "onboardingBackSemanticLabel": "Back",
-  "onboardingStartCta": "Let's go",
   "onboardingActivatePlanCta": "Activate plan",
   "onboardingNextCta": "Next",
   "onboardingSexStepTitle": "For the calculation",
@@ -1313,23 +1219,17 @@
   "onboardingReviewTitle": "Review your details",
   "onboardingReviewChanges": "Back to your plan",
   "onboardingAgeStepTitle": "How old are you?",
-  "onboardingAgeStepSubtitle": "Energy needs decrease with age.",
   "onboardingHeightStepTitle": "Your height",
-  "onboardingHeightStepSubtitle": "For calculating needs and steps.",
   "onboardingWeightStepTitle": "Your current weight",
-  "onboardingWeightStepSubtitle": "Starting point for your plan.",
   "onboardingActivityStepTitle": "How active are you?",
   "onboardingActivityStepSubtitle": "Job and daily life without walking and running – counted steps are added on top automatically. When in doubt, pick one level lower.",
   "onboardingGoalStepTitle": "What's your goal?",
   "onboardingGoalStepSubtitle": "Choose your direction. To lose or gain weight, set your target weight and pace here too.",
   "onboardingTargetStepTitle": "Your target weight",
-  "onboardingTargetStepSubtitleLose": "How far do you want to lose?",
-  "onboardingTargetStepSubtitleGain": "How far do you want to gain?",
   "onboardingPaceStepTitle": "What pace?",
   "onboardingPaceStepSubtitleLose": "How fast do you want to lose weight?",
   "onboardingPaceStepSubtitleGain": "How fast do you want to gain weight?",
   "onboardingDietStepTitle": "What do you enjoy?",
-  "onboardingDietStepSubtitle": "We'll recommend recipes that fit. You can always browse all of them.",
   "onboardingUnitYears": "years",
   "onboardingTargetFootnoteLose": "{kg} kg to lose",
   "@onboardingTargetFootnoteLose": {
@@ -1349,15 +1249,6 @@
       "firstName": { "type": "String" }
     }
   },
-  "onboardingWelcomeBody": "In {steps} short steps, we'll calculate your personal daily goal — tailored to your body and your target weight.",
-  "@onboardingWelcomeBody": {
-    "placeholders": {
-      "steps": { "type": "int" }
-    }
-  },
-  "onboardingBulletFormula": "Scientific Mifflin-St Jeor formula",
-  "onboardingBulletAutoMacros": "Calories & macros set automatically",
-  "onboardingBulletAdjustable": "Adjustable anytime in settings",
   "onboardingStepDownSemanticLabel": "Decrease",
   "onboardingStepUpSemanticLabel": "Increase",
   "onboardingSexMale": "Male",
@@ -1582,8 +1473,6 @@
   "authSignupExistingAccountHint": "If an account already exists for this address, please sign in.",
   "authSessionExpired": "Your session has expired. Please sign in again.",
   "authBackSemanticLabel": "Back",
-  "authEyebrowLogin": "WELCOME BACK",
-  "authEyebrowRegister": "CREATE ACCOUNT",
   "authHeadlineLogin": "Welcome back.",
   "authHeadlineRegister": "Make it yours.",
   "authSublineLogin": "Your food diary is ready when you are.",
@@ -1611,9 +1500,7 @@
   "authForgotPasswordCta": "Forgot password?",
   "authSubmitLogin": "Log in",
   "authSubmitRegister": "Create account",
-  "authTogglePromptLogin": "No account yet?",
   "authToggleActionRegister": "Sign up",
-  "authTogglePromptRegister": "Already have an account?",
   "authToggleActionLogin": "Log in",
   "authConsentPrefix": "By signing in you accept our ",
   "authConsentTerms": "Terms",
@@ -1788,17 +1675,12 @@
   "trainingPageContentLimit": "Your plan contains too much text. Shorten the descriptions and notes.",
   "trainingPageInvalidCharacters": "Remove invisible control characters.",
   "trainingPageTitle": "Training",
-  "trainingPageSubtitle": "Your plan. Your rhythm.",
   "trainingPageCreate": "Create your own plan",
   "trainingPageCreateTitle": "New plan",
   "trainingPageCoach": "Plan with Coach",
   "trainingPageEmptyTitle": "Make your next move.",
   "trainingPageEmptyBody": "Build a plan with Coach or put together your own workout. You choose what to save.",
   "trainingPagePlans": "My plans",
-  "trainingPageSwitchPlan": "Switch plan",
-  "trainingPageCurrentPlan": "YOUR TRAINING PLAN",
-  "trainingPageWorkout": "Workout",
-  "trainingPageExercises": "Exercises",
   "trainingPageStart": "Start workout",
   "trainingPageResume": "Resume workout",
   "trainingPageInProgress": "Your workout is ready to continue.",
@@ -1836,7 +1718,6 @@
   "trainingPageExerciseName": "Exercise name",
   "trainingPageExerciseNameHint": "e.g. Squats",
   "trainingPageExerciseNotes": "Technique and notes",
-  "trainingPageExerciseType": "Exercise type",
   "trainingPageRepetitions": "Repetitions",
   "trainingPageTimed": "Time",
   "trainingPageSets": "Sets",
@@ -1852,7 +1733,6 @@
   "trainingPageInvalid": "Check the highlighted fields.",
   "trainingPageRequired": "Please fill this in.",
   "trainingPageTooLong": "Please shorten this.",
-  "trainingPageExerciseEmpty": "Add at least one exercise.",
   "trainingPageWorkoutCount": "{count, plural, =1{1 workout} other{{count} workouts}}",
   "@trainingPageWorkoutCount": {
     "placeholders": {
@@ -1887,14 +1767,6 @@
   },
   "trainingPageRestSeconds": "{count}s rest",
   "@trainingPageRestSeconds": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "trainingPageSeconds": "{count}s",
-  "@trainingPageSeconds": {
     "placeholders": {
       "count": {
         "type": "int"
@@ -2190,7 +2062,6 @@
   "coachBriefIntent": "What would you like to do?",
   "coachBriefDiscuss": "Discuss",
   "coachBriefAdapt": "Adapt",
-  "coachBriefDiscussAction": "Discuss / adapt with Coach",
   "coachBriefDraftNotice": "Sending uses one Coach request. Review and edit suggestions before saving them as a new plan. Your saved plan stays intact. This brief is not saved as a profile.",
   "coachBriefGenerate": "Request plan draft",
   "coachBriefSendDiscussion": "Discuss plan",
@@ -2292,35 +2163,38 @@
   "trainingActualConfirmLegacyTimed": "Confirm completed interval",
   "trainingHistoryDeleteAction": "Delete workout",
   "trainingHistoryAlreadyDeleted": "This workout was deleted on another device.",
-  "todayBalanceRemaining": "Left for today",
-  "todayBalanceArchive": "Your daily balance",
-  "todayBalanceEaten": "{kcal} kcal eaten",
-  "todayBalanceActivity": "+ {kcal} kcal activity",
-  "todayBalanceStreak": "{count, plural, =1{1 day in a row} other{{count} days in a row}}",
   "todayMacroProgressValue": "{value} of {goal} grams",
-  "todayMealOpen": "Not logged yet",
   "todayAddMeal": "Log a meal",
-  "@todayBalanceEaten": {
-    "placeholders": {
-      "kcal": {
-        "type": "String"
-      }
-    }
-  },
-  "@todayBalanceActivity": {
-    "placeholders": {
-      "kcal": {
-        "type": "String"
-      }
-    }
-  },
-  "@todayBalanceStreak": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
+  "todayDayStripLabel": "Pick a day",
+  "todayDayStripEarlier": "Earlier days",
+  "todayDayStripLater": "Later days",
+  "todayStreakSemantics": "{count, plural, =1{Streak: 1 day in a row} other{Streak: {count} days in a row}}",
+  "todayProfileAndSettings": "Profile and settings",
+  "todayCaloriesTitle": "Calories",
+  "todayEatenPercent": "{percent}% eaten",
+  "todayArcLeftToday": "Left today",
+  "todayArcOverToday": "Over today",
+  "todayArcLeftArchive": "Left that day",
+  "todayArcOverArchive": "Over that day",
+  "todayArcBudget": "kcal of {budget}",
+  "todayArcBudgetOver": "kcal over {budget}",
+  "todayStatEatenLabel": "Eaten",
+  "todayStatGoalLabel": "Goal",
+  "todayStatActivityLabel": "Activity",
+  "todayMacroLeft": "{grams} g left",
+  "todayMacroOver": "{grams} g over",
+  "todayPickEyebrow": "{slot, select, breakfast{Breakfast pick} lunch{Lunch pick} other{Tonight's pick}}",
+  "todayPickPlannedEyebrow": "{slot, select, breakfast{Planned for breakfast} lunch{Planned for lunch} other{Planned for tonight}}",
+  "todayPickMeta": "{kcal} kcal · {protein} g protein",
+  "todayPickLeaves": "Leaves {kcal} kcal for today",
+  "todayPickOver": "{kcal} kcal over today's budget",
+  "todayOpenFoodLog": "Open food log",
+  "todaySlotSuggested": "Suggested {min}–{max} kcal",
+  "todaySlotNothingLogged": "Nothing logged",
+  "todayStepsOfGoal": "/ {goal} steps",
+  "todayStepsNoGoal": "steps",
+  "todayWorkoutNext": "Next workout · ≈ {minutes} min",
+  "todayWorkoutDone": "Done today · ≈ {minutes} min",
   "@todayMacroProgressValue": {
     "placeholders": {
       "value": {
@@ -2346,22 +2220,48 @@
       }
     }
   },
-  "foodOptions": "More options",
-  "foodKcalLoggedLabel": "KCAL LOGGED",
-  "foodDiaryEntryCount": "{count, plural, one{1 entry} other{{count} entries}}",
-  "foodDiaryExpand": "Show all entries",
-  "foodDiaryCollapse": "Collapse entries",
-  "@foodDiaryEntryCount": {
+  "foodSummaryLogged": "Logged",
+  "foodSummaryLeft": "Left",
+  "foodSummaryOver": "Over",
+  "foodSlotMeta": "{time} · {count, plural, one{1 item} other{{count} items}}",
+  "@foodSlotMeta": {
     "placeholders": {
-      "count": {
-        "type": "int"
-      }
+      "time": { "type": "String" },
+      "count": { "type": "int" }
     }
   },
+  "foodSlotSuggested": "Suggested {min}–{max} kcal",
+  "@foodSlotSuggested": {
+    "placeholders": {
+      "min": { "type": "String" },
+      "max": { "type": "String" }
+    }
+  },
+  "foodSlotShowMacros": "Show macros",
+  "foodSlotHideMacros": "Hide macros",
+  "foodPickFitsTonight": "Fits tonight · {kcal} kcal",
+  "@foodPickFitsTonight": {
+    "placeholders": {
+      "kcal": { "type": "String" }
+    }
+  },
+  "foodPickFitsDay": "Fits your day · {kcal} kcal",
+  "@foodPickFitsDay": {
+    "placeholders": {
+      "kcal": { "type": "String" }
+    }
+  },
+  "foodPickPlanned": "Planned · {kcal} kcal",
+  "@foodPickPlanned": {
+    "placeholders": {
+      "kcal": { "type": "String" }
+    }
+  },
+  "foodPickPlannedNoKcal": "Planned",
+  "foodDockSearchLabel": "Search food or meals",
+  "foodDockCameraLabel": "Log a meal with the camera",
   "recipesForYou": "For you",
-  "recipesTryToday": "Try something today",
   "recipesViewRecipe": "View recipe",
-  "recipesCreateAction": "Your recipe",
   "recipesMoreRecommendations": "More recommendations",
   "recipesSeeAll": "See all",
   "recipesOwnEmptyTitle": "Your cookbook starts here",
@@ -2485,6 +2385,133 @@
   },
   "trainingAdoptionDiscardAction": "Discard draft",
   "trainingAdoptionDiscardBody": "Only your rejected draft will be removed from this device. The current plan on the server will be kept.",
+  "trainingNextWorkout": "Next workout",
+  "trainingDoneToday": "Done today",
+  "trainingInProgress": "In progress",
+  "trainingMinutesEstimate": "≈ {minutes} min",
+  "@trainingMinutesEstimate": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingSetsRepsShort": "{sets} × {reps}",
+  "@trainingSetsRepsShort": {
+    "placeholders": {
+      "sets": {
+        "type": "int"
+      },
+      "reps": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLastTimeWeight": "Last time {weight} kg × {reps}",
+  "@trainingLastTimeWeight": {
+    "placeholders": {
+      "weight": {
+        "type": "String"
+      },
+      "reps": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLastTimeReps": "Last time {reps, plural, =1{1 rep} other{{reps} reps}}",
+  "@trainingLastTimeReps": {
+    "placeholders": {
+      "reps": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingMoreExercises": "+ {names}",
+  "@trainingMoreExercises": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingWeekTitle": "This week",
+  "trainingWeekDoneOf": "{done} of {planned}",
+  "@trainingWeekDoneOf": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "planned": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingWeekDone": "done",
+  "trainingWeekDayToday": "today",
+  "trainingWeekDayDone": "workout done",
+  "trainingWeekDayOpen": "no workout",
+  "trainingQuickStartTitle": "Quick start",
+  "trainingQuickChooseWorkout": "Choose workout",
+  "trainingQuickWorkouts": "Workouts",
+  "trainingQuickCoach": "Ask Coach",
+  "trainingVolumeTitle": "Weekly volume",
+  "trainingVolumeLastWeek": "tonnes last week",
+  "trainingVolumeUp": "↑ {percent}% vs. the week before",
+  "@trainingVolumeUp": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingVolumeDown": "↓ {percent}% vs. the week before",
+  "@trainingVolumeDown": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingVolumeSame": "Same as the week before",
+  "trainingVolumeNow": "Now",
+  "trainingVolumeEmpty": "Log weights during a workout to see your weekly volume here.",
+  "trainingVolumeWeekSemantics": "Week of {date}: {tonnes} tonnes",
+  "@trainingVolumeWeekSemantics": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      },
+      "tonnes": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingVolumeCurrentSemantics": "This week so far: {tonnes} tonnes",
+  "@trainingVolumeCurrentSemantics": {
+    "placeholders": {
+      "tonnes": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingRecentTitle": "Recent",
+  "trainingRecentAll": "All workouts",
+  "trainingRecentPrs": "{count, plural, =1{1 PR} other{{count} PRs}}",
+  "@trainingRecentPrs": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingDurationMinutes": "{minutes} min",
+  "@trainingDurationMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
   "exportOverview": "Your data at a glance",
   "exportSummary": "{sections, plural, one{1 section} other{{sections} sections}} · {records, plural, one{1 record} other{{records} records}}",
   "@exportSummary": {
@@ -2618,5 +2645,28 @@
   "recipeNutritionCorrectionHint": "Enter complete, checked values per serving.",
   "recipeNutritionIncompleteBasisHint": "Add the missing values and check that all values apply to one serving.",
   "recipeNutritionDraftIntro": "Update the preview. Save recipe will save your changes.",
-  "recipeNutritionApplyDraft": "Apply to preview"
+  "recipeNutritionApplyDraft": "Apply to preview",
+  "recipesSearchPlaceholder": "Dish, ingredient or goal",
+  "recipesSearchSemantics": "Search recipes",
+  "recipesFiltersButton": "Filters",
+  "recipesFilterGroupLabel": "Filter recipes",
+  "recipesChipMine": "My recipes",
+  "recipesAddChoiceSemantics": "New or imported recipe",
+  "recipesAddChoiceTitle": "Add a recipe",
+  "recipesAddChoiceImportBody": "From a website, a video caption or pasted text.",
+  "recipesAddChoiceCreateBody": "Enter your own dish and its nutrition.",
+  "recipesHeroPickedEyebrow": "{slot, select, breakfast{Picked for breakfast} lunch{Picked for lunch} dinner{Picked for tonight} other{Picked for you}}",
+  "@recipesHeroPickedEyebrow": {"placeholders": {"slot": {"type": "String"}}},
+  "recipesHeroPlannedEyebrow": "From your meal plan",
+  "recipesHeroFitsDay": "Fits your day",
+  "recipesHeroAddToSlot": "{slot, select, breakfast{Add to breakfast} lunch{Add to lunch} dinner{Add to dinner} other{Add to snacks}}",
+  "@recipesHeroAddToSlot": {"placeholders": {"slot": {"type": "String"}}},
+  "recipesHeroProteinUnit": "protein",
+  "recipesAiImageLabel": "AI-generated image",
+  "recipesShelfLeanTitle": "High protein, under 500 kcal",
+  "recipesYourRecipesTitle": "Your recipes",
+  "recipesYourRecipesBody": "Import one from a website or add your own.",
+  "recipesCreateButton": "Create",
+  "recipesHeroRecommendedEyebrow": "Recommended",
+  "recipesChipUnder600": "Under 600 kcal"
 }

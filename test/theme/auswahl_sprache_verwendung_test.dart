@@ -40,7 +40,9 @@ import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/screens/onboarding_screen.dart';
 import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
+import 'package:eatova/src/widgets/design/controls.dart';
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
+import 'package:eatova/src/widgets/kcal/food_glyphs.dart';
 
 import '../support/harness.dart';
 
@@ -278,9 +280,20 @@ void main() {
           final label = tester.widget<Text>(
             find.byKey(const ValueKey('food-date-selected-label')),
           );
-          final glyph = _iconFarbe(tester, const ValueKey('food-date-calendar'));
-          expect(label.style!.color, t.ink);
-          expect(_kontrast(label.style!.color!, t.bg), greaterThanOrEqualTo(_text));
+          // Dark redesign: the date is the meta line of the day pill (a
+          // `surf` capsule), the calendar a round header button whose glyph
+          // inherits the button's icon ink.
+          final glyph = IconTheme.of(
+            tester.element(
+              find.descendant(
+                of: find.byKey(const ValueKey('food-date-calendar')),
+                matching: find.byType(FoodGlyphIcon),
+              ),
+            ),
+          ).color!;
+          expect(label.style!.color, t.ink3);
+          expect(_kontrast(label.style!.color!, t.surf), greaterThanOrEqualTo(_text));
+          expect(_kontrast(glyph, t.surf), greaterThanOrEqualTo(_zustand));
           expect(_kontrast(glyph, t.bg), greaterThanOrEqualTo(_zustand));
           expect(tester.getSize(find.byKey(const ValueKey('food-date-calendar'))).height,
             greaterThanOrEqualTo(44));
@@ -323,10 +336,11 @@ void main() {
           ],
         );
 
-        expect(flaeche, t.ink, reason: '$modus: Fuellung ist selectedFill');
+        expect(flaeche, t.selectedFill,
+            reason: '$modus: Fuellung ist selectedFill');
         expect(andere, t.surf);
-        expect(datum, t.bg);
-        expect(_rand(tester, gewaehlt), t.ink);
+        expect(datum, t.onSelected);
+        expect(_rand(tester, gewaehlt), t.selectedFill);
         expect(_rand(tester, ungewaehlt), t.line);
       });
     });
@@ -364,12 +378,13 @@ void main() {
           ],
         );
 
-        expect(flaeche, t.ink, reason: '$modus: Fuellung ist selectedFill');
+        expect(flaeche, t.selectedFill,
+            reason: '$modus: Fuellung ist selectedFill');
         expect(andere, t.surf);
-        expect(_rand(tester, gewaehlt), t.ink);
-        expect(glyphe, t.bg, reason: '$modus: Glyphe ist onSelected, nicht '
+        expect(_rand(tester, gewaehlt), t.selectedFill);
+        expect(glyphe, t.onSelected, reason: '$modus: Glyphe ist onSelected, nicht '
             'lime — auf ink waere lime 1,07:1 im Dunkelmodus');
-        expect(beschriftung, t.bg);
+        expect(beschriftung, t.onSelected);
       });
 
       testWidgets('$modus: Aktivitaets-Zeile (_RowCard) inkl. Haekchen',
@@ -403,12 +418,13 @@ void main() {
           ],
         );
 
-        expect(flaeche, t.ink, reason: '$modus: Fuellung ist selectedFill');
+        expect(flaeche, t.selectedFill,
+            reason: '$modus: Fuellung ist selectedFill');
         expect(andere, t.surf);
-        expect(_rand(tester, gewaehlt), t.ink);
-        expect(titel, t.bg);
-        expect(zusatz, t.bg);
-        expect(haekchen, t.bg, reason: '$modus: das Haekchen ist der zweite '
+        expect(_rand(tester, gewaehlt), t.selectedFill);
+        expect(titel, t.onSelected);
+        expect(zusatz, t.onSelected);
+        expect(haekchen, t.onSelected, reason: '$modus: das Haekchen ist der zweite '
             'Zustandskanal und muss auf der Fuellung lesen');
         expect(_drin(ungewaehlt, Icon), findsNothing,
             reason: 'nur die gewaehlte Zeile traegt ein Haekchen');
@@ -432,9 +448,9 @@ void main() {
             reason: '$modus: Icon $i auf der gewaehlten Ziel-Zeile',
           );
         }
-        expect(flaeche, t.ink);
-        expect(_iconFarbe(tester, gewaehlt, 0), t.bg);
-        expect(_iconFarbe(tester, gewaehlt, 1), t.bg);
+        expect(flaeche, t.selectedFill);
+        expect(_iconFarbe(tester, gewaehlt, 0), t.onSelected);
+        expect(_iconFarbe(tester, gewaehlt, 1), t.onSelected);
       });
     });
   });
@@ -446,11 +462,15 @@ void main() {
     for (final mode in Brightness.values) {
       final t = _tokens(mode);
       test('Kontrastvertrag $mode', () {
-        expect(_kontrast(t.ink, t.surf), greaterThanOrEqualTo(_zustand));
-        expect(_kontrast(t.bg, t.ink), greaterThanOrEqualTo(_text));
-        expect(_kontrast(t.bg, t.ink2), greaterThanOrEqualTo(_zustand));
-        final quiet = _ueber(t.bg.withValues(alpha: 0.78), t.ink);
-        expect(_kontrast(quiet, t.ink), greaterThanOrEqualTo(_text));
+        // The pair is SelectionTone's (the accent fill since the dark
+        // redesign, 2026-09-28), measured against the unselected label ink2.
+        final fill = t.selectedFill;
+        final label = t.onSelected;
+        expect(_kontrast(fill, t.surf), greaterThanOrEqualTo(_zustand));
+        expect(_kontrast(label, fill), greaterThanOrEqualTo(_text));
+        expect(_kontrast(label, t.ink2), greaterThanOrEqualTo(_zustand));
+        final quiet = _ueber(label.withValues(alpha: 0.78), fill);
+        expect(_kontrast(quiet, fill), greaterThanOrEqualTo(_text));
         expect(_kontrast(quiet, t.ink2), greaterThanOrEqualTo(_zustand));
         expect(_kontrast(t.brandSurface, t.surf), lessThan(_zustand));
       });

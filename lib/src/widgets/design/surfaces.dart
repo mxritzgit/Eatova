@@ -117,6 +117,7 @@ class ScreenTitle extends StatelessWidget {
                 child: Text(
                   title,
                   style: AppType.pageTitle(t.ink),
+                  textScaler: AppType.pageTitleScaler(context),
                 ),
               ),
               if (subtitle != null) ...<Widget>[

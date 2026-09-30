@@ -52,7 +52,7 @@ class _KeyboardCoach extends CoachChatService {
 }
 
 Future<void> _loadFonts() async {
-  for (final family in ['Archivo', 'BricolageGrotesque']) {
+  for (final family in ['Figtree', 'BricolageGrotesque']) {
     final loader = FontLoader(family);
     for (final file in Directory('assets/fonts').listSync().whereType<File>()) {
       if (file.uri.pathSegments.last.startsWith('$family-')) {
@@ -78,13 +78,14 @@ void main() {
         await pumpLocalized(
           tester,
           Scaffold(
+            // Like the real shell: the body runs under the floating bar.
+            extendBody: true,
             body: SafeArea(
               bottom: false,
+              // The shell's tab inset: none for the coach, which owns its
+              // gutters; the tab runs under the floating bar.
               child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 12,
-                ),
+                padding: EdgeInsets.zero,
                 child: CoachChatScreen(service: _KeyboardCoach.create()),
               ),
             ),
@@ -121,7 +122,9 @@ void main() {
           scaffold: false,
           settle: true,
         );
-        expect(find.byKey(const ValueKey('coach-streak')), findsOneWidget);
+        // The full header (title, status, buttons), not the compact row.
+        expect(find.byKey(const ValueKey('coach-header-full')), findsOneWidget);
+        expect(find.byKey(const ValueKey('coach-header-compact')), findsNothing);
         await tester.enterText(find.byKey(const ValueKey('coach-input')), '/');
         tester.view.viewInsets = const FakeViewPadding(bottom: 220);
         await tester.pumpAndSettle();
@@ -181,7 +184,9 @@ void main() {
         );
         tester.view.viewInsets = FakeViewPadding.zero;
         await tester.pumpAndSettle();
-        expect(find.byKey(const ValueKey('coach-streak')), findsOneWidget);
+        // The full header (title, status, buttons), not the compact row.
+        expect(find.byKey(const ValueKey('coach-header-full')), findsOneWidget);
+        expect(find.byKey(const ValueKey('coach-header-compact')), findsNothing);
         expect(tester.takeException(), isNull);
       },
     );

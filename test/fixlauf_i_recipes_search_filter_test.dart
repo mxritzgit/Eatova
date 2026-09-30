@@ -16,6 +16,7 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 
 import 'support/harness.dart';
+import 'support/recipe_navigation.dart';
 
 const _eigenes = FitnessRecipe(
   slug: 'user_mein_teller',
@@ -245,11 +246,12 @@ void main() {
       _pinViewport(tester);
       await tester.pumpWidget(_app());
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('recipes-tab-own')));
-      await tester.pumpAndSettle();
+      await selectRecipeSection(tester, 'own');
       expect(find.text('0 Treffer'), findsOneWidget);
       expect(find.byKey(const ValueKey('recipe-create-button')), findsOneWidget);
-      expect(find.byKey(const ValueKey('recipe-recommended')), findsNothing);
+      // No promoted shelf or hero in the own section.
+      expect(find.byKey(const ValueKey('recipe-shelf-lean')), findsNothing);
+      expect(find.byKey(const ValueKey('recipe-hero')), findsNothing);
     });
 
     testWidgets('Eigene folgt auf Alle und zeigt nur eigene Rezepte', (tester) async {
@@ -259,8 +261,7 @@ void main() {
       final all = find.byKey(const ValueKey('recipes-tab-all'));
       final own = find.byKey(const ValueKey('recipes-tab-own'));
       expect(tester.getTopLeft(own).dx, greaterThan(tester.getTopLeft(all).dx));
-      await tester.tap(own);
-      await tester.pumpAndSettle();
+      await selectRecipeSection(tester, 'own');
       expect(tester.widget<Semantics>(own).properties.selected, isTrue);
       expect(find.text('1 Treffer'), findsOneWidget);
       expect(find.byKey(ValueKey('recipe-tile-${_eigenes.slug}')), findsOneWidget);
@@ -271,10 +272,8 @@ void main() {
       _pinViewport(tester);
       await tester.pumpWidget(_app(userRecipes: [_eigenes]));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('recipes-tab-all')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('recipe-filter-High Protein')));
-      await tester.pumpAndSettle();
+      await selectRecipeSection(tester, 'all');
+      await selectRecipeFilter(tester, 'High Protein');
       expect(find.byKey(ValueKey('recipe-tile-${_eigenes.slug}')), findsNothing);
       expect(find.byKey(const ValueKey('recipe-tile-hahnchen_mit_reis_and_brokkoli')), findsOneWidget);
     });

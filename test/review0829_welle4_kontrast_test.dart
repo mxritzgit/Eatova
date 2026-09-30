@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
+import 'package:eatova/src/widgets/kcal/food_glyphs.dart';
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
 
 import 'support/harness.dart';
@@ -126,14 +127,26 @@ Color _chipTextFarbe(WidgetTester tester, String schluessel) {
 
 Color _chipIkonFarbe(WidgetTester tester, String schluessel) {
   return tester
-      .widget<Icon>(
+      .widget<FoodGlyphIcon>(
         find.descendant(
           of: find.byKey(ValueKey<String>(schluessel)),
-          matching: find.byType(Icon),
+          matching: find.byType(FoodGlyphIcon),
         ),
       )
       .color!;
 }
+
+/// Fill of the [Material] a dock control sits on.
+Color _dockFlaeche(WidgetTester tester, String schluessel) => tester
+    .widget<Material>(
+      find
+          .ancestor(
+            of: find.byKey(ValueKey<String>(schluessel)),
+            matching: find.byType(Material),
+          )
+          .first,
+    )
+    .color!;
 
 void main() {
   // =========================================================================
@@ -240,17 +253,31 @@ void main() {
     for (final helligkeit in Brightness.values) {
       final modus = helligkeit == Brightness.light ? 'HELL' : 'DUNKEL';
 
-      testWidgets('$modus: alle Erfassungswege bleiben auf Lavendel lesbar', (tester) async {
+      // The redesigned dock (2026-09-28): the AI scan is the accent-filled
+      // round button, barcode a raised neutral one, search a soft capsule.
+      testWidgets('$modus: alle Erfassungswege bleiben lesbar, der KI-Scan '
+          'ist betont', (tester) async {
         final c = await _pumpFoodTab(tester, helligkeit);
         final t = c.t;
-        final surface = tester.widget<Material>(
-          find.byKey(const ValueKey('food-entry-dock')),
-        ).color!;
-        expect(surface, t.brandSurface);
-        for (final key in ['food-action-ai', 'food-action-barcode', 'food-action-manual']) {
-          expect(_kontrast(_chipTextFarbe(tester, key), surface), greaterThanOrEqualTo(4.5));
-          expect(_kontrast(_chipIkonFarbe(tester, key), surface), greaterThanOrEqualTo(3.0));
-        }
+        final kamera = _dockFlaeche(tester, 'food-action-ai');
+        expect(kamera, t.accentFill);
+        // The emphasis is visible against the page (WCAG 1.4.11).
+        expect(_kontrast(kamera, t.bg), greaterThanOrEqualTo(3.0));
+        expect(
+          _kontrast(_chipIkonFarbe(tester, 'food-action-ai'), kamera),
+          greaterThanOrEqualTo(4.5),
+        );
+        final barcode = _dockFlaeche(tester, 'food-action-barcode');
+        expect(
+          _kontrast(_chipIkonFarbe(tester, 'food-action-barcode'), barcode),
+          greaterThanOrEqualTo(3.0),
+        );
+        final suche = _dockFlaeche(tester, 'food-search');
+        expect(suche, t.field);
+        expect(
+          _kontrast(_chipTextFarbe(tester, 'food-search'), suche),
+          greaterThanOrEqualTo(4.5),
+        );
       });
     }
   });

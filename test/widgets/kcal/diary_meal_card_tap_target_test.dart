@@ -69,14 +69,14 @@ void main() {
   // The geometry claims are only worth something with the real app fonts: the
   // headless test font is about twice as wide (see diary_meal_card_macros).
   setUpAll(() async {
-    final archivo = FontLoader('Archivo');
+    final figtree = FontLoader('Figtree');
     for (final datei in const <String>[
-      'assets/fonts/Archivo-Regular.ttf',
-      'assets/fonts/Archivo-Medium.ttf',
-      'assets/fonts/Archivo-SemiBold.ttf',
-      'assets/fonts/Archivo-Bold.ttf',
+      'assets/fonts/Figtree-Regular.ttf',
+      'assets/fonts/Figtree-Medium.ttf',
+      'assets/fonts/Figtree-SemiBold.ttf',
+      'assets/fonts/Figtree-Bold.ttf',
     ]) {
-      archivo.addFont(
+      figtree.addFont(
         File(datei).readAsBytes().then((b) => ByteData.sublistView(b)),
       );
     }
@@ -89,11 +89,13 @@ void main() {
         File(datei).readAsBytes().then((b) => ByteData.sublistView(b)),
       );
     }
-    await Future.wait(<Future<void>>[archivo.load(), bricolage.load()]);
+    await Future.wait(<Future<void>>[figtree.load(), bricolage.load()]);
   });
 
   group('Mahlzeitenbereich', () {
-    testWidgets('der ganze gefuellte Kopf klappt die Eintraege auf', (
+    // Entries are always listed (dark redesign); the whole header toggles
+    // the macro details the compact rows leave out.
+    testWidgets('der ganze gefuellte Kopf blendet die Makro-Details ein', (
       tester,
     ) async {
       await _pump(tester, mitEintrag: true);
@@ -101,13 +103,18 @@ void main() {
       final target = tester.getRect(toggle);
       expect(target.width, greaterThan(300));
       expect(target.height, greaterThanOrEqualTo(44));
-      expect(find.byKey(const ValueKey('food-history-entry-0')), findsNothing);
-      await tester.tapAt(target.topLeft + const Offset(4, 4));
-      await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('food-history-entry-0')),
         findsOneWidget,
       );
+      const makros = ValueKey('food-slot-macros-lunch');
+      expect(find.byKey(makros), findsNothing);
+      await tester.tapAt(target.centerLeft + const Offset(4, 0));
+      await tester.pumpAndSettle();
+      expect(find.byKey(makros), findsOneWidget);
+      await tester.tapAt(target.centerLeft + const Offset(4, 0));
+      await tester.pumpAndSettle();
+      expect(find.byKey(makros), findsNothing);
     });
 
     testWidgets('Hinzufuegen hat ein grosses Ziel und bucht genau einmal', (
@@ -135,8 +142,9 @@ void main() {
           textScale: scale,
           onAddToSlot: booked.add,
         );
+        // The row spans the card right of the slot tile (design inset 56).
         final size = tester.getSize(_knopf);
-        expect(size.width, greaterThan(300));
+        expect(size.width, greaterThan(250));
         expect(size.height, greaterThanOrEqualTo(44));
         await tester.tap(_knopf);
         await tester.pump();

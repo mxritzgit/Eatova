@@ -16,6 +16,7 @@ import 'package:eatova/src/screens/today/today_screen.dart';
 import 'package:eatova/src/screens/today/today_macros.dart';
 
 import '../../support/harness.dart';
+import '../../support/today_summary.dart';
 
 /// 2026-08-09, 10:00 — far from any day boundary.
 final DateTime _jetzt = DateTime(2026, 8, 9, 10);
@@ -44,9 +45,12 @@ Future<void> _pumpToday(
     TodayScreen(
       userName: 'Moritz',
       profile: _profil,
-      consumedKcal: consumedKcal,
-      burnedKcal: 0,
-      macroProgress: macroProgress,
+      summary: todaySummary(
+        profile: _profil,
+        consumedKcal: consumedKcal,
+        burnedKcal: 0,
+        macroProgress: macroProgress,
+      ),
       meals: const [],
       selectedDate: _archivtag,
       streak: 4,
@@ -80,7 +84,7 @@ void main() {
       // The actual lie: a remaining-kcal figure for a day whose numbers have
       // not arrived yet.
       expect(_key('today-kcal-remaining'), findsNothing);
-      expect(find.text('kcal übrig', skipOffstage: false), findsNothing);
+      expect(find.text('AN DEM TAG ÜBRIG', skipOffstage: false), findsNothing);
       expect(_key('today-kcal-goal'), findsNothing);
     });
 
@@ -91,7 +95,7 @@ void main() {
       });
 
       expect(_key('today-macros-card'), findsNothing);
-      expect(find.byType(TodayMacroRow, skipOffstage: false), findsNothing);
+      expect(find.byType(TodayMacroTile, skipOffstage: false), findsNothing);
     });
 
     testWidgets('die Ladekarte bleibt die EINZIGE Lade-Aussage',
@@ -141,7 +145,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(_key('today-macros-card'), findsOneWidget);
-      expect(find.byType(TodayMacroRow, skipOffstage: false), findsNWidgets(3));
+      expect(find.byType(TodayMacroTile, skipOffstage: false), findsNWidgets(3));
     });
   });
 }

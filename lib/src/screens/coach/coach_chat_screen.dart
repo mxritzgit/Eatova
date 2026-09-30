@@ -8,7 +8,6 @@ library;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
@@ -21,12 +20,14 @@ import 'package:intl/intl.dart';
 import '../../l10n/l10n.dart';
 import '../../models/chat_message.dart';
 import '../../models/chat_session.dart';
+import '../../models/coach_day_brief.dart';
 import '../../models/coach_recipe_proposal.dart';
 import '../../models/coach_training_proposal.dart';
 import '../../models/coach_training_context.dart';
 import '../../models/fitness_recipe.dart';
 import '../../models/training_plan.dart';
 import '../../services/coach_chat_service.dart';
+import '../../services/kcal_format.dart';
 import '../../services/meal_photo_compressor.dart';
 import '../../services/meal_photo_temp_file.dart';
 import '../../services/recipe_image_store.dart';
@@ -49,17 +50,18 @@ part 'coach_recipe.dart';
 part 'coach_plan.dart';
 part 'coach_sessions.dart';
 
-/// Coach chat: Grok-based fitness/nutrition coach.
+/// Coach chat: the AI fitness/nutrition coach.
 ///
-/// Header with state line plus streak/(i)/sessions; empty state is the
-/// animated [CoachOrb] with greeting, AI disclosure and suggestions;
-/// otherwise message bubbles above the composer capsule.
+/// Header with the context status, past chats and (i); the start state is the
+/// animated [CoachOrb] with greeting, today's numbers with prepared questions,
+/// the command chips and the AI disclaimer; otherwise message bubbles above
+/// the floating composer capsule.
 class CoachChatScreen extends StatefulWidget {
   const CoachChatScreen({
     super.key,
     required this.service,
     this.userName = 'Moritz',
-    this.streak = 0,
+    this.dayBrief,
     this.userContext,
     this.imagePicker,
     this.speechInput = const CoachSpeechInput(),
@@ -98,10 +100,10 @@ class CoachChatScreen extends StatefulWidget {
   final int planDraftRequest;
   final TrainingPlan? selectedPlanForCoach;
 
-  /// Streak for the pill top left. Callers pass
-  /// `lifetimeStats.effectiveStreakOn(now)`, never `currentStreak` directly —
-  /// a broken chain would otherwise not show 0.
-  final int streak;
+  /// Today's numbers for the start state's "From today's log" card, built
+  /// by the shell from `HomeStore.nutritionSummaryForFoodDate`. null hides
+  /// the card (previews, tests without a store).
+  final CoachDayBrief? dayBrief;
 
   /// Compact snapshot of profile + daily balance handed to the coach as
   /// context so it can advise concretely instead of generically.
@@ -1155,6 +1157,17 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     ].any((command) => command.startsWith(draft.toLowerCase()));
   }
 
+  /// A prepared question from the start card, sent through [_send] like a
+  /// typed one: same bubble, quota, retry and session rules. A draft the user
+  /// had typed survives — [_send] clears the field on its way out.
+  Future<void> _sendPrepared(String prompt) async {
+    if (!_canInteract) return;
+    final entwurf = _input.text;
+    final versand = _send(textOverride: prompt);
+    if (mounted) _entwurfZurueck(entwurf);
+    await versand;
+  }
+
   /// Plan discovery opens a brief; recipe discovery prepares the composer.
   void _applyCommand(String command) {
     if (command == '/plan') {
@@ -1992,22 +2005,45 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     final isHero = !_loading && _messages.isEmpty && !_historyUnavailable;
     return LayoutBuilder(
       builder: (context, constraints) {
+        // The floating tab bar's band (from the shell). The composer's own
+        // SafeArea sits it on the band, so the header decides on the height
+        // that is really left.
+        final navInset = MediaQuery.paddingOf(context).bottom;
         // Use the shell's available space, including keyboard and navigation.
         // Secondary header details must not consume the command picker viewport.
+        // The tab owns its gutters (20 px sides, the shared title origin on
+        // top), so they come off here too.
+        final topInset = TabChrome.topInset(context);
         final compactHeader = _CoachTopBar.needsCompactLayout(
           context,
-          constraints,
+          BoxConstraints(
+            maxWidth: math.max(0, constraints.maxWidth - 2 * _kShellInset),
+            maxHeight: math.max(
+              0,
+              constraints.maxHeight - navInset - topInset,
+            ),
+          ),
         );
         return Column(
           key: const ValueKey('screen-coach'),
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // The header brings its own spacing (divider + 14 px).
-            _CoachTopBar(
-              compact: compactHeader,
-              streak: widget.streak,
-              onInfoTap: _openCoachInfoSheet,
-              onSessionsTap: _openSessionsSheet,
+            // No divider: the content below fades out under the header,
+            // which starts at the title origin shared by every tab.
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                _kShellInset,
+                topInset,
+                _kShellInset,
+                0,
+              ),
+              child: _CoachTopBar(
+                key: TabChrome.headerKey,
+                compact: compactHeader,
+                contextShared: widget.userContext != null,
+                onInfoTap: _openCoachInfoSheet,
+                onSessionsTap: _openSessionsSheet,
+              ),
             ),
             Expanded(
               child: _CoachConversationArea(
@@ -2048,6 +2084,10 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                           : isHero
                           ? _CoachHero(
                               name: widget.userName,
+                              dayBrief: widget.dayBrief,
+                              canAsk: _canInteract,
+                              onAsk: _sendPrepared,
+                              onCommand: _applyCommand,
                               onDisclosureTap: _openCoachInfoSheet,
                             )
                           : _Conversation(
@@ -2073,15 +2113,34 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                               onOpenTraining: widget.onOpenTraining,
                             ),
                     ),
+                    // Soft edges instead of hard cuts: content fades out under
+                    // the header and above the composer, like the design's
+                    // page fade. Decoration only, taps pass through. Not at
+                    // the top of the start state: there the orb's halo runs
+                    // up behind the header as in the design.
+                    if (!isHero)
+                      const Align(
+                        alignment: Alignment.topCenter,
+                        child: _EdgeFade(height: 20, top: true),
+                      ),
+                    const Align(
+                      alignment: Alignment.bottomCenter,
+                      child: _EdgeFade(height: 16, top: false),
+                    ),
                     ValueListenableBuilder<String>(
                       valueListenable: _draft,
                       builder: (context, draft, _) =>
                           _commandMenuVisibleFor(draft)
                           ? Align(
                               alignment: Alignment.bottomCenter,
-                              child: _CommandSuggestions(
-                                draft: draft,
-                                onPick: _applyCommand,
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: _kShellInset,
+                                ),
+                                child: _CommandSuggestions(
+                                  draft: draft,
+                                  onPick: _applyCommand,
+                                ),
                               ),
                             )
                           : const SizedBox.shrink(),
@@ -2125,6 +2184,36 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   }
 }
 
+/// A strip that blends scrolled content into the page background at the top
+/// or bottom edge of the conversation area.
+class _EdgeFade extends StatelessWidget {
+  const _EdgeFade({required this.height, required this.top});
+
+  final double height;
+  final bool top;
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = context.t.bg;
+    final clear = bg.withValues(alpha: 0);
+    return IgnorePointer(
+      child: SizedBox(
+        height: height,
+        width: double.infinity,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: top ? [bg, clear] : [clear, bg],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Feedback shares the remaining viewport with the conversation. Long errors
 /// stay scrollable without displacing the composer above an open keyboard.
 class _CoachConversationArea extends StatelessWidget {
@@ -2144,6 +2233,7 @@ class _CoachConversationArea extends StatelessWidget {
             constraints: BoxConstraints(maxHeight: constraints.maxHeight * .6),
             child: SingleChildScrollView(
               key: const ValueKey('coach-feedback-scroll'),
+              padding: const EdgeInsets.symmetric(horizontal: _kShellInset),
               child: feedback,
             ),
           ),

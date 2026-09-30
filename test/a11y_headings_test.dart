@@ -39,6 +39,7 @@ import 'package:eatova/src/theme/theme_mode_controller.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
+import 'support/today_summary.dart';
 
 /// One jump mark: what a screen reader announces and at which rank.
 typedef Sprungmarke = ({String label, int level});
@@ -105,14 +106,16 @@ final DateTime _jetzt = DateTime(2026, 8, 9, 10);
 Widget _heuteTab() => TodayScreen(
       userName: 'Moritz Schneider',
       profile: const UserProfile(),
-      consumedKcal: 900,
-      burnedKcal: 200,
-      macroProgress: MacroProgress.empty,
+      summary: todaySummary(
+        profile: const UserProfile(),
+        consumedKcal: 900,
+        burnedKcal: 200,
+        macroProgress: MacroProgress.empty,
+      ),
       meals: const [],
       selectedDate: startOfDay(_jetzt),
       streak: 3,
       onOpenProfile: () {},
-      onOpenCoach: () {},
     );
 
 /// The coach greeting reads the wall clock (`DateTime.now()`), not the
@@ -423,19 +426,23 @@ void main() {
         marken,
         <Sprungmarke>[
           (label: l10n.navToday, level: 1),
-          (label: l10n.todayMacrosTitle, level: 2),
-          (label: l10n.todayMealsTitleToday, level: 2),
+          (label: l10n.todayCaloriesTitle, level: 2),
+          (label: l10n.todayMealsTitle, level: 2),
         ],
         reason: 'der Tab hatte nur Abschnitte (Ebene 2) und keinen '
             'Seitentitel — im Navigationsmodus „Überschriften" landet der '
             'Nutzer mitten in der Seite',
       );
-      // Der Bildschirm ist eine ListView: ohne eigenen Knoten haette die
-      // Marke die Augenbraue („SONNTAG, 9. AUGUST 2026") mitgelesen.
+      // Ohne eigenen Knoten haette die Marke die Datumszeile darueber
+      // („Sonntag, 9. Aug.") mitgelesen.
       expect(
         marken.first.label,
-        isNot(contains(todayEyebrow(startOfDay(_jetzt), l10n))),
-        reason: 'IndexedSemantics verschmilzt die Kopfzeile zu EINEM Knoten',
+        isNot(
+          contains(
+            todayHeaderDate(startOfDay(_jetzt), startOfDay(_jetzt), l10n),
+          ),
+        ),
+        reason: 'die Kopfzeile darf nicht zu EINEM Knoten verschmelzen',
       );
       // Gegenprobe: die Profil-Kachel neben dem Titel bleibt tippbar.
       expect(
@@ -445,7 +452,8 @@ void main() {
     });
 
     testWidgets('Coach: der Kopfzeilen-Titel ist Ebene 1, die '
-        'Hero-Begruessung darunter Ebene 2', (tester) async {
+        'Hero-Begruessung und „Frag zum Beispiel" darunter Ebene 2',
+        (tester) async {
       final l10n = _de;
       final handle = tester.ensureSemantics();
       await pumpLocalized(
@@ -468,11 +476,13 @@ void main() {
         <Sprungmarke>[
           (label: l10n.coachTitle, level: 1),
           (label: _coachBegruessung(l10n, 'Moritz'), level: 2),
+          // The redesign's "Try asking" section (an h2 in the design).
+          (label: l10n.coachTryTitle, level: 2),
         ],
         reason: 'der Tab trug gar keine Marke. Genau EINE Ebene 1 (die '
             'immer sichtbare Kopfzeile), die Begruessung des Leerzustands '
-            'haengt als Ebene 2 darunter — zwei Ebene-1-Marken waeren eine '
-            'Sackgasse',
+            'und die Beispiel-Sektion haengen als Ebene 2 darunter — zwei '
+            'Ebene-1-Marken waeren eine Sackgasse',
       );
       // Gegenprobe: die beiden Knoepfe der Kopfzeile behalten ihre Aktion.
       expect(

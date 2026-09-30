@@ -6,7 +6,8 @@ import '../../theme/app_symbol.dart';
 
 export '../../theme/app_symbol.dart';
 
-/// Original 24-unit pictograms with rounded ink strokes and quiet inset fills.
+/// Original 24-unit pictograms with rounded ink strokes and quiet inset fills;
+/// the five tab glyphs are the dark redesign's open-stroke icons.
 /// Inherits IconTheme, including disabled opacity. Decorative by default.
 class AppIcon extends StatelessWidget {
   const AppIcon(
@@ -138,121 +139,137 @@ class _SymbolDrawing {
   Path oval(double left, double top, double right, double bottom) =>
       Path()..addOval(Rect.fromLTRB(left, top, right, bottom));
 
+  /// Stroke for the tab glyphs at the design's own weight; `selected` adds
+  /// the family's usual emphasis.
+  Paint pen(double width) => Paint()
+    ..color = stroke.color
+    ..style = PaintingStyle.stroke
+    ..strokeWidth = selected ? width + .25 : width
+    ..strokeCap = StrokeCap.round
+    ..strokeJoin = StrokeJoin.round;
+
+  // The five tab glyphs follow the dark redesign (2026-09-28): open strokes,
+  // no inset fills. Paths are the design's 24-unit SVGs.
+
+  /// Clock face with an open arc.
   void today() {
-    canvas.drawCircle(const Offset(11.5, 12.5), 5.5, tint);
-    path(Path()..addArc(const Rect.fromLTWH(3, 4, 17, 17), -.55, 5.4));
-    path(
+    final p = pen(1.9);
+    canvas.drawPath(
       Path()
-        ..moveTo(11.5, 7.5)
-        ..lineTo(11.5, 12.5)
-        ..lineTo(15.5, 14.5),
+        ..moveTo(20, 12)
+        ..arcToPoint(
+          const Offset(12, 4),
+          radius: const Radius.circular(8),
+          largeArc: true,
+        ),
+      p,
     );
-    canvas.drawCircle(const Offset(19.5, 4.5), selected ? 2 : 1.5, fill);
+    canvas.drawPath(
+      Path()
+        ..moveTo(12, 8)
+        ..lineTo(12, 12)
+        ..lineTo(14.5, 13.5),
+      p,
+    );
+    canvas.drawPath(
+      Path()
+        ..moveTo(16.5, 4.8)
+        ..arcToPoint(const Offset(19.2, 7.5), radius: const Radius.circular(8)),
+      p,
+    );
   }
 
+  /// Steaming bowl.
   void food() {
-    shape(oval(7, 4.5, 22, 20));
-    path(Path()..addArc(const Rect.fromLTWH(10.2, 7.7, 8.6, 9.1), -.9, 4.5));
-    path(
+    final p = pen(1.9);
+    canvas.drawPath(
       Path()
-        ..moveTo(2, 3.5)
-        ..lineTo(2, 8)
-        ..quadraticBezierTo(2, 10, 4, 10)
-        ..quadraticBezierTo(6, 10, 6, 8)
-        ..lineTo(6, 3.5),
+        ..moveTo(3.5, 11.5)
+        ..lineTo(20.5, 11.5)
+        ..arcToPoint(const Offset(3.5, 11.5), radius: const Radius.circular(8.5))
+        ..close(),
+      p,
     );
-    line(4, 3.5, 4, 20.5);
-    if (selected) shape(oval(12.2, 9.8, 17.2, 14.8), solid: true);
+    canvas.drawPath(
+      Path()
+        ..moveTo(8.5, 8)
+        ..cubicTo(8.5, 6.7, 9.5, 6.3, 9.5, 4.8)
+        ..moveTo(12.5, 8)
+        ..cubicTo(12.5, 6.7, 13.5, 6.3, 13.5, 4.8),
+      p,
+    );
   }
 
+  /// Open book.
   void recipes() {
-    shape(
+    final p = pen(1.9);
+    canvas.drawPath(
       Path()
-        ..moveTo(3, 5)
-        ..quadraticBezierTo(7.5, 3.1, 12, 6)
-        ..quadraticBezierTo(16.5, 3.1, 21, 5)
-        ..lineTo(21, 19)
-        ..quadraticBezierTo(16.5, 17.1, 12, 20)
-        ..quadraticBezierTo(7.5, 17.1, 3, 19)
+        ..moveTo(12, 7)
+        ..cubicTo(10, 5.4, 7.4, 4.8, 4, 5)
+        ..lineTo(4, 18)
+        ..cubicTo(7.4, 17.8, 10, 18.4, 12, 20)
+        ..cubicTo(14, 18.4, 16.6, 17.8, 20, 18)
+        ..lineTo(20, 5)
+        ..cubicTo(16.6, 4.8, 14, 5.4, 12, 7)
         ..close(),
+      p,
     );
-    line(12, 6, 12, 20);
-    path(
+    canvas.drawPath(
       Path()
-        ..moveTo(6, 8.7)
-        ..quadraticBezierTo(7.6, 8.5, 9, 9.4),
+        ..moveTo(12, 7)
+        ..lineTo(12, 20),
+      p,
     );
-    path(
-      Path()
-        ..moveTo(6, 12)
-        ..quadraticBezierTo(7.6, 11.8, 9, 12.7),
-    );
-    final tab = Path()
-      ..moveTo(15.5, 4.6)
-      ..lineTo(15.5, 12)
-      ..lineTo(17.2, 10.7)
-      ..lineTo(19, 12)
-      ..lineTo(19, 4.5)
-      ..close();
-    shape(tab, solid: selected);
   }
 
+  /// Dumbbell, one stroke so the bar does not double up on the plates.
   void training() {
-    path(
+    canvas.drawPath(
       Path()
-        ..moveTo(8, 8)
-        ..lineTo(8, 5.5)
-        ..quadraticBezierTo(8, 3, 10.5, 3)
-        ..lineTo(13.5, 3)
-        ..quadraticBezierTo(16, 3, 16, 5.5)
-        ..lineTo(16, 8),
+        ..moveTo(7, 7)
+        ..lineTo(7, 17)
+        ..moveTo(17, 7)
+        ..lineTo(17, 17)
+        ..moveTo(4, 9.5)
+        ..lineTo(4, 14.5)
+        ..moveTo(20, 9.5)
+        ..lineTo(20, 14.5)
+        ..moveTo(7, 12)
+        ..lineTo(17, 12),
+      pen(2),
     );
-    shape(
-      Path()
-        ..moveTo(8, 8)
-        ..lineTo(16, 8)
-        ..cubicTo(18, 10, 20.3, 13.5, 20, 16.5)
-        ..quadraticBezierTo(19.7, 21, 16, 21)
-        ..lineTo(8, 21)
-        ..quadraticBezierTo(4.3, 21, 4, 16.5)
-        ..cubicTo(3.7, 13.5, 6, 10, 8, 8)
-        ..close(),
-    );
-    path(
-      Path()
-        ..moveTo(8.5, 12)
-        ..quadraticBezierTo(6.8, 14, 7.2, 16),
-    );
-    if (selected) line(10, 17.5, 15.5, 17.5);
   }
 
+  /// Two sparkles.
   void coach() {
-    path(
+    final p = pen(1.8);
+    canvas.drawPath(
       Path()
-        ..moveTo(9, 5.5)
-        ..quadraticBezierTo(9.5, 3, 12, 3)
-        ..lineTo(18, 3)
-        ..quadraticBezierTo(21, 3, 21, 6)
-        ..lineTo(21, 11)
-        ..quadraticBezierTo(21, 13, 19.5, 13.5),
-    );
-    shape(
-      Path()
-        ..moveTo(6, 7)
-        ..lineTo(14.5, 7)
-        ..quadraticBezierTo(17.5, 7, 17.5, 10)
-        ..lineTo(17.5, 16)
-        ..quadraticBezierTo(17.5, 19, 14.5, 19)
-        ..lineTo(9, 19)
-        ..lineTo(5, 21)
-        ..lineTo(5, 18.8)
-        ..quadraticBezierTo(2.5, 18.3, 2.5, 16)
-        ..lineTo(2.5, 10)
-        ..quadraticBezierTo(2.5, 7, 6, 7)
+        ..moveTo(11, 4.5)
+        ..lineTo(12.6, 8.9)
+        ..lineTo(17, 10.5)
+        ..lineTo(12.6, 12.1)
+        ..lineTo(11, 16.5)
+        ..lineTo(9.4, 12.1)
+        ..lineTo(5, 10.5)
+        ..lineTo(9.4, 8.9)
         ..close(),
+      p,
     );
-    line(6.5, 11.4, 13.5, 11.4);
-    line(6.5, 14.8, selected ? 12 : 10.5, 14.8);
+    canvas.drawPath(
+      Path()
+        ..moveTo(18, 14.5)
+        ..lineTo(18.8, 16.5)
+        ..lineTo(20.8, 17.3)
+        ..lineTo(18.8, 18.1)
+        ..lineTo(18, 20.1)
+        ..lineTo(17.2, 18.1)
+        ..lineTo(15.2, 17.3)
+        ..lineTo(17.2, 16.5)
+        ..close(),
+      p,
+    );
   }
 
   void breakfast() {

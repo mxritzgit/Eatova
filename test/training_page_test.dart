@@ -133,6 +133,13 @@ Future<void> _tap(WidgetTester tester, String key) async {
   await tester.pumpAndSettle();
 }
 
+/// Picks workout [index] through Quick start's "Choose workout" menu.
+Future<void> _chooseWorkout(WidgetTester tester, int index) async {
+  await _tap(tester, 'training-quick-workouts');
+  await tester.tap(find.byKey(ValueKey('training-workout-$index')));
+  await tester.pumpAndSettle();
+}
+
 Future<void> _enter(WidgetTester tester, String key, String value) async {
   final finder = find.byKey(ValueKey(key));
   await tester.ensureVisible(finder);
@@ -228,7 +235,7 @@ void main() {
         locale: const Locale('en'),
         surfaceSize: const Size(390, 844),
       );
-      await _tap(tester, 'training-workout-1');
+      await _chooseWorkout(tester, 1);
       expect(find.text('Shoulder circles'), findsOneWidget);
       expect(find.text('Squat'), findsNothing);
       await _tap(tester, 'training-start');
@@ -281,7 +288,7 @@ void main() {
       locale: const Locale('en'),
       surfaceSize: const Size(390, 844),
     );
-    await _tap(tester, 'training-workout-1');
+    await _chooseWorkout(tester, 1);
     expect(find.text('B move'), findsOneWidget);
     update!(() => current = initial.copyWith());
     await tester.pumpAndSettle();
@@ -327,7 +334,7 @@ void main() {
       locale: const Locale('en'),
       surfaceSize: const Size(390, 844),
     );
-    await _tap(tester, 'training-switch-plan');
+    await _tap(tester, 'training-open-plans');
     await _tap(tester, 'training-select-second');
     expect(selected, 'second');
   });
@@ -588,7 +595,7 @@ void main() {
             surfaceSize: const Size(320, 844),
           );
           await tester.pumpAndSettle();
-          await _tap(tester, 'training-workout-1');
+          await _chooseWorkout(tester, 1);
           await _tap(tester, 'training-start');
           expect(tester.takeException(), isNull);
         },

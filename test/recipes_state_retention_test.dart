@@ -18,6 +18,7 @@ import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
+import 'support/recipe_navigation.dart';
 
 const _remaining = MacroProgress(
   proteinG: 90,
@@ -137,9 +138,9 @@ Future<double> _setUpState(WidgetTester tester) async {
     'e',
   );
   await tester.pumpAndSettle();
-  // Chip 2 is the last one fully inside the viewport in the test font.
-  await tester.tap(find.byKey(const ValueKey('recipe-filter-High Protein')));
-  await tester.pumpAndSettle();
+  // The category sits past the bar's edge in the test font since the
+  // sections joined the chip bar; the helper scrolls it into view.
+  await selectRecipeFilter(tester, 'High Protein');
 
   final position = _listPosition(tester);
   expect(position.maxScrollExtent, greaterThan(600),
@@ -281,6 +282,9 @@ void main() {
     _listPosition(tester).jumpTo(0);
     await tester.pumpAndSettle();
     expect(_searchText(tester), '');
+    // The chip bar keeps its own sideways offset (it was scrolled to reach
+    // the category); bring the first chip back before reading it.
+    await revealRecipeChip(tester, 'recipes-tab-for-you');
     expect(tester.widget<Semantics>(find.byKey(const ValueKey('recipes-tab-for-you'))).properties.selected, isTrue);
   });
 }

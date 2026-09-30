@@ -499,8 +499,19 @@ void main() {
     expect(find.byKey(const ValueKey('edit-meal-sheet')), findsNothing);
     expect(find.text('Mahlzeit aktualisiert.'), findsOneWidget);
     await expandFoodEntries(tester);
-    // The history row now carries the new slot.
-    expect(find.textContaining('Snacks ·'), findsOneWidget);
+    // The entry now stands in the Snacks card (the redesigned rows carry no
+    // slot label; the card is the slot).
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('food-slot-card-snack')),
+        matching: find.byKey(const ValueKey('food-history-entry-0')),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('food-slot-empty-breakfast')),
+      findsOneWidget,
+    );
   });
 
   testWidgetsRobust(

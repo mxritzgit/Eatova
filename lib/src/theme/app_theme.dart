@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../widgets/common/guarded_page_transitions.dart';
 
@@ -16,7 +17,7 @@ const InputBorder _noLine = OutlineInputBorder(
 /// screen reader, scroll physics, dialogs); the pixels come from the tokens.
 /// Hence a real [ColorScheme]: SDK widgets we do not draw ourselves
 /// (DatePicker, Snackbar, cursor) must look right without local special cases.
-/// Two fonts: Bricolage Grotesque for numbers/headings, Archivo for the rest.
+/// Two fonts: Bricolage Grotesque for numbers/headings, Figtree for the rest.
 ThemeData buildEatovaTheme(Brightness brightness) {
   final t = brightness == Brightness.light ? AppTokens.light : AppTokens.dark;
 
@@ -40,16 +41,32 @@ ThemeData buildEatovaTheme(Brightness brightness) {
 
   final base = ThemeData(useMaterial3: true, colorScheme: scheme);
 
-  final textTheme = base.textTheme
+  // Material's English geometry sets every slot's size and weight but also
+  // 0.1-0.5 px tracking and 1.33-1.5 line heights, which every Text without
+  // its own values inherits. The design sets text with normal tracking (0)
+  // and the fonts' normal line height, so the theme carries those instead;
+  // multi-line copy sets its own height where the design has one. The body
+  // slots (plain Text, text fields) keep a reading height.
+  final designText = Typography.englishLike2021
+      .merge(base.textTheme)
       .apply(
         fontFamily: AppType.uiFamily,
+        fontFamilyFallback: AppType.uiFallback,
         bodyColor: t.ink,
         displayColor: t.ink,
-      )
-      .copyWith(
-        bodyMedium: AppType.ui(14, color: t.ink, height: 1.45),
-        bodySmall: AppType.ui(13, color: t.ink2, height: 1.45),
+        letterSpacingFactor: 0,
+        heightFactor: 0,
+        heightDelta: AppType.normalHeight,
       );
+  final textTheme = designText.copyWith(
+    bodyLarge: designText.bodyLarge!.copyWith(height: AppType.bodyHeight),
+    bodyMedium: designText.bodyMedium!.copyWith(height: AppType.bodyHeight),
+    bodySmall: designText.bodySmall!.copyWith(
+      fontSize: 13,
+      color: t.ink2,
+      height: AppType.bodyHeight,
+    ),
+  );
 
   return base.copyWith(
     pageTransitionsTheme: PageTransitionsTheme(
@@ -130,23 +147,29 @@ ThemeData buildEatovaTheme(Brightness brightness) {
     // stays so the day one appears it does not arrive in Material colours,
     // but it must not hand out the OLD selection language either: `forest` as
     // a selected fill measures 1.33:1 on `surf` in dark mode (P9-02). Same
-    // ink/bg pair as `SelectionTone` in the design library.
+    // accent pair as `SelectionTone` in the design library.
     chipTheme: ChipThemeData(
       backgroundColor: t.surf,
-      selectedColor: t.ink,
-      side: BorderSide(color: t.line),
-      labelStyle: AppType.ui(12, weight: FontWeight.w600, color: t.ink),
+      selectedColor: t.accentFill,
+      side: BorderSide(color: t.lineStrong),
+      labelStyle: AppType.ui(14, weight: FontWeight.w700, color: t.inkMuted),
       // The style of a SELECTED chip's label (Material's "secondary" slot).
-      secondaryLabelStyle: AppType.ui(12, weight: FontWeight.w600, color: t.bg),
+      secondaryLabelStyle: AppType.ui(
+        14,
+        weight: FontWeight.w700,
+        color: t.onAccentFill,
+      ),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(rChip),
+        borderRadius: BorderRadius.circular(rPill),
       ),
     ),
     // Material buttons without a local style used to fall back to
     // ColorScheme.primary = forest: 1.33:1 on `surf` in dark mode. One
-    // semantics for all three: text = quiet `ink` (a screen sets `accent`
-    // only for an explicitly affirmative action), filled = the primary action
-    // (ink/bg, like [PrimaryActionButton]), outlined = line edge + ink.
+    // semantics for all three (dark redesign 2026-09-28): text = quiet `ink`
+    // (a screen sets `accent` only for an explicitly affirmative action),
+    // filled = the primary action (accent pill, like [PrimaryActionButton]),
+    // outlined = the SECONDARY action, a tonal `surf2` pill with an `ink`
+    // label.
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
         foregroundColor: t.ink,
@@ -159,11 +182,11 @@ ThemeData buildEatovaTheme(Brightness brightness) {
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
-        backgroundColor: t.ink,
-        foregroundColor: t.bg,
-        disabledBackgroundColor: t.ink.withValues(alpha: 0.4),
-        disabledForegroundColor: t.bg.withValues(alpha: 0.8),
-        textStyle: AppType.ui(15, weight: FontWeight.w700),
+        backgroundColor: t.accentFill,
+        foregroundColor: t.onAccentFill,
+        disabledBackgroundColor: t.accentFill.withValues(alpha: 0.4),
+        disabledForegroundColor: t.onAccentFill.withValues(alpha: 0.8),
+        textStyle: AppType.ui(15, weight: FontWeight.w800),
         // Touch floor, NOT the 54 px primary height: a FilledButton also
         // sits in dialogs next to a TextButton.
         minimumSize: const Size(64, kButtonMinHeight),
@@ -175,10 +198,12 @@ ThemeData buildEatovaTheme(Brightness brightness) {
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
+        backgroundColor: t.surf2,
         foregroundColor: t.ink,
+        disabledBackgroundColor: t.surf2.withValues(alpha: 0.5),
         disabledForegroundColor: t.ink2.withValues(alpha: 0.5),
-        side: BorderSide(color: t.line),
-        textStyle: AppType.ui(14, weight: FontWeight.w600),
+        side: BorderSide.none,
+        textStyle: AppType.ui(15, weight: FontWeight.w700),
         minimumSize: const Size(64, kButtonMinHeight),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         shape: RoundedRectangleBorder(
@@ -366,5 +391,20 @@ ThemeData buildEatovaTheme(Brightness brightness) {
         borderRadius: BorderRadius.circular(rSheet),
       ),
     ),
+  );
+}
+
+/// Native status and navigation bar styling for [theme]: a transparent
+/// status bar with icons readable on the page ground, and a navigation bar
+/// in the page color.
+SystemUiOverlayStyle eatovaSystemUiOverlayStyle(ThemeData theme) {
+  final t = theme.extension<AppTokens>()!;
+  final base = theme.brightness == Brightness.dark
+      ? SystemUiOverlayStyle.light
+      : SystemUiOverlayStyle.dark;
+  return base.copyWith(
+    statusBarColor: Colors.transparent,
+    systemNavigationBarColor: t.bg,
+    systemNavigationBarDividerColor: Colors.transparent,
   );
 }

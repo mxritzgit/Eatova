@@ -132,6 +132,10 @@ void _installGlobalErrorHandlers() {
   };
 }
 
+/// Test seam: the screen shown when booting fails.
+@visibleForTesting
+Widget buildBootErrorApp(Object error) => _BootErrorApp(error: error);
+
 class _BootErrorApp extends StatelessWidget {
   const _BootErrorApp({required this.error});
 
@@ -144,15 +148,21 @@ class _BootErrorApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Theme tokens instead of hardcoded colors, so this screen follows light
-    // mode. Safe here: `buildEatovaTheme` is a pure function over
-    // `AppTokens.light/dark` and depends on none of the services whose failure
-    // leads to this screen.
+    // Theme tokens instead of hardcoded colors, so this screen follows the
+    // app's theme (dark only while `kDarkOnly`). Safe here: `buildEatovaTheme`
+    // is a pure function over `AppTokens.light/dark` and depends on none of
+    // the services whose failure leads to this screen.
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Eatova',
       theme: buildEatovaTheme(Brightness.light),
       darkTheme: buildEatovaTheme(Brightness.dark),
+      themeMode: kDarkOnly ? ThemeMode.dark : ThemeMode.system,
+      // Same status/navigation bar styling as the app itself.
+      builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
+        value: eatovaSystemUiOverlayStyle(Theme.of(context)),
+        child: child ?? const SizedBox.shrink(),
+      ),
       home: Builder(
         builder: (context) {
           final t = context.t;

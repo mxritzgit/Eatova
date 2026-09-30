@@ -102,7 +102,7 @@ Future<void> _saveImage(WidgetTester tester, String name) async {
 void main() {
   setUpAll(() async {
     for (final family in {
-      'Archivo': ['Archivo-Regular.ttf', 'Archivo-SemiBold.ttf'],
+      'Figtree': ['Figtree-Regular.ttf', 'Figtree-SemiBold.ttf'],
       'BricolageGrotesque': [
         'BricolageGrotesque-Bold.ttf',
         'BricolageGrotesque-ExtraBold.ttf',

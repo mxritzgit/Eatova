@@ -233,42 +233,39 @@ class _CoachRecipeShellState extends State<_CoachRecipeShell> {
         ],
       ),
       body: SafeArea(
-        child: Padding(
-          // Same shell padding as eatova_home_page.dart.
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-          child: IndexedStack(
-            key: const ValueKey('flow-tab-stack'),
-            index: _tab,
-            sizing: StackFit.expand,
-            children: <Widget>[
-              TickerMode(
-                enabled: _tab == 0,
-                child: CoachChatScreen(
-                  service: widget.service,
-                  userName: 'Moritz',
-                  streak: 3,
-                  onCreateRecipe: _create,
-                  // Like eatova_home_page.dart: the visible list, not the
-                  // full one (2026-09-02).
-                  userRecipeSlugs: <String>{
-                    for (final recipe in _userRecipes)
-                      if (!_pendingDeletes.contains(recipe.slug)) recipe.slug,
-                  },
-                ),
+        // Like eatova_home_page.dart: the shell pads neither Coach nor
+        // Recipes; both tabs own their gutters.
+        child: IndexedStack(
+          key: const ValueKey('flow-tab-stack'),
+          index: _tab,
+          sizing: StackFit.expand,
+          children: <Widget>[
+            TickerMode(
+              enabled: _tab == 0,
+              child: CoachChatScreen(
+                service: widget.service,
+                userName: 'Moritz',
+                onCreateRecipe: _create,
+                // Like eatova_home_page.dart: the visible list, not the
+                // full one (2026-09-02).
+                userRecipeSlugs: <String>{
+                  for (final recipe in _userRecipes)
+                    if (!_pendingDeletes.contains(recipe.slug)) recipe.slug,
+                },
               ),
-              TickerMode(
-                enabled: _tab == 1,
-                child: RecipesScreen(
-                  onAddMeal: (MealAnalysisResult result, MealSlot slot) =>
-                      widget.log.loggedSlots.add(slot),
-                  initialUserRecipes: _userRecipes,
-                  onCreateRecipe: _create,
-                  onDeleteRecipe: _delete,
-                  onDeletePendingChanged: _setPending,
-                ),
+            ),
+            TickerMode(
+              enabled: _tab == 1,
+              child: RecipesScreen(
+                onAddMeal: (MealAnalysisResult result, MealSlot slot) =>
+                    widget.log.loggedSlots.add(slot),
+                initialUserRecipes: _userRecipes,
+                onCreateRecipe: _create,
+                onDeleteRecipe: _delete,
+                onDeletePendingChanged: _setPending,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

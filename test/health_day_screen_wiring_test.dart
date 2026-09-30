@@ -50,7 +50,7 @@ void main() {
         ..snapshot = HealthSnapshot(stepsToday: 12000, fetchedAt: now);
       final store = await _pumpHome(tester, health);
       expect(_today(tester).steps, 12000);
-      expect(_today(tester).burnedKcal, greaterThan(0));
+      expect(_today(tester).summary.burnedKcal, greaterThan(0));
 
       await tester.tap(find.byKey(const ValueKey('today-profile')));
       await tester.pumpAndSettle();
@@ -67,13 +67,13 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('profile-close')));
       await tester.pumpAndSettle();
       expect(_today(tester).steps, isNull);
-      expect(_today(tester).burnedKcal, 0);
+      expect(_today(tester).summary.burnedKcal, 0);
 
       health.snapshot = HealthSnapshot(stepsToday: 500, fetchedAt: now);
       await store.refreshHealthSteps();
       await tester.pumpAndSettle();
       expect(_today(tester).steps, 500);
-      expect(_today(tester).burnedKcal, greaterThan(0));
+      expect(_today(tester).summary.burnedKcal, greaterThan(0));
     });
   });
 
@@ -98,7 +98,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(store.dailyActivity, same(activity));
       expect(_today(tester).steps, 0);
-      expect(_today(tester).burnedKcal, 0);
+      expect(_today(tester).summary.burnedKcal, 0);
 
       await tester.tap(find.byKey(const ValueKey('today-profile')));
       await tester.pumpAndSettle();

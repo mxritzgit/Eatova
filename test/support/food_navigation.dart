@@ -49,13 +49,32 @@ Future<void> expandFoodEntries(WidgetTester tester, {MealSlot? slot}) async {
 }
 
 /// Account navigation begins on Today; trends still belongs to Food.
+///
+/// Since the dark redesign (2026-09-28) the Today header carries only the
+/// avatar: 'today-settings' walks avatar -> profile -> its gear, the path a
+/// user takes. The profile route stays below the settings route; see
+/// [closeSettingsFromToday].
 Future<void> tapHomeHeaderAction(WidgetTester tester, String key) async {
   if (key == 'today-settings' || key == 'today-profile') {
     await tester.tap(find.byKey(const ValueKey('nav-Heute')));
     await _frames(tester);
   }
-  final action = find.byKey(ValueKey(key));
-  await tester.ensureVisible(action);
-  await tester.tap(action);
+  final path = key == 'today-settings'
+      ? const <String>['today-profile', 'profile-open-settings']
+      : <String>[key];
+  for (final step in path) {
+    final action = find.byKey(ValueKey(step));
+    await tester.ensureVisible(action);
+    await tester.tap(action);
+    await _frames(tester);
+  }
+}
+
+/// Leaves the profile route that [tapHomeHeaderAction] opened on the way to
+/// the settings, after the settings themselves were closed.
+Future<void> closeSettingsFromToday(WidgetTester tester) async {
+  final close = find.byKey(const ValueKey('profile-close'));
+  await tester.ensureVisible(close);
+  await tester.tap(close);
   await _frames(tester);
 }

@@ -118,7 +118,7 @@ Widget primaryActionPreview() => Builder(
   ),
 );
 
-@EatovaPreview(name: 'Navigation', size: Size(390, 90))
+@EatovaPreview(name: 'Navigation', size: Size(390, 112))
 Widget navBarPreview() => Builder(
   builder: (context) {
     final l10n = context.l10n;

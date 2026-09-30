@@ -13,7 +13,7 @@ import 'support/harness.dart';
 
 void main() {
   setUpAll(() async {
-    for (final family in ['Archivo', 'BricolageGrotesque']) {
+    for (final family in ['Figtree', 'BricolageGrotesque']) {
       final loader = FontLoader(family);
       for (final file in Directory(
         'assets/fonts',

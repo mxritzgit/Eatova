@@ -127,10 +127,6 @@ const Map<String, String> _bedingtesForestErlaubt = <String, String>{
       'AppToggle track: not a selection, and the state is carried by the KNOB '
           '(position left/right plus lime/surf with an ink2 ring at 3.3-3.5:1 '
           'against the track) — the track is decoration, documented in place',
-  'lib/src/screens/coach/coach_composer.dart':
-      'send button ENABLED vs. disabled — WCAG 1.4.11 exempts inactive '
-          'components, and the button is the only element of its own capsule, '
-          'so nothing sits next to it that could be confused with it',
   'lib/src/screens/coach/coach_message_list.dart':
       'chat bubble by AUTHOR, not by selection: who wrote a message is also '
           'carried by side (left/right alignment) and by the tail radius, and '

@@ -75,7 +75,12 @@ void main() {
     expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget,
         reason: 'ein Serverfehler darf die optimistische Zeile nicht '
             'zurückrollen');
-    expect(find.text('252'), findsNWidgets(2));
+    // Day total, slot total and the entry row each show the 252.
+    expect(find.text('252'), findsNWidgets(3));
+    expect(
+      tester.widget<Text>(find.byKey(const ValueKey('food-slot-kcal-lunch'))).data,
+      '252',
+    );
     expect(store.loggedMeals.length, 1);
     final mealId = store.loggedMeals.single.id;
     expect(server.mealRows, isEmpty);

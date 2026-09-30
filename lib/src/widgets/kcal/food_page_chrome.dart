@@ -2,120 +2,83 @@ import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
+import '../../models/day_nutrition.dart';
 import '../../services/day_math.dart';
 import '../../services/kcal_format.dart';
 import '../../theme/app_tokens.dart';
-import '../design/surfaces.dart' show HeadingSemantics;
+import '../design/design.dart';
+import 'food_glyphs.dart';
 
-/// The diary owns its gutters so its entry dock can meet the navigation bar.
+// ---------------------------------------------------------------------------
+// Food tab chrome (dark redesign, 2026-09-28): the title row with the
+// calendar button, the day switcher pill, the day summary card and the
+// floating capture dock. Values follow `design/food/template.html`.
+// ---------------------------------------------------------------------------
+
+/// Design text at Figtree's normal line height (the theme's default too).
+TextStyle foodText(
+  double size, {
+  FontWeight weight = FontWeight.w400,
+  Color? color,
+  double? letterSpacing,
+}) => AppType.ui(
+  size,
+  weight: weight,
+  color: color,
+  letterSpacing: letterSpacing,
+  height: AppType.normalHeight,
+);
+
+/// "Food" title and the round calendar button that opens the date picker.
 class FoodPageHeader extends StatelessWidget {
-  const FoodPageHeader({
-    super.key,
-    required this.consumedKcal,
-    required this.loading,
-    required this.onTrends,
-  });
+  const FoodPageHeader({super.key, required this.onCalendar});
 
-  final int consumedKcal;
-  final bool loading;
-  final VoidCallback onTrends;
+  final VoidCallback onCalendar;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    final title = Row(
-      mainAxisSize: MainAxisSize.min,
+    return Row(
       children: [
-        Flexible(
+        Expanded(
           child: HeadingSemantics(
             level: 1,
-            child: Text(l10n.navFood, style: AppType.pageTitle(t.ink)),
-          ),
-        ),
-      ],
-    );
-    final total = Material(
-      color: t.brandSurface,
-      borderRadius: BorderRadius.circular(rControl),
-      child: InkWell(
-        key: const ValueKey('topbar-trends'),
-        borderRadius: BorderRadius.circular(rControl),
-        onTap: onTrends,
-        child: Semantics(
-          button: true,
-          hint: l10n.foodSemanticsTrends,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  loading
-                      ? '—'
-                      : formatThousands(consumedKcal, l10n.localeName),
-                  key: const ValueKey('food-day-total'),
-                  style: AppType.display(
-                    25,
-                    color: t.onBrandSurface,
-                    height: 1,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  l10n.foodKcalLoggedLabel,
-                  style: AppType.ui(
-                    10,
-                    weight: FontWeight.w600,
-                    color: t.accent,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ],
+            child: Text(
+              l10n.navFood,
+              style: AppType.pageTitle(t.ink),
+              textScaler: AppType.pageTitleScaler(context),
             ),
           ),
         ),
-      ),
-    );
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          if (constraints.maxWidth < 300 ||
-              MediaQuery.textScalerOf(context).scale(14) > 21) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [title, const SizedBox(height: 12), total],
-            );
-          }
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(child: title),
-              const SizedBox(width: 12),
-              total,
-            ],
-          );
-        },
-      ),
+        const SizedBox(width: 12),
+        HeaderIconButton.custom(
+          key: const ValueKey('food-date-calendar'),
+          semanticLabel: l10n.foodCalendarButtonSemantics,
+          onTap: onCalendar,
+          child: const FoodGlyphIcon(FoodGlyph.calendar),
+        ),
+      ],
     );
   }
 }
 
+/// The day switcher pill: previous/next day around the selected day's name
+/// ([headline], e.g. "Today") and date ([dateLabel]). Future days and days
+/// more than two years back are unavailable.
 class FoodDayNavigation extends StatelessWidget {
   const FoodDayNavigation({
     super.key,
     required this.day,
-    required this.label,
+    required this.headline,
+    required this.dateLabel,
     required this.onSelected,
-    required this.onCalendar,
   });
 
   final DateTime day;
-  final String label;
+  final String headline;
+  final String dateLabel;
   final ValueChanged<DateTime> onSelected;
-  final VoidCallback onCalendar;
 
   @override
   Widget build(BuildContext context) {
@@ -123,74 +86,63 @@ class FoodDayNavigation extends StatelessWidget {
     final l10n = context.l10n;
     final today = DateUtils.dateOnly(clock.now());
     final first = DateTime(today.year - 2, today.month, today.day);
-    return Padding(
+    Widget arrow(String key, FoodGlyph glyph, String tooltip, DateTime? to) =>
+        IconButton(
+          key: ValueKey(key),
+          style: IconButton.styleFrom(
+            minimumSize: const Size.square(44),
+            fixedSize: const Size.square(44),
+            // 44 px is the design's target; no extra 48 px padding.
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            foregroundColor: t.inkMuted,
+            disabledForegroundColor: t.inkDisabled,
+          ),
+          tooltip: tooltip,
+          onPressed: to == null ? null : () => onSelected(to),
+          icon: FoodGlyphIcon(glyph, size: 20),
+        );
+    return Container(
       key: const ValueKey('food-date-strip'),
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      constraints: const BoxConstraints(minHeight: 56),
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      decoration: BoxDecoration(
+        color: t.surf,
+        borderRadius: BorderRadius.circular(rPill),
+        border: Border.all(color: t.cardBorder),
+      ),
       child: Row(
         children: [
-          IconButton.outlined(
-            key: const ValueKey('food-date-previous'),
-            style: IconButton.styleFrom(
-              minimumSize: const Size(44, 44),
-              side: BorderSide(color: t.line),
-            ),
-            tooltip: l10n.todaySemanticsDatePrev,
-            onPressed: day.isAfter(first)
-                ? () => onSelected(addDays(day, -1))
-                : null,
-            icon: const Icon(Icons.chevron_left_rounded),
+          arrow(
+            'food-date-previous',
+            FoodGlyph.chevronLeft,
+            l10n.todaySemanticsDatePrev,
+            day.isAfter(first) ? addDays(day, -1) : null,
           ),
           Expanded(
-            child: InkWell(
-              key: const ValueKey('food-date-calendar'),
-              borderRadius: BorderRadius.circular(rControl),
-              onTap: onCalendar,
-              child: Semantics(
-                button: true,
-                hint: l10n.foodCalendarButtonSemantics,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 12,
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.calendar_today_outlined,
-                        size: 18,
-                        color: t.ink2,
-                      ),
-                      const SizedBox(width: 10),
-                      Flexible(
-                        child: Text(
-                          label,
-                          key: const ValueKey('food-date-selected-label'),
-                          textAlign: TextAlign.center,
-                          style: AppType.ui(
-                            14,
-                            weight: FontWeight.w600,
-                            color: t.ink,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  headline,
+                  key: const ValueKey('food-date-headline'),
+                  textAlign: TextAlign.center,
+                  style: foodText(15, weight: FontWeight.w800, color: t.ink),
                 ),
-              ),
+                const SizedBox(height: 1),
+                Text(
+                  dateLabel,
+                  key: const ValueKey('food-date-selected-label'),
+                  textAlign: TextAlign.center,
+                  style: foodText(12, weight: FontWeight.w600, color: t.ink3),
+                ),
+              ],
             ),
           ),
-          IconButton.outlined(
-            key: const ValueKey('food-date-next'),
-            style: IconButton.styleFrom(
-              minimumSize: const Size(44, 44),
-              side: BorderSide(color: t.line),
-            ),
-            tooltip: l10n.todaySemanticsDateNext,
-            onPressed: day.isBefore(today)
-                ? () => onSelected(addDays(day, 1))
-                : null,
-            icon: const Icon(Icons.chevron_right_rounded),
+          arrow(
+            'food-date-next',
+            FoodGlyph.chevronRight,
+            l10n.todaySemanticsDateNext,
+            day.isBefore(today) ? addDays(day, 1) : null,
           ),
         ],
       ),
@@ -198,7 +150,280 @@ class FoodDayNavigation extends StatelessWidget {
   }
 }
 
-/// A fixed, quiet capture surface; the actual search input lives in its sheet.
+/// The day summary: "LOGGED 1,221 kcal", "LEFT 902 kcal", the stacked macro
+/// bar (share of kcal from protein, carbs and fat) and its legend in grams.
+///
+/// Numbers come from [DayNutritionSummary] (budget incl. activity credit), so
+/// "left" matches the Today tab. Tapping the card opens Trends, as the old
+/// kcal tile did.
+class FoodDaySummaryCard extends StatelessWidget {
+  const FoodDaySummaryCard({
+    super.key,
+    required this.summary,
+    required this.loading,
+    required this.onTap,
+  });
+
+  final DayNutritionSummary summary;
+
+  /// An archive day is still loading: no numbers, no bar.
+  final bool loading;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    final locale = l10n.localeName;
+    final remaining = summary.remainingKcal;
+    final over = remaining < 0;
+    String number(int value) => loading ? '—' : formatThousands(value, locale);
+    Text eyebrow(String text) => Text(
+      text.toUpperCase(),
+      semanticsLabel: text,
+      style: foodText(
+        12,
+        weight: FontWeight.w700,
+        color: t.ink2,
+        letterSpacing: 12 * 0.08,
+      ),
+    );
+    // Number and unit stay separate texts (flows read the number alone);
+    // very large text scales the pair down instead of overflowing.
+    Widget amount(
+      Key key,
+      String value,
+      TextStyle style,
+      double unitSize,
+      double gap,
+      Alignment alignment,
+    ) => FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: alignment,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          Text(value, key: key, style: style),
+          SizedBox(width: gap),
+          Text(
+            'kcal',
+            style: foodText(unitSize, weight: FontWeight.w600, color: t.ink2),
+          ),
+        ],
+      ),
+    );
+    final logged = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        eyebrow(l10n.foodSummaryLogged),
+        const SizedBox(height: 2),
+        amount(
+          const ValueKey('food-day-total'),
+          number(summary.consumedKcal),
+          AppType.display(40, color: t.ink, height: 1),
+          15,
+          6,
+          Alignment.centerLeft,
+        ),
+      ],
+    );
+    final left = Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        eyebrow(over ? l10n.foodSummaryOver : l10n.foodSummaryLeft),
+        const SizedBox(height: 2),
+        amount(
+          const ValueKey('food-day-left'),
+          number(remaining.abs()),
+          AppType.display(
+            26,
+            weight: FontWeight.w700,
+            color: over ? t.warning : t.accentText,
+            letterSpacing: 26 * -0.02,
+            height: 1,
+          ),
+          13,
+          4,
+          Alignment.centerRight,
+        ),
+      ],
+    );
+    final consumed = summary.consumed;
+    final macros = <(String, double, Color)>[
+      (l10n.todayMacroProtein, consumed.proteinG, t.protein),
+      (l10n.todayMacroCarbs, consumed.carbsG, t.carbs),
+      (l10n.todayMacroFat, consumed.fatG, t.fat),
+    ];
+    return Material(
+      color: t.surf,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(rCard),
+        side: BorderSide(color: t.cardBorder),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Semantics(
+        button: true,
+        hint: l10n.foodSemanticsTrends,
+        child: InkWell(
+          key: const ValueKey('topbar-trends'),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    // Large text or a narrow card stacks the two figures.
+                    if (constraints.maxWidth < 280 ||
+                        MediaQuery.textScalerOf(context).scale(14) > 19) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          logged,
+                          const SizedBox(height: 12),
+                          Align(alignment: Alignment.centerLeft, child: left),
+                        ],
+                      );
+                    }
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(child: logged),
+                        const SizedBox(width: 12),
+                        left,
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 14),
+                FoodMacroBar(
+                  proteinKcal: loading ? 0 : consumed.proteinG * 4,
+                  carbsKcal: loading ? 0 : consumed.carbsG * 4,
+                  fatKcal: loading ? 0 : consumed.fatG * 9,
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: [
+                    for (final (label, grams, color) in macros)
+                      _LegendItem(
+                        label: label,
+                        value: loading ? '—' : '${grams.round()} g',
+                        color: color,
+                      ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The stacked 10 px macro bar: one segment per macro, sized by its kcal,
+/// 2 px apart; an empty day shows the bare track.
+class FoodMacroBar extends StatelessWidget {
+  const FoodMacroBar({
+    super.key,
+    required this.proteinKcal,
+    required this.carbsKcal,
+    required this.fatKcal,
+  });
+
+  final double proteinKcal, carbsKcal, fatKcal;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final segments = <(double, Color, String)>[
+      (proteinKcal, t.protein, 'protein'),
+      (carbsKcal, t.carbs, 'carbs'),
+      (fatKcal, t.fat, 'fat'),
+    ].where((s) => s.$1 > 0).toList();
+    final total = segments.fold<double>(0, (sum, s) => sum + s.$1);
+    return ExcludeSemantics(
+      child: ClipRRect(
+        key: const ValueKey('food-macro-bar'),
+        borderRadius: BorderRadius.circular(rPill),
+        child: SizedBox(
+          height: 10,
+          child: segments.isEmpty
+              ? ColoredBox(color: t.tile, child: const SizedBox.expand())
+              : Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var i = 0; i < segments.length; i++) ...[
+                      if (i > 0) const SizedBox(width: 2),
+                      Expanded(
+                        // Integer flex; 1000 steps keep small shares visible.
+                        flex: (segments[i].$1 / total * 1000).round().clamp(
+                          1,
+                          1000,
+                        ),
+                        child: ColoredBox(
+                          key: ValueKey('food-macro-bar-${segments[i].$3}'),
+                          color: segments[i].$2,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+class _LegendItem extends StatelessWidget {
+  const _LegendItem({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label, value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        // Large text wraps the label inside its run instead of overflowing.
+        Flexible(child: Text(label, style: foodText(13, color: t.ink2))),
+        const SizedBox(width: 6),
+        Text(
+          value,
+          style: foodText(
+            13,
+            weight: FontWeight.w700,
+            color: t.ink,
+          ).copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+        ),
+      ],
+    );
+  }
+}
+
+/// The floating capture dock above the tab bar: a search capsule that opens
+/// the search sheet (long-press: manual entry), a round barcode button and
+/// the accent camera button for the AI scan.
 class FoodEntryDock extends StatelessWidget {
   const FoodEntryDock({
     super.key,
@@ -209,6 +434,9 @@ class FoodEntryDock extends StatelessWidget {
     this.enabled = true,
   });
 
+  /// Height of the dock's controls (design: 54).
+  static const double height = 54;
+
   final VoidCallback onSearch, onCamera, onBarcode, onManual;
   final bool enabled;
 
@@ -216,148 +444,143 @@ class FoodEntryDock extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    return Material(
-      key: const ValueKey('food-entry-dock'),
-      color: t.brandSurface,
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(rSheet)),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Material(
-              color: t.surf,
-              borderRadius: BorderRadius.circular(rControl),
-              child: InkWell(
-                key: const ValueKey('food-search'),
-                borderRadius: BorderRadius.circular(rControl),
-                onTap: enabled ? onSearch : null,
-                child: Semantics(
-                  button: true,
-                  enabled: enabled,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 16,
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(Icons.search_rounded, size: 22, color: t.ink2),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            l10n.foodSearchPlaceholder,
-                            style: AppType.ui(14, color: t.ink2),
-                          ),
+    const radius = BorderRadius.all(Radius.circular(rPill));
+    // An input look without an input: borderless soft capsule (standing
+    // input rule), the search itself lives in the sheet.
+    final search = DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: radius,
+        boxShadow: raisedShadow(t),
+      ),
+      child: Material(
+        color: t.field,
+        borderRadius: radius,
+        clipBehavior: Clip.antiAlias,
+        child: Semantics(
+          button: true,
+          enabled: enabled,
+          label: l10n.foodDockSearchLabel,
+          onLongPressHint: l10n.foodManualEntryCta,
+          child: InkWell(
+            key: const ValueKey('food-search'),
+            onTap: enabled ? onSearch : null,
+            onLongPress: enabled ? onManual : null,
+            child: SizedBox(
+              height: height,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    FoodGlyphIcon(FoodGlyph.search, size: 20, color: t.ink2),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ExcludeSemantics(
+                        child: Text(
+                          l10n.foodDockSearchLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: foodText(16, color: t.ink2),
                         ),
-                      ],
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
             ),
-            const SizedBox(height: 8),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final stacked =
-                    constraints.maxWidth < 300 ||
-                    MediaQuery.textScalerOf(context).scale(14) > 20;
-                final actions = [
-                  _DockAction(
-                    actionKey: const ValueKey('food-action-ai'),
-                    icon: Icons.photo_camera_outlined,
-                    label: l10n.recipesCameraAction,
-                    onTap: enabled ? onCamera : null,
-                    stacked: stacked,
-                  ),
-                  _DockAction(
-                    actionKey: const ValueKey('food-action-barcode'),
-                    icon: Icons.qr_code_scanner_rounded,
-                    label: l10n.foodActionBarcode,
-                    onTap: enabled ? onBarcode : null,
-                    stacked: stacked,
-                  ),
-                  _DockAction(
-                    actionKey: const ValueKey('food-action-manual'),
-                    icon: Icons.edit_outlined,
-                    label: l10n.foodSourceManual,
-                    onTap: enabled ? onManual : null,
-                    stacked: stacked,
-                  ),
-                ];
-                if (stacked) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: actions,
-                  );
-                }
-                return Row(
-                  children: [
-                    for (var i = 0; i < actions.length; i++) ...[
-                      if (i > 0)
-                        Container(
-                          height: 22,
-                          width: 1,
-                          color: t.accent.withValues(alpha: 0.18),
-                        ),
-                      Expanded(child: actions[i]),
-                    ],
-                  ],
-                );
-              },
-            ),
-          ],
+          ),
         ),
       ),
+    );
+    return Row(
+      key: const ValueKey('food-entry-dock'),
+      children: [
+        Expanded(child: search),
+        const SizedBox(width: 8),
+        _RoundDockButton(
+          actionKey: const ValueKey('food-action-barcode'),
+          label: l10n.foodScanBarcodeTooltip,
+          glyph: FoodGlyph.barcode,
+          fill: t.surfRaised,
+          ink: t.inkSoft,
+          border: t.lineStrong,
+          shadow: raisedShadow(t),
+          onTap: enabled ? onBarcode : null,
+        ),
+        const SizedBox(width: 8),
+        _RoundDockButton(
+          actionKey: const ValueKey('food-action-ai'),
+          label: l10n.foodDockCameraLabel,
+          glyph: FoodGlyph.camera,
+          fill: t.accentFill,
+          ink: t.onAccentFill,
+          shadow: <BoxShadow>[
+            BoxShadow(
+              color: t.accentGlow,
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+          ],
+          onTap: enabled ? onCamera : null,
+        ),
+      ],
     );
   }
 }
 
-class _DockAction extends StatelessWidget {
-  const _DockAction({
+class _RoundDockButton extends StatelessWidget {
+  const _RoundDockButton({
     required this.actionKey,
-    required this.icon,
     required this.label,
+    required this.glyph,
+    required this.fill,
+    required this.ink,
+    required this.shadow,
     required this.onTap,
-    required this.stacked,
+    this.border,
   });
 
   final Key actionKey;
-  final IconData icon;
   final String label;
+  final FoodGlyph glyph;
+  final Color fill, ink;
+  final Color? border;
+  final List<BoxShadow> shadow;
   final VoidCallback? onTap;
-  final bool stacked;
 
   @override
-  Widget build(BuildContext context) => InkWell(
-    key: actionKey,
-    onTap: onTap,
-    borderRadius: BorderRadius.circular(rControl),
-    child: Semantics(
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    return Semantics(
       button: true,
-      enabled: onTap != null,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 14),
-        child: Row(
-          mainAxisAlignment: stacked
-              ? MainAxisAlignment.start
-              : MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 22, color: context.t.accent),
-            const SizedBox(width: 7),
-            Flexible(
-              child: Text(
-                label,
-                style: AppType.ui(
-                  12,
-                  weight: FontWeight.w600,
-                  color: context.t.onBrandSurface,
+      enabled: enabled,
+      label: label,
+      child: DecoratedBox(
+        decoration: BoxDecoration(shape: BoxShape.circle, boxShadow: shadow),
+        child: Material(
+          color: enabled
+              ? fill
+              : fill.withValues(alpha: fill.a * kDisabledFillAlpha),
+          shape: CircleBorder(
+            side: border == null ? BorderSide.none : BorderSide(color: border!),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            key: actionKey,
+            onTap: onTap,
+            customBorder: const CircleBorder(),
+            child: SizedBox.square(
+              dimension: FoodEntryDock.height,
+              child: Center(
+                child: FoodGlyphIcon(
+                  glyph,
+                  size: 22,
+                  color: enabled ? ink : context.t.inkDisabled,
                 ),
               ),
             ),
-          ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }

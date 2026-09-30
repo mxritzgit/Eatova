@@ -108,13 +108,14 @@ void main() {
         final bonus = scenario.steps == null ? 0 : 300;
         expect(store.burnedKcalForFoodDate(_today), bonus);
 
+        // The card reads the store's shared day summary, the same numbers
+        // the coach context states.
         await pumpLocalized(
           tester,
-          TodayCalorieHero(
-            consumedKcal: store.dailyConsumedKcal,
-            burnedKcal: store.burnedKcalForFoodDate(_today),
-            kcalGoal: store.profile.dailyKcalGoal,
-            streak: 0,
+          SingleChildScrollView(
+            child: TodayCalorieCard(
+              summary: store.nutritionSummaryForFoodDate(_today),
+            ),
           ),
         );
         expect(
@@ -124,14 +125,14 @@ void main() {
           scenario.text,
         );
         expect(
-          find.text(scenario.left < 0 ? 'kcal drüber' : 'kcal übrig'),
+          find.text(scenario.left < 0 ? 'HEUTE DRÜBER' : 'HEUTE ÜBRIG'),
           findsOneWidget,
         );
         expect(
           tester
               .widget<Text>(find.byKey(const ValueKey('today-kcal-goal')))
               .data,
-          contains('2.000 kcal'),
+          '2.000',
         );
         expect(
           store.coachContext,

@@ -72,3 +72,61 @@ Map<MealSlot, SlotTotals> slotTotalsForFoodDate(
       if (bySlot.containsKey(slot)) slot: bySlot[slot]!,
   };
 }
+
+/// One diary slot of a day, for the Food card header ("08:10 · 3 items") and
+/// the Today slot rows.
+final class MealSlotSummary {
+  const MealSlotSummary({
+    required this.slot,
+    required this.meals,
+    required this.macros,
+  });
+
+  final MealSlot slot;
+
+  /// The slot's meals on that day, oldest first (id breaks equal times).
+  final List<LoggedMeal> meals;
+
+  /// Summed kcal and macros of [meals].
+  final MacroProgress macros;
+
+  int get entryCount => meals.length;
+  bool get isEmpty => meals.isEmpty;
+  int get kcal => macros.kcal;
+
+  /// Local time of the earliest entry; null for an empty slot.
+  DateTime? get firstLoggedAt =>
+      meals.isEmpty ? null : meals.first.loggedAt.toLocal();
+}
+
+/// All four slots of [date] in [MealSlot.values] order, empty ones included,
+/// so a diary can render them in one pass. Day filter: [mealsForFoodDate];
+/// slot: [LoggedMeal.slot].
+List<MealSlotSummary> mealSlotSummariesForFoodDate(
+  List<LoggedMeal> meals,
+  DateTime date,
+) {
+  final bySlot = <MealSlot, List<LoggedMeal>>{};
+  for (final meal in mealsForFoodDate(meals, date)) {
+    bySlot.putIfAbsent(meal.slot, () => <LoggedMeal>[]).add(meal);
+  }
+  final summaries = <MealSlotSummary>[];
+  for (final slot in MealSlot.values) {
+    final inSlot = (bySlot[slot] ?? <LoggedMeal>[])
+      ..sort((a, b) {
+        final byTime = a.loggedAt.compareTo(b.loggedAt);
+        return byTime != 0 ? byTime : a.id.compareTo(b.id);
+      });
+    summaries.add(
+      MealSlotSummary(
+        slot: slot,
+        meals: List.unmodifiable(inSlot),
+        macros: inSlot.fold<MacroProgress>(
+          MacroProgress.empty,
+          (sum, meal) => sum.add(meal.result),
+        ),
+      ),
+    );
+  }
+  return List.unmodifiable(summaries);
+}

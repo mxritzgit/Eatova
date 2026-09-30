@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 
 import '../../theme/app_tokens.dart';
@@ -6,8 +8,8 @@ import 'app_icon.dart';
 import 'readable_width.dart';
 
 // ---------------------------------------------------------------------------
-// CONTROLS — icon button, icon tile, toggle, segmented pill, filter chip,
-// primary action, nav bar.
+// CONTROLS — icon buttons, icon tile, toggle, segmented pill, filter chip,
+// primary action, floating nav bar.
 //
 // Material carries behavior and semantics, the tokens carry the pixels.
 //
@@ -18,29 +20,22 @@ import 'readable_width.dart';
 
 /// APP-WIDE SELECTION LANGUAGE of pills, chips and segments.
 ///
-/// Selected = a filled [AppTokens.ink] capsule with an [AppTokens.bg] label,
-/// the same pair [PrimaryActionButton] and the themed `FilledButton` carry.
+/// Selected = a filled accent capsule ([AppTokens.accentFill]) with an
+/// [AppTokens.onAccentFill] label — the dark redesign's selected chip and the
+/// same pair [PrimaryActionButton] and the themed `FilledButton` carry.
 ///
-/// It used to be `forest`/`onForest`, and that was a MODE-ASYMMETRIC bug: in
-/// light mode `forest` is a near-black green on a near-white card (13.57:1),
-/// in dark mode it is itself a dark surface and the same pairing collapses to
-/// 1.34:1 against `surf`, 1.10:1 against the `tile` track and 2.59:1 between
-/// the two labels — well under the 3:1 WCAG 1.4.11 asks of the visual
-/// information that identifies a control's state. Only the fill can carry it:
-/// the `line` edge an unselected chip has is itself 1.23:1 / 1.34:1.
-///
-/// A brightness branch is not an option (repo rule, DESIGN_REFACTOR §3), so
-/// the fix has to be one pair that works in both palettes. `ink`/`bg` are
-/// opposites by definition — 16.78:1 / 14.93:1 against `surf` — and the brand
-/// reading survives: in light mode `ink` #151E18 and `forest` #123322 are the
-/// same near-black green, 1.24:1 apart. F8-02 already moved the buttons for
-/// exactly this reason; this is the same decision for the selection states.
+/// History: `forest`/`onForest` failed as a state fill because `forest` is a
+/// dark SURFACE in the dark palette (1.34:1 against `surf`, under the 3:1 WCAG
+/// 1.4.11 asks of a control's state). The fix has to be one pair that works in
+/// both palettes (no brightness branch, DESIGN_REFACTOR §3): the accent fill
+/// measures 8.7:1 against the dark `surf` and 6.4:1 against the light one,
+/// and its label 8.6:1 / 6.4:1 on it.
 extension SelectionTone on AppTokens {
   /// Fill of a SELECTED chip, pill segment or capsule.
-  Color get selectedFill => ink;
+  Color get selectedFill => accentFill;
 
   /// Label, icon and dot on [selectedFill].
-  Color get onSelected => bg;
+  Color get onSelected => onAccentFill;
 }
 
 /// Square 34 px bordered button — back, close, menu.
@@ -98,6 +93,82 @@ class SquareIconButton extends StatelessWidget {
                         child: Center(child: _child),
                       ),
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Emphasis of a [HeaderIconButton].
+enum HeaderIconTone {
+  /// Card fill with a faint outline: calendar, history, info.
+  neutral,
+
+  /// Accent fill: the one primary action of a header (e.g. "add").
+  primary,
+}
+
+/// Round 44 px icon button for tab headers (dark redesign, 2026-09-28).
+///
+/// Neutral = card fill, 1 px [AppTokens.lineStrong] outline, icon in
+/// [AppTokens.inkMuted]; primary = accent fill with an on-accent icon and no
+/// outline. The whole circle is the tap target.
+class HeaderIconButton extends StatelessWidget {
+  const HeaderIconButton({
+    super.key,
+    required this.icon,
+    required this.semanticLabel,
+    this.onTap,
+    this.tone = HeaderIconTone.neutral,
+  }) : _child = null;
+
+  /// With a custom glyph (e.g. an [AppIcon]); it inherits color and size
+  /// from the button's [IconTheme].
+  const HeaderIconButton.custom({
+    super.key,
+    required Widget child,
+    required this.semanticLabel,
+    this.onTap,
+    this.tone = HeaderIconTone.neutral,
+  }) : icon = null,
+       _child = child;
+
+  /// Diameter, also the touch target.
+  static const double size = 44;
+
+  final IconData? icon;
+  final Widget? _child;
+  final String semanticLabel;
+  final VoidCallback? onTap;
+  final HeaderIconTone tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final primary = tone == HeaderIconTone.primary;
+    final ink = primary ? t.onAccentFill : t.inkMuted;
+    // No excludeSemantics: it would drop the InkWell's tap action; the glyph
+    // itself carries no label, so nothing is read twice.
+    return Semantics(
+      button: true,
+      enabled: onTap != null,
+      label: semanticLabel,
+      child: Material(
+        color: primary ? t.accentFill : t.surf,
+        shape: CircleBorder(
+          side: primary ? BorderSide.none : BorderSide(color: t.lineStrong),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const CircleBorder(),
+          child: SizedBox.square(
+            dimension: size,
+            child: IconTheme(
+              data: IconThemeData(size: 20, color: ink),
+              child: Center(child: _child ?? Icon(icon)),
             ),
           ),
         ),
@@ -329,11 +400,13 @@ enum FilterChipTone {
   slot,
 }
 
-/// Rectangular filter pill for horizontal chip bars.
+/// Filter/choice pill for horizontal chip bars (dark redesign, 2026-09-28).
 ///
 /// ONE selection language for every chip in the app ([SelectionTone]):
-/// selected = `ink` fill with a `bg` label (and icon), unselected = `surf`
-/// with a `line` edge. Radius [rChip].
+/// selected = accent fill with an on-accent label (and icon), outline in the
+/// fill color; unselected = `surf` with a 1 px `lineStrong` outline and an
+/// `inkMuted` label. Fully round; the [FilterChipSize.md] chip is 42 px tall
+/// with a 14/700 label.
 class FilterChipPill extends StatelessWidget {
   const FilterChipPill({
     super.key,
@@ -367,11 +440,11 @@ class FilterChipPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final small = size == FilterChipSize.sm;
-    final fg = selected ? t.onSelected : t.ink2;
-    final fontSize = small ? 11.0 : 12.0;
+    final fg = selected ? t.onSelected : t.inkMuted;
+    final fontSize = small ? 12.0 : 14.0;
     final padding = small
-        ? const EdgeInsets.symmetric(horizontal: 11, vertical: 6)
-        : const EdgeInsets.symmetric(horizontal: 15, vertical: 9);
+        ? const EdgeInsets.symmetric(horizontal: 12, vertical: 6)
+        : const EdgeInsets.symmetric(horizontal: 16, vertical: 9);
     // Selection is carried by fill and text color alone; without `selected` in
     // the semantics tree a screen reader cannot tell which filter is active.
     // With an explicit spoken name the visible label is excluded, otherwise
@@ -383,19 +456,22 @@ class FilterChipPill extends StatelessWidget {
       excludeSemantics: semanticLabel != null,
       child: Material(
         color: selected ? t.selectedFill : t.surf,
-        borderRadius: BorderRadius.circular(rChip),
+        borderRadius: BorderRadius.circular(rPill),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(rChip),
+          borderRadius: BorderRadius.circular(rPill),
           child: Container(
+            // 42 px including the padding; the Row centres its content.
+            constraints: BoxConstraints(minHeight: small ? 0 : 42),
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(rChip),
+              borderRadius: BorderRadius.circular(rPill),
               // The selected chip keeps a ring in its own fill colour instead
               // of dropping to transparent: same pixels, but the geometry no
               // longer depends on the state, and the boundary that identifies
-              // it is the fill against the ground (16.8:1 / 14.9:1) rather
-              // than the `line` edge, which never managed more than 1.34:1.
-              border: Border.all(color: selected ? t.selectedFill : t.line),
+              // it is the fill against the ground rather than the faint edge.
+              border: Border.all(
+                color: selected ? t.selectedFill : t.lineStrong,
+              ),
             ),
             padding: padding,
             child: Row(
@@ -424,7 +500,7 @@ class FilterChipPill extends StatelessWidget {
                     label,
                     style: AppType.ui(
                       fontSize,
-                      weight: selected ? FontWeight.w600 : FontWeight.w500,
+                      weight: FontWeight.w700,
                       color: fg,
                     ),
                   ),
@@ -443,9 +519,10 @@ const double kDisabledFillAlpha = 0.38;
 
 /// The wide primary action at the foot of a screen.
 ///
-/// The label uses [AppTokens.bg]: `ink` and `bg` are opposites in both modes,
-/// and on `danger` too `bg` always keeps readable contrast. `onTap == null`
-/// renders the visible disabled state (dimmed fill and label).
+/// Dark redesign (2026-09-28): an accent pill ([AppTokens.accentFill]) with an
+/// [AppTokens.onAccentFill] label in weight 800. The destructive variant keeps
+/// `danger` with a `bg` label. `onTap == null` renders the visible disabled
+/// state (dimmed fill and label).
 class PrimaryActionButton extends StatelessWidget {
   const PrimaryActionButton({
     super.key,
@@ -468,12 +545,12 @@ class PrimaryActionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final enabled = onTap != null;
-    // Disabled: the fill drops to 38 % (still 2.4:1 L / 3.2:1 D against
-    // `surf`, 4.6+:1 to the enabled fill) and the label dims — a locked
-    // CTA must not look pressable. InkWell without onTap draws no ripple.
-    final fill = (destructive ? t.danger : t.ink)
+    // Disabled: the fill drops to 38 % and the label dims — a locked CTA must
+    // not look pressable. InkWell without onTap draws no ripple.
+    final fill = (destructive ? t.danger : t.accentFill)
         .withValues(alpha: enabled ? 1 : kDisabledFillAlpha);
-    final onFill = t.bg.withValues(alpha: enabled ? 1 : 0.8);
+    final onFill = (destructive ? t.bg : t.onAccentFill)
+        .withValues(alpha: enabled ? 1 : 0.8);
     // A bare InkWell carries neither `isButton` nor an enabled state, so a
     // screen reader would announce the primary action as plain text and a
     // disabled one as a button that does nothing. `onTap == null` is the
@@ -507,7 +584,7 @@ class PrimaryActionButton extends StatelessWidget {
                       textAlign: TextAlign.center,
                       style: AppType.ui(
                         15,
-                        weight: FontWeight.w700,
+                        weight: FontWeight.w800,
                         color: onFill,
                       ),
                     ),
@@ -541,99 +618,249 @@ class AppNavItem {
   final String keyId;
 }
 
-/// The bottom nav bar — lime capsule around the active icon.
+/// The floating glass tab bar (dark redesign, 2026-09-28).
+///
+/// Floats [sideGap] from the sides and [bottomOffsetFor] above the screen
+/// edge; the design's fade (page color to transparent) sits behind it, so
+/// content scrolling under the bar dissolves into the page.
+///
+/// Its layout height is the band it claims ([reservedHeightFor]: offset, bar
+/// and [clearance]). In a `Scaffold(extendBody: true)` the body runs under the
+/// bar and receives that band as `MediaQuery.padding.bottom`: scroll views pad
+/// their END by it (content scrolls under the glass but can always be scrolled
+/// clear of it), and pinned bottom elements (docks, composers, CTAs) sit on
+/// top of it, [clearance] above the bar.
 class AppNavBar extends StatelessWidget {
   const AppNavBar({
     super.key,
     required this.index,
     required this.onChanged,
     required this.items,
+    this.docked = false,
   });
+
+  /// Height of the glass bar itself (it grows with very large text).
+  static const double barHeight = 68;
+
+  /// Minimum height of one item, well above the 44 px touch floor.
+  static const double itemHeight = 58;
+
+  /// Distance of the bar from the screen sides.
+  static const double sideGap = 14;
+
+  /// Distance of the bar from the SCREEN edge while the bottom inset is only a
+  /// home indicator or gesture handle: the indicator sits in this gap.
+  static const double bottomGap = 22;
+
+  /// Largest bottom inset still treated as indicator/handle (iPhone: 34).
+  static const double maxGestureInset = 34;
+
+  /// Gap above a taller inset — Android's 3-button bar keeps its buttons free.
+  static const double systemBarGap = 8;
+
+  /// Space between the bar and whatever is pinned above it (the design's
+  /// docks sit at 22 + 68 + 12 = 102).
+  static const double clearance = 12;
+
+  /// Backdrop blur behind the glass (CSS `blur(24px)`).
+  static const double blurSigma = 24;
+
+  /// The design's fade band, measured from the screen edge at the design's
+  /// offset: 10 px taller than the claimed band, so it reaches above the
+  /// [clearance] line (painted, never laid out or hit-tested).
+  static const double fadeHeight = 112;
+
+  /// Opaque foot of the fade: 40 % of [fadeHeight].
+  static const double _fadeSolid = fadeHeight * 0.4;
+
+  /// Distance of the bar's bottom edge from the screen edge for [bottomInset]
+  /// (`MediaQuery.padding.bottom` of the window).
+  static double bottomOffsetFor(double bottomInset) =>
+      bottomInset <= maxGestureInset ? bottomGap : bottomInset + systemBarGap;
+
+  /// The band the bar claims at the bottom of the screen (at the nominal bar
+  /// height): what tab bodies receive as `MediaQuery.padding.bottom`.
+  static double reservedHeightFor(double bottomInset) =>
+      bottomOffsetFor(bottomInset) + barHeight + clearance;
 
   final int index;
   final ValueChanged<int> onChanged;
   final List<AppNavItem> items;
 
+  /// Whether the shown tab pins a dock on the [clearance] line (Food's entry
+  /// dock, Coach's composer). The fade then ends at that line, so it never
+  /// veils the dock.
+  final bool docked;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final bottomInset = MediaQuery.of(context).padding.bottom;
+    final offset = bottomOffsetFor(MediaQuery.paddingOf(context).bottom);
+    final fadeOverhang = docked
+        ? 0.0
+        : fadeHeight - (bottomGap + barHeight + clearance);
     // Reduce-motion aware, like the predecessor bar.
     final motion = motionDuration(context, const Duration(milliseconds: 180));
+    const radius = BorderRadius.all(Radius.circular(rNav));
 
-    return Container(
+    final bar = DecoratedBox(
       decoration: BoxDecoration(
-        color: t.surf.withValues(alpha: 0.94),
-        border: Border(top: BorderSide(color: t.line)),
+        borderRadius: radius,
+        boxShadow: floatingShadow(t),
       ),
-      // Flatter than the draft (~76 px): the bar sits on EVERY screen and takes
-      // that height from the content. The hit area stays above 44 px — the
-      // floor this shortening must not cross.
-      padding: EdgeInsets.fromLTRB(10, 6, 10, 6 + bottomInset),
-      // Keeps the items under the content column on large windows.
-      child: ReadableWidth(
-        child: Row(
-          children: List<Widget>.generate(items.length, (i) {
-            final item = items[i];
-            final active = i == index;
-            return Expanded(
-              child: Semantics(
-                selected: active,
-                button: true,
-                label: item.label,
-                child: InkWell(
-                  key: ValueKey<String>('nav-${item.keyId}'),
-                  onTap: () => onChanged(i),
-                  borderRadius: BorderRadius.circular(rControl),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        AnimatedContainer(
-                          duration: motion,
-                          curve: Curves.easeOut,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 1,
-                          ),
-                          decoration: BoxDecoration(
-                            color: active ? t.brandSurface : Colors.transparent,
-                            borderRadius: BorderRadius.circular(rChip),
-                          ),
-                          child: AppIcon(
-                            item.icon,
-                            selected: active,
-                            size: 23,
-                            color: active ? t.onBrandSurface : t.ink2,
-                          ),
+      child: ClipRRect(
+        borderRadius: radius,
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
+          child: DecoratedBox(
+            key: const ValueKey<String>('nav-glass'),
+            decoration: BoxDecoration(
+              color: t.navGlass,
+              borderRadius: radius,
+              border: Border.all(color: t.lineStrong),
+            ),
+            // Own ink layer: the ripple would otherwise land on the Material
+            // underneath the glass and be blurred away.
+            child: Material(
+              type: MaterialType.transparency,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: barHeight),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  child: Row(
+                    children: List<Widget>.generate(items.length, (i) {
+                      return Expanded(
+                        child: _NavItem(
+                          item: items[i],
+                          active: i == index,
+                          motion: motion,
+                          onTap: () => onChanged(i),
                         ),
-                        const SizedBox(height: 3),
-                        // The label is already the item's Semantics label;
-                        // without ExcludeSemantics it would be read twice.
-                        // Hard single line: at textScaler 2.0 it would not fit
-                        // into a third of the bar.
-                        ExcludeSemantics(
-                          child: Text(
-                            item.label,
-                            maxLines: 1,
-                            softWrap: false,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: AppType.ui(
-                              10,
-                              weight: active ? FontWeight.w700 : FontWeight.w500,
-                              color: active ? t.ink : t.ink2,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                      );
+                    }),
                   ),
                 ),
               ),
-            );
-          }),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    return Stack(
+      // The fade's overhang paints above the band.
+      clipBehavior: Clip.none,
+      children: <Widget>[
+        // Decorative and never a hit target: taps in the fade and in the
+        // gaps around the bar reach whatever lies underneath.
+        Positioned(
+          left: 0,
+          top: -fadeOverhang,
+          right: 0,
+          bottom: 0,
+          child: IgnorePointer(
+            child: Column(
+              key: const ValueKey<String>('nav-fade'),
+              children: <Widget>[
+                Expanded(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: <Color>[t.bg.withValues(alpha: 0), t.bg],
+                      ),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  height: _fadeSolid + offset - bottomGap,
+                  width: double.infinity,
+                  child: ColoredBox(color: t.bg),
+                ),
+              ],
+            ),
+          ),
+        ),
+        Padding(
+          padding: EdgeInsets.fromLTRB(sideGap, clearance, sideGap, offset),
+          // Keeps the bar under the content column on large windows.
+          child: ReadableWidth(child: bar),
+        ),
+      ],
+    );
+  }
+}
+
+/// One tab of the [AppNavBar]: icon in a 48x28 capsule over an 11 px label.
+class _NavItem extends StatelessWidget {
+  const _NavItem({
+    required this.item,
+    required this.active,
+    required this.motion,
+    required this.onTap,
+  });
+
+  final AppNavItem item;
+  final bool active;
+  final Duration motion;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final ink = active ? t.accentText : t.ink3;
+    return Semantics(
+      selected: active,
+      button: true,
+      label: item.label,
+      child: InkWell(
+        key: ValueKey<String>('nav-${item.keyId}'),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(rCard),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: AppNavBar.itemHeight),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              AnimatedContainer(
+                duration: motion,
+                curve: Curves.easeOut,
+                width: 48,
+                height: 28,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: active ? t.accentTintStrong : Colors.transparent,
+                  borderRadius: BorderRadius.circular(rControl),
+                ),
+                child: AppIcon(
+                  item.icon,
+                  selected: active,
+                  size: 22,
+                  color: ink,
+                ),
+              ),
+              const SizedBox(height: 3),
+              // The label is already the item's Semantics label; without
+              // ExcludeSemantics it would be read twice. Hard single line: at
+              // textScaler 2.0 it would not fit into a fifth of the bar.
+              ExcludeSemantics(
+                child: Text(
+                  item.label,
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: AppType.ui(
+                    11,
+                    weight: active ? FontWeight.w800 : FontWeight.w600,
+                    color: ink,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

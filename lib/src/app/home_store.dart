@@ -10,11 +10,13 @@ import 'package:intl/intl.dart';
 
 import '../l10n/l10n.dart';
 import '../models/daily_calorie_balance.dart';
+import '../models/day_nutrition.dart';
 import '../models/favorite_meal.dart';
 import '../models/fitness_recipe.dart';
 import '../models/lifetime_stats.dart';
 import '../models/logged_meal.dart';
 import '../models/planned_meal.dart';
+import '../models/recipe_pick.dart';
 import '../models/macro_progress.dart';
 import '../models/meal_analysis_result.dart';
 import '../models/model_limits.dart' show isValidWeightLogKg;
@@ -22,6 +24,7 @@ import '../models/training_plan.dart';
 import '../models/training_plan_head.dart';
 import '../models/training_session.dart';
 import '../models/training_history.dart';
+import '../models/training_insights.dart';
 import '../models/user_profile.dart';
 import '../models/weight_log.dart';
 import '../services/crash_reporter.dart';
@@ -64,6 +67,7 @@ part 'home_store_sync.dart';
 part 'home_store_tracking.dart';
 part 'home_store_training.dart';
 part 'home_store_training_history.dart';
+part 'home_store_derivations.dart';
 
 /// Context-free snackbar request emitted by [HomeStore].
 ///
@@ -569,7 +573,8 @@ class HomeStore extends _HomeStoreBase
         _HomeStoreRecipeEditsPart,
         _HomeStoreTrainingPart,
         _HomeStoreMealPlanPart,
-        _HomeStoreTrainingHistoryPart {
+        _HomeStoreTrainingHistoryPart,
+        _HomeStoreDerivationsPart {
   HomeStore({
     required super.sync,
     required super.health,

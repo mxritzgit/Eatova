@@ -156,13 +156,13 @@ void main() {
 
   group('MacroBar', () {
     // The label column is sized for "Carbs" (52 px) and the German label
-    // wrapped even at scale 1.0. Loads the bundled Archivo, since the test
+    // wrapped even at scale 1.0. Loads the bundled Figtree, since the test
     // binding's fallback font is twice as wide and proves nothing.
     setUpAll(() async {
-      final loader = FontLoader('Archivo');
+      final loader = FontLoader('Figtree');
       for (final datei in const <String>[
-        'assets/fonts/Archivo-Medium.ttf',
-        'assets/fonts/Archivo-SemiBold.ttf',
+        'assets/fonts/Figtree-Medium.ttf',
+        'assets/fonts/Figtree-SemiBold.ttf',
       ]) {
         loader.addFont(
           File(datei).readAsBytes().then(

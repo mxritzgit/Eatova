@@ -144,7 +144,7 @@ void main() {
       );
     });
 
-    test('Namen mit Mittelpunkt verbunden', () {
+    test('Namen mit Komma verbunden, wie im Design', () {
       expect(
         mealSlotSubtitle(<LoggedMeal>[_meal('Haferbrei')], _de),
         'Haferbrei',
@@ -152,64 +152,52 @@ void main() {
       expect(
         mealSlotSubtitle(
             <LoggedMeal>[_meal('Haferbrei'), _meal('Kaffee')], _de),
-        'Haferbrei · Kaffee',
+        'Haferbrei, Kaffee',
       );
     });
   });
 
-  group('coachTeaser', () {
-    test('leerer Tag lockt zum ersten Log', () {
+  group('Datumszeile und Tagesleiste', () {
+    final en = lookupAppLocalizations(const Locale('en'));
+
+    test('Wochentag ausgeschrieben, Datum kurz', () {
+      final heute = DateTime(2026, 9, 28);
+      expect(todayHeaderDate(heute, heute, _de), 'Montag, 28. Sept.');
+      expect(todayHeaderDate(heute, heute, en), 'Monday, Sep 28');
+    });
+
+    test('ein Tag aus einem anderen Jahr traegt sein Jahr', () {
       expect(
-        coachTeaser(dayIsEmpty: true, remainingProteinG: 130, l10n: _de),
-        'Logge deine erste Mahlzeit — ich baue deinen Tag darum herum.',
+        todayHeaderDate(DateTime(2025, 12, 31), DateTime(2026, 1, 2), _de),
+        'Mittwoch, 31. Dez. 2025',
       );
     });
 
-    test('offenes Protein wird konkret benannt', () {
+    test('Wochentag der Zelle: zwei Buchstaben ohne Punkt', () {
+      final woche = [for (var d = 22; d <= 28; d++) DateTime(2026, 9, d)];
       expect(
-        coachTeaser(dayIsEmpty: false, remainingProteinG: 38, l10n: _de),
-        'Dir fehlen noch 38 g Protein. Soll ich dir etwas vorschlagen?',
+        [for (final tag in woche) todayWeekdayShort(tag, en)],
+        ['Tu', 'We', 'Th', 'Fr', 'Sa', 'Su', 'Mo'],
+      );
+      expect(
+        [for (final tag in woche) todayWeekdayShort(tag, _de)],
+        ['Di', 'Mi', 'Do', 'Fr', 'Sa', 'So', 'Mo'],
       );
     });
 
-    test('erfuelltes Protein-Ziel bekommt einen eigenen Zweig', () {
+    test('die Zelle sagt relativen Tag und volles Datum an', () {
+      final heute = DateTime(2026, 9, 28);
       expect(
-        coachTeaser(dayIsEmpty: false, remainingProteinG: 0, l10n: _de),
-        'Dein Protein-Ziel steht. Soll ich auf den Rest des Tages schauen?',
-      );
-    });
-
-    test('ein Archivtag bekommt eine tagesneutrale Zeile', () {
-      // Both day-specific lines would be wrong on a past day: one invites
-      // back-filling, the other suggests dinner for two days ago. The coach
-      // reasons about TODAY anyway (HomeStore.coachContext).
-      const neutral = 'Frag den Coach nach Ideen für deine Ziele.';
-      expect(
-        coachTeaser(
-          dayIsEmpty: true,
-          remainingProteinG: 130,
-          l10n: _de,
-          isToday: false,
-        ),
-        neutral,
+        todayDayCellLabel(heute, heute, _de),
+        'Heute, Montag, 28. September',
       );
       expect(
-        coachTeaser(
-          dayIsEmpty: false,
-          remainingProteinG: 38,
-          l10n: _de,
-          isToday: false,
-        ),
-        neutral,
+        todayDayCellLabel(heute, DateTime(2026, 9, 27), en),
+        'Yesterday, Sunday, September 27',
       );
       expect(
-        coachTeaser(
-          dayIsEmpty: false,
-          remainingProteinG: 0,
-          l10n: _de,
-          isToday: false,
-        ),
-        neutral,
+        todayDayCellLabel(heute, DateTime(2026, 9, 24), _de),
+        'Vor 4 Tagen, Donnerstag, 24. September',
       );
     });
   });

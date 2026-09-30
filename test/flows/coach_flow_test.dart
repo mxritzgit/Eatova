@@ -141,10 +141,11 @@ void main() {
 
     await pumpLocalized(
       tester,
-      CoachChatScreen(service: svc, userName: 'Moritz', streak: 3),
+      CoachChatScreen(service: svc, userName: 'Moritz'),
       locale: const Locale('en'),
-      // Same shell as eatova_home_page.dart.
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+      // Same shell as eatova_home_page.dart: the coach tab owns its
+      // gutters, the shell passes no padding.
+      padding: EdgeInsets.zero,
     );
     await _pumpFrames(tester);
 

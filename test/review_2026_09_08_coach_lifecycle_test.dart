@@ -201,8 +201,8 @@ Future<void> _mount(
                 TickerMode(enabled: enabled, child: child!),
           ),
     surfaceSize: const Size(402, 820),
+    // Like the shell: the coach tab owns its gutters, nothing pads it.
     safeArea: false,
-    padding: const EdgeInsets.all(16),
   );
   await _frames(tester);
 }

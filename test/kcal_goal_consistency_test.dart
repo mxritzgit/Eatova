@@ -7,7 +7,7 @@
 // `+ burned`, across five situations (burned, archive day, overshoot, broken
 // profile, display mode).
 //
-// Reads deliberately from the SCREEN (`TodayScreen`), not from the hero widget
+// Reads deliberately from the SCREEN (`TodayScreen`), not from the card widget
 // below it, so a wiring drift shows up too — e.g. if the shell ever passes an
 // "effective" goal.
 
@@ -22,6 +22,7 @@ import 'package:eatova/src/screens/today/today_screen.dart';
 import 'package:eatova/src/services/day_math.dart';
 
 import 'support/harness.dart';
+import 'support/today_summary.dart';
 
 /// Sunday, 9 August 2026, 10:00 — far from any day boundary.
 final DateTime _jetzt = DateTime(2026, 8, 9, 10);
@@ -84,18 +85,24 @@ Future<void> _schale(
 String _textOf(WidgetTester tester, String key) =>
     tester.widget<Text>(find.byKey(ValueKey<String>(key))).data!;
 
-/// Extracts the `"<number> kcal"` part from the goal label.
+/// Normalises the Goal stat (a bare number since the dark redesign) to the
+/// `"<number> kcal"` form of the expectations.
 String _zielZahl(String roh) {
-  final treffer = RegExp(r'([\d.]+)\s*kcal').firstMatch(roh);
+  final treffer = RegExp(r'^([\d.]+)$').firstMatch(roh);
   expect(treffer, isNotNull, reason: 'keine Zielzahl in „$roh"');
   return '${treffer!.group(1)} kcal';
 }
 
-/// Finds the unit label among the visible texts (today_hero.dart).
+/// Reads the arc's eyebrow (today_hero.dart): left or over, today or an
+/// archive day, normalised to the unit the expectations name.
 String _einheit(WidgetTester tester) {
-  if (find.text('kcal übrig').evaluate().isNotEmpty) return 'kcal übrig';
-  if (find.text('kcal drüber').evaluate().isNotEmpty) return 'kcal drüber';
-  fail('weder „kcal übrig" noch „kcal drüber" gefunden');
+  for (final uebrig in ['HEUTE ÜBRIG', 'AN DEM TAG ÜBRIG']) {
+    if (find.text(uebrig).evaluate().isNotEmpty) return 'kcal übrig';
+  }
+  for (final drueber in ['HEUTE DRÜBER', 'AN DEM TAG DRÜBER']) {
+    if (find.text(drueber).evaluate().isNotEmpty) return 'kcal drüber';
+  }
+  fail('weder „übrig" noch „drüber" gefunden');
 }
 
 Future<_Aussage> _heute(
@@ -113,9 +120,12 @@ Future<_Aussage> _heute(
       TodayScreen(
         userName: 'Moritz',
         profile: profile,
-        consumedKcal: consumedKcal,
-        burnedKcal: burnedKcal,
-        macroProgress: MacroProgress.empty,
+        summary: todaySummary(
+          profile: profile,
+          consumedKcal: consumedKcal,
+          burnedKcal: burnedKcal,
+          macroProgress: MacroProgress.empty,
+        ),
         meals: const <LoggedMeal>[],
         selectedDate: selectedDate,
         streak: 3,
@@ -226,12 +236,18 @@ void main() {
 
       expect(aussage.ziel, '2.000 kcal');
       expect(aussage.rest, '1.800');
-      // Nowhere in the tree — not in a tile, not in a subtitle.
-      expect(find.textContaining('2.300'), findsNothing);
-      // The burned tile keeps the arithmetic traceable.
+      // 2,300 is the BUDGET the arc counts against ("kcal von 2.300", as in
+      // the design) and never stands as a goal or a stat of its own.
+      expect(find.text('2.300'), findsNothing);
+      expect(find.textContaining('2.300'), findsOneWidget);
       expect(
-        find.text('+ 300 kcal Aktivität'),
-        findsOneWidget,
+        tester.widget<Text>(find.byKey(const ValueKey('today-kcal-budget'))).data,
+        'kcal von 2.300',
+      );
+      // The Activity stat keeps the arithmetic traceable.
+      expect(
+        tester.widget<Text>(find.byKey(const ValueKey('today-stat-burned'))).data,
+        '+300',
       );
     });
 

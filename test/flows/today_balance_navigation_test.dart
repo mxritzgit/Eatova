@@ -9,7 +9,7 @@ import 'flow_test_helpers.dart';
 
 void main() {
   testWidgets(
-    'Today add action opens Food with the chosen day and current slot',
+    'a Today slot add button opens Food with the chosen day and that slot',
     (tester) async {
       pinPhoneViewport(tester);
       tester.platformDispatcher.localesTestValue = const [Locale('de')];
@@ -19,10 +19,14 @@ void main() {
           EatovaApp(productService: FakeProductLookupService()),
         );
         await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const ValueKey('today-date-prev')));
+        // The day strip replaces the old back arrow.
+        await tester.tap(find.byKey(const ValueKey('today-day-2026-09-10')));
         await tester.pumpAndSettle();
         expect(storeOf(tester).selectedFoodDate, DateTime(2026, 9, 10));
-        await tester.tap(find.byKey(const ValueKey('today-add-meal')));
+        final add = find.byKey(const ValueKey('today-meal-add-dinner'));
+        await tester.ensureVisible(add);
+        await tester.pumpAndSettle();
+        await tester.tap(add);
         await tester.pumpAndSettle();
         expect(find.byKey(const ValueKey('add-meal-sheet')), findsOneWidget);
         expect(
@@ -59,7 +63,10 @@ void main() {
         expect(storeOf(tester).loggedMeals.single.slot, MealSlot.dinner);
         expect(storeOf(tester).loggedMeals.single.loggedAt.day, 10);
 
-        await tester.tap(find.byKey(const ValueKey('today-date-next')));
+        final today = find.byKey(const ValueKey('today-day-2026-09-11'));
+        await tester.ensureVisible(today);
+        await tester.pumpAndSettle();
+        await tester.tap(today);
         await tester.pumpAndSettle();
         expectTodayEaten(tester, '0');
         expect(tester.takeException(), isNull);

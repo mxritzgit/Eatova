@@ -71,15 +71,20 @@ void main() {
       expect(text.fontFamily, AppType.uiFamily);
     });
 
-    renderMatrix('FilledButton-Flaeche (ink) auf surf >= 3:1, Text bg',
+    // Dark redesign 2026-09-28: the primary action is the accent pill.
+    renderMatrix('FilledButton-Flaeche (Akzent) auf surf >= 3:1, Text on-accent',
         (tester, c) async {
       final t = c.t;
       final theme = buildEatovaTheme(c.brightness);
       final style = theme.filledButtonTheme.style!;
       final bgColor = style.backgroundColor!.resolve(<WidgetState>{})!;
       final fg = style.foregroundColor!.resolve(<WidgetState>{})!;
-      expect(bgColor, t.ink);
-      expect(fg, t.bg);
+      expect(bgColor, t.accentFill);
+      expect(fg, t.onAccentFill);
+      expect(
+        style.textStyle!.resolve(<WidgetState>{})!.fontWeight,
+        FontWeight.w800,
+      );
       expect(_kontrast(bgColor, t.surf), greaterThanOrEqualTo(3.0));
       expect(_kontrast(fg, bgColor), greaterThanOrEqualTo(4.5));
       final shape = style.shape!.resolve(<WidgetState>{})!;
@@ -92,12 +97,24 @@ void main() {
           kButtonMinHeight);
     });
 
-    renderMatrix('OutlinedButton traegt line-Rand, ink-Text, 48 px',
+    // The secondary action: a tonal `surf2` pill with an `ink` label, 700.
+    renderMatrix('OutlinedButton ist die tonale Sekundaer-Pille, 48 px',
         (tester, c) async {
       final t = c.t;
       final style = buildEatovaTheme(c.brightness).outlinedButtonTheme.style!;
-      expect(style.side!.resolve(<WidgetState>{})!.color, t.line);
-      expect(style.foregroundColor!.resolve(<WidgetState>{}), t.ink);
+      final fill = style.backgroundColor!.resolve(<WidgetState>{})!;
+      final fg = style.foregroundColor!.resolve(<WidgetState>{})!;
+      expect(fill, t.surf2);
+      expect(style.side!.resolve(<WidgetState>{}), BorderSide.none);
+      expect(fg, t.ink);
+      expect(_kontrast(fg, fill), greaterThanOrEqualTo(4.5));
+      expect(
+        style.textStyle!.resolve(<WidgetState>{})!.fontWeight,
+        FontWeight.w700,
+      );
+      final shape =
+          style.shape!.resolve(<WidgetState>{})! as RoundedRectangleBorder;
+      expect(shape.borderRadius, BorderRadius.circular(rButton));
       expect(style.minimumSize!.resolve(<WidgetState>{})!.height,
           kButtonMinHeight);
     });
@@ -445,7 +462,7 @@ void main() {
   // F8-10 — one primary semantics
   // =========================================================================
   group('F8-10 SheetScaffold-Aktion', () {
-    renderMatrix('ist ein PrimaryActionButton mit ink-Flaeche',
+    renderMatrix('ist ein PrimaryActionButton mit Akzent-Flaeche',
         (tester, c) async {
       await c.pump(
         tester,
@@ -463,7 +480,7 @@ void main() {
       final material = tester.widget<Material>(
         find.descendant(of: button, matching: find.byType(Material)).first,
       );
-      expect(material.color, c.t.ink);
+      expect(material.color, c.t.accentFill);
       expect(material.borderRadius, BorderRadius.circular(rButton));
     });
 
@@ -493,8 +510,10 @@ void main() {
     });
 
     test('rButton ist die eine Radius-Quelle fuer Primaer-Flaechen', () {
-      expect(rButton, 18);
+      // Dark redesign 2026-09-28: primary buttons are pills (54 px, r 27).
+      expect(rButton, 27);
       expect(kPrimaryButtonHeight, 54);
+      expect(rButton, kPrimaryButtonHeight / 2);
     });
 
     renderMatrix(
@@ -515,7 +534,7 @@ void main() {
           padding: _rand);
       final t = c.t;
       final aktiv = _ueber(fillOf(), t.surf);
-      expect(aktiv, t.ink);
+      expect(aktiv, t.accentFill);
 
       await c.pump(tester, const PrimaryActionButton(label: 'Weiter'),
           padding: _rand);
@@ -859,11 +878,12 @@ void main() {
       expect(find.byKey(const ValueKey('filter-chip-dot')), findsOneWidget);
     });
 
-    // Since P9-02 the language is `ink` + `bg` instead of `forest` +
-    // `onForest`: forest is itself a dark surface and carried the selected
-    // state at 1.33:1 in dark mode. The numbers live in
+    // Since P9-02 the language is SelectionTone instead of `forest` +
+    // `onForest` (forest is itself a dark surface and carried the selected
+    // state at 1.33:1 in dark mode); since the dark redesign (2026-09-28)
+    // SelectionTone is the accent pair. The numbers live in
     // review0829_selection_contrast_test.
-    renderMatrix('Selektion ist immer ink + bg, Radius rChip',
+    renderMatrix('Selektion ist immer Akzent + on-accent, voll rund',
         (tester, c) async {
       final t = c.t;
       for (final tone in FilterChipTone.values) {
@@ -881,12 +901,12 @@ void main() {
           padding: _rand,
         );
         final material = materialOf(tester);
-        expect(material.color, t.ink, reason: '$tone');
-        expect(material.borderRadius, BorderRadius.circular(rChip));
+        expect(material.color, t.accentFill, reason: '$tone');
+        expect(material.borderRadius, BorderRadius.circular(rPill));
         final text = tester.widget<Text>(find.text('Alle'));
-        expect(text.style?.color, t.bg);
+        expect(text.style?.color, t.onAccentFill);
         final icon = tester.widget<Icon>(find.byIcon(Icons.star_rounded));
-        expect(icon.color, t.bg);
+        expect(icon.color, t.onAccentFill);
       }
     });
 

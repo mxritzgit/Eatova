@@ -97,32 +97,12 @@
     }
   },
   "todayMealSlotEmpty": "Noch nichts geloggt",
-  "todayCoachTeaserNeutral": "Frag den Coach nach Ideen für deine Ziele.",
-  "todayCoachTeaserEmptyDay": "Logge deine erste Mahlzeit — ich baue deinen Tag darum herum.",
-  "todayCoachTeaserProteinOpen": "Dir fehlen noch {remainingProteinG} g Protein. Soll ich dir etwas vorschlagen?",
-  "@todayCoachTeaserProteinOpen": {
-    "placeholders": {
-      "remainingProteinG": { "type": "int" }
-    }
-  },
-  "todayCoachTeaserProteinDone": "Dein Protein-Ziel steht. Soll ich auf den Rest des Tages schauen?",
   "todayMacrosTitle": "Makros",
-  "todayMacrosTrailing": "Tagesziele",
   "todayMacroProtein": "Protein",
   "todayMacroCarbs": "Kohlenhydrate",
   "todayMacroFat": "Fett",
-  "todayMealsTitleToday": "Heutige Mahlzeiten",
-  "todayMealsTitleArchive": "Mahlzeiten",
+  "todayMealsTitle": "Mahlzeiten",
   "todaySemanticsOpenProfile": "Profil öffnen",
-  "todayKcalBudgetEyebrow": "KALORIENBUDGET",
-  "todayKcalGoalLabel": "Ziel {goal} kcal",
-  "@todayKcalGoalLabel": {
-    "placeholders": {
-      "goal": { "type": "String" }
-    }
-  },
-  "todayKcalOver": "kcal drüber",
-  "todayKcalRemaining": "kcal übrig",
   "todaySemanticsCalorieProgress": "Kalorienfortschritt",
   "todaySemanticsCalorieProgressValue": "{percent} Prozent des Tagesziels gegessen",
   "@todaySemanticsCalorieProgressValue": {
@@ -130,24 +110,7 @@
       "percent": { "type": "int" }
     }
   },
-  "todayStatEaten": "GEGESSEN",
-  "todayStatBurned": "VERBRANNT",
-  "todayStatStreak": "TAGE-STREAK",
-  "todayStepsTitle": "Schritte",
-  "todayStepsUnit": "SCHRITTE",
-  "todayStepsGoal": "Ziel {goal}",
-  "@todayStepsGoal": {
-    "placeholders": {
-      "goal": { "type": "String" }
-    }
-  },
   "todayStepsGoalReached": "Ziel erreicht",
-  "todayStepsBurned": "≈ {kcal} kcal verbrannt",
-  "@todayStepsBurned": {
-    "placeholders": {
-      "kcal": { "type": "String" }
-    }
-  },
   "todaySemanticsStepsProgress": "Schrittziel",
   "todaySemanticsStepsProgressValue": "{steps} von {goal} Schritten",
   "@todaySemanticsStepsProgressValue": {
@@ -156,9 +119,6 @@
       "goal": { "type": "String" }
     }
   },
-  "todayMealKcalLabel": "KCAL",
-  "todayCoachEyebrow": "KI-COACH",
-  "todayCoachCta": "Zum Coach",
   "todayDayLoading": "Tag wird geladen…",
   "todaySemanticsDatePrev": "Tag zurück",
   "todaySemanticsDateNext": "Tag vor",
@@ -169,16 +129,9 @@
       "code": { "type": "String" }
     }
   },
-  "foodDiaryEmptyHint": "Tippe oben auf KI-Scan, Barcode oder Suche.",
-  "foodActionBarcode": "Barcode",
-  "foodActionAiScan": "KI-Scan",
-  "foodSearchPlaceholder": "Lebensmittel oder Mahlzeiten suchen…",
-  "foodSectionHistoryTitle": "Verlauf",
   "foodSemanticsTrends": "Trends",
   "foodSemanticsSettings": "Einstellungen",
   "foodTitle": "Ernährung",
-  "foodKcalTodayLabel": "KCAL HEUTE",
-  "foodKcalOnDayLabel": "KCAL AM TAG",
   "foodDatePickerHelpText": "Tag wählen",
   "foodCalendarToday": "Zurück zu heute",
   "foodCalendarOpenDay": "Diesen Tag öffnen",
@@ -195,13 +148,6 @@
     }
   },
   "foodSlotTotalLabel": "Gesamt",
-  "foodDiarySlotSummary": "{kcal} kcal · {count, plural, one{{count} Eintrag} other{{count} Einträge}}",
-  "@foodDiarySlotSummary": {
-    "placeholders": {
-      "kcal": { "type": "int" },
-      "count": { "type": "int" }
-    }
-  },
   "foodSlotAddLabel": "{slot} ergänzen",
   "@foodSlotAddLabel": {
     "placeholders": {
@@ -244,8 +190,6 @@
   "foodScanBarcodeTooltip": "Barcode scannen",
   "foodSearchInputHint": "Was hast du gegessen?",
   "foodSearchButtonTooltip": "Suchen",
-  "foodEmptyStateTitle": "Suche oben oder scanne einen Barcode",
-  "foodEmptyStateSubtitle": "Eingaben erscheinen direkt in der Liste oben.",
   "foodAnalysisTimeoutMessage": "Das dauert gerade zu lange. Bitte versuch es gleich nochmal.",
   "foodAnalysisErrorTitle": "Das hat nicht geklappt",
   "foodAnalysisRetryButton": "Erneut versuchen",
@@ -365,7 +309,6 @@
     }
   },
   "foodPhotoCardTitle": "Foto",
-  "foodPhotoCardPreviewAction": "Preview",
   "foodNoImageSelected": "Noch kein Bild ausgewählt",
   "foodLoadingStageDetect": "Erkenne Lebensmittel...",
   "foodLoadingStageEstimate": "Schätze Mengen...",
@@ -474,15 +417,7 @@
   "foodScanMealTitle": "Mahlzeit scannen",
   "recipesSubtitle": "Clean Meals mit KI-Bildern und fertigen Tracker-Werten.",
   "recipesCreateSemantics": "Eigenes Rezept anlegen",
-  "recipesSearchHint": "Gericht, Ziel oder Kategorie suchen",
   "recipesSearchClearTooltip": "Suche leeren",
-  "recipesRecommendedTitle": "Empfehlungen",
-  "recipesFitnessDishesCount": "{count} Fitness-Gerichte",
-  "@recipesFitnessDishesCount": {
-    "placeholders": {
-      "count": { "type": "int" }
-    }
-  },
   "recipesAllTitle": "Alle Rezepte",
   "recipesFilterAll": "Alle",
   "recipesFilterHighProtein": "High Protein",
@@ -501,7 +436,6 @@
   },
   "recipesGoalMatchTitle": "Passt zu deinem Ziel",
   "recipesGoalMatchTrailing": "nach Restmakros",
-  "recipesGoalMatchBadge": "Match",
   "recipesDeletedSuccess": "„{title}\" gelöscht",
   "@recipesDeletedSuccess": {
     "placeholders": {
@@ -520,27 +454,8 @@
       "title": { "type": "String" }
     }
   },
-  "recipesRecommendedBadge": "EMPFOHLEN",
   "recipesEmptyStateMessage": "Kein Rezept gefunden. Versuch eine andere Kategorie oder Suche.",
   "recipesImagePlaceholderLabel": "REZEPT",
-  "recipesMetricProtein": "{grams}g P",
-  "@recipesMetricProtein": {
-    "placeholders": {
-      "grams": { "type": "int" }
-    }
-  },
-  "recipesMetricCarbs": "{grams}g KH",
-  "@recipesMetricCarbs": {
-    "placeholders": {
-      "grams": { "type": "int" }
-    }
-  },
-  "recipesMetricFat": "{grams}g F",
-  "@recipesMetricFat": {
-    "placeholders": {
-      "grams": { "type": "int" }
-    }
-  },
   "recipesOwnTitle": "Eigenes Rezept",
   "recipesBrandTitle": "Eatova Rezept",
   "recipesDeleteSemantics": "Rezept löschen",
@@ -631,11 +546,44 @@
   "coachHeroGreeting": "{greeting}, {name}",
   "@coachHeroGreeting": {"description": "Coach empty state: time-of-day greeting and first name.", "placeholders": {"greeting": {"type": "String"}, "name": {"type": "String"}}},
   "coachFallbackName": "Champion",
-  "coachAiNoteBody": "Hier antwortet eine KI. Die Tipps sind eine KI-Schätzung, kein ärztlicher Rat.",
-  "coachAiNoteCta": "Welche Daten mitgehen",
+  "coachHeroDayStands": "So steht dein Tag gerade.",
+  "@coachHeroDayStands": {"description": "Coach start state: subtitle under the greeting when the day card shows."},
+  "coachLogEyebrow": "Aus deinem heutigen Log",
+  "@coachLogEyebrow": {"description": "Coach start card eyebrow; shown in capitals."},
+  "coachLogKcal": "{value} kcal",
+  "@coachLogKcal": {"description": "Bold kcal amount in the Coach start card.", "placeholders": {"value": {"type": "String"}}},
+  "coachLogProtein": "{value} g Protein",
+  "@coachLogProtein": {"description": "Bold protein amount in the Coach start card.", "placeholders": {"value": {"type": "String"}}},
+  "coachLogNothingLogged": "Heute ist noch nichts geloggt. Dein Budget: {kcal} und {protein}.",
+  "@coachLogNothingLogged": {"placeholders": {"kcal": {"type": "String"}, "protein": {"type": "String"}}},
+  "coachLogLeft": "Du hast noch {kcal} und {protein} übrig.",
+  "@coachLogLeft": {"placeholders": {"kcal": {"type": "String"}, "protein": {"type": "String"}}},
+  "coachLogLeftProteinMet": "Du hast noch {kcal} übrig und dein Proteinziel erreicht.",
+  "@coachLogLeftProteinMet": {"placeholders": {"kcal": {"type": "String"}}},
+  "coachLogProteinHint": "{slot, select, breakfast{Ein proteinreiches Frühstück schließt die Lücke, ohne dein Budget zu sprengen.} lunch{Ein proteinreiches Mittagessen schließt die Lücke, ohne dein Budget zu sprengen.} dinner{Ein proteinreiches Abendessen schließt die Lücke, ohne dein Budget zu sprengen.} other{Eine proteinreiche Mahlzeit schließt die Lücke, ohne dein Budget zu sprengen.}}",
+  "@coachLogProteinHint": {"description": "slot: breakfast, lunch or dinner.", "placeholders": {"slot": {"type": "String"}}},
+  "coachLogAtBudget": "Du hast dein Tagesbudget erreicht.",
+  "coachLogOver": "Du liegst {kcal} über deinem Tagesbudget.",
+  "@coachLogOver": {"placeholders": {"kcal": {"type": "String"}}},
+  "coachLogProteinOpen": "Noch offen: {protein}.",
+  "@coachLogProteinOpen": {"placeholders": {"protein": {"type": "String"}}},
+  "coachLogSuggestMeal": "{slot, select, breakfast{Frühstück vorschlagen} lunch{Mittagessen vorschlagen} dinner{Abendessen vorschlagen} other{Snack vorschlagen}}",
+  "@coachLogSuggestMeal": {"description": "Coach start card pill; slot: breakfast, lunch, dinner or snack.", "placeholders": {"slot": {"type": "String"}}},
+  "coachLogPlanDay": "Tag planen",
+  "coachLogPlanTomorrow": "Morgen planen",
+  "coachLogPromptSuggestMeal": "{slot, select, breakfast{Schlag mir ein Frühstück vor, das zu meinem restlichen Tag passt.} lunch{Schlag mir ein Mittagessen vor, das zu meinem restlichen Tag passt.} dinner{Schlag mir ein Abendessen vor, das zu meinem restlichen Tag passt.} other{Schlag mir einen Snack vor, der zu meinem restlichen Tag passt.}}",
+  "@coachLogPromptSuggestMeal": {"description": "Sent to the coach as the user's question.", "placeholders": {"slot": {"type": "String"}}},
+  "coachLogPromptPlanDay": "Hilf mir, meine Mahlzeiten für heute zu planen.",
+  "@coachLogPromptPlanDay": {"description": "Sent to the coach as the user's question."},
+  "coachLogPromptPlanTomorrow": "Hilf mir, meine Mahlzeiten für morgen zu planen.",
+  "@coachLogPromptPlanTomorrow": {"description": "Sent to the coach as the user's question."},
+  "coachTryTitle": "Frag zum Beispiel",
+  "coachTryRecipe": "Erstell mir ein Rezept",
+  "coachTryPlan": "Bau mir einen Trainingsplan",
+  "coachDisclaimer": "Antworten sind KI-Schätzungen, kein ärztlicher Rat.",
+  "coachDisclaimerLink": "Was geteilt wird",
   "coachRecipeEmptyHint": "Sag mir, was für ein Rezept du willst — z. B. „/recipe Hühnchenauflauf mit Bild\".",
   "coachCommandRecipeDescription": "Erstellt ein neues Rezept mit passendem Bild",
-  "coachCommandUnknownHint": "Unbekannter Befehl. Tippe „/\", um verfügbare Befehle zu sehen.",
   "coachRecipeCardEyebrow": "REZEPTVORSCHLAG",
   "coachRecipeAiImageBadge": "KI-Bild",
   "coachRecipeAddButton": "Rezept hinzufügen",
@@ -822,12 +770,6 @@
   },
   "profileWeightCaptionToday": "heute",
   "profileBmiInfoTooltip": "BMI-Erklärung",
-  "profileBmiZoneLabel": "BMI {zone}",
-  "@profileBmiZoneLabel": {
-    "placeholders": {
-      "zone": { "type": "String" }
-    }
-  },
   "profileAgeAbbreviation": "{age} J.",
   "@profileAgeAbbreviation": {
     "placeholders": {
@@ -978,7 +920,6 @@
   "commonUnitCm": "cm",
   "commonUnitKg": "kg",
   "commonUnitG": "g",
-  "commonUnitMl": "ml",
   "commonKcalOutcomeLabel": "Ergibt {kcal} kcal/Tag · {paceLabel}",
   "@commonKcalOutcomeLabel": {
     "placeholders": {
@@ -1100,13 +1041,6 @@
       "max": { "type": "int" }
     }
   },
-  "settingsRangeErrorMl": "{min}–{max} ml",
-  "@settingsRangeErrorMl": {
-    "placeholders": {
-      "min": { "type": "int" },
-      "max": { "type": "int" }
-    }
-  },
   "settingsRangeErrorKcal": "{min}–{max} kcal",
   "@settingsRangeErrorKcal": {
     "placeholders": {
@@ -1158,15 +1092,6 @@
   "goalsGroupDailyTargets": "TAGESZIELE",
   "goalsFieldSteps": "Schritte",
   "goalsUnitPerDay": "/Tag",
-  "goalsFieldWater": "Wasser",
-  "goalsFieldSleep": "Schlafziel",
-  "goalsSleepGoalValue": "{hours}h {minutes}m",
-  "@goalsSleepGoalValue": {
-    "placeholders": {
-      "hours": { "type": "int" },
-      "minutes": { "type": "String" }
-    }
-  },
   "goalsDailyTargetsNote": "Das Schrittziel steuert nur die Schritte-Karte – dein Kalorienziel ändert es nicht.",
   "goalsGroupReminders": "ERINNERUNGEN",
   "goalsFieldReminders": "Erinnerungen",
@@ -1180,7 +1105,6 @@
   "goalsDiscardChangesBody": "Deine Eingaben in „Profil & Ziele\" sind noch nicht gespeichert.",
 
   "settingsPageTitle": "Einstellungen",
-  "settingsGroupAccount": "KONTO",
   "settingsEmailLabel": "E-Mail-Adresse",
   "settingsChangePasswordTitle": "Passwort ändern",
   "settingsChangePasswordSubtitle": "Mit Bestätigungs-Code an deine E-Mail",
@@ -1188,13 +1112,11 @@
   "settingsChangeEmailSubtitle": "Bestätigung an die alte und die neue Adresse",
   "settingsPasswordChangedSnack": "Passwort geändert.",
   "settingsEmailChangedSnack": "E-Mail-Adresse geändert.",
-  "settingsGroupPreferences": "PRÄFERENZEN",
   "settingsOpenGoalsSubtitle": "Körperdaten, Aktivität, Kalorien- und Makroziele",
   "settingsAppearanceTitle": "Erscheinungsbild",
   "settingsAppearanceSubtitle": "System folgt der Einstellung deines Geräts.",
   "settingsThemeModeLight": "Hell",
   "settingsThemeModeDark": "Dunkel",
-  "settingsGroupDataPrivacy": "DATEN & PRIVATSPHÄRE",
   "settingsExportDataTitle": "Daten exportieren",
   "settingsExportDataSubtitle": "Deine Daten als Bericht, JSON oder CSV",
   "settingsLegalPrivacy": "Datenschutz",
@@ -1202,7 +1124,6 @@
   "settingsLegalImprint": "Impressum",
   "settingsAboutTitle": "Über Eatova",
   "settingsAboutSubtitle": "Version, Quellen & Datenschutz",
-  "settingsGroupDangerZone": "GEFAHRENZONE",
   "settingsSignOutTitle": "Ausloggen",
   "settingsSignOutFailed": "Abmelden fehlgeschlagen. Bitte versuche es erneut.",
   "settingsDeleteAccountTitle": "Konto löschen",
@@ -1323,7 +1244,6 @@
   },
 
   "onboardingBackSemanticLabel": "Zurück",
-  "onboardingStartCta": "Los geht's",
   "onboardingActivatePlanCta": "Plan aktivieren",
   "onboardingNextCta": "Weiter",
   "onboardingSexStepTitle": "Für die Berechnung",
@@ -1344,23 +1264,17 @@
   "onboardingReviewTitle": "Deine Angaben prüfen",
   "onboardingReviewChanges": "Zurück zum Plan",
   "onboardingAgeStepTitle": "Wie alt bist du?",
-  "onboardingAgeStepSubtitle": "Der Energiebedarf sinkt mit dem Alter.",
   "onboardingHeightStepTitle": "Deine Größe",
-  "onboardingHeightStepSubtitle": "Für die Bedarfs- und Schrittberechnung.",
   "onboardingWeightStepTitle": "Dein aktuelles Gewicht",
-  "onboardingWeightStepSubtitle": "Startpunkt für deinen Plan.",
   "onboardingActivityStepTitle": "Wie aktiv bist du?",
   "onboardingActivityStepSubtitle": "Beruf und Alltag ohne Gehen und Laufen – gezählte Schritte kommen automatisch obendrauf. Im Zweifel eine Stufe tiefer.",
   "onboardingGoalStepTitle": "Was ist dein Ziel?",
   "onboardingGoalStepSubtitle": "Wähle deine Richtung. Zum Ab- oder Zunehmen legst du hier auch Wunschgewicht und Tempo fest.",
   "onboardingTargetStepTitle": "Dein Wunschgewicht",
-  "onboardingTargetStepSubtitleLose": "Wohin willst du abnehmen?",
-  "onboardingTargetStepSubtitleGain": "Wohin willst du aufbauen?",
   "onboardingPaceStepTitle": "Welches Tempo?",
   "onboardingPaceStepSubtitleLose": "Wie schnell willst du abnehmen?",
   "onboardingPaceStepSubtitleGain": "Wie schnell willst du aufbauen?",
   "onboardingDietStepTitle": "Was isst du gern?",
-  "onboardingDietStepSubtitle": "Wir empfehlen dir passende Rezepte. Durchsuchen kannst du immer alle.",
   "onboardingUnitYears": "Jahre",
   "onboardingTargetFootnoteLose": "{kg} kg abnehmen",
   "@onboardingTargetFootnoteLose": {
@@ -1380,15 +1294,6 @@
       "firstName": { "type": "String" }
     }
   },
-  "onboardingWelcomeBody": "In {steps} kurzen Schritten berechnen wir dein persönliches Tagesziel — genau abgestimmt auf deinen Körper und dein Wunschgewicht.",
-  "@onboardingWelcomeBody": {
-    "placeholders": {
-      "steps": { "type": "int" }
-    }
-  },
-  "onboardingBulletFormula": "Wissenschaftliche Mifflin-St-Jeor-Formel",
-  "onboardingBulletAutoMacros": "Kalorien & Makros automatisch gesetzt",
-  "onboardingBulletAdjustable": "Jederzeit in den Einstellungen anpassbar",
   "onboardingStepDownSemanticLabel": "Verringern",
   "onboardingStepUpSemanticLabel": "Erhöhen",
   "onboardingSexMale": "Männlich",
@@ -1613,8 +1518,6 @@
   "authSignupExistingAccountHint": "Falls es zu dieser Adresse schon ein Konto gibt, melde dich bitte an.",
   "authSessionExpired": "Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.",
   "authBackSemanticLabel": "Zurück",
-  "authEyebrowLogin": "WILLKOMMEN ZURÜCK",
-  "authEyebrowRegister": "KONTO ERSTELLEN",
   "authHeadlineLogin": "Wieder da.",
   "authHeadlineRegister": "Dein Start.",
   "authSublineLogin": "Dein Tagebuch wartet auf dich.",
@@ -1642,9 +1545,7 @@
   "authForgotPasswordCta": "Passwort vergessen?",
   "authSubmitLogin": "Einloggen",
   "authSubmitRegister": "Account erstellen",
-  "authTogglePromptLogin": "Noch kein Konto?",
   "authToggleActionRegister": "Registrieren",
-  "authTogglePromptRegister": "Schon dabei?",
   "authToggleActionLogin": "Einloggen",
   "authConsentPrefix": "Mit der Anmeldung akzeptierst du unsere ",
   "authConsentTerms": "AGB",
@@ -1819,17 +1720,12 @@
   "trainingPageContentLimit": "Dein Plan enthält zu viel Text. Kürze die Beschreibungen und Hinweise.",
   "trainingPageInvalidCharacters": "Entferne unsichtbare Steuerzeichen.",
   "trainingPageTitle": "Training",
-  "trainingPageSubtitle": "Dein Plan. Dein Rhythmus.",
   "trainingPageCreate": "Plan selbst erstellen",
   "trainingPageCreateTitle": "Neuer Plan",
   "trainingPageCoach": "Mit Coach planen",
   "trainingPageEmptyTitle": "Zeit für deinen nächsten Schritt.",
   "trainingPageEmptyBody": "Lass dir einen Plan erstellen oder stelle dein Training selbst zusammen. Du entscheidest, was du übernimmst.",
   "trainingPagePlans": "Meine Pläne",
-  "trainingPageSwitchPlan": "Plan wechseln",
-  "trainingPageCurrentPlan": "DEIN TRAININGSPLAN",
-  "trainingPageWorkout": "Trainingseinheit",
-  "trainingPageExercises": "Übungen",
   "trainingPageStart": "Training starten",
   "trainingPageResume": "Training fortsetzen",
   "trainingPageInProgress": "Dein Training wartet auf dich.",
@@ -1867,7 +1763,6 @@
   "trainingPageExerciseName": "Name der Übung",
   "trainingPageExerciseNameHint": "z. B. Kniebeugen",
   "trainingPageExerciseNotes": "Ausführung und Hinweise",
-  "trainingPageExerciseType": "Übungstyp",
   "trainingPageRepetitions": "Wiederholungen",
   "trainingPageTimed": "Zeit",
   "trainingPageSets": "Sätze",
@@ -1883,7 +1778,6 @@
   "trainingPageInvalid": "Prüfe die markierten Felder.",
   "trainingPageRequired": "Bitte ausfüllen.",
   "trainingPageTooLong": "Bitte kürzen.",
-  "trainingPageExerciseEmpty": "Füge mindestens eine Übung hinzu.",
   "trainingPageWorkoutCount": "{count, plural, =1{1 Einheit} other{{count} Einheiten}}",
   "@trainingPageWorkoutCount": {
     "placeholders": {
@@ -1918,14 +1812,6 @@
   },
   "trainingPageRestSeconds": "{count} Sek. Pause",
   "@trainingPageRestSeconds": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "trainingPageSeconds": "{count} Sek.",
-  "@trainingPageSeconds": {
     "placeholders": {
       "count": {
         "type": "int"
@@ -2222,7 +2108,6 @@
   "coachBriefIntent": "Was möchtest du tun?",
   "coachBriefDiscuss": "Besprechen",
   "coachBriefAdapt": "Anpassen",
-  "coachBriefDiscussAction": "Mit Coach besprechen / anpassen",
   "coachBriefDraftNotice": "Das Senden verwendet eine Coach-Anfrage. Vorschläge prüfst und bearbeitest du vor der Übernahme als neuen Plan. Dein gespeicherter Plan bleibt erhalten. Dieses Briefing wird nicht als Profil gespeichert.",
   "coachBriefGenerate": "Planentwurf anfragen",
   "coachBriefSendDiscussion": "Plan besprechen",
@@ -2324,35 +2209,53 @@
   "trainingActualConfirmLegacyTimed": "Abgeschlossenes Intervall bestätigen",
   "trainingHistoryDeleteAction": "Training löschen",
   "trainingHistoryAlreadyDeleted": "Dieses Training wurde auf einem anderen Gerät gelöscht.",
-  "todayBalanceRemaining": "Noch für heute",
-  "todayBalanceArchive": "Deine Tagesbilanz",
-  "todayBalanceEaten": "{kcal} kcal gegessen",
-  "todayBalanceActivity": "+ {kcal} kcal Aktivität",
-  "todayBalanceStreak": "{count, plural, =1{1 Tag in Folge} other{{count} Tage in Folge}}",
   "todayMacroProgressValue": "{value} von {goal} Gramm",
-  "todayMealOpen": "Noch offen",
   "todayAddMeal": "Mahlzeit erfassen",
-  "@todayBalanceEaten": {
-    "placeholders": {
-      "kcal": {
-        "type": "String"
-      }
-    }
-  },
-  "@todayBalanceActivity": {
-    "placeholders": {
-      "kcal": {
-        "type": "String"
-      }
-    }
-  },
-  "@todayBalanceStreak": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
+  "todayDayStripLabel": "Tag wählen",
+  "todayDayStripEarlier": "Frühere Tage",
+  "todayDayStripLater": "Spätere Tage",
+  "todayStreakSemantics": "{count, plural, =1{Serie: 1 Tag in Folge} other{Serie: {count} Tage in Folge}}",
+  "@todayStreakSemantics": {"placeholders": {"count": {"type": "int"}}},
+  "todayProfileAndSettings": "Profil und Einstellungen",
+  "todayCaloriesTitle": "Kalorien",
+  "todayEatenPercent": "{percent} % gegessen",
+  "@todayEatenPercent": {"placeholders": {"percent": {"type": "int"}}},
+  "todayArcLeftToday": "Heute übrig",
+  "todayArcOverToday": "Heute drüber",
+  "todayArcLeftArchive": "An dem Tag übrig",
+  "todayArcOverArchive": "An dem Tag drüber",
+  "todayArcBudget": "kcal von {budget}",
+  "@todayArcBudget": {"placeholders": {"budget": {"type": "String"}}},
+  "todayArcBudgetOver": "kcal über {budget}",
+  "@todayArcBudgetOver": {"placeholders": {"budget": {"type": "String"}}},
+  "todayStatEatenLabel": "Gegessen",
+  "todayStatGoalLabel": "Ziel",
+  "todayStatActivityLabel": "Aktivität",
+  "todayMacroLeft": "{grams} g übrig",
+  "@todayMacroLeft": {"placeholders": {"grams": {"type": "int"}}},
+  "todayMacroOver": "{grams} g drüber",
+  "@todayMacroOver": {"placeholders": {"grams": {"type": "int"}}},
+  "todayPickEyebrow": "{slot, select, breakfast{Tipp fürs Frühstück} lunch{Tipp fürs Mittagessen} other{Tipp für heute Abend}}",
+  "@todayPickEyebrow": {"placeholders": {"slot": {"type": "String"}}},
+  "todayPickPlannedEyebrow": "{slot, select, breakfast{Geplant fürs Frühstück} lunch{Geplant fürs Mittagessen} other{Geplant für heute Abend}}",
+  "@todayPickPlannedEyebrow": {"placeholders": {"slot": {"type": "String"}}},
+  "todayPickMeta": "{kcal} kcal · {protein} g Protein",
+  "@todayPickMeta": {"placeholders": {"kcal": {"type": "String"}, "protein": {"type": "int"}}},
+  "todayPickLeaves": "Danach bleiben {kcal} kcal für heute",
+  "@todayPickLeaves": {"placeholders": {"kcal": {"type": "String"}}},
+  "todayPickOver": "{kcal} kcal über deinem Tagesbudget",
+  "@todayPickOver": {"placeholders": {"kcal": {"type": "String"}}},
+  "todayOpenFoodLog": "Tagebuch öffnen",
+  "todaySlotSuggested": "Empfohlen {min}–{max} kcal",
+  "@todaySlotSuggested": {"placeholders": {"min": {"type": "String"}, "max": {"type": "String"}}},
+  "todaySlotNothingLogged": "Nichts geloggt",
+  "todayStepsOfGoal": "/ {goal} Schritte",
+  "@todayStepsOfGoal": {"placeholders": {"goal": {"type": "String"}}},
+  "todayStepsNoGoal": "Schritte",
+  "todayWorkoutNext": "Nächstes Training · ≈ {minutes} Min.",
+  "@todayWorkoutNext": {"placeholders": {"minutes": {"type": "int"}}},
+  "todayWorkoutDone": "Heute erledigt · ≈ {minutes} Min.",
+  "@todayWorkoutDone": {"placeholders": {"minutes": {"type": "int"}}},
   "@todayMacroProgressValue": {
     "placeholders": {
       "value": {
@@ -2378,22 +2281,48 @@
       }
     }
   },
-  "foodOptions": "Weitere Optionen",
-  "foodKcalLoggedLabel": "KCAL ERFASST",
-  "foodDiaryEntryCount": "{count, plural, one{1 Eintrag} other{{count} Einträge}}",
-  "foodDiaryExpand": "Alle Einträge anzeigen",
-  "foodDiaryCollapse": "Einträge zuklappen",
-  "@foodDiaryEntryCount": {
+  "foodSummaryLogged": "Erfasst",
+  "foodSummaryLeft": "Übrig",
+  "foodSummaryOver": "Zu viel",
+  "foodSlotMeta": "{time} · {count, plural, one{1 Eintrag} other{{count} Einträge}}",
+  "@foodSlotMeta": {
     "placeholders": {
-      "count": {
-        "type": "int"
-      }
+      "time": { "type": "String" },
+      "count": { "type": "int" }
     }
   },
+  "foodSlotSuggested": "Empfohlen {min}–{max} kcal",
+  "@foodSlotSuggested": {
+    "placeholders": {
+      "min": { "type": "String" },
+      "max": { "type": "String" }
+    }
+  },
+  "foodSlotShowMacros": "Makros anzeigen",
+  "foodSlotHideMacros": "Makros ausblenden",
+  "foodPickFitsTonight": "Passt heute Abend · {kcal} kcal",
+  "@foodPickFitsTonight": {
+    "placeholders": {
+      "kcal": { "type": "String" }
+    }
+  },
+  "foodPickFitsDay": "Passt in deinen Tag · {kcal} kcal",
+  "@foodPickFitsDay": {
+    "placeholders": {
+      "kcal": { "type": "String" }
+    }
+  },
+  "foodPickPlanned": "Geplant · {kcal} kcal",
+  "@foodPickPlanned": {
+    "placeholders": {
+      "kcal": { "type": "String" }
+    }
+  },
+  "foodPickPlannedNoKcal": "Geplant",
+  "foodDockSearchLabel": "Lebensmittel suchen",
+  "foodDockCameraLabel": "Mahlzeit mit der Kamera erfassen",
   "recipesForYou": "Für dich",
-  "recipesTryToday": "Heute ausprobieren",
   "recipesViewRecipe": "Rezept ansehen",
-  "recipesCreateAction": "Eigenes Rezept",
   "recipesMoreRecommendations": "Weitere Empfehlungen",
   "recipesSeeAll": "Alle anzeigen",
   "recipesOwnEmptyTitle": "Dein Kochbuch beginnt hier",
@@ -2517,6 +2446,133 @@
   },
   "trainingAdoptionDiscardAction": "Entwurf verwerfen",
   "trainingAdoptionDiscardBody": "Nur dein abgelehnter Entwurf wird von diesem Gerät entfernt. Der aktuelle Plan auf dem Server bleibt erhalten.",
+  "trainingNextWorkout": "Nächstes Training",
+  "trainingDoneToday": "Heute erledigt",
+  "trainingInProgress": "Begonnen",
+  "trainingMinutesEstimate": "≈ {minutes} Min.",
+  "@trainingMinutesEstimate": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingSetsRepsShort": "{sets} × {reps}",
+  "@trainingSetsRepsShort": {
+    "placeholders": {
+      "sets": {
+        "type": "int"
+      },
+      "reps": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLastTimeWeight": "Letztes Mal {weight} kg × {reps}",
+  "@trainingLastTimeWeight": {
+    "placeholders": {
+      "weight": {
+        "type": "String"
+      },
+      "reps": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLastTimeReps": "Letztes Mal {reps} Wdh.",
+  "@trainingLastTimeReps": {
+    "placeholders": {
+      "reps": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingMoreExercises": "+ {names}",
+  "@trainingMoreExercises": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingWeekTitle": "Diese Woche",
+  "trainingWeekDoneOf": "{done} von {planned}",
+  "@trainingWeekDoneOf": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "planned": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingWeekDone": "erledigt",
+  "trainingWeekDayToday": "heute",
+  "trainingWeekDayDone": "Training erledigt",
+  "trainingWeekDayOpen": "kein Training",
+  "trainingQuickStartTitle": "Schnellstart",
+  "trainingQuickChooseWorkout": "Einheit wählen",
+  "trainingQuickWorkouts": "Einheiten",
+  "trainingQuickCoach": "Coach fragen",
+  "trainingVolumeTitle": "Wochenvolumen",
+  "trainingVolumeLastWeek": "Tonnen letzte Woche",
+  "trainingVolumeUp": "↑ {percent} % gegenüber der Vorwoche",
+  "@trainingVolumeUp": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingVolumeDown": "↓ {percent} % gegenüber der Vorwoche",
+  "@trainingVolumeDown": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingVolumeSame": "Wie in der Vorwoche",
+  "trainingVolumeNow": "Jetzt",
+  "trainingVolumeEmpty": "Trag beim Training Gewichte ein, dann siehst du hier dein Wochenvolumen.",
+  "trainingVolumeWeekSemantics": "Woche ab {date}: {tonnes} Tonnen",
+  "@trainingVolumeWeekSemantics": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      },
+      "tonnes": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingVolumeCurrentSemantics": "Diese Woche bisher: {tonnes} Tonnen",
+  "@trainingVolumeCurrentSemantics": {
+    "placeholders": {
+      "tonnes": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingRecentTitle": "Zuletzt",
+  "trainingRecentAll": "Alle Trainings",
+  "trainingRecentPrs": "{count, plural, =1{1 Rekord} other{{count} Rekorde}}",
+  "@trainingRecentPrs": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingDurationMinutes": "{minutes} Min.",
+  "@trainingDurationMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
   "exportOverview": "Deine Daten im Überblick",
   "exportSummary": "{sections, plural, one{1 Bereich} other{{sections} Bereiche}} · {records, plural, one{1 Datensatz} other{{records} Datensätze}}",
   "@exportSummary": {
@@ -2650,5 +2706,28 @@
   "recipeNutritionCorrectionHint": "Trage vollständige, geprüfte Werte pro Portion ein.",
   "recipeNutritionIncompleteBasisHint": "Ergänze die fehlenden Werte und prüfe, ob alle Angaben für eine Portion gelten.",
   "recipeNutritionDraftIntro": "Passe die Vorschau an. Gespeichert wird mit „Rezept speichern“.",
-  "recipeNutritionApplyDraft": "In Vorschau übernehmen"
+  "recipeNutritionApplyDraft": "In Vorschau übernehmen",
+  "recipesSearchPlaceholder": "Gericht, Zutat oder Ziel",
+  "recipesSearchSemantics": "Rezepte durchsuchen",
+  "recipesFiltersButton": "Filter",
+  "recipesFilterGroupLabel": "Rezepte filtern",
+  "recipesChipMine": "Meine Rezepte",
+  "recipesAddChoiceSemantics": "Neues oder importiertes Rezept",
+  "recipesAddChoiceTitle": "Rezept hinzufügen",
+  "recipesAddChoiceImportBody": "Von einer Website, aus einer Videobeschreibung oder als Text.",
+  "recipesAddChoiceCreateBody": "Trag dein eigenes Gericht mit seinen Nährwerten ein.",
+  "recipesHeroPickedEyebrow": "{slot, select, breakfast{Fürs Frühstück} lunch{Fürs Mittagessen} dinner{Für heute Abend} other{Für dich}}",
+  "@recipesHeroPickedEyebrow": {"placeholders": {"slot": {"type": "String"}}},
+  "recipesHeroPlannedEyebrow": "Aus deinem Speiseplan",
+  "recipesHeroFitsDay": "Passt in deinen Tag",
+  "recipesHeroAddToSlot": "{slot, select, breakfast{Zum Frühstück} lunch{Zum Mittagessen} dinner{Zum Abendessen} other{Zu den Snacks}}",
+  "@recipesHeroAddToSlot": {"placeholders": {"slot": {"type": "String"}}},
+  "recipesHeroProteinUnit": "Protein",
+  "recipesAiImageLabel": "KI-generiertes Bild",
+  "recipesShelfLeanTitle": "Viel Protein, unter 500 kcal",
+  "recipesYourRecipesTitle": "Deine Rezepte",
+  "recipesYourRecipesBody": "Importiere eins von einer Website oder leg dein eigenes an.",
+  "recipesCreateButton": "Erstellen",
+  "recipesHeroRecommendedEyebrow": "Empfehlung",
+  "recipesChipUnder600": "Unter 600 kcal"
 }

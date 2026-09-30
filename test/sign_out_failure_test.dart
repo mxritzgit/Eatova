@@ -51,7 +51,13 @@ class _ObservedImages extends StummerFotoStore {
 }
 
 Future<void> _tapLogout(WidgetTester tester) async {
-  await tester.tap(find.byKey(const ValueKey('today-settings')));
+  // Settings sit behind the avatar's profile page (dark redesign); a failed
+  // attempt leaves the user on that page, so a retry starts there.
+  if (find.byKey(const ValueKey('screen-profile')).evaluate().isEmpty) {
+    await tester.tap(find.byKey(const ValueKey('today-profile')));
+    await settleFrames(tester);
+  }
+  await tester.tap(find.byKey(const ValueKey('profile-open-settings')));
   await settleFrames(tester);
   final logout = find.byKey(const ValueKey('settings-sign-out'));
   await tester.ensureVisible(logout);
@@ -107,7 +113,12 @@ void main() {
           }
           expect(repository.calls, 1);
           expect(repository.currentUser?.id, 'logout-a');
-          expect(find.byType(TodayScreen), findsOneWidget);
+          // Settings closed themselves; the account's pages stay usable.
+          expect(
+            find.byType(TodayScreen, skipOffstage: false),
+            findsOneWidget,
+          );
+          expect(find.byKey(const ValueKey('screen-profile')), findsOneWidget);
           expect(find.text(message), findsOneWidget);
           expect(IntentionalSignOut.consume(), isFalse);
 

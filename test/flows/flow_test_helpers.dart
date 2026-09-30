@@ -60,8 +60,8 @@ void testWidgetsRobust(
 /// the Food tab's calorie card; the Today tab follows the same
 /// `selectedFoodDate`, archive days included.
 ///
-/// [kcal] is the bare number with thousands separator ("252", "1.234"): the
-/// the hero renders it in a localized sentence.
+/// [kcal] is the bare number with thousands separator ("252", "1.234"), as
+/// the calorie card's Eaten stat shows it.
 Future<void> expectTagestotalAufHeute(WidgetTester tester, String kcal) async {
   // An open confirmation snackbar covers the nav bar and would otherwise
   // catch the tap on `nav-Heute`.
@@ -362,9 +362,9 @@ class AlwaysFailingProductLookupService implements ProductLookupService {
 }
 
 
-// Checks the displayed total, including locale, without pinning its layout.
+// Checks the displayed total (the Eaten stat), including the locale's
+// thousands separator, without pinning its layout.
 void expectTodayEaten(WidgetTester tester, String kcal) {
   final finder = find.byKey(const ValueKey('today-stat-eaten'));
-  expect(tester.widget<Text>(finder).data,
-      tester.element(finder).l10n.todayBalanceEaten(kcal));
+  expect(tester.widget<Text>(finder).data, kcal);
 }

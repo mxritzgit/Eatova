@@ -73,8 +73,15 @@ void main() {
 
       expect(find.byKey(const ValueKey('food-history-entry-0')), findsOneWidget,
           reason: 'das Tagebuch des Zieltags zeigt die Mahlzeit nicht');
-      expect(find.text('252'), findsNWidgets(2),
-          reason: 'die Slot-Summe der Abendkarte fehlt');
+      // Day total, slot total and the entry row each show the 252.
+      expect(find.text('252'), findsNWidgets(3));
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('food-slot-kcal-dinner')))
+            .data,
+        '252',
+        reason: 'die Slot-Summe der Abendkarte fehlt',
+      );
       expect(store.loggedMeals.single.slot, MealSlot.dinner);
       // The entry carries yesterday's wall clock, not today's.
       expect(DateUtils.dateOnly(store.loggedMeals.single.loggedAt), _gestern);

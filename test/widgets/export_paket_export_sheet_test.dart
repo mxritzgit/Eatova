@@ -104,6 +104,9 @@ void main() {
       expect(find.byType(SelectableText), findsNothing);
       final section = find.byKey(const ValueKey('export-expand-logged_meals'));
       await tester.scrollUntilVisible(section, 250);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(section);
+      await tester.pumpAndSettle();
       await tester.tap(section);
       await tester.pumpAndSettle();
       final texts = tester.widgetList<SelectableText>(

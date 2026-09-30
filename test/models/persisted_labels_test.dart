@@ -296,10 +296,10 @@ void main() {
             loggedAt: DateTime(2026, 9, 28, 12),
           ),
       ];
-      expect(mealSlotSubtitle(meals, enL10n), 'Unknown meal · Meal');
+      expect(mealSlotSubtitle(meals, enL10n), 'Unknown meal, Meal');
       expect(
         mealSlotSubtitle(meals, deL10n),
-        'Unbekannte Mahlzeit · Mahlzeit',
+        'Unbekannte Mahlzeit, Mahlzeit',
       );
     });
   });

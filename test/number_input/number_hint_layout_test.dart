@@ -10,6 +10,7 @@ import 'package:eatova/src/widgets/kcal/manual_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/meal_suggestion_item.dart';
 
 import '../support/harness.dart';
+import '../support/recipe_navigation.dart';
 import 'number_input_cases.dart';
 
 // The new hints are the longest error texts these fields show. They must wrap
@@ -39,8 +40,7 @@ void main() {
           textScale: 2,
           surfaceSize: _schmal,
         );
-        await tester.tap(find.byKey(const ValueKey('recipe-create-button')));
-        await tester.pumpAndSettle();
+        await openRecipeCreateSheet(tester);
         await _tippe(tester, 'recipe-create-fat', '1.000');
         await _tippe(tester, 'recipe-create-kcal', '3,5');
       });

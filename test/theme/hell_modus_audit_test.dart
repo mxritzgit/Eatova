@@ -2,6 +2,7 @@ import '../support/food_navigation.dart';
 
 import 'dart:math' as math;
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -148,13 +149,17 @@ Future<void> _scroll(
 
 /// Reads the tokens actually attached at [schluessel] in the tree. The core of
 /// the audit: without it, pumping the dark palette twice would pass green.
+///
+/// While `kDarkOnly` holds the app renders the dark palette for BOTH device
+/// settings, so a light device must read the dark tokens too.
 void _erwartePalette(
   WidgetTester tester,
   String schluessel,
   Brightness brightness,
 ) {
-  final erwartet =
-      brightness == Brightness.light ? AppTokens.light : AppTokens.dark;
+  final erwartet = kDarkOnly || brightness == Brightness.dark
+      ? AppTokens.dark
+      : AppTokens.light;
   final gelesen = AppTokens.of(
     tester.element(find.byKey(ValueKey<String>(schluessel))),
   );
@@ -327,22 +332,30 @@ void main() {
 
     testWidgets('$modus: Heute-Tab rendert sauber', (tester) async {
       _pin(tester, brightness);
-      await _ohneFehler('Heute-Tab', brightness, () async {
-        await _boot(tester);
-        _erwartePalette(tester, 'screen-today', brightness);
-        expect(find.byKey(const ValueKey('today-kcal-hero')), findsOneWidget);
+      // Frozen day: the archive cell's key is a date.
+      await withClock(Clock.fixed(DateTime(2026, 9, 28, 12)), () async {
+        await _ohneFehler('Heute-Tab', brightness, () async {
+          await _boot(tester);
+          _erwartePalette(tester, 'screen-today', brightness);
+          expect(
+            find.byKey(const ValueKey('today-kcal-hero')),
+            findsOneWidget,
+          );
 
-        // An archived day is its own color branch.
-        await tester.tap(find.byKey(const ValueKey('today-date-prev')));
-        await tester.pumpAndSettle();
+          // An archived day is its own color branch (yesterday in the strip).
+          await tester.tap(
+            find.byKey(const ValueKey('today-day-2026-09-27')),
+          );
+          await tester.pumpAndSettle();
 
-        // Macro bars, slot rows and the coach banner sit below the fold and
-        // are never laid out or colored without scrolling.
-        await _scroll(tester, find.byKey(const ValueKey('screen-today')));
-        expect(
-          find.byKey(const ValueKey('today-coach-banner')),
-          findsOneWidget,
-        );
+          // Macro tiles and slot rows sit below the fold and are colored only
+          // once scrolled to.
+          await _scroll(tester, find.byKey(const ValueKey('screen-today')));
+          expect(
+            find.byKey(const ValueKey('today-meals-card')),
+            findsOneWidget,
+          );
+        });
       });
     });
 
@@ -441,9 +454,11 @@ void main() {
     });
   }
 
-  testWidgets('der Anzeige-Modus folgt wirklich dem Geraet', (tester) async {
-    // Counter-check: if both runs were the same palette, the whole audit
-    // would be worthless.
+  testWidgets('der Anzeige-Modus folgt dem Geraet, ausser unter kDarkOnly',
+      (tester) async {
+    // Counter-check: if both runs were the same palette by accident, the
+    // whole audit would be worthless — under kDarkOnly they are the same ON
+    // PURPOSE, and a light device must still get the dark palette.
     _pin(tester, Brightness.light);
     await _boot(tester);
     final hell = AppTokens.of(
@@ -456,10 +471,16 @@ void main() {
       tester.element(find.byKey(const ValueKey('screen-today'))),
     );
 
-    expect(hell.bg, AppTokens.light.bg);
     expect(dunkel.bg, AppTokens.dark.bg);
-    expect(hell.bg.computeLuminance(), greaterThan(dunkel.bg.computeLuminance()),
-        reason: 'der helle Grund muss heller sein als der dunkle');
+    if (kDarkOnly) {
+      expect(hell.bg, AppTokens.dark.bg,
+          reason: 'dark-only: ein helles Geraet bekommt die dunkle Palette');
+    } else {
+      expect(hell.bg, AppTokens.light.bg);
+      expect(
+          hell.bg.computeLuminance(), greaterThan(dunkel.bg.computeLuminance()),
+          reason: 'der helle Grund muss heller sein als der dunkle');
+    }
   });
 
   // =========================================================================

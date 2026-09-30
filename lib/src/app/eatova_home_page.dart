@@ -4,8 +4,11 @@ import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
 import '../auth/auth_repository.dart';
+import '../models/coach_day_brief.dart';
 import '../models/logged_meal.dart';
 import '../models/macro_progress.dart';
+import '../models/recipe_pick.dart';
+import '../models/training_history.dart';
 import '../models/training_plan.dart';
 import '../models/training_session.dart';
 import '../services/data_export.dart';
@@ -13,6 +16,7 @@ import '../services/background_sync_scheduler.dart';
 import '../services/eatova_sync.dart';
 import '../services/health_service.dart';
 import '../services/local_cache.dart';
+import '../services/local_hour_ticker.dart';
 import '../services/meal_analyzer.dart';
 import '../services/meal_camera_launcher.dart';
 import '../services/meal_photo_input.dart';
@@ -21,6 +25,7 @@ import '../services/open_food_facts_product_service.dart';
 import '../services/recipe_import_inbox.dart';
 import '../services/recipe_import_service.dart';
 import '../services/meal_scan_identity.dart';
+import '../services/sync_error_messages.dart';
 import '../services/sync_connectivity.dart';
 import '../screens/coach/coach_chat_screen.dart';
 import '../screens/meal_analysis_screen.dart';
@@ -32,13 +37,13 @@ import '../screens/recipes/recipe_import_sheet.dart';
 import '../screens/settings/goals_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../screens/today/today_screen.dart';
+import '../screens/today/today_texts.dart' show greetingForHour;
 import '../screens/training/training_screen.dart';
 import '../screens/training/training_history_screen.dart';
 import '../screens/training/training_player_screen.dart';
 import '../screens/training/training_plan_editor.dart';
 import '../l10n/l10n.dart';
 import '../theme/app_tokens.dart';
-import '../theme/training_studio_theme.dart';
 import '../widgets/auth/welcome_screen.dart';
 import '../widgets/common/app_snack.dart';
 import '../widgets/common/lively.dart';
@@ -46,6 +51,7 @@ import '../widgets/common/store_selector.dart';
 import '../widgets/design/design.dart';
 import '../widgets/kcal/add_meal_sheet.dart' show FoodStoreScope;
 import '../widgets/kcal/edit_meal_sheet.dart';
+import '../widgets/recipes/recipe_pick_actions.dart';
 import '../widgets/shared/settings_sheet.dart';
 import 'auth_gate.dart';
 import 'home_store.dart';
@@ -141,6 +147,11 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     null,
   );
   final ValueNotifier<int> _planDraftRequest = ValueNotifier<int>(0);
+
+  /// Hour boundaries for time-of-day content (the coach's greeting, the next
+  /// meal slot behind every tab's pick and accent), which change without any
+  /// store change.
+  final LocalHourTicker _localHours = LocalHourTicker();
   TrainingPlan? _selectedPlanForCoach;
   bool _trainingRouteOpen = false;
   bool _trainingAdoptionReviewOpen = false;
@@ -204,6 +215,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     _profileRefresh.dispose();
     _addSlotRequest.dispose();
     _planDraftRequest.dispose();
+    _localHours.dispose();
     _store.dispose();
     super.dispose();
   }
@@ -301,6 +313,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     // B4: a suspended app gets no timer tick. Advance the day BEFORE the
     // flush, so a flush-triggered refresh carries the new day.
     _store.maybeRollOverToToday();
+    // Same for the hour: its pending tick may be hours late.
+    _localHours.resync();
 
     // Replay stranded outbox ops / stats deltas (DATA-7).
     _store.flushPendingWrites();
@@ -550,33 +564,45 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             if (keyboardOpen) return;
             _store.setTab(0);
           },
-          child: TrainingStudioChrome(
-            active: tab == _tabTraining,
-            child: Scaffold(
-              backgroundColor: tab == _tabTraining
-                  ? AppTokens.dark.bg
-                  : context.t.bg,
-              // AddMealSheet does its own keyboard inset; a resizing scaffold
-              // would shift the background behind the translucent barrier.
-              resizeToAvoidBottomInset: tab != _tabFood,
-              bottomNavigationBar: Builder(
-                builder: (context) {
-                  final navigation = AppNavBar(
-                    index: tab,
-                    onChanged: (index) {
-                      FocusManager.instance.primaryFocus?.unfocus();
-                      _store.setTab(index);
-                    },
-                    items: _navItems(context),
-                  );
-                  return tab == _tabTraining
-                      ? TrainingStudioTheme(child: navigation)
-                      : navigation;
-                },
+          child: Scaffold(
+            backgroundColor: context.t.bg,
+            // AddMealSheet does its own keyboard inset; a resizing scaffold
+            // would shift the background behind the translucent barrier.
+            resizeToAvoidBottomInset: tab != _tabFood,
+            // The nav bar floats: the body runs under it and receives the
+            // bar's band as MediaQuery.padding.bottom, which the SafeArea
+            // below passes on (bottom: false) so each tab scrolls under the
+            // glass and pins its docks above it. The status bar passes on the
+            // same way (top: false): tabs scroll under it and start their
+            // header at TabChrome.topInset.
+            extendBody: true,
+            bottomNavigationBar: AppNavBar(
+              index: tab,
+              onChanged: (index) {
+                FocusManager.instance.primaryFocus?.unfocus();
+                _store.setTab(index);
+              },
+              items: _navItems(context),
+              docked: tab == _tabFood || tab == _tabCoach,
+            ),
+            // Tabs scroll internally, so no outer SingleChildScrollView.
+            // Large windows get a bounded column; phones are unaffected.
+            body: SafeArea(
+              top: false,
+              bottom: false,
+              child: Stack(
+                children: <Widget>[
+                  Positioned.fill(
+                    child: ReadableWidth(child: _buildTabStack(tab)),
+                  ),
+                  const Positioned(
+                    left: 0,
+                    top: 0,
+                    right: 0,
+                    child: StatusBarScrim(),
+                  ),
+                ],
               ),
-              // Tabs scroll internally, so no outer SingleChildScrollView.
-              // Large windows get a bounded column; phones are unaffected.
-              body: SafeArea(child: ReadableWidth(child: _buildTabStack(tab))),
             ),
           ),
         );
@@ -665,11 +691,17 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     child: LivelyEntrance(
       key: ValueKey('lively-tab-$index'),
       child: Padding(
-        // Food and Training own their scroll gutters; other tabs retain the shell's
-        // established inset even while mounted in the hidden stack.
-        padding: index == _tabTraining || index == _tabFood
+        // Food, Recipes, Training and Coach own their gutters; Today keeps the
+        // shell's side gutters even while mounted in the hidden stack. No top
+        // or bottom inset: every tab runs to the screen edges, under the
+        // status bar and the floating bar (TabChrome, AppNavBar).
+        padding:
+            index == _tabTraining ||
+                index == _tabFood ||
+                index == _tabRezepte ||
+                index == _tabCoach
             ? EdgeInsets.zero
-            : const EdgeInsets.fromLTRB(20, 12, 20, 12),
+            : const EdgeInsets.symmetric(horizontal: 20),
         child: switch (index) {
           _tabFood => _foodTab(),
           _tabRezepte => _recipesTab(),
@@ -684,8 +716,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   /// The day overview. Narrower slice than the food tab: streak and name,
   /// but no favourites or analyzers.
   Widget _todayTab() => StoreSelector(
-    store: _store,
+    // Plus the hour: the pick and the accent slot move on with the clock.
+    store: Listenable.merge(<Listenable>[_store, _localHours]),
     selector: () => (
+      mealSlotForHour(clock.now().hour),
       _store.selectedFoodDate,
       _store.loggedMeals,
       _store.profile,
@@ -698,37 +732,74 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.lifetimeStats,
       _store.isLoadingFoodDay(_store.selectedFoodDate),
       _store.selectedFoodDateIsToday,
+      // Inputs of the recipe pick and the next workout (Task 7 rule: select
+      // the inputs, never the freshly built results).
+      _store.userRecipes,
+      _store.pendingRecipeDeletes,
+      _store.mealPlansRevision,
+      _store.trainingPlans,
+      _store.selectedTrainingPlanId,
+      _store.trainingHistory,
     ),
     builder: (context) {
       assert(_countTabBuild(_tabHeute));
       final tag = _store.selectedFoodDate;
+      final today = _store.selectedFoodDateIsToday;
       return TodayScreen(
         userName: _store.userName,
         profile: _store.profile,
         selectedDate: tag,
-        consumedKcal: _store.consumedKcalForFoodDate(tag),
-        macroProgress: _store.macroProgressForFoodDate(tag),
+        // One shared day summary (budget incl. activity credit: today live,
+        // archive days from the value frozen per day).
+        summary: _store.nutritionSummaryForFoodDate(tag),
         meals: _store.mealsForFoodDate(tag),
         dayLoading: _store.isLoadingFoodDay(tag),
-        // Today live, archive days from the value frozen per day.
-        burnedKcal: _store.burnedKcalForFoodDate(tag),
         // null = no step source -> no steps card.
         steps: _store.stepsForFoodDate(tag),
         healthConnect: _store.health is HealthConnectAccess,
-        streak: _store.lifetimeStats.effectiveStreakOn(clock.now()),
+        streak: _store.loggingStreak,
         profileInitial: _store.profileInitial,
+        // Both are about today; archive days show neither.
+        pick: today
+            ? _store.nextMealPick(localeName: context.l10n.localeName)
+            : null,
+        nextWorkout: today ? _store.nextTrainingWorkoutForToday() : null,
+        accentSlot: today ? _store.nextOpenMainSlot() : null,
         onDateSelected: _store.setFoodDate,
-        onOpenCoach: () => _store.setTab(_tabCoach),
+        // Settings moved behind the avatar: the profile page opens them.
         onOpenProfile: _openProfile,
-        onOpenSettings: _openSettings,
         onOpenMealSlot: (slot) {
           // The food tab builds lazily: set the request before it mounts.
           _addSlotRequest.value = slot;
           _store.setTab(_tabFood);
         },
+        onOpenPick: (pick) => _openTodayPick(context, pick),
+        onOpenFoodLog: () => _store.setTab(_tabFood),
+        onOpenTraining: () => _store.setTab(_tabTraining),
       );
     },
   );
+
+  /// "Tonight's pick" through the shared pick actions: a suggestion opens
+  /// its recipe detail (adding there logs to the shown day), a planned meal
+  /// the meal plan, whose "Eat" is `eatPlannedMeal`.
+  void _openTodayPick(BuildContext context, RecipePick pick) {
+    final ownerStore = _store;
+    openRecipePick(
+      context,
+      pick,
+      addMeal: (result, slot) =>
+          ownerStore.addResultToDailyTotal(result, slot: slot),
+      openMealPlan: () {
+        if (_isStoreSessionCurrent(ownerStore)) {
+          unawaited(MealPlanScreen.open(context, ownerStore));
+        }
+      },
+      isSessionCurrent: () => _isStoreSessionCurrent(ownerStore),
+      photoInput: widget.photoInput,
+      productService: widget.productService,
+    );
+  }
 
   // MealEditScope passes the edit callbacks around the screen signature;
   // FoodStoreScope does the same for the two lists the add-meal sheet renders.
@@ -736,11 +807,13 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   // sheet's copy of "already added" and the favorites only ever flowed one way
   // and missed every undo (review P8-01/-05).
   Widget _foodTab() => StoreSelector(
-    store: _store,
+    // Plus the hour: the pick's slot moves on with the clock.
+    store: Listenable.merge(<Listenable>[_store, _localHours]),
     // G11: INPUT values only. Derived getters return a NEW list per call,
     // so a selector on them is always "changed"; the store's lists are
     // reassigned per mutation, making identity an O(1) fingerprint.
     selector: () => (
+      mealSlotForHour(clock.now().hour),
       _store.selectedFoodDate,
       _store.loggedMeals,
       _store.favorites,
@@ -749,9 +822,14 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.userName,
       _store.isLoadingFoodDay(_store.selectedFoodDate),
       _store.selectedFoodDateIsToday,
+      // The recipe pick's other inputs (Task 7 selector rule).
+      _store.userRecipes,
+      _store.pendingRecipeDeletes,
+      _store.mealPlansRevision,
     ),
     builder: (context) {
       assert(_countTabBuild(_tabFood));
+      final ownerStore = _store;
       return FoodStoreScope(
         store: _store,
         // Read at call time, not captured: the sheet asks again on every
@@ -789,6 +867,18 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             // the Today tab (F7-05).
             trendBurnedKcalFor: _store.burnedKcalForFoodDate,
             addSlotRequest: _addSlotRequest,
+            nutrition: _store.nutritionSummaryForFoodDate(
+              _store.selectedFoodDate,
+            ),
+            recipePick: _store.selectedFoodDateIsToday
+                ? _store.nextMealPick(localeName: context.l10n.localeName)
+                : null,
+            // A planned pick is eaten in the plan (eatPlannedMeal).
+            onOpenMealPlan: () {
+              if (_isStoreSessionCurrent(ownerStore)) {
+                unawaited(MealPlanScreen.open(context, ownerStore));
+              }
+            },
           ),
         ),
       );
@@ -796,7 +886,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   );
 
   Widget _recipesTab() => StoreSelector(
-    store: _store,
+    // Plus the hour, which moves the pick's slot on (see the selector).
+    store: Listenable.merge(<Listenable>[_store, _localHours]),
     // Only what the view reads: own recipes plus goals and daily progress
     // for the "fits your goal" filter.
     selector: () => (
@@ -807,12 +898,58 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.userRecipesAuthoritative,
       _store.recipePhotoReferences,
       _store.profile,
-      _store.macroProgress,
+      // Inputs of the hero pick and its bookmark (G11: never the pick).
+      _store.loggedMeals,
+      _store.dailyActivity,
+      _store.stepsForFoodDate(clock.now()),
+      _store.mealPlansRevision,
+      _store.favorites,
+      // The pick's slot follows the clock (11/15/21:00): the hour tick or
+      // any notify after a boundary moves the hero on.
+      mealSlotForHour(clock.now().hour),
     ),
     builder: (context) {
       assert(_countTabBuild(_tabRezepte));
       final ownerStore = _store;
+      // Today's shared day summary (budget incl. activity credit), as on the
+      // other tabs.
+      final today = _store.nutritionSummaryForFoodDate(clock.now());
       return RecipesScreen(
+        // "Picked for tonight": the pick Today and Food show too.
+        mealPick: _store.nextMealPick(localeName: context.l10n.localeName),
+        // Promoted lists (shelves, fallback hero) follow the profile diet
+        // like the pick does.
+        diet: _store.profile.diet,
+        todayOverBudget: today.remainingKcal <= 0,
+        // The pick is for today, so it logs to today whatever day the food
+        // tab shows.
+        onAddPickToToday: (result, slot) {
+          if (!_isStoreSessionCurrent(ownerStore)) {
+            throw StateError('Recipes session ended');
+          }
+          return ownerStore.addResultToDailyTotal(
+            result,
+            slot: slot,
+            foodDate: clock.now(),
+          );
+        },
+        onEatPlannedMeal: (id) {
+          if (!_isStoreSessionCurrent(ownerStore)) {
+            throw StateError('Recipes session ended');
+          }
+          return ownerStore.eatPlannedMeal(id);
+        },
+        onUndoAddedMeal: (id) async {
+          if (_isStoreSessionCurrent(ownerStore)) {
+            await ownerStore.removeLoggedMeal(id);
+          }
+        },
+        isFavorite: ownerStore.isFavorite,
+        onToggleFavorite: (result) async {
+          if (_isStoreSessionCurrent(ownerStore)) {
+            await ownerStore.toggleFavorite(result);
+          }
+        },
         productService: widget.productService,
         // No hard foodDate: falls back to the store's selectedFoodDate,
         // read at call time, so adding lands on the food tab's day.
@@ -842,21 +979,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         // coach card even when nothing is persisted (2026-09-02).
         onDeletePendingChanged: _store.setRecipeDeletePending,
         isDeletePending: (slug) => _store.pendingRecipeDeletes.contains(slug),
-        // Remaining macros for the day (goal - consumed).
+        // What is left of today's goals, kcal including the activity credit.
         remainingMacros: MacroProgress(
-          proteinG:
-              (_store.profile.proteinGoalG - _store.macroProgress.proteinG)
-                  .clamp(0.0, double.infinity)
-                  .toDouble(),
-          carbsG: (_store.profile.carbsGoalG - _store.macroProgress.carbsG)
-              .clamp(0.0, double.infinity)
-              .toDouble(),
-          fatG: (_store.profile.fatGoalG - _store.macroProgress.fatG)
-              .clamp(0.0, double.infinity)
-              .toDouble(),
-          kcal: (_store.profile.dailyKcalGoal - _store.macroProgress.kcal)
-              .clamp(0, 1 << 30)
-              .toInt(),
+          proteinG: today.proteinLeftG.toDouble(),
+          carbsG: today.carbsLeftG.toDouble(),
+          fatG: today.fatLeftG.toDouble(),
+          kcal: today.remainingKcal < 0 ? 0 : today.remainingKcal,
         ),
       );
     },
@@ -945,37 +1073,43 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     _store.setTab(_tabCoach);
   }
 
-  Future<void> _openTrainingHistory() async {
+  /// The workout history; with [entry] that one workout's detail instead
+  /// (a "Recent" row of the Training tab).
+  Future<void> _openTrainingHistory([TrainingHistoryEntry? entry]) async {
     if (_trainingHistoryRouteOpen || !_isStoreSessionCurrent(_store)) return;
     _trainingHistoryRouteOpen = true;
     final ownerStore = _store;
+    Future<SyncDelivery> delete(String id) async {
+      if (!_isStoreSessionCurrent(ownerStore)) {
+        throw StateError('Training session ended');
+      }
+      return ownerStore.deleteTrainingHistory(id);
+    }
+
     try {
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
-          builder: (_) => StoreSelector(
-            store: ownerStore,
-            selector: () => (
-              ownerStore.trainingHistory,
-              ownerStore.trainingHistoryLoading,
-              ownerStore.trainingHistoryLoadFailed,
-            ),
-            builder: (_) => TrainingHistoryScreen(
-              entries: ownerStore.trainingHistory,
-              loading: ownerStore.trainingHistoryLoading,
-              loadFailed: ownerStore.trainingHistoryLoadFailed,
-              onRetry: () {
-                if (_isStoreSessionCurrent(ownerStore)) {
-                  ownerStore.retryTrainingHistory();
-                }
-              },
-              onDelete: (id) async {
-                if (!_isStoreSessionCurrent(ownerStore)) {
-                  throw StateError('Training session ended');
-                }
-                return ownerStore.deleteTrainingHistory(id);
-              },
-            ),
-          ),
+          builder: (_) => entry != null
+              ? TrainingHistoryDetail(entry: entry, onDelete: delete)
+              : StoreSelector(
+                  store: ownerStore,
+                  selector: () => (
+                    ownerStore.trainingHistory,
+                    ownerStore.trainingHistoryLoading,
+                    ownerStore.trainingHistoryLoadFailed,
+                  ),
+                  builder: (_) => TrainingHistoryScreen(
+                    entries: ownerStore.trainingHistory,
+                    loading: ownerStore.trainingHistoryLoading,
+                    loadFailed: ownerStore.trainingHistoryLoadFailed,
+                    onRetry: () {
+                      if (_isStoreSessionCurrent(ownerStore)) {
+                        ownerStore.retryTrainingHistory();
+                      }
+                    },
+                    onDelete: delete,
+                  ),
+                ),
         ),
       );
     } finally {
@@ -1186,6 +1320,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.trainingPlansLoadFailed,
       _store.trainingSession,
       _store.pendingTrainingAdoptions,
+      // Inputs of the derivations below (never their fresh results), plus
+      // the day: the week strip and the rotation follow midnight.
+      _store.trainingHistory,
+      DateUtils.dateOnly(clock.now()),
     ),
     builder: (context) {
       assert(_countTabBuild(_tabTraining));
@@ -1200,12 +1338,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         onStartWorkout: _startTrainingWorkout,
         onOpenCoach: _openTrainingCoach,
         onDiscussPlan: _discussTrainingPlan,
-        discussPlanLabel: context.l10n.coachBriefDiscussAction,
         onOpenHistory: () => unawaited(_openTrainingHistory()),
         loading: _store.trainingPlansLoading,
         loadFailed: _store.trainingPlansLoadFailed,
         onRetry: _store.retryTrainingPlans,
         hasActiveSession: _store.trainingSession != null,
+        activeSession: _store.trainingSession,
         onResumeWorkout: _resumeTrainingWorkout,
         adoptionConflicts: [
           for (final op in _store.pendingTrainingAdoptions)
@@ -1214,6 +1352,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         ],
         onReviewAdoption: _reviewTrainingAdoption,
         onDiscardAdoption: _discardTrainingAdoption,
+        nextWorkout: _store.nextTrainingWorkoutForToday(),
+        week: _store.currentTrainingWeek(),
+        volume: _store.weeklyTrainingVolume(),
+        recentWorkouts: _store.recentWorkoutSummaries(limit: 3),
+        history: _store.trainingHistory,
+        onOpenWorkout: (entry) => unawaited(_openTrainingHistory(entry)),
       );
     },
   );
@@ -1221,12 +1365,14 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   Widget _coachTab() => ValueListenableBuilder<int>(
     valueListenable: _planDraftRequest,
     builder: (context, planRequest, _) => StoreSelector(
-      store: _store,
+      // Plus the hour: greeting and meal slot move on with the clock alone.
+      store: Listenable.merge(<Listenable>[_store, _localHours]),
       // The INPUTS of `coachContext`; the getter itself builds a fresh
       // string per call and must stay out.
       selector: () => (
+        greetingForHour(clock.now().hour, context.l10n),
+        mealSlotForHour(clock.now().hour),
         _store.userName,
-        _store.lifetimeStats,
         _store.profile,
         _store.dailyConsumedKcal,
         // Includes the snapshot's day validity without timestamp churn.
@@ -1248,7 +1394,13 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           // session when AuthGate rebuilds on a same-user token refresh.
           service: _store.sync?.coachChat,
           userName: _store.userName,
-          streak: _store.lifetimeStats.effectiveStreakOn(clock.now()),
+          // The start card reads the same budget as Today (inputs above:
+          // profile, burned kcal, logged meals).
+          dayBrief: coachDayBrief(
+            summary: _store.nutritionSummaryForFoodDate(clock.now()),
+            loggedToday: _store.mealsForFoodDate(clock.now()).isNotEmpty,
+            nextMainSlot: _store.nextOpenMainSlot(),
+          ),
           userContext: widget.sync != null ? _store.coachContext : null,
           // Confirmed /recipe suggestions take the manual form's path.
           onCreateRecipe: widget.sync == null ? null : _store.createUserRecipe,
