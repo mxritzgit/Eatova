@@ -71,28 +71,8 @@ void main() {
       }
     });
 
-    // MealAvatar and the slot picker put a glyph in the slot colour onto the
-    // same colour at 16 % opacity, unreadable in the light palette (amber hit
-    // 2.15:1), so [AppTokens.readableOnTint] mixes the tone towards [ink].
-    test('readableOnTint macht Slot-Glyphen auf ihrer eigenen Tint lesbar', () {
-      for (final entry in <String, AppTokens>{
-        'hell': AppTokens.light,
-        'dunkel': AppTokens.dark,
-      }.entries) {
-        final t = entry.value;
-        for (final paar in <(String, Color)>[
-          ('protein', t.protein),
-          ('carbs', t.carbs),
-          ('fat', t.fat),
-          ('snack', t.snack),
-        ]) {
-          final tint = Color.alphaBlend(paar.$2.withValues(alpha: 0.16), t.surf);
-          expect(_contrast(t.readableOnTint(paar.$2), tint),
-              greaterThanOrEqualTo(4.5),
-              reason: '${entry.key}: ${paar.$1}-Glyph auf seiner eigenen Tint');
-        }
-      }
-    });
+    // readableOnTint on the slot tints: hell_modus_audit_test.dart ('der
+    // MealAvatar-Buchstabe erreicht auf seinem eigenen Tint AA').
 
     test('Makro-Farben sind in beiden Modi voneinander unterscheidbar', () {
       for (final t in <AppTokens>[AppTokens.light, AppTokens.dark]) {

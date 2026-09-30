@@ -320,23 +320,7 @@ void main() {
     await _timerAblaufen(tester);
   });
 
-  // The pure light/dark render smoke lives in
+  // The light/dark render with filled rows lives in
   // `test/favorites_sheet_light_dark_test.dart` (renderMatrix over de/en x
-  // hell/dunkel). What is pinned HERE is the row content in light mode, which
-  // this suite's own row helpers describe.
-  testWidgets('rendert im Hell-Modus mit befuellter Zeile', (tester) async {
-    _telefon(tester);
-    await tester.pumpWidget(_app(
-      FavoritesSheet(
-        favorites: [_favorit(haferdrink, am: DateTime(2026, 8, 20))],
-        slot: MealSlot.breakfast,
-        onAdd: (_, __) => 'id',
-        onUnpin: (_) {},
-      ),
-      helligkeit: Brightness.light,
-    ));
-    await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-    expect(_textInZeile(0, 'Haferdrink'), findsOneWidget);
-  });
+  // hell/dunkel).
 }

@@ -239,16 +239,9 @@ void main() {
   // P9-02b — die Betonung der beiden Schnell-Chips
   // =========================================================================
   group('P9-02b: die Betonung des KI-Scan-Chips', () {
-    test('forest auf surf ist im Dunkelmodus keine Betonung', () {
-      // The number that made this a finding. No 1.4.11 violation — `filled` is
-      // a static emphasis, not a selection state, and both chips are labelled
-      // — but 1.34:1 simply is not visible.
-      expect(_kontrast(AppTokens.dark.forest, AppTokens.dark.surf),
-          lessThan(1.5));
-      // The pastel surface is also too subtle to carry emphasis by itself.
-      expect(_kontrast(AppTokens.light.forest, AppTokens.light.surf),
-          lessThan(3.0));
-    });
+    // Why `forest` cannot carry emphasis or state:
+    // review0829_selection_contrast_test.dart ('forest bleibt als
+    // Zustandstraeger disqualifiziert').
 
     for (final helligkeit in Brightness.values) {
       final modus = helligkeit == Brightness.light ? 'HELL' : 'DUNKEL';

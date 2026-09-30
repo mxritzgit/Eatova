@@ -13,7 +13,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
-import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/kcal/favorites_sheet.dart';
 
 import 'support/harness.dart';
@@ -166,23 +165,6 @@ void main() {
     expect(find.text('Search favorites'), findsOneWidget);
   });
 
-  testWidgets('Die Kapselfarbe unterscheidet sich zwischen Hell und Dunkel',
-      (tester) async {
-    // A hardcoded fill would survive the theme switch unchanged. Not part of
-    // the matrix: it COMPARES two cases instead of asserting inside one.
-    pinPhoneViewport(tester);
-    await pumpLocalized(tester, _sheet(_zwei),
-        brightness: Brightness.light, settle: true);
-    final hell = _kapsel(tester).color;
-    await pumpLocalized(tester, _sheet(_zwei),
-        brightness: Brightness.dark, settle: true);
-    final dunkel = _kapsel(tester).color;
-
-    expect(hell, isNotNull);
-    expect(dunkel, isNotNull);
-    expect(hell, isNot(equals(dunkel)),
-        reason: 'die Kapsel folgt nicht dem Theme — hardcodierte Farbe?');
-    expect(hell, AppTokens.light.field);
-    expect(dunkel, AppTokens.dark.field);
-  });
+  // A hard-coded capsule fill fails the matrix above: it asserts `c.t.field`
+  // in each mode, and the two palettes' `field` differ.
 }

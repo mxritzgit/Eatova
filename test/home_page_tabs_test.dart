@@ -115,32 +115,9 @@ void main() {
           isTrue);
     });
 
-    testWidgets('der Text im Rezept-Suchfeld bleibt stehen', (tester) async {
-      await _pumpHome(tester);
-      await _goToTab(tester, 2);
-
-      await tester.enterText(
-        find.byKey(const ValueKey('recipes-search-input')),
-        'Lachs',
-      );
-      // Unfocus: a focused EditableText keeps itself alive in the lazy
-      // ListView via AutomaticKeepAliveClientMixin, so the test would be green
-      // without proving anything.
-      FocusManager.instance.primaryFocus?.unfocus();
-      await tester.pump();
-
-      await _goToTab(tester, 0);
-      await _goToTab(tester, 2);
-
-      expect(
-        tester
-            .widget<TextField>(
-                find.byKey(const ValueKey('recipes-search-input')))
-            .controller
-            ?.text,
-        'Lachs',
-      );
-    });
+    // The recipe search draft surviving a tab trip is pinned in
+    // page_chrome_test.dart ('Today opens the correct account routes and keeps
+    // tab drafts') and navigation_interactions_test.dart with the real app.
 
     testWidgets('der Food-Tab bleibt beim Wechsel gemountet', (tester) async {
       await _pumpHome(tester);
