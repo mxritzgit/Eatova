@@ -50,11 +50,6 @@ final class CoachTrainingProposal {
   final String goal;
   final List<TrainingWorkout> workouts;
 
-  int get estimatedDurationSeconds => workouts.fold(
-    0,
-    (seconds, workout) => seconds + workout.estimatedDurationSeconds,
-  );
-
   /// Malformed provider output or history never becomes an adoptable draft.
   static CoachTrainingProposal? fromJson(Map<dynamic, dynamic> json) {
     try {

@@ -124,9 +124,6 @@ class _SymbolDrawing {
     if (!solid) path(p);
   }
 
-  Path oval(double left, double top, double right, double bottom) =>
-      Path()..addOval(Rect.fromLTRB(left, top, right, bottom));
-
   /// Stroke for the tab glyphs at the design's own weight; `selected` adds
   /// the family's usual emphasis.
   Paint pen(double width) => Paint()
