@@ -89,29 +89,43 @@ final class TrainingHistoryEntry {
 }
 
 /// Identity is plan-scoped; identical names and copied plans never collide.
+///
+/// The sets of the newest (by finish time) session of [planId] that performed
+/// [exerciseId], ordered by set index; empty when there is none. One linear
+/// pass without copying or sorting [history]: the Training tab asks once per
+/// planned exercise and the player on every timer tick (10 Hz), with up to
+/// `TrainingHistorySync.limit` entries. Among sessions finished at the same
+/// instant the one listed first wins.
 List<TrainingSetActual> lastTrainingPerformance(
   List<TrainingHistoryEntry> history,
   String planId,
   String exerciseId, {
   required bool isTimed,
 }) {
-  final sorted = [...history]
-    ..sort((a, b) => b.finishedAt.compareTo(a.finishedAt));
-  for (final entry in sorted) {
+  TrainingHistoryEntry? newest;
+  var newestIndex = -1;
+  for (final entry in history) {
     if (entry.snapshot.plan.id != planId) continue;
-    final exercises = entry.snapshot.workout.exercises;
-    final index = exercises.indexWhere(
+    if (newest != null && !entry.finishedAt.isAfter(newest.finishedAt)) {
+      continue;
+    }
+    final index = entry.snapshot.workout.exercises.indexWhere(
       (e) => e.id == exerciseId && e.isTimed == isTimed,
     );
-    if (index < 0) continue;
-    final sets =
-        entry.snapshot.actualSets
-            .where((a) => a.reference.exerciseIndex == index)
-            .toList()
-          ..sort(
-            (a, b) => a.reference.setIndex.compareTo(b.reference.setIndex),
-          );
-    if (sets.isNotEmpty) return List.unmodifiable(sets);
+    if (index < 0 ||
+        !entry.snapshot.actualSets.any(
+          (a) => a.reference.exerciseIndex == index,
+        )) {
+      continue;
+    }
+    newest = entry;
+    newestIndex = index;
   }
-  return const [];
+  if (newest == null) return const [];
+  final sets =
+      newest.snapshot.actualSets
+          .where((a) => a.reference.exerciseIndex == newestIndex)
+          .toList()
+        ..sort((a, b) => a.reference.setIndex.compareTo(b.reference.setIndex));
+  return List.unmodifiable(sets);
 }
