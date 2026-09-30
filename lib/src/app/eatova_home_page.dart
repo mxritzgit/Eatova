@@ -55,6 +55,7 @@ import '../widgets/recipes/recipe_pick_actions.dart';
 import '../widgets/shared/settings_sheet.dart';
 import 'auth_gate.dart';
 import 'home_store.dart';
+import 'home_tab_switcher.dart';
 
 class EatovaHomePage extends StatefulWidget {
   EatovaHomePage({
@@ -658,18 +659,17 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     _tabViews.fillRange(0, _tabCount, null);
   }
 
-  /// D6: [IndexedStack] instead of `switch`, so a visited tab stays mounted.
+  /// D6: an IndexedStack instead of `switch`, so a visited tab stays mounted.
+  /// [HomeTabSwitcher] keeps that contract and fades through on a switch.
   ///
   /// **Lazy:** built on first display — an eager stack would fire the coach's
   /// three cold-start network calls. **[TickerMode]:** hidden children keep
   /// animating, so their tickers are muted (battery, `pumpAndSettle`).
   Widget _buildTabStack(int tab) {
     _mountedTabs.add(tab);
-    return IndexedStack(
+    return HomeTabSwitcher(
       key: const ValueKey('home-tab-stack'),
       index: tab,
-      // StackFit.loose would shrink-wrap the visible tab.
-      sizing: StackFit.expand,
       children: <Widget>[
         for (var i = 0; i < _tabCount; i++)
           if (_mountedTabs.contains(i))

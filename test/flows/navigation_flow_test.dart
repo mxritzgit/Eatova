@@ -1,7 +1,8 @@
 // Tab navigation: the bottom nav switches between the five tabs and each
 // screen's core pins hold. Cold start lands on Heute (index 0).
 //
-// Since D6 the tabs live in a lazy [IndexedStack]: a visited tab stays MOUNTED
+// Since D6 the tabs live in a lazy IndexedStack (now [HomeTabSwitcher],
+// same contract): a visited tab stays MOUNTED
 // but invisible. Default finders (`skipOffstage: true`) do not see it, so
 // existing `findsNothing` assertions remain valid; checking the mounted,
 // invisible tree needs `skipOffstage: false`. The visible tab is the stack's
@@ -12,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/main.dart';
+import 'package:eatova/src/app/home_tab_switcher.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/recipe_shelf.dart';
 
@@ -202,7 +204,7 @@ void main() {
   });
 }
 
-/// Index of the visible tab, read from the home shell's [IndexedStack].
+/// Index of the visible tab, read from the home shell's [HomeTabSwitcher].
 int? _sichtbarerTab(WidgetTester tester) => tester
-    .widget<IndexedStack>(find.byKey(const ValueKey('home-tab-stack')))
+    .widget<HomeTabSwitcher>(find.byKey(const ValueKey('home-tab-stack')))
     .index;
