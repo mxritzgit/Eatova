@@ -1,15 +1,17 @@
 // Visual evidence for the dark redesign (plan 2026-09-28).
 //
 // Mounts the real home page at the design's reference geometry with a fixed
-// clock (Mon 2026-09-28 19:00) and shoots every tab at the top (`<tab>-00`),
-// in English like the design's sample copy. Later tasks add design-matching
-// fixtures and scroll shots (`<tab>-01…`, see `scrollDesignTabBy`) per tab.
+// clock (Mon 2026-09-28 19:00) and shoots every tab at the top
+// (`shell-<tab>-00`), in English like the design's sample copy. The design-
+// matching fixtures and the `<tab>-NN` shots live in each tab's own
+// `<tab>_redesign_capture_test.dart`; the `shell-` prefix keeps these shots
+// from overwriting them.
 //
 // With --dart-define=DARK_REDESIGN_CAPTURE=true the shots land in
 // build/dark-redesign/ for comparison with the design's shots/. Without it
 // the suite still checks that each tab renders on the dark page with the
 // floating nav bar and its own item selected, and that scrolled content runs
-// under the glass (`recipes-01`).
+// under the glass (`shell-recipes-01`).
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
@@ -56,7 +58,7 @@ void main() {
   setUpAll(loadDesignFonts);
 
   for (final (shot, navKey) in _tabs) {
-    testWidgets('$shot-00: dark page, floating nav, $navKey selected', (
+    testWidgets('shell-$shot-00: dark page, glass nav, $navKey selected', (
       tester,
     ) async {
       await withClock(Clock.fixed(_now), () async {
@@ -96,7 +98,7 @@ void main() {
           expect(glass.height, AppNavBar.barHeight);
 
           await precacheDesignImages(tester);
-          await captureDesignShot(tester, '$shot-00');
+          await captureDesignShot(tester, 'shell-$shot-00');
           expect(tester.takeException(), isNull);
         } finally {
           semantics.dispose();
@@ -138,7 +140,7 @@ void main() {
     });
   });
 
-  testWidgets('recipes-01: scrolled content runs under the glass bar', (
+  testWidgets('shell-recipes-01: scrolled content runs under the glass bar', (
     tester,
   ) async {
     await withClock(Clock.fixed(_now), () async {
@@ -173,7 +175,7 @@ void main() {
       expect(underGlass, isNotEmpty, reason: 'text scrolls under the glass');
 
       await precacheDesignImages(tester);
-      await captureDesignShot(tester, 'recipes-01');
+      await captureDesignShot(tester, 'shell-recipes-01');
 
       // Scrolled to the end, the last content ends above the bar's band.
       final position = tester.state<ScrollableState>(scrollable).position;
