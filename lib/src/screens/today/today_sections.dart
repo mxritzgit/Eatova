@@ -217,7 +217,7 @@ class TodayMealsHeader extends StatelessWidget {
                 child: HeadingSemantics(
                   level: 2,
                   child: Text(
-                    l10n.todayMealsTitleArchive,
+                    l10n.todayMealsTitle,
                     style: AppType.display(
                       22,
                       weight: FontWeight.w700,

@@ -427,7 +427,7 @@ void main() {
         <Sprungmarke>[
           (label: l10n.navToday, level: 1),
           (label: l10n.todayCaloriesTitle, level: 2),
-          (label: l10n.todayMealsTitleArchive, level: 2),
+          (label: l10n.todayMealsTitle, level: 2),
         ],
         reason: 'der Tab hatte nur Abschnitte (Ebene 2) und keinen '
             'Seitentitel — im Navigationsmodus „Überschriften" landet der '
