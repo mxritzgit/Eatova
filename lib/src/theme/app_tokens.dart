@@ -722,6 +722,11 @@ class AppType {
   /// design's CSS `normal`; the theme's default for text without a height.
   static const double normalHeight = 1.2;
 
+  /// Line height of the theme's body slots (bodyLarge/Medium/Small): running
+  /// copy and text fields outside the redesigned tabs keep a readable rhythm,
+  /// and a dense 16 px field keeps its 44 px touch height.
+  static const double bodyHeight = 1.4;
+
   /// The shared title scale for tabs and pushed pages. Tab titles follow the
   /// dark redesign: 36 px, -0.03 em, line height 1.05, ExtraBold (the design's
   /// 750 has no static cut; 800 is the nearest bundled weight). Render tab

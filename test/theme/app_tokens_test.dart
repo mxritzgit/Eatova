@@ -418,13 +418,16 @@ void main() {
 
   // Material's English geometry adds 0.1-0.5 px tracking and 1.33-1.5 line
   // heights to every Text without its own values; the design sets text with
-  // normal tracking and the fonts' normal line height.
+  // normal tracking and the fonts' normal line height. The body slots keep a
+  // reading height of 1.4 (final review B-I1: 16 px dense fields stay 44 px).
   group('Text-Geometrie', () {
     test('Figtree und Bricolage haben 1.2 als natuerliche Zeilenhoehe', () {
       expect(AppType.normalHeight, 1.2);
+      expect(AppType.bodyHeight, 1.4);
     });
 
-    testWidgets('das Theme setzt Laufweite 0 und Zeilenhoehe normal', (
+    testWidgets('das Theme setzt Laufweite 0, Zeilenhoehe normal und 1.4 '
+        'fuer Fliesstext', (
       tester,
     ) async {
       for (final brightness in Brightness.values) {
@@ -455,26 +458,35 @@ void main() {
         await tester.pumpAndSettle();
         // Theme.of merges Material's local geometry under the app's theme:
         // the resolved slots are what a Text really inherits.
-        for (final style in _slots(Theme.of(context).textTheme)) {
+        final text = Theme.of(context).textTheme;
+        final body = <TextStyle>[
+          text.bodyLarge!,
+          text.bodyMedium!,
+          text.bodySmall!,
+        ];
+        for (final style in _slots(text)) {
           expect(style.letterSpacing, 0, reason: style.debugLabel);
-          expect(style.height, AppType.normalHeight, reason: style.debugLabel);
+          expect(
+            style.height,
+            body.contains(style) ? AppType.bodyHeight : AppType.normalHeight,
+            reason: style.debugLabel,
+          );
         }
-        // What a plain Text and a button label inherit. Null is fine: no
-        // tracking, and the fonts' own (normal) line height.
-        for (final style in [
-          DefaultTextStyle.of(context).style,
-          DefaultTextStyle.of(buttonContext).style,
+        // What a plain Text (bodyMedium) and a button label inherit. Null is
+        // fine: no tracking, and the fonts' own (normal) line height.
+        for (final (style, height) in [
+          (DefaultTextStyle.of(context).style, AppType.bodyHeight),
+          (DefaultTextStyle.of(buttonContext).style, AppType.normalHeight),
         ]) {
           expect(style.letterSpacing ?? 0, 0, reason: style.debugLabel);
           expect(
             style.height ?? AppType.normalHeight,
-            AppType.normalHeight,
+            height,
             reason: style.debugLabel,
           );
           expect(style.fontFamily, AppType.uiFamily);
         }
         // The sizes stay Material's; only bodySmall keeps its 13 px.
-        final text = Theme.of(context).textTheme;
         expect(text.bodyMedium!.fontSize, 14);
         expect(text.bodySmall!.fontSize, 13);
         expect(

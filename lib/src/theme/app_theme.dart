@@ -45,7 +45,8 @@ ThemeData buildEatovaTheme(Brightness brightness) {
   // 0.1-0.5 px tracking and 1.33-1.5 line heights, which every Text without
   // its own values inherits. The design sets text with normal tracking (0)
   // and the fonts' normal line height, so the theme carries those instead;
-  // multi-line copy sets its own height where the design has one.
+  // multi-line copy sets its own height where the design has one. The body
+  // slots (plain Text, text fields) keep a reading height.
   final designText = Typography.englishLike2021
       .merge(base.textTheme)
       .apply(
@@ -58,7 +59,13 @@ ThemeData buildEatovaTheme(Brightness brightness) {
         heightDelta: AppType.normalHeight,
       );
   final textTheme = designText.copyWith(
-    bodySmall: designText.bodySmall!.copyWith(fontSize: 13, color: t.ink2),
+    bodyLarge: designText.bodyLarge!.copyWith(height: AppType.bodyHeight),
+    bodyMedium: designText.bodyMedium!.copyWith(height: AppType.bodyHeight),
+    bodySmall: designText.bodySmall!.copyWith(
+      fontSize: 13,
+      color: t.ink2,
+      height: AppType.bodyHeight,
+    ),
   );
 
   return base.copyWith(

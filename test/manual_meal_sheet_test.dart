@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/widgets/design/sheets.dart' show FieldCapsule;
 import 'package:eatova/src/widgets/kcal/manual_meal_sheet.dart';
 
 import 'support/harness.dart';
@@ -154,6 +155,17 @@ void main() {
       find.byKey(const ValueKey('manual-meal-name')),
     );
     expect(feld.controller?.text, 'Bauernmozzarella');
+  });
+
+  // Final review B-I1: the theme's text height once shrank the dense 16 px
+  // name field to 43 px. The whole capsule is the tap target.
+  testWidgets('das Namensfeld bleibt mindestens 44 px hoch', (tester) async {
+    await _open(tester);
+    final capsule = find.ancestor(
+      of: find.byKey(const ValueKey('manual-meal-name')),
+      matching: find.byType(FieldCapsule),
+    );
+    expect(tester.getSize(capsule.first).height, greaterThanOrEqualTo(44));
   });
 
   testWidgets('Abbrechen liefert null', (tester) async {
