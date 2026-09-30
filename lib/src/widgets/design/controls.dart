@@ -1,6 +1,9 @@
+import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 
 import '../../theme/app_tokens.dart';
 import '../common/motion.dart';
@@ -630,7 +633,14 @@ class AppNavItem {
 /// their END by it (content scrolls under the glass but can always be scrolled
 /// clear of it), and pinned bottom elements (docks, composers, CTAs) sit on
 /// top of it, [clearance] above the bar.
-class AppNavBar extends StatelessWidget {
+///
+/// Motion (polish 2026-10-01): the selected-item pill slides over to the new
+/// item in [pillDuration], stretching a little on the way; icon and label
+/// colours cross-fade and the tapped icon dips to 0.9. A real change clicks
+/// ([HapticFeedback.selectionClick]); re-tapping the active item still reports
+/// it but stays silent. Everything is paint-only behind its own
+/// [RepaintBoundary], so the glass's BackdropFilter is never repainted by it.
+class AppNavBar extends StatefulWidget {
   const AppNavBar({
     super.key,
     required this.index,
@@ -673,6 +683,9 @@ class AppNavBar extends StatelessWidget {
   /// Opaque foot of the fade: 40 % of [fadeHeight].
   static const double _fadeSolid = fadeHeight * 0.4;
 
+  /// Travel of the selected-item pill to a new item.
+  static const Duration pillDuration = Duration(milliseconds: 240);
+
   /// Distance of the bar's bottom edge from the screen edge for [bottomInset]
   /// (`MediaQuery.padding.bottom` of the window).
   static double bottomOffsetFor(double bottomInset) =>
@@ -682,6 +695,14 @@ class AppNavBar extends StatelessWidget {
   /// height): what tab bodies receive as `MediaQuery.padding.bottom`.
   static double reservedHeightFor(double bottomInset) =>
       bottomOffsetFor(bottomInset) + barHeight + clearance;
+
+  /// Test hook: the pill's global rect, from the render object found under
+  /// `ValueKey('nav-pill')`.
+  @visibleForTesting
+  static Rect? debugPillRect(RenderObject track) {
+    final box = track as _RenderNavPillTrack;
+    return box.pillRect?.shift(box.localToGlobal(Offset.zero));
+  }
 
   final int index;
   final ValueChanged<int> onChanged;
@@ -693,12 +714,64 @@ class AppNavBar extends StatelessWidget {
   final bool docked;
 
   @override
+  State<AppNavBar> createState() => _AppNavBarState();
+}
+
+class _AppNavBarState extends State<AppNavBar>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pill = AnimationController(
+    vsync: this,
+    duration: AppNavBar.pillDuration,
+    value: 1,
+  );
+
+  /// Where the pill started its current travel (fractional item index).
+  late double _pillFrom = widget.index.toDouble();
+
+  final _PillAnchors _anchors = _PillAnchors();
+
+  @override
+  void didUpdateWidget(AppNavBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.index == widget.index) return;
+    // Retarget from where the pill is now, so rapid taps never jump.
+    _pillFrom = _RenderNavPillTrack.positionAt(
+      _pillFrom,
+      oldWidget.index.toDouble(),
+      _pill.value,
+    );
+    final duration = motionDuration(context, AppNavBar.pillDuration);
+    if (duration == Duration.zero) {
+      _pill.value = 1;
+      return;
+    }
+    _pill
+      ..duration = duration
+      ..forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _pill.dispose();
+    super.dispose();
+  }
+
+  void _select(int i) {
+    if (i != widget.index) HapticFeedback.selectionClick();
+    widget.onChanged(i);
+  }
+
+  @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final offset = bottomOffsetFor(MediaQuery.paddingOf(context).bottom);
-    final fadeOverhang = docked
+    final items = widget.items;
+    final offset = AppNavBar.bottomOffsetFor(
+      MediaQuery.paddingOf(context).bottom,
+    );
+    final fadeOverhang = widget.docked
         ? 0.0
-        : fadeHeight - (bottomGap + barHeight + clearance);
+        : AppNavBar.fadeHeight -
+              (AppNavBar.bottomGap + AppNavBar.barHeight + AppNavBar.clearance);
     // Reduce-motion aware, like the predecessor bar.
     final motion = motionDuration(context, const Duration(milliseconds: 180));
     const radius = BorderRadius.all(Radius.circular(rNav));
@@ -711,7 +784,10 @@ class AppNavBar extends StatelessWidget {
       child: ClipRRect(
         borderRadius: radius,
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
+          filter: ImageFilter.blur(
+            sigmaX: AppNavBar.blurSigma,
+            sigmaY: AppNavBar.blurSigma,
+          ),
           child: DecoratedBox(
             key: const ValueKey<String>('nav-glass'),
             decoration: BoxDecoration(
@@ -723,21 +799,37 @@ class AppNavBar extends StatelessWidget {
             // underneath the glass and be blurred away.
             child: Material(
               type: MaterialType.transparency,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(minHeight: barHeight),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                  child: Row(
-                    children: List<Widget>.generate(items.length, (i) {
-                      return Expanded(
-                        child: _NavItem(
-                          item: items[i],
-                          active: i == index,
-                          motion: motion,
-                          onTap: () => onChanged(i),
-                        ),
-                      );
-                    }),
+              // Pill, colour and press frames stop here: the BackdropFilter
+              // above is not repainted by them.
+              child: RepaintBoundary(
+                child: _NavPillTrack(
+                  key: const ValueKey<String>('nav-pill'),
+                  anchors: _anchors,
+                  from: _pillFrom,
+                  to: widget.index.toDouble(),
+                  animation: _pill,
+                  color: t.accentTintStrong,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      minHeight: AppNavBar.barHeight,
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      child: Row(
+                        children: List<Widget>.generate(items.length, (i) {
+                          return Expanded(
+                            child: _NavItem(
+                              item: items[i],
+                              index: i,
+                              anchors: _anchors,
+                              active: i == widget.index,
+                              motion: motion,
+                              onTap: () => _select(i),
+                            ),
+                          );
+                        }),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -774,7 +866,7 @@ class AppNavBar extends StatelessWidget {
                   ),
                 ),
                 SizedBox(
-                  height: _fadeSolid + offset - bottomGap,
+                  height: AppNavBar._fadeSolid + offset - AppNavBar.bottomGap,
                   width: double.infinity,
                   child: ColoredBox(color: t.bg),
                 ),
@@ -783,7 +875,12 @@ class AppNavBar extends StatelessWidget {
           ),
         ),
         Padding(
-          padding: EdgeInsets.fromLTRB(sideGap, clearance, sideGap, offset),
+          padding: EdgeInsets.fromLTRB(
+            AppNavBar.sideGap,
+            AppNavBar.clearance,
+            AppNavBar.sideGap,
+            offset,
+          ),
           // Keeps the bar under the content column on large windows.
           child: ReadableWidth(child: bar),
         ),
@@ -793,76 +890,386 @@ class AppNavBar extends StatelessWidget {
 }
 
 /// One tab of the [AppNavBar]: icon in a 48x28 capsule over an 11 px label.
-class _NavItem extends StatelessWidget {
+///
+/// The capsule itself is painted by [_NavPillTrack]; the item only marks its
+/// slot ([_PillAnchor]).
+class _NavItem extends StatefulWidget {
   const _NavItem({
     required this.item,
+    required this.index,
+    required this.anchors,
     required this.active,
     required this.motion,
     required this.onTap,
   });
 
   final AppNavItem item;
+  final int index;
+  final _PillAnchors anchors;
   final bool active;
   final Duration motion;
   final VoidCallback onTap;
 
   @override
+  State<_NavItem> createState() => _NavItemState();
+}
+
+class _NavItemState extends State<_NavItem>
+    with SingleTickerProviderStateMixin {
+  static const Duration _pressIn = Duration(milliseconds: 70);
+  static const Duration _pressOut = Duration(milliseconds: 200);
+  static const double _pressedScale = 0.9;
+
+  late final AnimationController _press = AnimationController(
+    vsync: this,
+    duration: _pressIn,
+  );
+  late final Animation<double> _scale = Tween<double>(
+    begin: 1,
+    end: _pressedScale,
+  ).animate(_press);
+  bool _down = false;
+
+  void _onDown() {
+    if (reducedMotion(context)) return;
+    _down = true;
+    _press.animateTo(1, duration: _pressIn, curve: Curves.easeOut);
+  }
+
+  void _onRelease() {
+    _down = false;
+    if (reducedMotion(context)) return;
+    // A quick tap still dips all the way before it springs back.
+    _press
+        .animateTo(1, duration: _pressIn * (1 - _press.value))
+        .whenCompleteOrCancel(() {
+          if (mounted && !_down) {
+            _press.animateBack(
+              0,
+              duration: _pressOut,
+              curve: Curves.easeOutCubic,
+            );
+          }
+        });
+  }
+
+  @override
+  void dispose() {
+    _press.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final ink = active ? t.accentText : t.ink3;
+    final item = widget.item;
+    final active = widget.active;
     return Semantics(
       selected: active,
       button: true,
       label: item.label,
       child: InkWell(
         key: ValueKey<String>('nav-${item.keyId}'),
-        onTap: onTap,
+        onTap: widget.onTap,
+        onTapDown: (_) => _onDown(),
+        onTapUp: (_) => _onRelease(),
+        onTapCancel: _onRelease,
         borderRadius: BorderRadius.circular(rCard),
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: AppNavBar.itemHeight),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              AnimatedContainer(
-                duration: motion,
-                curve: Curves.easeOut,
-                width: 48,
-                height: 28,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: active ? t.accentTintStrong : Colors.transparent,
-                  borderRadius: BorderRadius.circular(rControl),
-                ),
-                child: AppIcon(
-                  item.icon,
-                  selected: active,
-                  size: 22,
-                  color: ink,
-                ),
-              ),
-              const SizedBox(height: 3),
-              // The label is already the item's Semantics label; without
-              // ExcludeSemantics it would be read twice. Hard single line: at
-              // textScaler 2.0 it would not fit into a fifth of the bar.
-              ExcludeSemantics(
-                child: Text(
-                  item.label,
-                  maxLines: 1,
-                  softWrap: false,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: AppType.ui(
-                    11,
-                    weight: active ? FontWeight.w800 : FontWeight.w600,
-                    color: ink,
+          // Colour-only frames: text and glyph repaint, nothing re-lays out
+          // (the label weight flips once, with the selection).
+          child: TweenAnimationBuilder<double>(
+            tween: Tween<double>(end: active ? 1 : 0),
+            duration: widget.motion,
+            curve: Curves.easeOut,
+            builder: (context, selectedness, _) {
+              final ink = Color.lerp(t.ink3, t.accentText, selectedness)!;
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  _PillAnchor(
+                    anchors: widget.anchors,
+                    index: widget.index,
+                    child: SizedBox(
+                      width: 48,
+                      height: 28,
+                      child: Center(
+                        child: ScaleTransition(
+                          scale: _scale,
+                          child: AppIcon(
+                            item.icon,
+                            selected: active,
+                            size: 22,
+                            color: ink,
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ),
-            ],
+                  const SizedBox(height: 3),
+                  // The label is already the item's Semantics label; without
+                  // ExcludeSemantics it would be read twice. Hard single line:
+                  // at textScaler 2.0 it would not fit into a fifth of the bar.
+                  ExcludeSemantics(
+                    child: Text(
+                      item.label,
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: AppType.ui(
+                        11,
+                        weight: active ? FontWeight.w800 : FontWeight.w600,
+                        color: ink,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),
     );
+  }
+}
+
+/// The items' pill slots, by item index, for [_NavPillTrack] to measure.
+class _PillAnchors {
+  final Map<int, RenderBox> boxes = <int, RenderBox>{};
+}
+
+/// Marks the 48x28 slot the selected-item pill covers.
+class _PillAnchor extends SingleChildRenderObjectWidget {
+  const _PillAnchor({
+    required this.anchors,
+    required this.index,
+    required super.child,
+  });
+
+  final _PillAnchors anchors;
+  final int index;
+
+  @override
+  _RenderPillAnchor createRenderObject(BuildContext context) =>
+      _RenderPillAnchor(anchors, index);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderPillAnchor renderObject) {
+    renderObject
+      ..anchors = anchors
+      ..index = index;
+  }
+}
+
+class _RenderPillAnchor extends RenderProxyBox {
+  _RenderPillAnchor(this._anchors, this._index);
+
+  _PillAnchors _anchors;
+  set anchors(_PillAnchors value) {
+    if (identical(value, _anchors)) return;
+    _unregister();
+    _anchors = value;
+    _register();
+  }
+
+  int _index;
+  set index(int value) {
+    if (value == _index) return;
+    _unregister();
+    _index = value;
+    _register();
+  }
+
+  void _register() {
+    if (attached) _anchors.boxes[_index] = this;
+  }
+
+  void _unregister() {
+    if (identical(_anchors.boxes[_index], this)) _anchors.boxes.remove(_index);
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    _register();
+  }
+
+  @override
+  void detach() {
+    _unregister();
+    super.detach();
+  }
+}
+
+/// Paints the selected-item pill behind its child, sliding between the
+/// items' [_PillAnchor] slots as [animation] runs from [from] to [to].
+///
+/// The slots are measured at paint time, so the pill sits exactly where the
+/// per-item capsule sat before, at any text scale and direction.
+class _NavPillTrack extends SingleChildRenderObjectWidget {
+  const _NavPillTrack({
+    super.key,
+    required this.anchors,
+    required this.from,
+    required this.to,
+    required this.animation,
+    required this.color,
+    required super.child,
+  });
+
+  final _PillAnchors anchors;
+  final double from;
+  final double to;
+  final Animation<double> animation;
+  final Color color;
+
+  @override
+  _RenderNavPillTrack createRenderObject(BuildContext context) =>
+      _RenderNavPillTrack(
+        anchors: anchors,
+        from: from,
+        to: to,
+        animation: animation,
+        color: color,
+      );
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderNavPillTrack renderObject,
+  ) {
+    renderObject
+      ..anchors = anchors
+      ..from = from
+      ..to = to
+      ..animation = animation
+      ..color = color;
+  }
+}
+
+class _RenderNavPillTrack extends RenderProxyBox {
+  _RenderNavPillTrack({
+    required _PillAnchors anchors,
+    required double from,
+    required double to,
+    required Animation<double> animation,
+    required Color color,
+  }) : _anchors = anchors,
+       _from = from,
+       _to = to,
+       _animation = animation,
+       _color = color;
+
+  static const Curve _curve = Curves.easeOutCubic;
+
+  /// Largest mid-travel stretch of the pill, in px.
+  static const double _maxStretch = 12;
+
+  /// Pill position (fractional item index) at progress [t] of a travel.
+  static double positionAt(double from, double to, double t) =>
+      from + (to - from) * _curve.transform(t);
+
+  _PillAnchors _anchors;
+  set anchors(_PillAnchors value) {
+    if (identical(value, _anchors)) return;
+    _anchors = value;
+    markNeedsPaint();
+  }
+
+  double _from;
+  set from(double value) {
+    if (value == _from) return;
+    _from = value;
+    markNeedsPaint();
+  }
+
+  double _to;
+  set to(double value) {
+    if (value == _to) return;
+    _to = value;
+    markNeedsPaint();
+  }
+
+  Animation<double> _animation;
+  set animation(Animation<double> value) {
+    if (identical(value, _animation)) return;
+    if (attached) _animation.removeListener(markNeedsPaint);
+    _animation = value;
+    if (attached) _animation.addListener(markNeedsPaint);
+    markNeedsPaint();
+  }
+
+  Color _color;
+  set color(Color value) {
+    if (value == _color) return;
+    _color = value;
+    markNeedsPaint();
+  }
+
+  @override
+  void attach(PipelineOwner owner) {
+    super.attach(owner);
+    _animation.addListener(markNeedsPaint);
+  }
+
+  @override
+  void detach() {
+    _animation.removeListener(markNeedsPaint);
+    super.detach();
+  }
+
+  Rect? _slot(int index) {
+    final box = _anchors.boxes[index];
+    if (box == null || !box.attached || !box.hasSize) return null;
+    return MatrixUtils.transformRect(
+      box.getTransformTo(this),
+      Offset.zero & box.size,
+    );
+  }
+
+  Rect? _rectAt(double position) {
+    final lo = position.floor();
+    final a = _slot(lo);
+    final b = _slot(position.ceil());
+    if (a == null || b == null) return a ?? b;
+    return Rect.lerp(a, b, position - lo);
+  }
+
+  /// The pill's rect in this box's coordinates, null before layout.
+  Rect? get pillRect {
+    final t = _animation.value;
+    final base = _rectAt(positionAt(_from, _to, t));
+    if (base == null || t >= 1) return base;
+    final start = _rectAt(_from);
+    final end = _rectAt(_to);
+    if (start == null || end == null) return base;
+    // Stretches with the travel speed, capped: a short hop barely morphs.
+    final travel = (end.center.dx - start.center.dx).abs();
+    final stretch =
+        math.min(travel * 0.15, _maxStretch) *
+        math.sin(math.pi * _curve.transform(t));
+    return Rect.fromCenter(
+      center: base.center,
+      width: base.width + stretch,
+      height: base.height,
+    );
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) {
+    final rect = pillRect;
+    if (rect != null) {
+      context.canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          rect.shift(offset),
+          const Radius.circular(rControl),
+        ),
+        Paint()..color = _color,
+      );
+    }
+    super.paint(context, offset);
   }
 }
