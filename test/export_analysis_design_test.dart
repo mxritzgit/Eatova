@@ -218,6 +218,12 @@ void main() {
             const ValueKey('export-expand-logged_meals'),
           );
           await tester.scrollUntilVisible(section, 200);
+          // Clear of the copy snack at the sheet's foot.
+          await Scrollable.ensureVisible(
+            tester.element(section),
+            alignment: 0.3,
+          );
+          await tester.pumpAndSettle();
           await tester.tap(section);
           await tester.pumpAndSettle();
           final csv = find.byKey(const ValueKey('export-csv-logged_meals'));
