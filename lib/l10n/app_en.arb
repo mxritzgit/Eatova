@@ -1478,7 +1478,6 @@
   "authSublineLogin": "Your food diary is ready when you are.",
   "authSublineRegister": "First your account. Then your personal daily goal.",
   "authFieldPasswordLoginHint": "Your password",
-  "authFeatureFood": "Food",
   "authErrorPasswordMissing": "Please enter your password.",
   "authRecoveryProgress": "Step {current} of {total}",
   "@authRecoveryProgress": {

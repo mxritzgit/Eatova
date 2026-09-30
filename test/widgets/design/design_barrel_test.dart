@@ -19,10 +19,8 @@ void main() {
             children: <Widget>[
               // surfaces.dart
               const AppCard(child: Text('Karte')),
-              const ScreenTitle(title: 'Titel'),
               const SectionHeading(title: 'Abschnitt'),
               const SizedBox(height: 60, child: ImagePlaceholder()),
-              const DottedAddSlot(label: 'Hinzufuegen'),
               // controls.dart
               SquareIconButton(icon: Icons.chevron_left_rounded, onTap: () {}),
               const IconTile(icon: Icons.bolt_rounded),
@@ -60,7 +58,6 @@ void main() {
                 ],
               ),
               // meters.dart
-              const TickGauge(progress: 0.5),
               MacroBar(
                 label: 'Protein',
                 value: 96,

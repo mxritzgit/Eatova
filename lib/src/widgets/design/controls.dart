@@ -49,18 +49,9 @@ class SquareIconButton extends StatelessWidget {
     required this.icon,
     this.onTap,
     this.semanticLabel,
-  }) : _child = null;
+  });
 
-  const SquareIconButton.custom({
-    super.key,
-    required Widget child,
-    this.onTap,
-    this.semanticLabel,
-  }) : icon = null,
-       _child = child;
-
-  final IconData? icon;
-  final Widget? _child;
+  final IconData icon;
   final VoidCallback? onTap;
   final String? semanticLabel;
 
@@ -92,12 +83,7 @@ class SquareIconButton extends StatelessWidget {
                   borderRadius: BorderRadius.circular(rChip),
                   border: Border.all(color: t.line),
                 ),
-                child: _child == null
-                    ? Icon(icon, size: 17, color: t.ink2)
-                    : IconTheme(
-                        data: IconThemeData(size: 20, color: t.ink2),
-                        child: Center(child: _child),
-                      ),
+                child: Icon(icon, size: 17, color: t.ink2),
               ),
             ),
           ),

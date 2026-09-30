@@ -14,18 +14,18 @@ final AppLocalizations _de = lookupAppLocalizations(const Locale('de'));
 
 void main() {
   test('BMI-Zonenlabels sind korrekt kodiert', () {
-    expect(BMIGaugePainter.labelFor(17.0, _de), 'Untergewicht');
-    expect(BMIGaugePainter.labelFor(22.0, _de), 'Normal');
-    expect(BMIGaugePainter.labelFor(27.0, _de), 'Übergewicht');
-    expect(BMIGaugePainter.labelFor(31.0, _de), 'Adipös');
+    expect(BmiZones.labelFor(17.0, _de), 'Untergewicht');
+    expect(BmiZones.labelFor(22.0, _de), 'Normal');
+    expect(BmiZones.labelFor(27.0, _de), 'Übergewicht');
+    expect(BmiZones.labelFor(31.0, _de), 'Adipös');
   });
 
   test('die Zonengrenzen liegen auf den WHO-Schwellen', () {
-    expect(BMIGaugePainter.labelFor(18.49, _de), 'Untergewicht');
-    expect(BMIGaugePainter.labelFor(18.5, _de), 'Normal');
-    expect(BMIGaugePainter.labelFor(24.99, _de), 'Normal');
-    expect(BMIGaugePainter.labelFor(25.0, _de), 'Übergewicht');
-    expect(BMIGaugePainter.labelFor(29.99, _de), 'Übergewicht');
-    expect(BMIGaugePainter.labelFor(30.0, _de), 'Adipös');
+    expect(BmiZones.labelFor(18.49, _de), 'Untergewicht');
+    expect(BmiZones.labelFor(18.5, _de), 'Normal');
+    expect(BmiZones.labelFor(24.99, _de), 'Normal');
+    expect(BmiZones.labelFor(25.0, _de), 'Übergewicht');
+    expect(BmiZones.labelFor(29.99, _de), 'Übergewicht');
+    expect(BmiZones.labelFor(30.0, _de), 'Adipös');
   });
 }

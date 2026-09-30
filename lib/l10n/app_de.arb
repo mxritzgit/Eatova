@@ -1523,7 +1523,6 @@
   "authSublineLogin": "Dein Tagebuch wartet auf dich.",
   "authSublineRegister": "Erst dein Konto. Dann dein persönliches Tagesziel.",
   "authFieldPasswordLoginHint": "Dein Passwort",
-  "authFeatureFood": "Essen",
   "authErrorPasswordMissing": "Bitte gib dein Passwort ein.",
   "authRecoveryProgress": "Schritt {current} von {total}",
   "@authRecoveryProgress": {
