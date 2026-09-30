@@ -246,6 +246,10 @@ void main() {
         'same pick for the next account', (tester) async {
       final context = await _context(tester);
       final gate = Completer<void>();
+      // Release the file-shared in-flight key even if this test fails.
+      addTearDown(() {
+        if (!gate.isCompleted) gate.complete();
+      });
       final writes = <Object>[];
       Future<bool> log(Object owner) => logRecipePick(
         context,

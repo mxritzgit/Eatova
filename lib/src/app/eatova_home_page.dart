@@ -898,7 +898,6 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.userRecipesAuthoritative,
       _store.recipePhotoReferences,
       _store.profile,
-      _store.macroProgress,
       // Inputs of the hero pick and its bookmark (G11: never the pick).
       _store.loggedMeals,
       _store.dailyActivity,
