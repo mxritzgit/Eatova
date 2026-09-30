@@ -551,6 +551,33 @@ void main() {
       handle.dispose();
     });
 
+    // Final review B-M1: the design's fade is 112 px from the screen edge,
+    // 10 px more than the band; over a docked tab it ends at the dock line.
+    testWidgets('der Verlauf ist 112 px hoch wie im Design, ueber einem Dock '
+        'endet er an dessen Linie', (tester) async {
+      pinIphone14Pro(tester);
+      for (final (docked, top) in [(false, 844 - 112.0), (true, 844 - 102.0)]) {
+        await tester.pumpWidget(
+          _navShell(
+            AppNavBar(
+              index: 0,
+              onChanged: (_) {},
+              items: _navItems,
+              docked: docked,
+            ),
+          ),
+        );
+        final fade = tester.getRect(find.byKey(const ValueKey('nav-fade')));
+        expect(fade.top, top, reason: 'docked: $docked');
+        expect(fade.bottom, 844);
+        expect(
+          tester.getSize(find.byType(AppNavBar)).height,
+          22 + 68 + 12,
+          reason: 'the claimed band stays the same',
+        );
+      }
+    });
+
     testWidgets('Android-Gestenleiste (24 px): ebenfalls 22 px ueber der Kante',
         (tester) async {
       tester.view.devicePixelRatio = 1;

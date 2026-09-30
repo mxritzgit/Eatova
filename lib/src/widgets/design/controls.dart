@@ -636,6 +636,7 @@ class AppNavBar extends StatelessWidget {
     required this.index,
     required this.onChanged,
     required this.items,
+    this.docked = false,
   });
 
   /// Height of the glass bar itself (it grows with very large text).
@@ -658,16 +659,19 @@ class AppNavBar extends StatelessWidget {
   static const double systemBarGap = 8;
 
   /// Space between the bar and whatever is pinned above it (the design's
-  /// docks sit at 22 + 68 + 12 = 102). The fade starts here as well, so it
-  /// never veils a pinned element.
+  /// docks sit at 22 + 68 + 12 = 102).
   static const double clearance = 12;
 
   /// Backdrop blur behind the glass (CSS `blur(24px)`).
   static const double blurSigma = 24;
 
-  /// Opaque foot of the fade: 40 % of the design's 112 px band, measured from
-  /// the screen edge at the design's offset.
-  static const double _fadeSolid = 112 * 0.4;
+  /// The design's fade band, measured from the screen edge at the design's
+  /// offset: 10 px taller than the claimed band, so it reaches above the
+  /// [clearance] line (painted, never laid out or hit-tested).
+  static const double fadeHeight = 112;
+
+  /// Opaque foot of the fade: 40 % of [fadeHeight].
+  static const double _fadeSolid = fadeHeight * 0.4;
 
   /// Distance of the bar's bottom edge from the screen edge for [bottomInset]
   /// (`MediaQuery.padding.bottom` of the window).
@@ -683,10 +687,18 @@ class AppNavBar extends StatelessWidget {
   final ValueChanged<int> onChanged;
   final List<AppNavItem> items;
 
+  /// Whether the shown tab pins a dock on the [clearance] line (Food's entry
+  /// dock, Coach's composer). The fade then ends at that line, so it never
+  /// veils the dock.
+  final bool docked;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final offset = bottomOffsetFor(MediaQuery.paddingOf(context).bottom);
+    final fadeOverhang = docked
+        ? 0.0
+        : fadeHeight - (bottomGap + barHeight + clearance);
     // Reduce-motion aware, like the predecessor bar.
     final motion = motionDuration(context, const Duration(milliseconds: 180));
     const radius = BorderRadius.all(Radius.circular(rNav));
@@ -736,10 +748,16 @@ class AppNavBar extends StatelessWidget {
     );
 
     return Stack(
+      // The fade's overhang paints above the band.
+      clipBehavior: Clip.none,
       children: <Widget>[
         // Decorative and never a hit target: taps in the fade and in the
         // gaps around the bar reach whatever lies underneath.
-        Positioned.fill(
+        Positioned(
+          left: 0,
+          top: -fadeOverhang,
+          right: 0,
+          bottom: 0,
           child: IgnorePointer(
             child: Column(
               key: const ValueKey<String>('nav-fade'),

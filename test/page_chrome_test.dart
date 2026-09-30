@@ -164,6 +164,43 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('the tab bar fade reaches 112 px, but ends at the dock line on '
+      'Food and Coach', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.padding = const FakeViewPadding(top: _statusBar, bottom: 34);
+    tester.view.viewPadding = tester.view.padding;
+    addTearDown(tester.view.reset);
+    await pumpLocalized(
+      tester,
+      EatovaHomePage(),
+      scaffold: false,
+      safeArea: false,
+    );
+    await _frames(tester);
+    for (final (nav, docked) in [
+      ('Heute', false),
+      ('Food', true),
+      ('Rezepte', false),
+      ('Training', false),
+      ('Coach', true),
+    ]) {
+      await tester.tap(find.byKey(ValueKey('nav-$nav')));
+      await _frames(tester);
+      expect(
+        tester.widget<AppNavBar>(find.byType(AppNavBar)).docked,
+        docked,
+        reason: nav,
+      );
+      expect(
+        tester.getRect(find.byKey(const ValueKey('nav-fade'))).top,
+        844 - (docked ? 102 : 112),
+        reason: nav,
+      );
+    }
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('Today opens the correct account routes and keeps tab drafts', (
     tester,
   ) async {

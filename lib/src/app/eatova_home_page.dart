@@ -583,6 +583,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
                 _store.setTab(index);
               },
               items: _navItems(context),
+              docked: tab == _tabFood || tab == _tabCoach,
             ),
             // Tabs scroll internally, so no outer SingleChildScrollView.
             // Large windows get a bounded column; phones are unaffected.
