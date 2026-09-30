@@ -120,12 +120,14 @@ void main() {
       expect(_text(tester, 'today-kcal-remaining'), '2,123');
       expect(_text(tester, 'today-kcal-percent'), '0% eaten');
       expect(_text(tester, 'today-stat-eaten'), '0');
+      // 2,123 kcal shared over four open slots (adaptive band rule; the
+      // design draws the static 400–550 / 550–700 / 150–300).
       expect(
         _text(tester, 'today-meal-sub-breakfast'),
-        'Suggested 400–550 kcal',
+        'Suggested 400–500 kcal',
       );
-      expect(_text(tester, 'today-meal-sub-lunch'), 'Suggested 550–700 kcal');
-      expect(_text(tester, 'today-meal-sub-snack'), 'Suggested 150–300 kcal');
+      expect(_text(tester, 'today-meal-sub-lunch'), 'Suggested 550–650 kcal');
+      expect(_text(tester, 'today-meal-sub-snack'), 'Suggested 150–250 kcal');
       expect(find.byKey(const ValueKey('today-meal-kcal-lunch')), findsNothing);
 
       await precacheDesignImages(tester);

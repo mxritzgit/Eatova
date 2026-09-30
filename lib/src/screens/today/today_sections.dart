@@ -315,7 +315,15 @@ class TodayMealsCard extends StatelessWidget {
   String _subtitle(MealSlotSummary slot, AppLocalizations l10n) {
     if (!slot.isEmpty) return mealSlotSubtitle(slot.meals, l10n);
     if (!isToday) return l10n.todaySlotNothingLogged;
-    final range = summary.suggestedKcalRange(slot.slot);
+    final range = summary.suggestedKcalRange(
+      slot.slot,
+      emptySlots: [
+        for (final s in slots)
+          if (s.isEmpty) s.slot,
+      ],
+    );
+    // Budget (almost) used up: no band that would push the day over.
+    if (range == null) return l10n.todaySlotNothingLogged;
     return l10n.todaySlotSuggested(
       kcalThousands(range.minKcal, l10n),
       kcalThousands(range.maxKcal, l10n),

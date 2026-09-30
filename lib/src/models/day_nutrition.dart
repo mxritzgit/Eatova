@@ -56,10 +56,18 @@ final class DayNutritionSummary {
   int get carbsLeftG => _left(carbsGoalG, consumed.carbsG);
   int get fatLeftG => _left(fatGoalG, consumed.fatG);
 
-  /// The suggested band for an empty [slot] on this day's budget; see
+  /// The suggested band for the empty [slot] on this day, given the day's
+  /// [emptySlots]; null when too little is left. See
   /// [suggestedKcalRangeForSlot].
-  KcalRange suggestedKcalRange(MealSlot slot) =>
-      suggestedKcalRangeForSlot(slot, budgetKcal);
+  KcalRange? suggestedKcalRange(
+    MealSlot slot, {
+    required Iterable<MealSlot> emptySlots,
+  }) => suggestedKcalRangeForSlot(
+    slot,
+    budgetKcal: budgetKcal,
+    remainingKcal: remainingKcal,
+    emptySlots: emptySlots,
+  );
 
   static int _left(int goalG, double eatenG) =>
       (goalG - eatenG).round().clamp(0, 99999);
@@ -71,8 +79,7 @@ typedef KcalRange = ({int minKcal, int maxKcal});
 /// Share of the day's budget suggested per slot, as (low, high) fractions.
 ///
 /// Breakfast 20–25 %, lunch and dinner 25–33 %, snacks 7.5–15 %: a common
-/// four-meal split, chosen so that the design's sample budget of 2,123 kcal
-/// yields its exact bands (400–550, 550–700, 550–700, 150–300).
+/// four-meal split. [suggestedKcalRangeForSlot] caps it by what is left.
 const Map<MealSlot, (double, double)> slotBudgetShares = {
   MealSlot.breakfast: (0.20, 0.25),
   MealSlot.lunch: (0.25, 0.33),
@@ -80,23 +87,58 @@ const Map<MealSlot, (double, double)> slotBudgetShares = {
   MealSlot.snack: (0.075, 0.15),
 };
 
-/// "Suggested 550–700 kcal" for an empty [slot]: [slotBudgetShares] of
-/// [budgetKcal] (goal + activity credit), each end rounded to the nearest
-/// 50 kcal.
+/// "Suggested 550–600 kcal" for the empty [slot], adapted to what is left.
 ///
-/// A static daily guide: it ignores what is already eaten. Whether a concrete
-/// meal still fits the day is the recipe pick's job (`RecipePick.fits`).
-/// Floors keep the band readable for tiny budgets: min >= 50, max >= min + 50.
-KcalRange suggestedKcalRangeForSlot(MealSlot slot, int budgetKcal) {
-  final (low, high) = slotBudgetShares[slot]!;
+/// Rule, with B = [budgetKcal] (goal + activity credit, floored at 0),
+/// R = [remainingKcal] (budget minus eaten), E = [emptySlots] plus [slot]
+/// and mid = (low + high) / 2 of [slotBudgetShares]:
+/// - fair share F = R × mid(slot) / Σ mid(E): what is left, split over the
+///   still-empty slots by their share midpoints;
+/// - max = min(high × B, F), floored to a multiple of 50, so the maxima of
+///   all empty slots never add up to more than R;
+/// - max < 100 → null (no band; nothing meaningful is left);
+/// - min = min(low × B rounded to 50, max − 50), at least 50.
+///
+/// With nothing eaten and every slot empty, F sits just under high × B, so
+/// the band stays close to the static split: the design's sample budget of
+/// 2,123 kcal gives 400–500, 550–650, 550–650 and 150–250 (the design draws
+/// the static 400–550, 550–700, 550–700, 150–300). Its scenario (1,221 eaten,
+/// 902 left) keeps dinner at 550–700 while dinner is the only empty slot (the
+/// cap of 33 % binds); with dinner and snack empty they get 550–600 and
+/// 150–250.
+///
+/// Whether a concrete meal still fits the day is the recipe pick's job
+/// (`RecipePick.fits`).
+KcalRange? suggestedKcalRangeForSlot(
+  MealSlot slot, {
+  required int budgetKcal,
+  required int remainingKcal,
+  required Iterable<MealSlot> emptySlots,
+}) {
   final budget = budgetKcal < 0 ? 0 : budgetKcal;
-  int round50(double kcal) => (kcal / 50).round() * 50;
-  final minKcal = _atLeast(round50(budget * low), 50);
-  final maxKcal = _atLeast(round50(budget * high), minKcal + 50);
-  return (minKcal: minKcal, maxKcal: maxKcal);
+  if (budget == 0 || remainingKcal <= 0) return null;
+  // Integer per-mille shares keep the floors exact.
+  final (lowMille, highMille) = _sharesMille(slot);
+  var midSum = 0;
+  for (final s in {...emptySlots, slot}) {
+    final (low, high) = _sharesMille(s);
+    midSum += low + high;
+  }
+  final fairShare = remainingKcal * (lowMille + highMille) ~/ midSum;
+  final cap = budget * highMille ~/ 1000;
+  final maxKcal = _floor50(fairShare < cap ? fairShare : cap);
+  if (maxKcal < 100) return null;
+  final lowKcal = (budget * lowMille + 25000) ~/ 50000 * 50;
+  final minKcal = lowKcal < maxKcal - 50 ? lowKcal : maxKcal - 50;
+  return (minKcal: minKcal < 50 ? 50 : minKcal, maxKcal: maxKcal);
 }
 
-int _atLeast(int value, int floor) => value < floor ? floor : value;
+(int, int) _sharesMille(MealSlot slot) {
+  final (low, high) = slotBudgetShares[slot]!;
+  return ((low * 1000).round(), (high * 1000).round());
+}
+
+int _floor50(int kcal) => kcal ~/ 50 * 50;
 
 /// Main meals in day order; snacks are never a "next meal".
 const List<MealSlot> mainMealSlots = <MealSlot>[

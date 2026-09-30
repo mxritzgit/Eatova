@@ -464,10 +464,16 @@ class MealAnalysisScreen extends StatelessWidget {
                         ),
                         slot: slot,
                         entries: bySlot[slot]!,
-                        // A guide for today's open slots; past days just say
-                        // nothing was logged.
+                        // A guide for today's open slots, sized by what is
+                        // left; past days just say nothing was logged.
                         suggestedRange: showsToday
-                            ? summary.suggestedKcalRange(slot)
+                            ? summary.suggestedKcalRange(
+                                slot,
+                                emptySlots: [
+                                  for (final s in MealSlot.values)
+                                    if (bySlot[s]!.isEmpty) s,
+                                ],
+                              )
                             : null,
                         pick:
                             pick != null &&

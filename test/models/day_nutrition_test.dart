@@ -87,56 +87,226 @@ void main() {
       expect(summary.eatenFraction, 0);
       expect(summary.proteinLeftG, 162);
       expect(
-        summary.suggestedKcalRange(MealSlot.snack),
-        suggestedKcalRangeForSlot(MealSlot.snack, 2050),
+        summary.suggestedKcalRange(MealSlot.snack, emptySlots: MealSlot.values),
+        suggestedKcalRangeForSlot(
+          MealSlot.snack,
+          budgetKcal: 2050,
+          remainingKcal: 2050,
+          emptySlots: MealSlot.values,
+        ),
       );
+    });
+
+    test('the band uses budget and remainder, activity credit included', () {
+      MacroProgress eaten() =>
+          const MacroProgress(proteinG: 111, carbsG: 144, fatG: 20, kcal: 1221);
+      const empty = [MealSlot.dinner, MealSlot.snack];
+      final withCredit = DayNutritionSummary(
+        profile: _profile,
+        burnedKcal: 73,
+        consumed: eaten(),
+      );
+      expect(
+        withCredit.suggestedKcalRange(MealSlot.dinner, emptySlots: empty),
+        (minKcal: 550, maxKcal: 600),
+      );
+      // Without the 73 kcal credit only 829 are left: max floors to 550
+      // and min steps down to 500.
+      final noCredit = DayNutritionSummary(
+        profile: _profile,
+        burnedKcal: 0,
+        consumed: eaten(),
+      );
+      expect(noCredit.suggestedKcalRange(MealSlot.dinner, emptySlots: empty), (
+        minKcal: 500,
+        maxKcal: 550,
+      ));
     });
   });
 
   group('suggestedKcalRangeForSlot', () {
-    test('design budget 2,123 kcal gives the design bands', () {
-      expect(suggestedKcalRangeForSlot(MealSlot.breakfast, 2123), (
-        minKcal: 400,
-        maxKcal: 550,
-      ));
-      expect(suggestedKcalRangeForSlot(MealSlot.lunch, 2123), (
-        minKcal: 550,
-        maxKcal: 700,
-      ));
-      expect(suggestedKcalRangeForSlot(MealSlot.dinner, 2123), (
-        minKcal: 550,
-        maxKcal: 700,
-      ));
-      expect(suggestedKcalRangeForSlot(MealSlot.snack, 2123), (
+    KcalRange? band(
+      MealSlot slot, {
+      required int budget,
+      required int remaining,
+      Iterable<MealSlot> empty = MealSlot.values,
+    }) => suggestedKcalRangeForSlot(
+      slot,
+      budgetKcal: budget,
+      remainingKcal: remaining,
+      emptySlots: empty,
+    );
+
+    test('nothing eaten, all empty: close to the static split (2,123)', () {
+      // The design draws the static 400-550 / 550-700 / 550-700 / 150-300;
+      // sharing the budget over all four slots trims the upper ends.
+      for (final (slot, expected) in [
+        (MealSlot.breakfast, (minKcal: 400, maxKcal: 500)),
+        (MealSlot.lunch, (minKcal: 550, maxKcal: 650)),
+        (MealSlot.dinner, (minKcal: 550, maxKcal: 650)),
+        (MealSlot.snack, (minKcal: 150, maxKcal: 250)),
+      ]) {
+        expect(
+          band(slot, budget: 2123, remaining: 2123),
+          expected,
+          reason: '$slot',
+        );
+      }
+    });
+
+    test('design scenario: 902 left for dinner (and snack)', () {
+      // The design day: only dinner open, so the 33 % cap binds.
+      expect(
+        band(
+          MealSlot.dinner,
+          budget: 2123,
+          remaining: 902,
+          empty: const [MealSlot.dinner],
+        ),
+        (minKcal: 550, maxKcal: 700),
+      );
+      const empty = [MealSlot.dinner, MealSlot.snack];
+      // F(dinner) = 902 x 0.29 / 0.4025 = 649.9 -> 600; min 550.
+      expect(
+        band(MealSlot.dinner, budget: 2123, remaining: 902, empty: empty),
+        (minKcal: 550, maxKcal: 600),
+      );
+      // F(snack) = 902 x 0.1125 / 0.4025 = 252.1 -> 250; min 150.
+      expect(band(MealSlot.snack, budget: 2123, remaining: 902, empty: empty), (
         minKcal: 150,
-        maxKcal: 300,
+        maxKcal: 250,
       ));
     });
 
-    test('scales with the budget and stays on the 50 kcal grid', () {
-      for (final budget in [1200, 1500, 1834, 2500, 3200, 4100]) {
+    test('a big lunch leaves dinner a narrow band, not 550-700', () {
+      // 1,800 of 2,100 eaten by noon, dinner and snack still open.
+      const empty = [MealSlot.dinner, MealSlot.snack];
+      // F(dinner) = 300 x 0.29 / 0.4025 = 216 -> 200; min steps to 150.
+      expect(
+        band(MealSlot.dinner, budget: 2100, remaining: 300, empty: empty),
+        (minKcal: 150, maxKcal: 200),
+      );
+      // F(snack) = 83.9 -> below 100: no band.
+      expect(
+        band(MealSlot.snack, budget: 2100, remaining: 300, empty: empty),
+        isNull,
+      );
+    });
+
+    test('the last open slot takes the rest, capped by high x budget', () {
+      const onlyDinner = [MealSlot.dinner];
+      // 1,200 left, but dinner is capped at 33 % of 2,123 = 700.
+      expect(
+        band(MealSlot.dinner, budget: 2123, remaining: 1200, empty: onlyDinner),
+        (minKcal: 550, maxKcal: 700),
+      );
+      // 420 left: the whole rest, floored to 400; min steps down to 350.
+      expect(
+        band(MealSlot.dinner, budget: 2123, remaining: 420, empty: onlyDinner),
+        (minKcal: 350, maxKcal: 400),
+      );
+      // The asked slot always counts as empty, even when left out.
+      expect(
+        band(MealSlot.dinner, budget: 2123, remaining: 420, empty: const []),
+        (minKcal: 350, maxKcal: 400),
+      );
+    });
+
+    test('nothing or too little left: no band', () {
+      for (final remaining in [0, -1, -250]) {
         for (final slot in MealSlot.values) {
-          final range = suggestedKcalRangeForSlot(slot, budget);
-          expect(range.minKcal % 50, 0, reason: '$slot @ $budget');
-          expect(range.maxKcal % 50, 0, reason: '$slot @ $budget');
-          expect(range.maxKcal, greaterThan(range.minKcal));
+          expect(
+            band(slot, budget: 2123, remaining: remaining),
+            isNull,
+            reason: '$slot @ $remaining',
+          );
         }
       }
-      expect(suggestedKcalRangeForSlot(MealSlot.lunch, 1200), (
-        minKcal: 300,
-        maxKcal: 400,
+      // Dinner alone with 149 left floors to 100: still a band ...
+      expect(
+        band(MealSlot.dinner, budget: 2123, remaining: 149, empty: const []),
+        (minKcal: 50, maxKcal: 100),
+      );
+      // ... with 99 left it would be 50: none.
+      expect(
+        band(MealSlot.dinner, budget: 2123, remaining: 99, empty: const []),
+        isNull,
+      );
+      // All four open with 400 left: breakfast's share is 98 -> none.
+      expect(band(MealSlot.breakfast, budget: 2123, remaining: 400), isNull);
+      expect(band(MealSlot.lunch, budget: 2123, remaining: 400), (
+        minKcal: 50,
+        maxKcal: 100,
       ));
     });
 
-    test('tiny or negative budgets keep a readable band', () {
-      expect(suggestedKcalRangeForSlot(MealSlot.snack, 100), (
-        minKcal: 50,
-        maxKcal: 100,
+    test('negative or zero budget: no band', () {
+      expect(band(MealSlot.dinner, budget: -40, remaining: 300), isNull);
+      expect(band(MealSlot.dinner, budget: 0, remaining: 300), isNull);
+    });
+
+    test('floors: min >= 50 and max - min >= 50 on the 50 kcal grid', () {
+      // Tiny budget: the cap of 33 % of 400 = 132 floors to 100.
+      expect(
+        band(
+          MealSlot.dinner,
+          budget: 400,
+          remaining: 400,
+          empty: const [MealSlot.dinner],
+        ),
+        (minKcal: 50, maxKcal: 100),
+      );
+      // A tight max pulls min below low x budget (300 of 1,200 stays).
+      expect(band(MealSlot.lunch, budget: 1200, remaining: 1200), (
+        minKcal: 300,
+        maxKcal: 350,
       ));
-      expect(suggestedKcalRangeForSlot(MealSlot.dinner, -40), (
-        minKcal: 50,
-        maxKcal: 100,
-      ));
+    });
+
+    test('property: on a grid, maxima never add up to more than is left', () {
+      final subsets = <List<MealSlot>>[
+        for (var mask = 1; mask < 16; mask++)
+          [
+            for (final slot in MealSlot.values)
+              if (mask & (1 << slot.index) != 0) slot,
+          ],
+      ];
+      final failures = <String>[];
+      var bands = 0;
+      for (var budget = -100; budget <= 4200; budget += 175) {
+        for (var remaining = -300; remaining <= 4500; remaining += 37) {
+          for (final empty in subsets) {
+            var sumMax = 0;
+            for (final slot in empty) {
+              final range = band(
+                slot,
+                budget: budget,
+                remaining: remaining,
+                empty: empty,
+              );
+              if (range == null) continue;
+              bands++;
+              final (low, high) = slotBudgetShares[slot]!;
+              final (:minKcal, :maxKcal) = range;
+              final ok =
+                  minKcal % 50 == 0 &&
+                  maxKcal % 50 == 0 &&
+                  minKcal >= 50 &&
+                  maxKcal >= 100 &&
+                  maxKcal - minKcal >= 50 &&
+                  maxKcal <= high * budget &&
+                  minKcal <= low * budget + 25;
+              if (!ok) failures.add('$slot b=$budget r=$remaining $range');
+              sumMax += maxKcal;
+            }
+            if (sumMax > (remaining < 0 ? 0 : remaining)) {
+              failures.add('sum $sumMax > r=$remaining b=$budget e=$empty');
+            }
+          }
+        }
+      }
+      expect(failures, isEmpty);
+      expect(bands, greaterThan(1000));
     });
   });
 

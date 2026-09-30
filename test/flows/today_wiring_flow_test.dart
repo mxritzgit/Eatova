@@ -289,6 +289,28 @@ void main() {
     });
   });
 
+  testWidgets('the empty dinner\'s band follows what is left and falls '
+      'back to "Nothing logged" once the budget is used up', (tester) async {
+    await withClock(Clock.fixed(designNow), () async {
+      final store = await pumpDesignToday(tester);
+      // 902 left with only dinner open: capped at 33 % of 2,123 = 700.
+      expect(_text(tester, 'today-meal-sub-dinner'), 'Suggested 550–700 kcal');
+
+      // A 650 kcal snack leaves 252: the band shrinks to the rest.
+      await store.addResultToDailyTotal(_dinner(), slot: MealSlot.snack);
+      await tester.pumpAndSettle();
+      expect(_text(tester, 'today-meal-sub-dinner'), 'Suggested 200–250 kcal');
+
+      // Over budget: no band that pushes the day further over.
+      await store.addResultToDailyTotal(_dinner(), slot: MealSlot.lunch);
+      await tester.pumpAndSettle();
+      expect(
+        _text(tester, 'today-meal-sub-dinner'),
+        _en.todaySlotNothingLogged,
+      );
+    });
+  });
+
   testWidgets('the accent "+" follows the store: logging the next main meal '
       'moves it on, a snack leaves it', (tester) async {
     // 08:30 on an empty day: breakfast is the next open main meal.

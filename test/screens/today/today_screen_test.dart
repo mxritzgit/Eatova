@@ -496,8 +496,9 @@ void main() {
       expect(_textOf(tester, 'today-meal-kcal-breakfast'), '340 kcal');
 
       expect(_in('today-meal-row-lunch', 'Mittagessen'), findsOneWidget);
-      // Default profile: 2,200 kcal budget, lunch 25–33 %.
-      expect(_textOf(tester, 'today-meal-sub-lunch'), 'Empfohlen 550–750 kcal');
+      // Default profile: 2,200 kcal budget, 1,250 left for lunch + snack;
+      // lunch is capped at 33 % = 726, floored to 700.
+      expect(_textOf(tester, 'today-meal-sub-lunch'), 'Empfohlen 550–700 kcal');
       expect(find.byKey(const ValueKey('today-meal-kcal-lunch')), findsNothing);
 
       expect(_in('today-meal-row-dinner', 'Abendessen'), findsOneWidget);

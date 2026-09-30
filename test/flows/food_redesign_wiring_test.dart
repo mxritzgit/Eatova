@@ -344,17 +344,46 @@ void main() {
         expect(_key('food-macro-bar'), findsOneWidget);
         expect(_key('food-macro-bar-protein'), findsNothing);
         expect(find.text('0 g'), findsNWidgets(3));
+        // 2,123 kcal shared over four open slots (adaptive band rule).
         for (final (slot, band) in [
-          (MealSlot.breakfast, 'Suggested 400–550 kcal'),
-          (MealSlot.lunch, 'Suggested 550–700 kcal'),
-          (MealSlot.dinner, 'Suggested 550–700 kcal'),
-          (MealSlot.snack, 'Suggested 150–300 kcal'),
+          (MealSlot.breakfast, 'Suggested 400–500 kcal'),
+          (MealSlot.lunch, 'Suggested 550–650 kcal'),
+          (MealSlot.dinner, 'Suggested 550–650 kcal'),
+          (MealSlot.snack, 'Suggested 150–250 kcal'),
         ]) {
           expect(_inCard(slot, find.text(band)), findsOneWidget);
         }
         // One pick, in the slot it targets, although all four are empty.
         expect(_key('food-pick-row'), findsOneWidget);
         expect(_inCard(MealSlot.dinner, _key('food-pick-row')), findsOneWidget);
+      });
+    });
+
+    testWidgets('the empty dinner\'s band shrinks with what is eaten and '
+        'goes once the budget is used up', (tester) async {
+      await withClock(Clock.fixed(foodDesignNow), () async {
+        final store = await _pumpFood(tester);
+        Finder dinner(String text) => _inCard(MealSlot.dinner, find.text(text));
+        // 902 left, dinner is the only open slot: capped at 33 % = 700.
+        expect(dinner('Suggested 550–700 kcal'), findsOneWidget);
+
+        await store.addResultToDailyTotal(
+          _result('Pizza', 500, carbs: 60, fat: 20, protein: 20),
+          slot: MealSlot.snack,
+        );
+        await tester.pumpAndSettle();
+        // 402 left: the whole rest, floored to 400.
+        expect(dinner('Suggested 350–400 kcal'), findsOneWidget);
+
+        await store.addResultToDailyTotal(
+          _result('Cake', 350, carbs: 40, fat: 15, protein: 5),
+          slot: MealSlot.lunch,
+        );
+        await tester.pumpAndSettle();
+        // 52 left: no band, the plain empty-slot line instead.
+        expect(_key('food-slot-empty-dinner'), findsOneWidget);
+        expect(dinner('Nothing logged yet'), findsOneWidget);
+        expect(find.textContaining('Suggested'), findsNothing);
       });
     });
 
