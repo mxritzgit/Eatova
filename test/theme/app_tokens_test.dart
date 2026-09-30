@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 
+import '../support/design_capture.dart' show loadDesignFonts;
+
 // The palette lives as a ThemeExtension, not as top-level `const`s, so a
 // surface can be light AND dark without every widget building two paths.
 // Pinned here: both palettes exist and differ, `context.t` resolves, text
@@ -371,5 +373,65 @@ void main() {
       expect(eyebrow.letterSpacing, closeTo(12 * 0.07, 1e-9));
       expect(eyebrow.color, AppTokens.dark.accentText);
     });
+
+    // Figtree has no "≈" (U+2248); without a fallback "≈ 50 min" shows a
+    // missing-glyph box. Every Figtree style falls back to the bundled
+    // display family, which has the glyph.
+    test('jeder Figtree-Stil faellt auf Bricolage zurueck', () {
+      const fallback = [AppType.displayFamily];
+      expect(AppType.ui(13).fontFamilyFallback, fallback);
+      expect(AppType.sectionEyebrow(ink).fontFamilyFallback, fallback);
+      expect(AppType.eyebrow(ink).fontFamilyFallback, fallback);
+      for (final brightness in Brightness.values) {
+        final theme = buildEatovaTheme(brightness);
+        for (final style in _slots(theme.textTheme)) {
+          expect(style.fontFamilyFallback, fallback);
+        }
+      }
+    });
+
+    testWidgets('"≈" kommt in Figtree-Text aus Bricolage', (tester) async {
+      await tester.runAsync(loadDesignFonts);
+      double width(TextStyle style) {
+        final painter = TextPainter(
+          text: TextSpan(text: '≈', style: style),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        final result = painter.width;
+        painter.dispose();
+        return result;
+      }
+
+      final ui = AppType.ui(20, weight: FontWeight.w700);
+      const bricolage = TextStyle(
+        fontFamily: AppType.displayFamily,
+        fontSize: 20,
+        fontWeight: FontWeight.w700,
+      );
+      final figtreeOnly = ui.copyWith(fontFamilyFallback: const <String>[]);
+      expect(width(ui), width(bricolage));
+      // Guard: Figtree itself really lacks the glyph, or the check above
+      // would pass without any fallback.
+      expect(width(figtreeOnly), isNot(width(bricolage)));
+    });
   });
 }
+
+/// All fifteen slots of [theme].
+List<TextStyle> _slots(TextTheme theme) => <TextStyle?>[
+  theme.displayLarge,
+  theme.displayMedium,
+  theme.displaySmall,
+  theme.headlineLarge,
+  theme.headlineMedium,
+  theme.headlineSmall,
+  theme.titleLarge,
+  theme.titleMedium,
+  theme.titleSmall,
+  theme.bodyLarge,
+  theme.bodyMedium,
+  theme.bodySmall,
+  theme.labelLarge,
+  theme.labelMedium,
+  theme.labelSmall,
+].nonNulls.toList();

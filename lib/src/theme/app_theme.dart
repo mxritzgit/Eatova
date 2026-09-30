@@ -44,6 +44,7 @@ ThemeData buildEatovaTheme(Brightness brightness) {
   final textTheme = base.textTheme
       .apply(
         fontFamily: AppType.uiFamily,
+        fontFamilyFallback: AppType.uiFallback,
         bodyColor: t.ink,
         displayColor: t.ink,
       )

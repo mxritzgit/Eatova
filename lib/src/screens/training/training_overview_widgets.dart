@@ -308,14 +308,12 @@ class TrainingMetaItem extends StatelessWidget {
         Flexible(
           child: Text(
             text,
-            // "≈" is missing from Figtree; the bundled display family has it
-            // (no system fallback, identical on every device).
             style: AppType.ui(
               13,
               weight: FontWeight.w600,
               color: t.ink2,
               height: kTrainingLine,
-            ).copyWith(fontFamilyFallback: const [AppType.displayFamily]),
+            ),
           ),
         ),
       ],

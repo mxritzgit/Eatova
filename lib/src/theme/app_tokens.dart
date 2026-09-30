@@ -711,6 +711,11 @@ class AppType {
   static const String displayFamily = 'BricolageGrotesque';
   static const String uiFamily = 'Figtree';
 
+  /// Fallback of every Figtree style: Figtree lacks glyphs such as "≈"
+  /// (U+2248), which the bundled display family has — no system font, so the
+  /// glyph looks the same on every device.
+  static const List<String> uiFallback = <String>[displayFamily];
+
   /// The shared title scale for tabs and pushed pages. Tab titles follow the
   /// dark redesign: 36 px, -0.03 em, line height 1.05, ExtraBold (the design's
   /// 750 has no static cut; 800 is the nearest bundled weight). Render tab
@@ -758,6 +763,7 @@ class AppType {
   }) {
     return TextStyle(
       fontFamily: uiFamily,
+      fontFamilyFallback: uiFallback,
       fontSize: size,
       fontWeight: weight,
       color: color,
@@ -774,6 +780,7 @@ class AppType {
   static TextStyle sectionEyebrow(Color color, {double size = 12}) =>
       TextStyle(
         fontFamily: uiFamily,
+        fontFamilyFallback: uiFallback,
         fontSize: size,
         fontWeight: FontWeight.w700,
         color: color,
@@ -783,6 +790,7 @@ class AppType {
   /// Small all-caps caption above sections.
   static TextStyle eyebrow(Color color, {double size = 10}) => TextStyle(
     fontFamily: uiFamily,
+    fontFamilyFallback: uiFallback,
     fontSize: size,
     fontWeight: FontWeight.w600,
     color: color,
