@@ -436,19 +436,9 @@ void main() {
   // 6. Selection
   // -------------------------------------------------------------------------
   group('Auswahl der Implementierung', () {
-    test('ohne registriertes Plugin ist der Plattform-Pfad nicht verfuegbar',
-        () {
-      PlatformAesGcmCacheCipher.debugResetPlatformProbe();
-      expect(PlatformAesGcmCacheCipher.isAvailable, isFalse,
-          reason: 'flutter test laeuft ohne Plattform-Kanal — genau der Fall, '
-              'in dem pointycastle Pflicht ist.');
-    });
-
-    test('createCacheCipher faellt hier folglich auf pointycastle zurueck', () {
-      PlatformAesGcmCacheCipher.debugResetPlatformProbe();
-      expect(createCacheCipher(_dek), isA<AesGcmCacheCipher>());
-    });
-
+    // Without a plugin createCacheCipher picks the Dart ladder:
+    // secure_cache_store_tiers_test.dart ('ohne Plugin waehlt createCacheCipher
+    // die Dart-Leiter').
     test('ein DEK mit falscher Laenge wird in BEIDEN Pfaden abgelehnt', () {
       final kurz = Uint8List(16);
       expect(() => AesGcmCacheCipher(kurz), throwsArgumentError);
