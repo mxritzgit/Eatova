@@ -221,7 +221,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
   Color get imageAccent => const Color(0xFFD2C6FF);
 
   /// Fourth categorical color for the snack slot (the macro tones are reserved
-  /// for nutrients, and a grey snack would read as disabled).
+  /// for nutrients, and a grey snack would read as disabled). In the dark
+  /// palette it is the accent itself, as in the design; the slot icon tiles
+  /// use their own `slotSnack*` tokens.
   final Color snack;
 
   /// State signals. Separate from brand and data.

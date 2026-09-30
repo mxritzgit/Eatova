@@ -35,7 +35,8 @@ The page runs under the floating tab bar and pads its end by the bar's band.
   profile goal; over budget the centre says "over" with the magnitude.
 - Archive days say "that day", show no suggested kcal bands and no pick or
   workout. Loading days show one loading card instead of numbers.
-- The accent "+" uses `nextOpenMainMealSlot`, the rule behind the pick.
+- The accent "+" marks `store.nextOpenMainSlot()` (today only), which the
+  shell passes in as `accentSlot`; the same rule picks the recipe.
 
 ## Moved functions
 
