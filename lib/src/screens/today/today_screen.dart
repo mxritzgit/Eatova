@@ -140,64 +140,70 @@ class TodayScreen extends StatelessWidget {
         top: TabChrome.topInset(context),
         bottom: navInset + 68,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          _TodayHeader(
-            key: TabChrome.headerKey,
-            dateLine: todayHeaderDate(selectedDate, heute, l10n),
-            dateSemantics: todayDateLabel(heute, selectedDate, l10n),
-            title: l10n.navToday,
-            streak: streak,
-            initial: profileInitial ?? todayInitial(userName),
-            onOpenProfile: onOpenProfile,
-          ),
-          const SizedBox(height: 16),
-          TodayDayStrip(
-            selectedDate: selectedDate,
-            today: heute,
-            onSelected: onDateSelected,
-          ),
-          const SizedBox(height: 16),
-          // While an archive day loads its numbers are still zero; the one
-          // loading card under the heading carries that state instead.
-          if (!dayLoading) ...<Widget>[
-            TodayCalorieCard(summary: summary, isToday: istHeute),
+      // Own layer: a scroll frame then moves the recorded page instead of
+      // re-recording all of it (the viewport is the nearest boundary).
+      child: RepaintBoundary(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            _TodayHeader(
+              key: TabChrome.headerKey,
+              dateLine: todayHeaderDate(selectedDate, heute, l10n),
+              dateSemantics: todayDateLabel(heute, selectedDate, l10n),
+              title: l10n.navToday,
+              streak: streak,
+              initial: profileInitial ?? todayInitial(userName),
+              onOpenProfile: onOpenProfile,
+            ),
             const SizedBox(height: 16),
-            TodayMacros(summary: summary),
-            if (shownPick != null) ...<Widget>[
+            TodayDayStrip(
+              selectedDate: selectedDate,
+              today: heute,
+              onSelected: onDateSelected,
+            ),
+            const SizedBox(height: 16),
+            // While an archive day loads its numbers are still zero; the one
+            // loading card under the heading carries that state instead.
+            if (!dayLoading) ...<Widget>[
+              TodayCalorieCard(summary: summary, isToday: istHeute),
               const SizedBox(height: 16),
-              TodayPickRow(
-                pick: shownPick,
-                onTap: onOpenPick == null ? null : () => onOpenPick!(shownPick),
+              TodayMacros(summary: summary),
+              if (shownPick != null) ...<Widget>[
+                const SizedBox(height: 16),
+                TodayPickRow(
+                  pick: shownPick,
+                  onTap: onOpenPick == null
+                      ? null
+                      : () => onOpenPick!(shownPick),
+                ),
+              ],
+            ],
+            const SizedBox(height: 16),
+            TodayMealsHeader(onOpenFoodLog: onOpenFoodLog),
+            if (dayLoading)
+              const TodayDayLoadingCard()
+            else
+              TodayMealsCard(
+                slots: slots,
+                summary: summary,
+                isToday: istHeute,
+                accentSlot: nextSlot,
+                onAdd: onOpenMealSlot,
+              ),
+            if (showActivity) ...<Widget>[
+              const SizedBox(height: 16),
+              TodayActivityCard(
+                steps: steps,
+                stepsGoal: profile.dailyStepsGoal,
+                burnedKcal: summary.burnedKcal,
+                healthConnectMissing: healthMissing,
+                onReviewHealth: onOpenProfile,
+                workout: workout,
+                onOpenTraining: onOpenTraining,
               ),
             ],
           ],
-          const SizedBox(height: 16),
-          TodayMealsHeader(onOpenFoodLog: onOpenFoodLog),
-          if (dayLoading)
-            const TodayDayLoadingCard()
-          else
-            TodayMealsCard(
-              slots: slots,
-              summary: summary,
-              isToday: istHeute,
-              accentSlot: nextSlot,
-              onAdd: onOpenMealSlot,
-            ),
-          if (showActivity) ...<Widget>[
-            const SizedBox(height: 16),
-            TodayActivityCard(
-              steps: steps,
-              stepsGoal: profile.dailyStepsGoal,
-              burnedKcal: summary.burnedKcal,
-              healthConnectMissing: healthMissing,
-              onReviewHealth: onOpenProfile,
-              workout: workout,
-              onOpenTraining: onOpenTraining,
-            ),
-          ],
-        ],
+        ),
       ),
     );
   }

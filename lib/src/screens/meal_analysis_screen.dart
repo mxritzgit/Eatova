@@ -528,17 +528,21 @@ class MealAnalysisScreen extends StatelessWidget {
                   navInset +
                       (floating ? FoodEntryDock.height + _dockClearance : 20),
                 ),
-                child: Column(
-                  key: const ValueKey('food-diary-content'),
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    ...chrome,
-                    diary,
-                    floating
-                        ? const SizedBox.shrink()
-                        : const SizedBox(height: 20),
-                    floating ? const SizedBox.shrink() : dock,
-                  ],
+                // Own layer: scrolling moves the recorded diary instead of
+                // re-recording it every frame.
+                child: RepaintBoundary(
+                  child: Column(
+                    key: const ValueKey('food-diary-content'),
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      ...chrome,
+                      diary,
+                      floating
+                          ? const SizedBox.shrink()
+                          : const SizedBox(height: 20),
+                      floating ? const SizedBox.shrink() : dock,
+                    ],
+                  ),
                 ),
               ),
             ),

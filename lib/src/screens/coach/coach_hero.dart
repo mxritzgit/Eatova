@@ -64,60 +64,68 @@ class _CoachHero extends StatelessWidget {
         // Top 14: the design's gap under the header. Bottom: room above the
         // content area's fade.
         padding: const EdgeInsets.only(top: 14, bottom: 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                _kShellInset,
-                14,
-                _kShellInset,
-                6,
-              ),
-              child: Column(
-                children: <Widget>[
-                  const CoachOrb(),
-                  const SizedBox(height: 16),
-                  // Rank 2, not 1 (P9-06c): _CoachTopBar above already names
-                  // the screen; this greets the empty state, a section inside
-                  // the coach.
-                  HeadingSemantics(
-                    level: 2,
-                    child: Text(
-                      l10n.coachHeroGreeting(
-                        _timeGreeting(l10n),
-                        _firstName(l10n),
+        // Own layer: scrolling moves the recorded start state instead of
+        // re-recording it every frame.
+        child: RepaintBoundary(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  _kShellInset,
+                  14,
+                  _kShellInset,
+                  6,
+                ),
+                child: Column(
+                  children: <Widget>[
+                    const CoachOrb(),
+                    const SizedBox(height: 16),
+                    // Rank 2, not 1 (P9-06c): _CoachTopBar above already names
+                    // the screen; this greets the empty state, a section inside
+                    // the coach.
+                    HeadingSemantics(
+                      level: 2,
+                      child: Text(
+                        l10n.coachHeroGreeting(
+                          _timeGreeting(l10n),
+                          _firstName(l10n),
+                        ),
+                        textAlign: TextAlign.center,
+                        style: AppType.display(28, color: t.ink, height: 1.2),
                       ),
-                      textAlign: TextAlign.center,
-                      style: AppType.display(28, color: t.ink, height: 1.2),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    brief == null
-                        ? l10n.coachHeroSubtitle
-                        : l10n.coachHeroDayStands,
-                    textAlign: TextAlign.center,
-                    style: AppType.ui(15, color: t.ink2, height: 1.2),
-                  ),
-                ],
+                    const SizedBox(height: 4),
+                    Text(
+                      brief == null
+                          ? l10n.coachHeroSubtitle
+                          : l10n.coachHeroDayStands,
+                      textAlign: TextAlign.center,
+                      style: AppType.ui(15, color: t.ink2, height: 1.2),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            if (brief != null) ...<Widget>[
+              if (brief != null) ...<Widget>[
+                const SizedBox(height: 14),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: _kShellInset),
+                  child: _DayLogCard(
+                    brief: brief,
+                    enabled: canAsk,
+                    onAsk: onAsk,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 14),
+              _TryAsking(enabled: canAsk, onCommand: onCommand),
               const SizedBox(height: 14),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: _kShellInset),
-                child: _DayLogCard(brief: brief, enabled: canAsk, onAsk: onAsk),
+                child: _CoachDisclaimer(onTap: onDisclosureTap),
               ),
             ],
-            const SizedBox(height: 14),
-            _TryAsking(enabled: canAsk, onCommand: onCommand),
-            const SizedBox(height: 14),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: _kShellInset),
-              child: _CoachDisclaimer(onTap: onDisclosureTap),
-            ),
-          ],
+          ),
         ),
       ),
     );
