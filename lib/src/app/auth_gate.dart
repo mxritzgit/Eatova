@@ -70,9 +70,9 @@ Future<void> purgePersonalCacheFor(
   bool Function()? isInactive,
 }) async {
   if (userId.isEmpty || (isInactive != null && !isInactive())) return;
-  // F1-02: silence the store's OWN instance first — its debounce timer and
-  // late live-op callbacks would otherwise write into the slots this purge
-  // clears. Independent of whether the second instance can be built.
+  // F1-02: silence the store's OWN instance first — its late live-op
+  // callbacks would otherwise write into the slots this purge clears.
+  // Independent of whether the second instance can be built.
   //
   // P3-01: AWAITED. Closing only stops writes that have not started; a blob
   // already encrypting in the isolate lands 200-400 ms later, and the second

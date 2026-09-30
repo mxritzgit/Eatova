@@ -1005,9 +1005,6 @@ extension LocalCacheMutations on LocalCache {
             changes,
             expectedVersions: {...snapshot.versions, ...guards},
           );
-          for (final key in changes.keys) {
-            _pendingWrites.remove(key);
-          }
           return LocalMutationReceipt(
             List.unmodifiable(queue),
             KeyValueSnapshot(

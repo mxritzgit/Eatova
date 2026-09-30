@@ -182,7 +182,6 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   });
 
   void flushPendingWrites() {
-    unawaited(_cache?.flush() ?? Future<void>.value());
     unawaited(syncPendingWrites());
   }
 

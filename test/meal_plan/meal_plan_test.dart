@@ -113,7 +113,6 @@ class _Fixture {
   }
 
   Future<void> settle() async {
-    await cache.flush();
     await cache.settle();
     await h.settle();
   }

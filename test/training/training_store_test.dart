@@ -217,7 +217,6 @@ class _Harness {
   Future<void> flush() async {
     store.flushPendingWrites();
     await h.settle();
-    await cache.flush();
     await cache.settle();
   }
 }
@@ -619,7 +618,6 @@ void main() {
         await first.store.deleteTrainingPlan(plan().id);
         expect(first.store.trainingSession, isNull);
         expect(await first.cache.readTrainingSession(), isNull);
-        await first.cache.flush();
         await first.cache.settle();
         first.dispose();
         server.offline = true;
@@ -669,7 +667,6 @@ void main() {
       expect(env.store.trainingSession?.toJson(), snapshot.toJson());
       await env.store.saveTrainingPlan(multiPlan([source]));
       expect(env.store.trainingSession?.toJson(), snapshot.toJson());
-      await env.cache.flush();
       await env.cache.settle();
       env.dispose();
       final reboot = _Harness(_Server()..offline = true, storage: storage);
@@ -985,7 +982,6 @@ void main() {
           isEmpty,
         );
       }
-      await env.cache.flush();
       await env.cache.settle();
       env.dispose();
       cipher.blockSessionRead = false;
@@ -1017,7 +1013,6 @@ void main() {
       expect(env.server.rows, isEmpty);
       storage.fail = false;
       await env.store.saveTrainingPlan(plan());
-      await env.cache.flush();
       await env.cache.settle();
       env.dispose();
       final reboot = _Harness(env.server, storage: storage);

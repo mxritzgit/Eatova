@@ -84,31 +84,29 @@ class LocalCache {
   static final Set<LocalCache> _open = <LocalCache>{};
 
   /// Lifecycle fence (review 2026-08-27, F1-02): once set, EVERY write path
-  /// is a no-op, the debounce drain included. Reads keep working. Set by
+  /// is a no-op. Reads keep working. Set by
   /// [clear] and [close]; never reset — a purged namespace is not reused by
   /// this instance.
   bool _closed = false;
 
   bool get isClosed => _closed;
 
-  /// Closes this instance: drops pending debounced writes and turns every
-  /// later write into a no-op. Idempotent. [clear] calls it first, so a
-  /// straggling write (debounce timer, running snapshot, late live-op
-  /// callback) cannot put PII back into a purged slot.
+  /// Closes this instance: turns every later write into a no-op. Idempotent.
+  /// [clear] calls it first, so a straggling write (running snapshot, late
+  /// live-op callback) cannot put PII back into a purged slot.
   void close() {
     _closed = true;
-    _discardPendingWrites();
     _open.remove(this);
   }
 
   /// Closes every open instance of [userId] AND waits for the writes already
   /// inside the store — the AuthGate purge runs on a SECOND instance and must
-  /// silence the store's own one, else its debounce timer and late callbacks
-  /// write after the purge.
+  /// silence the store's own one, else its late callbacks write after the
+  /// purge.
   ///
   /// P3-01: closing alone is not enough. The [_closed] fence only stops writes
   /// that have not STARTED; a blob already handed to the encryption isolate is
-  /// past it and lands 200-400 ms later (see [writeDebounce]). The purge
+  /// past it and lands 200-400 ms later. The purge
   /// removes through the SECOND instance's own [EncryptedKeyValueStore], whose
   /// write queue serialises per key AND per instance, so that `remove` does not
   /// queue behind the running `setString` — the PII slot came back after the
@@ -149,8 +147,8 @@ class LocalCache {
   }
 
   Future<void> _settleWrites() async {
-    // A landing write can release the next one (the debounce drain walks its
-    // slots one by one), so loop instead of waiting once.
+    // A landing write can release the next one (a caller may chain writes),
+    // so loop instead of waiting once.
     while (_inFlightWrites.isNotEmpty) {
       await Future.wait(_inFlightWrites.toList(growable: false));
     }
@@ -165,11 +163,6 @@ class LocalCache {
     unawaited(tracked.whenComplete(() => _inFlightWrites.remove(tracked)));
     return write;
   }
-
-  /// Drops pending debounced writes WITHOUT closing — `HomeStore.dispose`
-  /// uses it: the instance may outlive the store, the store's last mirror
-  /// state must not.
-  void discardPendingWrites() => _discardPendingWrites();
 
   /// Builds the production cache on transactional SQLite, encrypted with the OS
   /// keystore DEK (SEC-1, secure_cache_store.dart). Returns null on plugin
@@ -897,9 +890,9 @@ class LocalCache {
   /// Default `false` = account deletion clears everything.
   Future<void> clear({bool preserveOutbox = false,
       Map<String, int> guards = const {}}) async {
-    // Close BEFORE clearing: drops pending debounced writes (G9b) and turns
-    // every later write into a no-op, so nothing running past this point can
-    // write the just-deleted PII straight back (F1-02).
+    // Close BEFORE clearing: turns every later write into a no-op, so nothing
+    // running past this point can write the just-deleted PII straight back
+    // (F1-02).
     close();
 
     final storage = _store;
@@ -983,102 +976,10 @@ class LocalCache {
     await receiptPurge!.timeout(settleBudget);
   }
 
-  // ---- Debounced blob writes (G9b) ----------------------------------------
-  // Diary, favorites, weight log and user recipes are mirrors of the server
-  // state and get fully rewritten on every mutation: the whole blob through
-  // jsonEncode + AES-GCM + base64, measured at 91.5 ms for 210 meals on
-  // desktop JIT (mobile AOT 2-4x slower). The debounced variants collapse all
-  // calls within [writeDebounce] into one write per slot.
-  //
-  // Deliberately NOT debounced: outbox and pending stats deltas — they are
-  // the kill safeguard (DATA-7) and must hit disk at once. Losing a mirror
-  // slot only costs a network load. Profile and lifetime_stats stay immediate
-  // too: small maps, negligible crypto cost.
-
-  /// Window in which several debounced writes collapse into one. Runs from
-  /// the FIRST call (no cancel+restart), so a long series cannot push the
-  /// write out indefinitely.
-  static const Duration writeDebounce = Duration(milliseconds: 400);
-
-  final Map<String, Map<String, dynamic>> _pendingWrites =
-      <String, Map<String, dynamic>>{};
-  Timer? _debounceTimer;
-
-  /// True while at least one debounced write is pending.
-  bool get hasPendingWrites => _pendingWrites.isNotEmpty;
-
-  /// Debounced write-through for the diary; replaces [writeLoggedMeals] on
-  /// the hot mutation path.
-  void writeLoggedMealsDebounced(List<LoggedMeal> meals) =>
-      _scheduleWrite(_loggedMealsKey, <String, dynamic>{
-        'items': meals.map(loggedMealToJson).toList(),
-      });
-
-  /// Debounced write-through for the favorites.
-  void writeFavoritesDebounced(List<FavoriteMeal> favorites) =>
-      _scheduleWrite(_favoritesKey, <String, dynamic>{
-        'items': favorites.map(favoriteMealToJson).toList(),
-      });
-
-  /// Debounced write-through for the weight log.
-  void writeWeightLogDebounced(WeightLog log) =>
-      _scheduleWrite(_weightLogKey, _weightLogToJson(log));
-
-  /// Debounced write-through for the user recipes (gap A). Same reasoning:
-  /// the slot is rewritten on every mutation and losing it only costs a
-  /// network load.
-  void writeUserRecipesDebounced(List<FitnessRecipe> recipes) =>
-      _scheduleWrite(_userRecipesKey, _userRecipesToJson(recipes));
-
-  void writeTrainingPlansDebounced(List<TrainingPlan> plans) =>
-      _scheduleWrite(_trainingPlansKey, _trainingPlansToJson(plans));
-
-  /// Flushes all pending debounced writes immediately.
-  ///
-  /// Must run on app pause/hidden/detach (and before any logout [clear] does
-  /// not cover), or a kill inside the [writeDebounce] window loses the last
-  /// mirror state.
-  Future<void> flush() async {
-    _debounceTimer?.cancel();
-    _debounceTimer = null;
-    await _drainPendingWrites();
-  }
-
-  void _scheduleWrite(String key, Map<String, dynamic> value) {
-    if (_closed) return;
-    // Last state wins: the slot is always written whole, so an older blob of
-    // the same slot is worthless.
-    _pendingWrites[key] = value;
-    _debounceTimer ??= Timer(writeDebounce, () {
-      _debounceTimer = null;
-      unawaited(_drainPendingWrites());
-    });
-  }
-
-  Future<void> _drainPendingWrites() async {
-    if (_pendingWrites.isEmpty) return;
-    final batch = Map<String, Map<String, dynamic>>.of(_pendingWrites);
-    _pendingWrites.clear();
-    for (final entry in batch.entries) {
-      // Re-checked per slot: a clear() can land between two awaits.
-      if (_closed) return;
-      await _writeJson(entry.key, entry.value);
-    }
-  }
-
-  void _discardPendingWrites() {
-    _debounceTimer?.cancel();
-    _debounceTimer = null;
-    _pendingWrites.clear();
-  }
-
   // ---- Low-level ----------------------------------------------------------
 
   Future<void> _writeJson(String key, Map<String, dynamic> value) {
     if (_closed) return Future<void>.value();
-    // An immediate write to the same slot invalidates a pending debounced
-    // one, which would otherwise overwrite the fresher state later.
-    _pendingWrites.remove(key);
     // Tracked so a purge on ANOTHER instance can wait for it ([settle]).
     return _trackWrite(_writeJsonNow(key, value));
   }
@@ -1122,9 +1023,6 @@ class LocalCache {
     // Closed = not on disk, and the caller is told so; the outbox keeps its
     // in-memory copy and replays on the next login (A2).
     if (_closed) return Future<bool>.value(false);
-    // Same invariant as in [_writeJson]: it belongs to the slot, not the
-    // caller. A no-op for the two sync slots, which are never debounced.
-    _pendingWrites.remove(key);
     // Tracked like [_writeJson]: an account deletion purges these slots too,
     // so it has to wait for a running write (P3-01).
     return _trackWrite(_writeDurableNow(key, slot, value));
@@ -1166,10 +1064,6 @@ class LocalCache {
   }
 
   Future<Map<String, dynamic>?> _readJson(String key) async {
-    // A pending debounced write is the newest state; without this passthrough
-    // the slot would have a read-after-write hole between schedule and write.
-    final pending = _pendingWrites[key];
-    if (pending != null) return pending;
     try {
       final raw = await _store.getString(key);
       if (raw == null || raw.isEmpty) return null;

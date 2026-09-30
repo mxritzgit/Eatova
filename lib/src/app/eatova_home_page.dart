@@ -294,7 +294,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    // Flush debounced writes so a kill in that window loses no quick logs.
+    // Push pending sync writes before the OS may kill the app.
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {

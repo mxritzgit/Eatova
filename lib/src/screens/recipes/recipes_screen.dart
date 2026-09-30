@@ -559,9 +559,9 @@ class _RecipesScreenState extends State<RecipesScreen> {
   ///
   /// The second condition used to be "the store assigned a list" (a fresh list
   /// identity, or a non-empty one in [initState]). That is a proxy, and it
-  /// breaks in the one window it has to hold (P3-04b): the cache write is
-  /// debounced by 400 ms, so a kill inside that window leaves a stale-EMPTY
-  /// recipe slot behind. The next start hydrates `[]` — a fresh identity from
+  /// breaks in the one window it has to hold (P3-04b): the cache write lags
+  /// the mutation (then by a 400 ms debounce), so a kill inside that window
+  /// leaves a stale-EMPTY recipe slot behind. The next start hydrates `[]` — a fresh identity from
   /// the store, indistinguishable from a real answer — and the sweep would
   /// then delete every `img_*` file while the boot load is still fetching the
   /// recipes those files belong to. The photos exist ONLY on this device, so

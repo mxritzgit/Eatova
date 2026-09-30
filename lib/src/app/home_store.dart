@@ -1022,7 +1022,7 @@ class HomeStore extends _HomeStoreBase
       //
       // An EMPTY slot is adopted like any other (P3-04b): here it is a no-op
       // anyway (the ctor default is `[]` too), and the case it looks like it
-      // could catch — a slot the 400 ms debounce never got to write — is
+      // could catch — a slot the cache write never reached — is
       // indistinguishable from a genuinely empty one at this point. That
       // distinction is not hydration's job and cannot be made here; only the
       // server answer makes it, and [userRecipesAuthoritative] carries it to
@@ -1527,10 +1527,6 @@ class HomeStore extends _HomeStoreBase
     _midnightTimer = null;
     _bootBudgetTimer?.cancel();
     _bootBudgetTimer = null;
-    // F1-02: a debounce armed by the last mutation must not write this
-    // store's mirror state after the session it belonged to is gone. Discard,
-    // not close — the instance may still serve a purge.
-    _cache?.discardPendingWrites();
     unawaited(_releaseOwnedCache());
     sync?.dispose();
     super.dispose();

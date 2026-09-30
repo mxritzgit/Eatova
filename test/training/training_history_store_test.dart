@@ -292,7 +292,6 @@ class _Harness {
 
   Future<void> settle() async {
     await h.settle();
-    await cache.flush();
     await cache.settle();
   }
 }
