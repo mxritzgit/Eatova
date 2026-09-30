@@ -57,12 +57,6 @@ class _FakeHealth implements HealthService {
   @override
   Future<bool> writeWeight(double kg, DateTime when) async => false;
 
-  @override
-  Future<List<WeightSample>> readWeightSamples({
-    required DateTime from,
-    required DateTime to,
-  }) async =>
-      const <WeightSample>[];
 }
 
 void _ignoreSnack(

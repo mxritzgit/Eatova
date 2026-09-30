@@ -121,7 +121,6 @@ void main() {
         lifecycle(state);
         expect(await service.readSnapshot(), isNull);
         expect(await service.readStepsOnDay(_now), isNull);
-        expect(await service.readWeightSamples(from: _now, to: _now), isEmpty);
         expect(plugin.calls, isEmpty);
         expect(service.authState, HealthAuthState.unknown);
         expect(reports, isEmpty);
@@ -205,10 +204,7 @@ void main() {
         plugin.onSteps = () async =>
             throw PlatformException(code: 'STEPS_ERROR');
         expect(await service.readStepsOnDay(_now), isNull);
-        plugin.onWeight = () async =>
-            throw PlatformException(code: 'HEALTH_ERROR');
-        expect(await service.readWeightSamples(from: _now, to: _now), isEmpty);
-        expect(reports, ['health.readStepsOnDay', 'health.readWeightSamples']);
+        expect(reports, ['health.readStepsOnDay']);
       });
     },
   );
@@ -252,7 +248,6 @@ void main() {
     service = AppleHealthService(health: plugin, debugIsIOS: false);
     expect(await service.readSnapshot(), isNull);
     expect(await service.readStepsOnDay(_now), isNull);
-    expect(await service.readWeightSamples(from: _now, to: _now), isEmpty);
     expect(await service.requestAuthorization(), HealthAuthState.unsupported);
     expect(plugin.calls, isEmpty);
   });

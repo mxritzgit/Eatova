@@ -83,13 +83,6 @@ abstract class HealthService {
   /// Writes a body weight sample (kg) at [when] to the health store. False if
   /// unsupported, unauthorized or on error; off iOS a no-op.
   Future<bool> writeWeight(double kg, DateTime when);
-
-  /// Weight samples in the window [from]..[to] for the import path; empty if
-  /// unsupported, unauthorized or no data.
-  Future<List<WeightSample>> readWeightSamples({
-    required DateTime from,
-    required DateTime to,
-  });
 }
 
 class NoopHealthService implements HealthService {
@@ -113,10 +106,4 @@ class NoopHealthService implements HealthService {
 
   @override
   Future<bool> writeWeight(double kg, DateTime when) async => false;
-
-  @override
-  Future<List<WeightSample>> readWeightSamples({
-    required DateTime from,
-    required DateTime to,
-  }) async => const <WeightSample>[];
 }

@@ -83,13 +83,6 @@ class _SpyHealthService implements HealthService {
   Future<bool> writeWeight(double kg, DateTime when) async => false;
 
   @override
-  Future<List<WeightSample>> readWeightSamples({
-    required DateTime from,
-    required DateTime to,
-  }) async =>
-      const <WeightSample>[];
-
-  @override
   Future<int?> readStepsOnDay(DateTime day) async => null;
 }
 
