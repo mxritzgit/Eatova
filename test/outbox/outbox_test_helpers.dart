@@ -28,10 +28,11 @@ import 'package:eatova/src/widgets/common/app_snack.dart';
 // but becomes a persisted outbox op. The suites drive the REAL HomeStore with
 // a real EatovaSync over a stateful MockClient and an injected cache: no
 // rollback, idempotent replay, cold-start hydration, boot merge, attempt budget
-// and queue cap, poison-op drops, and exactly-once counters.
+// and queue cap, blocked poison ops, and exactly-once counters.
 
-/// Stateful fake PostgREST: records requests, applies upserts and deletes to
-/// in-memory tables, and can be switched offline.
+/// Stateful fake PostgREST: records requests, applies every write through
+/// `apply_sync_operation` ([SyncOperationFake]) to in-memory tables, serves
+/// the boot reads, and can be switched offline.
 class FakeServer {
   final recipeReads = RecipeReadFake();
   late final syncOperations = SyncOperationFake(
@@ -56,7 +57,7 @@ class FakeServer {
   /// only what reached the "server".
   bool offline = false;
 
-  /// Only increment_lifetime_stats fails (stats-delta scenarios).
+  /// Only the counter-bearing operations fail (stats-delta scenarios).
   bool statsOffline = false;
 
   /// Only logged_meals writes fail, as a 500 — a RETRYABLE error.
@@ -66,16 +67,17 @@ class FakeServer {
   /// the body, which is what `PostgrestException.code` picks up, not the status.
   bool poisonMealWrites = false;
 
-  /// SQLSTATE of the poison answer: 23502 drops at once, 23514 (normal for
-  /// user input) runs into the attempt budget.
+  /// SQLSTATE of the poison answer: 23502 blocks the op at once
+  /// (`SyncBlockedReason.rejected`), 23514 (normal for user input) runs into
+  /// the attempt budget.
   String poisonCode = '23502';
 
   /// Ambiguous: the write IS applied but the answer is a 500 — the classic
   /// duplicate maker.
   bool ambiguousWrites = false;
 
-  /// user_recipes writes NEVER answer. PostgREST has no timeout, so a hanging
-  /// request neither resolves nor throws and NO outbox op is created.
+  /// Recipe operations NEVER answer. The op is persisted before the write, and
+  /// only `kSyncOperationTimeout` (20 s) ends the wait.
   bool hangRecipeWrites = false;
   Completer<void>? _recipeWriteGate;
   void holdRecipeWrites() => _recipeWriteGate ??= Completer<void>();
@@ -92,21 +94,22 @@ class FakeServer {
       )
       .toList();
 
-  /// user_recipes writes fail with 500, i.e. the server ANSWERS (gap E:
+  /// Recipe operations fail with 500, i.e. the server ANSWERS (gap E:
   /// "offline" would be a lie there).
   bool rejectRecipeWrites = false;
 
-  /// ONLY the user_recipes READ fails (500). The boot load then gets an answer
-  /// for five collections and none for the sixth — the state
+  /// ONLY the recipe READS fail (500: `load_recipe_page` and
+  /// `load_recipe_photo_refs`). The other boot loads answer — the state
   /// `userRecipesAuthoritative` has to tell apart (P3-04b).
   bool rejectRecipeReads = false;
 
-  /// ONLY record_tracking_day fails — the combination that lost the streak day.
+  /// ONLY the tracking-day booking fails (`trackingDay`, or a `mealInsert`
+  /// with `track_day`) — the combination that lost the streak day.
   bool rejectTrackingDay = false;
 
-  /// record_tracking_day NEVER answers while this holds.
+  /// The tracking-day booking NEVER answers while this holds.
   ///
-  /// The kill window of P1-05b: the meal PATCH is through, the booking is on
+  /// The kill window of P1-05b: the meal write is through, the booking is on
   /// the wire, and the app dies before the answer. Neither `then` nor
   /// `catchError` ever runs, so only something already PERSISTED can catch the
   /// day. Requests already issued stay hanging when the flag is cleared —
@@ -140,7 +143,7 @@ class FakeServer {
     if (gate != null && !gate.isCompleted) gate.complete();
   }
 
-  /// Last day booked via record_tracking_day, i.e. last_workout_date.
+  /// Last day booked by a tracking-day operation, i.e. last_workout_date.
   String? trackedDay;
 
   final List<http.Request> requests = <http.Request>[];
@@ -165,8 +168,8 @@ class FakeServer {
   int mealsCounted = 0;
   int weightLogsCounted = 0;
 
-  /// `p_request_id` of EVERY increment_lifetime_stats call, rejected ones
-  /// included. A retry must reuse the id, or the server counts twice.
+  /// Request id of EVERY applied counter delivery. A retry must reuse the id,
+  /// or the server counts twice.
   final List<String?> statsRequestIds = <String?>[];
 
   /// Server-side dedup of migration 20260814120000: consumed `p_request_id`.
@@ -283,67 +286,7 @@ class FakeServer {
         );
       }
     }
-    if (path.contains('/rpc/increment_lifetime_stats')) {
-      final body = jsonDecode(req.body) as Map<String, dynamic>;
-      // Recorded before the failure switch: the failed attempt is the one the
-      // later retry is compared against.
-      final rid = body['p_request_id'] as String?;
-      statsRequestIds.add(rid);
-      if (statsOffline) return fail();
-      if (rid != null && !verbrauchteStatsIds.add(rid)) {
-        // Repeat: do not add, return the current row — the migration's FOUND
-        // behaviour.
-        return ok(_statsRow());
-      }
-      mealsCounted += (body['p_meals'] as num?)?.toInt() ?? 0;
-      weightLogsCounted += (body['p_weight_logs'] as num?)?.toInt() ?? 0;
-      return ok(_statsRow());
-    }
-    if (path.contains('/rpc/record_tracking_day')) {
-      if (hangTrackingDay) return Completer<http.Response>().future;
-      if (rejectTrackingDay) return fail();
-      final body = jsonDecode(req.body) as Map<String, dynamic>;
-      final day = body['p_day'] as String?;
-      if (enforceTrackingDaySourceProof &&
-          !mealRows.values.any((r) => r['local_day'] == day)) {
-        trackingDayRejections.add(day ?? '');
-        return http.Response(
-          jsonEncode({
-            'code': 'P0001',
-            'message': 'EX_DAY_NOT_LOGGED',
-            'details': null,
-            'hint': null,
-          }),
-          400,
-          headers: const {'content-type': 'application/json; charset=utf-8'},
-          request: req,
-        );
-      }
-      trackedDay = day;
-      return ok(_statsRow());
-    }
     if (path.contains('/logged_meals')) {
-      final gate = _mealWriteGate;
-      if (gate != null && req.method != 'GET') await gate.future;
-      if (poisonMealWrites && req.method != 'GET') return poison();
-      if (req.method == 'POST') {
-        if (rejectMealWrites) return fail();
-        for (final row in rowsOf(req.body)) {
-          mealRows[row['id'] as String] = row;
-        }
-        return ambiguousWrites ? fail() : http.Response('', 201, request: req);
-      }
-      if (req.method == 'PATCH') {
-        final id = _eqParam(req, 'id');
-        final body = jsonDecode(req.body) as Map<String, dynamic>;
-        final existing = mealRows[id];
-        if (existing != null) mealRows[id!] = {...existing, ...body};
-        return ok(const <dynamic>[]);
-      }
-      if (req.method == 'DELETE') {
-        mealRows.remove(_eqParam(req, 'id'));
-        return ok(const <dynamic>[]);
-      }
       // GET: select shape, WITH PostgREST-like filters. A fake returning every
       // row hid the 35-day hole in the re-display path.
       Iterable<Map<String, dynamic>> rows = mealRows.values;
@@ -386,21 +329,13 @@ class FakeServer {
             .toList(),
       );
     }
-    if (path.contains('/profiles')) {
-      if (req.method == 'GET') {
-        // maybeSingle() on a GET expects a LIST of 0 or 1 rows.
-        return ok(
-          profileRow == null
-              ? const <dynamic>[]
-              : <Map<String, dynamic>>[profileRow!],
-        );
-      }
-      // ProfileSync.save is an upsert with .single(): PostgREST returns ONE
-      // object, not a list.
-      for (final row in rowsOf(req.body)) {
-        profileRow = <String, dynamic>{...?profileRow, ...row};
-      }
-      return ok(profileRow!);
+    if (path.contains('/profiles') && req.method == 'GET') {
+      // maybeSingle() on a GET expects a LIST of 0 or 1 rows.
+      return ok(
+        profileRow == null
+            ? const <dynamic>[]
+            : <Map<String, dynamic>>[profileRow!],
+      );
     }
     if (path.endsWith('/rpc/load_recipe_photo_refs')) {
       if (rejectRecipeReads ||
@@ -417,36 +352,7 @@ class FakeServer {
       syncOperations.seedRecipeHeads();
       return ok(recipeReads.page(req, recipeRows.values));
     }
-    if (path.contains('/user_recipes')) {
-      if (hangRecipeWrites && req.method != 'GET') {
-        // Never-completing answer: the caller waits forever (no timeout).
-        return Completer<http.Response>().future;
-      }
-      if (rejectRecipeWrites && req.method != 'GET') return fail();
-      if (rejectRecipeReads && req.method == 'GET') return fail();
-      if (req.method == 'POST') {
-        for (final row in rowsOf(req.body)) {
-          recipeRows[row['slug'] as String] = row;
-        }
-        return http.Response('', 201, request: req);
-      }
-      if (req.method == 'DELETE') {
-        recipeRows.remove(_eqParam(req, 'slug'));
-        return ok(const <dynamic>[]);
-      }
-      return ok(recipeRows.values.toList());
-    }
     if (path.contains('/favorite_meals')) {
-      if (req.method == 'POST') {
-        for (final row in rowsOf(req.body)) {
-          favoriteRows[row['favorite_key'] as String] = row;
-        }
-        return http.Response('', 201, request: req);
-      }
-      if (req.method == 'DELETE') {
-        favoriteRows.remove(_eqParam(req, 'favorite_key'));
-        return ok(const <dynamic>[]);
-      }
       // GET in the select shape of MealsSync.loadFavorites.
       return ok(
         favoriteRows.values
@@ -462,13 +368,6 @@ class FakeServer {
       );
     }
     if (path.contains('/weight_log')) {
-      if (req.method == 'POST') {
-        for (final row in rowsOf(req.body)) {
-          final id = row['id'] as String? ?? 'srv-${weightRows.length}';
-          weightRows[id] = row;
-        }
-        return ambiguousWrites ? fail() : http.Response('', 201, request: req);
-      }
       // GET in the select shape of TrackingSync.loadWeightLog.
       return ok(
         weightRows.values
@@ -499,24 +398,6 @@ class FakeServer {
     'session_start': '2026-08-01T00:00:00Z',
   };
 
-  /// Rows of a PostgREST request body, single object or list.
-  static List<Map<String, dynamic>> rowsOf(String body) {
-    final decoded = jsonDecode(body);
-    if (decoded is List) {
-      return decoded
-          .whereType<Map<dynamic, dynamic>>()
-          .map((m) => m.cast<String, dynamic>())
-          .toList();
-    }
-    if (decoded is Map) return [decoded.cast<String, dynamic>()];
-    return const [];
-  }
-
-  static String? _eqParam(http.Request req, String key) {
-    final raw = req.url.queryParameters[key];
-    if (raw == null) return null;
-    return raw.startsWith('eq.') ? raw.substring(3) : raw;
-  }
 }
 
 /// Records what the store would have shown the user.
@@ -653,12 +534,9 @@ FitnessRecipe userRecipe(String slug, {String title = 'Eigene Bowl'}) =>
     );
 
 /// Server row of public.user_recipes (select shape of UserRecipesSync.load).
-Map<String, dynamic> serverRecipeRow(
-  String slug, {
-  String title = 'Server-Rezept',
-}) => <String, dynamic>{
+Map<String, dynamic> serverRecipeRow(String slug) => <String, dynamic>{
   'slug': slug,
-  'title': title,
+  'title': 'Server-Rezept',
   'description': 'Eigenes Rezept',
   'portion': '1 Teller',
   'ingredients': 'Reis',
@@ -673,17 +551,13 @@ Map<String, dynamic> serverRecipeRow(
 };
 
 /// A completed profile, as it looks after onboarding.
-UserProfile testProfile({
-  int weightKg = 80,
-  int dailyKcalGoal = 2200,
-  DietPreference diet = DietPreference.none,
-  bool onboardingCompleted = true,
-}) => UserProfile(
-  weightKg: weightKg,
-  dailyKcalGoal: dailyKcalGoal,
-  diet: diet,
-  onboardingCompleted: onboardingCompleted,
-);
+UserProfile testProfile({int weightKg = 80, int dailyKcalGoal = 2200}) =>
+    UserProfile(
+      weightKg: weightKg,
+      dailyKcalGoal: dailyKcalGoal,
+      diet: DietPreference.none,
+      onboardingCompleted: true,
+    );
 
 /// Server row of public.profiles, spelled out rather than derived: a missing
 /// column makes `ProfileSync.load` throw and the boot hydrate nothing.
@@ -708,13 +582,13 @@ Map<String, dynamic> serverProfileRow(UserProfile p) => <String, dynamic>{
 };
 
 /// Server row of public.logged_meals (select shape of MealsSync.load).
-Map<String, dynamic> serverMealRow(String id, {int kcal = 250}) =>
+Map<String, dynamic> serverMealRow(String id) =>
     <String, dynamic>{
       'id': id,
       'logged_at': DateTime.now().toUtc().toIso8601String(),
       'forced_slot': null,
       'local_day': null,
-      'payload': mealResultToJson(mealResult('Server-Gericht', kcal: kcal)),
+      'payload': mealResultToJson(mealResult('Server-Gericht', kcal: 250)),
     };
 
 /// Drains the microtask/event queue far enough for a boot or a replay round.
