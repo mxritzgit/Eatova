@@ -207,7 +207,7 @@ Future<void> _mount(
     locale: locale,
     textScale: scale,
     surfaceSize: size,
-    padding: const EdgeInsets.all(20),
+    // Like the shell: the coach tab owns its gutters, nothing pads it.
     safeArea: false,
   );
   await _frames(tester);

@@ -171,8 +171,9 @@ FitnessRecipe _eigenes({required String slug, required String imageAsset}) =>
 late Directory _temp;
 late _TestImageStore _store;
 
-/// The home shell pads every tab with `EdgeInsets.fromLTRB(20, 12, 20, 12)`.
-const EdgeInsets _schalenrand = EdgeInsets.fromLTRB(20, 12, 20, 12);
+/// The home shell pads the recipes tab with nothing: the tab owns its
+/// gutters.
+const EdgeInsets _schalenrand = EdgeInsets.zero;
 
 Widget _tab({
   MealPhotoInput? photoInput,

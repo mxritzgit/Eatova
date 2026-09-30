@@ -112,9 +112,10 @@ TrainingNextWorkout _workout({bool completedToday = false}) =>
       exercises: const <TrainingExercisePreview>[],
     );
 
-/// The shell pads every tab with `EdgeInsets.fromLTRB(20, 12, 20, 12)` — that
-/// is what makes it testable that the screen adds NO second side margin.
-const EdgeInsets _schalenrand = EdgeInsets.fromLTRB(20, 12, 20, 12);
+/// The shell's gutters around Today (20 px sides, nothing on top: the page
+/// starts at TabChrome.topInset itself) — that is what makes it testable
+/// that the screen adds NO second side margin.
+const EdgeInsets _schalenrand = EdgeInsets.symmetric(horizontal: 20);
 
 TodayScreen _today({
   UserProfile profile = const UserProfile(),

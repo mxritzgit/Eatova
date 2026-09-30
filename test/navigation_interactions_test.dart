@@ -115,12 +115,8 @@ void main() {
           await tester.pumpWidget(
             _host(
               Scaffold(
-                body: SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: CoachChatScreen(service: coach),
-                  ),
-                ),
+                // Like the shell: the coach tab owns its gutters.
+                body: SafeArea(child: CoachChatScreen(service: coach)),
               ),
             ),
           );
