@@ -6,6 +6,7 @@ part of 'coach_chat_screen.dart';
 // ---------------------------------------------------------------------------
 class _CoachTopBar extends StatelessWidget {
   const _CoachTopBar({
+    super.key,
     required this.contextShared,
     required this.onInfoTap,
     required this.onSessionsTap,

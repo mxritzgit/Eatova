@@ -2011,29 +2011,34 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         final navInset = MediaQuery.paddingOf(context).bottom;
         // Use the shell's available space, including keyboard and navigation.
         // Secondary header details must not consume the command picker viewport.
-        // The tab owns its gutters (20 px sides, 12 px top), so they come
-        // off here too.
+        // The tab owns its gutters (20 px sides, the shared title origin on
+        // top), so they come off here too.
+        final topInset = TabChrome.topInset(context);
         final compactHeader = _CoachTopBar.needsCompactLayout(
           context,
           BoxConstraints(
             maxWidth: math.max(0, constraints.maxWidth - 2 * _kShellInset),
-            maxHeight: math.max(0, constraints.maxHeight - navInset - 12),
+            maxHeight: math.max(
+              0,
+              constraints.maxHeight - navInset - topInset,
+            ),
           ),
         );
         return Column(
           key: const ValueKey('screen-coach'),
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // No divider: the content below fades out under the header.
-            // 12 px on top: the shell's title line, shared by every tab.
+            // No divider: the content below fades out under the header,
+            // which starts at the title origin shared by every tab.
             Padding(
-              padding: const EdgeInsets.fromLTRB(
+              padding: EdgeInsets.fromLTRB(
                 _kShellInset,
-                12,
+                topInset,
                 _kShellInset,
                 0,
               ),
               child: _CoachTopBar(
+                key: TabChrome.headerKey,
                 compact: compactHeader,
                 contextShared: widget.userContext != null,
                 onInfoTap: _openCoachInfoSheet,

@@ -29,6 +29,9 @@ Future<void> _frames(WidgetTester tester) async {
   }
 }
 
+/// The design phone's status bar height (iPhone, 390x844).
+const double _statusBar = 47;
+
 Finder _title(String title) => find.byWidgetPredicate(
   (widget) =>
       widget is Text &&
@@ -46,6 +49,10 @@ void main() {
       ) async {
         tester.view.devicePixelRatio = 1;
         tester.view.physicalSize = Size(scale == 1 ? 390 : 320, 760);
+        // The design phone's status bar: the shell passes it on, and every
+        // tab starts its header 15 px below it (62 px from the top).
+        tester.view.padding = const FakeViewPadding(top: _statusBar);
+        tester.view.viewPadding = const FakeViewPadding(top: _statusBar);
         addTearDown(tester.view.reset);
         await pumpLocalized(
           tester,
@@ -67,8 +74,6 @@ void main() {
           l10n.navCoach,
         ];
         const nav = ['Heute', 'Food', 'Rezepte', 'Training', 'Coach'];
-        final origin = tester.getTopLeft(_title(labels.first));
-        double? recipesTop;
         for (var index = 0; index < labels.length; index++) {
           await tester.tap(find.byKey(ValueKey('nav-${nav[index]}')));
           await _frames(tester);
@@ -78,30 +83,25 @@ void main() {
             find.descendant(of: title, matching: find.byType(RichText)),
           );
           expect(paragraph.didExceedMaxLines, isFalse);
-          // Dark redesign (2026-09-28): a redesigned tab sets its title in
-          // the design's header row. All tabs share the 20 px gutter; Today
-          // and Training carry a line above their title, so only tabs still
-          // on the old header also share the top with each other.
-          expect(tester.getTopLeft(title).dx, origin.dx, reason: labels[index]);
+          // Dark redesign: one title origin for every tab — the header row
+          // starts at the 20 px gutter, 62 px from the top on the design's
+          // phone (Today and Training carry a line above their title, so
+          // the row, not the title text, shares the top).
+          final header = find.byKey(TabChrome.headerKey);
+          expect(header, findsOneWidget, reason: labels[index]);
+          expect(
+            tester.getTopLeft(header),
+            const Offset(20, _statusBar + TabChrome.headerGap),
+            reason: labels[index],
+          );
+          expect(tester.getTopLeft(title).dx, 20, reason: labels[index]);
           if (nav[index] == 'Food') {
             final button = tester.getRect(
               find.byKey(const ValueKey('food-date-calendar')),
             );
-            final rect = tester.getRect(title);
             expect(
-              rect.top < button.top ? rect.top : button.top,
-              15,
-              reason: labels[index],
-            );
-            expect(rect.center.dy, closeTo(button.center.dy, 1));
-          } else if (nav[index] == 'Rezepte') {
-            recipesTop = tester.getTopLeft(title).dy;
-          } else if (nav[index] == 'Coach') {
-            // Recipes and Coach still share the old header's title top.
-            expect(
-              tester.getTopLeft(title).dy,
-              recipesTop,
-              reason: labels[index],
+              tester.getRect(title).center.dy,
+              closeTo(button.center.dy, 1),
             );
           }
           expect(find.byKey(const ValueKey('food-options')), findsNothing);
@@ -116,6 +116,53 @@ void main() {
       });
     }
   }
+
+  testWidgets('tabs scroll under the status bar behind one scrim', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.padding = const FakeViewPadding(top: _statusBar);
+    tester.view.viewPadding = const FakeViewPadding(top: _statusBar);
+    addTearDown(tester.view.reset);
+    await pumpLocalized(
+      tester,
+      EatovaHomePage(),
+      scaffold: false,
+      safeArea: false,
+    );
+    await _frames(tester);
+    // The scrim covers the status bar and fades out over the header gap, so
+    // at rest it lies over empty page only; it never takes a tap.
+    final scrim = find.byKey(const ValueKey('status-bar-scrim'));
+    expect(
+      tester.getRect(scrim),
+      const Rect.fromLTWH(0, 0, 390, _statusBar + TabChrome.headerGap),
+    );
+    expect(
+      find.ancestor(of: scrim, matching: find.byType(IgnorePointer)),
+      findsWidgets,
+    );
+    const scrollables = <String, Key>{
+      'Heute': ValueKey('screen-today'),
+      'Food': ValueKey('food-diary-scroll'),
+      'Rezepte': ValueKey('screen-recipes'),
+      'Training': PageStorageKey('training-scroll'),
+    };
+    for (final MapEntry(key: nav, value: scrollKey) in scrollables.entries) {
+      await tester.tap(find.byKey(ValueKey('nav-$nav')));
+      await _frames(tester);
+      // The viewport starts at the screen top (no top SafeArea in the
+      // shell), so scrolled content passes under the status bar.
+      expect(tester.getRect(find.byKey(scrollKey)).top, 0, reason: nav);
+      final scrim = tester.getRect(
+        find.byKey(const ValueKey('status-bar-scrim')),
+      );
+      final header = tester.getRect(find.byKey(TabChrome.headerKey));
+      expect(header.top, greaterThanOrEqualTo(scrim.bottom), reason: nav);
+    }
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('Today opens the correct account routes and keeps tab drafts', (
     tester,

@@ -18,4 +18,5 @@ export 'sheets.dart';
 export 'slot_icon_tile.dart';
 export 'steps_icon.dart';
 export 'surfaces.dart';
+export 'tab_chrome.dart';
 export 'text_scale.dart';

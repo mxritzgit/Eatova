@@ -425,7 +425,10 @@ class MealAnalysisScreen extends StatelessWidget {
     final showsToday = DateUtils.isSameDay(selectedDate, today);
     final pick = showsToday ? recipePick : null;
     final chrome = <Widget>[
-      FoodPageHeader(onCalendar: () => _selectDate(context)),
+      FoodPageHeader(
+        key: TabChrome.headerKey,
+        onCalendar: () => _selectDate(context),
+      ),
       const SizedBox(height: _gap),
       FoodDayNavigation(
         day: selectedDate,
@@ -514,7 +517,7 @@ class MealAnalysisScreen extends StatelessWidget {
                 key: const ValueKey('food-diary-scroll'),
                 padding: EdgeInsets.fromLTRB(
                   20,
-                  15,
+                  TabChrome.topInset(context),
                   20,
                   navInset +
                       (floating ? FoodEntryDock.height + _dockClearance : 20),

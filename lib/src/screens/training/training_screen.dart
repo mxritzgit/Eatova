@@ -472,7 +472,12 @@ class _TrainingScreenState extends State<TrainingScreen> {
         key: const PageStorageKey('training-scroll'),
         controller: _scroll,
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-        padding: EdgeInsets.fromLTRB(20, 15, 20, navInset + 48),
+        padding: EdgeInsets.fromLTRB(
+          20,
+          TabChrome.topInset(context),
+          20,
+          navInset + 48,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -852,6 +857,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
   }
 
   Widget _header(BuildContext context, TrainingPlan? plan) => LayoutBuilder(
+    key: TabChrome.headerKey,
     builder: (context, constraints) {
       final t = context.t;
       final l10n = context.l10n;

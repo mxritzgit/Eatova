@@ -13,6 +13,7 @@ const double _kGutter = 20;
 
 class _RecipesHeader extends StatelessWidget {
   const _RecipesHeader({
+    super.key,
     required this.onAdd,
     required this.addSemantics,
     this.onOpenMealPlan,

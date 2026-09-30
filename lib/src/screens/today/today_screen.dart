@@ -126,8 +126,9 @@ class TodayScreen extends StatelessWidget {
           workout: workout,
         );
 
-    // No SafeArea and no side padding: the shell supplies both. The page runs
-    // under the floating tab bar and pads its end by the bar's band (plus the
+    // No SafeArea and no side padding: the shell supplies the gutters. The
+    // page runs under the status bar and the floating tab bar; it starts at
+    // the shared title origin and pads its end by the bar's band (plus the
     // design's clearance), so the last card can scroll clear of the glass.
     final navInset = MediaQuery.paddingOf(context).bottom;
     return SingleChildScrollView(
@@ -135,13 +136,15 @@ class TodayScreen extends StatelessWidget {
       // Unclipped: the selected day's glow reaches into the shell's side
       // gutter as in the design; the tab stack still clips at the screen.
       clipBehavior: Clip.none,
-      // Top 3: the shell's 12 plus 3 put the header 62 px below the screen
-      // top on the design's phone, as in the reference.
-      padding: EdgeInsets.only(top: 3, bottom: navInset + 68),
+      padding: EdgeInsets.only(
+        top: TabChrome.topInset(context),
+        bottom: navInset + 68,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           _TodayHeader(
+            key: TabChrome.headerKey,
             dateLine: todayHeaderDate(selectedDate, heute, l10n),
             dateSemantics: todayDateLabel(heute, selectedDate, l10n),
             title: l10n.navToday,
@@ -204,6 +207,7 @@ class TodayScreen extends StatelessWidget {
 /// right, both 44 px high.
 class _TodayHeader extends StatelessWidget {
   const _TodayHeader({
+    super.key,
     required this.dateLine,
     required this.dateSemantics,
     required this.title,

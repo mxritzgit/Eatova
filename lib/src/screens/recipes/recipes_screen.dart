@@ -1281,18 +1281,17 @@ class _RecipesScreenState extends State<RecipesScreen> {
         key: const ValueKey('screen-recipes'),
         controller: _listController,
         // The tab owns its gutters (chips and shelves run to the screen
-        // edge). Top: the shell's 12 px, so the title shares its origin with
-        // the other tabs (3 px above the design's header row, taken back
-        // below it). Bottom: the floating tab bar's band plus the design's
-        // 48 px.
+        // edge). Top: the shared title origin under the status bar. Bottom:
+        // the floating tab bar's band plus the design's 48 px.
         padding: EdgeInsets.only(
-          top: 12,
+          top: TabChrome.topInset(context),
           bottom: 48 + MediaQuery.paddingOf(context).bottom,
         ),
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         children: [
           gutter(
             _RecipesHeader(
+              key: TabChrome.headerKey,
               onAdd: _openAddChoice,
               addSemantics: widget.onImport == null
                   ? l10n.recipesCreateSemantics
@@ -1300,7 +1299,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
               onOpenMealPlan: widget.onOpenMealPlan,
             ),
           ),
-          const SizedBox(height: 16 + 3),
+          const SizedBox(height: 16),
           gutter(
             _RecipeSearchCapsule(
               controller: _searchController,

@@ -569,7 +569,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             // The nav bar floats: the body runs under it and receives the
             // bar's band as MediaQuery.padding.bottom, which the SafeArea
             // below passes on (bottom: false) so each tab scrolls under the
-            // glass and pins its docks above it.
+            // glass and pins its docks above it. The status bar passes on the
+            // same way (top: false): tabs scroll under it and start their
+            // header at TabChrome.topInset.
             extendBody: true,
             bottomNavigationBar: AppNavBar(
               index: tab,
@@ -582,8 +584,21 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             // Tabs scroll internally, so no outer SingleChildScrollView.
             // Large windows get a bounded column; phones are unaffected.
             body: SafeArea(
+              top: false,
               bottom: false,
-              child: ReadableWidth(child: _buildTabStack(tab)),
+              child: Stack(
+                children: <Widget>[
+                  Positioned.fill(
+                    child: ReadableWidth(child: _buildTabStack(tab)),
+                  ),
+                  const Positioned(
+                    left: 0,
+                    top: 0,
+                    right: 0,
+                    child: StatusBarScrim(),
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -672,17 +687,17 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     child: LivelyEntrance(
       key: ValueKey('lively-tab-$index'),
       child: Padding(
-        // Food, Recipes, Training and Coach own their gutters; the other tab
-        // retains the shell's established inset even while mounted in the
-        // hidden stack. No bottom inset: every tab runs to the screen edge
-        // under the floating bar.
+        // Food, Recipes, Training and Coach own their gutters; Today keeps the
+        // shell's side gutters even while mounted in the hidden stack. No top
+        // or bottom inset: every tab runs to the screen edges, under the
+        // status bar and the floating bar (TabChrome, AppNavBar).
         padding:
             index == _tabTraining ||
                 index == _tabFood ||
                 index == _tabRezepte ||
                 index == _tabCoach
             ? EdgeInsets.zero
-            : const EdgeInsets.fromLTRB(20, 12, 20, 0),
+            : const EdgeInsets.symmetric(horizontal: 20),
         child: switch (index) {
           _tabFood => _foodTab(),
           _tabRezepte => _recipesTab(),
