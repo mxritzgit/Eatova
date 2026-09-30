@@ -195,54 +195,56 @@ class _ShelfCard extends StatelessWidget {
       child: MergeSemantics(
         child: Semantics(
           button: true,
-          child: Material(
-            color: t.surf,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(rCard),
-              side: BorderSide(color: t.cardBorder),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: onTap,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  SizedBox(
-                    height: 112,
-                    child: RecipePhoto(
-                      recipe: recipe,
-                      placeholder: (_) => _RecipeArt(recipe: recipe),
+          child: PressScale(
+            child: Material(
+              color: t.surf,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(rCard),
+                side: BorderSide(color: t.cardBorder),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: InkWell(
+                onTap: onTap,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(
+                      height: 112,
+                      child: RecipePhoto(
+                        recipe: recipe,
+                        placeholder: (_) => _RecipeArt(recipe: recipe),
+                      ),
                     ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          recipe.displayTitle(l10n),
-                          key: const ValueKey('recipe-shelf-card-title'),
-                          // Two lines at most: the row shares the tallest
-                          // card's height, so one long title would stretch
-                          // every card.
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppType.ui(
-                            14,
-                            weight: FontWeight.w700,
-                            color: t.ink,
-                            height: 1.25,
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            recipe.displayTitle(l10n),
+                            key: const ValueKey('recipe-shelf-card-title'),
+                            // Two lines at most: the row shares the tallest
+                            // card's height, so one long title would stretch
+                            // every card.
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppType.ui(
+                              14,
+                              weight: FontWeight.w700,
+                              color: t.ink,
+                              height: 1.25,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _shelfMeta(recipe, l10n),
-                          style: AppType.ui(12, color: t.ink3),
-                        ),
-                      ],
+                          const SizedBox(height: 4),
+                          Text(
+                            _shelfMeta(recipe, l10n),
+                            style: AppType.ui(12, color: t.ink3),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

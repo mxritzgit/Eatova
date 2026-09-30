@@ -371,22 +371,24 @@ class _BookmarkButton extends StatelessWidget {
       label: saved
           ? l10n.foodRemoveFavoriteTooltip
           : l10n.foodAddFavoriteTooltip,
-      child: ClipOval(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-          child: Material(
-            color: t.bg.withValues(alpha: 0.6),
-            child: InkWell(
-              key: const ValueKey('recipe-hero-save'),
-              onTap: onTap,
-              customBorder: const CircleBorder(),
-              child: SizedBox.square(
-                dimension: 44,
-                child: Center(
-                  child: _GlyphIcon(
-                    _RecipeGlyph.bookmark,
-                    color: t.onImage,
-                    filled: saved,
+      child: PressScale(
+        child: ClipOval(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+            child: Material(
+              color: t.bg.withValues(alpha: 0.6),
+              child: InkWell(
+                key: const ValueKey('recipe-hero-save'),
+                onTap: onTap,
+                customBorder: const CircleBorder(),
+                child: SizedBox.square(
+                  dimension: 44,
+                  child: Center(
+                    child: _GlyphIcon(
+                      _RecipeGlyph.bookmark,
+                      color: t.onImage,
+                      filled: saved,
+                    ),
                   ),
                 ),
               ),
@@ -455,40 +457,47 @@ class _Pill extends StatelessWidget {
     return Semantics(
       button: true,
       enabled: enabled,
-      child: Material(
-        color: fill,
-        borderRadius: BorderRadius.circular(rPill),
-        child: InkWell(
-          onTap: onTap,
+      child: PressScale(
+        enabled: enabled,
+        child: Material(
+          color: fill,
           borderRadius: BorderRadius.circular(rPill),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: height),
-            child: Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: horizontalPadding,
-                vertical: 6,
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (glyph != null) ...[
-                    _GlyphIcon(
-                      glyph!,
-                      size: _glyphSize,
-                      strokeWidth: glyphStroke,
-                      color: ink,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(rPill),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: height),
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: horizontalPadding,
+                  vertical: 6,
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (glyph != null) ...[
+                      _GlyphIcon(
+                        glyph!,
+                        size: _glyphSize,
+                        strokeWidth: glyphStroke,
+                        color: ink,
+                      ),
+                      const SizedBox(width: _glyphGap),
+                    ],
+                    Flexible(
+                      child: Text(
+                        label,
+                        textAlign: TextAlign.center,
+                        style: AppType.ui(
+                          fontSize,
+                          weight: _weight,
+                          color: ink,
+                        ),
+                      ),
                     ),
-                    const SizedBox(width: _glyphGap),
                   ],
-                  Flexible(
-                    child: Text(
-                      label,
-                      textAlign: TextAlign.center,
-                      style: AppType.ui(fontSize, weight: _weight, color: ink),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
           ),

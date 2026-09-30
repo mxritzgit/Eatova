@@ -33,6 +33,7 @@ import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/decimal_text.dart';
+import '../../widgets/common/lively.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/common/persistence_action.dart';
 import '../../widgets/design/design.dart';
@@ -1269,7 +1270,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
       ];
     }
 
-    return KeyedSubtree(
+    final page = KeyedSubtree(
       key: const PageStorageKey<String>('recipes-list'),
       child: ListView(
         key: const ValueKey('screen-recipes'),
@@ -1282,7 +1283,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
           bottom: 48 + MediaQuery.paddingOf(context).bottom,
         ),
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-        children: [
+        children: livelyStagger([
           gutter(
             _RecipesHeader(
               key: TabChrome.headerKey,
@@ -1307,8 +1308,12 @@ class _RecipesScreenState extends State<RecipesScreen> {
           _RecipeChipBar(chips: _chips(l10n)),
           const SizedBox(height: 15),
           ...body,
-        ],
+        ]),
       ),
     );
+    // First view of the tab: the sections enter top to bottom, once per
+    // session (the shell keeps a visited tab mounted). Rows the lazy list
+    // builds later, or a new filter's rows, appear as they are.
+    return LivelyStaggerScope(child: page);
   }
 }

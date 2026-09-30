@@ -234,23 +234,25 @@ class _FilterButton extends StatelessWidget {
     return Semantics(
       button: true,
       label: context.l10n.recipesFiltersButton,
-      child: SizedBox.square(
-        dimension: 44,
-        child: Center(
-          child: Material(
-            color: t.surf2,
-            borderRadius: BorderRadius.circular(rControl),
-            child: InkWell(
-              key: const ValueKey('recipes-filter-button'),
-              onTap: onTap,
+      child: PressScale(
+        child: SizedBox.square(
+          dimension: 44,
+          child: Center(
+            child: Material(
+              color: t.surf2,
               borderRadius: BorderRadius.circular(rControl),
-              child: SizedBox.square(
-                dimension: 40,
-                child: Center(
-                  child: _GlyphIcon(
-                    _RecipeGlyph.sliders,
-                    size: 18,
-                    color: t.inkMuted,
+              child: InkWell(
+                key: const ValueKey('recipes-filter-button'),
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(rControl),
+                child: SizedBox.square(
+                  dimension: 40,
+                  child: Center(
+                    child: _GlyphIcon(
+                      _RecipeGlyph.sliders,
+                      size: 18,
+                      color: t.inkMuted,
+                    ),
                   ),
                 ),
               ),
