@@ -2,7 +2,7 @@
 // 2026-10-01): the first time a tab is shown in a session its sections fade
 // in and rise one after another; coming back to the tab shows it as it is.
 // The shell keeps visited tabs mounted, so the entrance is bound to the
-// mount, and its whole-tab LivelyEntrance steps aside for the stagger.
+// mount; it plays inside the shell's fade-through, with no whole-tab wrapper.
 
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';

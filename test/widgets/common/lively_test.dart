@@ -251,7 +251,7 @@ void main() {
       ),
     );
 
-    testWidgets('Abschnitte kommen nacheinander, zusammen in 360 ms', (
+    testWidgets('Abschnitte kommen nacheinander, zusammen in 300 ms', (
       tester,
     ) async {
       await pumpLocalized(tester, page(), reducedMotion: false);
@@ -262,11 +262,11 @@ void main() {
       await _frames(tester, 4);
       expect(_opacityOf(tester, a), greaterThan(_opacityOf(tester, b)));
 
-      // 23 frames = 368 ms: everything is at rest.
-      await _frames(tester, 19);
+      // 19 frames = 304 ms: everything is at rest.
+      await _frames(tester, 15);
       expect(_opacityOf(tester, a), 1);
       expect(_opacityOf(tester, b), 1);
-      expect(LivelyStaggerScope.total, const Duration(milliseconds: 360));
+      expect(LivelyStaggerScope.total, const Duration(milliseconds: 300));
     });
 
     testWidgets('spielt nur einmal: spaetere Abschnitte stehen sofort da', (
@@ -289,31 +289,6 @@ void main() {
       await pumpLocalized(tester, page());
       expect(_opacityOf(tester, a), 1);
       expect(_opacityOf(tester, b), 1);
-    });
-
-    testWidgets('eine umgebende LivelyEntrance tritt zurueck', (tester) async {
-      await pumpLocalized(
-        tester,
-        LivelyEntrance(child: page()),
-        reducedMotion: false,
-      );
-      FadeTransition outer() => tester.widget<FadeTransition>(
-        find
-            .descendant(
-              of: find.byType(LivelyEntrance),
-              matching: find.byType(FadeTransition),
-            )
-            .first,
-      );
-      // The entrance stands down right after the first frame: the tab fades
-      // once, section by section, not twice.
-      expect(outer().opacity.value, 1);
-      expect(_opacityOf(tester, a), 0);
-      await _frames(tester, 3);
-      expect(outer().opacity.value, 1);
-      expect(_opacityOf(tester, a), inExclusiveRange(0, 1));
-      await tester.pumpAndSettle();
-      expect(_opacityOf(tester, a), 1);
     });
   });
 

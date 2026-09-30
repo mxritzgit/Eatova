@@ -30,10 +30,6 @@ import 'motion.dart';
 /// The child always stays in the widget tree (only opacity/transform change),
 /// so hit-testing, keys and widget tests are untouched. A changing [key]
 /// replays the entrance.
-///
-/// When a [LivelyStaggerScope] mounts inside it, the entrance steps aside
-/// after its first frame and the scope's sections carry the motion alone, so
-/// a tab never fades twice.
 class LivelyEntrance extends StatefulWidget {
   const LivelyEntrance({
     super.key,
@@ -55,39 +51,27 @@ class LivelyEntrance extends StatefulWidget {
 class _LivelyEntranceState extends State<LivelyEntrance>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
-  late final CurvedAnimation _curved;
-
-  /// What the transitions read: the curved entrance, or "done" once a nested
-  /// stagger took over. Swapping the parent keeps the widget tree unchanged.
-  late final ProxyAnimation _anim;
+  late final CurvedAnimation _anim;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(vsync: this, duration: widget.duration);
-    _curved = CurvedAnimation(parent: _controller, curve: widget.curve);
-    _anim = ProxyAnimation(_curved);
+    _anim = CurvedAnimation(parent: _controller, curve: widget.curve);
     _controller.forward();
-  }
-
-  void _standDown() {
-    if (!mounted) return;
-    _controller.stop();
-    _anim.parent = kAlwaysCompleteAnimation;
   }
 
   @override
   void dispose() {
-    _curved.dispose();
+    _anim.dispose();
     _controller.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final child = _EntranceHost(standDown: _standDown, child: widget.child);
     // A11y: respect "reduce motion" — show the content statically.
-    if (reducedMotion(context)) return child;
+    if (reducedMotion(context)) return widget.child;
     // FadeTransition instead of a raw animated Opacity: the latter forces a
     // saveLayer (offscreen raster of the whole page) every frame. The
     // RepaintBoundary rasters the page once so the entrance only recomposites
@@ -102,22 +86,10 @@ class _LivelyEntranceState extends State<LivelyEntrance>
             child: child,
           );
         },
-        child: RepaintBoundary(child: child),
+        child: RepaintBoundary(child: widget.child),
       ),
     );
   }
-}
-
-/// Lets a nested [LivelyStaggerScope] ask the enclosing [LivelyEntrance] to
-/// step aside. Never rebuilds dependents: the callback is looked up, not
-/// depended on.
-class _EntranceHost extends InheritedWidget {
-  const _EntranceHost({required this.standDown, required super.child});
-
-  final VoidCallback standDown;
-
-  @override
-  bool updateShouldNotify(_EntranceHost oldWidget) => false;
 }
 
 /// Staggered first-view entrance: every [LivelyStaggerItem] below fades in
@@ -129,6 +101,9 @@ class _EntranceHost extends InheritedWidget {
 /// session and never again on return. Items that mount later (lazy list rows,
 /// a filter change, another day) find the scope finished and appear as they
 /// are. Under a hidden tab's `TickerMode(false)` the controller does not run.
+///
+/// In the shell the sections enter inside HomeTabSwitcher's fade-through
+/// (visible 40–260 ms); the stagger is timed to be visually done by then.
 class LivelyStaggerScope extends StatefulWidget {
   const LivelyStaggerScope({super.key, required this.child});
 
@@ -139,7 +114,7 @@ class LivelyStaggerScope extends StatefulWidget {
   static const int maxIndex = 4;
 
   /// Duration of the whole entrance: the last slot's start plus one entrance
-  /// (30 × 4 + 240 = 360 ms).
+  /// (20 × 4 + 220 = 300 ms).
   static Duration get total => kMotionStagger * maxIndex + kMotionEnter;
 
   @override
@@ -164,11 +139,6 @@ class _LivelyStaggerScopeState extends State<LivelyStaggerScope>
       return;
     }
     _controller.forward();
-    final host = context.getInheritedWidgetOfExactType<_EntranceHost>();
-    if (host != null) {
-      // Not during build: the entrance is an ancestor that already built.
-      WidgetsBinding.instance.addPostFrameCallback((_) => host.standDown());
-    }
   }
 
   @override

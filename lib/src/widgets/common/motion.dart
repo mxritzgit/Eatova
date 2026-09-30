@@ -59,11 +59,13 @@ const Curve kMotionCurve = Curves.easeOutCubic;
 const Duration kMotionValue = Duration(milliseconds: 520);
 
 /// A section or a list row entering. Short on purpose: on a tab's first
-/// visit the sections enter inside the shell's fade-through.
-const Duration kMotionEnter = Duration(milliseconds: 240);
+/// visit the sections enter inside the shell's fade-through, and the whole
+/// stagger (4 × [kMotionStagger] + this = 300 ms) is visually done when the
+/// fade settles at 260 ms, so the two read as one arrival.
+const Duration kMotionEnter = Duration(milliseconds: 220);
 
 /// Delay between two sections of a first-view entrance.
-const Duration kMotionStagger = Duration(milliseconds: 30);
+const Duration kMotionStagger = Duration(milliseconds: 20);
 
 /// Press feedback: sinking in, and easing back out.
 const Duration kMotionPressIn = Duration(milliseconds: 90);
