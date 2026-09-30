@@ -80,14 +80,14 @@ void main() {
       await precacheDesignImages(tester);
       await captureDesignShot(tester, 'food-00');
 
-      // The design's scrollTop counts from the screen top (its content runs
-      // under the status bar); the tab starts below the 47 px safe area.
+      // The design's scrollTop counts from the screen top; since the tabs
+      // run under the status bar (Task 8) the tab's offset is the same.
       final offset = await scrollDesignTabBy(
         tester,
-        700 - kDesignSafeArea.top,
+        700,
         scrollable: _scroll(),
       );
-      expect(offset, 700 - kDesignSafeArea.top);
+      expect(offset, 700);
       await precacheDesignImages(tester);
       await captureDesignShot(tester, 'food-01');
 
