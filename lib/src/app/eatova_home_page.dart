@@ -911,14 +911,16 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     builder: (context) {
       assert(_countTabBuild(_tabRezepte));
       final ownerStore = _store;
+      // Today's shared day summary (budget incl. activity credit), as on the
+      // other tabs.
+      final today = _store.nutritionSummaryForFoodDate(clock.now());
       return RecipesScreen(
         // "Picked for tonight": the pick Today and Food show too.
         mealPick: _store.nextMealPick(localeName: context.l10n.localeName),
         // Promoted lists (shelves, fallback hero) follow the profile diet
         // like the pick does.
         diet: _store.profile.diet,
-        todayOverBudget:
-            _store.nutritionSummaryForFoodDate(clock.now()).remainingKcal <= 0,
+        todayOverBudget: today.remainingKcal <= 0,
         // The pick is for today, so it logs to today whatever day the food
         // tab shows.
         onAddPickToToday: (result, slot) {
@@ -977,21 +979,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         // coach card even when nothing is persisted (2026-09-02).
         onDeletePendingChanged: _store.setRecipeDeletePending,
         isDeletePending: (slug) => _store.pendingRecipeDeletes.contains(slug),
-        // Remaining macros for the day (goal - consumed).
+        // What is left of today's goals, kcal including the activity credit.
         remainingMacros: MacroProgress(
-          proteinG:
-              (_store.profile.proteinGoalG - _store.macroProgress.proteinG)
-                  .clamp(0.0, double.infinity)
-                  .toDouble(),
-          carbsG: (_store.profile.carbsGoalG - _store.macroProgress.carbsG)
-              .clamp(0.0, double.infinity)
-              .toDouble(),
-          fatG: (_store.profile.fatGoalG - _store.macroProgress.fatG)
-              .clamp(0.0, double.infinity)
-              .toDouble(),
-          kcal: (_store.profile.dailyKcalGoal - _store.macroProgress.kcal)
-              .clamp(0, 1 << 30)
-              .toInt(),
+          proteinG: today.proteinLeftG.toDouble(),
+          carbsG: today.carbsLeftG.toDouble(),
+          fatG: today.fatLeftG.toDouble(),
+          kcal: today.remainingKcal < 0 ? 0 : today.remainingKcal,
         ),
       );
     },

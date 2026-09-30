@@ -11,6 +11,7 @@ import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_day.dart';
 
 import '../flows/flow_test_helpers.dart' show storeOf;
@@ -99,12 +100,13 @@ Future<HomeStore> pumpDesignRecipes(
   UserProfile profile = designProfile,
   List<LoggedMeal>? meals,
   bool ownRecipes = true,
+  HealthService? health,
 }) async {
   pinDesignViewport(tester);
   await tester.pumpWidget(
     designCaptureBoundary(
       localizedApp(
-        EatovaHomePage(),
+        EatovaHomePage(healthService: health),
         locale: const Locale('en'),
         safeArea: false,
         scaffold: false,

@@ -27,6 +27,7 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/recipes/meal_plan_screen.dart';
 import 'package:eatova/src/screens/recipes/recipe_history_screen.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
+import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/services/user_recipe_reads.dart';
@@ -35,6 +36,7 @@ import 'package:eatova/src/widgets/design/design.dart';
 import 'support/design_capture.dart' show loadDesignFonts, pinDesignViewport;
 import 'support/harness.dart';
 import 'support/recipes_design_fixtures.dart';
+import 'support/today_design_fixture.dart' show DesignSteps;
 import 'support/recipe_navigation.dart' show recipesList, revealRecipeChip;
 
 final _now = DateTime(2026, 9, 28, 18, 30);
@@ -59,11 +61,13 @@ Future<HomeStore> _pumpHome(
   bool ownRecipes = false,
   UserProfile profile = _profile,
   List<LoggedMeal>? meals,
+  HealthService? health,
 }) => pumpDesignRecipes(
   tester,
   ownRecipes: ownRecipes,
   profile: profile,
   meals: meals,
+  health: health,
 );
 
 /// Builds [finder] in the lazy recipes list (from the top, downwards) and
@@ -651,6 +655,31 @@ void main() {
           findsOneWidget,
         );
         expect(_key('recipe-hero-fits'), findsNothing);
+      });
+    });
+
+    testWidgets('the goal matches rank against the day summary of today: the '
+        'kcal left include the activity credit', (tester) async {
+      await withClock(Clock.fixed(_now), () async {
+        final store = await _pumpHome(
+          tester,
+          profile: _profile.copyWith(weightKg: 80, heightCm: 180),
+          health: DesignSteps(steps: 12000),
+        );
+        await store.refreshHealthSteps();
+        await tester.pumpAndSettle();
+        final burned = store.burnedKcalForFoodDate(_now);
+        expect(burned, greaterThan(0), reason: 'the steps earn a credit');
+        final day = store.nutritionSummaryForFoodDate(_now);
+        final remaining = tester
+            .widget<RecipesScreen>(find.byType(RecipesScreen))
+            .remainingMacros!;
+        // 2,123 goal + credit - 1,221 eaten, as Today and Food count it.
+        expect(remaining.kcal, 2123 + burned - 1221);
+        expect(remaining.kcal, day.remainingKcal);
+        expect(remaining.proteinG, day.proteinLeftG);
+        expect(remaining.carbsG, day.carbsLeftG);
+        expect(remaining.fatG, day.fatLeftG);
       });
     });
 
