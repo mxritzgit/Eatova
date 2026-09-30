@@ -148,9 +148,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   );
   final ValueNotifier<int> _planDraftRequest = ValueNotifier<int>(0);
 
-  /// Hour boundaries for the coach's time-of-day content (greeting, the
-  /// start card's meal slot), which change without any store change.
-  final LocalHourTicker _coachHours = LocalHourTicker();
+  /// Hour boundaries for time-of-day content (the coach's greeting, the next
+  /// meal slot behind every tab's pick and accent), which change without any
+  /// store change.
+  final LocalHourTicker _localHours = LocalHourTicker();
   TrainingPlan? _selectedPlanForCoach;
   bool _trainingRouteOpen = false;
   bool _trainingAdoptionReviewOpen = false;
@@ -214,7 +215,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     _profileRefresh.dispose();
     _addSlotRequest.dispose();
     _planDraftRequest.dispose();
-    _coachHours.dispose();
+    _localHours.dispose();
     _store.dispose();
     super.dispose();
   }
@@ -312,8 +313,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     // B4: a suspended app gets no timer tick. Advance the day BEFORE the
     // flush, so a flush-triggered refresh carries the new day.
     _store.maybeRollOverToToday();
-    // Same for the coach's hour: its pending tick may be hours late.
-    _coachHours.resync();
+    // Same for the hour: its pending tick may be hours late.
+    _localHours.resync();
 
     // Replay stranded outbox ops / stats deltas (DATA-7).
     _store.flushPendingWrites();
@@ -714,8 +715,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   /// The day overview. Narrower slice than the food tab: streak and name,
   /// but no favourites or analyzers.
   Widget _todayTab() => StoreSelector(
-    store: _store,
+    // Plus the hour: the pick and the accent slot move on with the clock.
+    store: Listenable.merge(<Listenable>[_store, _localHours]),
     selector: () => (
+      mealSlotForHour(clock.now().hour),
       _store.selectedFoodDate,
       _store.loggedMeals,
       _store.profile,
@@ -803,11 +806,13 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   // sheet's copy of "already added" and the favorites only ever flowed one way
   // and missed every undo (review P8-01/-05).
   Widget _foodTab() => StoreSelector(
-    store: _store,
+    // Plus the hour: the pick's slot moves on with the clock.
+    store: Listenable.merge(<Listenable>[_store, _localHours]),
     // G11: INPUT values only. Derived getters return a NEW list per call,
     // so a selector on them is always "changed"; the store's lists are
     // reassigned per mutation, making identity an O(1) fingerprint.
     selector: () => (
+      mealSlotForHour(clock.now().hour),
       _store.selectedFoodDate,
       _store.loggedMeals,
       _store.favorites,
@@ -880,7 +885,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   );
 
   Widget _recipesTab() => StoreSelector(
-    store: _store,
+    // Plus the hour, which moves the pick's slot on (see the selector).
+    store: Listenable.merge(<Listenable>[_store, _localHours]),
     // Only what the view reads: own recipes plus goals and daily progress
     // for the "fits your goal" filter.
     selector: () => (
@@ -898,8 +904,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.stepsForFoodDate(clock.now()),
       _store.mealPlansRevision,
       _store.favorites,
-      // The pick's slot follows the clock (11/15/21:00): any notify after a
-      // boundary moves the hero on.
+      // The pick's slot follows the clock (11/15/21:00): the hour tick or
+      // any notify after a boundary moves the hero on.
       mealSlotForHour(clock.now().hour),
     ),
     builder: (context) {
@@ -1367,7 +1373,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     valueListenable: _planDraftRequest,
     builder: (context, planRequest, _) => StoreSelector(
       // Plus the hour: greeting and meal slot move on with the clock alone.
-      store: Listenable.merge(<Listenable>[_store, _coachHours]),
+      store: Listenable.merge(<Listenable>[_store, _localHours]),
       // The INPUTS of `coachContext`; the getter itself builds a fresh
       // string per call and must stay out.
       selector: () => (
