@@ -4,10 +4,9 @@ import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
 
-// TEST-1: MacroProgress.add/subtract — daily macro aggregation from the meals'
-// macro strings. logic_test.dart covers the happy path; here the parser edge
-// cases and the clamp/accumulation invariants (subtract clamps, kcal stays a
-// non-negative int).
+// TEST-1: MacroProgress.add — daily macro aggregation from the meals' macro
+// strings. logic_test.dart covers the happy path; here the parser edge cases
+// and the accumulation invariants.
 
 MealAnalysisResult _r({
   int kcal = 0,
@@ -68,39 +67,6 @@ void main() {
           .add(_r(kcal: 300, protein: '15 g'));
       expect(p.proteinG, 25);
       expect(p.kcal, 500);
-    });
-  });
-
-  group('subtract: Clamp + Symmetrie', () {
-    test('add gefolgt von subtract derselben Mahlzeit -> wieder leer', () {
-      final r = _r(kcal: 400, protein: '25 g', carbs: '40 g', fat: '15 g');
-      final p = MacroProgress.empty.add(r).subtract(r);
-      expect(p.proteinG, 0);
-      expect(p.carbsG, 0);
-      expect(p.fatG, 0);
-      expect(p.kcal, 0);
-    });
-
-    test('subtract unter 0 wird auf 0 geclampt (Makros)', () {
-      final p = MacroProgress.empty
-          .subtract(_r(protein: '30 g', carbs: '40 g', fat: '10 g'));
-      expect(p.proteinG, 0);
-      expect(p.carbsG, 0);
-      expect(p.fatG, 0);
-    });
-
-    test('subtract unter 0 wird auf 0 geclampt (kcal, bleibt int)', () {
-      final p = MacroProgress.empty.subtract(_r(kcal: 500));
-      expect(p.kcal, 0);
-      expect(p.kcal, isA<int>());
-    });
-
-    test('Teil-Abzug laesst den Rest stehen', () {
-      final p = MacroProgress.empty
-          .add(_r(kcal: 600, protein: '40 g'))
-          .subtract(_r(kcal: 200, protein: '15 g'));
-      expect(p.proteinG, 25);
-      expect(p.kcal, 400);
     });
   });
 

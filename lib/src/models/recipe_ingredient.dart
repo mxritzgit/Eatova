@@ -22,13 +22,6 @@ class RecipeNutrition {
       carbsG != null &&
       fatG != null;
 
-  RecipeNutrition scaled(double factor) => RecipeNutrition(
-    caloriesKcal: caloriesKcal == null ? null : caloriesKcal! * factor,
-    proteinG: proteinG == null ? null : proteinG! * factor,
-    carbsG: carbsG == null ? null : carbsG! * factor,
-    fatG: fatG == null ? null : fatG! * factor,
-  );
-
   Map<String, dynamic> toJson() => {
     'calories_kcal': caloriesKcal,
     'protein_g': proteinG,
@@ -95,14 +88,6 @@ class RecipeIngredient {
   String get shoppingKey => productCode != null
       ? '${source.name}:$productCode'
       : '${source.name}:${name.toLowerCase().replaceAll(RegExp(r'\s+'), ' ')}';
-
-  RecipeIngredient withGrams(double value) => RecipeIngredient(
-    name: name,
-    grams: value,
-    per100g: per100g,
-    source: source,
-    productCode: productCode,
-  );
 
   Map<String, dynamic> toJson() => {
     'name': name,

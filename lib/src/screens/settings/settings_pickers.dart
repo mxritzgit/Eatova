@@ -64,8 +64,8 @@ Future<ActivityLevel?> showActivityPicker(
 }
 
 /// [outcomeFor] supplies each option's subtitle: the plan it yields with the
-/// body data currently on the page. A raw `deltaLabel` would show a delta the
-/// safety floor and 1 % cap keep most users from ever reaching.
+/// body data currently on the page. The goal's raw kcal delta would show a
+/// delta the safety floor and 1 % cap keep most users from ever reaching.
 Future<WeightGoal?> showWeightGoalPicker(
   BuildContext context, {
   required WeightGoal value,

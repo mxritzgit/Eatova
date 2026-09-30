@@ -17,8 +17,6 @@ class ChatSession {
   final DateTime lastMessageAt;
   final int messageCount;
 
-  bool get isEmpty => messageCount == 0;
-
   /// Titles the schema default, the client and older builds wrote before the
   /// server derived one from the first question. Known strings only — a user
   /// rename that happens to match is indistinguishable and also fine to map.
@@ -40,20 +38,6 @@ class ChatSession {
       lastMessageAt:
           DateTime.parse(row['last_message_at'] as String).toLocal(),
       messageCount: (row['message_count'] as num?)?.toInt() ?? 0,
-    );
-  }
-
-  ChatSession copyWith({
-    String? title,
-    DateTime? lastMessageAt,
-    int? messageCount,
-  }) {
-    return ChatSession(
-      id: id,
-      title: title ?? this.title,
-      createdAt: createdAt,
-      lastMessageAt: lastMessageAt ?? this.lastMessageAt,
-      messageCount: messageCount ?? this.messageCount,
     );
   }
 }
