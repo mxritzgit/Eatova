@@ -63,7 +63,11 @@ class _ShelfHeading extends StatelessWidget {
                 widthFactor: 1,
                 child: Text(
                   actionLabel!,
-                  style: _ui(14, weight: FontWeight.w700, color: t.accentText),
+                  style: AppType.ui(
+                    14,
+                    weight: FontWeight.w700,
+                    color: t.accentText,
+                  ),
                 ),
               ),
             ),
@@ -74,7 +78,7 @@ class _ShelfHeading extends StatelessWidget {
       side = Text(
         trailing!,
         textAlign: TextAlign.right,
-        style: _ui(12, weight: FontWeight.w600, color: t.ink2),
+        style: AppType.ui(12, weight: FontWeight.w600, color: t.ink2),
       );
     }
     if (side == null) return heading;
@@ -223,7 +227,7 @@ class _ShelfCard extends StatelessWidget {
                           // every card.
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: _ui(
+                          style: AppType.ui(
                             14,
                             weight: FontWeight.w700,
                             color: t.ink,
@@ -233,7 +237,7 @@ class _ShelfCard extends StatelessWidget {
                         const SizedBox(height: 4),
                         Text(
                           _shelfMeta(recipe, l10n),
-                          style: _ui(12, color: t.ink3),
+                          style: AppType.ui(12, color: t.ink3),
                         ),
                       ],
                     ),
@@ -286,13 +290,13 @@ class _YourRecipesCard extends StatelessWidget {
             level: 2,
             child: Text(
               l10n.recipesYourRecipesTitle,
-              style: _ui(17, weight: FontWeight.w700, color: t.ink),
+              style: AppType.ui(17, weight: FontWeight.w700, color: t.ink),
             ),
           ),
           const SizedBox(height: 4),
           Text(
             l10n.recipesYourRecipesBody,
-            style: _ui(14, color: t.ink2, height: 1.45),
+            style: AppType.ui(14, color: t.ink2, height: 1.45),
           ),
           const SizedBox(height: 12),
           if (onImport == null)

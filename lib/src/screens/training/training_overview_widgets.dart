@@ -16,9 +16,9 @@ import 'training_actual_fields.dart' show formatTrainingWeight;
 // 2026-09-28). They only render values the store derived
 // (`models/training_insights.dart`); none of them computes a training rule.
 
-/// Figtree's natural line height, the design's CSS `normal`; without it text
-/// inherits the theme body style's 1.43 and every row grows.
-const double kTrainingLine = 1.2;
+/// Figtree's natural line height, the design's CSS `normal` (the theme's
+/// default since the final wave; kept explicit for the measured rows).
+const double kTrainingLine = AppType.normalHeight;
 
 /// Text scaler for the 30 px card headings: they are large text already and
 /// grow to 42 px, so a long single word ("Oberkörper") still fits the card

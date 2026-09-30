@@ -716,6 +716,10 @@ class AppType {
   /// glyph looks the same on every device.
   static const List<String> uiFallback = <String>[displayFamily];
 
+  /// Both families' natural line height (ascent + descent = 1.2 em), the
+  /// design's CSS `normal`; the theme's default for text without a height.
+  static const double normalHeight = 1.2;
+
   /// The shared title scale for tabs and pushed pages. Tab titles follow the
   /// dark redesign: 36 px, -0.03 em, line height 1.05, ExtraBold (the design's
   /// 750 has no static cut; 800 is the nearest bundled weight). Render tab

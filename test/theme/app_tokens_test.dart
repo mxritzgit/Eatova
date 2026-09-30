@@ -415,6 +415,76 @@ void main() {
       expect(width(figtreeOnly), isNot(width(bricolage)));
     });
   });
+
+  // Material's English geometry adds 0.1-0.5 px tracking and 1.33-1.5 line
+  // heights to every Text without its own values; the design sets text with
+  // normal tracking and the fonts' normal line height.
+  group('Text-Geometrie', () {
+    test('Figtree und Bricolage haben 1.2 als natuerliche Zeilenhoehe', () {
+      expect(AppType.normalHeight, 1.2);
+    });
+
+    testWidgets('das Theme setzt Laufweite 0 und Zeilenhoehe normal', (
+      tester,
+    ) async {
+      for (final brightness in Brightness.values) {
+        late BuildContext context;
+        late BuildContext buttonContext;
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildEatovaTheme(brightness),
+            home: Material(
+              child: Builder(
+                builder: (c) {
+                  context = c;
+                  return TextButton(
+                    onPressed: () {},
+                    child: Builder(
+                      builder: (b) {
+                        buttonContext = b;
+                        return const Text('Los');
+                      },
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+        // The second brightness animates in from the first.
+        await tester.pumpAndSettle();
+        // Theme.of merges Material's local geometry under the app's theme:
+        // the resolved slots are what a Text really inherits.
+        for (final style in _slots(Theme.of(context).textTheme)) {
+          expect(style.letterSpacing, 0, reason: style.debugLabel);
+          expect(style.height, AppType.normalHeight, reason: style.debugLabel);
+        }
+        // What a plain Text and a button label inherit. Null is fine: no
+        // tracking, and the fonts' own (normal) line height.
+        for (final style in [
+          DefaultTextStyle.of(context).style,
+          DefaultTextStyle.of(buttonContext).style,
+        ]) {
+          expect(style.letterSpacing ?? 0, 0, reason: style.debugLabel);
+          expect(
+            style.height ?? AppType.normalHeight,
+            AppType.normalHeight,
+            reason: style.debugLabel,
+          );
+          expect(style.fontFamily, AppType.uiFamily);
+        }
+        // The sizes stay Material's; only bodySmall keeps its 13 px.
+        final text = Theme.of(context).textTheme;
+        expect(text.bodyMedium!.fontSize, 14);
+        expect(text.bodySmall!.fontSize, 13);
+        expect(
+          text.bodySmall!.color,
+          (brightness == Brightness.dark ? AppTokens.dark : AppTokens.light)
+              .ink2,
+        );
+      }
+    });
+  });
 }
 
 /// All fifteen slots of [theme].

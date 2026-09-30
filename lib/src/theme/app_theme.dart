@@ -41,17 +41,25 @@ ThemeData buildEatovaTheme(Brightness brightness) {
 
   final base = ThemeData(useMaterial3: true, colorScheme: scheme);
 
-  final textTheme = base.textTheme
+  // Material's English geometry sets every slot's size and weight but also
+  // 0.1-0.5 px tracking and 1.33-1.5 line heights, which every Text without
+  // its own values inherits. The design sets text with normal tracking (0)
+  // and the fonts' normal line height, so the theme carries those instead;
+  // multi-line copy sets its own height where the design has one.
+  final designText = Typography.englishLike2021
+      .merge(base.textTheme)
       .apply(
         fontFamily: AppType.uiFamily,
         fontFamilyFallback: AppType.uiFallback,
         bodyColor: t.ink,
         displayColor: t.ink,
-      )
-      .copyWith(
-        bodyMedium: AppType.ui(14, color: t.ink, height: 1.45),
-        bodySmall: AppType.ui(13, color: t.ink2, height: 1.45),
+        letterSpacingFactor: 0,
+        heightFactor: 0,
+        heightDelta: AppType.normalHeight,
       );
+  final textTheme = designText.copyWith(
+    bodySmall: designText.bodySmall!.copyWith(fontSize: 13, color: t.ink2),
+  );
 
   return base.copyWith(
     pageTransitionsTheme: PageTransitionsTheme(

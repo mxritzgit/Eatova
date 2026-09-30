@@ -107,7 +107,7 @@ class _RecipeHeroCard extends StatelessWidget {
                         key: const ValueKey('recipe-hero-ai-label'),
                         child: Text(
                           l10n.recipesAiImageLabel,
-                          style: _ui(
+                          style: AppType.ui(
                             11,
                             weight: FontWeight.w700,
                             color: t.inkSoft,
@@ -257,7 +257,7 @@ class _FitsBadge extends StatelessWidget {
           Flexible(
             child: Text(
               context.l10n.recipesHeroFitsDay,
-              style: _ui(13, weight: FontWeight.w700, color: t.success),
+              style: AppType.ui(13, weight: FontWeight.w700, color: t.success),
             ),
           ),
         ],
@@ -311,13 +311,13 @@ class _MetaChip extends StatelessWidget {
               ],
               Text(
                 number,
-                style: _ui(13, weight: FontWeight.w700, color: t.ink),
+                style: AppType.ui(13, weight: FontWeight.w700, color: t.ink),
               ),
             ],
           ),
           Text(
             unit,
-            style: _ui(13, weight: FontWeight.w500, color: t.ink2),
+            style: AppType.ui(13, weight: FontWeight.w500, color: t.ink2),
           ),
         ],
       ),
@@ -437,7 +437,7 @@ class _Pill extends StatelessWidget {
       _textWidth(
         context,
         label,
-        _ui(fontSize, weight: _weight),
+        AppType.ui(fontSize, weight: _weight),
         MediaQuery.textScalerOf(context),
       ) +
       1;
@@ -485,7 +485,7 @@ class _Pill extends StatelessWidget {
                     child: Text(
                       label,
                       textAlign: TextAlign.center,
-                      style: _ui(fontSize, weight: _weight, color: ink),
+                      style: AppType.ui(fontSize, weight: _weight, color: ink),
                     ),
                   ),
                 ],

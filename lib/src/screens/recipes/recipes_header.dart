@@ -85,22 +85,6 @@ class _RecipesHeader extends StatelessWidget {
   }
 }
 
-/// [AppType.ui] as the design sets Figtree: normal tracking and the font's
-/// normal line height (1.2). Under every [Material] the theme's text geometry
-/// would otherwise add 0.25-0.3 px per letter and a 1.45 line height.
-TextStyle _ui(
-  double size, {
-  FontWeight weight = FontWeight.w400,
-  Color? color,
-  double height = 1.2,
-}) => AppType.ui(
-  size,
-  weight: weight,
-  color: color,
-  height: height,
-  letterSpacing: 0,
-);
-
 /// Width of [text] on one line as a [Text] with [style] renders it here
 /// (merged over the ambient [DefaultTextStyle]), for the side-by-side-or-
 /// stacked decisions.
@@ -187,7 +171,7 @@ class _RecipeSearchCapsule extends StatelessWidget {
                       key: const ValueKey('recipes-search-input'),
                       controller: controller,
                       cursorOpacityAnimates: false,
-                      style: _ui(16, color: t.ink),
+                      style: AppType.ui(16, color: t.ink),
                       cursorColor: t.accent,
                       textInputAction: TextInputAction.search,
                       decoration: InputDecoration(
@@ -202,7 +186,7 @@ class _RecipeSearchCapsule extends StatelessWidget {
                         hintText: l10n.recipesSearchPlaceholder,
                         // ink2, not the design's ink3: ink3 misses 4.5:1 on
                         // the field capsule.
-                        hintStyle: _ui(16, color: t.ink2),
+                        hintStyle: AppType.ui(16, color: t.ink2),
                       ),
                     ),
                   ),
@@ -518,10 +502,17 @@ class _AddChoiceRow extends StatelessWidget {
                       children: [
                         Text(
                           title,
-                          style: _ui(16, weight: FontWeight.w700, color: t.ink),
+                          style: AppType.ui(
+                            16,
+                            weight: FontWeight.w700,
+                            color: t.ink,
+                          ),
                         ),
                         const SizedBox(height: 3),
-                        Text(body, style: _ui(13, color: t.ink2, height: 1.4)),
+                        Text(
+                          body,
+                          style: AppType.ui(13, color: t.ink2, height: 1.4),
+                        ),
                       ],
                     ),
                   ),

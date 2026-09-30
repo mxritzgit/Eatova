@@ -15,8 +15,7 @@ import 'food_glyphs.dart';
 // floating capture dock. Values follow `design/food/template.html`.
 // ---------------------------------------------------------------------------
 
-/// Design text at Figtree's normal line height (1.2); a plain Text would
-/// inherit the theme body's 1.43.
+/// Design text at Figtree's normal line height (the theme's default too).
 TextStyle foodText(
   double size, {
   FontWeight weight = FontWeight.w400,
@@ -27,7 +26,7 @@ TextStyle foodText(
   weight: weight,
   color: color,
   letterSpacing: letterSpacing,
-  height: 1.2,
+  height: AppType.normalHeight,
 );
 
 /// "Food" title and the round calendar button that opens the date picker.
