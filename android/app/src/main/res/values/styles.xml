@@ -1,13 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Window theme while the process starts, with OS dark mode off. -->
-    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+    <!-- Dark in either OS mode: the app is dark-only (kDarkOnly), so a light
+         window would flash white before the first Flutter frame. If the light
+         theme returns, restore Theme.Light here and keep values-night dark. -->
+    <!-- Window theme while the process starts. -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
         <!-- Splash screen; removed once the engine draws its first frame. -->
         <item name="android:windowBackground">@drawable/launch_background</item>
     </style>
     <!-- Window theme once the process has started: the color behind the
          Flutter UI while it initializes and while it runs (V2 embedding). -->
-    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
-        <item name="android:windowBackground">?android:colorBackground</item>
+    <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">@color/launch_background</item>
     </style>
 </resources>

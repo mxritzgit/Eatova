@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The dark page token (AppTokens.dark.bg), the colour of the first
+         Flutter frame. The app is dark-only (kDarkOnly), so the launch window
+         stays dark in either OS mode. Kept apart from colors.xml, which
+         flutter_launcher_icons rewrites. -->
+    <color name="launch_background">#09090C</color>
+</resources>
