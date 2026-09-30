@@ -238,8 +238,24 @@ final class TrainingSessionController extends ChangeNotifier {
       // A late callback ends only the visible phase. Every new interval gets
       // its full duration instead of consuming time before it was presented.
       _startNextTimedPhase();
+      notifyListeners();
+      return;
     }
-    notifyListeners();
+    // The 100 ms ticker keeps the phase end precise, but the player shows
+    // whole seconds: notify only when that second changes (10x fewer
+    // rebuilds of the whole player). Every other change notifies at once.
+    if (displaySeconds != _notifiedSeconds) notifyListeners();
+  }
+
+  /// [remaining] as the player shows it: whole seconds, rounded up.
+  int get displaySeconds => (remaining.inMilliseconds / 1000).ceil();
+
+  int? _notifiedSeconds;
+
+  @override
+  void notifyListeners() {
+    _notifiedSeconds = displaySeconds;
+    super.notifyListeners();
   }
 
   void _adjust(Duration delta) {
