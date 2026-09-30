@@ -19,6 +19,8 @@ class _Conversation extends StatelessWidget {
     required this.onReviewPlan,
     required this.onScroll,
     required this.onMetricsChanged,
+    required this.entersFor,
+    required this.onEntered,
     this.onOpenTraining,
   });
 
@@ -31,6 +33,10 @@ class _Conversation extends StatelessWidget {
   /// Content or viewport size changed; a chat pinned to its end follows.
   final NotificationListenerCallback<ScrollMetricsNotification>
       onMetricsChanged;
+
+  /// Whether [message] arrived while the chat was open and enters once.
+  final bool Function(ChatMessage message) entersFor;
+  final ValueChanged<String> onEntered;
   final FocusNode focus;
   final List<ChatMessage> messages;
   final bool sending;
@@ -80,29 +86,44 @@ class _Conversation extends StatelessWidget {
                 return ValueListenableBuilder<String>(
                   valueListenable: preview,
                   builder: (context, text, _) {
-                    if (text.isEmpty) return const _ThinkingRow();
-                    return _MessageView(
-                      key: const ValueKey('coach-stream-preview'),
-                      message: ChatMessage(
-                        id: 'stream-preview',
-                        role: ChatRole.assistant,
-                        content: text,
-                        createdAt: DateTime.now(),
+                    if (text.isEmpty) {
+                      return const _Entrance(
+                        key: ValueKey('coach-thinking-entrance'),
+                        animate: true,
+                        child: _ThinkingRow(),
+                      );
+                    }
+                    return _Entrance(
+                      key: const ValueKey('coach-preview-entrance'),
+                      animate: true,
+                      child: _MessageView(
+                        key: const ValueKey('coach-stream-preview'),
+                        message: ChatMessage(
+                          id: 'stream-preview',
+                          role: ChatRole.assistant,
+                          content: text,
+                          createdAt: DateTime.now(),
+                        ),
                       ),
                     );
                   },
                 );
               }
               final message = messages[i];
-              return _MessageView(
-                message: message,
-                recipeAdded: recipeAddedFor(message),
-                recipeAddEnabled: recipeAddEnabled,
-                onAddRecipe: () => onAddRecipe(message),
-                planAdded: planAddedFor(message),
-                planReviewEnabled: planReviewEnabled,
-                onReviewPlan: () => onReviewPlan(message),
-                onOpenTraining: onOpenTraining,
+              return _Entrance(
+                key: ValueKey('coach-entry-${message.id}'),
+                animate: entersFor(message),
+                onDone: () => onEntered(message.id),
+                child: _MessageView(
+                  message: message,
+                  recipeAdded: recipeAddedFor(message),
+                  recipeAddEnabled: recipeAddEnabled,
+                  onAddRecipe: () => onAddRecipe(message),
+                  planAdded: planAddedFor(message),
+                  planReviewEnabled: planReviewEnabled,
+                  onReviewPlan: () => onReviewPlan(message),
+                  onOpenTraining: onOpenTraining,
+                ),
               );
             },
           ),
@@ -110,6 +131,73 @@ class _Conversation extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A new message's one-time entrance: it fades in while rising a few pixels,
+/// instead of appearing all at once. Without [animate] (the loaded history)
+/// or under reduced motion it simply stands at full opacity; the wrapper
+/// stays either way, so finishing the entrance never rebuilds the bubble.
+class _Entrance extends StatefulWidget {
+  const _Entrance({
+    super.key,
+    required this.animate,
+    required this.child,
+    this.onDone,
+  });
+
+  final bool animate;
+  final Widget child;
+  final VoidCallback? onDone;
+
+  @override
+  State<_Entrance> createState() => _EntranceState();
+}
+
+class _EntranceState extends State<_Entrance>
+    with SingleTickerProviderStateMixin {
+  static const double _rise = 14;
+
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    value: widget.animate ? 0 : 1,
+  );
+  late final Animation<double> _curve = CurvedAnimation(
+    parent: _controller,
+    curve: Curves.easeOutCubic,
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_controller.isCompleted || _controller.isAnimating) return;
+    final duration = motionDuration(
+      context,
+      const Duration(milliseconds: 320),
+    );
+    if (duration == Duration.zero) {
+      _controller.value = 1;
+      widget.onDone?.call();
+      return;
+    }
+    _controller.duration = duration;
+    unawaited(_controller.forward().whenComplete(() => widget.onDone?.call()));
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: _curve,
+    builder: (context, child) => Transform.translate(
+      offset: Offset(0, _rise * (1 - _curve.value)),
+      child: child,
+    ),
+    child: FadeTransition(opacity: _curve, child: widget.child),
+  );
 }
 
 class _MessageView extends StatelessWidget {
