@@ -44,13 +44,6 @@ class LocaleController extends ChangeNotifier {
     return _pendingWrite;
   }
 
-  @visibleForTesting
-  void setOverrideSync(Locale? locale) {
-    if (locale == _override) return;
-    _override = locale;
-    notifyListeners();
-  }
-
   static Locale? _parse(String? wert) => switch (wert) {
         'de' => const Locale('de'),
         'en' => const Locale('en'),

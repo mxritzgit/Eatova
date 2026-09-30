@@ -15,9 +15,6 @@ class UserRecipesSync {
   final SupabaseClient _client;
   final String _userId;
 
-  /// The full snapshot is bounded by the server's active recipe capacity.
-  static const int userRecipesLimit = 5000;
-
   Future<List<FitnessRecipe>> load() =>
       UserRecipeReads(_client, _userId).load();
 

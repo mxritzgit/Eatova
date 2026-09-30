@@ -36,15 +36,13 @@ abstract final class IntentionalSignOut {
   /// intent: an involuntary session end runs through the same cleanup, and one
   /// invented here would silence exactly the message it must not silence.
   ///
-  /// P1-03: `HomeStore.signOutCleanup` runs before the `signOut` call and may
-  /// take `2 * kSignOutDeliveryBudget + kCacheSnapshotWaitBudget` (up to 53 s)
-  /// — realistically already 40 s at the PostgREST request timeout. Measured
-  /// from the button press, a DELIBERATE sign-out therefore expired and the
-  /// gate reported "your session has expired". Raising [gueltigkeit] would
-  /// have tied this number to three budgets in another file, by hand: the
-  /// comment above it already claimed to cover the cleanup and was wrong by a
-  /// factor of two. So the intent hangs off the END of the cleanup instead of
-  /// off a deadline someone has to keep in step.
+  /// P1-03: `HomeStore.signOutCleanup` runs before the `signOut` call and
+  /// could take up to 53 s when it still delivered the outbox. Measured from
+  /// the button press, a DELIBERATE sign-out therefore expired and the gate
+  /// reported "your session has expired". Raising [gueltigkeit] would have
+  /// tied this number to budgets in another file, by hand. So the intent hangs
+  /// off the END of the cleanup instead of off a deadline someone has to keep
+  /// in step.
   static void refresh() {
     if (_markiertAm != null) _markiertAm = clock.now();
   }

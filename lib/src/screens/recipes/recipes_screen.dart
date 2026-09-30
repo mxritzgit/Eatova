@@ -569,12 +569,11 @@ class _RecipesScreenState extends State<RecipesScreen> {
   ///
   /// An `isNotEmpty` guard would be the wrong repair: "the user deleted all
   /// recipes" is a valid state that MUST collect. Empty is not the problem —
-  /// unfinished is. And unfinished has three shapes, all of them behind the
-  /// one flag (review 2026-08-31, A): the answer is still out, the answer
-  /// filled its page and stops at the newest `userRecipesLimit` recipes, or a
-  /// queued recipe is stuck in an unreadable outbox slot. The last two look
-  /// exactly like a finished list from here, which is why the flag — not this
-  /// screen — decides.
+  /// unfinished is. And unfinished has several shapes, all of them behind the
+  /// one flag (review 2026-08-31, A): the recipe or the photo-reference
+  /// snapshot is still out, or a queued recipe is stuck in an unreadable
+  /// outbox slot. The last looks exactly like a finished list from here, which
+  /// is why the flag — not this screen — decides.
   ///
   /// [_userRecipes] rather than [_visibleUserRecipes]: a recipe inside its undo
   /// window still needs its bytes.
