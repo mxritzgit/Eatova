@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../models/day_nutrition.dart';
 import '../../theme/app_tokens.dart';
+import '../../widgets/common/lively.dart';
 import '../../widgets/design/design.dart';
 import 'today_progress.dart';
 import 'today_texts.dart';
@@ -122,7 +123,7 @@ class TodayCalorieCard extends StatelessWidget {
                         percent: percent,
                         progress: summary.eatenFraction,
                         eyebrow: eyebrow,
-                        remaining: kcalThousands(remaining.abs(), l10n),
+                        remaining: remaining.abs(),
                         budgetLine: over
                             ? l10n.todayArcBudgetOver(budget)
                             : l10n.todayArcBudget(budget),
@@ -160,9 +161,10 @@ class _EatenPill extends StatelessWidget {
       child: Center(
         widthFactor: 1,
         heightFactor: 1,
-        child: Text(
-          context.l10n.todayEatenPercent(percent),
-          key: const ValueKey('today-kcal-percent'),
+        child: CountingText(
+          value: percent.toDouble(),
+          format: (v) => context.l10n.todayEatenPercent(v.round()),
+          textKey: const ValueKey('today-kcal-percent'),
           style: AppType.ui(
             13,
             weight: FontWeight.w700,
@@ -191,7 +193,10 @@ class _ArcWithCentre extends StatelessWidget {
   final double width;
   final int percent;
   final double progress;
-  final String eyebrow, remaining, budgetLine;
+
+  /// Kcal left (or over), counted up in step with the arc.
+  final int remaining;
+  final String eyebrow, budgetLine;
 
   @override
   Widget build(BuildContext context) {
@@ -244,9 +249,10 @@ class _ArcWithCentre extends StatelessWidget {
                           height: todayLineHeight,
                         ),
                       ),
-                      Text(
-                        remaining,
-                        key: const ValueKey('today-kcal-remaining'),
+                      CountingText(
+                        value: remaining.toDouble(),
+                        format: (v) => kcalThousands(v.round(), l10n),
+                        textKey: const ValueKey('today-kcal-remaining'),
                         style: AppType.display(
                           58,
                           color: t.ink,
@@ -294,6 +300,8 @@ class _Stats extends StatelessWidget {
         l10n.todayStatEatenLabel,
         kcalThousands(summary.consumedKcal, l10n),
         t.ink,
+        count: summary.consumedKcal,
+        format: (v) => kcalThousands(v.round(), l10n),
       ),
       _Stat(
         'today-kcal-goal',
@@ -307,6 +315,8 @@ class _Stats extends StatelessWidget {
           l10n.todayStatActivityLabel,
           '+${kcalThousands(burned, l10n)}',
           t.activityInk,
+          count: burned,
+          format: (v) => '+${kcalThousands(v.round(), l10n)}',
         ),
     ];
     final labelStyle = AppType.ui(
@@ -349,11 +359,7 @@ class _Stats extends StatelessWidget {
                       children: <Widget>[
                         Text(stats[i].label, style: labelStyle),
                         const SizedBox(height: 2),
-                        Text(
-                          stats[i].value,
-                          key: ValueKey<String>(stats[i].key),
-                          style: valueStyle(stats[i].color),
-                        ),
+                        stats[i].text(style: valueStyle(stats[i].color)),
                       ],
                     ),
                   ),
@@ -373,11 +379,9 @@ class _Stats extends StatelessWidget {
                     Expanded(child: Text(stats[i].label, style: labelStyle)),
                     const SizedBox(width: 8),
                     Flexible(
-                      child: Text(
-                        stats[i].value,
-                        key: ValueKey<String>(stats[i].key),
-                        textAlign: TextAlign.end,
+                      child: stats[i].text(
                         style: valueStyle(stats[i].color),
+                        textAlign: TextAlign.end,
                       ),
                     ),
                   ],
@@ -404,7 +408,39 @@ class _Stats extends StatelessWidget {
 }
 
 class _Stat {
-  const _Stat(this.key, this.label, this.value, this.color);
+  const _Stat(
+    this.key,
+    this.label,
+    this.value,
+    this.color, {
+    this.count,
+    this.format,
+  });
+
+  /// [value] is the resting text; it also decides the layout.
   final String key, label, value;
   final Color color;
+
+  /// With both set, the value counts to [count] (a static goal does not).
+  final int? count;
+  final String Function(double)? format;
+
+  Widget text({required TextStyle style, TextAlign? textAlign}) {
+    final count = this.count, format = this.format;
+    if (count == null || format == null) {
+      return Text(
+        value,
+        key: ValueKey<String>(key),
+        textAlign: textAlign,
+        style: style,
+      );
+    }
+    return CountingText(
+      value: count.toDouble(),
+      format: format,
+      textKey: ValueKey<String>(key),
+      textAlign: textAlign,
+      style: style,
+    );
+  }
 }

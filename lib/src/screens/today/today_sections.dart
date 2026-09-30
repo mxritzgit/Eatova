@@ -9,6 +9,7 @@ import '../../services/kcal_format.dart';
 import '../../services/meal_totals.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
+import '../../widgets/common/lively.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
 import '../../widgets/recipes/recipe_photo.dart';
@@ -90,93 +91,97 @@ class TodayPickRow extends StatelessWidget {
     return MergeSemantics(
       child: Semantics(
         button: onTap != null,
-        child: Material(
-          color: t.surf,
-          shape: RoundedRectangleBorder(
-            borderRadius: radius,
-            side: BorderSide(color: t.cardBorder),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: TodayTapTarget(
-            key: const ValueKey('today-pick'),
-            onTap: onTap,
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                children: <Widget>[
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(rThumb),
-                    child: SizedBox.square(
-                      dimension: 84,
-                      child: ExcludeSemantics(
-                        child: RecipePhoto(recipe: pick.recipe),
+        child: PressScale(
+          enabled: onTap != null,
+          scale: kPressScaleCard,
+          child: Material(
+            color: t.surf,
+            shape: RoundedRectangleBorder(
+              borderRadius: radius,
+              side: BorderSide(color: t.cardBorder),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: TodayTapTarget(
+              key: const ValueKey('today-pick'),
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: <Widget>[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(rThumb),
+                      child: SizedBox.square(
+                        dimension: 84,
+                        child: ExcludeSemantics(
+                          child: RecipePhoto(recipe: pick.recipe),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Text(
-                          eyebrow.toUpperCase(),
-                          semanticsLabel: eyebrow,
-                          style: AppType.ui(
-                            12,
-                            weight: FontWeight.w700,
-                            color: t.accentText,
-                            letterSpacing: 12 * 0.06,
-                            height: todayLineHeight,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          pick.recipe.displayTitle(l10n),
-                          key: const ValueKey('today-pick-title'),
-                          style: AppType.ui(
-                            16,
-                            weight: FontWeight.w700,
-                            color: t.ink,
-                            height: 1.25,
-                          ),
-                        ),
-                        if (kcal != null) ...<Widget>[
-                          const SizedBox(height: 4),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
                           Text(
-                            l10n.todayPickMeta(
-                              kcalThousands(kcal, l10n),
-                              pick.proteinG ?? 0,
-                            ),
+                            eyebrow.toUpperCase(),
+                            semanticsLabel: eyebrow,
                             style: AppType.ui(
-                              13,
-                              color: t.ink2,
-                              height: todayLineHeight,
-                            ),
-                          ),
-                        ],
-                        if (left != null) ...<Widget>[
-                          const SizedBox(height: 4),
-                          Text(
-                            left >= 0
-                                ? l10n.todayPickLeaves(
-                                    kcalThousands(left, l10n),
-                                  )
-                                : l10n.todayPickOver(
-                                    kcalThousands(-left, l10n),
-                                  ),
-                            key: const ValueKey('today-pick-leaves'),
-                            style: AppType.ui(
-                              13,
+                              12,
                               weight: FontWeight.w700,
-                              color: left >= 0 ? t.success : t.warning,
+                              color: t.accentText,
+                              letterSpacing: 12 * 0.06,
                               height: todayLineHeight,
                             ),
                           ),
+                          const SizedBox(height: 4),
+                          Text(
+                            pick.recipe.displayTitle(l10n),
+                            key: const ValueKey('today-pick-title'),
+                            style: AppType.ui(
+                              16,
+                              weight: FontWeight.w700,
+                              color: t.ink,
+                              height: 1.25,
+                            ),
+                          ),
+                          if (kcal != null) ...<Widget>[
+                            const SizedBox(height: 4),
+                            Text(
+                              l10n.todayPickMeta(
+                                kcalThousands(kcal, l10n),
+                                pick.proteinG ?? 0,
+                              ),
+                              style: AppType.ui(
+                                13,
+                                color: t.ink2,
+                                height: todayLineHeight,
+                              ),
+                            ),
+                          ],
+                          if (left != null) ...<Widget>[
+                            const SizedBox(height: 4),
+                            Text(
+                              left >= 0
+                                  ? l10n.todayPickLeaves(
+                                      kcalThousands(left, l10n),
+                                    )
+                                  : l10n.todayPickOver(
+                                      kcalThousands(-left, l10n),
+                                    ),
+                              key: const ValueKey('today-pick-leaves'),
+                              style: AppType.ui(
+                                13,
+                                weight: FontWeight.w700,
+                                color: left >= 0 ? t.success : t.warning,
+                                height: todayLineHeight,
+                              ),
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -350,18 +355,21 @@ class TodayMealRow extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     final name = slot.slot.name;
+    final kcalStyle = AppType.ui(
+      14,
+      weight: FontWeight.w700,
+      color: t.inkMuted,
+      height: todayLineHeight,
+    ).copyWith(fontFeatures: const [FontFeature.tabularFigures()]);
+    final kcalText = '${kcalThousands(slot.kcal, l10n)} kcal';
     final kcal = slot.isEmpty
         ? null
-        : Text(
-            '${kcalThousands(slot.kcal, l10n)} kcal',
-            key: ValueKey<String>('today-meal-kcal-$name'),
+        : CountingText(
+            value: slot.kcal.toDouble(),
+            format: (v) => '${kcalThousands(v.round(), l10n)} kcal',
+            textKey: ValueKey<String>('today-meal-kcal-$name'),
             maxLines: 1,
-            style: AppType.ui(
-              14,
-              weight: FontWeight.w700,
-              color: t.inkMuted,
-              height: todayLineHeight,
-            ).copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+            style: kcalStyle,
           );
     final label = Text(
       slot.slot.label(l10n),
@@ -391,7 +399,7 @@ class TodayMealRow extends StatelessWidget {
           final fixed = 44 + 12 + (onAdd == null ? 0 : 12 + 44);
           final kcalWidth = kcal == null
               ? 0.0
-              : _widthOf(kcal.data!, kcal.style!, context) + 12;
+              : _widthOf(kcalText, kcalStyle, context) + 12;
           final inline = constraints.maxWidth - fixed - kcalWidth >= 72;
           return Row(
             children: <Widget>[
@@ -468,26 +476,28 @@ class _AddButton extends StatelessWidget {
     return Semantics(
       button: true,
       label: label,
-      child: SizedBox.square(
-        dimension: 44,
-        child: Material(
-          type: MaterialType.transparency,
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: onTap,
-            child: Center(
-              child: Container(
-                width: 34,
-                height: 34,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: accent ? t.accentFill : t.accentTint,
-                  shape: BoxShape.circle,
-                ),
-                child: TodayGlyphIcon(
-                  TodayGlyph.plus,
-                  size: 18,
-                  color: accent ? t.onAccentFill : t.accentText,
+      child: PressScale(
+        child: SizedBox.square(
+          dimension: 44,
+          child: Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: onTap,
+              child: Center(
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: accent ? t.accentFill : t.accentTint,
+                    shape: BoxShape.circle,
+                  ),
+                  child: TodayGlyphIcon(
+                    TodayGlyph.plus,
+                    size: 18,
+                    color: accent ? t.onAccentFill : t.accentText,
+                  ),
                 ),
               ),
             ),
@@ -691,11 +701,8 @@ class TodayStepsRow extends StatelessWidget {
                 child: ExcludeSemantics(
                   child: TweenAnimationBuilder<double>(
                     tween: Tween(begin: 0, end: progress),
-                    duration: motionDuration(
-                      context,
-                      const Duration(milliseconds: 320),
-                    ),
-                    curve: Curves.easeOutCubic,
+                    duration: motionDuration(context, kMotionValue),
+                    curve: kMotionCurve,
                     builder: (context, value, _) => ClipRRect(
                       borderRadius: BorderRadius.circular(3),
                       child: LinearProgressIndicator(

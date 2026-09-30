@@ -63,8 +63,9 @@ Future<void> _pumpToday(
   );
 
   // No pumpAndSettle: the loading card spins a CircularProgressIndicator
-  // forever, so nothing ever settles.
-  for (var i = 0; i < 8; i++) {
+  // forever, so nothing ever settles. 600 ms cover the value motion
+  // (kMotionValue, 520 ms) of the counting numbers.
+  for (var i = 0; i < 12; i++) {
     await tester.pump(const Duration(milliseconds: 50));
   }
 }

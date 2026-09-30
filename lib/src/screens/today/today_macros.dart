@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../models/day_nutrition.dart';
 import '../../theme/app_tokens.dart';
+import '../../widgets/common/lively.dart';
 import '../../widgets/common/motion.dart';
 import 'today_texts.dart';
 
@@ -171,7 +172,11 @@ class TodayMacroTile extends StatelessWidget {
     final rest = left > 0 || over <= 0
         ? l10n.todayMacroLeft(left)
         : l10n.todayMacroOver(over);
-    final number = Text('$value', style: TodayMacros._valueStyle(t));
+    final number = CountingText(
+      value: value.toDouble(),
+      format: (v) => '${v.round()}',
+      style: TodayMacros._valueStyle(t),
+    );
     // No wrap: the parent only keeps it inline when it fits, so a sub-pixel
     // rounding must not push "g" onto a second line.
     final goalText = Text(
@@ -244,11 +249,8 @@ class TodayMacroTile extends StatelessWidget {
               const SizedBox(height: 8),
               TweenAnimationBuilder<double>(
                 tween: Tween(begin: 0, end: fraction),
-                duration: motionDuration(
-                  context,
-                  const Duration(milliseconds: 320),
-                ),
-                curve: Curves.easeOutCubic,
+                duration: motionDuration(context, kMotionValue),
+                curve: kMotionCurve,
                 builder: (context, value, _) => ClipRRect(
                   borderRadius: BorderRadius.circular(3),
                   child: LinearProgressIndicator(

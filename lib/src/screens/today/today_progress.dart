@@ -31,8 +31,10 @@ class TodayCalorieArc extends StatelessWidget {
       height: width * designHeight / designWidth,
       child: TweenAnimationBuilder<double>(
         tween: Tween(begin: 0, end: safe),
-        duration: motionDuration(context, const Duration(milliseconds: 420)),
-        curve: Curves.easeOutCubic,
+        // The eaten share sweeps with the numbers in the centre, which count
+        // on the same duration and curve (CountingText).
+        duration: motionDuration(context, kMotionValue),
+        curve: kMotionCurve,
         builder: (context, value, _) => CustomPaint(
           painter: TodayArcPainter(
             progress: value,

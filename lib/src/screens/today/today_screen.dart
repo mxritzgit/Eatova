@@ -11,6 +11,7 @@ import '../../models/user_profile.dart';
 import '../../services/day_math.dart';
 import '../../services/meal_totals.dart';
 import '../../theme/app_tokens.dart';
+import '../../widgets/common/lively.dart';
 import '../../widgets/design/design.dart';
 import 'today_day_strip.dart';
 import 'today_glyphs.dart';
@@ -131,7 +132,7 @@ class TodayScreen extends StatelessWidget {
     // the shared title origin and pads its end by the bar's band (plus the
     // design's clearance), so the last card can scroll clear of the glass.
     final navInset = MediaQuery.paddingOf(context).bottom;
-    return SingleChildScrollView(
+    final page = SingleChildScrollView(
       key: const ValueKey('screen-today'),
       // Unclipped: the selected day's glow reaches into the shell's side
       // gutter as in the design; the tab stack still clips at the screen.
@@ -145,7 +146,7 @@ class TodayScreen extends StatelessWidget {
       child: RepaintBoundary(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
+        children: livelyStagger(<Widget>[
             _TodayHeader(
               key: TabChrome.headerKey,
               dateLine: todayHeaderDate(selectedDate, heute, l10n),
@@ -202,10 +203,13 @@ class TodayScreen extends StatelessWidget {
                 onOpenTraining: onOpenTraining,
               ),
             ],
-          ],
+        ]),
         ),
       ),
     );
+    // First view of the tab: the sections enter top to bottom, once per
+    // session (the shell keeps a visited tab mounted).
+    return LivelyStaggerScope(child: page);
   }
 }
 
@@ -285,6 +289,8 @@ class _StreakPill extends StatelessWidget {
     return Semantics(
       button: onTap != null,
       label: context.l10n.todayStreakSemantics(streak),
+      child: PressScale(
+        enabled: onTap != null,
       child: Material(
         color: t.activityTint,
         shape: const StadiumBorder(),
@@ -323,6 +329,7 @@ class _StreakPill extends StatelessWidget {
           ),
         ),
       ),
+      ),
     );
   }
 }
@@ -342,6 +349,8 @@ class _ProfileAvatar extends StatelessWidget {
     return Semantics(
       button: onTap != null,
       label: context.l10n.todayProfileAndSettings,
+      child: PressScale(
+        enabled: onTap != null,
       child: Material(
         color: t.surf2,
         shape: shape,
@@ -370,6 +379,7 @@ class _ProfileAvatar extends StatelessWidget {
             ),
           ),
         ),
+      ),
       ),
     );
   }
