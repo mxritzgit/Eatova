@@ -1,8 +1,25 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../theme/app_tokens.dart';
 
 const trainingStudioImage = 'assets/training/nightstudio.png';
+
+/// Pixel size of [trainingStudioImage].
+const Size _studioImageSize = Size(1536, 1024);
+
+/// Decode width for the artwork in [constraints]: what the cover fit paints,
+/// instead of the full 1536 x 1024 bitmap (6 MB) for a 190 px band. A box
+/// narrower than the image's aspect is covered by height, so that width
+/// counts then.
+int _decodeWidth(BoxConstraints constraints, double dpr) {
+  final width = constraints.maxWidth.isFinite ? constraints.maxWidth : 400.0;
+  final height = constraints.maxHeight.isFinite ? constraints.maxHeight : 0.0;
+  final aspect = _studioImageSize.width / _studioImageSize.height;
+  final logical = math.max(width, height * aspect);
+  return (logical * dpr).ceil().clamp(1, _studioImageSize.width.toInt());
+}
 
 /// Bundled editorial artwork; it never represents a user's exercise or result.
 class TrainingStudioArtwork extends StatelessWidget {
@@ -18,11 +35,17 @@ class TrainingStudioArtwork extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          Image.asset(
-            trainingStudioImage,
-            fit: BoxFit.cover,
-            alignment: Alignment.centerRight,
-            errorBuilder: (_, _, _) => ColoredBox(color: backdrop),
+          LayoutBuilder(
+            builder: (context, constraints) => Image.asset(
+              trainingStudioImage,
+              fit: BoxFit.cover,
+              alignment: Alignment.centerRight,
+              cacheWidth: _decodeWidth(
+                constraints,
+                MediaQuery.devicePixelRatioOf(context),
+              ),
+              errorBuilder: (_, _, _) => ColoredBox(color: backdrop),
+            ),
           ),
           DecoratedBox(
             decoration: BoxDecoration(
