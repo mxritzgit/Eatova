@@ -214,9 +214,9 @@ void main() {
       expect(find.text('Plan tomorrow'), findsOneWidget);
 
       // Geometry the design fixes: the capsule on the bar's band and 14 px
-      // from the screen edges, like the bar. The title line is the shell's
-      // (59 px on every tab, 3 px above the design's 62).
-      expect(tester.getTopLeft(find.text('Coach').first).dy, 59);
+      // from the screen edges, like the bar. The title sits on the title
+      // origin every tab shares: the design's 62 px (TabChrome.topInset).
+      expect(tester.getTopLeft(find.text('Coach').first).dy, 62);
       final capsule = tester.getRect(
         find.ancestor(
           of: find.byKey(const ValueKey('coach-input')),
@@ -235,16 +235,15 @@ void main() {
       );
 
       // The design's vertical rhythm (design/coach/template.html at 390 px):
-      // orb at 148, the card at 316, the chip row at 542 — each 3 px higher
-      // with the shell's title line.
-      expect(tester.getTopLeft(find.byType(CoachOrb)).dy, 145);
+      // orb at 148, the card at 316, the chip row at 542.
+      expect(tester.getTopLeft(find.byType(CoachOrb)).dy, 148);
       expect(
         tester.getTopLeft(find.byKey(const ValueKey('coach-log-card'))).dy,
-        313,
+        316,
       );
       expect(
         tester.getTopLeft(find.byKey(const ValueKey('coach-try-recipe'))).dy,
-        539,
+        542,
       );
 
       await captureDesignShot(tester, 'coach-00');
