@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as dev;
+import 'dart:isolate';
 import 'dart:math' as math;
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -427,8 +428,39 @@ class LocalCache {
   Future<void> writeTrainingHistory(List<TrainingHistoryEntry> entries) =>
       _writeJson(_trainingHistoryKey, {'items': entries.map((e) => e.toRow()).toList()});
 
+  /// From this size on the history is decoded and validated off the UI
+  /// isolate: 300 workouts (~1.8 MB) blocked the cold start for ~50 ms (JIT),
+  /// the 2000-entry cap for ~0.5 s. Smaller slots skip the isolate spawn.
+  static const int historyIsolateMinChars = 256 * 1024;
+
   Future<List<TrainingHistoryEntry>?> readTrainingHistory() async {
-    final items = (await _readJson(_trainingHistoryKey))?['items'];
+    // A pending debounced write is the newest state (see [_readJson]).
+    final pending = _pendingWrites[_trainingHistoryKey];
+    if (pending != null) return _historyFromJson(pending);
+    try {
+      final raw = await _store.getString(_trainingHistoryKey);
+      if (raw == null || raw.isEmpty) return null;
+      if (raw.length < historyIsolateMinChars) return _historyFromRaw(raw);
+      return await Isolate.run(
+        () => _historyFromRaw(raw),
+        debugName: 'cache-history',
+      );
+    } catch (e) {
+      dev.log('LocalCache read failed ($_trainingHistoryKey)',
+          error: e, name: 'local_cache');
+      return null;
+    }
+  }
+
+  static List<TrainingHistoryEntry>? _historyFromRaw(String raw) {
+    final decoded = jsonDecode(raw);
+    return decoded is Map<String, dynamic> ? _historyFromJson(decoded) : null;
+  }
+
+  static List<TrainingHistoryEntry>? _historyFromJson(
+    Map<String, dynamic> json,
+  ) {
+    final items = json['items'];
     if (items is! List || items.length > 2000) return null;
     try {
       final entries = items.map((row) => TrainingHistoryEntry.fromRow(row as Map)).toList();
