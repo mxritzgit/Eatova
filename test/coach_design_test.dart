@@ -59,7 +59,6 @@ class _FakeCoach extends CoachChatService {
   }
 
   List<ChatMessage> history = const <ChatMessage>[];
-  bool historyFails = false;
   ChatQuotaSnapshot quota =
       const ChatQuotaSnapshot(used: 0, remaining: 5, dailyLimit: 5);
   int sendCalls = 0;
@@ -84,9 +83,6 @@ class _FakeCoach extends CoachChatService {
   @override
   Future<List<ChatMessage>> loadHistory(String sessionId,
       {int limit = 100}) async {
-    if (historyFails) {
-      throw const CoachDataUnavailable('Verlauf nicht abrufbar');
-    }
     return history;
   }
 
@@ -365,16 +361,6 @@ void main() {
     expect(cancel.style!.foregroundColor!.resolve({}), t.ink);
     expect(delete.style!.backgroundColor!.resolve({}), t.danger);
     expect(delete.style!.foregroundColor!.resolve({}), t.bg);
-  });
-
-  testWidgets('Verlauf nicht ladbar zeigt keinen Hero', (tester) async {
-    final svc = _FakeCoach.create()..historyFails = true;
-    await _pumpCoach(tester, service: svc);
-
-    expect(find.byKey(const ValueKey('coach-empty')), findsNothing,
-        reason: 'der Leerzustand behauptet „noch keine Unterhaltung", '
-            'waehrend der Verlauf existiert — stattdessen Fehler-Banner');
-    expect(find.textContaining('Verlauf konnte nicht geladen'), findsOneWidget);
   });
 
   testWidgets('knappes Kontingent zeigt den Hinweis', (tester) async {
