@@ -58,8 +58,9 @@ const Curve kMotionCurve = Curves.easeOutCubic;
 /// A value moving to its new state: the calorie arc, bars, counting numbers.
 const Duration kMotionValue = Duration(milliseconds: 520);
 
-/// A section or a list row entering.
-const Duration kMotionEnter = Duration(milliseconds: 280);
+/// A section or a list row entering. Short on purpose: on a tab's first
+/// visit the sections enter inside the shell's fade-through.
+const Duration kMotionEnter = Duration(milliseconds: 240);
 
 /// Delay between two sections of a first-view entrance.
 const Duration kMotionStagger = Duration(milliseconds: 30);

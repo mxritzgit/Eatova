@@ -139,7 +139,7 @@ class LivelyStaggerScope extends StatefulWidget {
   static const int maxIndex = 4;
 
   /// Duration of the whole entrance: the last slot's start plus one entrance
-  /// (30 × 4 + 280 = 400 ms).
+  /// (30 × 4 + 240 = 360 ms).
   static Duration get total => kMotionStagger * maxIndex + kMotionEnter;
 
   @override
@@ -233,7 +233,9 @@ class LivelyStaggerItem extends StatefulWidget {
     super.key,
     required this.index,
     required this.child,
-    this.offsetY = 8,
+    // 6 px, not more: on a first visit the shell's fade-through drifts the
+    // whole tab as well, and the two must read as one soft arrival.
+    this.offsetY = 6,
   });
 
   /// Position in the stagger, 0 first; clamped to

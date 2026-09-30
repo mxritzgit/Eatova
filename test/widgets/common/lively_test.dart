@@ -251,7 +251,7 @@ void main() {
       ),
     );
 
-    testWidgets('Abschnitte kommen nacheinander, zusammen unter 400 ms', (
+    testWidgets('Abschnitte kommen nacheinander, zusammen in 360 ms', (
       tester,
     ) async {
       await pumpLocalized(tester, page(), reducedMotion: false);
@@ -262,11 +262,11 @@ void main() {
       await _frames(tester, 4);
       expect(_opacityOf(tester, a), greaterThan(_opacityOf(tester, b)));
 
-      // 25 frames = 400 ms: everything is at rest.
-      await _frames(tester, 21);
+      // 23 frames = 368 ms: everything is at rest.
+      await _frames(tester, 19);
       expect(_opacityOf(tester, a), 1);
       expect(_opacityOf(tester, b), 1);
-      expect(LivelyStaggerScope.total, const Duration(milliseconds: 400));
+      expect(LivelyStaggerScope.total, const Duration(milliseconds: 360));
     });
 
     testWidgets('spielt nur einmal: spaetere Abschnitte stehen sofort da', (
