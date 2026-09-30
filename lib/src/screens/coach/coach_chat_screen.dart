@@ -12,6 +12,7 @@ import 'dart:math' as math;
 import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -130,8 +131,33 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   /// own scrolling unpins it; sending pins it again.
   bool _chatAmEnde = true;
 
+  /// A finger (or wheel) is moving the chat, from its first movement until the
+  /// scroll ends, fling included. The pin never touches the list meanwhile:
+  /// a programmatic jump or animation would cancel the reader's drag.
+  bool _nutzerScrollt = false;
+
+  /// Whether following the end glides (after a send) or jumps (opening a
+  /// conversation, where the list still refines its estimated extent).
+  bool _sanftFolgen = false;
+
+  /// Content and viewport extent of the last metrics seen; a notification
+  /// that only reports a new scroll offset is not a content change.
+  double? _letzteMaxAusdehnung;
+  double? _letztesFenster;
+  double _letzteTastatur = 0;
+
   /// Distance from the end that still counts as "at the end".
   static const double _endeToleranz = 48;
+
+  /// Messages that arrived while the chat was open and fade in once; history
+  /// loads and a streamed answer replacing its preview do not.
+  final Set<String> _einblenden = <String>{};
+  List<String> _gerenderteIds = const <String>[];
+  bool _warAmLaden = true;
+
+  /// A streamed preview was on screen for the answer in flight: the finished
+  /// answer takes its place without a second entrance.
+  bool _vorschauGezeigt = false;
 
   List<ChatMessage> _messages = const <ChatMessage>[];
   List<ChatSession> _sessions = const <ChatSession>[];
@@ -726,25 +752,29 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     }
   }
 
-  /// Pins the chat to its end and moves there.
+  /// Pins the chat to its end and moves there: gliding after a send
+  /// ([sanft]), jumping when a conversation opens.
   ///
-  /// No animation towards a precomputed target: a lazy list only estimates
-  /// its extent until the last rows are laid out, so such a target either
-  /// overshot (a visible bounce on iOS after every answer) or stopped short
-  /// (the chat opened above its newest message). Instead the pin follows each
-  /// metrics change in [_onChatMetrics] until the extent is exact.
-  void _scrollToEnd() {
+  /// The move never aims at a precomputed target: a lazy list only estimates
+  /// its extent until the last rows are laid out. Instead the pin re-aims at
+  /// each content change in [_onChatMetrics] until the extent is exact.
+  void _scrollToEnd({bool sanft = false}) {
     _chatAmEnde = true;
-    _springeAnsEnde();
+    // Sending or opening is an explicit "show me the end"; a drag whose end
+    // was never reported (the list swapped mid-gesture) must not block it.
+    _nutzerScrollt = false;
+    _sanftFolgen = sanft;
+    _geheAnsEnde(sanft: sanft);
   }
 
   /// Incoming content (a first token, a finished answer, an error) follows
   /// only a reader who is still at the end; one reading further up stays put.
   void _folgeDemEnde() {
-    if (_chatAmEnde) _springeAnsEnde();
+    if (_chatAmEnde) _geheAnsEnde(sanft: _sanftFolgen);
   }
 
-  void _springeAnsEnde() {
+  void _geheAnsEnde({required bool sanft}) {
+    if (!mounted || _nutzerScrollt) return;
     // Deliberately not `_scroll.position`: the AnimatedSwitcher in [build]
     // gives both the outgoing and incoming `_Conversation` the same
     // controller, so two ListViews are attached briefly and
@@ -756,22 +786,75 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     // `maxScrollExtent` asserts `hasContentDimensions`; a just-attached list
     // has none yet, and calls from the send path have no guaranteed ordering.
     if (!liste.hasContentDimensions) return;
-    if ((liste.pixels - liste.maxScrollExtent).abs() > 0.5) {
-      liste.jumpTo(liste.maxScrollExtent);
+    final ziel = liste.maxScrollExtent;
+    if ((liste.pixels - ziel).abs() <= 0.5) return;
+    // A few new lines (a streamed answer) are followed quickly so the newest
+    // line stays in view; a long way (sending after reading further up)
+    // glides visibly.
+    final weit = (ziel - liste.pixels).abs() > liste.viewportDimension / 2;
+    final dauer = sanft
+        ? motionDuration(context, Duration(milliseconds: weit ? 320 : 140))
+        : Duration.zero;
+    // Past the end (the content just shrank) a glide would first bounce on
+    // iOS; clamp instead.
+    if (dauer == Duration.zero || liste.pixels > ziel) {
+      liste.jumpTo(ziel);
+      return;
     }
+    // A later content change re-aims from wherever the glide is, so a
+    // streamed answer is followed in one continuous motion.
+    unawaited(
+      liste.animateTo(ziel, duration: dauer, curve: Curves.easeOutCubic),
+    );
   }
 
   /// New message, streamed text, keyboard or a refined extent estimate:
-  /// dispatched after layout, so jumping here is safe.
+  /// dispatched after layout, so moving here is safe.
+  ///
+  /// Every scroll offset change is reported here too. Following those would
+  /// answer the reader's first pixel of drag with a move back to the end,
+  /// and a programmatic move cancels the drag: the chat could not be
+  /// scrolled at all. Only a changed content or viewport extent counts.
   bool _onChatMetrics(ScrollMetricsNotification notification) {
-    if (_chatAmEnde) _springeAnsEnde();
+    if (notification.depth != 0) return false;
+    final metrics = notification.metrics;
+    bool geaendert(double? alt, double neu) =>
+        alt == null || (alt - neu).abs() > 0.5;
+    final inhalt = geaendert(_letzteMaxAusdehnung, metrics.maxScrollExtent);
+    final fenster = geaendert(_letztesFenster, metrics.viewportDimension);
+    _letzteMaxAusdehnung = metrics.maxScrollExtent;
+    _letztesFenster = metrics.viewportDimension;
+    final tastatur = MediaQuery.viewInsetsOf(context).bottom;
+    final tastaturBewegt = tastatur != _letzteTastatur;
+    _letzteTastatur = tastatur;
+    if (!_chatAmEnde || _nutzerScrollt || !(inhalt || fenster)) return false;
+    // The keyboard resizes the viewport frame by frame; gliding would trail
+    // behind it, so the last line stays glued to the composer instead.
+    _geheAnsEnde(sanft: _sanftFolgen && !tastaturBewegt);
     return false;
   }
 
-  /// Only movement decides the pin, never a content change: growth below a
-  /// pinned reader must not unpin them before [_onChatMetrics] follows it.
+  /// Only the reader's own movement decides the pin, never a content change
+  /// or the pin's own glide: growth below a pinned reader must not unpin
+  /// them before [_onChatMetrics] follows it.
+  ///
+  /// A drag unpins at once and for its whole duration; when the reader lets
+  /// go (a fling included) near the end, the chat is pinned again.
   bool _onChatScroll(ScrollNotification notification) {
-    if (notification is ScrollUpdateNotification) {
+    if (notification.depth != 0) return false;
+    final vomNutzer = switch (notification) {
+      UserScrollNotification(:final direction) =>
+        direction != ScrollDirection.idle,
+      ScrollStartNotification(:final dragDetails) => dragDetails != null,
+      // A drag that takes over a running glide starts no new scroll.
+      ScrollUpdateNotification(:final dragDetails) => dragDetails != null,
+      _ => false,
+    };
+    if (vomNutzer) {
+      _nutzerScrollt = true;
+      _chatAmEnde = false;
+    } else if (notification is ScrollEndNotification && _nutzerScrollt) {
+      _nutzerScrollt = false;
       _chatAmEnde = notification.metrics.extentAfter <= _endeToleranz;
     }
     return false;
@@ -881,9 +964,12 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _input.clear();
       _draft.value = '';
       _laufendeSendungen++;
+      _vorschauGezeigt = false;
       _error = null;
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _scrollToEnd(sanft: true),
+    );
 
     try {
       final res = await svc.send(
@@ -902,6 +988,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
           // [_onChatMetrics]. A reader scrolled up is never moved.
           final erstesZeichen = _streamVorschau.value.isEmpty;
           _streamVorschau.value = text;
+          if (text.isNotEmpty) _vorschauGezeigt = true;
           if (erstesZeichen) {
             WidgetsBinding.instance.addPostFrameCallback((_) => _folgeDemEnde());
           }
@@ -1298,9 +1385,12 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _input.clear();
       _draft.value = '';
       _laufendeSendungen++;
+      _vorschauGezeigt = false;
       _error = null;
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _scrollToEnd(sanft: true),
+    );
 
     try {
       // No `userContext` (P5-02): the function's recipe mode never reads it,
@@ -1428,6 +1518,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _sendendeSessionId = sessionId;
       _input.clear();
       _laufendeSendungen++;
+      _vorschauGezeigt = false;
       _error = null;
     });
     final submittedMessages = _messages;
@@ -1439,7 +1530,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         isCurrentAccount() &&
         _activeSessionId == sessionId &&
         identical(_messages, submittedMessages);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _scrollToEnd(sanft: true),
+    );
     try {
       final reply = trainingContext == null
           ? await svc.requestPlan(wish, sessionId: sessionId, locale: l10n.localeName)
@@ -1998,11 +2091,35 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     );
   }
 
+  /// Marks the messages appended since the last build for a one-time
+  /// entrance. A load (the first list after loading, or a replaced list)
+  /// marks nothing, and neither does an answer whose streamed preview was
+  /// already on screen: it takes the preview's place without a second
+  /// entrance.
+  void _merkeNeueNachrichten() {
+    final ids = [for (final message in _messages) message.id];
+    final vorher = _gerenderteIds;
+    final angehaengt =
+        !_warAmLaden &&
+        !_loading &&
+        ids.length > vorher.length &&
+        listEquals(ids.sublist(0, vorher.length), vorher);
+    if (angehaengt) {
+      for (final message in _messages.skip(vorher.length)) {
+        if (message.role == ChatRole.assistant && _vorschauGezeigt) continue;
+        _einblenden.add(message.id);
+      }
+    }
+    _gerenderteIds = ids;
+    _warAmLaden = _loading;
+  }
+
   @override
   Widget build(BuildContext context) {
     // No hero when the history merely failed to load (S3): the empty state
     // would claim "no conversation yet". Empty conversation + banner instead.
     final isHero = !_loading && _messages.isEmpty && !_historyUnavailable;
+    _merkeNeueNachrichten();
     return LayoutBuilder(
       builder: (context, constraints) {
         // The floating tab bar's band (from the shell). The composer's own
@@ -2110,6 +2227,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                               onReviewPlan: _reviewTrainingPlan,
                               onScroll: _onChatScroll,
                               onMetricsChanged: _onChatMetrics,
+                              entersFor: (message) =>
+                                  _einblenden.contains(message.id),
+                              onEntered: _einblenden.remove,
                               onOpenTraining: widget.onOpenTraining,
                             ),
                     ),
