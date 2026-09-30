@@ -539,16 +539,6 @@ class SnackCapture {
       messages.where((m) => m.startsWith('Offline'));
 }
 
-/// Cache whose PROFILE slot throws on read (gap F): one failing boot-hydration
-/// read must not take the later slots, above all the outbox, down with it.
-class ProfilLesefehlerCache extends LocalCache {
-  ProfilLesefehlerCache(super.store, super.userId);
-
-  @override
-  Future<UserProfile?> readProfile() async =>
-      throw StateError('Profil-Slot unlesbar');
-}
-
 /// Cache whose OUTBOX slot throws on the FIRST read only (gap F, second half):
 /// the persisted blob must never be overwritten off a failed read.
 class OutboxLesefehlerCache extends LocalCache {
@@ -563,64 +553,6 @@ class OutboxLesefehlerCache extends LocalCache {
       return Future<List<SyncOp>?>.error(StateError('Outbox-Slot unlesbar'));
     }
     return super.readOutbox();
-  }
-}
-
-/// Cache whose OUTBOX writes never reach storage: the kill window where the
-/// other slots commit and the outbox blob does not. Reads stay real.
-class EingefrorenerOutboxCache extends LocalCache {
-  EingefrorenerOutboxCache(super.store, super.userId);
-
-  // `false` is the truth here: the blob never reaches storage.
-  @override
-  Future<bool> writeOutbox(List<SyncOp> ops) async => false;
-}
-
-/// Records EVERY outbox blob write, in call order, as its entity keys.
-///
-/// Two DATA-7 guarantees live in the SEQUENCE of writes and are invisible in
-/// the end state, so only a recording can hold them:
-///  * the replay persists per OP, not per pass — batching a pass into one
-///    final blob leaves exactly the same queue behind, and a kill mid-pass
-///    then replays everything already delivered ([laengen]).
-///  * removing a delivered op and appending its counter follow-up are ONE
-///    blob write, so no persisted state exists in which the meal is gone and
-///    its counter does not exist yet ([eintraege]).
-///
-/// Both are read synchronously on entry, before the async write.
-class OutboxSchreibMitschrift extends LocalCache {
-  OutboxSchreibMitschrift(super.store, super.userId);
-
-  final List<List<String>> eintraege = <List<String>>[];
-
-  List<int> get laengen => eintraege.map((e) => e.length).toList();
-
-  @override
-  Future<bool> writeOutbox(List<SyncOp> ops) {
-    eintraege.add(ops.map((o) => o.entityKey).toList(growable: false));
-    return super.writeOutbox(ops);
-  }
-}
-
-/// Same for the DELTAS slot (W7b): a failed boot read used to let the next
-/// flush rewrite the slot from 0, losing the previous session's meals.
-/// [kaputteVersuche] picks a temporary failure (1) or a permanent one (2).
-class DeltaLesefehlerCache extends LocalCache {
-  DeltaLesefehlerCache(super.store, super.userId, {this.kaputteVersuche = 1});
-
-  final int kaputteVersuche;
-  int leseversuche = 0;
-
-  @override
-  Future<({int meals, int weightLogs, String? requestId})?>
-  readPendingStatsDeltas() {
-    leseversuche++;
-    if (leseversuche <= kaputteVersuche) {
-      return Future<({int meals, int weightLogs, String? requestId})?>.error(
-        StateError('Deltas-Slot unlesbar'),
-      );
-    }
-    return super.readPendingStatsDeltas();
   }
 }
 
