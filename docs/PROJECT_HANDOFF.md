@@ -2156,3 +2156,44 @@ additional overflow, reviewed the result and delivered it through one PR.
 - Layout: the expanded search/favorite live preview reflowed poorly at 320 px and
   200 % text, overflowing by 71 px. It now keeps one line when it fits and stacks
   the macros otherwise.
+
+## Dark redesign of the five tabs, 2026-09-28 to 2026-09-30
+
+The user's `Design.html` (not in the repo) redesigns Today, Food, Recipes,
+Training and Coach: a dark theme, Figtree for UI text and Bricolage Grotesque
+for display text, a floating glass tab bar, and a violet accent. Sheets, detail
+pages, settings, auth and onboarding only inherit the tokens and fonts.
+
+- The app is dark-only, and the change is reversible: `kDarkOnly` hides the
+  theme row, while `AppTokens.light` and `ThemeModeController` stay in the code.
+- Inputs stay borderless soft fills (user preference), although the design draws
+  hairlines on them.
+- One shared derivation layer (`models/day_nutrition.dart`,
+  `home_store_derivations.dart`) feeds all tabs:
+  - the logging streak;
+  - `nextMealPick`: the same pick on Today, Food and Recipes;
+  - the day summary with the activity credit;
+  - slot summaries, the next workout, weekly volume and PRs;
+  - the coach day brief.
+- Planned picks are logged only through `store.eatPlannedMeal`, via
+  `widgets/recipes/recipe_pick_actions.dart`. This prevents duplicate diary rows.
+- The empty-slot band ("Suggested N–M kcal") is decided by the user's delegated
+  choice. It keeps the 20–25/25–33/25–33/7.5–15 % shares, but splits the kcal
+  still left over the empty slots, so it never suggests more than what is left.
+  It disappears when almost nothing is left.
+- A `LocalHourTicker` in the shell (re-synced on resume) moves every tab on at
+  meal-slot boundaries.
+- Theme text: letter spacing 0, line height 1.2, body styles 1.4. The `≈` glyph
+  falls back to Bricolage Grotesque, because Figtree does not have it.
+- The status-bar scrim stays (user decision). Content scrolls under the status
+  bar in every tab.
+- Design elements omitted for lack of data or features: the training energy
+  credit card, a fixed weekday plan, quick-start Run/Cycling/Freestyle, and the
+  coach mic.
+- The steps card on Today moved below the first viewport. This supersedes the
+  2026-09-13 request.
+- 81 unreferenced ARB keys were removed; 59 of them were already dead on
+  `origin/main` (b7cf9cb).
+- Process: seven task branches in `.agents/dark-redesign-2026-09-28/`. Each tab
+  got one review and a visual comparison; two final reviews and one scoped
+  review followed. The full suite passed with 5935 tests and 2 skipped.
