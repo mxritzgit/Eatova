@@ -13,7 +13,9 @@ import 'package:flutter/foundation.dart';
 ///
 /// One-shot timers re-armed from [clock], not `Timer.periodic`: a periodic
 /// timer drifts over DST changes and suspended app time. The timer stops with
-/// the last listener, so an unmounted view leaves nothing pending.
+/// the last listener, so an unmounted view leaves nothing pending. Timers run
+/// on a clock that stops while the device sleeps: the owner calls [resync]
+/// when the app resumes.
 class LocalHourTicker extends ChangeNotifier {
   /// Fires this long after the hour, so the listener's `clock.now()` has
   /// certainly crossed it.
@@ -35,6 +37,17 @@ class LocalHourTicker extends ChangeNotifier {
   void removeListener(VoidCallback listener) {
     super.removeListener(listener);
     if (!hasListeners) _disarm();
+  }
+
+  /// Catches up after the app was suspended: notifies once and re-arms from
+  /// the current [clock], since a pending tick may be hours late after the
+  /// device slept. A no-op without listeners.
+  void resync() {
+    if (!hasListeners) return;
+    _disarm();
+    notifyListeners();
+    // A listener may have left (or re-armed) during the notification.
+    if (hasListeners) _arm();
   }
 
   void _arm() {

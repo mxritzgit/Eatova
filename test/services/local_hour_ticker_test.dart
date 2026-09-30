@@ -64,19 +64,77 @@ void main() {
     // Regression: the next hour was built from a UTC `now` as a LOCAL time,
     // so east of UTC it lay in the past and the timer re-armed at zero delay
     // forever (training_account_route_test ran out of heap).
-    await withClock(Clock.fixed(DateTime.utc(2026, 9, 8, 12)), () async {
+    final fixed = DateTime.utc(2026, 9, 8, 12);
+    await withClock(Clock.fixed(fixed), () async {
       final ticker = LocalHourTicker();
       var ticks = 0;
       ticker.addListener(() => ticks++);
+      // The frozen clock never reaches the next local hour, so every tick
+      // re-arms for the same wait: an hour in whole-hour zones, 30 or 15
+      // minutes in zones such as +05:30 or +05:45. Derived from the machine's
+      // zone, so the count is exact anywhere, not just in UTC.
+      final local = fixed.toLocal();
+      final toNextHour = Duration(
+        minutes: 60 - local.minute,
+        seconds: -local.second,
+      );
+      final period = toNextHour + LocalHourTicker.margin;
+      int expected(Duration elapsed) =>
+          elapsed.inMicroseconds ~/ period.inMicroseconds;
+
       await tester.pump(const Duration(minutes: 5));
-      expect(ticks, lessThanOrEqualTo(1));
+      expect(ticks, expected(const Duration(minutes: 5)));
       await tester.pump(const Duration(hours: 3));
       expect(
         ticks,
-        inInclusiveRange(2, 4),
-        reason: 'about one tick per hour, not a loop',
+        expected(const Duration(hours: 3, minutes: 5)),
+        reason: 'one tick per local hour boundary, not a loop',
       );
+      expect(ticks, greaterThanOrEqualTo(3));
       ticker.dispose();
     });
+  });
+
+  testWidgets('resync after device sleep notifies and re-arms from the clock', (
+    tester,
+  ) async {
+    // A one-shot timer's clock stops while the phone sleeps: armed at
+    // 14:10 for 15:00, it is still 50 minutes away when the phone wakes at
+    // 17:05. The resume path must catch up at once and aim at 18:00.
+    var now = DateTime(2026, 9, 28, 14, 10);
+    await withClock(Clock(() => now), () async {
+      final ticker = LocalHourTicker();
+      var ticks = 0;
+      ticker.addListener(() => ticks++);
+
+      now = DateTime(2026, 9, 28, 17, 5); // wake-up, no timer ran
+      ticker.resync();
+      expect(ticks, 1, reason: 'the missed hours are caught up at once');
+      expect(ticker.isArmed, isTrue);
+
+      // The stale 15:00 tick (50 min after arming) must be gone.
+      await tester.pump(const Duration(minutes: 51));
+      expect(ticks, 1, reason: 'no late tick from before the sleep');
+
+      now = DateTime(2026, 9, 28, 18, 0, 1);
+      await tester.pump(const Duration(minutes: 5));
+      expect(ticks, 2, reason: 're-armed for 18:00 from the wake-up time');
+      ticker.dispose();
+    });
+  });
+
+  test('resync without listeners stays idle', () {
+    final ticker = LocalHourTicker();
+    var ticks = 0;
+    void listener() => ticks++;
+    ticker.resync();
+    expect(ticker.isArmed, isFalse);
+    ticker
+      ..addListener(listener)
+      ..removeListener(listener)
+      ..resync();
+    expect(ticks, 0);
+    expect(ticker.isArmed, isFalse);
+    ticker.dispose();
   });
 }

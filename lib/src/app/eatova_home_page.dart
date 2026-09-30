@@ -312,6 +312,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     // B4: a suspended app gets no timer tick. Advance the day BEFORE the
     // flush, so a flush-triggered refresh carries the new day.
     _store.maybeRollOverToToday();
+    // Same for the coach's hour: its pending tick may be hours late.
+    _coachHours.resync();
 
     // Replay stranded outbox ops / stats deltas (DATA-7).
     _store.flushPendingWrites();

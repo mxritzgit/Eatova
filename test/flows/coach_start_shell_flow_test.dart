@@ -377,4 +377,59 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     });
   });
+
+  testWidgets('after device sleep, the resume brings card and greeting up to '
+      'the clock and re-arms the hour', (tester) async {
+    // Armed at 14:10, the hour tick is due in 50 minutes of timer time. The
+    // phone then sleeps until 20:55: timers do not run while it sleeps, so
+    // only the resume can catch up.
+    var now = DateTime(2026, 9, 28, 14, 10);
+    await withClock(Clock(() => now), () async {
+      await _pumpShell(tester, _ShellCoach.create());
+      final l10n = _l10n(tester);
+      String pill(String key) => tester
+          .widget<Text>(
+            find.descendant(
+              of: find.byKey(ValueKey(key)),
+              matching: find.byType(Text),
+            ),
+          )
+          .data!;
+      Finder greeting(String part) =>
+          find.text(l10n.coachHeroGreeting(part, 'Moritz'));
+      expect(greeting(l10n.todayGreetingDay), findsOneWidget);
+      expect(pill('coach-log-primary'), l10n.coachLogSuggestMeal('lunch'));
+
+      now = DateTime(2026, 9, 28, 20, 55);
+      for (final state in [
+        AppLifecycleState.inactive,
+        AppLifecycleState.hidden,
+        AppLifecycleState.paused,
+        AppLifecycleState.hidden,
+        AppLifecycleState.inactive,
+        AppLifecycleState.resumed,
+      ]) {
+        tester.binding.handleAppLifecycleStateChanged(state);
+      }
+      await settleFrames(tester);
+      expect(
+        greeting(l10n.todayGreetingEvening),
+        findsOneWidget,
+        reason: 'the resume catches up the missed hours at once',
+      );
+      expect(pill('coach-log-primary'), l10n.coachLogSuggestMeal('dinner'));
+
+      // The next boundary comes from the wake-up time (21:00), not from
+      // the stale tick 50 minutes after arming.
+      now = DateTime(2026, 9, 28, 21, 0, 30);
+      await tester.pump(const Duration(minutes: 6));
+      await settleFrames(tester);
+      expect(
+        pill('coach-log-primary'),
+        l10n.coachLogSuggestMeal('snack'),
+        reason: 'no main meal is ahead from 21:00',
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  });
 }
