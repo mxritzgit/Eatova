@@ -307,8 +307,6 @@ const Map<String, String> _festeFarbenErlaubt = <String, String>{
       'camera overlay on the live viewfinder: black/white scrims and glyphs on video, deliberately mode-independent',
   'lib/src/screens/meal_camera_sheet.dart':
       'camera overlay on the live viewfinder (see file comment), deliberately mode-independent',
-  'lib/src/screens/recipes/recipe_cards.dart':
-      'legibility scrim over a recipe photo: black gradient on an image, not on a surface',
 };
 
 /// Files that may name the raw heading properties (`header:`,
@@ -731,11 +729,15 @@ void main() {
         r'Color\(0x|Color\.fromARGB\(|Colors\.(?!transparent\b)[a-zA-Z]',
       );
       final treffer = <String>[];
+      final genutzteAusnahmen = <String>{};
       for (final quelle in _libQuellen) {
         if (quelle.pfad.startsWith('lib/src/theme/')) continue;
-        if (_festeFarbenErlaubt.containsKey(quelle.pfad)) continue;
+        final erlaubt = _festeFarbenErlaubt.containsKey(quelle.pfad);
         for (final zeile in quelle.ohneKommentare.split('\n')) {
-          if (feste.hasMatch(zeile)) {
+          if (!feste.hasMatch(zeile)) continue;
+          if (erlaubt) {
+            genutzteAusnahmen.add(quelle.pfad);
+          } else {
             treffer.add('${quelle.pfad}: ${zeile.trim()}');
           }
         }
@@ -747,9 +749,12 @@ void main() {
             'Farben gehoeren als Token nach app_tokens.dart (oder mit '
             'Begruendung in _festeFarbenErlaubt):\n${treffer.join('\n')}',
       );
-      // The allowlist must not outlive its files.
+      // The allowlist must not outlive its files, nor the colors that earned
+      // the exemption: a stale entry exempts a whole file for nothing.
       for (final pfad in _festeFarbenErlaubt.keys) {
         expect(File(pfad).existsSync(), isTrue, reason: '$pfad fehlt');
+        expect(genutzteAusnahmen, contains(pfad),
+            reason: '$pfad haelt keine feste Farbe mehr - Eintrag entfernen');
       }
     });
 
