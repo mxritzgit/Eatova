@@ -788,6 +788,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
     final saved = await logRecipePick(
       context,
       pick,
+      owner: this,
       addMeal: (result, slot) async {
         added = result;
         mealId = await widget.onAddPickToToday!(result, slot);

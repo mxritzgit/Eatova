@@ -23,6 +23,9 @@ final FitnessRecipe _recipe = recipeCatalogForLocale(
   'en',
 ).firstWhere((r) => recipeSuitsSlot(r, MealSlot.dinner) && r.canLogServings(2));
 
+/// The account session a test's [logRecipePick] calls belong to.
+final Object _owner = Object();
+
 RecipePick _suggested() => RecipePick(
   recipe: _recipe,
   slot: MealSlot.dinner,
@@ -151,6 +154,7 @@ void main() {
       final ok = await logRecipePick(
         context,
         pick,
+        owner: _owner,
         addMeal: calls.add,
         eatPlannedMeal: calls.eat,
         openMealPlan: calls.openPlan,
@@ -168,6 +172,7 @@ void main() {
       final ok = await logRecipePick(
         context,
         _planned(kcal: null),
+        owner: _owner,
         addMeal: calls.add,
         eatPlannedMeal: calls.eat,
         openMealPlan: calls.openPlan,
@@ -178,6 +183,92 @@ void main() {
       expect(calls.added, isEmpty);
     });
 
+    testWidgets('a planned pick without its plan entry opens the plan and '
+        'never falls back to the generic add', (tester) async {
+      final calls = _Calls();
+      final context = await _context(tester);
+      final entryless = RecipePick(
+        recipe: _recipe,
+        slot: MealSlot.dinner,
+        source: RecipePickSource.planned,
+        servings: 2,
+        kcal: 1220,
+        proteinG: 80,
+        remainingKcalBefore: 902,
+      );
+      final ok = await logRecipePick(
+        context,
+        entryless,
+        owner: _owner,
+        addMeal: calls.add,
+        eatPlannedMeal: calls.eat,
+        openMealPlan: calls.openPlan,
+      );
+      expect(ok, isFalse);
+      expect(calls.plansOpened, 1);
+      expect(calls.added, isEmpty, reason: 'no one-serving duplicate row');
+      expect(calls.eaten, isEmpty);
+    });
+
+    testWidgets('a pick that cannot be converted shows the save error '
+        'instead of throwing, and logs nothing', (tester) async {
+      final calls = _Calls();
+      final context = await _context(tester);
+      // 0 servings are outside the loggable range: the conversion throws.
+      final unloggable = RecipePick(
+        recipe: _recipe,
+        slot: MealSlot.dinner,
+        source: RecipePickSource.suggested,
+        servings: 0,
+        kcal: 0,
+        proteinG: 0,
+        remainingKcalBefore: 902,
+      );
+      expect(
+        () => _recipe.toMealResultForServings(0, enL10n),
+        throwsFormatException,
+      );
+      final ok = await logRecipePick(
+        context,
+        unloggable,
+        owner: _owner,
+        addMeal: calls.add,
+        eatPlannedMeal: calls.eat,
+        openMealPlan: calls.openPlan,
+      );
+      await tester.pump();
+      expect(ok, isFalse);
+      expect(calls.added, isEmpty);
+      expect(find.text(enL10n.commonLocalSaveFailed), findsOneWidget);
+    });
+
+    testWidgets('a write still in flight for one account does not block the '
+        'same pick for the next account', (tester) async {
+      final context = await _context(tester);
+      final gate = Completer<void>();
+      final writes = <Object>[];
+      Future<bool> log(Object owner) => logRecipePick(
+        context,
+        _suggested(),
+        owner: owner,
+        addMeal: (_, _) async {
+          writes.add(owner);
+          if (writes.length == 1) await gate.future;
+        },
+        eatPlannedMeal: (_) async {},
+        openMealPlan: () {},
+      );
+
+      final signedOut = Object();
+      final hanging = log(signedOut);
+      await tester.pump();
+      final next = Object();
+      expect(await log(next), isTrue);
+      expect(writes, [signedOut, next]);
+      gate.complete();
+      expect(await hanging, isTrue);
+    });
+
     testWidgets('a suggestion logs its servings into its slot', (tester) async {
       final calls = _Calls();
       final context = await _context(tester);
@@ -185,6 +276,7 @@ void main() {
       final ok = await logRecipePick(
         context,
         pick,
+        owner: _owner,
         addMeal: calls.add,
         eatPlannedMeal: calls.eat,
         openMealPlan: calls.openPlan,
@@ -204,6 +296,7 @@ void main() {
       final ok = await logRecipePick(
         context,
         _planned(),
+        owner: _owner,
         addMeal: calls.add,
         eatPlannedMeal: calls.eat,
         openMealPlan: calls.openPlan,
@@ -221,6 +314,7 @@ void main() {
         final ok = await logRecipePick(
           context,
           pick,
+          owner: _owner,
           addMeal: calls.add,
           eatPlannedMeal: calls.eat,
           openMealPlan: calls.openPlan,
@@ -246,6 +340,7 @@ void main() {
         Future<bool> log() => logRecipePick(
           context,
           pick,
+          owner: _owner,
           addMeal: (_, _) => slowWrite(),
           eatPlannedMeal: (_) => slowWrite(),
           openMealPlan: () {},
@@ -274,6 +369,7 @@ void main() {
       final suggested = logRecipePick(
         context,
         _suggested(),
+        owner: _owner,
         addMeal: (result, slot) async {
           calls.add(result, slot);
           await gate.future;
@@ -286,6 +382,7 @@ void main() {
         await logRecipePick(
           context,
           planned,
+          owner: _owner,
           addMeal: calls.add,
           eatPlannedMeal: calls.eat,
           openMealPlan: calls.openPlan,
@@ -303,6 +400,7 @@ void main() {
       Future<bool> eat() => logRecipePick(
         context,
         failing,
+        owner: _owner,
         addMeal: calls.add,
         eatPlannedMeal: calls.eat,
         openMealPlan: calls.openPlan,

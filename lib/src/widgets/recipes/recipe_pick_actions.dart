@@ -71,49 +71,53 @@ void openRecipePick(
 /// Logs [pick] in one tap, the one right way per source:
 ///
 /// - planned: [eatPlannedMeal] with the plan entry's id (planned servings,
-///   marks it eaten); without loggable nutrition it opens the meal plan
-///   instead ([openMealPlan]) and logs nothing;
+///   marks it eaten); without the entry or loggable nutrition it opens the
+///   meal plan instead ([openMealPlan]) and logs nothing;
 /// - suggested: [addMeal] with the pick's servings into the pick's slot.
 ///
-/// Returns true when a meal was committed. A failed write shows the app's
-/// "could not save" snack ([tryPersistChange]). While a pick's write is in
-/// flight, logging the same pick again returns false and writes nothing, so
+/// Returns true when a meal was committed. A failed write, or a pick that
+/// cannot be converted into a diary entry, shows the app's "could not save"
+/// snack ([tryPersistChange]). While a pick's write is in flight, logging the
+/// same pick again for the same [owner] returns false and writes nothing, so
 /// a double tap cannot log it twice.
+///
+/// [owner] scopes that guard to one account session (the calling screen's
+/// State, which the shell rebuilds per session): a write still hanging for a
+/// signed-out account never blocks the same pick for the next one.
 Future<bool> logRecipePick(
   BuildContext context,
   RecipePick pick, {
+  required Object owner,
   required RecipePickAdd addMeal,
   required Future<void> Function(String plannedMealId) eatPlannedMeal,
   required VoidCallback openMealPlan,
   bool Function()? isSessionCurrent,
 }) async {
   if (isSessionCurrent?.call() == false) return false;
-  final planned = pick.source == RecipePickSource.planned
-      ? pick.plannedMeal
-      : null;
-  if (planned != null && pick.kcal == null) {
+  final planned = pick.source == RecipePickSource.planned;
+  final plan = planned ? pick.plannedMeal : null;
+  if (planned && (plan == null || pick.kcal == null)) {
     openMealPlan();
     return false;
   }
-  final Object key = planned?.id ?? (pick.recipe.slug, pick.slot);
+  final Object key = (owner, plan?.id ?? (pick.recipe.slug, pick.slot));
   if (!_picksInFlight.add(key)) return false;
   try {
-    if (planned != null) {
-      return await tryPersistChange(
-        context,
-        () => eatPlannedMeal(planned.id),
+    return await tryPersistChange(context, () {
+      if (plan != null) return eatPlannedMeal(plan.id);
+      // Inside the change: a conversion that throws reports like a failed
+      // write instead of escaping the tap handler.
+      final result = pick.recipe.toMealResultForServings(
+        pick.servings,
+        context.l10n,
       );
-    }
-    final result = pick.recipe.toMealResultForServings(
-      pick.servings,
-      context.l10n,
-    );
-    return await tryPersistChange(context, () => addMeal(result, pick.slot));
+      return addMeal(result, pick.slot);
+    });
   } finally {
     _picksInFlight.remove(key);
   }
 }
 
-/// Picks whose write [logRecipePick] is awaiting: the plan entry's id, or a
-/// suggestion's (recipe slug, slot).
+/// Picks whose write [logRecipePick] is awaiting, per owner: (owner, the plan
+/// entry's id) or (owner, (recipe slug, slot)) for a suggestion.
 final Set<Object> _picksInFlight = <Object>{};
