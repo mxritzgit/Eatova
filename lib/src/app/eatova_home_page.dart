@@ -46,7 +46,6 @@ import '../l10n/l10n.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/auth/welcome_screen.dart';
 import '../widgets/common/app_snack.dart';
-import '../widgets/common/lively.dart';
 import '../widgets/common/store_selector.dart';
 import '../widgets/design/design.dart';
 import '../widgets/kcal/add_meal_sheet.dart' show FoodStoreScope;
@@ -685,31 +684,29 @@ class _EatovaHomePageState extends State<EatovaHomePage>
 
   Widget _tabAt(int index) => _tabViews[index] ??= KeyedSubtree(
     key: ValueKey('tab-fixed-$index'),
-    // G10: the entrance plays once per tab, not on every switch. A key
-    // over the whole body forced the unmount D6 fixes and re-rasterised
-    // the kcal card (BackdropFilter is not raster-cacheable).
-    child: LivelyEntrance(
-      key: ValueKey('lively-tab-$index'),
-      child: Padding(
-        // Food, Recipes, Training and Coach own their gutters; Today keeps the
-        // shell's side gutters even while mounted in the hidden stack. No top
-        // or bottom inset: every tab runs to the screen edges, under the
-        // status bar and the floating bar (TabChrome, AppNavBar).
-        padding:
-            index == _tabTraining ||
-                index == _tabFood ||
-                index == _tabRezepte ||
-                index == _tabCoach
-            ? EdgeInsets.zero
-            : const EdgeInsets.symmetric(horizontal: 20),
-        child: switch (index) {
-          _tabFood => _foodTab(),
-          _tabRezepte => _recipesTab(),
-          _tabTraining => _trainingTab(),
-          _tabCoach => _coachTab(),
-          _ => _todayTab(),
-        },
-      ),
+    // No per-tab entrance wrapper: HomeTabSwitcher's fade-through is the
+    // tab's arrival on every switch, first visit included. (G10: a key over
+    // the whole body forced the unmount D6 fixes and re-rasterised the kcal
+    // card; the old LivelyEntrance also left an opacity layer over it.)
+    child: Padding(
+      // Food, Recipes, Training and Coach own their gutters; Today keeps the
+      // shell's side gutters even while mounted in the hidden stack. No top
+      // or bottom inset: every tab runs to the screen edges, under the
+      // status bar and the floating bar (TabChrome, AppNavBar).
+      padding:
+          index == _tabTraining ||
+              index == _tabFood ||
+              index == _tabRezepte ||
+              index == _tabCoach
+          ? EdgeInsets.zero
+          : const EdgeInsets.symmetric(horizontal: 20),
+      child: switch (index) {
+        _tabFood => _foodTab(),
+        _tabRezepte => _recipesTab(),
+        _tabTraining => _trainingTab(),
+        _tabCoach => _coachTab(),
+        _ => _todayTab(),
+      },
     ),
   );
 
