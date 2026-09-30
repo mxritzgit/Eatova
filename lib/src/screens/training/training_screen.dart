@@ -12,6 +12,7 @@ import '../../services/sync_error_messages.dart';
 import '../../services/uuid.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
+import '../../widgets/common/lively.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
 import 'training_overview_widgets.dart';
@@ -448,7 +449,9 @@ class _TrainingScreenState extends State<TrainingScreen> {
   Widget build(BuildContext context) => SnackHost(
     enabled: TickerMode.valuesOf(context).enabled,
     currentRouteOnly: true,
-    child: _pageBody(context),
+    // First view of the tab: the sections enter top to bottom, once per
+    // session (the shell keeps a visited tab mounted).
+    child: LivelyStaggerScope(child: _pageBody(context)),
   );
 
   Widget _pageBody(BuildContext context) {
@@ -483,7 +486,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
         child: RepaintBoundary(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
+          children: livelyStagger([
               _header(context, plan),
               gap,
               if (conflict != null) ...[
@@ -567,7 +570,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
                   onOpenAll: widget.onOpenHistory,
                 ),
               ],
-            ],
+          ]),
           ),
         ),
       ),

@@ -8,6 +8,7 @@ import '../../models/training_history.dart';
 import '../../models/training_insights.dart';
 import '../../models/training_session.dart';
 import '../../theme/app_tokens.dart';
+import '../../widgets/common/lively.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
 import 'training_actual_fields.dart' show formatTrainingWeight;
@@ -593,25 +594,28 @@ class TrainingRoundButton extends StatelessWidget {
       button: true,
       enabled: onTap != null,
       label: semanticLabel,
-      child: Material(
-        color: t.surf2,
-        shape: const CircleBorder(),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          customBorder: const CircleBorder(),
-          child: SizedBox.square(
-            dimension: 54,
-            child: Center(
-              child: busy
-                  ? SizedBox.square(
-                      dimension: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: t.accent,
-                      ),
-                    )
-                  : Icon(icon, size: 20, color: t.inkMuted),
+      child: PressScale(
+        enabled: onTap != null,
+        child: Material(
+          color: t.surf2,
+          shape: const CircleBorder(),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            customBorder: const CircleBorder(),
+            child: SizedBox.square(
+              dimension: 54,
+              child: Center(
+                child: busy
+                    ? SizedBox.square(
+                        dimension: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: t.accent,
+                        ),
+                      )
+                    : Icon(icon, size: 20, color: t.inkMuted),
+              ),
             ),
           ),
         ),
@@ -649,50 +653,52 @@ class TrainingQuickTile extends StatelessWidget {
       container: true,
       button: true,
       label: semanticLabel ?? label,
-      child: Material(
-        color: t.surf,
-        clipBehavior: Clip.antiAlias,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(rTile),
-          side: BorderSide(color: t.cardBorder),
-        ),
-        child: InkWell(
-          onTap: onTap,
-          child: ExcludeSemantics(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 64),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 38,
-                      height: 38,
-                      decoration: BoxDecoration(
-                        color: tint,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: IconTheme(
-                        data: IconThemeData(size: 20, color: ink),
-                        child: Center(child: icon),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        label,
-                        style: AppType.ui(
-                          14,
-                          weight: FontWeight.w700,
-                          color: t.ink,
-                          height: kTrainingLine,
+      child: PressScale(
+        child: Material(
+          color: t.surf,
+          clipBehavior: Clip.antiAlias,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(rTile),
+            side: BorderSide(color: t.cardBorder),
+          ),
+          child: InkWell(
+            onTap: onTap,
+            child: ExcludeSemantics(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 64),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: tint,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: IconTheme(
+                          data: IconThemeData(size: 20, color: ink),
+                          child: Center(child: icon),
                         ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          label,
+                          style: AppType.ui(
+                            14,
+                            weight: FontWeight.w700,
+                            color: t.ink,
+                            height: kTrainingLine,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -822,9 +828,10 @@ class TrainingVolumeCard extends StatelessWidget {
             crossAxisAlignment: WrapCrossAlignment.end,
             spacing: 4,
             children: [
-              Text(
-                tonnes.format(lastFull.tonnes),
-                key: const ValueKey('training-volume-value'),
+              CountingText(
+                value: lastFull.tonnes,
+                format: tonnes.format,
+                textKey: const ValueKey('training-volume-value'),
                 style: AppType.display(
                   30,
                   color: t.ink,
@@ -896,18 +903,31 @@ class TrainingVolumeCard extends StatelessWidget {
                                   ),
                                   const SizedBox(height: 6),
                                 ],
-                                Container(
-                                  key: ValueKey('training-volume-bar-$i'),
-                                  height: math.max(
-                                    4,
-                                    96 * weeks[i].volumeKg / highest,
+                                // Grows in on first display and moves to
+                                // a new height when a workout lands.
+                                TweenAnimationBuilder<double>(
+                                  tween: Tween<double>(
+                                    begin: 0,
+                                    end: math.max(
+                                      4,
+                                      96 * weeks[i].volumeKg / highest,
+                                    ),
                                   ),
-                                  decoration: BoxDecoration(
-                                    color: i == highlight
-                                        ? t.accentFill
-                                        : t.chartViolet,
-                                    borderRadius: const BorderRadius.vertical(
-                                      top: Radius.circular(4),
+                                  duration: motionDuration(
+                                    context,
+                                    kMotionValue,
+                                  ),
+                                  curve: kMotionCurve,
+                                  builder: (context, height, _) => Container(
+                                    key: ValueKey('training-volume-bar-$i'),
+                                    height: height,
+                                    decoration: BoxDecoration(
+                                      color: i == highlight
+                                          ? t.accentFill
+                                          : t.chartViolet,
+                                      borderRadius: const BorderRadius.vertical(
+                                        top: Radius.circular(4),
+                                      ),
                                     ),
                                   ),
                                 ),
