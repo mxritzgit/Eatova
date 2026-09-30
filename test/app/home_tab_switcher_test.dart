@@ -142,6 +142,34 @@ void main() {
           reason: 'ein Wechsel baut keinen Tab-Inhalt neu');
     });
 
+    testWidgets('der kommende Tab liegt oben und kommt von links, wenn er '
+        'links vom gehenden steht', (tester) async {
+      final host = await _pump(tester);
+      await _show(tester, host, 2);
+      await _frames(tester, 20);
+      await _show(tester, host, 0);
+      await _frames(tester, 3);
+
+      final drift = _switcher(tester).driftOf(0);
+      expect(drift, lessThan(0), reason: 'Richtung aus der Tab-Reihenfolge');
+      final rect = Offset.zero & tester.getSize(find.byKey(_stackKey));
+      // Outgoing scrim (no drift) first, then the incoming one, which spans
+      // the drift: the incoming tab paints on top.
+      expect(
+        tester.renderObject(find.byKey(_stackKey)),
+        paints
+          ..rect(rect: rect)
+          ..rect(
+            rect: Rect.fromLTRB(
+              rect.left + drift,
+              rect.top,
+              rect.right - drift,
+              rect.bottom,
+            ),
+          ),
+      );
+    });
+
     testWidgets('waehrend des Wechsels nimmt nur der neue Tab Eingaben an',
         (tester) async {
       final host = await _pump(tester);
