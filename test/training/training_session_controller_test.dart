@@ -214,16 +214,8 @@ void main() {
     expect(session.completedSetCount, 1);
   });
 
-  test('previous exercise invalidates its ledger and all later sets', () {
-    session.nextExercise();
-    session.start();
-    session.completeCurrentSet();
-    session.previousExercise();
-    expect(session.exerciseIndex, 0);
-    expect(session.setIndex, 0);
-    expect(session.completedSetCount, 0);
-    expect(session.skippedSets, isEmpty);
-  });
+  // Going back an exercise drops its ledger: training_qa/timer_recovery_test
+  // ('previous exercise removes later progress; skip is never completion').
 
   test('previous set crosses exercise boundary to actual final set', () {
     session.nextExercise();
