@@ -1,21 +1,48 @@
-# Recipes — Spotlight
+# Recipes — dark redesign root, Spotlight details
+
+> **Tab root superseded by the dark redesign (2026-09-28, PR #118).** The app
+> is dark-only, with Figtree for UI text and Bricolage Grotesque for display
+> text; the palette and typography named in the 2026-09-13 text below and its
+> light previews are dated. The detail page, portion sheet, Meal Plan,
+> Shopping List and plan editor kept the Spotlight structure described below
+> and only took over the dark tokens and fonts.
+
+## Tab root since the dark redesign
+
+- Header with the meal-plan and add (import or create) round buttons, a
+  borderless search capsule with a filter sheet, and one chip bar: **For you**,
+  **All**, **My recipes**, then the categories ("High protein", "Under 600
+  kcal", ...). Exactly one chip is selected.
+- **For you** starts with the "Picked for tonight" card from the shared
+  `store.nextMealPick` (the same pick as Today and Food): fits badge, kcal and
+  protein chips, "Add to <slot>" and "View recipe", bookmark = favorite pin, AI
+  label only on catalog photos. Planned picks are eaten only through the meal
+  plan (`eatPlannedMeal`, via `widgets/recipes/recipe_pick_actions.dart`); the
+  best goal match is the fallback.
+- A "High protein, under 500 kcal" shelf (`models/recipe_shelf.dart`, own hits
+  first, catalog rotated by day, diet filtered) with See all, the "Your
+  recipes" card, then the recipe list and the goal matches.
+- **My recipes** keeps the persistent own section with its empty state and the
+  history entry. Search text, filters and scroll retention across app tabs,
+  delete/undo and the device-only photo lifecycle keep their guards.
+
+Pinned by `test/recipes_redesign_wiring_test.dart`,
+`test/recipes_redesign_details_test.dart` and the captures in
+`test/design/recipes_redesign_capture_test.dart`.
+
+## Spotlight, 2026-09-13 (details, plan and shopping still current)
 
 The user selected concept 05, Recipe Spotlight, on 2026-09-13. The recipe family
-now continues Today's Balance Duo and Food's Thumb First design with the existing
+then continued Today's Balance Duo and Food's Thumb First design with
 Archivo/Bricolage typography, lavender, mint, sky and butter surfaces, and shared
 theme radii. The mockup is implemented as native Flutter UI with real recipe data.
 
-## Design and behavior
+### Design and behavior
 
-- Recipes opens on **For you** with a photo-led recommendation carousel. Recipe
-  titles, calories and protein sit below the photo on lavender, with a clear view
-  action. Open photo rows continue the library below. Daily rotation, dietary
-  preferences and goal recommendations retain the existing calculations.
-- **All recipes** contains search results and category filters. **Own** is a
-  persistent section, including a useful empty state. Saving a new recipe opens
-  Own with the new entry visible. Search text, filters and scroll retention across
-  app tabs remain covered. Delete/undo and the existing device-only photo lifecycle
-  retain their persistence and account guards.
+- *(Tab root, superseded above.)* Recipes opened on **For you** with a
+  photo-led recommendation carousel, **All recipes** held search results and
+  category filters, and **Own** was a persistent section. Saving a new recipe
+  opens Own with the new entry visible.
 - Recipe details combine the photo, title and description, followed by four
   pastel nutrition tiles, ingredient rows and numbered preparation steps. The
   logging action stays at the bottom on normal phones; short windows and large
@@ -37,7 +64,7 @@ reuse a bundled photo only for an exact catalog slug/path pair; missing local
 photos still get the existing placeholder. No backend, schema, dependency or
 lockfile changes are required.
 
-## Rendered preview
+### Rendered preview, 2026-09-13 (light theme, pre-redesign)
 
 | Recipes | Details | Portion sheet |
 | --- | --- | --- |
@@ -47,9 +74,10 @@ lockfile changes are required.
 | --- | --- | --- |
 | ![Meal Plan](recipes-preview/plan-light.png) | ![Shopping List](recipes-preview/shopping-light.png) | ![Plan editor](recipes-preview/editor-light.png) |
 
-These are rendered Flutter views using catalog recipes and local test data.
+These are rendered Flutter views using catalog recipes and local test data. The
+current dark tab root is in [dark-redesign-preview](dark-redesign-preview/recipes.png).
 
-## Verification
+### Verification, 2026-09-13
 
 Verified with the CI-pinned Flutter 3.47.2:
 

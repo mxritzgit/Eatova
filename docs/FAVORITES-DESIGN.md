@@ -1,5 +1,10 @@
 # Favorites — saved meals, ready to reuse
 
+> **Palette and typography dated.** Since the dark redesign (2026-09-28,
+> PR #118) the favorites surfaces use the dark tokens, Figtree and Bricolage
+> Grotesque instead of Balance Duo; the app is dark-only. The behavior and
+> acceptance rules below still apply.
+
 The inline favorites and their full library share an open collection surface,
 with meal names, the saved portion's calories and a visible portion control.
 Use the existing Balance Duo `AppTokens`, `AppType` and radius scale.

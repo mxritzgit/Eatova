@@ -40,18 +40,33 @@ but their old feature gaps, branch snapshots and test counts are not live state.
 
 ## Design contracts and previews
 
-Later focused polish takes precedence over an earlier baseline in the same area.
+The dark redesign of 2026-09-28 (PR #118, summarized in the
+[handoff](PROJECT_HANDOFF.md#dark-redesign-of-the-five-tabs-2026-09-28-to-2026-09-30))
+rebuilt the five tab roots and the tab bar. Sheets, detail pages, settings,
+auth and onboarding kept their structure and only took over the dark tokens,
+Figtree/Bricolage Grotesque and the shared controls. For those surfaces the
+older contracts below still describe behavior; their palette, typography and
+light-mode previews are dated. Later focused polish takes precedence over an
+earlier baseline in the same area.
 
 | Area | Current references |
 | --- | --- |
-| Today | [Balance Duo](TODAY-DESIGN.md), [first-viewport/account polish](APP-POLISH-2026-09-13.md) |
+| Today | [Today (dark redesign)](TODAY-DESIGN.md) |
 | Food and favorites | [Food (dark redesign)](FOOD-DESIGN.md), [Favorites](FAVORITES-DESIGN.md) |
 | Meal entry and calendar | [Entry baseline](MEAL-ENTRY-DESIGN.md), [camera/manual/search/calendar polish](FOOD-ENTRY-POLISH-2026-09-14.md) |
-| Recipes, plan and shopping | [Spotlight](RECIPES-DESIGN.md) |
-| Training | [Nachtstudio](TRAINING-DESIGN.md), [artwork provenance](../assets/training/README.md) |
+| Recipes, plan and shopping | [Recipes (dark redesign root, Spotlight details/plan/shopping)](RECIPES-DESIGN.md) |
+| Training | [Training (dark redesign root, Nachtstudio library/player)](TRAINING-DESIGN.md), [artwork provenance](../assets/training/README.md) |
+| Coach | No separate contract; see the [handoff](PROJECT_HANDOFF.md#dark-redesign-of-the-five-tabs-2026-09-28-to-2026-09-30) and `test/design/coach_redesign_capture_test.dart` |
 | Shared navigation and icons | [Gestures](GESTURE-NAVIGATION.md), [original icon family](ICON-FAMILY-2026-09-14.md) |
 | Account and headers | [App polish](APP-POLISH-2026-09-13.md) |
 | Login, signup and onboarding | [Entry and six-step setup](AUTH-ONBOARDING-DESIGN.md) |
+
+Current tab renders: [Today](dark-redesign-preview/today.png),
+[Food](dark-redesign-preview/food.png), [Recipes](dark-redesign-preview/recipes.png)
+and [Training](dark-redesign-preview/training.png). Regenerate them with the
+`test/design/*_redesign_capture_test.dart` suites and
+`--dart-define=DARK_REDESIGN_CAPTURE=true` (output in `build/dark-redesign/`; the committed copies are the `*-00` shots
+at half resolution).
 
 ## Delivery records
 

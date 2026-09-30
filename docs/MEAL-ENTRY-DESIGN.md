@@ -1,5 +1,10 @@
 # Meal entry — a continuation of Today
 
+> **Palette and typography dated.** Since the dark redesign (2026-09-28,
+> PR #118) the add-meal sheet uses the dark tokens, Figtree and Bricolage
+> Grotesque instead of Today's Balance Duo palette; the app is dark-only. The
+> acceptance list and the behavior contract below still apply.
+
 The add-meal sheet follows Today’s Balance Duo palette and typography. This
 redesign changes the entry surface, preserving the existing photo, barcode,
 search, manual, favorite and recent-meal workflows.

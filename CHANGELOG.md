@@ -8,12 +8,21 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
 
 ## [Unreleased]
 
-Updated 2026-09-16. These entries describe repository changes, not a newly
-published store version. Older entries below retain
+Updated 2026-09-16; the dark redesign entry was added 2026-10-01. Changes between
+those dates are recorded in the [handoff](docs/PROJECT_HANDOFF.md). These entries describe
+repository changes, not a newly published store version. Older entries below retain
 their implementation history; [the feature inventory](docs/FEATURES.md) describes
 the complete current product.
 
 ### Latest changes (September 2026)
+
+- **Dark redesign of the five tabs** (#118): the app is dark-only for now
+  (`kDarkOnly`, reversible; the light palette and theme controller stay), with
+  Figtree replacing Archivo for UI text, Bricolage Grotesque for display text
+  and a floating glass tab bar. New tab roots for Today, Food, Recipes, Training
+  and Coach share one derivation layer (streak, next-meal pick, day summary with
+  activity credit, slot summaries, training insights, coach day brief). See the
+  [design index](docs/README.md#design-contracts-and-previews).
 
 - **Account entry and onboarding:** Balance Duo login, signup and code entry;
   six grouped setup screens with direct summary editing. Existing passwords
