@@ -15,7 +15,7 @@
 //
 //   1. Der konkrete Nachweis für P2-01 (210-Codepunkte-Titel).
 //   2. Eine Invariante über ALLE Erzeuger: was hier herauskommt, muss durch
-//      jede Spalte passen, die `MealsSync` aus dem Ergebnis befüllt — inklusive
+//      jede Spalte passen, die `_mealRow` aus dem Ergebnis befüllt — inklusive
 //      `FavoriteMeal.idFor` (P2-02, die zweite Hälfte desselben Constraints).
 //   3. Zwei Registraturen, die den NÄCHSTEN fehlenden Clamp fangen: eine neue
 //      Datei mit `MealAnalysisResult(` und eine neue Spalte im
@@ -55,7 +55,8 @@ final String _titel210 = _familie * 30;
 /// Nachbau von `_macro` in `sync_operation_payload.dart`: die App schreibt
 /// keinen `double`, sondern die erste Zahl aus dem Makro-TEXT in eine
 /// `numeric`-Spalte.
-/// `_makroRegexIstNochDieselbe` hält den Nachbau am Original fest.
+/// „der Makro-Nachbau passt noch zur Regex der Mahlzeit-Zeilen" hält den
+/// Nachbau am Original fest.
 num? _macroZuNumeric(String macroText) {
   final match = RegExp(r'(\d+(?:[.,]\d+)?)').firstMatch(macroText);
   if (match == null) return null;
@@ -63,7 +64,8 @@ num? _macroZuNumeric(String macroText) {
 }
 
 /// Prüft ein Ergebnis gegen JEDE Grenze, die `logged_meals_safe_ranges_check`
-/// auf die von `MealsSync` befüllten Spalten legt — plus den `favorite_key`,
+/// auf die von `_mealRow` (sync_operation_payload.dart) befüllten Spalten
+/// legt — plus den `favorite_key`,
 /// der aus demselben Namen gebaut wird (P2-02).
 void erwarteSchreibbarAlsLoggedMeal(
   MealAnalysisResult r, {

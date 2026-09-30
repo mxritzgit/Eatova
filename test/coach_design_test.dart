@@ -416,8 +416,8 @@ void main() {
     // tearDown: the binding checks foundation vars before tearDowns run.
     debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
     try {
-      // `lime` on the light composer capsule reaches only ~1.2:1, so the mic
-      // would look idle while listening. The state uses `accent` instead.
+      // The listening state takes `accent` and idle takes `ink2`; the check
+      // below keeps the two apart in both palettes.
       for (final (brightness, tokens) in <(Brightness, AppTokens)>[
         (Brightness.dark, AppTokens.dark),
         (Brightness.light, AppTokens.light),

@@ -8,7 +8,7 @@
 //
 // The tests boot the real EatovaHomePage without sync (preview path): no boot
 // gate, no onboarding, all tabs reachable. Tab indices: Heute 0, Food 1,
-// recipes 2, coach 3.
+// recipes 2, Training 3, coach 4.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';

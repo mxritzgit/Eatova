@@ -149,7 +149,7 @@ void _erwarteNeutralenAusweg() {
   expect(find.byKey(const ValueKey('auth-message')), findsOneWidget);
   expect(find.text(deL10n.authSignupExistingAccountHint), findsOneWidget);
   expect(find.textContaining('schon registriert'), findsNothing,
-      reason: 'keine Konto-Enumeration (auth_repository.dart:48-51)');
+      reason: 'keine Konto-Enumeration (AuthRepository, Hauslinie)');
 
   // The way out is login mode: no name field, the CTA reads "Einloggen" again
   // and the toggle offers signup.

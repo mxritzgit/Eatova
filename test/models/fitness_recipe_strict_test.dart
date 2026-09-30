@@ -8,8 +8,9 @@ import 'package:eatova/src/models/fitness_recipe.dart';
 // duplicate recipes.
 //
 // Contract now: no slug means the row/payload is corrupt -> throw. The replay
-// catches it (-> _CorruptOpPayload -> drop with a message), and slug is NOT
-// NULL in public.user_recipes, so server rows never hit the throw.
+// keeps such an op and blocks it as rejected (FormatException in
+// blockedReasonForSyncError), and slug is NOT NULL in public.user_recipes, so
+// server rows never hit the throw.
 
 Map<String, dynamic> _zeile() => <String, dynamic>{
       'slug': 'user_123',

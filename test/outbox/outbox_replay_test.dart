@@ -184,7 +184,7 @@ void main() {
     expect(s.server.mealsCounted, 1);
   });
 
-  test('Bearbeiten online: der PATCH traegt logged_at + local_day — die '
+  test('Bearbeiten online: der mealUpsert traegt logged_at + local_day — die '
       'Tag-Verschiebung erreicht den Server auch ohne Outbox', () async {
     final s = setup();
     await boot(s.store);

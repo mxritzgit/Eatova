@@ -222,8 +222,8 @@ void main() {
   });
 
   // C7 (2026-08-08): incrementWorkouts(), addWater() and addSteps() lost their
-  // callers when the training and today tabs were removed, so the mutators are
-  // gone.
+  // callers when the training and today tabs were removed (both later came
+  // back without them), so the mutators are gone.
   //
   // The FIELDS stay: workouts_completed / water_total_ml / steps_recorded are
   // `not null` columns in public.lifetime_stats, appear in the explicit select,

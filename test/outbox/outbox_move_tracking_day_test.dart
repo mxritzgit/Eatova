@@ -11,9 +11,9 @@ import 'package:eatova/src/services/sync_outbox.dart';
 
 import 'outbox_test_helpers.dart';
 
-// The two RPC-backed families: increment_lifetime_stats (additive, so every
-// retry needs the SAME request id) and record_tracking_day (the streak day,
-// which used to be pure fire-and-forget).
+// The tracking-day family (the streak day, which used to be pure
+// fire-and-forget), delivered as `trackingDay` / `mealInsert` sync operations
+// through apply_sync_operation.
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

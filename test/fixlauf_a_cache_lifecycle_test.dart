@@ -263,9 +263,9 @@ void main() {
       await settle();
 
       expect(kv.writesFuer(outboxKey), outboxVorher,
-          reason: '_dequeueDeliveredOp/_persistOutbox nach dispose');
+          reason: 'Outbox-Commit nach dispose');
       expect(kv.writesFuer(statsKey), statsVorher,
-          reason: '_queueStatsDelta nach dispose');
+          reason: 'Stats-Slot-Commit nach dispose');
       expect(s.server.requestsTo('/rpc/increment_lifetime_stats'), isEmpty,
           reason: 'kein Stats-Timer mit abgemeldetem Client');
     });

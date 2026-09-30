@@ -223,12 +223,11 @@ void main() {
       expect(titel.headingLevel, 1);
     });
 
-    // HONEST NOTE (mutation run 2026-09-01): the `enabled:` guard in
-    // `_maybeHeading` is NOT what keeps this green. Removing it — annotating
-    // the empty `Text('')` unconditionally — leaves this case passing, because
+    // HONEST NOTE (mutation run 2026-09-01): the `label.isEmpty` branch in
+    // `PageHeader.build` (rows.dart) is NOT what keeps this green. Annotating
+    // an empty title unconditionally leaves this case passing, because
     // Flutter drops a header node that has neither a label nor a rect. The
-    // case pins the OUTCOME, not the guard; do not read it as proof that
-    // `_maybeHeading` still works.
+    // case pins the OUTCOME, not the branch.
     //
     // The counter-check below is what stops it from being green for the wrong
     // reason (semantics never enabled, `_sprungmarken` matching nothing at

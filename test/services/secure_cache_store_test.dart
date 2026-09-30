@@ -321,8 +321,10 @@ void main() {
     });
 
     test('SMOKE: voller writeLoggedMeals/readLoggedMeals-Roundtrip durch '
-        'LocalCache mit echter pointycastle-Cipher', () async {
-      // Catches pointycastle API misuse a fake would hide.
+        'LocalCache mit echtem AesGcmCacheCipher', () async {
+      // Catches cipher API misuse a fake would hide. In the VM the cipher
+      // leads with DartAesGcm; the pointycastle tier has its own cases in
+      // secure_cache_store_tiers_test.dart.
       final raw = InMemoryKeyValueStore();
       final cache = LocalCache(
         EncryptedKeyValueStore(raw, AesGcmCacheCipher(_hardCodedDek)),

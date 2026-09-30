@@ -676,7 +676,7 @@ void main() {
   // einem FEHLENDEN Eintrag etwas ableitet (die Foto-Aufraeumung loescht
   // darauf hin Dateien), braucht die Unterscheidung; nur die Server-Antwort
   // liefert sie. Deshalb haengt das Flag am Rezept-Load, nicht am Ende der
-  // Boot-Kette: die sechs Loads antworten unabhaengig voneinander.
+  // Boot-Kette: die Loads antworten unabhaengig voneinander.
   test('P3-04b: userRecipesAuthoritative erst nach BEANTWORTETEM Rezept-Load — '
       'ein veraltet-leerer Cache-Slot bleibt vorlaeufig', () async {
     final kv = InMemoryKeyValueStore();
@@ -689,7 +689,7 @@ void main() {
     await s.cache.writeUserRecipes(const <FitnessRecipe>[]);
     s.server.recipeRows['user_da'] = serverRecipeRow('user_da');
 
-    // NUR der Rezept-Load faellt aus; die anderen fuenf antworten. Genau
+    // NUR die Rezept-Loads fallen aus; die anderen antworten. Genau
     // deshalb haengt das Flag am Rezept-Load und nicht am Boot-Ende.
     s.server.rejectRecipeReads = true;
     await boot(s.store);
