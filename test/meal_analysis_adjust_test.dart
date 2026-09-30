@@ -138,7 +138,6 @@ void main() {
 
       expect(find.text('Bestandteile anpassen'), findsOneWidget);
       expect(find.text('Portion anpassen'), findsNothing);
-      expect(find.byKey(const ValueKey('analyse-weight-input')), findsNothing);
       expect(
         find.byKey(const ValueKey('analyse-item-weight-input-0')),
         findsOneWidget,

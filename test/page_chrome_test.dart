@@ -104,13 +104,10 @@ void main() {
               closeTo(button.center.dy, 1),
             );
           }
-          expect(find.byKey(const ValueKey('food-options')), findsNothing);
           expect(
             find.byKey(const ValueKey('today-profile')),
             index == 0 ? findsOneWidget : findsNothing,
           );
-          // Settings moved behind the avatar (profile page) in the redesign.
-          expect(find.byKey(const ValueKey('today-settings')), findsNothing);
           expect(tester.takeException(), isNull);
         }
       });

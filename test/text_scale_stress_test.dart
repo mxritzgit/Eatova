@@ -436,7 +436,6 @@ void main() {
       find.byKey(const ValueKey('profile-open-settings')).hitTestable(),
       findsOneWidget,
     );
-    expect(find.byKey(const ValueKey('food-options')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

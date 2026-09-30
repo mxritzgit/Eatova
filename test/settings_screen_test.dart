@@ -130,15 +130,15 @@ void main() {
   });
 
   testWidgets('die Attrappen der Vorlage sind nicht gebaut', (tester) async {
-    // Units, language and weekly summary have no function in this app; this
-    // assertion is the brake against building them in "for later".
+    // Units, a weekly summary and Apple Health have no function in this app;
+    // this assertion is the brake against building them in "for later".
+    // Language and password rows are real (settings_language_test.dart,
+    // account_change_flows_test.dart) and appear only with their scope.
     await pump(tester, onOpenGoals: () {});
 
     for (final text in const <String>[
       'Einheiten',
-      'Sprache',
       'Wochenrückblick',
-      'Passwort ändern',
       'Apple Health',
     ]) {
       expect(find.text(text), findsNothing, reason: text);

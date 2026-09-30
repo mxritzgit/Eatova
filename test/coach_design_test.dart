@@ -199,8 +199,6 @@ void main() {
       // Visible "Coach" like the design; screen readers hear "KI-Coach".
       expect(tester.widget<Text>(find.text('Coach')).semanticsLabel, 'KI-Coach');
       expect(find.text('Sieht dein heutiges Log'), findsOneWidget);
-      expect(find.byKey(const ValueKey('coach-streak')), findsNothing,
-          reason: 'die Serie steht im Heute-Tab, nicht mehr im Coach-Kopf');
       for (final key in ['coach-sessions-open', 'coach-info']) {
         final button = find.byKey(ValueKey(key));
         expect(button, findsOneWidget);

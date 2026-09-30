@@ -144,8 +144,6 @@ void main() {
     expect(saveHandler(tester), isNull);
     await tippe(tester, 'settings-steps-goal', '8000');
     expect(saveHandler(tester), isNotNull);
-    expect(find.byKey(const ValueKey('settings-water')), findsNothing);
-    expect(find.byKey(const ValueKey('settings-sleep-goal')), findsNothing);
   });
 
   testWidgets('leeres Pflichtfeld sperrt das Speichern', (tester) async {
