@@ -15,6 +15,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/app/home_store.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
@@ -245,8 +246,13 @@ void main() {
       await _pumpHome(tester);
       await _goToTab(tester, 4);
 
-      expect(find.byKey(const ValueKey('coach-ai-disclosure')), findsNothing,
-          reason: 'sonst steht die Aussage doppelt untereinander');
+      // Counts the statement itself: the old frame key `coach-ai-disclosure`
+      // exists nowhere in lib/ any more, so a key check could not fail.
+      expect(
+        find.textContaining(deL10n.coachDisclaimer, findRichText: true),
+        findsOneWidget,
+        reason: 'sonst steht die Aussage doppelt untereinander',
+      );
     });
   });
 }
