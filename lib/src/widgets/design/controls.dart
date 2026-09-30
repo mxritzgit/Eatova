@@ -6,6 +6,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
 import '../../theme/app_tokens.dart';
+import '../common/lively.dart';
 import '../common/motion.dart';
 import 'app_icon.dart';
 import 'readable_width.dart';
@@ -72,6 +73,8 @@ class SquareIconButton extends StatelessWidget {
       button: true,
       enabled: onTap != null,
       label: semanticLabel,
+      child: PressScale(
+        enabled: onTap != null,
       child: SizedBox(
         width: 44,
         height: 44,
@@ -99,6 +102,7 @@ class SquareIconButton extends StatelessWidget {
             ),
           ),
         ),
+      ),
       ),
     );
   }
@@ -158,6 +162,8 @@ class HeaderIconButton extends StatelessWidget {
       button: true,
       enabled: onTap != null,
       label: semanticLabel,
+      child: PressScale(
+        enabled: onTap != null,
       child: Material(
         color: primary ? t.accentFill : t.surf,
         shape: CircleBorder(
@@ -175,6 +181,7 @@ class HeaderIconButton extends StatelessWidget {
             ),
           ),
         ),
+      ),
       ),
     );
   }
@@ -457,6 +464,8 @@ class FilterChipPill extends StatelessWidget {
       selected: selected,
       label: semanticLabel,
       excludeSemantics: semanticLabel != null,
+      child: PressScale(
+        enabled: onTap != null,
       child: Material(
         color: selected ? t.selectedFill : t.surf,
         borderRadius: BorderRadius.circular(rPill),
@@ -513,6 +522,7 @@ class FilterChipPill extends StatelessWidget {
           ),
         ),
       ),
+      ),
     );
   }
 }
@@ -561,6 +571,8 @@ class PrimaryActionButton extends StatelessWidget {
     return Semantics(
       button: true,
       enabled: enabled,
+      child: PressScale(
+        enabled: enabled,
       child: Material(
         color: fill,
         borderRadius: BorderRadius.circular(rButton),
@@ -573,7 +585,10 @@ class PrimaryActionButton extends StatelessWidget {
             // be taller than the button.
             constraints: BoxConstraints(minHeight: height),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: <Widget>[
@@ -597,6 +612,7 @@ class PrimaryActionButton extends StatelessWidget {
             ),
           ),
         ),
+      ),
       ),
     );
   }
