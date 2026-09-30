@@ -11,18 +11,21 @@ recipes, a weekly meal plan and shopping list, guided workouts and an AI coach.
 The five tabs are **Today · Food · Recipes · Training · Coach**. German and
 English are supported throughout the app, including sign-in and account flows.
 
-| Today | Food | Training |
-| --- | --- | --- |
-| <img src="docs/icon-family-preview/today-light-en-1.0.png" width="240" alt="Today dashboard with calorie balance, macro bars and steps"> | <img src="docs/icon-family-preview/food-light-en-1.0.png" width="240" alt="Food diary with distinct meal icons"> | <img src="docs/icon-family-preview/training-footer-dark-en-1.0.png" width="240" alt="Training page with the dark studio design"> |
+| Today | Food | Recipes | Training |
+| --- | --- | --- | --- |
+| <img src="docs/dark-redesign-preview/today.png" width="200" alt="Today with the week strip, calorie arc, macro tiles and tonight's recipe pick"> | <img src="docs/dark-redesign-preview/food.png" width="200" alt="Food diary with the day summary, meal cards and the capture dock"> | <img src="docs/dark-redesign-preview/recipes.png" width="200" alt="Recipes with search, section chips and the picked-for-tonight card"> | <img src="docs/dark-redesign-preview/training.png" width="200" alt="Training with this week's sessions and the next workout"> |
 
-Actual Flutter renders with fixture data. More previews and implementation
+Flutter renders of the dark redesign (2026-09-28) with fixture data, from the
+capture tests in `test/design/`. More previews and implementation
 notes are in the [documentation index](docs/README.md).
 
 ## Project status
 
 This feature summary was checked against `main` at `8b8ee12` on
 **2026-09-25**, through [PR #107](https://github.com/mxritzgit/Eatova/pull/107).
-The package is `eatova`; `pubspec.yaml` declares **1.1.0+3**.
+The package is `eatova`; `pubspec.yaml` declares **1.1.0+3**. The Today, UI
+and screenshot entries were updated on **2026-10-01** for the dark redesign
+([PR #118](https://github.com/mxritzgit/Eatova/pull/118)).
 
 A merged commit, deployed Supabase functions and an installed/store build are
 separate delivery steps. See the [backend guide](docs/BACKEND.md) and dated
@@ -32,8 +35,10 @@ separate delivery steps. See the [backend guide](docs/BACKEND.md) and dated
 
 - **Account entry:** email/password and Google sign-in, code confirmation and
   recovery, followed by six profile setup screens with an editable summary.
-- **Today:** remaining calories, macro progress bars, logging streak and a
-  connected step count. Profile and Settings are opened from this tab.
+- **Today:** a seven-day strip, remaining calories against the budget
+  including the activity credit, macro tiles, logging streak, a recipe pick for
+  the next open meal, per-slot add buttons, steps and the next workout. The
+  avatar opens Profile, whose gear opens Settings.
 - **Food:** camera/gallery meal analysis with optional context, barcode lookup,
   product search, manual nutrition entry, editable portions, favorites and a
   calendar for the selected diary date. Trends show weight, calories and macros
@@ -60,7 +65,7 @@ separate delivery steps. See the [backend guide](docs/BACKEND.md) and dated
   provider response passes server-side checks; the thinking state stays visible
   while that validation is pending.
 - **Profile and Settings:** body values, daily goals, weight history, lifetime
-  statistics, health connection, language/theme, structured export (readable
+  statistics, health connection, language, structured export (readable
   report, JSON and per-section CSV), account changes
   and account deletion with email verification.
 - **Offline use:** encrypted SQLite commits each supported edit and its sync
@@ -100,7 +105,7 @@ effective model independently of a client build. See
 | --- | --- |
 | Client | Flutter **3.47.2**, Dart **3.13.2**; Android and iOS |
 | Localization | Flutter `gen_l10n`, German/English ARB files |
-| UI | Shared theme tokens, Bricolage Grotesque/Figtree, original vector icons, dark theme (light theme dormant behind `kDarkOnly`) |
+| UI | Shared theme tokens, Bricolage Grotesque/Figtree, original vector icons, floating glass tab bar, dark theme (light theme and its setting dormant behind `kDarkOnly`) |
 | Backend | Supabase Auth, Postgres with RLS, Deno Edge Functions |
 | Product lookup | Self-hosted Meilisearch/Open Food Facts index; public OFF fallback |
 | AI | OpenRouter with separate Gemini text/vision and image models |
