@@ -31,6 +31,7 @@ import '../services/trend_service.dart';
 import '../theme/app_tokens.dart';
 import '../theme/meal_slot_style.dart';
 import '../widgets/common/app_snack.dart';
+import '../widgets/common/lively.dart';
 import '../widgets/design/design.dart';
 import '../widgets/kcal/add_meal_sheet.dart';
 import '../widgets/kcal/diary_meal_card.dart';
@@ -534,14 +535,14 @@ class MealAnalysisScreen extends StatelessWidget {
                   child: Column(
                     key: const ValueKey('food-diary-content'),
                     crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
+                  children: livelyStagger([
                       ...chrome,
                       diary,
                       floating
                           ? const SizedBox.shrink()
                           : const SizedBox(height: 20),
                       floating ? const SizedBox.shrink() : dock,
-                    ],
+                  ]),
                   ),
                 ),
               ),
@@ -573,7 +574,10 @@ class MealAnalysisScreen extends StatelessWidget {
                 left: 14,
                 right: 14,
                 bottom: navInset,
+                child: LivelyStaggerItem(
+                  index: LivelyStaggerScope.maxIndex,
                 child: ReadableWidth(child: dock),
+              ),
               ),
           ],
         );
@@ -587,9 +591,12 @@ class MealAnalysisScreen extends StatelessWidget {
             child: KeyedSubtree(
               key: const ValueKey('screen-kcal-tracker'),
               // A new date starts at the first meal, not at the old scroll
-              // offset.
+              // offset. The first-view entrance sits above that key: it
+              // plays once, not again for every day.
+              child: LivelyStaggerScope(
               child: KeyedSubtree(key: ValueKey(selectedDate), child: body),
             ),
+          ),
           ),
         );
       },
