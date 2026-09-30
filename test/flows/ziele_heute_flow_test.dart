@@ -24,8 +24,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase/supabase.dart';
 
 import 'package:eatova/main.dart';
-import 'package:eatova/src/app/eatova_home_page.dart';
-import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/today/today_texts.dart' show kcalThousands;
@@ -63,20 +61,6 @@ String _heuteZielText(WidgetTester tester) => tester
 
 String _erwartet(int kcal) => kcalThousands(kcal, enL10n);
 
-HomeStore _storeOf(WidgetTester tester) =>
-    (tester.state(find.byType(EatovaHomePage)) as HomePageDebugAccess)
-        .debugStore;
-
-/// Bounded settle instead of `pumpAndSettle`.
-///
-/// A shell WITH sync never settles: the welcome gate orbits its comet with
-/// `repeat()` and every progress indicator on the boot path animates forever.
-Future<void> _settle(WidgetTester tester, {int rounds = 40}) async {
-  for (var i = 0; i < rounds; i++) {
-    await tester.pump(const Duration(milliseconds: 16));
-  }
-}
-
 /// Pumps until [finder] matches; fails with [was] instead of hanging.
 Future<void> _warteAuf(
   WidgetTester tester,
@@ -88,7 +72,7 @@ Future<void> _warteAuf(
     await tester.pump(const Duration(milliseconds: 16));
   }
   expect(finder, findsOneWidget, reason: '$was erscheint nicht');
-  await _settle(tester);
+  await settleFrames(tester);
 }
 
 /// Food tab -> settings -> "Profile & Goals".
@@ -138,9 +122,9 @@ Future<void> _speichernUndSchliessen(WidgetTester tester) async {
 /// Scrolls [finder] into view, then taps it.
 Future<void> _tippe(WidgetTester tester, Finder finder) async {
   await tester.ensureVisible(finder);
-  await _settle(tester);
+  await settleFrames(tester);
   await tester.tap(finder);
-  await _settle(tester);
+  await settleFrames(tester);
 }
 
 /// Opens a picker sheet from [rowKey] and takes the option [optionKey].
@@ -227,7 +211,7 @@ void main() {
       find.byKey(const ValueKey('nav-Heute')),
       'die Shell nach dem Boot-Load',
     );
-    expect(_storeOf(tester).sync, isNotNull,
+    expect(storeOf(tester).sync, isNotNull,
         reason: 'ohne echten Sync prueft dieser Flow nur In-Memory-Felder');
 
 
@@ -247,7 +231,7 @@ void main() {
       find.byKey(const ValueKey('settings-weight')),
       '${rechnerProfil.weightKg}',
     );
-    await _settle(tester);
+    await settleFrames(tester);
     await _waehle(tester, 'settings-activity',
         'settings-activity-${rechnerProfil.activityLevel.name}');
     await _waehle(tester, 'settings-weight-goal',
@@ -280,7 +264,7 @@ void main() {
       find.byKey(const ValueKey('settings-kcal')),
       '$_manuellesZiel',
     );
-    await _settle(tester);
+    await settleFrames(tester);
 
     // Der Hero nennt sich jetzt „manuell" und zeigt die eigene Zahl.
     expect(find.byKey(const ValueKey('settings-plan-eyebrow-manual')),
@@ -297,7 +281,7 @@ void main() {
     // kehrt vor Cache-Write und Outbox-Op zurueck.
     expect(_serverProfil(server), (manual: true, kcal: _manuellesZiel),
         reason: 'manual_energy ist persistiert, nicht rekonstruiert');
-    expect(_storeOf(tester).pendingOutbox, isEmpty,
+    expect(storeOf(tester).pendingOutbox, isEmpty,
         reason: 'die Zustellung ist durch, nichts haengt in der Outbox');
 
     // --- 4. Gewichtsänderung bewegt das manuelle Ziel nicht mehr ----------
@@ -307,7 +291,7 @@ void main() {
     expect(_feld(tester, 'settings-kcal'), '$_manuellesZiel');
 
     await tester.enterText(find.byKey(const ValueKey('settings-weight')), '70');
-    await _settle(tester);
+    await settleFrames(tester);
     // Selbst auf der Seite bleibt das Ziel stehen, obwohl der Rechner laenger
     // etwas anderes ausrechnen wuerde.
     expect(find.text('${leichteresZiel.kcal}'), findsNothing);

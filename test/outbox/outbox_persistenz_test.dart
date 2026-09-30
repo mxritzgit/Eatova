@@ -13,7 +13,6 @@ String _key(String slot) => 'eatova.v1.$slot.$_uid';
 
 class _FaultStore extends InMemoryKeyValueStore {
   String? unreadable;
-  bool failWrite = false;
   final queueLengths = <int>[];
   @override
   Future<KeyValueSnapshot> readSnapshot(Iterable<String> keys) async {
@@ -23,7 +22,6 @@ class _FaultStore extends InMemoryKeyValueStore {
   @override
   Future<KeyValueCommit> writeBatch(Map<String, String?> changes,
       {Map<String, int> expectedVersions = const {}}) async {
-    if (failWrite && changes.isNotEmpty) throw StateError('Injected commit failure');
     final commit = await super.writeBatch(changes, expectedVersions: expectedVersions);
     final queue = changes[_key('outbox')];
     if (queue != null) queueLengths.add(((jsonDecode(queue) as Map)['items'] as List).length);
