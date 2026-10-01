@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
 import '../common/motion.dart';
-import '../design/controls.dart';
 import '../shared/eatova_wordmark.dart';
 import 'auth_controls.dart';
 
@@ -150,9 +149,15 @@ class _AuthEntryHeaderState extends State<AuthEntryHeader>
 }
 
 /// The two account routes as one segmented pill: a card-fill track with a
-/// `lineStrong` edge (like the redesign's neutral chips) and an accent thumb
-/// that slides to the chosen route. Labels that do not fit side by side stack
-/// into two full-width rows; the chosen one keeps the accent fill.
+/// `lineStrong` edge (like the redesign's neutral chips) and a thumb that
+/// slides to the chosen route. Labels that do not fit side by side stack into
+/// two full-width rows; the chosen one keeps the thumb's look.
+///
+/// The thumb is deliberately QUIET — a faint accent tint with a thin accent
+/// edge and an `accentText` label — so the solid accent stays reserved for
+/// the primary action below, which often carries the same words ("Log in").
+/// The tint alone is ~1.3:1 against the track; the edge (8.7:1) carries the
+/// selection boundary.
 class AuthModeSelector extends StatelessWidget {
   const AuthModeSelector({
     super.key,
@@ -189,6 +194,13 @@ class AuthModeSelector extends StatelessWidget {
         }
         measure.dispose();
 
+        final thumb = ShapeDecoration(
+          shape: StadiumBorder(
+            side: BorderSide(color: t.accent, width: 1.5),
+          ),
+          color: t.accentTintStrong,
+        );
+
         Widget option(bool register) {
           final selected = register == isRegister;
           return Semantics(
@@ -212,17 +224,22 @@ class AuthModeSelector extends StatelessWidget {
                 ),
                 // Stacked rows carry their own fill; side by side the
                 // sliding thumb below draws it.
-                decoration: ShapeDecoration(
-                  shape: const StadiumBorder(),
-                  color: stacked && selected
-                      ? t.selectedFill
-                      : t.selectedFill.withValues(alpha: 0),
-                ),
+                decoration: stacked && selected
+                    ? thumb
+                    : ShapeDecoration(
+                        shape: StadiumBorder(
+                          side: BorderSide(
+                            color: t.accent.withValues(alpha: 0),
+                            width: 1.5,
+                          ),
+                        ),
+                        color: t.accentTintStrong.withValues(alpha: 0),
+                      ),
                 child: AnimatedDefaultTextStyle(
                   duration: motion,
                   curve: Curves.easeOutCubic,
                   style: style.copyWith(
-                    color: selected ? t.onSelected : t.inkMuted,
+                    color: selected ? t.accentText : t.ink2,
                   ),
                   child: Text(
                     labels[register ? 1 : 0],
@@ -281,12 +298,7 @@ class AuthModeSelector extends StatelessWidget {
                     child: FractionallySizedBox(
                       widthFactor: 0.5,
                       heightFactor: 1,
-                      child: DecoratedBox(
-                        decoration: ShapeDecoration(
-                          shape: const StadiumBorder(),
-                          color: t.selectedFill,
-                        ),
-                      ),
+                      child: DecoratedBox(decoration: thumb),
                     ),
                   ),
                 ),
