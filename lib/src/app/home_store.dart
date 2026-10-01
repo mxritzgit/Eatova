@@ -1520,7 +1520,6 @@ class HomeStore extends _HomeStoreBase
     _healthGeneration++;
     if (!_healthSessionEnded) health.reset();
     _healthSessionEnded = true;
-    _statsSaveDebounce?.cancel();
     _outboxRetryTimer?.cancel();
     _outboxRetryTimer = null;
     _midnightTimer?.cancel();

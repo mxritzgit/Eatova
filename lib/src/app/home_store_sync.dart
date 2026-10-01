@@ -10,7 +10,6 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   bool _outboxInitialHydrationComplete = false;
   bool _outboxHydrationFailed = false;
   Timer? _outboxRetryTimer;
-  Timer? _statsSaveDebounce;
   int _outboxRetryAttempt = 0;
   int _pendingMealsDelta = 0;
   int _pendingWeightLogsDelta = 0;
