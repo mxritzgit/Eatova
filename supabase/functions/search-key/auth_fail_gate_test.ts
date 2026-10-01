@@ -1,4 +1,5 @@
 import { userToken } from "../_shared/auth_test_fixtures.ts";
+import { resetAuthFailCacheForTests } from "../_shared/auth_fail_gate.ts";
 // Pre-auth fail limiter of `search-key` (F-28-1, review 2026-08-28).
 //
 // The gateway's verify_jwt stops random garbage, but a signature-valid yet
@@ -44,6 +45,9 @@ function jsonRes(data: unknown, status = 200): Response {
 interface StubOptions {
   /** HTTP status of the /auth/v1/user lookup (default: 200 with a user). */
   authStatus?: number;
+  /** P7-02: per-token status of the lookup; `undefined` falls back to
+   *  authStatus / 200. Lets one test mix rejected and valid tokens. */
+  authStatusFor?: (token: string) => number | undefined;
   /** Budget of search-key:auth-fail; the stub counts like the atomic RPC. */
   authFailBudget?: number;
   /** HTTP status of the consume for the auth-fail scope (limiter outage). */
@@ -67,6 +71,8 @@ interface FetchStub {
 }
 
 function installFetch(options: StubOptions = {}): FetchStub {
+  // P7-02: every stub starts from a cold isolate (empty auth-fail caches).
+  resetAuthFailCacheForTests();
   const original = globalThis.fetch;
   const stub: FetchStub = {
     authLookups: 0,
@@ -81,8 +87,10 @@ function installFetch(options: StubOptions = {}): FetchStub {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (url.includes("/auth/v1/user")) {
       stub.authLookups++;
-      if (options.authStatus !== undefined) {
-        return Promise.resolve(jsonRes({ message: "invalid token" }, options.authStatus));
+      const token = (new Headers(init?.headers).get("authorization") ?? "").replace(/^Bearer\s+/i, "");
+      const status = options.authStatusFor?.(token) ?? options.authStatus;
+      if (status !== undefined && status !== 200) {
+        return Promise.resolve(jsonRes({ message: "invalid token" }, status));
       }
       return Promise.resolve(
         jsonRes("authUserId" in options ? { id: options.authUserId } : { id: USER_ID }),
@@ -185,13 +193,16 @@ function request(token = userToken(USER_ID), withIp = true): Request {
 
 Deno.test("F-28-1: wiederholte Auth-Fehlschlaege verbrauchen das Fail-Bucket bis 429", async () => {
   const handler = await loadHandler();
+  // P7-02: three DIFFERENT revoked tokens, each unknown to the isolate; one
+  // token replayed is short-circuited after its second rejection (below).
   const stub = installFetch({ authStatus: 401, authFailBudget: 2 });
+  const revoked = (n: number) => userToken(USER_ID, { session_id: `widerrufen-${n}` });
   try {
-    const first = await handler(request());
+    const first = await handler(request(revoked(1)));
     assertEquals(first.status, 401, "1. Fehlversuch: Status");
-    const second = await handler(request());
+    const second = await handler(request(revoked(2)));
     assertEquals(second.status, 401, "2. Fehlversuch: Status");
-    const third = await handler(request());
+    const third = await handler(request(revoked(3)));
     assertEquals(third.status, 429, "3. Fehlversuch: Status");
     const body = await third.json() as JsonRecord;
     assertEquals(body.error, "rate_limited", "Fehlercode");
@@ -306,3 +317,48 @@ for (const authStatus of [429, 500, 503]) {
     } finally { stub.restore(); }
   });
 }
+
+// P7-02 (review 2026-10-01): the shared cache in ../_shared/auth_fail_gate.ts
+// caps what a replayed revoked token costs; these pin the wiring here.
+
+Deno.test("P7-02: ein wiederholter widerrufener Token kostet hoechstens zwei Lookups", async () => {
+  const handler = await loadHandler();
+  const stub = installFetch({ authStatus: 401 });
+  const revoked = userToken(USER_ID, { session_id: "widerrufen" });
+  try {
+    for (let i = 1; i <= 6; i++) {
+      const res = await handler(request(revoked));
+      assertEquals(res.status, 401, `${i}. Replay: Status`);
+      assertEquals((await res.json() as JsonRecord).error, "invalid_user_token", `${i}. Replay: Fehlercode`);
+    }
+    assertEquals(stub.authLookups, 2, "Auth-Lookups gedeckelt");
+    assertEquals(stub.gateCalls, 2, "Fail-Bucket-Upserts gedeckelt");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P7-02: bekannter Token im erschoepften Bucket -> 429 ohne Backend-Call, gueltiger Token derselben IP -> 200", async () => {
+  const handler = await loadHandler();
+  const revoked = userToken(USER_ID, { session_id: "widerrufen" });
+  const stub = installFetch({
+    authFailBudget: 1,
+    authStatusFor: (token) => (token === revoked ? 401 : undefined),
+  });
+  try {
+    for (let i = 0; i < 2; i++) await handler(request(revoked));
+    const lookups = stub.authLookups;
+    const gateCalls = stub.gateCalls;
+    const replay = await handler(request(revoked));
+    assertEquals(replay.status, 429, "Replay: Status");
+    assertEquals((await replay.json() as JsonRecord).error, "rate_limited", "Replay: Fehlercode");
+    assert(Number(replay.headers.get("retry-after")) > 0, "retry-after fehlt");
+    assertEquals(stub.authLookups, lookups, "kein Lookup fuer den Replay");
+    assertEquals(stub.gateCalls, gateCalls, "kein Upsert fuer den Replay");
+
+    const valid = await handler(request(userToken(USER_ID, { session_id: "gueltig" })));
+    assertEquals(valid.status, 200, "gueltiger Token derselben IP");
+  } finally {
+    stub.restore();
+  }
+});

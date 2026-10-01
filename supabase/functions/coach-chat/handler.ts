@@ -27,7 +27,8 @@ import {
   shouldRunClassifier,
 } from "./guardrails.ts";
 import { imageContainerFromBase64 } from "../_shared/image_validation.ts";
-import { authFailGate } from "../_shared/auth_fail_gate.ts";
+import { authFailGate, forgetAuthFailure, knownAuthFailure } from "../_shared/auth_fail_gate.ts";
+import type { AuthFailGateResult, AuthRejection } from "../_shared/auth_fail_gate.ts";
 import { hasExpectedUserTokenContext } from "../_shared/user_token_context.ts";
 import { clientIpSubject } from "../_shared/client_ip.ts";
 import { positiveIntFromEnv } from "../_shared/env.ts";
@@ -84,6 +85,7 @@ const REQUEST_USER_LIMIT     = 60;
 const REQUEST_IP_LIMIT       = 120;
 // The cap on repeated FAILED /auth/v1/user lookups per IP (CWE-400) lives in
 // ../_shared/auth_fail_gate.ts since F-28-1, shared with the other functions.
+const AUTH_FAIL_SCOPE = "coach-chat:auth-fail";
 
 // Hard deadline for both provider roundtrips (CWE-400): without AbortSignal a
 // slow upstream hung until the platform limit, burning a claimed quota slot
@@ -2108,19 +2110,26 @@ async function maybeAutoTitle(
 // lookup — only the latter are capped per IP below. "no_token" covers the
 // public anon key, which is not a user token; "invalid_user" (200 without an
 // id) gets no fail bucket, so a broken auth server cannot 429 whole IPs.
+// "known_rejected" (P7-02): a token GoTrue already rejected repeatedly in this
+// isolate, answered without a lookup; `gate` is the answer to give.
 type AuthOutcome =
   | { ok: true; userId: string }
-  | { ok: false; reason: "no_token" | "lookup_failed" | "invalid_user" | "auth_unavailable" };
+  | { ok: false; reason: "lookup_failed"; rejection: AuthRejection }
+  | { ok: false; reason: "known_rejected"; gate: AuthFailGateResult }
+  | { ok: false; reason: "no_token" | "invalid_user" | "auth_unavailable" };
 
 async function userIdFromJwt(
   authHeader: string | null,
   supabaseUrl: string,
   anonKey: string,
+  failSubject: string,
 ): Promise<AuthOutcome> {
   const match = (authHeader ?? "").match(/^Bearer\s+(.+)$/i);
   if (!match) return { ok: false, reason: "no_token" };
   const token = match[1].trim();
   if (!token || token === anonKey) return { ok: false, reason: "no_token" };
+  const known = await knownAuthFailure({ scope: AUTH_FAIL_SCOPE, subject: failSubject, token });
+  if (known !== null) return { ok: false, reason: "known_rejected", gate: known };
   let resp: Response;
   try {
     resp = await supabaseFetch(`${supabaseUrl}/auth/v1/user`, {
@@ -2139,12 +2148,13 @@ async function userIdFromJwt(
     void resp.body?.cancel().catch(() => {});
     return { ok: false, reason: "auth_unavailable" };
   }
-  if (!resp.ok) return { ok: false, reason: "lookup_failed" };
+  if (!resp.ok) return { ok: false, reason: "lookup_failed", rejection: { token, status: resp.status } };
   const data = await readSupabaseBody(() => resp.json(), "auth lookup");
   if (data === undefined) return { ok: false, reason: "auth_unavailable" };
   if (typeof data?.id !== "string" || !hasExpectedUserTokenContext(token, data.id)) {
     return { ok: false, reason: "invalid_user" };
   }
+  await forgetAuthFailure(AUTH_FAIL_SCOPE, token);
   return { ok: true, userId: data.id };
 }
 
@@ -2296,27 +2306,30 @@ async function handleCoachRequest(req: Request): Promise<Response> {
 
   // 1) Identify the user. The known anon key and non-bearer headers are
   // rejected LOCALLY in userIdFromJwt, so they cost no auth roundtrip.
-  const auth = await userIdFromJwt(req.headers.get("authorization"), supabaseUrl, anonKey);
+  const failSubject = clientIpSubject(req, "anon");
+  const auth = await userIdFromJwt(req.headers.get("authorization"), supabaseUrl, anonKey, failSubject);
   if (!auth.ok) {
     // E1: the auth server did not answer in time. 503, not 401 — the client
     // maps 401/403 to "session over" and signs out.
     if (auth.reason === "auth_unavailable") {
       return json({ error: "auth_unavailable" }, 503);
     }
-    if (auth.reason === "lookup_failed") {
+    if (auth.reason === "lookup_failed" || auth.reason === "known_rejected") {
       // Pre-auth IP limiter for auth FAILURES, shared with analyze-meal and
       // search-key since F-28-1; rules (consume only on failure, limiter
       // outage never blocks the 401, shared "anon" fallback bucket) in
-      // ../_shared/auth_fail_gate.ts.
-      const failGate = await authFailGate({
+      // ../_shared/auth_fail_gate.ts. P7-02: a token already known bad gets
+      // the same answer without the lookup and without the upsert.
+      const failGate = auth.reason === "known_rejected" ? auth.gate : await authFailGate({
         supabaseUrl,
         serviceKey,
-        scope: "coach-chat:auth-fail",
-        subject: clientIpSubject(req, "anon"),
+        scope: AUTH_FAIL_SCOPE,
+        subject: failSubject,
         // E1: the damper gets the same deadline as every other Supabase call.
         // A timeout reports "not limited", exactly what it reports for any
         // other limiter problem — it must never swallow the honest 401.
         signal: AbortSignal.timeout(SUPABASE_TIMEOUTS_MS.call),
+        rejection: auth.rejection,
       });
       if (failGate.limited) {
         return json(

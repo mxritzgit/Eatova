@@ -11,9 +11,16 @@
 // network: globalThis.fetch is replaced.
 
 import {
+  AUTH_FAIL_CACHE_MAX_ENTRIES,
   AUTH_FAIL_LIMIT,
+  AUTH_FAIL_TOKEN_TTL_MS,
   AUTH_FAIL_WINDOW_SECONDS,
+  authFailCacheSizesForTests,
   authFailGate,
+  forgetAuthFailure,
+  knownAuthFailure,
+  resetAuthFailCacheForTests,
+  setAuthFailClockForTests,
 } from "./auth_fail_gate.ts";
 
 const SUPABASE_URL = "https://supabase.test.invalid";
@@ -45,6 +52,8 @@ function installFetch(antwort: () => Promise<Response>): {
   aufrufe: FetchAufruf[];
   restore: () => void;
 } {
+  // P7-02: every stub starts from a cold isolate (empty auth-fail caches).
+  resetAuthFailCacheForTests();
   const original = globalThis.fetch;
   const aufrufe: FetchAufruf[] = [];
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit): Promise<Response> => {
@@ -366,6 +375,7 @@ function haengtBisAbbruch(init?: RequestInit): Promise<Response> {
 }
 
 Deno.test("E1: ein feuerndes Signal bricht den Consume ab und meldet limited:false", async () => {
+  resetAuthFailCacheForTests();
   const original = globalThis.fetch;
   const aufrufe: FetchAufruf[] = [];
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit): Promise<Response> => {
@@ -403,6 +413,7 @@ Deno.test("E1: ein bereits abgebrochenes Signal wirft nicht nach aussen", async 
   // Ein Aufrufer mit aufgebrauchtem Budget uebergibt ein Signal, das schon
   // gefeuert hat. Ein echter fetch rejectet dann sofort — auch das muss in der
   // Zusage "wirft nie" landen und nicht als 500 beim Nutzer.
+  resetAuthFailCacheForTests();
   const original = globalThis.fetch;
   globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit): Promise<Response> =>
     haengtBisAbbruch(init)) as typeof globalThis.fetch;
@@ -489,5 +500,228 @@ Deno.test("auth-fail limiter omits arbitrary exception messages and response fie
       log.restore();
       fetchStub.restore();
     }
+  }
+});
+
+// --- P7-02 (review 2026-10-01): the in-isolate caches ----------------------
+//
+// The bucket answered 429 but every replay still cost a GoTrue lookup and an
+// upsert. Known-bad tokens (two 401/403 within the TTL) and known-exhausted
+// buckets are now remembered per isolate. Time is injected, never slept.
+
+const TOKEN = "eyJ.widerrufen.sig";
+
+function gesperrt(resetInMs = 1_800_000): () => Promise<Response> {
+  return rpcAntwort({
+    allowed: false,
+    limit: 30,
+    remaining: 0,
+    resetAt: new Date(Date.now() + resetInMs).toISOString(),
+    windowSeconds: 3600,
+  });
+}
+
+async function strike(token = TOKEN, status = 401): Promise<void> {
+  await authFailGate({ ...OPTIONS, rejection: { token, status } });
+}
+
+Deno.test("P7-02: unbekannter Token -> null, ohne Hash und ohne Netz", async () => {
+  const fetchStub = installFetch(erlaubt());
+  try {
+    assertEquals(await knownAuthFailure({ ...OPTIONS, token: TOKEN }), null, "nachschlagen");
+    assertEquals(fetchStub.aufrufe.length, 0, "kein Netz");
+  } finally {
+    fetchStub.restore();
+  }
+});
+
+Deno.test("P7-02: erst der ZWEITE 401/403 macht den Token bekannt schlecht", async () => {
+  const fetchStub = installFetch(erlaubt());
+  try {
+    await strike();
+    assertEquals(await knownAuthFailure({ ...OPTIONS, token: TOKEN }), null, "ein Strike ist ein moeglicher Flake");
+    await strike(TOKEN, 403);
+    const known = await knownAuthFailure({ ...OPTIONS, token: TOKEN });
+    assertEquals(known?.limited, false, "bekannt schlecht, Bucket offen -> 401");
+    assertEquals(
+      await knownAuthFailure({ ...OPTIONS, token: `${TOKEN}x` }),
+      null,
+      "ein anderer (refreshter) Token bleibt unberuehrt",
+    );
+    assertEquals(
+      await knownAuthFailure({ ...OPTIONS, scope: "andere-fn:auth-fail", token: TOKEN }),
+      null,
+      "pro Function getrennt",
+    );
+  } finally {
+    fetchStub.restore();
+  }
+});
+
+for (const status of [400, 404, 422, 429, 500, 503]) {
+  Deno.test(`P7-02: GoTrue ${status} ist kein Strike`, async () => {
+    const fetchStub = installFetch(erlaubt());
+    try {
+      for (let i = 0; i < 3; i++) await strike(TOKEN, status);
+      assertEquals(await knownAuthFailure({ ...OPTIONS, token: TOKEN }), null, "nur 401/403 werden gemerkt");
+      assertEquals(authFailCacheSizesForTests().tokens, 0, "nichts gespeichert");
+    } finally {
+      fetchStub.restore();
+    }
+  });
+}
+
+Deno.test("P7-02: ein Erfolg (forgetAuthFailure) loescht den Strike", async () => {
+  const fetchStub = installFetch(erlaubt());
+  try {
+    await strike();
+    await forgetAuthFailure(OPTIONS.scope, TOKEN);
+    await strike();
+    assertEquals(await knownAuthFailure({ ...OPTIONS, token: TOKEN }), null, "Flake, Erfolg, Flake sperrt nicht");
+  } finally {
+    fetchStub.restore();
+  }
+});
+
+Deno.test("P7-02: Strikes verfallen nach der TTL (injizierte Uhr)", async () => {
+  const fetchStub = installFetch(erlaubt());
+  let now = Date.parse("2026-10-01T12:00:00Z");
+  setAuthFailClockForTests(() => now);
+  try {
+    await strike();
+    await strike();
+    assert((await knownAuthFailure({ ...OPTIONS, token: TOKEN })) !== null, "bekannt schlecht");
+    now += AUTH_FAIL_TOKEN_TTL_MS - 1;
+    assert((await knownAuthFailure({ ...OPTIONS, token: TOKEN })) !== null, "kurz vor Ablauf noch bekannt");
+    now += 1;
+    assertEquals(await knownAuthFailure({ ...OPTIONS, token: TOKEN }), null, "nach der TTL wieder nachschlagen");
+    // An expired strike does not count towards the next one.
+    await strike();
+    assertEquals(await knownAuthFailure({ ...OPTIONS, token: TOKEN }), null, "abgelaufener Strike zaehlt nicht mit");
+  } finally {
+    fetchStub.restore();
+  }
+});
+
+Deno.test("P7-02: erschoepfter Bucket -> weitere Fehlschlaege ohne Upsert, bis resetAt", async () => {
+  const fetchStub = installFetch(gesperrt(90_000));
+  let now = Date.now();
+  setAuthFailClockForTests(() => now);
+  try {
+    const first = await authFailGate(OPTIONS);
+    assert(first.limited, "erste Erschoepfung kommt vom Limiter");
+    const second = await authFailGate(OPTIONS);
+    assert(second.limited, "zweiter Fehlschlag: weiter 429");
+    if (!second.limited) return;
+    assert(second.retryAfterSeconds >= 85 && second.retryAfterSeconds <= 90, `Retry-After, war ${second.retryAfterSeconds}`);
+    assertEquals(fetchStub.aufrufe.length, 1, "kein zweiter Upsert");
+    assertEquals(
+      await knownAuthFailure({ ...OPTIONS, token: TOKEN }),
+      null,
+      "ein gesperrter Bucket allein kuerzt NIE vor dem Lookup ab (gueltige Tokens derselben IP)",
+    );
+
+    now += 90_000;
+    await authFailGate(OPTIONS);
+    assertEquals(fetchStub.aufrufe.length, 2, "nach resetAt fragt der Gate wieder");
+  } finally {
+    fetchStub.restore();
+  }
+});
+
+Deno.test("P7-02: der Bucket-Cache haelt hoechstens ein Fenster, auch bei fernem resetAt", async () => {
+  const fetchStub = installFetch(rpcAntwort({
+    allowed: false,
+    limit: 30,
+    remaining: 0,
+    resetAt: new Date(Date.now() + 10 * 3600_000).toISOString(),
+    windowSeconds: 60,
+  }));
+  let now = Date.now();
+  setAuthFailClockForTests(() => now);
+  try {
+    await authFailGate(OPTIONS);
+    now += 60_000;
+    await authFailGate(OPTIONS);
+    assertEquals(fetchStub.aufrufe.length, 2, "nach einem Fenster wird wieder gefragt");
+  } finally {
+    fetchStub.restore();
+  }
+});
+
+Deno.test("P7-02: unlesbares resetAt wird nicht gecacht", async () => {
+  const fetchStub = installFetch(rpcAntwort({
+    allowed: false,
+    limit: 30,
+    remaining: 0,
+    resetAt: "kaputt",
+    windowSeconds: 3600,
+  }));
+  try {
+    await authFailGate(OPTIONS);
+    await authFailGate(OPTIONS);
+    assertEquals(fetchStub.aufrufe.length, 2, "jeder Fehlschlag fragt den Limiter");
+    assertEquals(authFailCacheSizesForTests().buckets, 0, "kein Bucket gemerkt");
+  } finally {
+    fetchStub.restore();
+  }
+});
+
+Deno.test("P7-02: bekannter Token im bekannten Bucket -> 429 ohne Netz, Retry-After aus resetAt", async () => {
+  const fetchStub = installFetch(gesperrt(120_000));
+  try {
+    await strike();
+    await strike();
+    const known = await knownAuthFailure({ ...OPTIONS, token: TOKEN });
+    assert(known !== null && known.limited, "429 statt 401");
+    if (known === null || !known.limited) return;
+    assert(known.retryAfterSeconds >= 115 && known.retryAfterSeconds <= 120, `Retry-After, war ${known.retryAfterSeconds}`);
+    assertEquals(known.remaining, 0, "remaining");
+    assertEquals(fetchStub.aufrufe.length, 1, "nur der erste Fehlschlag fragte den Limiter");
+    assertEquals(
+      (await knownAuthFailure({ ...OPTIONS, subject: "ip:198.51.100.1", token: TOKEN }))?.limited,
+      false,
+      "derselbe Token aus einem anderen, offenen Bucket -> 401",
+    );
+  } finally {
+    fetchStub.restore();
+  }
+});
+
+Deno.test("P7-02: beide Caches sind gedeckelt", async () => {
+  const fetchStub = installFetch(gesperrt());
+  try {
+    for (let i = 0; i < AUTH_FAIL_CACHE_MAX_ENTRIES + 25; i++) {
+      await authFailGate({ ...OPTIONS, subject: `ip:10.0.${i >> 8}.${i & 255}`, rejection: { token: `t${i}`, status: 401 } });
+    }
+    const sizes = authFailCacheSizesForTests();
+    assertEquals(sizes.tokens, AUTH_FAIL_CACHE_MAX_ENTRIES, "Token-Cache am Deckel");
+    assertEquals(sizes.buckets, AUTH_FAIL_CACHE_MAX_ENTRIES, "Bucket-Cache am Deckel");
+    // Oldest out first: token 0 is gone, the newest one is still there.
+    await strike("t0");
+    assertEquals(await knownAuthFailure({ ...OPTIONS, token: "t0" }), null, "aeltester Eintrag verdraengt");
+    const last = `t${AUTH_FAIL_CACHE_MAX_ENTRIES + 24}`;
+    await strike(last);
+    assert((await knownAuthFailure({ ...OPTIONS, token: last })) !== null, "neuester Eintrag erhalten");
+  } finally {
+    fetchStub.restore();
+  }
+});
+
+Deno.test("P7-02: der Token landet in keinem Log", async () => {
+  const fetchStub = installFetch(gesperrt());
+  const log = installErrorLog();
+  const warn = installWarnLog();
+  try {
+    await authFailGate({ ...OPTIONS, subject: "uid:anon", rejection: { token: TOKEN, status: 401 } });
+    await authFailGate({ ...OPTIONS, subject: "uid:anon", rejection: { token: TOKEN, status: 401 } });
+    await knownAuthFailure({ ...OPTIONS, subject: "uid:anon", token: TOKEN });
+    const all = [...log.zeilen, ...warn.zeilen].join("\n");
+    assert(!all.includes(TOKEN), `Token im Log: ${all}`);
+    assertEquals(warn.zeilen.length, 1, "die Erschoepfungs-Warnung kommt einmal, nicht pro Replay");
+  } finally {
+    warn.restore();
+    log.restore();
+    fetchStub.restore();
   }
 });

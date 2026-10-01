@@ -11,6 +11,7 @@ import { userToken } from "../_shared/auth_test_fixtures.ts";
 // No external test dependencies, same style as prefilter_test.ts.
 
 import { handleRequest, PROVIDER_TIMEOUTS_MS, REQUEST_BODY_TIMEOUTS_MS } from "./handler.ts";
+import { resetAuthFailCacheForTests } from "../_shared/auth_fail_gate.ts";
 import { JPEG_BASE64, PNG_BASE64, WEBP_BASE64 } from "../analyze-meal/image_fixtures.ts";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -109,6 +110,9 @@ interface StubOptions {
   historyRows?: JsonRecord[];
   /** HTTP status of the /auth/v1/user lookup (auth failure simulation). */
   authStatus?: number;
+  /** P7-02: per-token status of the lookup; `undefined` falls back to
+   *  authStatus / 200. Lets one test mix rejected and valid tokens. */
+  authStatusFor?: (token: string) => number | undefined;
   /**
    * `id` the auth lookup reports. The handler interpolates it RAW into
    * PostgREST URLs, so anything that is not a UUID has to end the request
@@ -190,6 +194,8 @@ function hangUntilAbort(signal: AbortSignal | null | undefined): Promise<Respons
 }
 
 function installFetch(options: StubOptions = {}): FetchStub {
+  // P7-02: every stub starts from a cold isolate (empty auth-fail caches).
+  resetAuthFailCacheForTests();
   const calls: RecordedCall[] = [];
   const openRouterBodies: JsonRecord[] = [];
   const original = globalThis.fetch;
@@ -201,6 +207,7 @@ function installFetch(options: StubOptions = {}): FetchStub {
     method: string,
     body: string,
     signal: AbortSignal | null | undefined,
+    authorization: string,
   ): Response | Promise<Response> {
     if (url.includes("/rest/v1/rpc/reserve_ai_provider_call")) {
       const reason = options.providerBudgetReason ??
@@ -209,8 +216,9 @@ function installFetch(options: StubOptions = {}): FetchStub {
       return jsonRes({ allowed: reason === "allowed", reason });
     }
     if (url.includes("/auth/v1/user")) {
-      if (options.authStatus !== undefined) {
-        return jsonRes({ message: "invalid token" }, options.authStatus);
+      const status = options.authStatusFor?.(authorization.replace(/^Bearer\s+/i, "")) ?? options.authStatus;
+      if (status !== undefined && status !== 200) {
+        return jsonRes({ message: "invalid token" }, status);
       }
       return jsonRes({ id: options.authUserId ?? USER_ID });
     }
@@ -357,7 +365,8 @@ function installFetch(options: StubOptions = {}): FetchStub {
     const method = (init?.method ?? "GET").toUpperCase();
     const body = typeof init?.body === "string" ? init.body : "";
     calls.push({ url, method, body });
-    return Promise.resolve(route(url, method, body, init?.signal));
+    const authorization = new Headers(init?.headers).get("authorization") ?? "";
+    return Promise.resolve(route(url, method, body, init?.signal, authorization));
   }) as typeof globalThis.fetch;
 
   return {
@@ -376,11 +385,11 @@ function installFetch(options: StubOptions = {}): FetchStub {
   };
 }
 
-function makeRequest(payload: JsonRecord): Request {
+function makeRequest(payload: JsonRecord, token = userToken(USER_ID)): Request {
   return new Request("https://edge.test.invalid/coach-chat", {
     method: "POST",
     headers: {
-      "authorization": `Bearer ${userToken(USER_ID)}`,
+      "authorization": `Bearer ${token}`,
       "content-type": "application/json",
     },
     body: JSON.stringify(payload),
@@ -1482,13 +1491,17 @@ Deno.test("CWE-400-Fix: exakter Anon-Key -> 401 lokal, kein Auth-Roundtrip, kein
 Deno.test("CWE-400-Fix: wiederholte Auth-Fehlschlaege verbrauchen das Fail-Bucket bis 429", async () => {
   // Budget 2: the first two failures answer 401 (and count), the third hits
   // the atomic check+increment and gets a 429.
+  // P7-02: three DIFFERENT revoked tokens. Each is unknown to the isolate, so
+  // each still costs its lookup and its consume; one token replayed is
+  // short-circuited after its second rejection (tests below).
   const stub = installFetch({ authStatus: 401, authFailBudget: 2 });
+  const revoked = (n: number) => userToken(USER_ID, { session_id: `widerrufen-${n}` });
   try {
-    const first = await handleRequest(makeRequest({ message: "hi" }));
+    const first = await handleRequest(makeRequest({ message: "hi" }, revoked(1)));
     assertEquals(first.status, 401, "1. Fehlversuch: Status");
-    const second = await handleRequest(makeRequest({ message: "hi" }));
+    const second = await handleRequest(makeRequest({ message: "hi" }, revoked(2)));
     assertEquals(second.status, 401, "2. Fehlversuch: Status");
-    const third = await handleRequest(makeRequest({ message: "hi" }));
+    const third = await handleRequest(makeRequest({ message: "hi" }, revoked(3)));
     assertEquals(third.status, 429, "3. Fehlversuch: Status");
     const body = await third.json() as JsonRecord;
     assertEquals(body.error, "rate_limited", "error");
@@ -1547,6 +1560,176 @@ Deno.test("CWE-400-Fix: erfolgreiche Auth beruehrt das Fail-Bucket nicht", async
     stub.restore();
   }
 });
+
+// ---------------------------------------------------------------------------
+// P7-02 (review 2026-10-01): the fail bucket answered 429 but did not cap the
+// amplification — a revoked token replayed after the limit still cost one
+// GoTrue lookup and one upsert per request. Known-bad tokens and known-
+// exhausted buckets are now answered from a bounded per-isolate cache
+// (../_shared/auth_fail_gate.ts); everything else is still looked up.
+// ---------------------------------------------------------------------------
+
+/** Fail-bucket consumes (single-gate RPC) of this stub. */
+function failConsumes(stub: FetchStub): number {
+  return stub.callsTo("consume_edge_rate_limit")
+    .filter((c) => (JSON.parse(c.body) as JsonRecord).p_scope === "coach-chat:auth-fail").length;
+}
+
+Deno.test("P7-02: ein wiederholter widerrufener Token kostet hoechstens zwei Lookups", async () => {
+  const stub = installFetch({ authStatus: 401 });
+  const revoked = userToken(USER_ID, { session_id: "widerrufen" });
+  try {
+    for (let i = 1; i <= 10; i++) {
+      const res = await handleRequest(makeRequest({ message: "hi" }, revoked));
+      assertEquals(res.status, 401, `${i}. Replay: Status`);
+      assertEquals((await res.json() as JsonRecord).error, "Unauthorized", `${i}. Replay: error`);
+    }
+    // Two strikes, then known bad: no further lookup, no further upsert.
+    assertEquals(stub.callsTo("/auth/v1/user").length, 2, "Auth-Lookups gedeckelt");
+    assertEquals(failConsumes(stub), 2, "Fail-Bucket-Upserts gedeckelt");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P7-02: erschoepfter Bucket + bekannter Token -> 429 mit Retry-After ohne Lookup/Upsert", async () => {
+  const stub = installFetch({ authStatus: 401, authFailBudget: 2 });
+  const revoked = (n: number) => userToken(USER_ID, { session_id: `widerrufen-${n}` });
+  try {
+    for (let n = 1; n <= 3; n++) await handleRequest(makeRequest({ message: "hi" }, revoked(n)));
+    assertEquals(failConsumes(stub), 3, "drei Consumes bis zur Erschoepfung");
+
+    // Bucket known exhausted: a further failure still needs its lookup (the
+    // token is not known yet), but no upsert.
+    const again = await handleRequest(makeRequest({ message: "hi" }, revoked(3)));
+    assertEquals(again.status, 429, "zweiter Fehlschlag desselben Tokens: Status");
+    assertEquals(stub.callsTo("/auth/v1/user").length, 4, "Lookup fuer den 2. Strike");
+    assertEquals(failConsumes(stub), 3, "kein Upsert gegen den bekannten Bucket");
+
+    // Now token AND bucket are known: the same 429, zero backend calls.
+    const before = stub.calls.length;
+    const replay = await handleRequest(makeRequest({ message: "hi" }, revoked(3)));
+    assertEquals(replay.status, 429, "Replay: Status");
+    assertEquals((await replay.json() as JsonRecord).error, "rate_limited", "Replay: error");
+    const retry = Number(replay.headers.get("Retry-After"));
+    assert(retry > 3500 && retry <= 3600, `Retry-After aus dem Bucket-Fenster, war ${retry}`);
+    assertEquals(stub.calls.length, before, "kein einziger Backend-Call fuer den Replay");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P7-02: ein gueltiger Token derselben IP kommt durch, waehrend ein anderer gesperrt ist", async () => {
+  const revoked = userToken(USER_ID, { session_id: "widerrufen" });
+  const valid = userToken(USER_ID, { session_id: "gueltig" });
+  const stub = installFetch({
+    authFailBudget: 1,
+    authStatusFor: (token) => (token === revoked ? 401 : undefined),
+    classifierCategory: "fitness",
+    answerContent: "Passt.",
+  });
+  try {
+    // Budget 1: the 2nd failure exhausts the bucket, the 3rd is short-circuited.
+    for (let i = 0; i < 3; i++) await handleRequest(makeRequest({ message: "hi" }, revoked));
+    const blocked = await handleRequest(makeRequest({ message: "hi" }, revoked));
+    assertEquals(blocked.status, 429, "der widerrufene Token ist gesperrt");
+
+    // Same (fallback) bucket, different token: looked up and served.
+    const lookups = stub.callsTo("/auth/v1/user").length;
+    const res = await handleRequest(makeRequest({ message: "Wie oft soll ich trainieren?" }, valid));
+    assertEquals(res.status, 200, "gueltiger Token: Status");
+    assertEquals(stub.callsTo("/auth/v1/user").length, lookups + 1, "gueltiger Token wurde nachgeschlagen");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P7-02: nach zwei 401 kommt der refreshte (neue) Token sofort durch", async () => {
+  const stale = userToken(USER_ID, { session_id: "alt" });
+  const refreshed = userToken(USER_ID, { session_id: "neu" });
+  const stub = installFetch({
+    authStatusFor: (token) => (token === stale ? 401 : undefined),
+    classifierCategory: "fitness",
+    answerContent: "Passt.",
+  });
+  try {
+    for (let i = 0; i < 2; i++) {
+      assertEquals((await handleRequest(makeRequest({ message: "hi" }, stale))).status, 401, "alter Token");
+    }
+    const res = await handleRequest(makeRequest({ message: "Wie oft soll ich trainieren?" }, refreshed));
+    assertEquals(res.status, 200, "neuer Token: Status");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P7-02: ein einzelner GoTrue-Flake sperrt den Token nicht — der Retry mit DEMSELBEN Token geht durch", async () => {
+  // Production fact: GoTrue sometimes 401s a brand-new valid token. The first
+  // rejection is only a strike; the same token must reach GoTrue again.
+  const token = userToken(USER_ID, { session_id: "frisch" });
+  let lookups = 0;
+  const stub = installFetch({
+    authStatusFor: () => (++lookups === 1 ? 401 : undefined),
+    classifierCategory: "fitness",
+    answerContent: "Passt.",
+  });
+  try {
+    assertEquals((await handleRequest(makeRequest({ message: "hi" }, token))).status, 401, "Flake");
+    const res = await handleRequest(makeRequest({ message: "Wie oft soll ich trainieren?" }, token));
+    assertEquals(res.status, 200, "Retry mit demselben Token");
+    assertEquals(lookups, 2, "der Retry wurde nachgeschlagen");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("P7-02: ein Erfolg loescht den Strike — zwei Flakes mit Erfolg dazwischen sperren nicht", async () => {
+  const token = userToken(USER_ID, { session_id: "frisch" });
+  let lookups = 0;
+  const stub = installFetch({
+    // 401, 200, 401, 200: never two rejections in a row.
+    authStatusFor: () => (++lookups % 2 === 1 ? 401 : undefined),
+    classifierCategory: "fitness",
+    answerContent: "Passt.",
+  });
+  try {
+    const statuses: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      const res = await handleRequest(makeRequest({ message: "Wie oft soll ich trainieren?" }, token));
+      statuses.push(res.status);
+      await res.body?.cancel();
+    }
+    assertEquals(statuses.join(","), "401,200,401,200", "Statusfolge");
+    assertEquals(lookups, 4, "jede Anfrage wurde nachgeschlagen");
+  } finally {
+    stub.restore();
+  }
+});
+
+for (const authStatus of [429, 500, 503]) {
+  Deno.test(`P7-02: GoTrue ${authStatus} wird nie negativ gecacht`, async () => {
+    const token = userToken(USER_ID, { session_id: "ausfall" });
+    let lookups = 0;
+    const stub = installFetch({
+      authStatusFor: () => (++lookups <= 3 ? authStatus : undefined),
+      classifierCategory: "fitness",
+      answerContent: "Passt.",
+    });
+    try {
+      for (let i = 0; i < 3; i++) {
+        const res = await handleRequest(makeRequest({ message: "hi" }, token));
+        assertEquals(res.status, 503, `${i + 1}. Ausfall`);
+        await res.body?.cancel();
+      }
+      const res = await handleRequest(makeRequest({ message: "Wie oft soll ich trainieren?" }, token));
+      assertEquals(res.status, 200, "nach dem Ausfall: derselbe Token geht durch");
+      assertEquals(lookups, 4, "jeder Versuch wurde nachgeschlagen");
+      assertEquals(failConsumes(stub), 0, "kein Fail-Bucket-Consume");
+    } finally {
+      stub.restore();
+    }
+  });
+}
 
 // ---------------------------------------------------------------------------
 // CWE-400 fix (Finding 6): both OpenRouter fetches ran without an

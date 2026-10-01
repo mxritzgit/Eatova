@@ -13,7 +13,8 @@
 // AuthGate. No config.toml is added — the platform default `verify_jwt = true`
 // already applies.
 
-import { authFailGate } from '../_shared/auth_fail_gate.ts';
+import { authFailGate, forgetAuthFailure, knownAuthFailure } from '../_shared/auth_fail_gate.ts';
+import type { AuthFailGateResult } from '../_shared/auth_fail_gate.ts';
 import { hasExpectedUserTokenContext } from '../_shared/user_token_context.ts';
 import { clientIpSubject } from '../_shared/client_ip.ts';
 import { EDGE_RATE_LIMIT_MAX_WINDOW_SECONDS, positiveIntFromEnv } from '../_shared/env.ts';
@@ -323,6 +324,13 @@ async function authenticateUser(request: Request, deadline: Deadline): Promise<A
     throw new HttpError(401, 'user_token_required', 'Bitte erneut anmelden.');
   }
 
+  // P7-02: a token GoTrue already rejected repeatedly in this isolate gets the
+  // failure answer below without the lookup and without the upsert. Every
+  // other token is looked up, whatever its IP did.
+  const failSubject = clientIpSubject(request, 'anon');
+  const known = await knownAuthFailure({ scope: AUTH_FAIL_SCOPE, subject: failSubject, token });
+  if (known !== null) return authFailureOutcome(known);
+
   let response: Response;
   try {
     response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
@@ -354,31 +362,41 @@ async function authenticateUser(request: Request, deadline: Deadline): Promise<A
     const gate = await authFailGate({
       supabaseUrl: SUPABASE_URL,
       serviceKey: SUPABASE_SERVICE_ROLE_KEY,
-      scope: 'search-key:auth-fail',
-      subject: clientIpSubject(request, 'anon'),
+      scope: AUTH_FAIL_SCOPE,
+      subject: failSubject,
       // E1: the damper runs under the same budget as everything else. A
       // timeout reports "not limited", so the honest 401 is never swallowed.
       signal: stepSignal(deadline, SUPABASE_TIMEOUT_MS),
+      rejection: { token, status: response.status },
     });
-    if (gate.limited) {
-      return {
-        rateLimited: {
-          allowed: false,
-          limit: gate.limit,
-          remaining: gate.remaining,
-          resetAt: gate.resetAt,
-          windowSeconds: gate.windowSeconds,
-        },
-      };
-    }
-    throw new HttpError(401, 'invalid_user_token', 'Bitte erneut anmelden.');
+    return authFailureOutcome(gate);
   }
 
   const user = await response.json() as Partial<AuthUser>;
   if (typeof user.id !== 'string' || !hasExpectedUserTokenContext(token, user.id)) {
     throw new HttpError(401, 'invalid_user_token', 'Bitte erneut anmelden.');
   }
+  await forgetAuthFailure(AUTH_FAIL_SCOPE, token);
   return { user: { id: user.id, email: typeof user.email === 'string' ? user.email : undefined } };
+}
+
+const AUTH_FAIL_SCOPE = 'search-key:auth-fail';
+
+/** A failed (or known-bad, P7-02) lookup: 429 while the fail bucket is
+ *  exhausted, else the 401. */
+function authFailureOutcome(gate: AuthFailGateResult): AuthOutcome {
+  if (gate.limited) {
+    return {
+      rateLimited: {
+        allowed: false,
+        limit: gate.limit,
+        remaining: gate.remaining,
+        resetAt: gate.resetAt,
+        windowSeconds: gate.windowSeconds,
+      },
+    };
+  }
+  throw new HttpError(401, 'invalid_user_token', 'Bitte erneut anmelden.');
 }
 
 /** One gate of a batch, in the shape consume_edge_rate_limits validates. */
