@@ -2197,3 +2197,57 @@ pages, settings, auth and onboarding only inherit the tokens and fonts.
 - Process: seven task branches in `.agents/dark-redesign-2026-09-28/`. Each tab
   got one review and a visual comparison; two final reviews and one scoped
   review followed. The full suite passed with 5935 tests and 2 skipped.
+
+## Cleanup, performance and motion polish, 2026-10-01
+
+Seven agents worked in parallel worktrees (`.agents/polish-2026-10-01/`, reports
+in `reports/`) and were integrated in one PR.
+
+- Cleanup:
+  - Dead `lib/` code was found with a resolved-AST reference scan, not grep
+    alone, and is removed (about 1,100 lines). It included old widgets
+    (`TickGauge`, `ScreenTitle`, `DottedAddSlot`, `StatusPill`), the never
+    scheduled `LocalCache` debounced write-through, `enqueueCoalesced`, six
+    unused `AppSymbol` glyphs and `HealthService.readWeightSamples`.
+  - Stale tests are cleaned up (about 1,300 lines). Four tests that could not
+    fail now can, which was shown by mutation. Duplicates went only where
+    another named test covers the same guarantee.
+  - Docs and the README describe the dark redesign.
+  - The Android launch window is dark (#09090C) instead of white.
+  - The light palette, `ThemeModeController` and the parked light-mode tests
+    stay, because dark-only is reversible.
+- Performance:
+  - Scroll content and the coach area have their own repaint layers: about 2–10
+    instead of 140–330 render objects repainted per scroll frame.
+  - Training week and volume derivations use a time window, about 80× faster at
+    2,000 workouts. Recent-workout PRs are memoized per history identity.
+  - The workout checkpoint reads history slots read-only, a large cached history
+    parses off the UI isolate, and the workout timer notifies once per shown
+    second instead of ten times.
+- Motion:
+  - Tabs fade through: the old tab fades out in 90 ms, the new one fades in over
+    40–260 ms with a 10 px directional drift. This is a background-colour
+    overlay, not an opacity layer, so the kcal card blur stays valid.
+  - The tab-bar pill slides, and a selection click plays on a real change.
+  - Values count to their new state over 520 ms, and controls and cards dip
+    slightly when pressed.
+  - Each tab's sections enter once per session and end together with the
+    fade-through. New diary rows grow in.
+  - Everything goes through `motionDuration`, so reduced motion is instant, and
+    the at-rest captures are pixel-identical.
+- Open, deliberately not done:
+  - One logged meal round-trips the whole diary twice (the outbox/atomic-commit
+    core), the workout checkpoint still decodes the history, and every cold
+    start downloads the full history (sync API).
+  - The RPC grants `record_training_history` and `delete_training_history` are
+    unused by the client; revoking them needs a migration and a deploy.
+  - Several sync write methods are only called by tests
+    (`MealPlansSync.save/check/convert`, `ProfileSync.save`,
+    `LifetimeStatsSync.increment`, …).
+  - `BackgroundSyncScheduler.cancel()` is never called. That is harmless,
+    because the runner re-checks the persisted session, but it costs an empty
+    wake-up after sign-out.
+  - The light palette's `arcEnd` on `arcTrack` is 1.77:1 and fails WCAG 1.4.11
+    if light mode returns.
+  - The blur on docked tabs is unchanged, because the capture tests cannot
+    render blur.
