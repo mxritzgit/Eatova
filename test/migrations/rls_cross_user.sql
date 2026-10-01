@@ -382,6 +382,94 @@ end $$;
 commit;
 
 -- ---------------------------------------------------------------------------
+-- 5b) Chat-session RPCs take a session id and run as security definer, i.e.
+-- past RLS. Only their own `user_id = auth.uid()` filter keeps A off B's
+-- sessions; dropping it from delete_chat_session would cascade B's messages
+-- away. Each RPC is attacked with B's id and also used on A's own session, so
+-- a function that silently does nothing cannot pass.
+-- ---------------------------------------------------------------------------
+begin;
+insert into public.chat_sessions (id, user_id, title) values
+  ('1c000000-0000-4000-8000-000000000001', '11111111-1111-1111-1111-111111111111', 'A behalten'),
+  ('1c000000-0000-4000-8000-000000000002', '11111111-1111-1111-1111-111111111111', 'A loeschen'),
+  ('2c000000-0000-4000-8000-000000000001', '22222222-2222-2222-2222-222222222222', 'B privat');
+insert into public.chat_messages (user_id, session_id, role, content) values
+  ('11111111-1111-1111-1111-111111111111', '1c000000-0000-4000-8000-000000000001', 'user', 'A frage'),
+  ('11111111-1111-1111-1111-111111111111', '1c000000-0000-4000-8000-000000000001', 'assistant', 'A antwort'),
+  ('11111111-1111-1111-1111-111111111111', '1c000000-0000-4000-8000-000000000002', 'user', 'A weg'),
+  ('22222222-2222-2222-2222-222222222222', '2c000000-0000-4000-8000-000000000001', 'user', 'B frage'),
+  ('22222222-2222-2222-2222-222222222222', '2c000000-0000-4000-8000-000000000001', 'assistant', 'B antwort');
+create temporary table chat_session_b_vorher on commit drop as
+  select (select jsonb_agg(to_jsonb(s) order by s.id) from public.chat_sessions s
+           where s.user_id = '22222222-2222-2222-2222-222222222222') as sitzungen,
+         (select jsonb_agg(to_jsonb(m) order by m.id) from public.chat_messages m
+           where m.user_id = '22222222-2222-2222-2222-222222222222') as nachrichten;
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111"}';
+do $$
+declare
+  b_sitzung uuid := '2c000000-0000-4000-8000-000000000001';
+  a_behalten uuid := '1c000000-0000-4000-8000-000000000001';
+  a_loeschen uuid := '1c000000-0000-4000-8000-000000000002';
+  ids uuid[];
+  anzahl integer;
+begin
+  -- list_chat_sessions: exactly A's three sessions, never B's.
+  select array_agg(id order by id) into ids from public.list_chat_sessions();
+  if b_sitzung = any(ids) or exists (
+       select 1 from public.list_chat_sessions() l
+        where l.id in (select id from public.chat_sessions
+                        where user_id = '22222222-2222-2222-2222-222222222222')) then
+    raise exception 'RLS-VERLETZUNG: list_chat_sessions zeigt A die Unterhaltungen von B';
+  end if;
+  if cardinality(ids) is distinct from 3
+     or not ids @> array[a_behalten, a_loeschen] then
+    raise exception 'list_chat_sessions liefert A nicht genau die eigenen drei Unterhaltungen: %', ids;
+  end if;
+  select message_count into anzahl from public.list_chat_sessions() where id = a_behalten;
+  if anzahl is distinct from 2 then
+    raise exception 'list_chat_sessions zaehlt die eigenen Nachrichten falsch: %', anzahl;
+  end if;
+
+  -- Rename/delete with B's id end without error and without effect.
+  perform public.rename_chat_session(b_sitzung, 'Gekapert');
+  perform public.delete_chat_session(b_sitzung);
+
+  -- Own session: the same calls must take effect.
+  perform public.rename_chat_session(a_behalten, 'A umbenannt');
+  if (select title from public.chat_sessions where id = a_behalten)
+       is distinct from 'A umbenannt' then
+    raise exception 'rename_chat_session hat die eigene Unterhaltung nicht umbenannt';
+  end if;
+  perform public.delete_chat_session(a_loeschen);
+  if exists (select 1 from public.chat_sessions where id = a_loeschen)
+     or exists (select 1 from public.chat_messages where session_id = a_loeschen) then
+    raise exception 'delete_chat_session hat die eigene Unterhaltung samt Nachrichten nicht geloescht';
+  end if;
+end $$;
+
+reset role;
+do $$
+begin
+  if (select sitzungen from chat_session_b_vorher) is distinct from
+       (select jsonb_agg(to_jsonb(s) order by s.id) from public.chat_sessions s
+         where s.user_id = '22222222-2222-2222-2222-222222222222') then
+    raise exception 'RLS-VERLETZUNG: rename/delete_chat_session als A hat die Unterhaltungen von B veraendert';
+  end if;
+  if (select nachrichten from chat_session_b_vorher) is distinct from
+       (select jsonb_agg(to_jsonb(m) order by m.id) from public.chat_messages m
+         where m.user_id = '22222222-2222-2222-2222-222222222222') then
+    raise exception 'RLS-VERLETZUNG: delete_chat_session als A hat die Nachrichten von B geloescht';
+  end if;
+  if not exists (select 1 from public.chat_sessions
+                  where id = '2c000000-0000-4000-8000-000000000001' and title = 'B privat') then
+    raise exception 'RLS-VERLETZUNG: B-Unterhaltung fehlt oder wurde umbenannt';
+  end if;
+end $$;
+rollback;
+
+-- ---------------------------------------------------------------------------
 -- 6a) P7-03, T12: the caps are actually WIRED to the real tables.
 --
 -- Section 6 below proves the trigger FUNCTION by hanging a probe trigger of
