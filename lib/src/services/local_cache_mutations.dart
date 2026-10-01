@@ -637,13 +637,33 @@ extension LocalCacheMutations on LocalCache {
     guards: guards,
     keysForQueue: (queue) => {
       for (final op in queue.where((op) => op.operationId == operationId))
-        ..._keysForOperation(op),
+        ..._keysForAcknowledgement(op, result),
       if (result.stats != null) _statsKey,
       if (result.plan != null) _mealPlansKey,
       if (result.meal != null || result.convertedMealDeleted) _loggedMealsKey,
       if (result.trainingHead != null) _trainingHeadsKey,
+      if (result.historyDeleted) ...{
+        _trainingHistoryKey,
+        _trainingHistoryDeletionsKey,
+        _trainingSessionKey,
+      },
     },
+    strictWrites: true,
   );
+
+  /// Slots an acknowledgment can change beyond the result-driven ones above.
+  /// A meal or weight receipt normally changes only counters and the outbox,
+  /// so the diary is not decoded and re-encoded a second time after its
+  /// insert commit. [strictWrites] catches a write to a slot left out here.
+  Set<String> _keysForAcknowledgement(SyncOp op, LocalSyncResult result) =>
+      switch (op.kind) {
+        SyncOpKind.mealInsert ||
+        SyncOpKind.mealUpsert ||
+        SyncOpKind.mealDelete => {if (result.entityDeleted) _loggedMealsKey},
+        SyncOpKind.weightInsert => const {},
+        SyncOpKind.mealPlanConvert => {_mealPlansKey},
+        _ => _keysForOperation(op),
+      };
 
   Future<void> commitTrainingSelection(
     String? id, {
@@ -915,6 +935,7 @@ extension LocalCacheMutations on LocalCache {
     Set<String> tolerateUnreadable = const {},
     bool retryConflicts = true,
     Set<String> readOnlyKeys = const {},
+    bool strictWrites = false,
   }) {
     assert(
       !readOnlyKeys.contains(_outboxKey) &&
@@ -978,6 +999,13 @@ extension LocalCacheMutations on LocalCache {
           state[_pendingStatsKey] = {'meals': 0, 'weight_logs': 0};
         }
         change(state, queue);
+        // Writes to unselected slots are dropped below; a strict caller
+        // promises it selected every slot it changes.
+        assert(
+          !strictWrites || state.keys.every(selectedKeys.contains),
+          'Mutation changed unselected slots: '
+          '${state.keys.where((key) => !selectedKeys.contains(key)).toList()}',
+        );
         state[_outboxKey] = {'items': queue.map((op) => op.toJson()).toList()};
         final changes = <String, String?>{};
         for (final entry in state.entries) {
