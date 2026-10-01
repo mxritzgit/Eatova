@@ -82,10 +82,13 @@ under the agreed retention and access policy.
 
 Password changes also depend on managed Auth configuration. The protected
 `supabase-drift` job on `main` runs the read-only
-[`auth_password_policy.py`](../scripts/security/auth_password_policy.py) audit:
+[`auth_config_drift.py`](../scripts/security/auth_config_drift.py) audit against
+[`auth_config.expected.json`](../supabase/auth_config.expected.json):
 current-password enforcement, reauthentication and password-change notifications
-must all be enabled. Missing controls, invalid types and read failures fail the
-audit without printing configuration bodies or credentials. PR jobs run only its
+must all be enabled, and mail quota, `site_url`, OTP settings, redirect
+allow-list and the published mail templates must match. Missing settings,
+invalid types and read failures fail the audit without printing credentials,
+unpinned values or template bodies. PR jobs run only its
 offline tests and disposable Auth probes, with no production credentials.
 See the [password contract and rollout](../supabase/AUTH_EMAIL_OTP.md).
 Do not disable current-password enforcement to make an old app build's settings

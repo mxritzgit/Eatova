@@ -199,8 +199,12 @@ password to succeed; the old-session nonce boundary remains required. This
 explicit baseline is also in CI, and writes separate sanitized evidence to
 `.agents/email-template-probe-legacy/result.json`. The default local policy is a
 target contract, not a live deployment claim. The separate read-only
-`auth_password_policy.py` audit checks actual server flags; source policy and
-delivery evidence remain in [Auth configuration](../../supabase/AUTH_EMAIL_OTP.md).
+`auth_config_drift.py` audit compares actual server settings, the redirect
+allow-list and published mail templates with
+[`auth_config.expected.json`](../../supabase/auth_config.expected.json); its
+offline tests (`test_auth_config_drift.py`) also bind that contract to this
+lifecycle probe's GoTrue settings. Source policy and delivery evidence remain
+in [Auth configuration](../../supabase/AUTH_EMAIL_OTP.md).
 
 This proves rendering and OTP behavior for the committed recovery template on
 the pinned local Auth server. It does not prove live template deployment, real
