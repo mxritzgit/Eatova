@@ -72,7 +72,10 @@ class MealEntryMethods extends StatelessWidget {
         // One card, hairline dividers between the rows (Food diary card).
         Material(
           color: t.surf,
-          borderRadius: BorderRadius.circular(rCard),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(rCard),
+            side: BorderSide(color: t.cardBorder),
+          ),
           clipBehavior: Clip.antiAlias,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -177,7 +180,7 @@ class _MethodRow extends StatelessWidget {
     required this.onTap,
   });
 
-  static const double _tile = 36;
+  static const double _tile = 40;
   static const double _pad = 16;
 
   /// Where the title starts; the dividers begin there.
@@ -195,7 +198,7 @@ class _MethodRow extends StatelessWidget {
       actionKey: actionKey,
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(_pad, 10, 12, 10),
+        padding: const EdgeInsets.fromLTRB(_pad, 12, 12, 12),
         child: Row(
           children: [
             ExcludeSemantics(
@@ -293,7 +296,10 @@ class _PressableState extends State<_Pressable> {
             ? Material(type: MaterialType.transparency, child: ink)
             : Material(
                 color: context.t.surf,
-                borderRadius: shape,
+                shape: RoundedRectangleBorder(
+                  borderRadius: shape,
+                  side: BorderSide(color: context.t.cardBorder),
+                ),
                 clipBehavior: Clip.antiAlias,
                 child: ink,
               ),

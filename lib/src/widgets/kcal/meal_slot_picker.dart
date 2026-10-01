@@ -111,7 +111,8 @@ class MealSlotSegments extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final inner = constraints.maxWidth - 2 * _pad;
+        // Padding plus the 1 px edge on each side.
+        final inner = constraints.maxWidth - 2 * (_pad + 1);
         bool fits((int, _SegmentShape) option) =>
             option.$1 * need(option.$2) + (option.$1 - 1) * _gap <= inner;
         final (columns, shape) = const <(int, _SegmentShape)>[
@@ -154,9 +155,11 @@ class MealSlotSegments extends StatelessWidget {
           child: Container(
             key: ValueKey('${keyPrefix}group'),
             padding: const EdgeInsets.all(_pad),
+            // The track is a card surface with the cards' hairline edge.
             decoration: BoxDecoration(
               color: t.surf,
               borderRadius: BorderRadius.circular(radius + _pad),
+              border: Border.all(color: t.cardBorder),
             ),
             child: SizedBox(
               height: rows * cellHeight + (rows - 1) * _gap,

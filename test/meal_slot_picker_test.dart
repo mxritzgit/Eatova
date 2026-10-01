@@ -63,9 +63,14 @@ void main() {
               final rect = tester.getRect(segment);
               expect(rect.height, greaterThanOrEqualTo(48));
               expect(rect.width, greaterThanOrEqualTo(48));
-              expect(bounds.contains(rect.topLeft), isTrue);
-              expect(bounds.contains(rect.bottomRight - const Offset(1, 1)),
-                  isTrue);
+              // Inside the track's padding and edge, never under them.
+              expect(bounds.deflate(4).contains(rect.topLeft), isTrue);
+              expect(
+                bounds.deflate(4).contains(
+                  rect.bottomRight - const Offset(0.01, 0.01),
+                ),
+                isTrue,
+              );
               final title =
                   find.descendant(of: segment, matching: find.byType(Text));
               final paragraph = tester.renderObject<RenderParagraph>(title);
