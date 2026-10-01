@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/meal_analysis_result.dart';
@@ -6,17 +7,19 @@ import '../../models/model_limits.dart';
 import '../../models/number_input.dart';
 import '../../theme/app_tokens.dart';
 import '../common/decimal_text.dart';
+import '../common/lively.dart';
 import '../common/motion.dart';
 import '../design/sheets.dart';
+import 'food_glyphs.dart';
 import 'saved_meal_presentation.dart';
 import 'product_search_presentation.dart';
 
 /// Shared item widget for search hits, favorites and recent meals in the
 /// AddMealSheet.
 ///
-/// Collapsed is a slim row; a tap expands into a stepper body with gram
-/// adjustment and a single add button. After adding, the item collapses and
-/// shows a green check as trailing.
+/// Collapsed is a diary row (tile, name, amount, kcal); a tap opens a raised
+/// panel with the portion stepper, the live result and ONE round accent "+".
+/// After adding, the item collapses and its tile turns into an accent check.
 class MealSuggestionItem extends StatefulWidget {
   const MealSuggestionItem({
     super.key,
@@ -181,216 +184,115 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
     // promise instead of a fact; every portion change runs through setState.
     final angepasst = _adjusted;
     final t = context.t;
-    final accent = t.accent;
+    final l10n = context.l10n;
+    final toggleFavorite = widget.onToggleFavorite == null
+        ? null
+        : () => widget.onToggleFavorite!(widget.result);
 
-    // Quiet card: 1 px border instead of a shadow. Expanded, it stands out
-    // via the lighter surface, not via elevation.
+    final Widget header;
+    if (widget.savedPresentation) {
+      header = SavedMealHeader(
+        result: widget.result,
+        expanded: widget.expanded,
+        justAdded: widget.justAdded,
+        onTap: widget.onTap,
+        isFavorite: widget.isFavorite,
+        onToggleFavorite: toggleFavorite,
+        favoriteButtonKey: widget.favoriteButtonKey,
+      );
+    } else if (widget.productPresentation) {
+      header = ProductSearchHeader(
+        result: widget.result,
+        imageUrl: widget.imageUrl,
+        expanded: widget.expanded,
+        justAdded: widget.justAdded,
+        onTap: widget.onTap,
+        isFavorite: widget.isFavorite,
+        onToggleFavorite: toggleFavorite,
+        favoriteButtonKey: widget.favoriteButtonKey,
+      );
+    } else {
+      header = _RecentHeader(
+        result: widget.result,
+        imageUrl: widget.imageUrl,
+        expanded: widget.expanded,
+        justAdded: widget.justAdded,
+        onTap: widget.onTap,
+        onRemove: widget.onRemove,
+      );
+    }
+
+    // Secondary actions live in the open panel, so the row keeps ONE icon:
+    // a recent keeps its X in the row and pins from here; a pinned favorite
+    // unpins with its heart and is removed from here.
+    final panelActions = <Widget>[
+      if (!widget.savedPresentation &&
+          !widget.productPresentation &&
+          toggleFavorite != null)
+        _PanelAction(
+          key: widget.favoriteButtonKey,
+          icon: widget.isFavorite
+              ? Icons.favorite_rounded
+              : Icons.favorite_outline_rounded,
+          label: widget.isFavorite
+              ? l10n.foodRemoveFavoriteTooltip
+              : l10n.foodAddFavoriteTooltip,
+          highlighted: widget.isFavorite,
+          onTap: toggleFavorite,
+        ),
+      if (widget.savedPresentation && widget.onRemove != null)
+        _PanelAction(
+          icon: Icons.delete_outline_rounded,
+          label: l10n.foodRemoveTooltip,
+          onTap: widget.onRemove!,
+        ),
+    ];
+
+    // The open row lifts onto a raised inset panel; closed rows are plain
+    // diary rows on the card. The transparent Material keeps ink ripples
+    // above the panel fill.
     return AnimatedContainer(
       duration: motionDuration(context, const Duration(milliseconds: 180)),
-      curve: Curves.easeOutCubic,
+      curve: kMotionCurve,
+      margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: widget.savedPresentation || widget.productPresentation
-            ? (widget.expanded ? t.brandSurface : Colors.transparent)
-            : (widget.expanded ? t.surf : t.surf2),
-        borderRadius: BorderRadius.circular(rCard),
-        border: widget.savedPresentation || widget.productPresentation
-            ? null
-            : Border.all(color: widget.expanded ? accent : t.line),
+        color: widget.expanded
+            ? t.surfRaised
+            : t.surfRaised.withValues(alpha: 0),
+        borderRadius: BorderRadius.circular(rTile),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (widget.savedPresentation)
-            SavedMealHeader(
-              result: widget.expanded ? angepasst : widget.result,
-              expanded: widget.expanded,
-              justAdded: widget.justAdded,
-              onTap: widget.onTap,
-              isFavorite: widget.isFavorite,
-              onToggleFavorite: widget.onToggleFavorite == null
-                  ? null
-                  : () => widget.onToggleFavorite!(widget.result),
-              favoriteButtonKey: widget.favoriteButtonKey,
-            )
-          else if (widget.productPresentation)
-            ProductSearchHeader(
-              result: widget.result,
-              imageUrl: widget.imageUrl,
-              expanded: widget.expanded,
-              justAdded: widget.justAdded,
-              onTap: widget.onTap,
-              isFavorite: widget.isFavorite,
-              onToggleFavorite: widget.onToggleFavorite == null
-                  ? null
-                  : () => widget.onToggleFavorite!(widget.result),
-              favoriteButtonKey: widget.favoriteButtonKey,
-            )
-          else
-            _Header(
-              result: widget.result,
-              imageUrl: widget.imageUrl,
-              fallbackIcon: widget.fallbackIcon,
-              accent: accent,
-              expanded: widget.expanded,
-              justAdded: widget.justAdded,
-              onTap: widget.onTap,
-              onRemove: widget.onRemove,
-              isFavorite: widget.isFavorite,
-              onToggleFavorite: widget.onToggleFavorite,
-              favoriteButtonKey: widget.favoriteButtonKey,
-            ),
-          maybeAnimatedSize(
-            context,
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
-            alignment: Alignment.topCenter,
-            child: widget.expanded
-                ? _ExpandedBody(
-                    savedPresentation: widget.savedPresentation,
-                    productPresentation: widget.productPresentation,
-                    accent: accent,
-                    grams: _grams,
-                    gramsController: _gramsController,
-                    preview: angepasst,
-                    gramsInvalid: _gramsInvalid,
-                    minGrams: PlausibilityLimits.portionGramsMin,
-                    maxGrams: _sliderMaxGrams,
-                    step: _step,
-                    addButtonKey: widget.addButtonKey,
-                    onBump: _bumpGrams,
-                    onTextChanged: _onGramsTextChanged,
-                    onSliderChanged: (v) => _setGrams(v.round()),
-                    onAdd: _gramsInvalid
-                        ? null
-                        : () => widget.onAdd(angepasst),
-                  )
-                : const SizedBox.shrink(),
-          ),
-          if (widget.savedPresentation &&
-              widget.expanded &&
-              widget.onRemove != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-              child: TextButton.icon(
-                onPressed: widget.onRemove,
-                icon: const Icon(Icons.delete_outline_rounded, size: 18),
-                label: Text(context.l10n.foodRemoveTooltip),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Header extends StatelessWidget {
-  const _Header({
-    required this.result,
-    required this.imageUrl,
-    required this.fallbackIcon,
-    required this.accent,
-    required this.expanded,
-    required this.justAdded,
-    required this.onTap,
-    required this.onRemove,
-    required this.isFavorite,
-    required this.onToggleFavorite,
-    required this.favoriteButtonKey,
-  });
-
-  final MealAnalysisResult result;
-  final String? imageUrl;
-  final IconData fallbackIcon;
-  final Color accent;
-  final bool expanded;
-  final bool justAdded;
-  final VoidCallback onTap;
-  final VoidCallback? onRemove;
-  final bool isFavorite;
-  final ValueChanged<MealAnalysisResult>? onToggleFavorite;
-  final Key? favoriteButtonKey;
-
-  @override
-  Widget build(BuildContext context) {
-    // The subtitle must cite the same authority as the expanded preview, or
-    // one card contradicts itself. `adjustedToGrams(100).caloriesKcal` is the
-    // density that follows from caloriesKcal and estimatedGrams — the same
-    // maths that gets logged, not the raw `kcalPer100G` side field.
-    final t = context.t;
-    final per100 = result.isRecipeWithoutCookedWeight
-        ? 0 : result.adjustedToGrams(100).caloriesKcal;
-    final subtitle = result.isRecipeWithoutCookedWeight
-        ? '${result.caloriesKcal} kcal · ${context.l10n.recipeCalcSavedPortion}'
-        : per100 > 0
-        ? '$per100 kcal / 100 g'
-        : '${result.caloriesKcal} kcal · ${result.estimatedGrams} g';
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(rCard),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(10, 10, 6, 10),
-        child: Row(
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _Avatar(
-              imageUrl: imageUrl,
-              fallbackIcon: fallbackIcon,
-              accent: accent,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    result.resolvedMealName(context.l10n),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppType.ui(
-                      13.5,
-                      weight: FontWeight.w700,
-                      color: t.ink,
-                      height: 1.2,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppType.display(
-                      11.5,
-                      weight: FontWeight.w500,
-                      color: t.ink2,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 4),
-            if (onToggleFavorite != null)
-              IconButton(
-                key: favoriteButtonKey,
-                onPressed: () => onToggleFavorite!(result),
-                tooltip: isFavorite
-                    ? context.l10n.foodRemoveFavoriteTooltip
-                    : context.l10n.foodAddFavoriteTooltip,
-                visualDensity: VisualDensity.compact,
-                icon: Icon(
-                  isFavorite
-                      ? Icons.favorite_rounded
-                      : Icons.favorite_outline_rounded,
-                  // The brand accent is the reserved action color —
-                  // deliberately NOT the categorical item accent.
-                  color: isFavorite ? t.accent : t.ink2,
-                  size: 18,
-                ),
-              ),
-            _Trailing(
-              expanded: expanded,
-              justAdded: justAdded,
-              accent: accent,
-              onRemove: onRemove,
+            header,
+            maybeAnimatedSize(
+              context,
+              duration: const Duration(milliseconds: 180),
+              curve: kMotionCurve,
+              alignment: Alignment.topCenter,
+              child: widget.expanded
+                  ? _PortionPanel(
+                      productPresentation: widget.productPresentation,
+                      grams: _grams,
+                      gramsController: _gramsController,
+                      preview: angepasst,
+                      gramsInvalid: _gramsInvalid,
+                      minGrams: PlausibilityLimits.portionGramsMin,
+                      maxGrams: _sliderMaxGrams,
+                      step: _step,
+                      addButtonKey: widget.addButtonKey,
+                      onBump: _bumpGrams,
+                      onTextChanged: _onGramsTextChanged,
+                      onSliderChanged: (v) => _setGrams(v.round()),
+                      onAdd: _gramsInvalid
+                          ? null
+                          : () => widget.onAdd(angepasst),
+                      actions: panelActions,
+                    )
+                  : const SizedBox(width: double.infinity),
             ),
           ],
         ),
@@ -399,99 +301,59 @@ class _Header extends StatelessWidget {
   }
 }
 
-class _Avatar extends StatelessWidget {
-  const _Avatar({
+/// A recent: name, diary amount, kcal, and the X that drops it from recents.
+class _RecentHeader extends StatelessWidget {
+  const _RecentHeader({
+    required this.result,
     required this.imageUrl,
-    required this.fallbackIcon,
-    required this.accent,
-  });
-
-  final String? imageUrl;
-  final IconData fallbackIcon;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) {
-    // OpenFoodFacts sends full-resolution product images; cap the decode at
-    // the 42 px avatar size to save memory per search hit.
-    final cachePx = (42 * MediaQuery.devicePixelRatioOf(context)).round();
-    return Container(
-      width: 42,
-      height: 42,
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(
-        color: accent.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(rControl),
-      ),
-      child: imageUrl == null
-          ? Icon(fallbackIcon, color: accent, size: 19)
-          : Image.network(
-              imageUrl!,
-              fit: BoxFit.cover,
-              cacheWidth: cachePx,
-              cacheHeight: cachePx,
-              errorBuilder: (_, __, ___) =>
-                  Icon(fallbackIcon, color: accent, size: 19),
-            ),
-    );
-  }
-}
-
-class _Trailing extends StatelessWidget {
-  const _Trailing({
     required this.expanded,
     required this.justAdded,
-    required this.accent,
+    required this.onTap,
     required this.onRemove,
   });
 
+  final MealAnalysisResult result;
+  final String? imageUrl;
   final bool expanded;
   final bool justAdded;
-  final Color accent;
+  final VoidCallback onTap;
   final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
-    if (justAdded) {
-      return Padding(
-        padding: const EdgeInsets.only(right: 8),
-        child: Icon(Icons.check_circle_rounded, color: accent, size: 22),
-      );
-    }
     final t = context.t;
-    final chevron = AnimatedRotation(
-      duration: motionDuration(context, const Duration(milliseconds: 180)),
-      turns: expanded ? 0.5 : 0,
-      child: Icon(
-        Icons.keyboard_arrow_down_rounded,
-        color: t.ink2,
-        size: 22,
+    final l10n = context.l10n;
+    final (title, brand) = mealTitleAndBrand(result, l10n);
+    final amount = mealAmountLabel(result, l10n);
+    return MealItemRow(
+      leading: MealItemTile(
+        name: title,
+        imageUrl: imageUrl,
+        justAdded: justAdded,
       ),
-    );
-    if (onRemove == null) {
-      return Padding(padding: const EdgeInsets.only(right: 8), child: chevron);
-    }
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-          onPressed: onRemove,
-          tooltip: context.l10n.foodRemoveTooltip,
-          visualDensity: VisualDensity.compact,
-          icon: Icon(Icons.close_rounded, color: t.ink2, size: 15),
-        ),
-        chevron,
-        const SizedBox(width: 4),
+      title: title,
+      secondary: Text(brand == null ? amount : '$brand · $amount'),
+      value: mealKcalOrUnknown(context, result),
+      onTap: onTap,
+      expanded: expanded,
+      actions: [
+        if (onRemove != null)
+          IconButton(
+            onPressed: onRemove,
+            tooltip: l10n.foodRemoveTooltip,
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            icon: Icon(Icons.close_rounded, color: t.ink3, size: 18),
+          ),
       ],
     );
   }
 }
 
-class _ExpandedBody extends StatelessWidget {
-  const _ExpandedBody({
-    required this.savedPresentation,
+/// The open state: portion stepper, slider, the live result and the one add
+/// button.
+class _PortionPanel extends StatelessWidget {
+  const _PortionPanel({
     required this.productPresentation,
-    required this.accent,
     required this.grams,
     required this.gramsController,
     required this.preview,
@@ -504,13 +366,11 @@ class _ExpandedBody extends StatelessWidget {
     required this.onTextChanged,
     required this.onSliderChanged,
     required this.onAdd,
+    required this.actions,
   });
 
-  final Color accent;
   final int grams;
   final TextEditingController gramsController;
-
-  final bool savedPresentation;
   final bool productPresentation;
 
   /// Exactly the instance [onAdd] passes on; the preview's kcal and macros
@@ -528,189 +388,240 @@ class _ExpandedBody extends StatelessWidget {
 
   /// `null` locks the button — the typed portion is implausible.
   final VoidCallback? onAdd;
+  final List<Widget> actions;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+      padding: const EdgeInsets.fromLTRB(8, 2, 8, 12),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const SizedBox(height: 4),
-          if (productPresentation) ...[
-            Divider(height: 1, color: t.line),
-            const SizedBox(height: 16),
-            Text(
-              l10n.foodManualGroupPortion,
-              style: AppType.display(18, color: t.ink),
-            ),
-            const SizedBox(height: 14),
-          ],
           if (preview.isRecipeWithoutCookedWeight)
-            Text(l10n.recipeCalcNoCookedWeight,
-              style: AppType.ui(13, color: t.ink2, height: 1.4))
+            Text(
+              l10n.recipeCalcNoCookedWeight,
+              style: AppType.ui(13, color: t.ink2, height: 1.4),
+            )
           else ...[
-          Row(
-            children: [
-              _StepperButton(
-                icon: Icons.remove_rounded,
-                semanticLabel: l10n.foodDecreaseAmountSemantics,
-                accent: accent,
-                onTap: () => onBump(-step),
-                onLongPress: () => onBump(-step * 5),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _GramsField(
-                  controller: gramsController,
-                  onChanged: onTextChanged,
+            _PortionStepper(
+              controller: gramsController,
+              invalid: gramsInvalid,
+              onChanged: onTextChanged,
+              onBump: onBump,
+              step: step,
+            ),
+            if (gramsInvalid) ...[
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Text(
+                  numberInputHint(
+                        NumberInput.parse(gramsController.text),
+                        l10n,
+                        wholeNumber: true,
+                      ) ??
+                      l10n.foodPortionRangeHint(
+                        PlausibilityLimits.portionGramsMin,
+                        PlausibilityLimits.portionGramsMax,
+                      ),
+                  key: const ValueKey('kcal-suggestion-grams-hint'),
+                  style: AppType.ui(
+                    12,
+                    weight: FontWeight.w600,
+                    color: t.warning,
+                  ),
                 ),
               ),
-              const SizedBox(width: 10),
-              _StepperButton(
-                icon: Icons.add_rounded,
-                semanticLabel: l10n.foodIncreaseAmountSemantics,
-                accent: accent,
-                onTap: () => onBump(step),
-                onLongPress: () => onBump(step * 5),
+            ],
+            const SizedBox(height: 4),
+            SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                activeTrackColor: t.accent,
+                inactiveTrackColor: t.tile,
+                thumbColor: t.accent,
+                overlayColor: t.accentTint,
+                trackHeight: 4,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
               ),
+              child: Slider(
+                min: minGrams.toDouble(),
+                max: maxGrams.toDouble(),
+                value: grams.clamp(minGrams, maxGrams).toDouble(),
+                onChanged: onSliderChanged,
+              ),
+            ),
+          ],
+          const SizedBox(height: 2),
+          Row(
+            children: [
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 6),
+                  child: _LivePreview(
+                    result: preview,
+                    kcalKey: ValueKey(
+                      productPresentation
+                          ? 'product-portion-calories'
+                          : 'live-preview-kcal',
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              _AddButton(buttonKey: addButtonKey, onAdd: onAdd),
             ],
           ),
-          if (gramsInvalid) ...[
-            const SizedBox(height: 6),
-            Text(
-              numberInputHint(
-                    NumberInput.parse(gramsController.text),
-                    l10n,
-                    wholeNumber: true,
-                  ) ??
-                  l10n.foodPortionRangeHint(
-                    PlausibilityLimits.portionGramsMin,
-                    PlausibilityLimits.portionGramsMax,
-                  ),
-              key: const ValueKey('kcal-suggestion-grams-hint'),
-              style: AppType.ui(
-                11,
-                weight: FontWeight.w600,
-                color: t.warning,
-              ),
-            ),
+          if (actions.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(spacing: 8, runSpacing: 8, children: actions),
           ],
-          const SizedBox(height: 10),
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              activeTrackColor: accent,
-              inactiveTrackColor: t.tile,
-              thumbColor: accent,
-              overlayColor: accent.withValues(alpha: 0.15),
-              trackHeight: 4,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
-            ),
-            child: Slider(
-              min: minGrams.toDouble(),
-              max: maxGrams.toDouble(),
-              value: grams.clamp(minGrams, maxGrams).toDouble(),
-              onChanged: onSliderChanged,
-            ),
-          ),
-          const SizedBox(height: 6),
-          ],
-          if (productPresentation) ...[
-            Text(
-              '${preview.caloriesKcal} kcal',
-              key: const ValueKey('product-portion-calories'),
-              style: AppType.display(32, color: t.ink),
-            ),
-            const SizedBox(height: 12),
-          ],
-          if (savedPresentation || productPresentation)
-            SavedMealNutrients(result: preview)
-          else
-            _LivePreview(
-              kcal: preview.caloriesKcal,
-              protein: preview.resolvedProtein(l10n),
-              carbs: preview.resolvedCarbs(l10n),
-              fat: preview.resolvedFat(l10n),
-            ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              key: addButtonKey,
-              onPressed: onAdd,
-              icon: const Icon(Icons.add_rounded, size: 18),
-              // No styleFrom: fill, ink and shape come from the app-wide
-              // filledButtonTheme (review F8-10).
-              label: Text(
-                l10n.commonAdd,
-                style: AppType.ui(14, weight: FontWeight.w700),
-              ),
-            ),
-          ),
         ],
       ),
     );
   }
 }
 
-/// Round soft capsule instead of a hairline square: the surface carries the
-/// button, the icon carries the accent. No border (design rule).
-class _StepperButton extends StatelessWidget {
-  const _StepperButton({
-    required this.icon,
-    required this.semanticLabel,
-    required this.accent,
-    required this.onTap,
-    required this.onLongPress,
-  });
+/// The one primary action: a round accent "+" with a soft glow and press
+/// dip. A FilledButton underneath, so the app's button theme, semantics and
+/// disabled state apply; only shape and size are local.
+class _AddButton extends StatelessWidget {
+  const _AddButton({required this.buttonKey, required this.onAdd});
 
-  final IconData icon;
+  final Key? buttonKey;
+  final VoidCallback? onAdd;
 
-  /// A11y: the +/- icon alone tells a screen reader nothing.
-  final String semanticLabel;
-
-  final Color accent;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
+  static const double _size = 52;
 
   @override
   Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: semanticLabel,
-      child: GestureDetector(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        child: Container(
-          width: 46,
-          height: 46,
-          decoration: BoxDecoration(
-            color: context.t.tile,
-            borderRadius: BorderRadius.circular(rPill),
+    final t = context.t;
+    final enabled = onAdd != null;
+    return PressScale(
+      enabled: enabled,
+      child: AnimatedContainer(
+        duration: motionDuration(context, kMotionPressOut),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: enabled
+                  ? t.accentGlow
+                  : t.accentGlow.withValues(alpha: 0),
+              blurRadius: 18,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: FilledButton(
+          key: buttonKey,
+          onPressed: enabled
+              ? () {
+                  HapticFeedback.selectionClick();
+                  onAdd!();
+                }
+              : null,
+          style: FilledButton.styleFrom(
+            shape: const CircleBorder(),
+            fixedSize: const Size.square(_size),
+            minimumSize: const Size.square(_size),
+            padding: EdgeInsets.zero,
           ),
-          child: Icon(icon, size: 21, color: accent),
+          child: Semantics(
+            label: context.l10n.commonAdd,
+            child: const FoodGlyphIcon(FoodGlyph.plus, size: 24),
+          ),
         ),
       ),
     );
   }
 }
 
-/// Borderless gram pill on a [FieldCapsule] (rest `field`, focus
-/// `fieldFocus`): no hairline, no focus ring — the number is the hero.
-class _GramsField extends StatefulWidget {
-  const _GramsField({required this.controller, required this.onChanged});
+/// Quiet secondary action in the open panel (pin a recent, remove a
+/// favorite): a small soft pill, never competing with the accent "+".
+class _PanelAction extends StatelessWidget {
+  const _PanelAction({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.highlighted = false,
+  });
 
-  final TextEditingController controller;
-  final ValueChanged<String> onChanged;
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool highlighted;
 
   @override
-  State<_GramsField> createState() => _GramsFieldState();
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Semantics(
+      button: true,
+      child: Material(
+        color: t.tile,
+        borderRadius: BorderRadius.circular(rPill),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 48),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    icon,
+                    size: 17,
+                    color: highlighted ? t.accent : t.ink2,
+                  ),
+                  const SizedBox(width: 7),
+                  Flexible(
+                    child: Text(
+                      label,
+                      style: AppType.ui(
+                        13,
+                        weight: FontWeight.w600,
+                        color: t.inkSoft,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
-class _GramsFieldState extends State<_GramsField> {
+/// One soft capsule: minus, the typed grams, plus. The whole capsule is the
+/// field's focus surface (rest `field`, focus `fieldFocus`, invalid
+/// `fieldError`); no hairline, no ring.
+class _PortionStepper extends StatefulWidget {
+  const _PortionStepper({
+    required this.controller,
+    required this.invalid,
+    required this.onChanged,
+    required this.onBump,
+    required this.step,
+  });
+
+  final TextEditingController controller;
+  final bool invalid;
+  final ValueChanged<String> onChanged;
+  final ValueChanged<int> onBump;
+  final int step;
+
+  @override
+  State<_PortionStepper> createState() => _PortionStepperState();
+}
+
+class _PortionStepperState extends State<_PortionStepper> {
   final FocusNode _focus = FocusNode();
 
   @override
@@ -722,52 +633,85 @@ class _GramsFieldState extends State<_GramsField> {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return FieldCapsule(
       focusNode: _focus,
+      error: widget.invalid,
       shape: SheetFieldShape.pill,
-      // Sits on the expanded item card, which is already raised.
+      // Sits on the raised panel already.
       shadow: false,
-      constraints: const BoxConstraints(minHeight: 48),
-      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minHeight: 52),
+      padding: const EdgeInsets.symmetric(horizontal: 2),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          SizedBox(
-            width: 64,
-            child: TextField(
-              cursorOpacityAnimates: false,
-              controller: widget.controller,
-              focusNode: _focus,
-              onChanged: widget.onChanged,
-              keyboardType: const TextInputType.numberWithOptions(
-                signed: false,
-                decimal: false,
-              ),
-              inputFormatters: const [
-                // Five digits because the upper bound
-                // (PlausibilityLimits.portionGramsMax = 10000 g) has five;
-                // four made the top of the valid range unenterable. Digits,
-                // not characters: "1.000" must reach the validator whole.
-                DigitBudgetFormatter(5),
+          _StepperButton(
+            icon: Icons.remove_rounded,
+            semanticLabel: l10n.foodDecreaseAmountSemantics,
+            onTap: () => widget.onBump(-widget.step),
+            onLongPress: () => widget.onBump(-widget.step * 5),
+          ),
+          Expanded(
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                // Two equal halves: the number ends just left of the centre,
+                // the unit starts right of it, and both shrink on narrow
+                // phones at large text instead of overflowing.
+                Expanded(
+                  child: TextField(
+                    cursorOpacityAnimates: false,
+                    cursorColor: t.accent,
+                    controller: widget.controller,
+                    focusNode: _focus,
+                    onChanged: widget.onChanged,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      signed: false,
+                      decimal: false,
+                    ),
+                    inputFormatters: const [
+                      // Five digits because the upper bound
+                      // (PlausibilityLimits.portionGramsMax = 10000 g) has
+                      // five; four made the top of the valid range
+                      // unenterable. Digits, not characters: "1.000" must
+                      // reach the validator whole.
+                      DigitBudgetFormatter(5),
+                    ],
+                    textAlign: TextAlign.right,
+                    style: AppType.display(20, color: t.ink),
+                    decoration: const InputDecoration(
+                      // Null out the theme borders explicitly: the global
+                      // inputDecorationTheme carries a hairline and focus
+                      // ring.
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      filled: false,
+                      isCollapsed: true,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'g',
+                    style: AppType.ui(
+                      14,
+                      weight: FontWeight.w600,
+                      color: t.ink2,
+                    ),
+                  ),
+                ),
               ],
-              textAlign: TextAlign.center,
-              style: AppType.display(18, color: t.ink),
-              decoration: const InputDecoration(
-                // Null out the theme borders explicitly: the global
-                // inputDecorationTheme carries a hairline and focus ring.
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                filled: false,
-                isCollapsed: true,
-                contentPadding: EdgeInsets.zero,
-              ),
             ),
           ),
-          const SizedBox(width: 3),
-          Text(
-            'g',
-            style: AppType.ui(13, weight: FontWeight.w600, color: t.ink2),
+          _StepperButton(
+            icon: Icons.add_rounded,
+            semanticLabel: l10n.foodIncreaseAmountSemantics,
+            onTap: () => widget.onBump(widget.step),
+            onLongPress: () => widget.onBump(widget.step * 5),
           ),
         ],
       ),
@@ -775,116 +719,85 @@ class _GramsFieldState extends State<_GramsField> {
   }
 }
 
-class _LivePreview extends StatelessWidget {
-  const _LivePreview({
-    required this.kcal,
-    required this.protein,
-    required this.carbs,
-    required this.fat,
+/// A 48 pt round button inside the capsule: the capsule carries the surface,
+/// the icon the accent. Long press steps five times.
+class _StepperButton extends StatelessWidget {
+  const _StepperButton({
+    required this.icon,
+    required this.semanticLabel,
+    required this.onTap,
+    required this.onLongPress,
   });
 
-  final int kcal;
-  final String protein;
-  final String carbs;
-  final String fat;
+  final IconData icon;
 
-  // Room the macros need beside the kcal value before the row reflows.
-  static const double _minMacroWidth = 64;
+  /// A11y: the +/- icon alone tells a screen reader nothing.
+  final String semanticLabel;
+
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final equalsStyle = AppType.ui(
-      14,
-      weight: FontWeight.w500,
-      color: t.ink2,
-      height: 1.0,
-    );
-    final kcalStyle = AppType.display(20, color: t.ink, height: 1.0);
-    final macroStyle = AppType.display(
-      11.5,
-      weight: FontWeight.w600,
-      color: t.ink2,
-    );
-    final macros = _macroLine(context.l10n);
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final base = DefaultTextStyle.of(context).style;
-        final painter = TextPainter(
-          text: TextSpan(
-            children: [
-              TextSpan(text: '=', style: base.merge(equalsStyle)),
-              TextSpan(text: '$kcal kcal', style: base.merge(kcalStyle)),
-            ],
-          ),
-          textDirection: Directionality.of(context),
-          textScaler: MediaQuery.textScalerOf(context),
-          maxLines: 1,
-        )..layout();
-        // 8 px after "=" and 10 px before the macros, as in the single row.
-        final kcalWidth = painter.width + 8;
-        painter.dispose();
-        final fitsOneRow = kcalWidth + 10 +
-                (macros.isEmpty ? 0 : _minMacroWidth) <=
-            constraints.maxWidth;
-        if (fitsOneRow) {
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text('=', style: equalsStyle),
-              const SizedBox(width: 8),
-              Text(
-                '$kcal kcal',
-                key: const ValueKey('live-preview-kcal'),
-                style: kcalStyle,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  macros,
-                  key: const ValueKey('live-preview-macros'),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.right,
-                  style: macroStyle,
-                ),
-              ),
-            ],
-          );
-        }
-        // Large text on narrow phones: reflow instead of cutting values.
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text.rich(
-              TextSpan(
-                children: [
-                  TextSpan(text: '= ', style: equalsStyle),
-                  TextSpan(text: '$kcal kcal', style: kcalStyle),
-                ],
-              ),
-              key: const ValueKey('live-preview-kcal'),
+    return Semantics(
+      button: true,
+      label: semanticLabel,
+      child: PressScale(
+        child: Material(
+          type: MaterialType.transparency,
+          shape: const CircleBorder(),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            onLongPress: onLongPress,
+            child: SizedBox.square(
+              dimension: 48,
+              child: Icon(icon, size: 22, color: t.accentText),
             ),
-            if (macros.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Text(
-                macros,
-                key: const ValueKey('live-preview-macros'),
-                textAlign: TextAlign.right,
-                style: macroStyle,
-              ),
-            ],
-          ],
-        );
-      },
+          ),
+        ),
+      ),
     );
   }
+}
 
-  String _macroLine(AppLocalizations l10n) {
-    final parts = <String>[];
-    if (protein != '-') parts.add(l10n.foodMacroProteinShort(protein));
-    if (carbs != '-') parts.add(l10n.foodMacroCarbsShort(carbs));
-    if (fat != '-') parts.add(l10n.foodMacroFatShort(fat));
-    return parts.join(' · ');
+/// The result of the set portion: the kcal as the hero number, the macro
+/// legend below.
+class _LivePreview extends StatelessWidget {
+  const _LivePreview({required this.result, required this.kcalKey});
+
+  final MealAnalysisResult result;
+  final Key kcalKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text.rich(
+          TextSpan(
+            children: [
+              TextSpan(
+                text: '${result.caloriesKcal}',
+                style: AppType.display(26, color: t.ink, height: 1.1),
+              ),
+              TextSpan(
+                text: ' kcal',
+                style: AppType.ui(14, weight: FontWeight.w600, color: t.ink3),
+              ),
+            ],
+          ),
+          key: kcalKey,
+        ),
+        const SizedBox(height: 4),
+        SavedMealNutrients(
+          result: result,
+          legendKey: const ValueKey('live-preview-macros'),
+        ),
+      ],
+    );
   }
 }

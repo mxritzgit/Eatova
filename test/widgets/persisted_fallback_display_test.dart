@@ -209,7 +209,9 @@ void main() {
     testWidgets('en zeigt Product <barcode> und Dezimalpunkte', (tester) async {
       await _pumpSaved(tester, _namelessProduct, _en);
 
-      expect(find.text('Product 4001234567890 · Milka'), findsOneWidget);
+      // The row splits the brand off the name into its muted line.
+      expect(find.text('Product 4001234567890'), findsOneWidget);
+      expect(find.textContaining('Milka ·'), findsOneWidget);
       expect(find.textContaining('Produkt'), findsNothing);
       expect(find.text('P 12.5 g'), findsOneWidget);
       expect(find.text('C 28.5 g'), findsOneWidget);
@@ -219,7 +221,8 @@ void main() {
     testWidgets('de bleibt byte-gleich', (tester) async {
       await _pumpSaved(tester, _namelessProduct, _de);
 
-      expect(find.text('Produkt 4001234567890 · Milka'), findsOneWidget);
+      expect(find.text('Produkt 4001234567890'), findsOneWidget);
+      expect(find.textContaining('Milka ·'), findsOneWidget);
       expect(find.text('P 12,5 g'), findsOneWidget);
       expect(find.text('KH 28,5 g'), findsOneWidget);
     });

@@ -4,16 +4,21 @@ import '../../l10n/l10n.dart';
 import '../../models/logged_meal.dart';
 import '../../models/macro_progress.dart';
 import '../../theme/app_tokens.dart';
-import '../../theme/meal_slot_style.dart';
 import '../design/design.dart';
+import 'diary_meal_card.dart' show diaryAmountLabel;
+
+/// Left edge of the rows: card padding + slot tile + gap, as in the Food
+/// diary card, so names line up under the header text.
+const double _rowInset = 14 + 40 + 12;
 
 /// Shows the meals already logged for the current slot and day at the top of
 /// the add-meal sheet, with an X to remove and (when [onEdit] is wired) a tap
 /// to edit.
 ///
-/// The header carries the slot total as kcal AND macros, computed via
-/// [MacroProgress] — the same parse/sum logic as the daily rings, never by
-/// re-parsing the string fields of `result`.
+/// Built like the Food diary's slot card: slot tile, header, then hairline
+/// rows with the kcal right-aligned. The header carries the slot total as
+/// kcal AND macros, computed via [MacroProgress] — the same parse/sum logic
+/// as the daily rings, never by re-parsing the string fields of `result`.
 class ExistingMealsList extends StatelessWidget {
   const ExistingMealsList({
     super.key,
@@ -33,64 +38,48 @@ class ExistingMealsList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final accent = slot.accentIn(context);
+    final eyebrow = context.l10n.foodAlreadyAddedEyebrow;
     final totals = meals.fold<MacroProgress>(
       MacroProgress.empty,
       (sum, m) => sum.add(m.result),
     );
-    return AppCard(
+    return Material(
       key: const ValueKey('analyse-existing-meals'),
-      radius: rCard,
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      color: t.surf,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(rCard),
+        side: BorderSide(color: t.cardBorder),
+      ),
+      clipBehavior: Clip.antiAlias,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
+            child: Row(
               children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: BoxDecoration(
-                        color: accent,
-                        shape: BoxShape.circle,
+                SlotIconTile(slot: slot, size: 40),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        eyebrow.toUpperCase(),
+                        semanticsLabel: eyebrow,
+                        style: AppType.sectionEyebrow(t.ink3, size: 11),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    // Expanded instead of a bare Text so the all-caps line
-                    // wraps at large system font sizes instead of overflowing
-                    // the Row.
-                    Expanded(
-                      child: Text(
-                        context.l10n.foodAlreadyAddedEyebrow,
-                        style: AppType.eyebrow(t.ink2, size: 11),
-                      ),
-                    ),
-                  ],
+                      const SizedBox(height: 3),
+                      _SlotTotalLine(totals: totals),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 6),
-                _SlotTotalLine(totals: totals),
               ],
             ),
           ),
-          for (var i = 0; i < meals.length; i++) ...[
-            if (i > 0)
-              Divider(
-                color: t.line,
-                height: 1,
-                indent: 14,
-                endIndent: 14,
-              ),
-            _ExistingMealRow(
-              meal: meals[i],
-              onRemove: onRemove,
-              onEdit: onEdit,
-            ),
-          ],
+          for (final meal in meals)
+            _ExistingMealRow(meal: meal, onRemove: onRemove, onEdit: onEdit),
+          const SizedBox(height: 4),
         ],
       ),
     );
@@ -129,16 +118,13 @@ class _SlotTotalLine extends StatelessWidget {
             Text(
               l10n.foodSlotTotalLabel,
               key: const ValueKey('analyse-existing-total-label'),
-              style: AppType.ui(12, weight: FontWeight.w600, color: t.ink2),
+              style: AppType.ui(13, weight: FontWeight.w500, color: t.ink3),
             ),
             Text(
               '${totals.kcal} kcal',
               key: const ValueKey('analyse-existing-total-kcal'),
-              style: AppType.display(
-                12,
-                weight: FontWeight.w700,
-                color: t.ink,
-              ),
+              style: AppType.ui(15, weight: FontWeight.w700, color: t.ink)
+                  .copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
             ),
           ],
         ),
@@ -149,11 +135,7 @@ class _SlotTotalLine extends StatelessWidget {
             totals.fatG.round(),
           ),
           key: const ValueKey('analyse-existing-total-macros'),
-          style: AppType.display(
-            11.5,
-            weight: FontWeight.w500,
-            color: t.ink2,
-          ),
+          style: AppType.ui(12.5, weight: FontWeight.w500, color: t.ink3),
         ),
       ],
     );
@@ -174,78 +156,86 @@ class _ExistingMealRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final macros = MacroProgress.empty.add(meal.result);
     // Unknown macros (parser yields '-', MacroProgress reads 0) get no line,
     // which would fake a measurement. The slot total above is unaffected:
     // there a 0 honestly means "nothing known added".
     final hasMacros =
         macros.proteinG > 0 || macros.carbsG > 0 || macros.fatG > 0;
-    final row = Padding(
-      padding: const EdgeInsets.fromLTRB(14, 8, 6, 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  meal.result.resolvedMealName(context.l10n),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '${meal.result.caloriesKcal} kcal · ${meal.result.estimatedGrams} g',
-                  style: AppType.display(
-                    11.5,
-                    weight: FontWeight.w500,
-                    color: t.ink2,
-                  ),
-                ),
-                if (hasMacros) ...[
-                  const SizedBox(height: 2),
+    final row = ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 56),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(0, 8, onRemove == null ? 4 : 0, 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
                   Text(
-                    context.l10n.foodMacroSummary(
-                      macros.proteinG.round(),
-                      macros.carbsG.round(),
-                      macros.fatG.round(),
-                    ),
-                    key: ValueKey('analyse-existing-macros-${meal.id}'),
-                    style: AppType.display(
-                      11,
-                      weight: FontWeight.w500,
-                      color: t.ink2,
-                    ),
+                    meal.result.resolvedMealName(l10n),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
                   ),
+                  const SizedBox(height: 1),
+                  Text(
+                    diaryAmountLabel(meal.result, l10n),
+                    style: AppType.ui(12, color: t.ink3),
+                  ),
+                  if (hasMacros)
+                    Text(
+                      l10n.foodMacroSummary(
+                        macros.proteinG.round(),
+                        macros.carbsG.round(),
+                        macros.fatG.round(),
+                      ),
+                      key: ValueKey('analyse-existing-macros-${meal.id}'),
+                      style: AppType.ui(12, color: t.ink3),
+                    ),
                 ],
-              ],
+              ),
             ),
-          ),
-          if (onRemove != null)
-            IconButton(
-              key: ValueKey('analyse-existing-remove-${meal.id}'),
-              iconSize: 18,
-              padding: const EdgeInsets.all(8),
-              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-              onPressed: () => onRemove!(meal.id),
-              icon: Icon(Icons.close_rounded, color: t.ink2),
-              tooltip: context.l10n.foodRemoveTooltip,
+            const SizedBox(width: 10),
+            Text(
+              '${meal.result.caloriesKcal}',
+              style: AppType.ui(14, weight: FontWeight.w600, color: t.ink2)
+                  .copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
             ),
-        ],
+            if (onRemove != null)
+              IconButton(
+                key: ValueKey('analyse-existing-remove-${meal.id}'),
+                constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+                onPressed: () => onRemove!(meal.id),
+                icon: Icon(Icons.close_rounded, size: 18, color: t.ink3),
+                tooltip: l10n.foodRemoveTooltip,
+              ),
+          ],
+        ),
       ),
     );
-    if (onEdit == null) return row;
+    // Hairline on top of every row, starting under the text like the diary.
+    final lined = Padding(
+      padding: const EdgeInsets.only(left: _rowInset, right: 10),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: t.line)),
+        ),
+        child: row,
+      ),
+    );
+    if (onEdit == null) return lined;
     // A11y: the row looks like plain display, so announce it as a button —
     // otherwise the edit tap is undiscoverable.
     return Semantics(
       button: true,
-      hint: context.l10n.foodEditMealTitle,
+      hint: l10n.foodEditMealTitle,
       child: InkWell(
         key: ValueKey('analyse-existing-edit-${meal.id}'),
         onTap: () => onEdit!(meal),
-        borderRadius: BorderRadius.circular(rControl),
-        child: row,
+        child: lined,
       ),
     );
   }

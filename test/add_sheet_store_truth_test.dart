@@ -303,6 +303,14 @@ Future<void> _logManuell(
   await tester.pumpAndSettle();
 }
 
+/// A text inside the first recent tile. Recents show the portion's kcal
+/// (diary row, design polish 2026-10-02); the fixtures use 100 g portions, so
+/// the kcal equals the density these tests used to read.
+Finder _kachelText(String text) => find.descendant(
+      of: find.byKey(const ValueKey('favorite-tile-0')),
+      matching: find.text(text),
+    );
+
 /// The X inside a suggestion tile (it carries no key of its own).
 Finder _kachelX(String kachel) => find.descendant(
       of: find.byKey(ValueKey(kachel)),
@@ -408,7 +416,7 @@ void main() {
       favorites: <FavoriteMeal>[_favorit(_mahlzeit('Apfel', kcal: 250))],
     );
     await _oeffneSheet(tester, store);
-    expect(find.text('250 kcal / 100 g'), findsOneWidget);
+    expect(_kachelText('250 kcal'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('manual-entry-button')));
     await tester.pumpAndSettle();
@@ -431,11 +439,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.text('500 kcal / 100 g'),
+      _kachelText('500 kcal'),
       findsOneWidget,
       reason: 'die Kachel hängt am alten result, der Store hat ein neues',
     );
-    expect(find.text('250 kcal / 100 g'), findsNothing);
+    expect(_kachelText('250 kcal'), findsNothing);
   });
 
   testWidgets(
@@ -506,17 +514,17 @@ void main() {
       favorites: <FavoriteMeal>[_favorit(_mahlzeit('Apfel', kcal: 250))],
     );
     await _oeffneSheet(tester, store, mitScope: false);
-    expect(find.text('250 kcal / 100 g'), findsOneWidget);
+    expect(_kachelText('250 kcal'), findsOneWidget);
 
     await _logManuell(tester, name: 'Apfel', kcal100: '500');
 
     expect(
-      find.text('500 kcal / 100 g'),
+      _kachelText('500 kcal'),
       findsOneWidget,
       reason: 'copyWith(addedAt:) verschiebt nur den Zeitstempel und laesst '
           'das alte result stehen — ohne Scope raeumt das niemand auf',
     );
-    expect(find.text('250 kcal / 100 g'), findsNothing);
+    expect(_kachelText('250 kcal'), findsNothing);
   });
 
   // P8-07b (2): der Boot-Load ersetzt die Favoritenliste durch frisch geparste
@@ -555,7 +563,8 @@ void main() {
     store.replaceFavoriteResult(_mahlzeit('Apfel', kcal: 500));
     await tester.pumpAndSettle();
 
-    expect(find.text('500 kcal / 100 g'), findsOneWidget);
+    // Open row: the header and the reset live preview both show 500 kcal.
+    expect(_kachelText('500 kcal'), findsNWidgets(2));
     expect(
       tester.widget<TextField>(_grammFeld).controller!.text,
       '100',

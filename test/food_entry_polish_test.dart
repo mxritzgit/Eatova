@@ -196,7 +196,9 @@ void main() {
           onAdd: (_) {},
         ),
       );
-      expect(find.text('150 kcal / 100 g'), findsOneWidget);
+      // The row shows the density as "150 kcal" over "per 100 g".
+      expect(find.text('150 kcal'), findsOneWidget);
+      expect(find.textContaining('100 g'), findsOneWidget);
       expect(find.text('300 kcal'), findsOneWidget);
     },
   );
@@ -368,7 +370,8 @@ void main() {
             scale: scale,
           );
           expect(find.text('The Dairy'), findsOneWidget);
-          expect(find.text('120 kcal / 100 g'), findsOneWidget);
+          expect(find.text('120 kcal'), findsOneWidget);
+          expect(find.textContaining('100 g'), findsOneWidget);
           await _capture(tester, 'product-$id');
           await tester.tap(_key('product-favorite'));
           await tester.pumpAndSettle();

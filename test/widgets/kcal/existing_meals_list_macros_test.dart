@@ -136,10 +136,13 @@ void main() {
       find.byKey(const ValueKey('analyse-existing-macros-m3')),
       findsNothing,
     );
-    // The kcal/gram row stays byte-identical (edit_meal_sheet_test reads it
-    // verbatim); the macros sit below it, not inside.
-    expect(find.text('420 kcal · 200 g'), findsOneWidget);
-    expect(find.text('300 kcal · 250 g'), findsOneWidget);
+    // Diary rows (design polish 2026-10-02): amount below the name ("~" =
+    // estimate, as in the diary), the kcal number right-aligned; the macros
+    // sit below the amount, not inside.
+    expect(find.text('~200 g'), findsOneWidget);
+    expect(find.text('420'), findsOneWidget);
+    expect(find.text('~250 g'), findsOneWidget);
+    expect(find.text('300'), findsOneWidget);
     // The per-row remove button is still there.
     expect(
       find.byKey(const ValueKey('analyse-existing-remove-m1')),

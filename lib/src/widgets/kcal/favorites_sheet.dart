@@ -199,7 +199,6 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
           child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: HeadingSemantics(
@@ -247,24 +246,42 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // Where an add lands: the slot's own tile and name, as
+                  // on the Food tab, then the quiet subtitle.
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: Row(
                       children: [
-                        Text(
-                          l10n.foodFavoritesForSlot(widget.slot.label(l10n)),
-                          key: const ValueKey('favorites-sheet-slot-context'),
-                          style: AppType.ui(
-                            13,
-                            weight: FontWeight.w600,
-                            color: t.accent,
+                        SlotIconTile(slot: widget.slot, size: 36),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                l10n.foodFavoritesForSlot(
+                                  widget.slot.label(l10n),
+                                ),
+                                key: const ValueKey(
+                                  'favorites-sheet-slot-context',
+                                ),
+                                style: AppType.ui(
+                                  14,
+                                  weight: FontWeight.w700,
+                                  color: t.ink,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                l10n.foodFavoritesSheetSubtitle,
+                                style: AppType.ui(
+                                  12.5,
+                                  color: t.ink2,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          l10n.foodFavoritesSheetSubtitle,
-                          style: AppType.ui(13, color: t.ink2, height: 1.4),
                         ),
                       ],
                     ),
@@ -431,7 +448,8 @@ class _SearchFieldState extends State<_SearchField> {
   }
 }
 
-/// Empty and filtered collections retain an obvious way back.
+/// Empty and filtered collections retain an obvious way back: a calm card
+/// with the icon in an accent tint, the message, and a soft accent pill.
 class _Hint extends StatelessWidget {
   const _Hint({
     super.key,
@@ -449,19 +467,44 @@ class _Hint extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 18),
       decoration: BoxDecoration(
-        color: t.brandSurface,
+        color: t.surf,
         borderRadius: BorderRadius.circular(rCard),
+        border: Border.all(color: t.cardBorder),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 28, color: t.accent),
-          const SizedBox(height: 16),
-          Text(text, style: AppType.ui(14, color: t.ink2, height: 1.4)),
-          const SizedBox(height: 12),
-          TextButton(onPressed: onAction, child: Text(actionLabel)),
+          ExcludeSemantics(
+            child: Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: t.accentTint,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, size: 24, color: t.accentText),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            text,
+            textAlign: TextAlign.center,
+            style: AppType.ui(14, color: t.ink2, height: 1.4),
+          ),
+          const SizedBox(height: 14),
+          TextButton(
+            onPressed: onAction,
+            style: TextButton.styleFrom(
+              foregroundColor: t.accentText,
+              backgroundColor: t.accentTint,
+              minimumSize: const Size(64, 48),
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              shape: const StadiumBorder(),
+              textStyle: AppType.ui(14, weight: FontWeight.w700),
+            ),
+            child: Text(actionLabel),
+          ),
         ],
       ),
     );

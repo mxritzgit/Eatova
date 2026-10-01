@@ -206,7 +206,6 @@ Future<List<(MealAnalysisResult, MealSlot)>> _openAddSheet(
         locale: locale,
         textScale: textScale,
         safeArea: false,
-        scaffold: false,
       ),
     ),
   );
@@ -260,7 +259,6 @@ Future<void> _openFavoritesSheet(
         ),
         locale: const Locale('en'),
         safeArea: false,
-        scaffold: false,
       ),
     ),
   );
@@ -377,6 +375,8 @@ void main() {
         await _openAddSheet(tester, textScale: 2);
         await _scrollTo(tester, _key('favorite-pinned-0'));
         await captureDesignShot(tester, 'add-items-scale2-collapsed');
+        await tester.ensureVisible(_key('favorite-tile-0'));
+        await tester.pumpAndSettle();
         await tester.tap(
           find.descendant(
             of: _key('favorite-tile-0'),
