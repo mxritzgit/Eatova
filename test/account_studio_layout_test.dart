@@ -184,7 +184,18 @@ void main() {
           );
           await tester.ensureVisible(dark);
           await tester.pumpAndSettle();
-          expect(tester.getSize(dark).width, greaterThan(270));
+          // Stacked: the segment spans its track's full inner width (the
+          // track insets 4 px per side inside the settings card).
+          expect(
+            tester.getSize(dark).width,
+            closeTo(
+              tester
+                      .getSize(find.byKey(const ValueKey('settings-theme-mode')))
+                      .width -
+                  8,
+              0.5,
+            ),
+          );
           await tester.tap(dark);
           await tester.pumpAndSettle();
           expect(theme.mode, ThemeMode.dark);

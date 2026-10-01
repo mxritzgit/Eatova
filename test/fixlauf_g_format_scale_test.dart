@@ -77,8 +77,8 @@ void main() {
       expect(tester.takeException(), isNull);
 
       final label = tester.widget<Text>(find.text('Protein'));
-      expect(label.style!.fontSize, 11,
-          reason: 'der Stil bleibt 11 — der Scaler rendert ihn 22 px gross');
+      expect(label.style!.fontSize, 13,
+          reason: 'der Stil bleibt 13 — der Scaler rendert ihn 26 px gross');
       // The rendered label really is twice as tall as at 1.0×.
       final hoehe = tester.getSize(find.text('Protein')).height;
       expect(hoehe, greaterThan(20));

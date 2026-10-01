@@ -777,10 +777,15 @@ class _AboutSheet extends StatelessWidget {
           // The brand mark is the sheet's title (rank 1, read as "Eatova").
           HeadingSemantics(
             level: 1,
-            child: EatovaWordmark(
-              fontSize: 34,
-              textColor: t.ink,
-              ringColor: t.accent,
+            // Scales down rather than overflowing at large system fonts.
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: AlignmentDirectional.centerStart,
+              child: EatovaWordmark(
+                fontSize: 34,
+                textColor: t.ink,
+                ringColor: t.accent,
+              ),
             ),
           ),
           const SizedBox(height: 8),

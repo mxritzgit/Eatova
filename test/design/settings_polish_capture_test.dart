@@ -168,7 +168,7 @@ void main() {
     });
   });
 
-  testWidgets('settings: blocked sync and 2.0 text scale', (tester) async {
+  testWidgets('settings: blocked sync', (tester) async {
     await withClock(Clock.fixed(_now), () async {
       await _mount(
         tester,
@@ -237,6 +237,22 @@ void main() {
         findsOneWidget,
       );
       await _shootDown(tester, 'goals', page: find.byKey(goalsPage));
+    });
+  });
+
+  testWidgets('goals: 2.0 text scale', (tester) async {
+    await withClock(Clock.fixed(_now), () async {
+      await _mount(
+        tester,
+        const GoalsScreen(profile: _profile),
+        textScale: 2.0,
+      );
+      await captureDesignShot(tester, 'goals-scale2-00');
+      final weight = find.byKey(const ValueKey('settings-weight'));
+      await tester.ensureVisible(weight);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await captureDesignShot(tester, 'goals-scale2-01');
     });
   });
 

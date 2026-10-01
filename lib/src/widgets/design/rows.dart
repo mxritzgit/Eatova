@@ -267,6 +267,7 @@ class SettingsRow extends StatelessWidget {
     this.chevron = true,
     this.onTap,
     this.titleColor,
+    this.dense = false,
   });
 
   final String title;
@@ -284,6 +285,9 @@ class SettingsRow extends StatelessWidget {
   /// bumps it one weight step.
   final Color? titleColor;
 
+  /// Tighter vertical rhythm for long option lists (picker sheets).
+  final bool dense;
+
   /// Share of the row a value may take before it moves under the title.
   static const double _valueShare = 0.45;
 
@@ -295,9 +299,12 @@ class SettingsRow extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 56),
+        constraints: BoxConstraints(minHeight: dense ? 52 : 56),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          padding: EdgeInsets.symmetric(
+            horizontal: 18,
+            vertical: dense ? 11 : 14,
+          ),
           child: LayoutBuilder(
             builder: (context, constraints) {
               // A long value ("Moderately active · ×1.6") would squeeze title

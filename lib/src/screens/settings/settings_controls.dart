@@ -118,80 +118,86 @@ class _SettingsNumberRowState extends State<SettingsNumberRow> {
     );
     painter.dispose();
 
+    // From about 1.6x system font the capsule takes its own line under the
+    // label; beside it, label and number would fight for a 320 px row.
+    final stacked = scaler.scale(15) > 24;
+    final label = Text(
+      widget.label,
+      style: AppType.ui(15, weight: FontWeight.w600, color: t.ink),
+    );
+    // The whole capsule focuses the field, not just the digits.
+    final capsule = GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _focus.requestFocus,
+      child: FieldCapsule(
+        focusNode: _focus,
+        error: hatFehler,
+        shape: SheetFieldShape.pill,
+        shadow: false,
+        padding: const EdgeInsets.fromLTRB(14, 0, 14, 0),
+        constraints: const BoxConstraints(minHeight: 44),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            SizedBox(
+              width: feldBreite,
+              child: TextField(
+                key: widget.fieldKey,
+                controller: widget.controller,
+                focusNode: _focus,
+                // Without this the cursor fade never settles and
+                // `pumpAndSettle` hangs.
+                cursorOpacityAnimates: false,
+                cursorColor: t.accent,
+                textAlign: TextAlign.right,
+                keyboardType: TextInputType.number,
+                onChanged: widget.onChanged,
+                style: zahlStil,
+                // All border slots off and unfilled: the capsule around it is
+                // the field's surface.
+                decoration: const InputDecoration(
+                  filled: false,
+                  isDense: true,
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  disabledBorder: InputBorder.none,
+                  errorBorder: InputBorder.none,
+                  focusedErrorBorder: InputBorder.none,
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                widget.suffix,
+                style: AppType.ui(13, weight: FontWeight.w600, color: t.ink2),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(18, 10, 14, 10),
       child: MergeSemantics(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: Text(
-                    widget.label,
-                    style:
-                        AppType.ui(15, weight: FontWeight.w600, color: t.ink),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                // The whole capsule focuses the field, not just the digits.
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: _focus.requestFocus,
-                  child: FieldCapsule(
-                    focusNode: _focus,
-                    error: hatFehler,
-                    shape: SheetFieldShape.pill,
-                    shadow: false,
-                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 0),
-                    constraints: const BoxConstraints(minHeight: 44),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        SizedBox(
-                          width: feldBreite,
-                          child: TextField(
-                            key: widget.fieldKey,
-                            controller: widget.controller,
-                            focusNode: _focus,
-                            // Without this the cursor fade never settles and
-                            // `pumpAndSettle` hangs.
-                            cursorOpacityAnimates: false,
-                            cursorColor: t.accent,
-                            textAlign: TextAlign.right,
-                            keyboardType: TextInputType.number,
-                            onChanged: widget.onChanged,
-                            style: zahlStil,
-                            // All border slots off and unfilled: the capsule
-                            // around it is the field's surface.
-                            decoration: const InputDecoration(
-                              filled: false,
-                              isDense: true,
-                              border: InputBorder.none,
-                              enabledBorder: InputBorder.none,
-                              focusedBorder: InputBorder.none,
-                              disabledBorder: InputBorder.none,
-                              errorBorder: InputBorder.none,
-                              focusedErrorBorder: InputBorder.none,
-                              contentPadding: EdgeInsets.zero,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          widget.suffix,
-                          style: AppType.ui(
-                            13,
-                            weight: FontWeight.w600,
-                            color: t.ink2,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
+            if (stacked) ...<Widget>[
+              label,
+              const SizedBox(height: 8),
+              capsule,
+            ] else
+              Row(
+                children: <Widget>[
+                  Expanded(child: label),
+                  const SizedBox(width: 12),
+                  capsule,
+                ],
+              ),
             if (hatFehler) ...<Widget>[
               const SizedBox(height: 6),
               Text(

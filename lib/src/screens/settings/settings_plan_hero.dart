@@ -249,6 +249,17 @@ class _MacroRow extends StatelessWidget {
         final minTile = scaler.scale(88);
         final width = constraints.maxWidth;
         final perRow = ((width + gap) / (minTile + gap)).floor().clamp(1, 3);
+        // One per line: label left, grams right, so the card stays short.
+        if (perRow == 1) {
+          return Column(
+            children: <Widget>[
+              for (var i = 0; i < tiles.length; i++) ...<Widget>[
+                if (i > 0) const SizedBox(height: 10),
+                tiles[i].asLine(context),
+              ],
+            ],
+          );
+        }
         final tileWidth = (width - gap * (perRow - 1)) / perRow;
         return Wrap(
           spacing: gap,
@@ -277,6 +288,49 @@ class _MacroTile extends StatelessWidget {
   /// Macro tone for the MARKER only, never for the number (see file header).
   final Color color;
 
+  Widget _dot() => Container(
+        width: 8,
+        height: 8,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      );
+
+  Widget _amount(AppTokens t) => Text.rich(
+        TextSpan(
+          children: <InlineSpan>[
+            TextSpan(
+              text: value,
+              style: AppType.display(22, weight: FontWeight.w800, color: t.ink),
+            ),
+            TextSpan(
+              text: ' $unit',
+              style: AppType.ui(13, weight: FontWeight.w600, color: t.ink2),
+            ),
+          ],
+        ),
+        maxLines: 1,
+      );
+
+  /// The single-line variant for large text sizes.
+  Widget asLine(BuildContext context) {
+    final t = context.t;
+    return MergeSemantics(
+      child: Row(
+        children: <Widget>[
+          _dot(),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              style: AppType.ui(13, weight: FontWeight.w600, color: t.ink2),
+            ),
+          ),
+          const SizedBox(width: 10),
+          _amount(t),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
@@ -287,11 +341,7 @@ class _MacroTile extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-              ),
+              _dot(),
               const SizedBox(width: 7),
               Expanded(
                 child: Text(
@@ -304,26 +354,7 @@ class _MacroTile extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 5),
-          Text.rich(
-            TextSpan(
-              children: <InlineSpan>[
-                TextSpan(
-                  text: value,
-                  style: AppType.display(
-                    22,
-                    weight: FontWeight.w800,
-                    color: t.ink,
-                  ),
-                ),
-                TextSpan(
-                  text: ' $unit',
-                  style: AppType.ui(13, weight: FontWeight.w600, color: t.ink2),
-                ),
-              ],
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
+          _amount(t),
         ],
       ),
     );

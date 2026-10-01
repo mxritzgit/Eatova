@@ -166,6 +166,7 @@ class _PickerRow<T> extends StatelessWidget {
           title: title,
           subtitle: subtitle,
           chevron: false,
+          dense: true,
           onTap: () => Navigator.pop<T>(context, result),
           trailing: ExcludeSemantics(child: _Radio(selected: selected)),
         ),

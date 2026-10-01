@@ -1083,7 +1083,6 @@
   "settingsDeleteAccountBlockSubtitle": "Removes all entries permanently",
   "settingsDeleteAccountPromptPrefix": "You'll be asked to type ",
   "settingsDeleteConfirmWord": "DELETE",
-  "settingsAboutAppName": "Eatova",
   "settingsAboutTagline": "Nutrition. Tracking. Coach.",
   "settingsAboutDescription": "Track calories and macros without friction — via AI photo scan, barcode and product search, with a personal nutrition coach.",
   "settingsAboutVersionLabel": "Version",
