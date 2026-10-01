@@ -290,10 +290,10 @@ const Map<String, FunktionsErwartung> _erwarteteFunktionen = {
       definer: true, grund: 'Bounded recovery history of the authenticated owner.'),
   'load_recipe_photo_refs': FunktionsErwartung.client(
       definer: true, grund: 'Bounded historical image markers protect local recipe recovery.'),
-  'record_training_history': FunktionsErwartung.client(
-      definer: true, grund: 'Bestaetigt eigene unveraenderliche Abschluesse oder vorhandene Loeschung.'),
-  'delete_training_history': FunktionsErwartung.client(
-      definer: true, grund: 'Entfernt eigene Leistungsdaten atomar und bewahrt nur die Loeschkennung.'),
+  'record_training_history': FunktionsErwartung.nurServer(
+      definer: true, grund: 'Runs only inside apply_sync_operation; direct calls skipped the receipt.'),
+  'delete_training_history': FunktionsErwartung.nurServer(
+      definer: true, grund: 'Runs only inside apply_sync_operation; keeps just the deletion identity.'),
   'is_valid_training_exercise_ids': FunktionsErwartung.client(
       definer: false, grund: 'Validiert stabile Uebungsidentitaeten im gespeicherten Plan.'),
   'is_valid_training_history': FunktionsErwartung.client(

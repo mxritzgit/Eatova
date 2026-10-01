@@ -13,6 +13,28 @@ select jsonb_build_object('note','Fixture', 'snapshot', jsonb_build_object(
 $$;
 grant execute on function rlstest.training_history(uuid) to authenticated, service_role;
 
+-- Clients reach the history RPCs only through apply_sync_operation
+-- (20261001100000). These run with the CALLER's rights, one fresh operation
+-- per call, i.e. the way a device sends an outbox item.
+create or replace function rlstest.training_record(history_id uuid, session jsonb default null)
+returns boolean language plpgsql as $$
+begin
+  -- True when the completion exists, false for a permanent deletion receipt.
+  return not (public.apply_sync_operation(gen_random_uuid(), 'trainingHistoryInsert', history_id::text,
+    jsonb_build_object('row', jsonb_build_object('id', history_id, 'finished_at', '2026-09-10T12:02:00Z',
+      'session', coalesce(session, rlstest.training_history(history_id)))))
+    #>> '{result,entity_deleted}')::boolean;
+end;
+$$;
+create or replace function rlstest.training_delete(history_id uuid)
+returns void language plpgsql as $$
+begin
+  perform public.apply_sync_operation(gen_random_uuid(), 'trainingHistoryDelete', history_id::text, '{}'::jsonb);
+end;
+$$;
+grant execute on function rlstest.training_record(uuid, jsonb), rlstest.training_delete(uuid)
+  to authenticated, service_role;
+
 begin;
 set local role service_role;
 do $$ declare valid jsonb := rlstest.training_history(); invalid jsonb; begin
@@ -65,6 +87,25 @@ insert into public.training_plans(user_id,id,plan,exercise_ids) values
   ('11111111-1111-1111-1111-111111111111','source-plan',rlstest.training_history() #> '{snapshot,plan,plan}','[["squat-identity"]]');
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111"}';
+-- A signed-in client cannot call the receipt-internal RPCs directly: the
+-- refusal is the missing EXECUTE grant, not the body's own auth check.
+do $$
+declare aufruf text;
+begin
+  foreach aufruf in array array[
+    $q$select public.record_training_history('dddddddd-dddd-4ddd-8ddd-dddddddddddd','2026-09-10T12:02:00Z',rlstest.training_history('dddddddd-dddd-4ddd-8ddd-dddddddddddd'))$q$,
+    $q$select public.delete_training_history('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')$q$
+  ] loop
+    begin
+      execute aufruf;
+      raise exception 'RLS-VERLETZUNG: direkter History-RPC als authenticated ging durch: %', aufruf;
+    exception when insufficient_privilege then
+      if sqlerrm not like 'permission denied for function %' then
+        raise exception 'RLS-VERLETZUNG: direkter History-RPC scheiterte nicht am Grant: %', sqlerrm;
+      end if;
+    end;
+  end loop;
+end $$;
 select rlstest.erwarte_zeilen('select * from public.training_history',1,'own history/export');
 select rlstest.erwarte_zeilen($q$select * from public.training_history where user_id='22222222-2222-2222-2222-222222222222'$q$,0,'foreign history/export');
 select rlstest.erwarte_ablehnung($q$delete from public.training_history where user_id='22222222-2222-2222-2222-222222222222'$q$,'direct history delete bypass');
@@ -72,10 +113,17 @@ select rlstest.erwarte_ablehnung($q$insert into public.training_history(user_id,
   ('22222222-2222-2222-2222-222222222222','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','2026-09-10T12:02:00Z',rlstest.training_history('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'))$q$,'forged history owner');
 select rlstest.erwarte_ablehnung($q$insert into public.training_history(user_id,id,finished_at,session) values
   ('11111111-1111-1111-1111-111111111111','dddddddd-dddd-4ddd-8ddd-dddddddddddd','2026-09-10T12:02:00Z',rlstest.training_history('dddddddd-dddd-4ddd-8ddd-dddddddddddd'))$q$,'direct own insert cannot bypass receipts');
-select rlstest.erwarte_sqlstate($q$select public.record_training_history('dddddddd-dddd-4ddd-8ddd-dddddddddddd','2026-09-10T12:02:00Z',rlstest.training_history('dddddddd-dddd-4ddd-8ddd-dddddddddddd') || '{"user_id":"22222222-2222-2222-2222-222222222222"}'::jsonb)$q$,'23514','record RPC validates payload and rejects forged metadata');
+-- The CHECK's 23514 surfaces as 22023: apply_sync_operation keeps row
+-- details out of client errors.
+select rlstest.erwarte_sqlstate($q$select rlstest.training_record('dddddddd-dddd-4ddd-8ddd-dddddddddddd',rlstest.training_history('dddddddd-dddd-4ddd-8ddd-dddddddddddd') || '{"user_id":"22222222-2222-2222-2222-222222222222"}'::jsonb)$q$,'22023','record operation validates payload and rejects forged metadata');
+select rlstest.erwarte_zeilen($q$select * from public.training_history where id='dddddddd-dddd-4ddd-8ddd-dddddddddddd'$q$,0,'rejected completion left no row');
 select rlstest.erwarte_ablehnung($q$update public.training_history set session=jsonb_set(session,'{note}','"changed"')$q$,'immutable completion');
 select rlstest.erwarte_ablehnung($q$update public.training_history set user_id='22222222-2222-2222-2222-222222222222'$q$,'history owner reassignment');
-select public.record_training_history('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','2026-09-10T12:02:00Z',rlstest.training_history());
+do $$ begin
+  if rlstest.training_record('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa') is distinct from true then
+    raise exception 'TRAINING HISTORY: retry of an existing completion was not confirmed';
+  end if;
+end $$;
 select rlstest.erwarte_zeilen('select * from public.training_history',1,'retry did not duplicate history');
 update public.training_plans set plan=jsonb_set(plan,'{title}','"Edited plan"') where id='source-plan';
 delete from public.training_plans where id='source-plan';
@@ -83,11 +131,15 @@ select rlstest.erwarte_zeilen($q$select * from public.training_history where ses
 
 -- Two independent device requests for A: accepted insert/lost response, B's
 -- delete, then A's old retry. The receipt carries no performance or note data.
-select public.record_training_history('cccccccc-cccc-4ccc-8ccc-cccccccccccc','2026-09-10T12:02:00Z',rlstest.training_history('cccccccc-cccc-4ccc-8ccc-cccccccccccc'));
-select public.delete_training_history('cccccccc-cccc-4ccc-8ccc-cccccccccccc');
-select public.delete_training_history('cccccccc-cccc-4ccc-8ccc-cccccccccccc');
 do $$ begin
-  if public.record_training_history('cccccccc-cccc-4ccc-8ccc-cccccccccccc','2026-09-10T12:02:00Z',rlstest.training_history('cccccccc-cccc-4ccc-8ccc-cccccccccccc')) is distinct from false then
+  if rlstest.training_record('cccccccc-cccc-4ccc-8ccc-cccccccccccc') is distinct from true then
+    raise exception 'TRAINING HISTORY: own completion was not recorded';
+  end if;
+end $$;
+select rlstest.training_delete('cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+select rlstest.training_delete('cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+do $$ begin
+  if rlstest.training_record('cccccccc-cccc-4ccc-8ccc-cccccccccccc') is distinct from false then
     raise exception 'TRAINING HISTORY: delayed device resurrected deleted completion';
   end if;
 end $$;
@@ -98,11 +150,11 @@ select rlstest.erwarte_ablehnung($q$insert into public.training_history_deletion
 -- The same UUID belongs independently to B. A's receipt does not suppress B.
 set local request.jwt.claims = '{"sub":"22222222-2222-2222-2222-222222222222"}';
 do $$ begin
-  if public.record_training_history('cccccccc-cccc-4ccc-8ccc-cccccccccccc','2026-09-10T12:02:00Z',rlstest.training_history('cccccccc-cccc-4ccc-8ccc-cccccccccccc')) is distinct from true then
+  if rlstest.training_record('cccccccc-cccc-4ccc-8ccc-cccccccccccc') is distinct from true then
     raise exception 'TRAINING HISTORY: foreign receipt suppressed another owner';
   end if;
 end $$;
-select public.delete_training_history('cccccccc-cccc-4ccc-8ccc-cccccccccccc');
+select rlstest.training_delete('cccccccc-cccc-4ccc-8ccc-cccccccccccc');
 select rlstest.erwarte_zeilen('select * from public.training_history_deletions',1,'B sees only own receipt');
 set local request.jwt.claims = '{"sub":"11111111-1111-1111-1111-111111111111"}';
 
@@ -115,11 +167,11 @@ insert into public.training_history_deletions(user_id,id)
  select '11111111-1111-1111-1111-111111111111',md5('training-budget-' || n::text)::uuid from generate_series(1,99998) n;
 alter table public.training_history_deletions enable trigger training_history_deletions_row_cap;
 set local role authenticated;
-select rlstest.erwarte_sqlstate($q$select public.delete_training_history('dddddddd-dddd-4ddd-8ddd-dddddddddddd')$q$,'22023','random deletion cannot exceed identity budget');
-select rlstest.erwarte_sqlstate($q$select public.record_training_history('dddddddd-dddd-4ddd-8ddd-dddddddddddd','2026-09-10T12:02:00Z',rlstest.training_history('dddddddd-dddd-4ddd-8ddd-dddddddddddd'))$q$,'22023','new completion cannot exceed shared identity budget');
+select rlstest.erwarte_sqlstate($q$select rlstest.training_delete('dddddddd-dddd-4ddd-8ddd-dddddddddddd')$q$,'22023','random deletion cannot exceed identity budget');
+select rlstest.erwarte_sqlstate($q$select rlstest.training_record('dddddddd-dddd-4ddd-8ddd-dddddddddddd')$q$,'22023','new completion cannot exceed shared identity budget');
 -- Deleting existing history needs no extra identity and remains possible.
-select public.delete_training_history('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
-select public.delete_training_history('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+select rlstest.training_delete('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+select rlstest.training_delete('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
 select rlstest.erwarte_zeilen('select * from public.training_history',0,'existing completion deletable at budget');
 select rlstest.erwarte_zeilen('select * from public.training_history_deletions',100000,'bounded identity receipts');
 rollback to training_identity_budget;
@@ -136,8 +188,8 @@ select rlstest.erwarte_ablehnung($q$select public.record_training_history('ddddd
 set local role authenticated;
 set local request.jwt.claims = '{}';
 select rlstest.erwarte_zeilen('select * from public.training_history',0,'missing subject history');
-select rlstest.erwarte_ablehnung($q$select public.delete_training_history('dddddddd-dddd-4ddd-8ddd-dddddddddddd')$q$,'missing subject deletion');
-select rlstest.erwarte_ablehnung($q$select public.record_training_history('dddddddd-dddd-4ddd-8ddd-dddddddddddd',now(),null)$q$,'missing subject completion');
+select rlstest.erwarte_ablehnung($q$select rlstest.training_delete('dddddddd-dddd-4ddd-8ddd-dddddddddddd')$q$,'missing subject deletion');
+select rlstest.erwarte_ablehnung($q$select rlstest.training_record('dddddddd-dddd-4ddd-8ddd-dddddddddddd')$q$,'missing subject completion');
 set local request.jwt.claims = '{"sub":"22222222-2222-2222-2222-222222222222"}';
 select rlstest.erwarte_zeilen('select * from public.training_history',1,'B retains own history');
 select set_config('request.jwt.claims',jsonb_build_object('sub','11111111-1111-1111-1111-111111111111',
