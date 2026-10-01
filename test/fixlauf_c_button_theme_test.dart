@@ -103,6 +103,10 @@ void main() {
       reducedMotion: false,
     );
     await tester.pumpAndSettle();
+    // The inline slot control and the entry card push the tile below
+    // the 800x600 test view.
+    await tester.ensureVisible(find.byKey(const ValueKey('favorite-tile-0')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('favorite-tile-0')));
     await tester.pumpAndSettle();
 
