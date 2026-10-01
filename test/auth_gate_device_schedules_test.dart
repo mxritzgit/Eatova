@@ -15,13 +15,17 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/main.dart' show EatovaApp;
 import 'package:eatova/src/app/auth_gate.dart';
 import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/l10n/l10n.dart';
+import 'package:eatova/src/services/background_sync_scheduler.dart';
 import 'package:eatova/src/services/crash_reporter.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:eatova/src/theme/app_theme.dart';
+
+import 'support/harness.dart' show testWidgetsRobust;
 
 class _ScriptedAuthRepository implements AuthRepository {
   _ScriptedAuthRepository(this._user);
@@ -64,6 +68,22 @@ class _RecordingNotifications extends NoopNotificationService {
       log.add('schedule');
 }
 
+class _RecordingScheduler implements BackgroundSyncScheduler {
+  _RecordingScheduler({this.cancelThrows = false});
+
+  final bool cancelThrows;
+  final List<String> log = [];
+
+  @override
+  Future<void> request() async => log.add('request');
+
+  @override
+  Future<void> cancel() async {
+    log.add('cancel');
+    if (cancelThrows) throw StateError('workmanager kaputt');
+  }
+}
+
 class _NoPhotos extends RecipeImageStore {
   @override
   Future<void> setActiveUser(String? userId, {String? sessionId}) async {}
@@ -75,8 +95,9 @@ const _b = EatovaUser(id: 'user-b', email: 'b@example.com', sessionId: 's2');
 Future<void> _pumpGate(
   WidgetTester tester,
   _ScriptedAuthRepository repository,
-  NotificationService notifications,
-) async {
+  NotificationService notifications, {
+  BackgroundSyncScheduler? scheduler,
+}) async {
   await tester.pumpWidget(
     MaterialApp(
       theme: buildEatovaTheme(Brightness.dark),
@@ -86,11 +107,13 @@ Future<void> _pumpGate(
       home: AuthGate(
         authRepository: repository,
         notificationService: notifications,
+        backgroundSyncScheduler: scheduler,
         debugPurgeCache: (_) async {},
         builder: (context, user, _) => _Home(
           key: ValueKey(user.id),
           user: user,
           notifications: notifications,
+          scheduler: scheduler,
         ),
       ),
     ),
@@ -98,12 +121,19 @@ Future<void> _pumpGate(
   await tester.pumpAndSettle();
 }
 
-/// Stands in for the home page: plans this account's reminder on mount.
+/// Stands in for the home page: plans this account's reminder on mount and
+/// requests background sync, as the real page does with a pending outbox.
 class _Home extends StatefulWidget {
-  const _Home({super.key, required this.user, required this.notifications});
+  const _Home({
+    super.key,
+    required this.user,
+    required this.notifications,
+    this.scheduler,
+  });
 
   final EatovaUser user;
   final NotificationService notifications;
+  final BackgroundSyncScheduler? scheduler;
 
   @override
   State<_Home> createState() => _HomeState();
@@ -114,6 +144,7 @@ class _HomeState extends State<_Home> {
   void initState() {
     super.initState();
     unawaited(widget.notifications.scheduleAll(const []));
+    unawaited(widget.scheduler?.request());
   }
 
   @override
@@ -213,5 +244,100 @@ void main() {
     expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
     expect(tester.takeException(), isNull);
     expect(reports, contains('auth-gate-notification-cancel'));
+  });
+
+  group('Hintergrund-Sync (Aufraeumen nach dem Sign-Out)', () {
+    testWidgets('Session-Ende storniert den OS-Job, ein Refresh nicht',
+        (tester) async {
+      final scheduler = _RecordingScheduler();
+      final repository = _ScriptedAuthRepository(_a);
+      addTearDown(repository.dispose);
+      await _pumpGate(tester, repository, _RecordingNotifications([]),
+          scheduler: scheduler);
+      scheduler.log.clear();
+
+      repository.emit(_a);
+      await tester.pumpAndSettle();
+      expect(scheduler.log, isEmpty);
+
+      repository.emit(null);
+      await tester.pumpAndSettle();
+      expect(scheduler.log, ['cancel'],
+          reason: 'Sonst weckt das OS die App nach dem Sign-Out fuer nichts.');
+    });
+
+    testWidgets('A -> B: erst stornieren, dann fordert B neu an',
+        (tester) async {
+      final scheduler = _RecordingScheduler();
+      final repository = _ScriptedAuthRepository(_a);
+      addTearDown(repository.dispose);
+      await _pumpGate(tester, repository, _RecordingNotifications([]),
+          scheduler: scheduler);
+      scheduler.log.clear();
+
+      repository.emit(_b);
+      await tester.pumpAndSettle();
+
+      expect(scheduler.log, ['cancel', 'request'],
+          reason: 'Der naechste Login muss den Job wieder bekommen.');
+    });
+
+    testWidgets('Kaltstart ohne Session storniert', (tester) async {
+      final scheduler = _RecordingScheduler();
+      final repository = _ScriptedAuthRepository(null);
+      addTearDown(repository.dispose);
+
+      await _pumpGate(tester, repository, _RecordingNotifications([]),
+          scheduler: scheduler);
+
+      expect(scheduler.log, ['cancel']);
+    });
+
+    testWidgets('ein werfendes Stornieren wird gemeldet und blockiert nichts',
+        (tester) async {
+      final reports = <String?>[];
+      CrashReporter.debugSentrySink = (error, stack, context) =>
+          reports.add(context);
+      addTearDown(() => CrashReporter.debugSentrySink = null);
+      final log = <String>[];
+      final repository = _ScriptedAuthRepository(_a);
+      addTearDown(repository.dispose);
+      await _pumpGate(tester, repository,
+          _RecordingNotifications(log, cancelThrows: true),
+          scheduler: _RecordingScheduler(cancelThrows: true));
+
+      repository.emit(null);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
+      expect(reports, containsAll(<String>[
+        'auth-gate-notification-cancel',
+        'auth-gate-background-sync-cancel',
+      ]),
+          reason: 'Ein werfender Benachrichtigungsdienst darf das '
+              'Stornieren des Hintergrund-Jobs nicht ueberspringen.');
+    });
+  });
+
+  testWidgetsRobust(
+      'EatovaApp reicht Benachrichtigungen und Hintergrund-Sync an das Gate',
+      (tester) async {
+    final log = <String>[];
+    final scheduler = _RecordingScheduler();
+    final repository = InMemoryAuthRepository();
+    addTearDown(repository.dispose);
+
+    await tester.pumpWidget(EatovaApp(
+      authRepository: repository,
+      notificationService: _RecordingNotifications(log),
+      backgroundSyncScheduler: scheduler,
+    ));
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
+    expect(log, ['cancel'],
+        reason: 'Ohne Durchreichen bleibt das Gate ohne Dienst und storniert '
+            'in Produktion nichts.');
+    expect(scheduler.log, ['cancel']);
   });
 }

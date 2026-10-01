@@ -215,6 +215,7 @@ class _EatovaAppState extends State<EatovaApp> with WidgetsBindingObserver {
         // The same instance the home page schedules through, so its FIFO
         // queue orders the gate's cancel against the next account's plans.
         notificationService: widget.notificationService,
+        backgroundSyncScheduler: widget.backgroundSyncScheduler,
         builder: (context, user, freshLogin) => EatovaHomePage(
           debugCache: widget.debugCacheBuilder?.call(user.id),
           // A new login gets a fresh store even for the same account.

@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../auth/auth_repository.dart';
 import '../l10n/l10n.dart';
 import '../screens/auth_screen.dart';
+import '../services/background_sync_scheduler.dart';
 import '../services/crash_reporter.dart';
 import '../services/local_cache.dart';
 import '../services/notification_service.dart';
@@ -126,8 +127,13 @@ Future<void> purgePersonalCache(
 /// session loss, a direct switch to another account, and a cold start without
 /// a session. Idempotent and never throws, so it cannot hold up an auth
 /// transition.
+///
+/// The background-sync request goes too: its runner re-checks the persisted
+/// session, so a leftover only costs an empty OS wake-up. The next account's
+/// home page requests it again (pending outbox, app pause).
 Future<void> cancelDeviceSchedules({
   NotificationService? notifications,
+  BackgroundSyncScheduler? backgroundSync,
 }) async {
   if (notifications != null) {
     try {
@@ -135,6 +141,14 @@ Future<void> cancelDeviceSchedules({
     } catch (error, stack) {
       unawaited(CrashReporter.capture(error, stack,
           context: 'auth-gate-notification-cancel'));
+    }
+  }
+  if (backgroundSync != null) {
+    try {
+      await backgroundSync.cancel();
+    } catch (error, stack) {
+      unawaited(CrashReporter.capture(error, stack,
+          context: 'auth-gate-background-sync-cancel'));
     }
   }
 }
@@ -147,6 +161,7 @@ class AuthGate extends StatefulWidget {
     this.debugPurgeCache,
     this.onUserChanged,
     this.notificationService,
+    this.backgroundSyncScheduler,
   });
 
   final AuthRepository authRepository;
@@ -154,6 +169,7 @@ class AuthGate extends StatefulWidget {
 
   /// Cancelled whenever a session ends, see [cancelDeviceSchedules].
   final NotificationService? notificationService;
+  final BackgroundSyncScheduler? backgroundSyncScheduler;
 
   /// Test seam for [purgePersonalCacheFor] — `LocalCache.create` returns null
   /// in widget tests. Always null in production.
@@ -279,6 +295,7 @@ class _AuthGateState extends State<AuthGate> {
   void _cancelDeviceSchedules() {
     unawaited(cancelDeviceSchedules(
       notifications: widget.notificationService,
+      backgroundSync: widget.backgroundSyncScheduler,
     ));
   }
 
