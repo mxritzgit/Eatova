@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -13,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'account_studio_layout_test.dart' show loadAccountFonts;
 import 'support/harness.dart';
+import 'widgets/welcome_screen_test.dart' show expectGreetingInSafeArea;
 
 Future<void> _capture(WidgetTester tester, GlobalKey key, String name) async {
   const directory = String.fromEnvironment('AUTH_PREVIEW_DIR');
@@ -347,20 +349,36 @@ void main() {
   testWidgets('welcome fits a short landscape window with large type', (
     tester,
   ) async {
+    final ready = Completer<void>();
     await pumpLocalized(
       tester,
       WelcomeScreen(
         firstName: 'Alexandria',
-        profileReady: Future<void>.value(),
+        profileReady: ready.future,
         celebrateLogin: true,
         onComplete: () {},
       ),
       surfaceSize: const Size(568, 320),
       textScale: 2,
+      // With motion the greeting holds on screen; reduced motion would exit
+      // at once and leave nothing to measure.
+      reducedMotion: false,
       scaffold: false,
       safeArea: false,
-      settle: true,
     );
+    Future<void> advance(int ms) async {
+      for (var i = 0; i < ms ~/ 20; i++) {
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+    }
+
+    await advance(200);
+    ready.complete();
+    await tester.pump();
+    await advance(900);
+    expect(find.byKey(const ValueKey('welcome-text')), findsOneWidget);
+    expectGreetingInSafeArea(tester, const Size(568, 320), EdgeInsets.zero);
     expect(tester.takeException(), isNull);
+    await advance(2000);
   });
 }

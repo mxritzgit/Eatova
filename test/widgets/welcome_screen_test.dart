@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -30,6 +31,35 @@ Future<void> _tick(
     await tester.pump(step);
     elapsed += step;
   }
+}
+
+/// The greeting (`welcome-text`) lies whole inside the safe area and the
+/// layout's 24 px side margins, below the mark; the mark stays below the top
+/// inset. [padding] is logical.
+void expectGreetingInSafeArea(
+  WidgetTester tester,
+  Size screen,
+  EdgeInsets padding,
+) {
+  final text = tester.getRect(find.byKey(const ValueKey('welcome-text')));
+  final mark = tester.getRect(find.byKey(const ValueKey('boot-mark')));
+  const eps = 0.01;
+  expect(text.top, greaterThanOrEqualTo(padding.top - eps),
+      reason: 'Begruessung $text unter dem oberen Rand ${padding.top}');
+  expect(text.bottom, lessThanOrEqualTo(screen.height - padding.bottom + eps),
+      reason: 'Begruessung $text ueber dem unteren Rand ${padding.bottom}');
+  expect(text.left, greaterThanOrEqualTo(24 - eps));
+  expect(text.right, lessThanOrEqualTo(screen.width - 24 + eps));
+  expect(mark.bottom, lessThanOrEqualTo(text.top + eps),
+      reason: 'Marke $mark steht ueber der Begruessung $text');
+  // Moves up at most to the top inset plus the 24 px margin.
+  expect(
+    mark.top,
+    greaterThanOrEqualTo(
+      math.min(padding.top + 24, (screen.height - mark.height) / 2) - eps,
+    ),
+    reason: 'Marke $mark nie ueber dem oberen Rand',
+  );
 }
 
 Widget _welcome({
@@ -137,7 +167,7 @@ void main() {
 
     ready.complete();
     await tester.pump(); // .then fires
-    await _tick(tester, const Duration(milliseconds: 900)); // snap + switcher
+    await _tick(tester, const Duration(milliseconds: 900)); // lock-in + greeting fade
 
     expect(find.text(deL10n.onboardingWelcomeTitle('Mira')), findsOneWidget);
     expect(find.text('Du bist drin.'), findsOneWidget);
@@ -241,31 +271,47 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('bleibt bei doppelter Systemschrift overflow-frei',
-      (tester) async {
-    pinPhoneViewport(tester);
-    final ready = Completer<void>();
+  // Layout rule: the greeting hangs below the mark and stays inside the safe
+  // area; the pair moves up only as far as needed, never above the top inset.
+  for (final (name, size, insets) in <(String, Size, FakeViewPadding)>[
+    ('390x844', Size(390, 844), FakeViewPadding(top: 177, bottom: 102)),
+    ('320x640', Size(320, 640), FakeViewPadding(top: 60)),
+  ]) {
+    testWidgets('haelt die Begruessung bei doppelter Systemschrift im '
+        'sicheren Bereich ($name)', (tester) async {
+      tester.view.devicePixelRatio = 3.0;
+      tester.view.physicalSize = size * 3.0;
+      tester.view.padding = insets;
+      tester.view.viewPadding = insets;
+      addTearDown(tester.view.reset);
+      final ready = Completer<void>();
 
-    await _pumpWelcome(
-      tester,
-      brightness: Brightness.dark,
-      profileReady: ready.future,
-      celebrateLogin: true,
-      textScale: 2.0,
-    );
-    await _tick(tester, const Duration(milliseconds: 1100));
-    expect(tester.takeException(), isNull, reason: 'Wortmark bei textScale 2.0');
+      await _pumpWelcome(
+        tester,
+        brightness: Brightness.dark,
+        profileReady: ready.future,
+        celebrateLogin: true,
+        firstName: 'Alexandria',
+        textScale: 2.0,
+      );
+      await _tick(tester, const Duration(milliseconds: 1100));
+      expect(tester.takeException(), isNull);
 
-    ready.complete();
-    await tester.pump();
-    await _tick(tester, const Duration(milliseconds: 900));
-    expect(
-      tester.takeException(),
-      isNull,
-      reason: 'Willkommens-Text bei textScale 2.0',
-    );
+      ready.complete();
+      await tester.pump();
+      await _tick(tester, const Duration(milliseconds: 900));
+      expect(
+        find.text(deL10n.onboardingWelcomeTitle('Alexandria')),
+        findsOneWidget,
+      );
+      expectGreetingInSafeArea(
+        tester,
+        size,
+        EdgeInsets.only(top: insets.top / 3, bottom: insets.bottom / 3),
+      );
 
-    await _tick(tester, const Duration(milliseconds: 2000));
-    expect(tester.takeException(), isNull);
-  });
+      await _tick(tester, const Duration(milliseconds: 2000));
+      expect(tester.takeException(), isNull);
+    });
+  }
 }
