@@ -1623,7 +1623,8 @@ class _SearchBarState extends State<_SearchBar> {
           children: [
             FoodGlyphIcon(
               FoodGlyph.search,
-              size: 20,
+              // Grows with the query text instead of shrinking beside it.
+              size: scaledWidth(context, 20),
               color: _focus.hasFocus ? t.accentText : t.ink2,
             ),
             const SizedBox(width: 12),
@@ -1861,13 +1862,25 @@ class _ManualEntryRow extends StatelessWidget {
           child: Container(
             // Grows with the label at large system text (review F3-05).
             constraints: const BoxConstraints(minHeight: 64),
-            padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+            // The row geometry of the entry-method rows right above it
+            // (`meal_entry_methods.dart`): 16 inset, 40 tile, 14 gap.
+            padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
             child: Row(
               children: [
-                IconTile.custom(
-                  size: 40,
-                  color: t.accent,
-                  child: const Icon(Icons.edit_rounded, size: 19),
+                ExcludeSemantics(
+                  child: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: t.tile,
+                      borderRadius: BorderRadius.circular(rChip),
+                    ),
+                    child: Icon(
+                      Icons.edit_rounded,
+                      size: 20,
+                      color: t.accentText,
+                    ),
+                  ),
                 ),
                 const SizedBox(width: 14),
                 Expanded(
@@ -1878,20 +1891,26 @@ class _ManualEntryRow extends StatelessWidget {
                         l10n.foodManualEntryCta,
                         style: AppType.ui(
                           15,
-                          weight: FontWeight.w700,
+                          weight: FontWeight.w600,
                           color: t.ink,
                         ),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         l10n.foodManualEntrySubtitle,
-                        style: AppType.ui(12.5, color: t.ink2, height: 1.35),
+                        style: AppType.ui(12.5, color: t.ink2, height: 1.3),
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(width: 8),
-                FoodGlyphIcon(FoodGlyph.chevronRight, size: 18, color: t.ink3),
+                ExcludeSemantics(
+                  child: Icon(
+                    Icons.chevron_right_rounded,
+                    size: 22,
+                    color: t.ink3,
+                  ),
+                ),
               ],
             ),
           ),
