@@ -438,23 +438,8 @@ class AppleHealthService implements HealthService {
     }
   }
 
-  @override
-  Future<List<WeightSample>> readWeightSamples({
-    required DateTime from,
-    required DateTime to,
-  }) async {
-    return await _read(
-          (session) => _query(
-            session,
-            'readWeightSamples',
-            () => _rawWeightSamples(from: from, to: to),
-          ),
-        ) ??
-        const <WeightSample>[];
-  }
-
-  /// Ungated weight read path — basis of [readWeightSamples] AND
-  /// [_gatherEvidence], where an auth gate would be circular.
+  /// Ungated weight read path of [_gatherEvidence], where an auth gate would
+  /// be circular.
   Future<List<WeightSample>> _rawWeightSamples({
     required DateTime from,
     required DateTime to,

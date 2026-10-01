@@ -1,7 +1,8 @@
 // Tab navigation: the bottom nav switches between the five tabs and each
 // screen's core pins hold. Cold start lands on Heute (index 0).
 //
-// Since D6 the tabs live in a lazy [IndexedStack]: a visited tab stays MOUNTED
+// Since D6 the tabs live in a lazy IndexedStack (now [HomeTabSwitcher],
+// same contract): a visited tab stays MOUNTED
 // but invisible. Default finders (`skipOffstage: true`) do not see it, so
 // existing `findsNothing` assertions remain valid; checking the mounted,
 // invisible tree needs `skipOffstage: false`. The visible tab is the stack's
@@ -12,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/main.dart';
+import 'package:eatova/src/app/home_tab_switcher.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/recipe_shelf.dart';
 
@@ -68,26 +70,17 @@ void main() {
       expect(find.byKey(const ValueKey('food-date-strip')), findsOneWidget);
       expect(find.byKey(const ValueKey('food-date-selected-label')), findsOneWidget);
       expect(find.byKey(const ValueKey('food-date-calendar')), findsOneWidget);
-      // The calorie card was removed from the Food tab; the pin now asserts its
-      // ABSENCE and that the history took its place. The daily total lives in
-      // the Heute tab (`today-kcal-hero`, pinned above).
-      expect(
-          find.byKey(const ValueKey('analyse-daily-kcal-card')), findsNothing);
-      expect(
-          find.byKey(const ValueKey('analyse-daily-kcal-total')), findsNothing);
+      // The history holds the place of the removed calorie card; the daily
+      // total lives in the Heute tab (`today-kcal-hero`, pinned above).
       expect(
           find.byKey(const ValueKey('kcal-meals-today-card')), findsOneWidget);
       expect(find.byKey(const ValueKey('food-history')), findsOneWidget);
       expect(find.byKey(const ValueKey('food-search')), findsOneWidget);
       expect(find.byKey(const ValueKey('food-action-barcode')), findsOneWidget);
       expect(find.byKey(const ValueKey('food-action-ai')), findsOneWidget);
-      // "Schnell" was removed (AI scan and barcode have their own flows).
-      expect(find.byKey(const ValueKey('food-action-quick')), findsNothing);
       expect(find.byKey(const ValueKey('analyse-camera-button')), findsNothing);
       expect(
           find.byKey(const ValueKey('kcal-product-search-card')), findsNothing);
-      expect(find.text('Demo-Fotoanalyse'), findsNothing);
-      expect(find.text('Demo-Barcode laden'), findsNothing);
 
       await tester.tap(find.byKey(const ValueKey('nav-Rezepte')));
       await tester.pumpAndSettle();
@@ -202,7 +195,7 @@ void main() {
   });
 }
 
-/// Index of the visible tab, read from the home shell's [IndexedStack].
+/// Index of the visible tab, read from the home shell's [HomeTabSwitcher].
 int? _sichtbarerTab(WidgetTester tester) => tester
-    .widget<IndexedStack>(find.byKey(const ValueKey('home-tab-stack')))
+    .widget<HomeTabSwitcher>(find.byKey(const ValueKey('home-tab-stack')))
     .index;

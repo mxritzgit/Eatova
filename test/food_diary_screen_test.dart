@@ -186,8 +186,12 @@ void main() {
     expect(find.text('320'), findsNWidgets(3));
     expect(find.textContaining('Empfohlen '), findsNWidgets(3));
     expect(
-      find.text('Tippe oben auf KI-Scan, Barcode oder Suche.'),
+      find.byKey(const ValueKey('food-slot-empty-lunch')),
       findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('food-slot-empty-dinner')),
+      findsOneWidget,
     );
   });
 
@@ -222,38 +226,6 @@ void main() {
   // "Today" tab and pushed the history below the fold on an 852 px screen.
   // -------------------------------------------------------------------------
   group('Ohne Kalorien-Karte', () {
-    testWidgets('weder Karte noch ihre Kennzahlen stehen noch im Baum',
-        (tester) async {
-      await _pumpFoodTab(
-        tester,
-        dailyConsumedKcal: 1234,
-        profile: const UserProfile(dailyKcalGoal: 2200),
-      );
-
-      for (final key in const <String>[
-        'analyse-daily-kcal-card',
-        'analyse-daily-kcal-total',
-        'analyse-daily-kcal-goal',
-        'analyse-daily-kcal-remaining',
-      ]) {
-        expect(
-          find.byKey(ValueKey<String>(key), skipOffstage: false),
-          findsNothing,
-          reason: key,
-        );
-      }
-      for (final text in const <String>[
-        'TAGESBILANZ',
-        'ZIEL',
-        'GEGESSEN',
-        'VERBRANNT',
-        'kcal übrig',
-        'kcal drüber',
-      ]) {
-        expect(find.text(text), findsNothing, reason: text);
-      }
-    });
-
     testWidgets('der Verlauf beginnt deutlich oberhalb der Falz',
         (tester) async {
       // With the card the history started at y=655 here, below the fold.
@@ -335,11 +307,10 @@ void main() {
     expect(find.textContaining('Empfohlen '), findsNWidgets(3));
   });
 
-  testWidgets('Food keeps trends and has no account menu', (tester) async {
+  // The account entry sits on Today only: page_chrome_test.dart pins
+  // `today-profile` on tab 0 and nowhere else.
+  testWidgets('Food keeps its trends button', (tester) async {
     await _pumpFoodTab(tester);
     expect(find.byKey(const ValueKey('topbar-trends')), findsOneWidget);
-    expect(find.byKey(const ValueKey('food-options')), findsNothing);
-    expect(find.byKey(const ValueKey('topbar-settings')), findsNothing);
-    expect(find.byKey(const ValueKey('topbar-profile')), findsNothing);
   });
 }

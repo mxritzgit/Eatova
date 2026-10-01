@@ -2,8 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/lifetime_stats.dart';
-import 'package:eatova/src/models/logged_meal.dart';
-import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
 import 'package:eatova/src/models/user_profile.dart';
@@ -11,9 +9,11 @@ import 'package:eatova/src/services/food_kcal_db.dart';
 import 'package:eatova/src/services/kcal_calculator.dart';
 import 'package:eatova/src/services/meals_sync.dart';
 
-// Pure logic tests for money- and data-critical functions (slot heuristic,
-// streak, macro aggregation, food-history JSON roundtrip, auto split, macro
-// split). Deterministic, no network or UI.
+// Pure logic tests for money- and data-critical functions (first streak day,
+// stats rows, food-history JSON roundtrip, auto split, macro split).
+// Deterministic, no network or UI. The slot heuristic, the running streak and
+// the macro aggregation live in test/models/logged_meal_slot_test.dart,
+// lifetime_stats_test.dart and macro_progress_test.dart.
 
 MealAnalysisResult _result({
   String name = 'Testmahlzeit',
@@ -43,66 +43,14 @@ MealAnalysisResult _result({
 }
 
 void main() {
-  group('LoggedMeal.slot Heuristik (Uhrzeit-Fallback)', () {
-    LoggedMeal at(int hour) => LoggedMeal(
-          id: 'x',
-          result: _result(),
-          loggedAt: DateTime(2026, 6, 2, hour, 30),
-        );
-
-    test('vor 11 Uhr -> Frühstück', () {
-      expect(at(0).slot, MealSlot.breakfast);
-      expect(at(10).slot, MealSlot.breakfast);
-    });
-    test('11-15 Uhr -> Mittag', () {
-      expect(at(11).slot, MealSlot.lunch);
-      expect(at(14).slot, MealSlot.lunch);
-    });
-    test('15-21 Uhr -> Abend', () {
-      expect(at(15).slot, MealSlot.dinner);
-      expect(at(20).slot, MealSlot.dinner);
-    });
-    test('ab 21 Uhr -> Snack', () {
-      expect(at(21).slot, MealSlot.snack);
-      expect(at(23).slot, MealSlot.snack);
-    });
-    test('forcedSlot hat Vorrang vor der Uhrzeit', () {
-      final m = LoggedMeal(
-        id: 'x',
-        result: _result(),
-        loggedAt: DateTime(2026, 6, 2, 23, 0), // would be snack
-        forcedSlot: MealSlot.breakfast,
-      );
-      expect(m.slot, MealSlot.breakfast);
-    });
-  });
-
   group('LifetimeStats.recordTrackedDay (Logging-Streak)', () {
     final day1 = DateTime(2026, 6, 1);
     final day2 = DateTime(2026, 6, 2);
-    final day4 = DateTime(2026, 6, 4);
 
     test('erster Log-Tag -> Streak 1', () {
       final s = LifetimeStats().recordTrackedDay(day1);
       expect(s.currentStreak, 1);
       expect(s.longestStreak, 1);
-    });
-    test('gestern -> +1', () {
-      final s = LifetimeStats().recordTrackedDay(day1).recordTrackedDay(day2);
-      expect(s.currentStreak, 2);
-      expect(s.longestStreak, 2);
-    });
-    test('selber Tag erneut -> idempotent (kein Doppel-Zählen)', () {
-      final s = LifetimeStats().recordTrackedDay(day1).recordTrackedDay(day1);
-      expect(s.currentStreak, 1);
-    });
-    test('Lücke ≥ 1 Tag -> Reset auf 1, longestStreak bleibt', () {
-      final s = LifetimeStats()
-          .recordTrackedDay(day1)
-          .recordTrackedDay(day2) // streak 2
-          .recordTrackedDay(day4); // gap (day3 missing)
-      expect(s.currentStreak, 1);
-      expect(s.longestStreak, 2);
     });
     test('toRow/fromRow Roundtrip erhält Zähler + Streak', () {
       final s = LifetimeStats(
@@ -130,41 +78,6 @@ void main() {
       expect(back.mealsLogged, 0);
       expect(back.currentStreak, 0);
       expect(back.lastTrackedDate, isNull);
-    });
-  });
-
-  group('MacroProgress add/subtract', () {
-    test('add summiert Makros + kcal aus den Ergebnis-Strings', () {
-      final p = MacroProgress.empty.add(_result(
-        kcal: 500,
-        protein: '30 g',
-        carbs: '50 g',
-        fat: '20 g',
-      ));
-      expect(p.proteinG, 30);
-      expect(p.carbsG, 50);
-      expect(p.fatG, 20);
-      expect(p.kcal, 500);
-    });
-    test('add parst Komma-Dezimalzahlen', () {
-      final p = MacroProgress.empty.add(_result(protein: '12,5 g'));
-      expect(p.proteinG, closeTo(12.5, 0.001));
-    });
-    test('subtract clampt nicht unter 0', () {
-      final p = MacroProgress.empty.subtract(_result(
-        kcal: 500,
-        protein: '30 g',
-      ));
-      expect(p.proteinG, 0);
-      expect(p.kcal, 0);
-    });
-    test('add dann subtract gleicht sich aus', () {
-      final r = _result(kcal: 400, protein: '25 g', carbs: '40 g', fat: '15 g');
-      final p = MacroProgress.empty.add(r).subtract(r);
-      expect(p.proteinG, 0);
-      expect(p.carbsG, 0);
-      expect(p.fatG, 0);
-      expect(p.kcal, 0);
     });
   });
 

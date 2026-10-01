@@ -15,20 +15,11 @@ class UserRecipesSync {
   final SupabaseClient _client;
   final String _userId;
 
-  /// The full snapshot is bounded by the server's active recipe capacity.
-  static const int userRecipesLimit = 5000;
-
   Future<List<FitnessRecipe>> load() =>
       UserRecipeReads(_client, _userId).load();
 
   Future<Set<String>> loadPhotoReferences() =>
       UserRecipeReads(_client, _userId).loadPhotoReferences();
-
-  Future<RecipeHistoryPage> loadHistory({String? slug, int? beforeRevision}) =>
-      UserRecipeReads(
-        _client,
-        _userId,
-      ).loadHistory(slug: slug, beforeRevision: beforeRevision);
 
   /// Durable replay uses SyncOperationSync with its persisted operation UUID.
   Future<RecipeMutationResult> upsert(

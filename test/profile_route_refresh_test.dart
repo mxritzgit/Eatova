@@ -54,13 +54,6 @@ class _StepsHealthService implements HealthService {
   Future<bool> writeWeight(double kg, DateTime when) async => true;
 
   @override
-  Future<List<WeightSample>> readWeightSamples({
-    required DateTime from,
-    required DateTime to,
-  }) async =>
-      const <WeightSample>[];
-
-  @override
   Future<int?> readStepsOnDay(DateTime day) async => null;
 }
 

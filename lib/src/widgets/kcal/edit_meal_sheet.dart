@@ -653,10 +653,8 @@ List<DateTime> editMealPickerDays({
 /// [daysBetween] works on `(y, m, d)` triples in UTC, so DST cannot make
 /// yesterday read as "today" (a 23-hour gap gives `inDays == 0`).
 ///
-/// Uses `intl`'s `EE` skeleton, mirroring
-/// `meal_analysis_screen.dart:foodDateChipLabel` (not importable: screens/
-/// imports widgets/, not the other way round). German CLDR abbreviations
-/// carry a trailing period, stripped so `de` stays byte-identical.
+/// Uses `intl`'s `EE` skeleton. German CLDR abbreviations carry a trailing
+/// period, stripped so `de` stays byte-identical.
 @visibleForTesting
 String editMealDayChipLabel({
   required DateTime today,
@@ -670,9 +668,9 @@ String editMealDayChipLabel({
   return DateFormat('EE', l10n.localeName).format(date).replaceAll('.', '');
 }
 
-/// Horizontal chip picker over the last [pastDays] days (today first),
-/// mirroring the food tab's date chips. The last entry ([onCalendarTap])
-/// opens showDatePicker for targets beyond the chips.
+/// Horizontal chip picker over the last [pastDays] days (today first). The
+/// last entry ([onCalendarTap]) opens showDatePicker for targets beyond the
+/// chips.
 class _DayPicker extends StatelessWidget {
   const _DayPicker({
     required this.selected,

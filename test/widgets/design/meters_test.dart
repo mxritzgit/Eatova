@@ -7,44 +7,6 @@ import 'package:eatova/src/widgets/design/meters.dart';
 import 'design_harness.dart';
 
 void main() {
-  group('TickGauge', () {
-    testWidgets('haelt die Grenzwerte aus', (tester) async {
-      for (final progress in <double>[0, 0.5, 1, 1.8, -0.4, double.nan]) {
-        await tester.pumpWidget(
-          designHarness(TickGauge(progress: progress)),
-        );
-        await tester.pumpAndSettle();
-        expect(
-          tester.takeException(),
-          isNull,
-          reason: 'progress $progress hat geworfen',
-        );
-      }
-    });
-
-    testWidgets('nimmt die uebergebene Hoehe', (tester) async {
-      await tester.pumpWidget(
-        designHarness(const TickGauge(progress: 0.5, height: 40)),
-      );
-      await tester.pumpAndSettle();
-
-      expect(tester.getSize(find.byType(TickGauge)).height, 40);
-    });
-
-    testWidgets('malt ueber einen CustomPainter', (tester) async {
-      await tester.pumpWidget(designHarness(const TickGauge(progress: 0.5)));
-      await tester.pumpAndSettle();
-
-      expect(
-        find.descendant(
-          of: find.byType(TickGauge),
-          matching: find.byType(CustomPaint),
-        ),
-        findsWidgets,
-      );
-    });
-  });
-
   group('MacroBar', () {
     Future<double?> pumpBar(
       WidgetTester tester, {
@@ -247,7 +209,6 @@ void main() {
       tester,
       () => Column(
         children: <Widget>[
-          const TickGauge(progress: 0.6),
           MacroBar(
             label: 'Protein',
             value: 96,
@@ -273,7 +234,6 @@ void main() {
       tester,
       Column(
         children: <Widget>[
-          const TickGauge(progress: 0.6),
           MacroBar(
             label: 'Kohlenhydrate',
             value: 142,

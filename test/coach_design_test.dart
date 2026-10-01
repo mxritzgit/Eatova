@@ -59,7 +59,6 @@ class _FakeCoach extends CoachChatService {
   }
 
   List<ChatMessage> history = const <ChatMessage>[];
-  bool historyFails = false;
   ChatQuotaSnapshot quota =
       const ChatQuotaSnapshot(used: 0, remaining: 5, dailyLimit: 5);
   int sendCalls = 0;
@@ -84,9 +83,6 @@ class _FakeCoach extends CoachChatService {
   @override
   Future<List<ChatMessage>> loadHistory(String sessionId,
       {int limit = 100}) async {
-    if (historyFails) {
-      throw const CoachDataUnavailable('Verlauf nicht abrufbar');
-    }
     return history;
   }
 
@@ -203,8 +199,6 @@ void main() {
       // Visible "Coach" like the design; screen readers hear "KI-Coach".
       expect(tester.widget<Text>(find.text('Coach')).semanticsLabel, 'KI-Coach');
       expect(find.text('Sieht dein heutiges Log'), findsOneWidget);
-      expect(find.byKey(const ValueKey('coach-streak')), findsNothing,
-          reason: 'die Serie steht im Heute-Tab, nicht mehr im Coach-Kopf');
       for (final key in ['coach-sessions-open', 'coach-info']) {
         final button = find.byKey(ValueKey(key));
         expect(button, findsOneWidget);
@@ -367,16 +361,6 @@ void main() {
     expect(delete.style!.foregroundColor!.resolve({}), t.bg);
   });
 
-  testWidgets('Verlauf nicht ladbar zeigt keinen Hero', (tester) async {
-    final svc = _FakeCoach.create()..historyFails = true;
-    await _pumpCoach(tester, service: svc);
-
-    expect(find.byKey(const ValueKey('coach-empty')), findsNothing,
-        reason: 'der Leerzustand behauptet „noch keine Unterhaltung", '
-            'waehrend der Verlauf existiert — stattdessen Fehler-Banner');
-    expect(find.textContaining('Verlauf konnte nicht geladen'), findsOneWidget);
-  });
-
   testWidgets('knappes Kontingent zeigt den Hinweis', (tester) async {
     final svc = _FakeCoach.create()
       ..quota = const ChatQuotaSnapshot(used: 3, remaining: 2, dailyLimit: 5);
@@ -432,8 +416,8 @@ void main() {
     // tearDown: the binding checks foundation vars before tearDowns run.
     debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
     try {
-      // `lime` on the light composer capsule reaches only ~1.2:1, so the mic
-      // would look idle while listening. The state uses `accent` instead.
+      // The listening state takes `accent` and idle takes `ink2`; the check
+      // below keeps the two apart in both palettes.
       for (final (brightness, tokens) in <(Brightness, AppTokens)>[
         (Brightness.dark, AppTokens.dark),
         (Brightness.light, AppTokens.light),

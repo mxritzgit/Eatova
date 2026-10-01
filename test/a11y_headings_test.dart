@@ -125,47 +125,6 @@ String _coachBegruessung(AppLocalizations l10n, String vorname) =>
 
 void main() {
   group('Rang-Schema der geteilten Ueberschriften', () {
-    testWidgets('ScreenTitle ist eine Ueberschrift der Ebene 1',
-        (tester) async {
-      final handle = tester.ensureSemantics();
-      await _pump(
-        tester,
-        ScreenTitle(
-          title: 'Essen',
-          subtitle: 'Heute',
-          trailing: SquareIconButton(
-            key: const ValueKey('screen-title-action'),
-            icon: Icons.add_rounded,
-            semanticLabel: 'Hinzufügen',
-            onTap: () {},
-          ),
-        ),
-      );
-
-      final titel = tester.getSemantics(find.text('Essen'));
-      final untertitel = tester.getSemantics(find.text('Heute'));
-      final aktion =
-          tester.getSemantics(find.byKey(const ValueKey('screen-title-action')));
-      handle.dispose();
-
-      expect(
-        titel,
-        isSemantics(label: 'Essen', isHeader: true),
-        reason: 'surfaces.dart: ScreenTitle traegt kein header-Flag',
-      );
-      expect(titel.headingLevel, 1, reason: 'Seitentitel = Ebene 1');
-      expect(
-        untertitel,
-        isSemantics(label: 'Heute', isHeader: false),
-        reason: 'nur der Titel ist die Sprungmarke, nicht der Untertitel',
-      );
-      // Gegenprobe zu PR #53: die Auszeichnung darf die Aktion nicht fressen.
-      expect(
-        aktion,
-        isSemantics(isButton: true, hasTapAction: true, isHeader: false),
-      );
-    });
-
     testWidgets('PageHeader ist Ebene 1 und laesst Zurueck und Aktion intakt',
         (tester) async {
       final handle = tester.ensureSemantics();
@@ -223,12 +182,11 @@ void main() {
       expect(titel.headingLevel, 1);
     });
 
-    // HONEST NOTE (mutation run 2026-09-01): the `enabled:` guard in
-    // `_maybeHeading` is NOT what keeps this green. Removing it — annotating
-    // the empty `Text('')` unconditionally — leaves this case passing, because
+    // HONEST NOTE (mutation run 2026-09-01): the `label.isEmpty` branch in
+    // `PageHeader.build` (rows.dart) is NOT what keeps this green. Annotating
+    // an empty title unconditionally leaves this case passing, because
     // Flutter drops a header node that has neither a label nor a rect. The
-    // case pins the OUTCOME, not the guard; do not read it as proof that
-    // `_maybeHeading` still works.
+    // case pins the OUTCOME, not the branch.
     //
     // The counter-check below is what stops it from being green for the wrong
     // reason (semantics never enabled, `_sprungmarken` matching nothing at

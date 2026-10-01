@@ -170,13 +170,6 @@ extension WeightGoalInfo on WeightGoal {
   String menuLabel(AppLocalizations l10n) => kcalDelta == 0
       ? l10n.commonWeightGoalLabelMaintain
       : '${label(l10n)} · ${paceLabel(l10n)}';
-
-  /// Signed delta label, e.g. "−1100 kcal" / "±0".
-  String get deltaLabel {
-    if (kcalDelta == 0) return '±0';
-    final sign = kcalDelta > 0 ? '+' : '−';
-    return '$sign${kcalDelta.abs()} kcal';
-  }
 }
 
 // ---------------------------------------------------------------------------

@@ -102,7 +102,6 @@
   "todayMacroCarbs": "Kohlenhydrate",
   "todayMacroFat": "Fett",
   "todayMealsTitle": "Mahlzeiten",
-  "todaySemanticsOpenProfile": "Profil öffnen",
   "todaySemanticsCalorieProgress": "Kalorienfortschritt",
   "todaySemanticsCalorieProgressValue": "{percent} Prozent des Tagesziels gegessen",
   "@todaySemanticsCalorieProgressValue": {
@@ -415,7 +414,6 @@
   "foodBarcodeManualInvalid": "Bitte 8, 12 oder 13 Ziffern eingeben.",
   "foodBarcodeManualSubmit": "Produkt suchen",
   "foodScanMealTitle": "Mahlzeit scannen",
-  "recipesSubtitle": "Clean Meals mit KI-Bildern und fertigen Tracker-Werten.",
   "recipesCreateSemantics": "Eigenes Rezept anlegen",
   "recipesSearchClearTooltip": "Suche leeren",
   "recipesAllTitle": "Alle Rezepte",
@@ -1523,7 +1521,6 @@
   "authSublineLogin": "Dein Tagebuch wartet auf dich.",
   "authSublineRegister": "Erst dein Konto. Dann dein persönliches Tagesziel.",
   "authFieldPasswordLoginHint": "Dein Passwort",
-  "authFeatureFood": "Essen",
   "authErrorPasswordMissing": "Bitte gib dein Passwort ein.",
   "authRecoveryProgress": "Schritt {current} von {total}",
   "@authRecoveryProgress": {

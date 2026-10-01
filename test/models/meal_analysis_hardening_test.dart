@@ -180,17 +180,6 @@ void main() {
       expect(r.caloriesKcal, 325);
     });
 
-    test('_estimateGramsFromText greift bei estimatedGrams: 0', () {
-      final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
-        'mealName': 'Steak',
-        'caloriesKcal': 550,
-        'estimatedGrams': 0,
-        'kcalPer100G': 0,
-        'explanation': 'Geschaetzt rund 250 g Fleisch.',
-      });
-      expect(r.estimatedGrams, 250);
-    });
-
     test('unplausible Modelldichte (>900) wird verworfen', () {
       final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
         'mealName': 'Salat',
@@ -215,10 +204,10 @@ void main() {
     });
 
     test('echte Modellzahlen schlagen die namensbasierte Referenzdichte', () {
-      // 'Apfelkuchen' contains 'apfel' -> _knownKcalPer100G returns 52, but the
-      // two authoritative numbers of this photo say 333.
+      // 'Apfel' is an exact entry of the reference table (52 kcal/100 g), but
+      // the two authoritative numbers of this photo say 333.
       final r = MealAnalysisResult.fromEdgeFunction(<String, dynamic>{
-        'mealName': 'Apfelkuchen',
+        'mealName': 'Apfel',
         'caloriesKcal': 400,
         'estimatedGrams': 120,
         'kcalPer100G': null,

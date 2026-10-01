@@ -81,9 +81,9 @@ void main() {
   });
 
   // Removed: "Calories card shows the goal only once". The card is gone from
-  // the food tab, which now names the daily goal nowhere. Its absence is
-  // covered by food_diary_screen_test.dart, the goal itself by
-  // kcal_goal_consistency_test.dart.
+  // the food tab, which now names the daily goal nowhere. The history's place
+  // above the fold is pinned in food_diary_screen_test.dart, the goal itself
+  // in kcal_goal_consistency_test.dart.
 
   testWidgets('Food dock controls keep their targets and full labels', (
     tester,

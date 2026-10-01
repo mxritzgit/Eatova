@@ -1448,10 +1448,10 @@ class _SummaryStep extends StatelessWidget {
                 valueKey: const ValueKey('onboarding-summary-maintenance'),
               ),
               const _BreakdownDivider(),
-              // B2: this shows the PLAN, not the wish. `goal.paceLabel` /
-              // `goal.deltaLabel` keep promising the requested rate even after
-              // the safety floor or the 1 % cap changed it. With the effective
-              // rate the card also adds up: maintenance - target = delta.
+              // B2: this shows the PLAN, not the wish. `goal.paceLabel` keeps
+              // promising the requested rate even after the safety floor or
+              // the 1 % cap changed it. With the effective rate the card also
+              // adds up: maintenance - target = delta.
               _BreakdownRow(
                 key: const ValueKey('onboarding-summary-goal-row'),
                 label: l10n.onboardingSummaryGoalLabel(
@@ -1636,11 +1636,9 @@ class _MacroChip extends StatelessWidget {
   }
 }
 
-/// Signed kcal label for a COMPUTED difference, e.g. "−797 kcal" / "±0".
-///
-/// Counterpart to [WeightGoalInfo.deltaLabel] but for
-/// [KcalTargets.effectiveKcalDelta]; same notation including the real minus
-/// sign (U+2212), so the card mixes no glyphs.
+/// Signed kcal label for a COMPUTED difference ([KcalTargets
+/// .effectiveKcalDelta]), e.g. "−797 kcal" / "±0", with the real minus sign
+/// (U+2212).
 String _signedKcalLabel(int kcal) {
   if (kcal == 0) return '±0';
   final sign = kcal > 0 ? '+' : '−';

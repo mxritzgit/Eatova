@@ -2342,22 +2342,30 @@ class _CoachConversationArea extends StatelessWidget {
   final Widget conversation;
   final Widget? feedback;
 
+  // The boundary matters because of the LayoutBuilder: every rebuild below it
+  // (orb breath, thinking dots, each streamed token) relayouts it, and a
+  // relayout repaints up to the nearest boundary. Without one that was the
+  // whole tab, header and composer included, on every animation frame.
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) => Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Expanded(child: conversation),
-        if (feedback != null)
-          ConstrainedBox(
-            constraints: BoxConstraints(maxHeight: constraints.maxHeight * .6),
-            child: SingleChildScrollView(
-              key: const ValueKey('coach-feedback-scroll'),
-              padding: const EdgeInsets.symmetric(horizontal: _kShellInset),
-              child: feedback,
+  Widget build(BuildContext context) => RepaintBoundary(
+    child: LayoutBuilder(
+      builder: (context, constraints) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: conversation),
+          if (feedback != null)
+            ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: constraints.maxHeight * .6,
+              ),
+              child: SingleChildScrollView(
+                key: const ValueKey('coach-feedback-scroll'),
+                padding: const EdgeInsets.symmetric(horizontal: _kShellInset),
+                child: feedback,
+              ),
             ),
-          ),
-      ],
+        ],
+      ),
     ),
   );
 }

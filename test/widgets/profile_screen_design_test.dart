@@ -133,21 +133,10 @@ void main() {
     pinPhoneViewport(tester);
     await _pumpAsRoute(tester, _profile());
 
-    for (final key in <String>[
-      'profile-action-edit',
-      'profile-action-reset',
-      'profile-action-export',
-      'profile-action-about',
-      'profile-action-logout',
-      'profile-action-delete',
-    ]) {
-      expect(find.byKey(ValueKey(key)), findsNothing, reason: key);
-    }
     expect(find.text('DATEN & KONTO'), findsNothing);
     expect(find.text('Daten & Konto'), findsNothing);
-    // The day-reset action is gone from the whole app, here and on the goals
-    // page (`settings-reset-day`).
-    expect(find.text('Tagesdaten zurücksetzen'), findsNothing);
+    // The day reset is gone from the whole app (pinned in
+    // goals_screen_render_test.dart).
     // The last section is now Connections, followed only by the wordmark and
     // version.
     expect(find.text('Verbindungen'), findsOneWidget);

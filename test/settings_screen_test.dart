@@ -4,7 +4,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
-import 'package:eatova/src/theme/theme_mode_controller.dart';
 
 import 'support/harness.dart';
 
@@ -16,8 +15,9 @@ import 'support/harness.dart';
 //   1. Every row calls its callback, or it is decoration.
 //   2. A MISSING callback hides its row. Deliberately not "disabled": a grey
 //      entry claims the path exists and is merely unavailable.
-//   3. The appearance switch really sets the mode (the only setting this
-//      screen writes itself).
+//
+// The appearance switch (the only setting this screen writes itself) is
+// pinned in `test/settings_theme_mode_test.dart`.
 /// Counts route pops, proving the order "close first, then call the
 /// callback". The widget tree cannot show it: the popped route is still in it
 /// during its fade-out.
@@ -47,7 +47,6 @@ void main() {
     Future<void> Function()? onSignOut,
     Future<void> Function()? onDeleteAccount,
     Future<String> Function()? onExportData,
-    ThemeModeController? controller,
     Brightness brightness = Brightness.light,
     NavigatorObserver? observer,
   }) async {
@@ -63,8 +62,8 @@ void main() {
     };
     addTearDown(() => FlutterError.onError = prior);
 
-    // `localizedApp` instead of `pumpLocalized`: the ThemeModeScope has to sit
-    // ABOVE the MaterialApp, or the pushed settings route would not see it.
+    // `localizedApp` instead of `pumpLocalized`: the page is pushed as a route
+    // above a starter page, observed by [observer].
     final app = localizedApp(
       Builder(
         builder: (context) => Center(
@@ -90,11 +89,7 @@ void main() {
       navigatorObserver: observer,
     );
 
-    await tester.pumpWidget(
-      controller == null
-          ? app
-          : ThemeModeScope(controller: controller, child: app),
-    );
+    await tester.pumpWidget(app);
     await tester.tap(find.byKey(const ValueKey('open-settings')));
     await tester.pumpAndSettle();
   }
@@ -135,15 +130,15 @@ void main() {
   });
 
   testWidgets('die Attrappen der Vorlage sind nicht gebaut', (tester) async {
-    // Units, language and weekly summary have no function in this app; this
-    // assertion is the brake against building them in "for later".
+    // Units, a weekly summary and Apple Health have no function in this app;
+    // this assertion is the brake against building them in "for later".
+    // Language and password rows are real (settings_language_test.dart,
+    // account_change_flows_test.dart) and appear only with their scope.
     await pump(tester, onOpenGoals: () {});
 
     for (final text in const <String>[
       'Einheiten',
-      'Sprache',
       'Wochenrückblick',
-      'Passwort ändern',
       'Apple Health',
     ]) {
       expect(find.text(text), findsNothing, reason: text);
@@ -183,37 +178,6 @@ void main() {
     await pump(tester);
 
     expect(find.byKey(const ValueKey('settings-open-goals')), findsNothing);
-  });
-
-  testWidgets('die drei Optionen schalten den Modus wirklich um',
-      (tester) async {
-    final controller = ThemeModeController();
-    addTearDown(controller.dispose);
-
-    await pump(tester, controller: controller);
-    expect(controller.mode, ThemeMode.system);
-
-    await tippe(tester, find.byKey(const ValueKey('settings-theme-mode-dark')));
-    expect(controller.mode, ThemeMode.dark);
-
-    await tippe(tester, find.byKey(const ValueKey('settings-theme-mode-light')));
-    expect(controller.mode, ThemeMode.light);
-
-    await tippe(
-      tester,
-      find.byKey(const ValueKey('settings-theme-mode-system')),
-    );
-    expect(controller.mode, ThemeMode.system);
-  });
-
-  testWidgets('ohne ThemeModeScope fehlt die Erscheinungsbild-Zeile ersatzlos',
-      (tester) async {
-    // Previews and tests that pump only this screen: a switch without a
-    // controller would be a dead switch, so there is none.
-    await pump(tester);
-
-    expect(find.text('Erscheinungsbild'), findsNothing);
-    expect(find.byKey(const ValueKey('settings-theme-mode')), findsNothing);
   });
 
   // --- DATA & PRIVACY -------------------------------------------------------

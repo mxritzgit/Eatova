@@ -664,14 +664,8 @@ void main() {
   });
 
   group('composer', () {
-    testWidgets('"+" opens the photo attach sheet', (tester) async {
-      await _pump(tester, service: _Coach.create());
-      await tester.tap(find.byKey(const ValueKey('coach-attach')));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('coach-camera')), findsOneWidget);
-      expect(find.byKey(const ValueKey('coach-gallery')), findsOneWidget);
-    });
-
+    // "+" opening the attach sheet: coach_design_test.dart ('Attach-Sheet
+    // schliesst sich selbst'), which also checks the pop.
     testWidgets('send is disabled while the field is empty', (tester) async {
       final handle = tester.ensureSemantics();
       final svc = _Coach.create();

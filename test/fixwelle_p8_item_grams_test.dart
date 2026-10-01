@@ -22,26 +22,7 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
 
-import 'support/harness.dart' hide testWidgetsRobust;
-
-/// Viewport pinning plus overflow tolerance, as in the other sheet suites.
-void testWidgetsRobust(String description, WidgetTesterCallback callback) {
-  testWidgets(description, (tester) async {
-    tester.view.physicalSize = const Size(1179, 2556);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    final prior = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exception.toString().contains('overflowed')) return;
-      prior?.call(details);
-    };
-    addTearDown(() => FlutterError.onError = prior);
-
-    await callback(tester);
-  });
-}
+import 'support/harness.dart';
 
 /// One component, 100 g / 521 kcal — the density is consistent, so every number
 /// in this suite is easy to follow: n g are 5,21 * n kcal.

@@ -8,13 +8,14 @@
 //
 // The tests boot the real EatovaHomePage without sync (preview path): no boot
 // gate, no onboarding, all tabs reachable. Tab indices: Heute 0, Food 1,
-// recipes 2, coach 3.
+// recipes 2, Training 3, coach 4.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/eatova_home_page.dart';
 import 'package:eatova/src/app/home_store.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
@@ -114,32 +115,9 @@ void main() {
           isTrue);
     });
 
-    testWidgets('der Text im Rezept-Suchfeld bleibt stehen', (tester) async {
-      await _pumpHome(tester);
-      await _goToTab(tester, 2);
-
-      await tester.enterText(
-        find.byKey(const ValueKey('recipes-search-input')),
-        'Lachs',
-      );
-      // Unfocus: a focused EditableText keeps itself alive in the lazy
-      // ListView via AutomaticKeepAliveClientMixin, so the test would be green
-      // without proving anything.
-      FocusManager.instance.primaryFocus?.unfocus();
-      await tester.pump();
-
-      await _goToTab(tester, 0);
-      await _goToTab(tester, 2);
-
-      expect(
-        tester
-            .widget<TextField>(
-                find.byKey(const ValueKey('recipes-search-input')))
-            .controller
-            ?.text,
-        'Lachs',
-      );
-    });
+    // The recipe search draft surviving a tab trip is pinned in
+    // page_chrome_test.dart ('Today opens the correct account routes and keeps
+    // tab drafts') and navigation_interactions_test.dart with the real app.
 
     testWidgets('der Food-Tab bleibt beim Wechsel gemountet', (tester) async {
       await _pumpHome(tester);
@@ -245,8 +223,13 @@ void main() {
       await _pumpHome(tester);
       await _goToTab(tester, 4);
 
-      expect(find.byKey(const ValueKey('coach-ai-disclosure')), findsNothing,
-          reason: 'sonst steht die Aussage doppelt untereinander');
+      // Counts the statement itself: the old frame key `coach-ai-disclosure`
+      // exists nowhere in lib/ any more, so a key check could not fail.
+      expect(
+        find.textContaining(deL10n.coachDisclaimer, findRichText: true),
+        findsOneWidget,
+        reason: 'sonst steht die Aussage doppelt untereinander',
+      );
     });
   });
 }

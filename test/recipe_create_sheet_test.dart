@@ -10,7 +10,7 @@ import 'package:eatova/src/services/sync_error_messages.dart';
 
 import 'package:eatova/src/widgets/design/design.dart';
 
-import 'support/harness.dart' hide testWidgetsRobust;
+import 'support/harness.dart';
 
 // D5: sheets discard filled-in forms silently.
 //
@@ -42,25 +42,6 @@ const List<String> alleFeldKeys = <String>[
   'recipe-create-ingredients',
   'recipe-create-preparation',
 ];
-
-/// Viewport pinning + overflow tolerance, as in edit_meal_sheet_test.dart.
-void testWidgetsRobust(String description, WidgetTesterCallback callback) {
-  testWidgets(description, (tester) async {
-    tester.view.physicalSize = const Size(1179, 2556);
-    tester.view.devicePixelRatio = 3.0;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
-    final prior = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exception.toString().contains('overflowed')) return;
-      prior?.call(details);
-    };
-    addTearDown(() => FlutterError.onError = prior);
-
-    await callback(tester);
-  });
-}
 
 class _CreateCapture {
   final List<FitnessRecipe> created = <FitnessRecipe>[];

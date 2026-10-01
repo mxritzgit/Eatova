@@ -616,13 +616,9 @@ void main() {
       }
     });
 
-    renderMatrix('readableOnTint(carbs) bleibt AA auf seiner Tint',
-        (tester, c) async {
-      final t = c.t;
-      final tint = _ueber(t.carbs.withValues(alpha: 0.16), t.surf);
-      expect(_kontrast(t.readableOnTint(t.carbs), tint),
-          greaterThanOrEqualTo(4.5));
-    });
+    // readableOnTint(carbs) on its tint: hell_modus_audit_test.dart ('der
+    // MealAvatar-Buchstabe erreicht auf seinem eigenen Tint AA', every slot
+    // tone in both palettes).
   });
 
   // =========================================================================

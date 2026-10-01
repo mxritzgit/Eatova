@@ -1,16 +1,8 @@
 import 'dart:typed_data';
 
-enum MealPortionHint {
-  small('klein', '~30% weniger als Standardportion'),
-  normal('normal', 'Standardportion'),
-  large('groß', '~50% mehr als Standardportion'),
-  extraLarge('sehr groß', '~doppelte Standardportion');
-
-  const MealPortionHint(this.label, this.guidance);
-
-  final String label;
-  final String guidance;
-}
+/// Portion hint sent with a photo analysis; the Edge Function maps each name
+/// to its own prompt text.
+enum MealPortionHint { small, normal, large, extraLarge }
 
 /// Cooperative cancel handle for one photo analysis (Review 2026-08-27,
 /// F4-02): the result sheet cancels on dispose, the analyzer closes its

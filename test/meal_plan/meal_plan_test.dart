@@ -113,7 +113,6 @@ class _Fixture {
   }
 
   Future<void> settle() async {
-    await cache.flush();
     await cache.settle();
     await h.settle();
   }
@@ -231,7 +230,7 @@ void main() {
     },
   );
 
-  test('outbox conversion cannot coalesce or be lost to capacity', () {
+  test('outbox conversion survives the persisted wire format', () {
     final p = plan().copyWith(eatenAt: today);
     final meal = LoggedMeal(
       id: p.id,
@@ -239,9 +238,6 @@ void main() {
       loggedAt: today,
     );
     final conversion = SyncOp.mealPlanConvert(p, meal, trackDay: true);
-    final queue = enqueueCoalesced([conversion], SyncOp.mealUpsert(meal));
-    expect(queue, hasLength(2));
-    expect(queue.first.kind, SyncOpKind.mealPlanConvert);
     final restored = SyncOp.tryFromJson(
       jsonDecode(jsonEncode(conversion.toJson())) as Map<String, dynamic>,
     );

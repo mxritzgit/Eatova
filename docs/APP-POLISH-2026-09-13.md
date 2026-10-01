@@ -1,5 +1,14 @@
 # Today, meal entry and account design
 
+> **Partly superseded by the dark redesign (2026-09-28, PR #118).** Today no
+> longer has a direct Settings action (avatar -> Profile -> gear), a pinned
+> meal action or the Balance Duo layout; the Steps card moved below the first
+> viewport. Tab titles are 36 px, and Training no longer has a scoped dark
+> palette because the whole app is dark-only. See [Today](TODAY-DESIGN.md) and
+> the [handoff](PROJECT_HANDOFF.md#dark-redesign-of-the-five-tabs-2026-09-28-to-2026-09-30).
+> The meal-context row and picker, Barcode context, Profile and Settings
+> structure below still apply, on the dark tokens and fonts.
+
 ## Accepted direction
 
 The 2026-09-13 request brings the existing Eatova screens into a more consistent

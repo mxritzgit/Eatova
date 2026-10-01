@@ -33,6 +33,7 @@ import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/decimal_text.dart';
+import '../../widgets/common/lively.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/common/persistence_action.dart';
 import '../../widgets/design/design.dart';
@@ -558,9 +559,9 @@ class _RecipesScreenState extends State<RecipesScreen> {
   ///
   /// The second condition used to be "the store assigned a list" (a fresh list
   /// identity, or a non-empty one in [initState]). That is a proxy, and it
-  /// breaks in the one window it has to hold (P3-04b): the cache write is
-  /// debounced by 400 ms, so a kill inside that window leaves a stale-EMPTY
-  /// recipe slot behind. The next start hydrates `[]` — a fresh identity from
+  /// breaks in the one window it has to hold (P3-04b): the cache write lags
+  /// the mutation (then by a 400 ms debounce), so a kill inside that window
+  /// leaves a stale-EMPTY recipe slot behind. The next start hydrates `[]` — a fresh identity from
   /// the store, indistinguishable from a real answer — and the sweep would
   /// then delete every `img_*` file while the boot load is still fetching the
   /// recipes those files belong to. The photos exist ONLY on this device, so
@@ -568,12 +569,11 @@ class _RecipesScreenState extends State<RecipesScreen> {
   ///
   /// An `isNotEmpty` guard would be the wrong repair: "the user deleted all
   /// recipes" is a valid state that MUST collect. Empty is not the problem —
-  /// unfinished is. And unfinished has three shapes, all of them behind the
-  /// one flag (review 2026-08-31, A): the answer is still out, the answer
-  /// filled its page and stops at the newest `userRecipesLimit` recipes, or a
-  /// queued recipe is stuck in an unreadable outbox slot. The last two look
-  /// exactly like a finished list from here, which is why the flag — not this
-  /// screen — decides.
+  /// unfinished is. And unfinished has several shapes, all of them behind the
+  /// one flag (review 2026-08-31, A): the recipe or the photo-reference
+  /// snapshot is still out, or a queued recipe is stuck in an unreadable
+  /// outbox slot. The last looks exactly like a finished list from here, which
+  /// is why the flag — not this screen — decides.
   ///
   /// [_userRecipes] rather than [_visibleUserRecipes]: a recipe inside its undo
   /// window still needs its bytes.
@@ -1269,7 +1269,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
       ];
     }
 
-    return KeyedSubtree(
+    final page = KeyedSubtree(
       key: const PageStorageKey<String>('recipes-list'),
       child: ListView(
         key: const ValueKey('screen-recipes'),
@@ -1282,7 +1282,7 @@ class _RecipesScreenState extends State<RecipesScreen> {
           bottom: 48 + MediaQuery.paddingOf(context).bottom,
         ),
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-        children: [
+        children: livelyStagger([
           gutter(
             _RecipesHeader(
               key: TabChrome.headerKey,
@@ -1307,8 +1307,12 @@ class _RecipesScreenState extends State<RecipesScreen> {
           _RecipeChipBar(chips: _chips(l10n)),
           const SizedBox(height: 15),
           ...body,
-        ],
+        ]),
       ),
     );
+    // First view of the tab: the sections enter top to bottom, once per
+    // session (the shell keeps a visited tab mounted). Rows the lazy list
+    // builds later, or a new filter's rows, appear as they are.
+    return LivelyStaggerScope(child: page);
   }
 }

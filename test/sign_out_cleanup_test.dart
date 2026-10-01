@@ -83,13 +83,6 @@ class _SpyHealthService implements HealthService {
   Future<bool> writeWeight(double kg, DateTime when) async => false;
 
   @override
-  Future<List<WeightSample>> readWeightSamples({
-    required DateTime from,
-    required DateTime to,
-  }) async =>
-      const <WeightSample>[];
-
-  @override
   Future<int?> readStepsOnDay(DateTime day) async => null;
 }
 
@@ -286,18 +279,17 @@ void main() {
   });
 
   // P1-03: the sign-out button declares the intent BEFORE signOutCleanup and
-  // never renews it, but the cleanup runs sequentially through
-  // kSignOutDeliveryBudget (replay) + kSignOutDeliveryBudget (stats flush) +
-  // kCacheSnapshotWaitBudget (snapshot) — 53 s against a 30 s intent. A silent
-  // socket is enough; at the 20 s PostgREST timeout it is already 40 s. Past
+  // never renews it, but the cleanup could run for 53 s (two 25 s delivery
+  // budgets plus the snapshot wait, before #98) against a 30 s intent. Past
   // the deadline `consume()` said false and the gate reported „Deine Sitzung
-  // ist abgelaufen" after a DELIBERATE sign-out.
+  // ist abgelaufen" after a DELIBERATE sign-out. Any cleanup longer than the
+  // intent window proves the point.
   //
   // The clock is moved instead of really waiting: mark/refresh/consume all
   // read `clock.now()`, so the fixed clock reproduces exactly the elapsed time
   // the budgets allow, without the test running for a minute.
   group('P1-03 — die Abmelde-Absicht überlebt das Aufräumen', () {
-    final aufraeumdauer = kSignOutDeliveryBudget * 2 + kCacheSnapshotWaitBudget;
+    const aufraeumdauer = Duration(seconds: 53);
 
     test(
         'ein Aufräumen über die volle Frist hinaus bleibt eine gewollte '

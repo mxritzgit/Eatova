@@ -73,6 +73,4 @@ class WeightLog {
     if (!entry.weightKg.isFinite || entry.weightKg <= 0) return this;
     return WeightLog.capped([...entries, entry]);
   }
-
-  WeightLog clear() => const WeightLog();
 }

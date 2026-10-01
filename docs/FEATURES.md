@@ -1,7 +1,9 @@
 # Current features and platform support
 
 Base source review: **2026-09-14**, main through PR #88; authentication and
-onboarding updated **2026-09-16**. This is the current capability inventory.
+onboarding updated **2026-09-16**; Today, Settings and visual contracts
+updated **2026-10-01** for the dark redesign (PR #118). This is the current
+capability inventory.
 Dated reviews describe what was present at their own checkpoint.
 
 ## What is available
@@ -9,7 +11,7 @@ Dated reviews describe what was present at their own checkpoint.
 | Area / entry point | Implemented behavior | Source |
 | --- | --- | --- |
 | Account entry | Email/password and Google sign-in, code confirmation/recovery, six-step profile setup with editable summary | [Entry and onboarding](AUTH-ONBOARDING-DESIGN.md) |
-| Today | Calorie balance, macro bars, streak, selected-day steps, quick meal logging, Profile and Settings | [Today](../lib/src/screens/today/today_screen.dart) |
+| Today | Seven-day strip, calorie balance with activity credit, macro tiles, streak, recipe pick for the next open meal, per-slot add, steps and next workout; avatar to Profile | [Today](../lib/src/screens/today/today_screen.dart), [Today design](TODAY-DESIGN.md) |
 | Food | Breakfast/lunch/dinner/snack diary, meal editing and deletion, date calendar, favorites, history trends | [App shell](../lib/src/app/eatova_home_page.dart), [Food design](FOOD-DESIGN.md) |
 | Meal entry | Camera or gallery with optional context; barcode; product search; manual per-100-g values and a chosen portion; shared meal-slot picker | [Entry contracts](FOOD-ENTRY-POLISH-2026-09-14.md) |
 | Recipes | Browse catalog; create, edit or delete own/adopted recipes; photo, preparation, structured ingredients, fractional servings; add to selected diary date | [Recipes](../lib/src/screens/recipes/recipes_screen.dart) |
@@ -22,7 +24,7 @@ Dated reviews describe what was present at their own checkpoint.
 | Coach recipes | `/recipe` proposal with recipe text and a generated picture; explicit confirmation saves the recipe | [Recipe flow](../lib/src/screens/coach/coach_recipe.dart) |
 | Coach training | `/plan` brief with goal/experience/equipment/frequency/duration/constraints; optional selected-plan discussion or adaptation; explicit adoption | [Training brief](../lib/src/screens/coach/coach_training_brief.dart) |
 | Profile | Body data, daily goals, weight chart, health connection and lifetime statistics | [Profile](../lib/src/screens/profile_screen.dart) |
-| Settings | Language, theme, account changes, JSON export, sign-out and verified account deletion | [Settings](../lib/src/screens/settings/settings_screen.dart) |
+| Settings | Language (theme row hidden while dark-only), account changes, JSON export, sign-out and verified account deletion | [Settings](../lib/src/screens/settings/settings_screen.dart) |
 | Reminders | Local evening streak-at-risk notification, scheduled ahead; no server push channel | [Notifications](../lib/src/services/notification_service.dart) |
 
 ## Platform matrix
@@ -78,8 +80,8 @@ and [Backend](BACKEND.md) for persistence details.
   enum is not an exposed Sign in with Apple product flow.
 - Dietary preference can be chosen during onboarding; the current Profile and
   Settings screens do not expose a later diet editor.
-- JSON export is available through **Today → Settings → Export data**. Copying
-  the JSON is wired; native file sharing has a prepared callback but no app
+- JSON export is available through **Today → avatar (Profile) → gear
+  (Settings) → Export data**. Copying the JSON is wired; native file sharing has a prepared callback but no app
   wiring. It is not an import/restore feature. Unreadable or capped sections are
   identified. Diary, recipes and recipe history paginate; other sections have a
   10,000-row client limit (a server cap may be lower).
@@ -93,10 +95,12 @@ and [Backend](BACKEND.md) for persistence details.
 
 ## Current visual contracts
 
-Today uses the pastel Balance Duo dashboard; Food uses the Thumb First diary;
-Recipes uses Spotlight; Training uses the dark Nachtstudio direction. A shared
-original icon family connects Today, meal slots and navigation. Entry sheets,
-calendar, account pages and headers follow the subsequent polish work.
+Since the dark redesign (2026-09-28, PR #118) the app is dark-only (the light
+palette is dormant behind `kDarkOnly`), with Figtree for UI text, Bricolage
+Grotesque for display text and a floating glass tab bar. Today, Food, Recipes,
+Training and Coach have the redesigned tab roots; the recipe details, meal
+plan, shopping list, Training library/editor/player, entry sheets, calendar,
+account pages and auth keep their earlier structure on the dark tokens.
 
 The [design guide index](README.md#design-contracts-and-previews) links to the
 current contracts and actual Flutter previews.

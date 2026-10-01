@@ -6,98 +6,12 @@ import '../common/motion.dart';
 import 'text_scale.dart';
 
 // ---------------------------------------------------------------------------
-// METERS — tick gauge, macro bar, meal avatar, sparkline, dot grid.
+// METERS — macro bar, meal avatar, sparkline, dot grid.
 //
 // All of them take values from the network or from user input, so handling 0,
 // negatives, over-target, NaN and empty series without throwing is the job,
 // not a convenience.
 // ---------------------------------------------------------------------------
-
-/// The calorie gauge: a row of ticks filling with lime.
-class TickGauge extends StatelessWidget {
-  const TickGauge({
-    super.key,
-    required this.progress,
-    this.height = 28,
-    this.fillColor,
-    this.trackColor,
-  });
-
-  /// 0..1; out-of-range values and non-numbers are clamped.
-  final double progress;
-
-  final double height;
-
-  /// Defaults to [AppTokens.lime] on a dimmed [AppTokens.onForest] track — the
-  /// gauge sits on the forest hero card.
-  final Color? fillColor;
-  final Color? trackColor;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final safe = progress.isFinite ? progress.clamp(0.0, 1.0) : 0.0;
-    return TweenAnimationBuilder<double>(
-      tween: Tween<double>(begin: 0, end: safe),
-      // DESIGN_REFACTOR §5: reduced motion snaps the bar to its value instead
-      // of ramping it up over half a second.
-      duration: motionDuration(context, const Duration(milliseconds: 550)),
-      curve: Curves.easeOutCubic,
-      builder: (context, value, _) => SizedBox(
-        height: height,
-        width: double.infinity,
-        child: CustomPaint(
-          painter: _TickGaugePainter(
-            progress: value,
-            trackColor: trackColor ?? t.onForest.withValues(alpha: 0.20),
-            fillColor: fillColor ?? t.lime,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _TickGaugePainter extends CustomPainter {
-  _TickGaugePainter({
-    required this.progress,
-    required this.trackColor,
-    required this.fillColor,
-  });
-
-  final double progress;
-  final Color trackColor, fillColor;
-
-  static const double tickWidth = 4;
-  static const double gap = 5;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()..style = PaintingStyle.fill;
-    final count = ((size.width + gap) / (tickWidth + gap)).floor();
-    final filledUpTo = size.width * progress;
-
-    for (var i = 0; i < count; i++) {
-      final x = i * (tickWidth + gap);
-      paint.color = (x + tickWidth) <= filledUpTo ? fillColor : trackColor;
-      // Deliberate literal, not a scale token: the cap of a 4 px tick has to
-      // be half its width, or the ticks turn into dots.
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(
-          Rect.fromLTWH(x, 0, tickWidth, size.height),
-          const Radius.circular(2),
-        ),
-        paint,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(_TickGaugePainter old) =>
-      old.progress != progress ||
-      old.fillColor != fillColor ||
-      old.trackColor != trackColor;
-}
 
 /// One macro row: name, bar, "value / goal unit".
 class MacroBar extends StatelessWidget {
@@ -142,11 +56,8 @@ class MacroBar extends StatelessWidget {
           Expanded(
             child: TweenAnimationBuilder<double>(
               tween: Tween<double>(begin: 0, end: pct),
-              duration: motionDuration(
-                context,
-                const Duration(milliseconds: 500),
-              ),
-              curve: Curves.easeOutCubic,
+              duration: motionDuration(context, kMotionValue),
+              curve: kMotionCurve,
               // Deliberate literal (bar cap = half of the 9 px bar), outside
               // the rChip/rControl scale on purpose.
               builder: (context, v, _) => ClipRRect(

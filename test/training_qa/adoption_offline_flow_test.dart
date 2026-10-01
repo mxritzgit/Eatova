@@ -182,7 +182,7 @@ void main() {
       expect(store.trainingPlans, hasLength(1));
       expect(store.trainingPlans.single.incarnation, 1);
       await tester.pumpWidget(const SizedBox.shrink());
-      await _finishOperation(tester, cache.flush());
+      await _finishOperation(tester, cache.settle());
       await _finishOperation(tester, cache.settle());
       store.dispose();
       disposed = true;

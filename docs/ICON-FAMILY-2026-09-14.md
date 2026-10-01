@@ -1,5 +1,14 @@
 # Today, Food and navigation icon family
 
+> **Partly superseded by the dark redesign (2026-09-28, PR #118).** The five
+> tab glyphs in `AppIcon` were redrawn as the design's open-stroke icons, and
+> the Today and Food meal rows use `SlotIconTile` with its own glyphs (sunrise,
+> bowl, moon, apple). The croissant/bowl/plate/almond motifs of
+> `MealSlotStyle.symbol` remain in the meal pickers (`MealSlotPicker`,
+> `SlotSelector`, the analysis sheet and the recipe slot picker). The Today
+> metric motifs listed below are no longer placed on Today. Footer sizes,
+> Balance Duo colors and the light previews describe the 2026-09-14 state.
+
 The Today metrics, meal slots and bottom tabs now share 16 original vector
 pictograms. Their rounded contours, open spaces and subtle inset fills follow
 the existing Balance Duo theme. Active tabs have a slightly stronger stroke

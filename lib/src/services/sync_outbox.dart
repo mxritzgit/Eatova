@@ -410,8 +410,8 @@ class SyncOp {
   }
 
   /// The profile is ONE row per user (public.profiles.id = auth user), so a
-  /// fixed [entityId]: all profile ops share an [entityKey], coalesce into a
-  /// single entry, and the last change wins.
+  /// fixed [entityId]: all profile ops share an [entityKey] and replay in
+  /// order, so the last change wins.
   static const String profileEntityId = 'self';
 
   factory SyncOp.profileUpsert(UserProfile profile) => SyncOp._(
@@ -423,7 +423,7 @@ class SyncOp {
   /// A tracked logging day (`LifetimeStatsSync.recordTrackingDay`).
   ///
   /// [localDay] (`YYYY-MM-DD`) is also the [entityId], so all attempts for the
-  /// same day coalesce into one op. The payload is empty — the day is the
+  /// same day share one [entityKey]. The payload is empty — the day is the
   /// whole information.
   ///
   /// Idempotent both ways: the RPC counts a day once and is a no-op for days
@@ -481,25 +481,6 @@ class SyncOp {
   /// code alone and gets the larger [kOutboxDeleteMaxAttempts] budget; like
   /// every intent it stays queued once automatic retry stops.
   bool get isDelete => kind.isDelete;
-
-  /// True for upsert-like ops — only those may be coalesced (payload
-  /// replaced) on enqueue.
-  ///
-  /// [SyncOpKind.trackingDay] counts although it is no row upsert: its
-  /// payload is empty, so replacing equals keeping, and without coalescing
-  /// every further log of the same day appended an identical op.
-  ///
-  /// [SyncOpKind.statsIncrement] deliberately does NOT count: each entry is
-  /// its own idempotent unit with its own request id and is always appended.
-  /// Replacing would swallow a counter the server may already have booked.
-  bool get isUpsert =>
-      kind == SyncOpKind.mealInsert ||
-      kind == SyncOpKind.mealUpsert ||
-      kind == SyncOpKind.favoriteUpsert ||
-      kind == SyncOpKind.recipeUpsert ||
-      kind == SyncOpKind.trainingPlanUpsert ||
-      kind == SyncOpKind.profileUpsert ||
-      kind == SyncOpKind.trackingDay;
 
   // ---- Payload accessors (defensive: corrupt -> null) ----------------------
 
@@ -785,55 +766,6 @@ Iterable<SyncOp> recipeProjectionOps(Iterable<SyncOp> operations) sync* {
     projected[op.operationId] = effective;
     yield effective;
   }
-}
-
-/// Enqueues [op] FIFO. Coalescing keeps the queue short without breaking
-/// per-entity order:
-///  * If the last op of the same entity is also an upsert, its payload is
-///    replaced instead of appended. A pending mealInsert keeps its kind and
-///    track_day so replay still counts the stats.
-///  * Everything else (deletes, upsert after delete, other entities) is
-///    appended — strict FIFO preserves insert -> update -> delete.
-/// [appendOnly] MUST be set while a replay runs: it may be replaying exactly
-/// the op whose payload would be replaced and then lost on removal.
-///
-/// Coalescing resets [SyncOp.attempts] to 0 — the counter measures rejections
-/// of THAT payload, and the payload just changed. Otherwise correcting a
-/// rejected 200000 kcal entry to 500 would drop the valid correction at once.
-/// [SyncOp.queuedAt] is kept: it is the FIFO position, unrelated to payload
-/// validity.
-///
-/// Accepted trade-off: a permanently broken entity the user keeps editing is
-/// never dropped. Fine — coalescing holds it at exactly one slot. Do not
-/// "fix" that by carrying the counter over.
-List<SyncOp> enqueueCoalesced(
-  List<SyncOp> queue,
-  SyncOp op, {
-  bool appendOnly = false,
-}) {
-  if (op.isUpsert && !appendOnly) {
-    for (var i = queue.length - 1; i >= 0; i--) {
-      final existing = queue[i];
-      if (existing.entityKey != op.entityKey) continue;
-      if (!existing.isUpsert) break; // Delete in between -> append.
-      final merged =
-          existing.kind == SyncOpKind.mealInsert &&
-              op.kind == SyncOpKind.mealUpsert
-          ? SyncOp._(
-              kind: SyncOpKind.mealInsert,
-              entityId: op.entityId,
-              payload: {...op.payload, 'track_day': existing.trackDay},
-              queuedAt: existing.queuedAt,
-              // attempts stays at the default 0 — NOT existing.attempts,
-              // see docs above.
-            )
-          : op; // comes from a factory, so attempts == 0 as well.
-      final next = [...queue];
-      next[i] = merged;
-      return next;
-    }
-  }
-  return [...queue, op];
 }
 
 // ---- (De)serialization LoggedMeal / FavoriteMeal ----------------------------

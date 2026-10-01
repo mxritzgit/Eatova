@@ -82,7 +82,7 @@ void main() {
       ))!;
       final cache = LocalCache(InMemoryKeyValueStore(), 'A');
       await cache.writeProfile(const UserProfile(onboardingCompleted: true));
-      await cache.flush();
+      await cache.settle();
       final op = SyncOp.mealDelete('11111111-1111-4111-8111-111111111111');
       await cache.commitSyncOperations([op]);
       await pumpLocalized(

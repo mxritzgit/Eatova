@@ -31,6 +31,7 @@ import '../services/trend_service.dart';
 import '../theme/app_tokens.dart';
 import '../theme/meal_slot_style.dart';
 import '../widgets/common/app_snack.dart';
+import '../widgets/common/lively.dart';
 import '../widgets/design/design.dart';
 import '../widgets/kcal/add_meal_sheet.dart';
 import '../widgets/kcal/diary_meal_card.dart';
@@ -528,17 +529,21 @@ class MealAnalysisScreen extends StatelessWidget {
                   navInset +
                       (floating ? FoodEntryDock.height + _dockClearance : 20),
                 ),
-                child: Column(
-                  key: const ValueKey('food-diary-content'),
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    ...chrome,
-                    diary,
-                    floating
-                        ? const SizedBox.shrink()
-                        : const SizedBox(height: 20),
-                    floating ? const SizedBox.shrink() : dock,
-                  ],
+                // Own layer: scrolling moves the recorded diary instead of
+                // re-recording it every frame.
+                child: RepaintBoundary(
+                  child: Column(
+                    key: const ValueKey('food-diary-content'),
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: livelyStagger([
+                      ...chrome,
+                      diary,
+                      floating
+                          ? const SizedBox.shrink()
+                          : const SizedBox(height: 20),
+                      floating ? const SizedBox.shrink() : dock,
+                  ]),
+                  ),
                 ),
               ),
             ),
@@ -569,7 +574,10 @@ class MealAnalysisScreen extends StatelessWidget {
                 left: 14,
                 right: 14,
                 bottom: navInset,
+                child: LivelyStaggerItem(
+                  index: LivelyStaggerScope.maxIndex,
                 child: ReadableWidth(child: dock),
+              ),
               ),
           ],
         );
@@ -583,9 +591,12 @@ class MealAnalysisScreen extends StatelessWidget {
             child: KeyedSubtree(
               key: const ValueKey('screen-kcal-tracker'),
               // A new date starts at the first meal, not at the old scroll
-              // offset.
+              // offset. The first-view entrance sits above that key: it
+              // plays once, not again for every day.
+              child: LivelyStaggerScope(
               child: KeyedSubtree(key: ValueKey(selectedDate), child: body),
             ),
+          ),
           ),
         );
       },
@@ -673,52 +684,9 @@ String foodHeaderDateLabel(DateTime date, AppLocalizations l10n) {
   return '$weekday, $day';
 }
 
-// ---------------------------------------------------------------------------
-// B5: calendar arithmetic of the date strip
-// ---------------------------------------------------------------------------
-//
-// `Duration` is absolute time, not a calendar. Across a DST change
-// `today.subtract(Duration(days: 1))` skipped a day, so the "yesterday" chip
-// carried the wrong date and meals logged from it got the wrong `local_day`;
-// `.difference(...).inDays` was off by the same 23-hour day.
-//
-// Both now go through `day_math.dart`, as free functions so they can be tested
-// against an arbitrary anchor instead of only `clock.now()`.
-
-/// The strip's days: [pastDays] past days plus [today], ascending.
-@visibleForTesting
-List<DateTime> foodDateStripDays({
-  required DateTime today,
-  required int pastDays,
-}) {
-  return dayStrip(today: today, pastDays: pastDays);
-}
-
-/// A chip's headline: for older days the weekday, since the date already
-/// stands below it. Uses `intl`'s `EE` skeleton; the trailing dot of the
-/// German CLDR abbreviations is stripped so `de` stays byte-identical.
-@visibleForTesting
-String foodDateChipLabel(DateTime today, DateTime date, AppLocalizations l10n) {
-  final offset = daysBetween(today, date);
-  if (offset == 0) return l10n.todayDateToday;
-  if (offset == 1) return l10n.todayDateYesterday;
-  _ensureDateSymbols();
-  return DateFormat('EE', l10n.localeName).format(date).replaceAll('.', '');
-}
-
-/// A chip's date line, locale-aware via `intl`'s `Md` skeleton ("27.8." in
-/// `de`, "8/27" in `en`) — the same format the store's move snack uses.
-@visibleForTesting
-String foodDateChipDate({
-  required DateTime date,
-  required AppLocalizations l10n,
-}) {
-  _ensureDateSymbols();
-  return DateFormat.Md(l10n.localeName).format(date);
-}
-
-/// The line above the chips naming the selected day. Reads the same ARB keys
-/// as `today_texts.dart:todayDateLabel` so the two copies cannot drift.
+/// The headline of the day navigation naming the selected day. Reads the same
+/// ARB keys as `today_texts.dart:todayDateLabel` so the two copies cannot
+/// drift. Counts calendar days via [daysBetween], never `Duration` (B5).
 @visibleForTesting
 String foodDateSelectedLabel(
   DateTime today,

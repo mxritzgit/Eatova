@@ -62,19 +62,6 @@ class ChatMessage {
           : null,
     );
   }
-
-  ChatMessage copyWith({String? content, bool? refusal}) {
-    return ChatMessage(
-      id: id,
-      role: role,
-      content: content ?? this.content,
-      createdAt: createdAt,
-      refusal: refusal ?? this.refusal,
-      imageBytes: imageBytes,
-      recipeProposal: recipeProposal,
-      trainingPlanProposal: trainingPlanProposal,
-    );
-  }
 }
 
 enum ChatRole { user, assistant }
@@ -112,18 +99,4 @@ class ChatQuotaSnapshot {
   /// via RPC. Display-only fallback for widgets that need a number; whether the
   /// composer locks depends solely on the snapshot, never on this constant.
   static const int standardTageslimit = 5;
-
-  ChatQuotaSnapshot copyWith({
-    int? used,
-    int? remaining,
-    int? dailyLimit,
-    bool? limitAssumed,
-  }) {
-    return ChatQuotaSnapshot(
-      used: used ?? this.used,
-      remaining: remaining ?? this.remaining,
-      dailyLimit: dailyLimit ?? this.dailyLimit,
-      limitAssumed: limitAssumed ?? this.limitAssumed,
-    );
-  }
 }

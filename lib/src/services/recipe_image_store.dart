@@ -164,9 +164,6 @@ class RecipeImageStore {
     return _afterMaintenance(() => _purgeNamespace(previous));
   }
 
-  @visibleForTesting
-  String? get activeUserId => _activeUserId;
-
   // --- References -----------------------------------------------------------
 
   /// True when [imageAsset] points to a file stored here.
@@ -478,8 +475,8 @@ class RecipeImageStore {
   ///
   ///   * the boot load has not ANSWERED for user_recipes — a list the store
   ///     merely assigned can be a stale-empty cache slot;
-  ///   * the answer filled its page (`UserRecipesSync.userRecipesLimit`), so
-  ///     it holds the newest recipes and not the older ones;
+  ///   * the photo references (recipe history included) have not answered —
+  ///     history can keep a photo the current recipe no longer names;
   ///   * the outbox slot was unreadable, so a queued recipe never made it back
   ///     into the list.
   ///

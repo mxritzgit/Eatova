@@ -178,7 +178,6 @@ void main() {
     });
 
     expect(overflows, isEmpty, reason: describeOverflows(overflows));
-    expect(find.text('ANZEIGE'), findsNothing);
     expect(find.byKey(const ValueKey('settings-theme-mode')), findsNothing);
   });
 
@@ -279,8 +278,7 @@ void main() {
     await _pump(tester, brightness: Brightness.light);
 
     expect(find.byKey(const ValueKey('settings-save')), findsOneWidget);
-    // `settings-reset-day` was removed; pinned so it cannot return.
-    expect(find.byKey(const ValueKey('settings-reset-day')), findsNothing);
+    // The day reset was removed from the whole app; pinned so it cannot return.
     expect(find.text('Tagesdaten zurücksetzen'), findsNothing);
     expect(find.byKey(const ValueKey('settings-privacy-link')), findsOneWidget);
     expect(find.byKey(const ValueKey('settings-terms-link')), findsOneWidget);

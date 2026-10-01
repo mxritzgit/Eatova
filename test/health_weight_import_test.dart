@@ -58,12 +58,6 @@ class _FakeHealthService implements HealthService {
   }
 
   @override
-  Future<List<WeightSample>> readWeightSamples({
-    required DateTime from,
-    required DateTime to,
-  }) async => const <WeightSample>[];
-
-  @override
   Future<int?> readStepsOnDay(DateTime day) async => null;
 }
 

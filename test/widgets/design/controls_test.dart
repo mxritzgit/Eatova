@@ -676,20 +676,31 @@ void main() {
         expect(label(idle).fontWeight, FontWeight.w600);
       }
 
-      final capsules = tester
-          .widgetList<AnimatedContainer>(
-            find.descendant(
-              of: find.byType(AppNavBar),
-              matching: find.byType(AnimatedContainer),
+      // One pill for the whole bar (it slides between items): it covers the
+      // active item's 48x28 capsule slot, centred on its icon, and it is the
+      // only accent capsule painted.
+      final track = tester.renderObject(find.byKey(const ValueKey('nav-pill')));
+      final pill = AppNavBar.debugPillRect(track)!;
+      expect(pill.size, const Size(48, 28));
+      expect(
+        pill.center,
+        offsetMoreOrLessEquals(
+          tester.getCenter(
+            find.byWidgetPredicate(
+              (w) => w is AppIcon && w.symbol == AppSymbol.recipes,
             ),
-          )
-          .map((c) => (c.decoration! as BoxDecoration).color)
-          .toList();
-      expect(capsules, <Color>[
-        Colors.transparent,
-        t.accentTintStrong,
-        Colors.transparent,
-      ]);
+          ),
+        ),
+      );
+      expect(track, paints..rrect(color: t.accentTintStrong));
+      expect(
+        track,
+        isNot(
+          paints
+            ..rrect(color: t.accentTintStrong)
+            ..rrect(color: t.accentTintStrong),
+        ),
+      );
 
       final icons = tester.widgetList<AppIcon>(find.byType(AppIcon)).toList();
       expect(icons.map((icon) => icon.color), <Color>[

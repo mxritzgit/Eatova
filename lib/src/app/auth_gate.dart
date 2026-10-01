@@ -36,15 +36,13 @@ abstract final class IntentionalSignOut {
   /// intent: an involuntary session end runs through the same cleanup, and one
   /// invented here would silence exactly the message it must not silence.
   ///
-  /// P1-03: `HomeStore.signOutCleanup` runs before the `signOut` call and may
-  /// take `2 * kSignOutDeliveryBudget + kCacheSnapshotWaitBudget` (up to 53 s)
-  /// — realistically already 40 s at the PostgREST request timeout. Measured
-  /// from the button press, a DELIBERATE sign-out therefore expired and the
-  /// gate reported "your session has expired". Raising [gueltigkeit] would
-  /// have tied this number to three budgets in another file, by hand: the
-  /// comment above it already claimed to cover the cleanup and was wrong by a
-  /// factor of two. So the intent hangs off the END of the cleanup instead of
-  /// off a deadline someone has to keep in step.
+  /// P1-03: `HomeStore.signOutCleanup` runs before the `signOut` call and
+  /// could take up to 53 s when it still delivered the outbox. Measured from
+  /// the button press, a DELIBERATE sign-out therefore expired and the gate
+  /// reported "your session has expired". Raising [gueltigkeit] would have
+  /// tied this number to budgets in another file, by hand. So the intent hangs
+  /// off the END of the cleanup instead of off a deadline someone has to keep
+  /// in step.
   static void refresh() {
     if (_markiertAm != null) _markiertAm = clock.now();
   }
@@ -72,9 +70,9 @@ Future<void> purgePersonalCacheFor(
   bool Function()? isInactive,
 }) async {
   if (userId.isEmpty || (isInactive != null && !isInactive())) return;
-  // F1-02: silence the store's OWN instance first — its debounce timer and
-  // late live-op callbacks would otherwise write into the slots this purge
-  // clears. Independent of whether the second instance can be built.
+  // F1-02: silence the store's OWN instance first — its late live-op
+  // callbacks would otherwise write into the slots this purge clears.
+  // Independent of whether the second instance can be built.
   //
   // P3-01: AWAITED. Closing only stops writes that have not started; a blob
   // already encrypting in the isolate lands 200-400 ms later, and the second

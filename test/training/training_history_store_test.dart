@@ -98,13 +98,11 @@ class _Server {
     final kind = params?['p_kind'];
     Object? result = [];
     final isHistory = request.url.path.endsWith('/training_history');
-    final isRecord =
-        request.url.path.endsWith('/rpc/record_training_history') ||
-        kind == 'trainingHistoryInsert';
-    final isDelete =
-        request.url.path.endsWith('/rpc/delete_training_history') ||
-        kind == 'trainingHistoryDelete';
-    if (isRecord || isDelete) {
+    // History writes travel only as sync operations; lib has no direct
+    // record/delete RPC any more.
+    final isRecord = kind == 'trainingHistoryInsert';
+    final isDelete = kind == 'trainingHistoryDelete';
+    if (params != null && (isRecord || isDelete)) {
       if (offline) throw http.ClientException('fixture offline');
       if (rejectHistory) {
         return http.Response(
@@ -116,7 +114,6 @@ class _Server {
       }
       if (!entered.isCompleted) entered.complete();
       await hold?.future;
-      final body = params ?? jsonDecode(request.body) as Map<String, dynamic>;
       final bearer =
           request.headers['Authorization'] ??
           request.headers['authorization'] ??
@@ -131,41 +128,19 @@ class _Server {
                     as Map)['sub']
                 as String
           : 'A';
-      final key = '$owner:${body[params == null ? 'p_id' : 'p_entity_id']}';
-      if (params != null) {
-        final sync = _operations(owner);
-        for (final deletedKey in deleted.where(
-          (key) => key.startsWith('$owner:'),
-        )) {
-          sync.deleted.add(
-            'training_history:${deletedKey.substring(owner.length + 1)}',
-          );
-        }
-        result = sync.apply(params);
-        if (isDelete) deleted.add(key);
-        if (isRecord && ambiguous) {
-          throw http.ClientException('fixture lost response');
-        }
-      } else if (isRecord) {
-        result = !deleted.contains(key);
-        if (result == true) {
-          rows.putIfAbsent(
-            key,
-            () => {
-              'user_id': owner,
-              'id': body['p_id'],
-              'finished_at': body['p_finished_at'],
-              'session': body['p_session'],
-            },
-          );
-        }
-        if (ambiguous) {
-          throw http.ClientException('fixture lost response');
-        }
-      } else {
-        deleted.add(key);
-        rows.remove(key);
-        result = null;
+      final key = '$owner:${params['p_entity_id']}';
+      final sync = _operations(owner);
+      for (final deletedKey in deleted.where(
+        (key) => key.startsWith('$owner:'),
+      )) {
+        sync.deleted.add(
+          'training_history:${deletedKey.substring(owner.length + 1)}',
+        );
+      }
+      result = sync.apply(params);
+      if (isDelete) deleted.add(key);
+      if (isRecord && ambiguous) {
+        throw http.ClientException('fixture lost response');
       }
     } else if (params != null) {
       result = _operations('A').apply(params);
@@ -317,7 +292,6 @@ class _Harness {
 
   Future<void> settle() async {
     await h.settle();
-    await cache.flush();
     await cache.settle();
   }
 }

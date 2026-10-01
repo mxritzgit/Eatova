@@ -234,7 +234,7 @@ String _lies(String pfad) {
 }
 
 // ---------------------------------------------------------------------------
-// "Echte Fotos" — the claim detector behind the recipesSubtitle rule below
+// "Echte Fotos" — the claim detector behind the ARB photo-claim rule below
 // ---------------------------------------------------------------------------
 
 /// Stems naming a picture, matched as a PREFIX so German compounds and plurals
@@ -307,8 +307,6 @@ const Map<String, String> _festeFarbenErlaubt = <String, String>{
       'camera overlay on the live viewfinder: black/white scrims and glyphs on video, deliberately mode-independent',
   'lib/src/screens/meal_camera_sheet.dart':
       'camera overlay on the live viewfinder (see file comment), deliberately mode-independent',
-  'lib/src/screens/recipes/recipe_cards.dart':
-      'legibility scrim over a recipe photo: black gradient on an image, not on a surface',
 };
 
 /// Files that may name the raw heading properties (`header:`,
@@ -731,11 +729,15 @@ void main() {
         r'Color\(0x|Color\.fromARGB\(|Colors\.(?!transparent\b)[a-zA-Z]',
       );
       final treffer = <String>[];
+      final genutzteAusnahmen = <String>{};
       for (final quelle in _libQuellen) {
         if (quelle.pfad.startsWith('lib/src/theme/')) continue;
-        if (_festeFarbenErlaubt.containsKey(quelle.pfad)) continue;
+        final erlaubt = _festeFarbenErlaubt.containsKey(quelle.pfad);
         for (final zeile in quelle.ohneKommentare.split('\n')) {
-          if (feste.hasMatch(zeile)) {
+          if (!feste.hasMatch(zeile)) continue;
+          if (erlaubt) {
+            genutzteAusnahmen.add(quelle.pfad);
+          } else {
             treffer.add('${quelle.pfad}: ${zeile.trim()}');
           }
         }
@@ -747,9 +749,12 @@ void main() {
             'Farben gehoeren als Token nach app_tokens.dart (oder mit '
             'Begruendung in _festeFarbenErlaubt):\n${treffer.join('\n')}',
       );
-      // The allowlist must not outlive its files.
+      // The allowlist must not outlive its files, nor the colors that earned
+      // the exemption: a stale entry exempts a whole file for nothing.
       for (final pfad in _festeFarbenErlaubt.keys) {
         expect(File(pfad).existsSync(), isTrue, reason: '$pfad fehlt');
+        expect(genutzteAusnahmen, contains(pfad),
+            reason: '$pfad haelt keine feste Farbe mehr - Eintrag entfernen');
       }
     });
 
@@ -1142,15 +1147,16 @@ const x = 'today';
     });
 
     // -----------------------------------------------------------------------
-    // recipesSubtitle darf keine echten Fotos behaupten
+    // Kein UI-Text darf echte Fotos behaupten
     //
     // Every one of the 30 catalog images in `assets/recipes/` is AI-generated
     // and carries a burnt-in "AI Generated" badge in its bottom right corner —
     // verified image by image. The imprint on eatova.de declares them as such.
-    // The subtitle used to read "Clean Meals mit echten Bildern …" /
+    // The recipes subtitle used to read "Clean Meals mit echten Bildern …" /
     // "… with real photos …", so the user read "real photos" one line above a
     // grid of pictures each stamped "AI Generated", and the app contradicted
-    // its own imprint.
+    // its own imprint. That subtitle is gone; the rule now covers every ARB
+    // value, so the claim cannot come back under another key.
     //
     // The rule is about the CLAIM, not about one wording: an image word with a
     // reality word next to it. That way "echte Fotos", "reale Aufnahmen" and
@@ -1158,25 +1164,28 @@ const x = 'today';
     // Tracker-Werten" passes — the values really are real, only the pictures
     // are not.
     // -----------------------------------------------------------------------
-    test('recipesSubtitle behauptet in keiner Sprache echte Fotos', () {
+    test('kein ARB-Text behauptet in irgendeiner Sprache echte Fotos', () {
       final treffer = <String>[];
       for (final pfad in const <String>[
         'lib/l10n/app_de.arb',
         'lib/l10n/app_en.arb',
       ]) {
-        final wert =
-            (jsonDecode(_lies(pfad)) as Map<String, dynamic>)['recipesSubtitle']
-                as String?;
-        expect(wert, isNotNull, reason: '$pfad kennt recipesSubtitle nicht');
-        final grund = _echtheitsBehauptung(wert!);
-        if (grund != null) treffer.add('$pfad: "$wert" — $grund');
+        final arb = jsonDecode(_lies(pfad)) as Map<String, dynamic>;
+        for (final eintrag in arb.entries) {
+          final wert = eintrag.value;
+          if (eintrag.key.startsWith('@') || wert is! String) continue;
+          final grund = _echtheitsBehauptung(wert);
+          if (grund != null) {
+            treffer.add('$pfad ${eintrag.key}: "$wert" — $grund');
+          }
+        }
       }
       expect(
         treffer,
         isEmpty,
         reason: 'Die Katalogbilder sind KI-generiert und tragen ein '
             'eingebranntes "AI Generated"-Abzeichen; das Impressum sagt das '
-            'auch. Die Unterzeile darf ihnen nicht widersprechen:\n'
+            'auch. Kein Text darf ihnen widersprechen:\n'
             '${treffer.join('\n')}',
       );
     });

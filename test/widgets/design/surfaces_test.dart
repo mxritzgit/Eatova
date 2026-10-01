@@ -50,33 +50,6 @@ void main() {
     });
   });
 
-  group('ScreenTitle', () {
-    testWidgets('zeigt Titel, optionalen Untertitel und trailing',
-        (tester) async {
-      await tester.pumpWidget(
-        designHarness(
-          const ScreenTitle(
-            title: 'Ernaehrung',
-            subtitle: 'Sonntag, 9. August',
-            trailing: Icon(Icons.person_outline),
-          ),
-        ),
-      );
-
-      expect(find.text('Ernaehrung'), findsOneWidget);
-      expect(find.text('Sonntag, 9. August'), findsOneWidget);
-      expect(find.byIcon(Icons.person_outline), findsOneWidget);
-    });
-
-    testWidgets('ohne Untertitel bleibt nur der Titel', (tester) async {
-      await tester.pumpWidget(
-        designHarness(const ScreenTitle(title: 'Nur Titel')),
-      );
-
-      expect(find.byType(Text), findsOneWidget);
-    });
-  });
-
   group('SectionHeading', () {
     testWidgets('setzt den Titel links und den gedaempften Text rechts',
         (tester) async {
@@ -136,31 +109,6 @@ void main() {
     });
   });
 
-  group('DottedAddSlot', () {
-    testWidgets('Tap ruft onTap', (tester) async {
-      var taps = 0;
-      await tester.pumpWidget(
-        designHarness(
-          DottedAddSlot(label: 'Lebensmittel hinzufuegen', onTap: () => taps++),
-        ),
-      );
-
-      await tester.tap(find.byType(DottedAddSlot));
-      expect(taps, 1);
-      expect(find.text('Lebensmittel hinzufuegen'), findsOneWidget);
-    });
-
-    testWidgets('ohne onTap bleibt der Slot tippbar ohne zu werfen',
-        (tester) async {
-      await tester.pumpWidget(
-        designHarness(const DottedAddSlot(label: 'Leer')),
-      );
-
-      await tester.tap(find.byType(DottedAddSlot), warnIfMissed: false);
-      expect(tester.takeException(), isNull);
-    });
-  });
-
   testWidgets('alle Flaechen rendern in hell und dunkel', (tester) async {
     pinPhoneViewport(tester);
     await expectRendersInBothBrightnesses(
@@ -168,10 +116,8 @@ void main() {
       () => const Column(
         children: [
           AppCard(child: Text('Karte')),
-          ScreenTitle(title: 'Titel', subtitle: 'Untertitel'),
           SectionHeading(title: 'Abschnitt', trailing: 'rechts'),
           SizedBox(height: 90, child: ImagePlaceholder()),
-          DottedAddSlot(label: 'Hinzufuegen'),
         ],
       ),
       scrollable: true,
@@ -185,10 +131,8 @@ void main() {
       const Column(
         children: [
           AppCard(child: Text('Karteninhalt mit laengerem Text')),
-          ScreenTitle(title: 'Ernaehrung', subtitle: 'Sonntag, 9. August'),
           SectionHeading(title: 'Makros', trailing: 'Tagesziele'),
           SizedBox(height: 90, child: ImagePlaceholder()),
-          DottedAddSlot(label: 'Lebensmittel hinzufuegen'),
         ],
       ),
     );

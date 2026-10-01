@@ -8,6 +8,6 @@
     <!-- Window theme once the process runs: colors the window while the
          Flutter UI initializes and behind it afterwards. V2 embedding only. -->
     <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
-        <item name="android:windowBackground">?android:colorBackground</item>
+        <item name="android:windowBackground">@color/launch_background</item>
     </style>
 </resources>

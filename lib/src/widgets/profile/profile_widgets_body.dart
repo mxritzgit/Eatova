@@ -250,7 +250,7 @@ class WeightCard extends StatelessWidget {
   }
 }
 
-/// BMI card: semicircle gauge, zone chip and the remaining body data.
+/// BMI card: value, zone chip and the remaining body data.
 class BmiCard extends StatelessWidget {
   const BmiCard({super.key, required this.profile, required this.log});
 
@@ -269,8 +269,8 @@ class BmiCard extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     final bmi = _bmi;
-    final bmiLabel = BMIGaugePainter.labelFor(bmi, l10n);
-    final bmiColor = BMIGaugePainter.colorFor(t, bmi);
+    final bmiLabel = BmiZones.labelFor(bmi, l10n);
+    final bmiColor = BmiZones.colorFor(t, bmi);
 
     return _ProfileSurface(
       child: Column(
@@ -430,8 +430,8 @@ class _BmiInfoSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    // Name AND colour come from [BMIGaugePainter]; a second copy here is where
-    // the legend would silently drift from gauge and zone chip. The sample
+    // Name AND colour come from [BmiZones]; a second copy here is where
+    // the legend would silently drift from the zone chip. The sample
     // values sit in the middle of their zone.
     final zones = <(String, String, Color)>[
       for (final z in <(double, String)>[
@@ -441,9 +441,9 @@ class _BmiInfoSheet extends StatelessWidget {
         (32.0, '≥ 30.0'),
       ])
         (
-          BMIGaugePainter.labelFor(z.$1, l10n),
+          BmiZones.labelFor(z.$1, l10n),
           z.$2,
-          BMIGaugePainter.colorFor(t, z.$1),
+          BmiZones.colorFor(t, z.$1),
         ),
     ];
     // Handle stays pinned, the rest scrolls: at 2x system font the zone list

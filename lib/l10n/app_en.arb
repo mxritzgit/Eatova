@@ -102,7 +102,6 @@
   "todayMacroCarbs": "Carbs",
   "todayMacroFat": "Fat",
   "todayMealsTitle": "Meals",
-  "todaySemanticsOpenProfile": "Open profile",
   "todaySemanticsCalorieProgress": "Calorie progress",
   "todaySemanticsCalorieProgressValue": "{percent} percent of daily goal eaten",
   "@todaySemanticsCalorieProgressValue": {
@@ -415,7 +414,6 @@
   "foodBarcodeManualInvalid": "Please enter 8, 12 or 13 digits.",
   "foodBarcodeManualSubmit": "Look up product",
   "foodScanMealTitle": "Scan meal",
-  "recipesSubtitle": "Clean meals with AI images and macros ready to track.",
   "recipesCreateSemantics": "Create your own recipe",
   "recipesSearchClearTooltip": "Clear search",
   "recipesAllTitle": "All recipes",
@@ -1478,7 +1476,6 @@
   "authSublineLogin": "Your food diary is ready when you are.",
   "authSublineRegister": "First your account. Then your personal daily goal.",
   "authFieldPasswordLoginHint": "Your password",
-  "authFeatureFood": "Food",
   "authErrorPasswordMissing": "Please enter your password.",
   "authRecoveryProgress": "Step {current} of {total}",
   "@authRecoveryProgress": {

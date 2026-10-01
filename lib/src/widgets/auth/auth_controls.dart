@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/app_tokens.dart';
-import '../../l10n/l10n.dart';
-import '../design/app_icon.dart';
 import '../design/controls.dart';
 import '../design/sheets.dart';
 import '../design/surfaces.dart';
@@ -70,42 +68,6 @@ class AuthHeadline extends StatelessWidget {
   );
 }
 
-/// The three everyday activities behind the account, using the app's symbols.
-class AuthFeatureLine extends StatelessWidget {
-  const AuthFeatureLine({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final l10n = context.l10n;
-    return Wrap(
-      spacing: 20,
-      runSpacing: 12,
-      children: [
-        for (final feature in [
-          (AppSymbol.food, l10n.authFeatureFood),
-          (AppSymbol.recipes, l10n.navRecipes),
-          (AppSymbol.training, l10n.navTraining),
-        ])
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              AppIcon(feature.$1, size: 19, color: t.onBrandSurface),
-              const SizedBox(width: 6),
-              Text(
-                feature.$2,
-                style: AppType.ui(
-                  12,
-                  weight: FontWeight.w600,
-                  color: t.onBrandSurface,
-                ),
-              ),
-            ],
-          ),
-      ],
-    );
-  }
-}
 // AUTH CONTROLS — shared by auth_screen.dart and auth_code_screen.dart.
 //
 // Inputs follow the house rule: no hairline, no focus ring. The capsule is a

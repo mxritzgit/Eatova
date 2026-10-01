@@ -1,5 +1,11 @@
 # Authentication and onboarding
 
+> **Palette and typography dated.** Since the dark redesign (2026-09-28,
+> PR #118) the entry and setup screens only inherit the dark tokens, Figtree
+> (which replaced Archivo) and Bricolage Grotesque; the app is dark-only, so
+> the light previews below no longer match. Flow, behavior and boundaries are
+> unchanged.
+
 ## Scope and visual direction
 
 The September 2026 redesign covers email/password login, registration, email

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../common/lively.dart';
 import '../common/persistence_action.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
@@ -82,6 +83,21 @@ class DiaryMealCard extends StatefulWidget {
 class _DiaryMealCardState extends State<DiaryMealCard> {
   bool _showMacros = false;
 
+  /// Entries that were not in the previous build (a new log, a move into
+  /// this slot, an undo); they grow in instead of popping. Empty on the first
+  /// build and for another day, whose cards mount fresh.
+  Set<String> _fresh = const <String>{};
+
+  @override
+  void didUpdateWidget(DiaryMealCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final before = {for (final e in oldWidget.entries) e.meal.id};
+    _fresh = {
+      for (final e in widget.entries)
+        if (!before.contains(e.meal.id)) e.meal.id,
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
@@ -113,7 +129,7 @@ class _DiaryMealCardState extends State<DiaryMealCard> {
     final header = _SlotHeader(
       slot: slot,
       meta: meta,
-      kcal: empty ? null : formatThousands(total.kcal, l10n.localeName),
+      kcal: empty ? null : total.kcal,
     );
     final pick = widget.pick;
     return Material(
@@ -174,12 +190,16 @@ class _DiaryMealCardState extends State<DiaryMealCard> {
               ),
             ),
           for (final entry in entries)
-            _SlidableEntry(
-              key: ValueKey(entry.meal.id),
-              entry: entry,
-              showMacros: showMacros,
-              onMealTap: widget.onMealTap,
-              onRemoveMeal: widget.onRemoveMeal,
+            LivelyInsert(
+              key: ValueKey('food-entry-insert-${entry.meal.id}'),
+              animate: _fresh.contains(entry.meal.id),
+              child: _SlidableEntry(
+                key: ValueKey(entry.meal.id),
+                entry: entry,
+                showMacros: showMacros,
+                onMealTap: widget.onMealTap,
+                onRemoveMeal: widget.onRemoveMeal,
+              ),
             ),
           if (empty && pick != null)
             Padding(
@@ -206,7 +226,9 @@ class _SlotHeader extends StatelessWidget {
 
   final MealSlot slot;
   final String meta;
-  final String? kcal;
+
+  /// The slot total; it counts to a new value when an entry changes.
+  final int? kcal;
 
   @override
   Widget build(BuildContext context) {
@@ -219,9 +241,10 @@ class _SlotHeader extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.baseline,
             textBaseline: TextBaseline.alphabetic,
             children: [
-              Text(
-                kcal!,
-                key: ValueKey('food-slot-kcal-${slot.name}'),
+              CountingText(
+                value: kcal!.toDouble(),
+                format: (v) => formatThousands(v.round(), l10n.localeName),
+                textKey: ValueKey('food-slot-kcal-${slot.name}'),
                 style: foodText(
                   18,
                   weight: FontWeight.w800,
@@ -338,59 +361,67 @@ class FoodPickRow extends StatelessWidget {
     return Semantics(
       button: true,
       hint: l10n.recipesViewRecipe,
-      child: Material(
-        color: t.surfRaised,
-        borderRadius: BorderRadius.circular(rControl),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          key: const ValueKey('food-pick-row'),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(6, 6, 10, 6),
-            child: Row(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(rChip),
-                  child: SizedBox.square(
-                    dimension: 40,
-                    child: ExcludeSemantics(
-                      child: RecipePhoto(recipe: pick.recipe),
+      child: PressScale(
+        enabled: onTap != null,
+        scale: kPressScaleCard,
+        child: Material(
+          color: t.surfRaised,
+          borderRadius: BorderRadius.circular(rControl),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            key: const ValueKey('food-pick-row'),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(6, 6, 10, 6),
+              child: Row(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(rChip),
+                    child: SizedBox.square(
+                      dimension: 40,
+                      child: ExcludeSemantics(
+                        child: RecipePhoto(recipe: pick.recipe),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        eyebrow.toUpperCase(),
-                        semanticsLabel: eyebrow,
-                        style: foodText(
-                          11,
-                          weight: FontWeight.w700,
-                          color: t.accentText,
-                          letterSpacing: 11 * 0.06,
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          eyebrow.toUpperCase(),
+                          semanticsLabel: eyebrow,
+                          style: foodText(
+                            11,
+                            weight: FontWeight.w700,
+                            color: t.accentText,
+                            letterSpacing: 11 * 0.06,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 1),
-                      Text(
-                        pick.recipe.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: foodText(
-                          14,
-                          weight: FontWeight.w600,
-                          color: t.ink,
+                        const SizedBox(height: 1),
+                        Text(
+                          pick.recipe.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: foodText(
+                            14,
+                            weight: FontWeight.w600,
+                            color: t.ink,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 6),
-                FoodGlyphIcon(FoodGlyph.chevronRight, size: 16, color: t.ink3),
-              ],
+                  const SizedBox(width: 6),
+                  FoodGlyphIcon(
+                    FoodGlyph.chevronRight,
+                    size: 16,
+                    color: t.ink3,
+                  ),
+                ],
+              ),
             ),
           ),
         ),

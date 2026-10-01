@@ -1,5 +1,11 @@
 # Food entry and calendar design
 
+> **Palette and typography dated.** Since the dark redesign (2026-09-28,
+> PR #118) these sheets use the dark tokens and Figtree (which replaced
+> Archivo) with Bricolage Grotesque; the app is dark-only and the Food calendar
+> opens from the round header button (see [Food](FOOD-DESIGN.md)). The
+> interaction rules below still apply; the captures show the 2026-09-14 look.
+
 The 2026-09-14 follow-up extends the accepted compact meal context to Camera
 and Manual and gives manual nutrition, product results and the Food calendar
 the same typography, lavender surfaces and soft input fills as the app.

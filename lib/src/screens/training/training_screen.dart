@@ -12,6 +12,7 @@ import '../../services/sync_error_messages.dart';
 import '../../services/uuid.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
+import '../../widgets/common/lively.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
 import 'training_overview_widgets.dart';
@@ -448,7 +449,9 @@ class _TrainingScreenState extends State<TrainingScreen> {
   Widget build(BuildContext context) => SnackHost(
     enabled: TickerMode.valuesOf(context).enabled,
     currentRouteOnly: true,
-    child: _pageBody(context),
+    // First view of the tab: the sections enter top to bottom, once per
+    // session (the shell keeps a visited tab mounted).
+    child: LivelyStaggerScope(child: _pageBody(context)),
   );
 
   Widget _pageBody(BuildContext context) {
@@ -478,93 +481,97 @@ class _TrainingScreenState extends State<TrainingScreen> {
           20,
           navInset + 48,
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _header(context, plan),
-            gap,
-            if (conflict != null) ...[
-              _notice(
-                context,
-                l10n.trainingAdoptionReviewBody(conflict.title),
-                icon: Icons.sync_problem_rounded,
-                action: Wrap(
-                  children: [
-                    TextButton(
-                      key: const ValueKey('training-review-adoption'),
-                      onPressed: _reviewingAdoption || _deleting
-                          ? null
-                          : () => _reviewAdoption(conflict),
-                      child: Text(l10n.trainingAdoptionReviewAction),
-                    ),
-                    if (widget.onDiscardAdoption != null)
+        // Own layer: scrolling moves the recorded page instead of
+        // re-recording it every frame.
+        child: RepaintBoundary(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: livelyStagger([
+              _header(context, plan),
+              gap,
+              if (conflict != null) ...[
+                _notice(
+                  context,
+                  l10n.trainingAdoptionReviewBody(conflict.title),
+                  icon: Icons.sync_problem_rounded,
+                  action: Wrap(
+                    children: [
                       TextButton(
-                        key: const ValueKey('training-discard-adoption'),
+                        key: const ValueKey('training-review-adoption'),
                         onPressed: _reviewingAdoption || _deleting
                             ? null
-                            : () => _discardAdoption(conflict),
-                        child: Text(l10n.trainingAdoptionDiscardAction),
+                            : () => _reviewAdoption(conflict),
+                        child: Text(l10n.trainingAdoptionReviewAction),
                       ),
-                  ],
+                      if (widget.onDiscardAdoption != null)
+                        TextButton(
+                          key: const ValueKey('training-discard-adoption'),
+                          onPressed: _reviewingAdoption || _deleting
+                              ? null
+                              : () => _discardAdoption(conflict),
+                          child: Text(l10n.trainingAdoptionDiscardAction),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-              gap,
-            ],
-            if (widget.hasActiveSession) ...[
-              _notice(
-                context,
-                l10n.trainingPageInProgress,
-                icon: Icons.pause_circle_outline_rounded,
-              ),
-              gap,
-            ],
-            if (widget.loadFailed) ...[
-              _notice(
-                context,
-                l10n.trainingPageLoadError,
-                action: TextButton.icon(
-                  onPressed: widget.onRetry,
-                  icon: const Icon(Icons.refresh_rounded),
-                  label: Text(l10n.trainingPageRetry),
+                gap,
+              ],
+              if (widget.hasActiveSession) ...[
+                _notice(
+                  context,
+                  l10n.trainingPageInProgress,
+                  icon: Icons.pause_circle_outline_rounded,
                 ),
-              ),
-              gap,
-            ],
-            if (widget.week case final week?) ...[
-              TrainingWeekCard(
-                key: const ValueKey('training-week'),
-                week: week,
-              ),
-              gap,
-            ],
-            if (plan != null && next != null)
-              _workoutCard(context, plan, next, selectedConflict)
-            else if (widget.loading)
-              _loadingState(context)
-            else if (!widget.loadFailed)
-              _empty(context),
-            if (plan != null && next != null) ...[
-              const SizedBox(height: 20),
-              _quickStart(context, plan, next),
-            ],
-            if (volume != null &&
-                (hasHistory || volume.weeks.any((w) => w.volumeKg > 0))) ...[
-              gap,
-              TrainingVolumeCard(
-                key: const ValueKey('training-volume'),
-                trend: volume,
-              ),
-            ],
-            if (hasHistory) ...[
-              gap,
-              TrainingRecentSection(
-                key: const ValueKey('training-recent'),
-                workouts: widget.recentWorkouts,
-                onOpen: widget.onOpenWorkout,
-                onOpenAll: widget.onOpenHistory,
-              ),
-            ],
-          ],
+                gap,
+              ],
+              if (widget.loadFailed) ...[
+                _notice(
+                  context,
+                  l10n.trainingPageLoadError,
+                  action: TextButton.icon(
+                    onPressed: widget.onRetry,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: Text(l10n.trainingPageRetry),
+                  ),
+                ),
+                gap,
+              ],
+              if (widget.week case final week?) ...[
+                TrainingWeekCard(
+                  key: const ValueKey('training-week'),
+                  week: week,
+                ),
+                gap,
+              ],
+              if (plan != null && next != null)
+                _workoutCard(context, plan, next, selectedConflict)
+              else if (widget.loading)
+                _loadingState(context)
+              else if (!widget.loadFailed)
+                _empty(context),
+              if (plan != null && next != null) ...[
+                const SizedBox(height: 20),
+                _quickStart(context, plan, next),
+              ],
+              if (volume != null &&
+                  (hasHistory || volume.weeks.any((w) => w.volumeKg > 0))) ...[
+                gap,
+                TrainingVolumeCard(
+                  key: const ValueKey('training-volume'),
+                  trend: volume,
+                ),
+              ],
+              if (hasHistory) ...[
+                gap,
+                TrainingRecentSection(
+                  key: const ValueKey('training-recent'),
+                  workouts: widget.recentWorkouts,
+                  onOpen: widget.onOpenWorkout,
+                  onOpenAll: widget.onOpenHistory,
+                ),
+              ],
+          ]),
+          ),
         ),
       ),
     );

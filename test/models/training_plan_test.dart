@@ -385,8 +385,6 @@ void main() {
       expect(timed.copyWith(sets: 1).estimatedDurationSeconds, 45);
       expect(draft.workouts.first.estimatedDurationSeconds, 465);
       expect(draft.workouts.first.totalSets, 6);
-      expect(draft.estimatedDurationSeconds, 930);
-      expect(draft.toTrainingPlan(id: 'p1').estimatedDurationSeconds, 930);
     });
   });
 

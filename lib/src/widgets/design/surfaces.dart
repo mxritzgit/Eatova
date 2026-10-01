@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../theme/app_tokens.dart';
 
 // ---------------------------------------------------------------------------
-// SURFACES — card, page title, section heading, image placeholder, add slot.
+// SURFACES — card, section heading, image placeholder.
 //
 // Geometry, radii and spacing come from the design template; colors only from
 // [AppTokens], type only from [AppType].
@@ -15,7 +15,7 @@ import '../../theme/app_tokens.dart';
 /// style implies one — so every jump mark in the app comes from here.
 ///
 /// The rank scheme (review 2026-08-29):
-///   1  the title of a screen or sheet — [ScreenTitle], [PageHeader],
+///   1  the title of a screen or sheet — [PageHeader],
 ///   2  a section inside it — [SectionHeading], the [SettingsGroup] caption.
 ///
 /// `header` is the trait TalkBack and VoiceOver navigate by; `headingLevel`
@@ -83,56 +83,6 @@ class AppCard extends StatelessWidget {
       ),
       padding: clip ? EdgeInsets.zero : padding,
       child: child,
-    );
-  }
-}
-
-/// The large page title at the top of a screen.
-class ScreenTitle extends StatelessWidget {
-  const ScreenTitle({
-    super.key,
-    required this.title,
-    this.subtitle,
-    this.trailing,
-  });
-
-  final String title;
-  final String? subtitle;
-  final Widget? trailing;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              // Title only: the subtitle is context, and [trailing] keeps its
-              // own node with its own tap action.
-              HeadingSemantics(
-                level: 1,
-                child: Text(
-                  title,
-                  style: AppType.pageTitle(t.ink),
-                  textScaler: AppType.pageTitleScaler(context),
-                ),
-              ),
-              if (subtitle != null) ...<Widget>[
-                const SizedBox(height: 3),
-                Text(
-                  subtitle!,
-                  style:
-                      AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
-                ),
-              ],
-            ],
-          ),
-        ),
-        if (trailing != null) trailing!,
-      ],
     );
   }
 }
@@ -234,68 +184,4 @@ class _StripePainter extends CustomPainter {
   @override
   bool shouldRepaint(_StripePainter old) =>
       old.base != base || old.stripe != stripe;
-}
-
-/// Dashed "add something here" slot at the end of a list.
-class DottedAddSlot extends StatelessWidget {
-  const DottedAddSlot({super.key, required this.label, this.onTap});
-
-  final String label;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(rControl),
-      child: CustomPaint(
-        painter: _DashedBorderPainter(color: t.line, radius: rControl),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 13),
-          alignment: Alignment.center,
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DashedBorderPainter extends CustomPainter {
-  _DashedBorderPainter({required this.color, required this.radius});
-
-  final Color color;
-  final double radius;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-
-    final rrect = RRect.fromRectAndRadius(
-      Rect.fromLTWH(0.75, 0.75, size.width - 1.5, size.height - 1.5),
-      Radius.circular(radius),
-    );
-    final path = Path()..addRRect(rrect);
-
-    for (final metric in path.computeMetrics()) {
-      var d = 0.0;
-      while (d < metric.length) {
-        final next = (d + 5).clamp(0.0, metric.length);
-        canvas.drawPath(metric.extractPath(d, next), paint);
-        d += 9;
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(_DashedBorderPainter old) =>
-      old.color != color || old.radius != radius;
 }

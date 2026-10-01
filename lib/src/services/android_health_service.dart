@@ -226,10 +226,4 @@ class AndroidHealthService implements HealthService, HealthConnectAccess {
 
   @override
   Future<bool> writeWeight(double kg, DateTime when) async => false;
-
-  @override
-  Future<List<WeightSample>> readWeightSamples({
-    required DateTime from,
-    required DateTime to,
-  }) async => const [];
 }

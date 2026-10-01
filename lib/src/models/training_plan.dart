@@ -94,7 +94,6 @@ final class TrainingPlan {
   String get description => proposal.description;
   String get goal => proposal.goal;
   List<TrainingWorkout> get workouts => proposal.workouts;
-  int get estimatedDurationSeconds => proposal.estimatedDurationSeconds;
 
   /// Local cache and outbox envelopes carry no client-supplied owner.
   factory TrainingPlan.fromJson(Map<dynamic, dynamic> json) {

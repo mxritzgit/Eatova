@@ -297,7 +297,6 @@ void main() {
     expect(await service.openSettings(), isFalse);
     expect(service.authState, HealthAuthState.error);
     expect(await service.writeWeight(70, now), isFalse);
-    expect(await service.readWeightSamples(from: now, to: now), isEmpty);
     expect(adapter.requests, 0);
     expect(adapter.intervals, isEmpty);
   });

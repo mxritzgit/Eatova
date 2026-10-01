@@ -6,6 +6,8 @@ import '../../models/day_nutrition.dart';
 import '../../services/day_math.dart';
 import '../../services/kcal_format.dart';
 import '../../theme/app_tokens.dart';
+import '../common/lively.dart';
+import '../common/motion.dart';
 import '../design/design.dart';
 import 'food_glyphs.dart';
 
@@ -177,7 +179,17 @@ class FoodDaySummaryCard extends StatelessWidget {
     final locale = l10n.localeName;
     final remaining = summary.remainingKcal;
     final over = remaining < 0;
-    String number(int value) => loading ? '—' : formatThousands(value, locale);
+    // Loading shows a dash; loaded numbers count to their value ("left"
+    // down from the budget, like the Today tab).
+    Widget number(Key key, int value, TextStyle style, int from) => loading
+        ? Text('—', key: key, style: style)
+        : CountingText(
+            value: value.toDouble(),
+            from: from.toDouble(),
+            format: (v) => formatThousands(v.round(), locale),
+            textKey: key,
+            style: style,
+          );
     Text eyebrow(String text) => Text(
       text.toUpperCase(),
       semanticsLabel: text,
@@ -192,7 +204,8 @@ class FoodDaySummaryCard extends StatelessWidget {
     // very large text scales the pair down instead of overflowing.
     Widget amount(
       Key key,
-      String value,
+      int value,
+      int from,
       TextStyle style,
       double unitSize,
       double gap,
@@ -205,7 +218,7 @@ class FoodDaySummaryCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.baseline,
         textBaseline: TextBaseline.alphabetic,
         children: [
-          Text(value, key: key, style: style),
+          number(key, value, style, from),
           SizedBox(width: gap),
           Text(
             'kcal',
@@ -222,7 +235,8 @@ class FoodDaySummaryCard extends StatelessWidget {
         const SizedBox(height: 2),
         amount(
           const ValueKey('food-day-total'),
-          number(summary.consumedKcal),
+          summary.consumedKcal,
+          0,
           AppType.display(40, color: t.ink, height: 1),
           15,
           6,
@@ -238,7 +252,8 @@ class FoodDaySummaryCard extends StatelessWidget {
         const SizedBox(height: 2),
         amount(
           const ValueKey('food-day-left'),
-          number(remaining.abs()),
+          remaining.abs(),
+          over ? 0 : summary.budgetKcal,
           AppType.display(
             26,
             weight: FontWeight.w700,
@@ -258,69 +273,72 @@ class FoodDaySummaryCard extends StatelessWidget {
       (l10n.todayMacroCarbs, consumed.carbsG, t.carbs),
       (l10n.todayMacroFat, consumed.fatG, t.fat),
     ];
-    return Material(
-      color: t.surf,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(rCard),
-        side: BorderSide(color: t.cardBorder),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Semantics(
-        button: true,
-        hint: l10n.foodSemanticsTrends,
-        child: InkWell(
-          key: const ValueKey('topbar-trends'),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    // Large text or a narrow card stacks the two figures.
-                    if (constraints.maxWidth < 280 ||
-                        MediaQuery.textScalerOf(context).scale(14) > 19) {
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+    return PressScale(
+      scale: kPressScaleCard,
+      child: Material(
+        color: t.surf,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(rCard),
+          side: BorderSide(color: t.cardBorder),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Semantics(
+          button: true,
+          hint: l10n.foodSemanticsTrends,
+          child: InkWell(
+            key: const ValueKey('topbar-trends'),
+            onTap: onTap,
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      // Large text or a narrow card stacks the two figures.
+                      if (constraints.maxWidth < 280 ||
+                          MediaQuery.textScalerOf(context).scale(14) > 19) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            logged,
+                            const SizedBox(height: 12),
+                            Align(alignment: Alignment.centerLeft, child: left),
+                          ],
+                        );
+                      }
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          logged,
-                          const SizedBox(height: 12),
-                          Align(alignment: Alignment.centerLeft, child: left),
+                          Expanded(child: logged),
+                          const SizedBox(width: 12),
+                          left,
                         ],
                       );
-                    }
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Expanded(child: logged),
-                        const SizedBox(width: 12),
-                        left,
-                      ],
-                    );
-                  },
-                ),
-                const SizedBox(height: 14),
-                FoodMacroBar(
-                  proteinKcal: loading ? 0 : consumed.proteinG * 4,
-                  carbsKcal: loading ? 0 : consumed.carbsG * 4,
-                  fatKcal: loading ? 0 : consumed.fatG * 9,
-                ),
-                const SizedBox(height: 14),
-                Wrap(
-                  alignment: WrapAlignment.spaceBetween,
-                  spacing: 8,
-                  runSpacing: 6,
-                  children: [
-                    for (final (label, grams, color) in macros)
-                      _LegendItem(
-                        label: label,
-                        value: loading ? '—' : '${grams.round()} g',
-                        color: color,
-                      ),
-                  ],
-                ),
-              ],
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                  FoodMacroBar(
+                    proteinKcal: loading ? 0 : consumed.proteinG * 4,
+                    carbsKcal: loading ? 0 : consumed.carbsG * 4,
+                    fatKcal: loading ? 0 : consumed.fatG * 9,
+                  ),
+                  const SizedBox(height: 14),
+                  Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      for (final (label, grams, color) in macros)
+                        _LegendItem(
+                          label: label,
+                          value: loading ? '—' : '${grams.round()} g',
+                          color: color,
+                        ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -343,11 +361,23 @@ class FoodMacroBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final target = (proteinKcal, carbsKcal, fatKcal);
+    // A logged meal shifts the split instead of snapping it; the first
+    // build starts at rest (begin == end).
+    return TweenAnimationBuilder<(double, double, double)>(
+      tween: _MacroSplitTween(begin: target, end: target),
+      duration: motionDuration(context, kMotionValue),
+      curve: kMotionCurve,
+      builder: (context, split, _) => _bar(context, split),
+    );
+  }
+
+  Widget _bar(BuildContext context, (double, double, double) split) {
     final t = context.t;
     final segments = <(double, Color, String)>[
-      (proteinKcal, t.protein, 'protein'),
-      (carbsKcal, t.carbs, 'carbs'),
-      (fatKcal, t.fat, 'fat'),
+      (split.$1, t.protein, 'protein'),
+      (split.$2, t.carbs, 'carbs'),
+      (split.$3, t.fat, 'fat'),
     ].where((s) => s.$1 > 0).toList();
     final total = segments.fold<double>(0, (sum, s) => sum + s.$1);
     return ExcludeSemantics(
@@ -380,6 +410,17 @@ class FoodMacroBar extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _MacroSplitTween extends Tween<(double, double, double)> {
+  _MacroSplitTween({super.begin, super.end});
+
+  @override
+  (double, double, double) lerp(double t) {
+    final (a1, a2, a3) = begin!;
+    final (b1, b2, b3) = end!;
+    return (a1 + (b1 - a1) * t, a2 + (b2 - a2) * t, a3 + (b3 - a3) * t);
   }
 }
 
@@ -447,43 +488,47 @@ class FoodEntryDock extends StatelessWidget {
     const radius = BorderRadius.all(Radius.circular(rPill));
     // An input look without an input: borderless soft capsule (standing
     // input rule), the search itself lives in the sheet.
-    final search = DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: radius,
-        boxShadow: raisedShadow(t),
-      ),
-      child: Material(
-        color: t.field,
-        borderRadius: radius,
-        clipBehavior: Clip.antiAlias,
-        child: Semantics(
-          button: true,
-          enabled: enabled,
-          label: l10n.foodDockSearchLabel,
-          onLongPressHint: l10n.foodManualEntryCta,
-          child: InkWell(
-            key: const ValueKey('food-search'),
-            onTap: enabled ? onSearch : null,
-            onLongPress: enabled ? onManual : null,
-            child: SizedBox(
-              height: height,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    FoodGlyphIcon(FoodGlyph.search, size: 20, color: t.ink2),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: ExcludeSemantics(
-                        child: Text(
-                          l10n.foodDockSearchLabel,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: foodText(16, color: t.ink2),
+    final search = PressScale(
+      enabled: enabled,
+      scale: kPressScaleCard,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: radius,
+          boxShadow: raisedShadow(t),
+        ),
+        child: Material(
+          color: t.field,
+          borderRadius: radius,
+          clipBehavior: Clip.antiAlias,
+          child: Semantics(
+            button: true,
+            enabled: enabled,
+            label: l10n.foodDockSearchLabel,
+            onLongPressHint: l10n.foodManualEntryCta,
+            child: InkWell(
+              key: const ValueKey('food-search'),
+              onTap: enabled ? onSearch : null,
+              onLongPress: enabled ? onManual : null,
+              child: SizedBox(
+                height: height,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    children: [
+                      FoodGlyphIcon(FoodGlyph.search, size: 20, color: t.ink2),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ExcludeSemantics(
+                          child: Text(
+                            l10n.foodDockSearchLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: foodText(16, color: t.ink2),
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -554,27 +599,32 @@ class _RoundDockButton extends StatelessWidget {
       button: true,
       enabled: enabled,
       label: label,
-      child: DecoratedBox(
-        decoration: BoxDecoration(shape: BoxShape.circle, boxShadow: shadow),
-        child: Material(
-          color: enabled
-              ? fill
-              : fill.withValues(alpha: fill.a * kDisabledFillAlpha),
-          shape: CircleBorder(
-            side: border == null ? BorderSide.none : BorderSide(color: border!),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            key: actionKey,
-            onTap: onTap,
-            customBorder: const CircleBorder(),
-            child: SizedBox.square(
-              dimension: FoodEntryDock.height,
-              child: Center(
-                child: FoodGlyphIcon(
-                  glyph,
-                  size: 22,
-                  color: enabled ? ink : context.t.inkDisabled,
+      child: PressScale(
+        enabled: enabled,
+        child: DecoratedBox(
+          decoration: BoxDecoration(shape: BoxShape.circle, boxShadow: shadow),
+          child: Material(
+            color: enabled
+                ? fill
+                : fill.withValues(alpha: fill.a * kDisabledFillAlpha),
+            shape: CircleBorder(
+              side: border == null
+                  ? BorderSide.none
+                  : BorderSide(color: border!),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              key: actionKey,
+              onTap: onTap,
+              customBorder: const CircleBorder(),
+              child: SizedBox.square(
+                dimension: FoodEntryDock.height,
+                child: Center(
+                  child: FoodGlyphIcon(
+                    glyph,
+                    size: 22,
+                    color: enabled ? ink : context.t.inkDisabled,
+                  ),
                 ),
               ),
             ),

@@ -15,15 +15,5 @@ void main() {
     test('writeWeight no-ops to false', () async {
       expect(await noop.writeWeight(80.5, DateTime(2026, 6, 4)), isFalse);
     });
-
-    test('readWeightSamples no-ops to empty', () async {
-      expect(
-        await noop.readWeightSamples(
-          from: DateTime(2026, 1, 1),
-          to: DateTime(2026, 6, 4),
-        ),
-        isEmpty,
-      );
-    });
   });
 }

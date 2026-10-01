@@ -568,7 +568,7 @@ void main() {
 
   group('Training proposal history', () {
     test(
-      'scopes history by account and session; proposals survive copyWith',
+      'scopes history by account and session',
       () async {
         final service = _service((request) async {
           expect(request.method, 'GET');
@@ -582,10 +582,6 @@ void main() {
         });
         final message = (await service.loadHistory('s1')).single;
         expect(message.trainingPlanProposal!.toJson(), _plan());
-        expect(
-          message.copyWith(content: 'Updated').trainingPlanProposal,
-          same(message.trainingPlanProposal),
-        );
       },
     );
 

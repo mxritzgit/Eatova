@@ -22,15 +22,6 @@ class MacroProgress {
     );
   }
 
-  MacroProgress subtract(MealAnalysisResult result) {
-    return MacroProgress(
-      proteinG: (proteinG - _parseMacroG(result.protein)).clamp(0, double.infinity),
-      carbsG: (carbsG - _parseMacroG(result.carbs)).clamp(0, double.infinity),
-      fatG: (fatG - _parseMacroG(result.fat)).clamp(0, double.infinity),
-      kcal: (kcal - result.caloriesKcal).clamp(0, 1 << 30),
-    );
-  }
-
   static const empty = MacroProgress(proteinG: 0, carbsG: 0, fatG: 0, kcal: 0);
 
   static double _parseMacroG(String value) {

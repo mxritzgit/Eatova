@@ -11,6 +11,7 @@ import '../../models/user_profile.dart';
 import '../../services/day_math.dart';
 import '../../services/meal_totals.dart';
 import '../../theme/app_tokens.dart';
+import '../../widgets/common/lively.dart';
 import '../../widgets/design/design.dart';
 import 'today_day_strip.dart';
 import 'today_glyphs.dart';
@@ -131,7 +132,7 @@ class TodayScreen extends StatelessWidget {
     // the shared title origin and pads its end by the bar's band (plus the
     // design's clearance), so the last card can scroll clear of the glass.
     final navInset = MediaQuery.paddingOf(context).bottom;
-    return SingleChildScrollView(
+    final page = SingleChildScrollView(
       key: const ValueKey('screen-today'),
       // Unclipped: the selected day's glow reaches into the shell's side
       // gutter as in the design; the tab stack still clips at the screen.
@@ -140,66 +141,75 @@ class TodayScreen extends StatelessWidget {
         top: TabChrome.topInset(context),
         bottom: navInset + 68,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          _TodayHeader(
-            key: TabChrome.headerKey,
-            dateLine: todayHeaderDate(selectedDate, heute, l10n),
-            dateSemantics: todayDateLabel(heute, selectedDate, l10n),
-            title: l10n.navToday,
-            streak: streak,
-            initial: profileInitial ?? todayInitial(userName),
-            onOpenProfile: onOpenProfile,
-          ),
-          const SizedBox(height: 16),
-          TodayDayStrip(
-            selectedDate: selectedDate,
-            today: heute,
-            onSelected: onDateSelected,
-          ),
-          const SizedBox(height: 16),
-          // While an archive day loads its numbers are still zero; the one
-          // loading card under the heading carries that state instead.
-          if (!dayLoading) ...<Widget>[
-            TodayCalorieCard(summary: summary, isToday: istHeute),
+      // Own layer: a scroll frame then moves the recorded page instead of
+      // re-recording all of it (the viewport is the nearest boundary).
+      child: RepaintBoundary(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: livelyStagger(<Widget>[
+            _TodayHeader(
+              key: TabChrome.headerKey,
+              dateLine: todayHeaderDate(selectedDate, heute, l10n),
+              dateSemantics: todayDateLabel(heute, selectedDate, l10n),
+              title: l10n.navToday,
+              streak: streak,
+              initial: profileInitial ?? todayInitial(userName),
+              onOpenProfile: onOpenProfile,
+            ),
             const SizedBox(height: 16),
-            TodayMacros(summary: summary),
-            if (shownPick != null) ...<Widget>[
+            TodayDayStrip(
+              selectedDate: selectedDate,
+              today: heute,
+              onSelected: onDateSelected,
+            ),
+            const SizedBox(height: 16),
+            // While an archive day loads its numbers are still zero; the one
+            // loading card under the heading carries that state instead.
+            if (!dayLoading) ...<Widget>[
+              TodayCalorieCard(summary: summary, isToday: istHeute),
               const SizedBox(height: 16),
-              TodayPickRow(
-                pick: shownPick,
-                onTap: onOpenPick == null ? null : () => onOpenPick!(shownPick),
+              TodayMacros(summary: summary),
+              if (shownPick != null) ...<Widget>[
+                const SizedBox(height: 16),
+                TodayPickRow(
+                  pick: shownPick,
+                  onTap: onOpenPick == null
+                      ? null
+                      : () => onOpenPick!(shownPick),
+                ),
+              ],
+            ],
+            const SizedBox(height: 16),
+            TodayMealsHeader(onOpenFoodLog: onOpenFoodLog),
+            if (dayLoading)
+              const TodayDayLoadingCard()
+            else
+              TodayMealsCard(
+                slots: slots,
+                summary: summary,
+                isToday: istHeute,
+                accentSlot: nextSlot,
+                onAdd: onOpenMealSlot,
+              ),
+            if (showActivity) ...<Widget>[
+              const SizedBox(height: 16),
+              TodayActivityCard(
+                steps: steps,
+                stepsGoal: profile.dailyStepsGoal,
+                burnedKcal: summary.burnedKcal,
+                healthConnectMissing: healthMissing,
+                onReviewHealth: onOpenProfile,
+                workout: workout,
+                onOpenTraining: onOpenTraining,
               ),
             ],
-          ],
-          const SizedBox(height: 16),
-          TodayMealsHeader(onOpenFoodLog: onOpenFoodLog),
-          if (dayLoading)
-            const TodayDayLoadingCard()
-          else
-            TodayMealsCard(
-              slots: slots,
-              summary: summary,
-              isToday: istHeute,
-              accentSlot: nextSlot,
-              onAdd: onOpenMealSlot,
-            ),
-          if (showActivity) ...<Widget>[
-            const SizedBox(height: 16),
-            TodayActivityCard(
-              steps: steps,
-              stepsGoal: profile.dailyStepsGoal,
-              burnedKcal: summary.burnedKcal,
-              healthConnectMissing: healthMissing,
-              onReviewHealth: onOpenProfile,
-              workout: workout,
-              onOpenTraining: onOpenTraining,
-            ),
-          ],
-        ],
+        ]),
+        ),
       ),
     );
+    // First view of the tab: the sections enter top to bottom, once per
+    // session (the shell keeps a visited tab mounted).
+    return LivelyStaggerScope(child: page);
   }
 }
 
@@ -279,6 +289,8 @@ class _StreakPill extends StatelessWidget {
     return Semantics(
       button: onTap != null,
       label: context.l10n.todayStreakSemantics(streak),
+      child: PressScale(
+        enabled: onTap != null,
       child: Material(
         color: t.activityTint,
         shape: const StadiumBorder(),
@@ -317,6 +329,7 @@ class _StreakPill extends StatelessWidget {
           ),
         ),
       ),
+      ),
     );
   }
 }
@@ -336,6 +349,8 @@ class _ProfileAvatar extends StatelessWidget {
     return Semantics(
       button: onTap != null,
       label: context.l10n.todayProfileAndSettings,
+      child: PressScale(
+        enabled: onTap != null,
       child: Material(
         color: t.surf2,
         shape: shape,
@@ -364,6 +379,7 @@ class _ProfileAvatar extends StatelessWidget {
             ),
           ),
         ),
+      ),
       ),
     );
   }

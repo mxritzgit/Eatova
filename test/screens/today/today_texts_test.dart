@@ -6,10 +6,8 @@
 // up here, not in the UI.
 //
 // The text helpers take an [AppLocalizations]; fixed to `de` so the
-// expectations stay word-identical. `todayEyebrow` initialises the `intl` date
-// symbols itself, so no extra setup is needed.
+// expectations stay word-identical.
 
-import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -49,35 +47,6 @@ void main() {
       expect(greetingForHour(16, _de), 'Hallo');
       expect(greetingForHour(17, _de), 'Guten Abend');
       expect(greetingForHour(23, _de), 'Guten Abend');
-    });
-
-    test('todayGreeting liest die Wanduhr ueber clock.now()', () {
-      withClock(Clock.fixed(DateTime(2026, 8, 9, 7, 30)), () {
-        expect(todayGreeting(_de), 'Guten Morgen');
-      });
-      withClock(Clock.fixed(DateTime(2026, 8, 9, 22, 5)), () {
-        expect(todayGreeting(_de), 'Guten Abend');
-      });
-    });
-  });
-
-  group('todayEyebrow — deutsches Datum in Versalien', () {
-    test('Wochentag, Tag und Monat', () {
-      expect(todayEyebrow(DateTime(2026, 8, 9), _de), 'SONNTAG, 9. AUGUST');
-      expect(todayEyebrow(DateTime(2026, 8, 10), _de), 'MONTAG, 10. AUGUST');
-    });
-
-    test('Umlaut-Monat bleibt ein Umlaut', () {
-      expect(todayEyebrow(DateTime(2026, 3, 29), _de), 'SONNTAG, 29. MÄRZ');
-    });
-
-    test('Jahres- und Monatsgrenzen', () {
-      expect(
-          todayEyebrow(DateTime(2026, 1, 1), _de), 'DONNERSTAG, 1. JANUAR');
-      expect(todayEyebrow(DateTime(2026, 12, 31), _de),
-          'DONNERSTAG, 31. DEZEMBER');
-      expect(
-          todayEyebrow(DateTime(2026, 2, 28), _de), 'SAMSTAG, 28. FEBRUAR');
     });
   });
 

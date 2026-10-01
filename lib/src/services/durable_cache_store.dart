@@ -405,20 +405,6 @@ class DurableCacheStore {
       path ??
       '${(await getApplicationSupportDirectory()).path}/eatova-cache.sqlite';
 
-  /// Process-lifetime access. Short-lived workers should use [acquire].
-  static Future<EncryptedKeyValueStore?> open({
-    String? databasePath,
-    bool background = false,
-  }) async {
-    final path = await _path(databasePath);
-    return _serialize(() async {
-      final entry = await _entry(path, background);
-      if (entry == null) return null;
-      entry.retained = true;
-      return entry.store;
-    });
-  }
-
   static Future<DurableCacheConnection?> acquire({
     String? databasePath,
     bool background = false,
@@ -432,7 +418,7 @@ class DurableCacheStore {
         entry.store,
         () => _serialize(() async {
           entry.references--;
-          if (entry.references == 0 && !entry.retained) {
+          if (entry.references == 0) {
             final current = _open[path];
             if (current != null && identical(await current, entry)) {
               _open.remove(path);
@@ -500,7 +486,6 @@ class _DatabaseEntry {
   final SqliteKeyValueStore database;
   final EncryptedKeyValueStore store;
   int references = 0;
-  bool retained = false;
 }
 
 class DurableCacheConnection {

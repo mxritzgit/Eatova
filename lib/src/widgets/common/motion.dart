@@ -45,3 +45,28 @@ Widget maybeAnimatedSize(
     child: child,
   );
 }
+
+// ---------------------------------------------------------------------------
+// The motion language of the tabs (2026-10-01): one curve, one family of
+// durations. Every widget in `lively.dart` and every value tween in the tab
+// roots uses these, always through [motionDuration].
+// ---------------------------------------------------------------------------
+
+/// The one curve: fast start, soft landing, no overshoot.
+const Curve kMotionCurve = Curves.easeOutCubic;
+
+/// A value moving to its new state: the calorie arc, bars, counting numbers.
+const Duration kMotionValue = Duration(milliseconds: 520);
+
+/// A section or a list row entering. Short on purpose: on a tab's first
+/// visit the sections enter inside the shell's fade-through, and the whole
+/// stagger (4 × [kMotionStagger] + this = 300 ms) is visually done when the
+/// fade settles at 260 ms, so the two read as one arrival.
+const Duration kMotionEnter = Duration(milliseconds: 220);
+
+/// Delay between two sections of a first-view entrance.
+const Duration kMotionStagger = Duration(milliseconds: 20);
+
+/// Press feedback: sinking in, and easing back out.
+const Duration kMotionPressIn = Duration(milliseconds: 90);
+const Duration kMotionPressOut = Duration(milliseconds: 160);

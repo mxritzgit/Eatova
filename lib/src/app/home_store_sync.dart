@@ -1,12 +1,5 @@
 part of 'home_store.dart';
 
-/// Legacy compatibility thresholds. Confirmed operations are never dropped.
-const Duration kOutboxMinAgeBeforeDrop = Duration(hours: 24);
-const Duration kOutboxDeleteMinAge = Duration(days: 7);
-const int kOutboxRepairMaxAttempts = 3;
-const Duration kOutboxRepairMinSpacing = Duration(seconds: 30);
-const Duration kSignOutDeliveryBudget = Duration(seconds: 25);
-
 /// Maximum UI wait for network delivery after an acknowledged local commit.
 const Duration kSyncDeliveryWindow = Duration(seconds: 3);
 
@@ -17,7 +10,6 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   bool _outboxInitialHydrationComplete = false;
   bool _outboxHydrationFailed = false;
   Timer? _outboxRetryTimer;
-  Timer? _statsSaveDebounce;
   int _outboxRetryAttempt = 0;
   int _pendingMealsDelta = 0;
   int _pendingWeightLogsDelta = 0;
@@ -122,7 +114,6 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   bool get debugOutboxRetryTimerIsActive =>
       _outboxRetryTimer?.isActive ?? false;
   int get debugOutboxRetryStage => _outboxRetryAttempt;
-  Set<String> get debugOrphanedEntities => const {};
 
   bool get syncStatusReadable =>
       _cache != null &&
@@ -190,7 +181,6 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
   });
 
   void flushPendingWrites() {
-    unawaited(_cache?.flush() ?? Future<void>.value());
     unawaited(syncPendingWrites());
   }
 

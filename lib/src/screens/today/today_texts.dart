@@ -7,7 +7,6 @@
 /// the same ARB keys, so the values cannot drift.
 library;
 
-import 'package:clock/clock.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
 
@@ -30,10 +29,6 @@ String greetingForHour(int hour, AppLocalizations l10n) {
   return l10n.todayGreetingEvening;
 }
 
-/// The greeting for "now". Reads [clock.now()] so tests can pin the clock.
-String todayGreeting(AppLocalizations l10n, [DateTime? now]) =>
-    greetingForHour((now ?? clock.now()).hour, l10n);
-
 /// One-time init of the `intl` date symbols. `initializeDateFormatting()`
 /// loads a bundled table synchronously, so its future is already resolved;
 /// the bool guard only stops every rebuild from rebuilding that table.
@@ -42,14 +37,6 @@ void _ensureDateSymbols() {
   if (_dateSymbolsReady) return;
   initializeDateFormatting();
   _dateSymbolsReady = true;
-}
-
-/// The eyebrow above the greeting, e.g. "SONNTAG, 9. AUGUST", ordered per
-/// locale by `intl`'s `MMMMEEEEd`. `toUpperCase()` is safe: German month and
-/// weekday names carry no "ß", where Dart's mapping would invent a truth.
-String todayEyebrow(DateTime date, AppLocalizations l10n) {
-  _ensureDateSymbols();
-  return DateFormat.MMMMEEEEd(l10n.localeName).format(date).toUpperCase();
 }
 
 /// The header's date line: full weekday plus the short date, "Monday, Sep 28"

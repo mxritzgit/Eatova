@@ -116,15 +116,8 @@ void main() {
     expect(saveHandler(tester), isNull);
   });
 
-  testWidgets('Alter unter 16 wird abgelehnt statt still geklemmt',
-      (tester) async {
-    await openSettings(tester);
-    await tippe(tester, 'settings-age', '12');
-
-    expect(find.text('16–100 Jahre'), findsOneWidget);
-    expect(saveHandler(tester), isNull,
-        reason: 'auf 16 zu klemmen schriebe ein erfundenes Alter ins Profil');
-  });
+  // Age below 16: settings_sheet_test.dart ('Alter unter 16 blockiert das
+  // Speichern'), which also saves the corrected value.
 
   testWidgets('Wunschgewicht ausserhalb 30–300 kg wird abgelehnt',
       (tester) async {
@@ -144,8 +137,6 @@ void main() {
     expect(saveHandler(tester), isNull);
     await tippe(tester, 'settings-steps-goal', '8000');
     expect(saveHandler(tester), isNotNull);
-    expect(find.byKey(const ValueKey('settings-water')), findsNothing);
-    expect(find.byKey(const ValueKey('settings-sleep-goal')), findsNothing);
   });
 
   testWidgets('leeres Pflichtfeld sperrt das Speichern', (tester) async {

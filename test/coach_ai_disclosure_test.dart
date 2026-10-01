@@ -201,17 +201,8 @@ void main() {
     expect(find.textContaining('Fragen heute frei'), findsOneWidget);
   });
 
-  testWidgets('Hero-Hinweis oeffnet dasselbe (i)-Sheet', (tester) async {
-    await _pumpCoach(tester);
-
-    final note = find.byKey(const ValueKey('coach-ai-note'));
-    await tester.ensureVisible(note);
-    await tester.pumpAndSettle();
-    await tester.tap(note);
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('coach-info-sheet')), findsOneWidget);
-  });
+  // The hero note opening the same (i) sheet is pinned, with its 44 px target
+  // and link semantics, in coach_start_wiring_test.dart ('disclaimer' group).
 
   testWidgets(
       'die Offenlegung steht in der Fassung fuer UNBEKANNTES Kontingent '

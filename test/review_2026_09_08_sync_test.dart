@@ -112,7 +112,7 @@ void main() {
         var signedOut = false;
         first.store.signOutCleanup().then((_) => signedOut = true);
         async.flushMicrotasks();
-        async.elapse(kSignOutDeliveryBudget + const Duration(milliseconds: 1));
+        async.elapse(const Duration(seconds: 25, milliseconds: 1));
         async.flushMicrotasks();
         expect(signedOut, isTrue, reason: 'Logout bleibt zeitlich begrenzt');
         List<SyncOp>? pending;

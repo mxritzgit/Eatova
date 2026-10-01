@@ -547,15 +547,27 @@ void main() {
       }
     });
 
-    test('die Kalorien-Anzeige bleibt in beiden Modi ablesbar', () {
-      // TickGauge: filled ticks in `lime` on a track of onForest@20 % over
-      // `forest`. The fill level is the message, so WCAG 1.4.11's 3:1 for
-      // graphical objects applies between fill and track.
+    test('der Kalorien-Bogen hebt sich in jedem aktiven Modus von seiner Spur '
+        'ab', () {
+      // Today's calorie arc (TodayArcPainter, today_progress.dart) strokes a
+      // gradient from `arcStart` to `arcEnd` over the opaque `arcTrack`. The
+      // fill level is the message, so WCAG 1.4.11's 3:1 for graphical objects
+      // applies to both gradient ends. The redesign replaced the TickGauge
+      // this test used to measure.
+      //
+      // The light palette is measured once `kDarkOnly` is lifted: its
+      // `arcEnd` reaches only 1.77:1 on `arcTrack` today, so bringing light
+      // back must retune it first.
       for (final p in _paletten.entries) {
         final t = p.value;
-        final spur = _ueber(t.onForest.withValues(alpha: 0.20), t.forest);
-        expect(_contrast(t.lime, spur), greaterThanOrEqualTo(3.0),
-            reason: '${p.key}: gefuellter Strich gegen die Spur');
+        if (kDarkOnly && p.key == 'hell') continue;
+        for (final (name, farbe) in <(String, Color)>[
+          ('arcStart', t.arcStart),
+          ('arcEnd', t.arcEnd),
+        ]) {
+          expect(_contrast(farbe, t.arcTrack), greaterThanOrEqualTo(3.0),
+              reason: '${p.key}: $name gegen arcTrack');
+        }
       }
     });
 
@@ -598,18 +610,6 @@ void main() {
                     '${fall.$1}@${fall.$3} ueber ${grund.$1}');
           }
         }
-      }
-    });
-
-    test('das Coach-Banner bleibt unter seinem Lime-Kreis lesbar', () {
-      // A lime@30 % circle sits on `surf2` with the teaser text above it. In
-      // light mode the circle nearly matches surf2 and visually disappears;
-      // that is decoration and fine — only the text on it matters.
-      for (final p in _paletten.entries) {
-        final t = p.value;
-        final kreis = _ueber(t.lime.withValues(alpha: 0.30), t.surf2);
-        expect(_contrast(t.ink, kreis), greaterThanOrEqualTo(4.5),
-            reason: '${p.key}: Teaser-Text ueber dem Lime-Kreis');
       }
     });
 

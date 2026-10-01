@@ -66,9 +66,6 @@ class FixlaufServer {
   /// [releaseWrites] — a live write whose confirmation arrives late.
   bool holdWrites = false;
 
-  /// `record_tracking_day` / `increment_lifetime_stats` fail with 500.
-  bool rejectRpcs = false;
-
   /// The RPCs are recorded but never answered (a stats flush on the wire
   /// for good); table requests keep working.
   bool silentRpcs = false;
@@ -132,8 +129,6 @@ class FixlaufServer {
 
   http.Client client() => MockClient(_handle);
 
-  final Set<String> trainingHistoryDeletions = {};
-
   Future<http.Response> _handle(http.Request req) async {
     if (offline) throw http.ClientException('offline', req.url);
     if (silent) return Completer<http.Response>().future;
@@ -173,27 +168,6 @@ class FixlaufServer {
       request: req,
     );
 
-    if (path.contains('/rpc/record_training_history')) {
-      final body = jsonDecode(req.body) as Map<String, dynamic>;
-      final id = body['p_id'] as String;
-      if (trainingHistoryDeletions.contains(id)) return ok(false);
-      trainingHistoryRows.putIfAbsent(
-        id,
-        () => {
-          'id': id,
-          'finished_at': body['p_finished_at'],
-          'session': body['p_session'],
-        },
-      );
-      return ok(true);
-    }
-    if (path.contains('/rpc/delete_training_history')) {
-      final body = jsonDecode(req.body) as Map<String, dynamic>;
-      final id = body['p_id'] as String;
-      trainingHistoryDeletions.add(id);
-      trainingHistoryRows.remove(id);
-      return ok(const <String, dynamic>{});
-    }
     if (path.endsWith('/rpc/load_training_plan_head')) {
       final params = jsonDecode(req.body) as Map<String, dynamic>;
       return ok(
@@ -213,15 +187,6 @@ class FixlaufServer {
               kind == 'mealDelete')) {
         return fail();
       }
-      if (rejectRpcs &&
-          {
-            'mealInsert',
-            'weightInsert',
-            'trackingDay',
-            'statsIncrement',
-          }.contains(kind)) {
-        return fail();
-      }
       try {
         final receipt = syncOperations.apply(params);
         return ok(receipt);
@@ -234,38 +199,7 @@ class FixlaufServer {
         );
       }
     }
-    if (path.contains('/rpc/increment_lifetime_stats')) {
-      if (rejectRpcs) return fail();
-      final body = jsonDecode(req.body) as Map<String, dynamic>;
-      mealsCounted += (body['p_meals'] as num?)?.toInt() ?? 0;
-      weightLogsCounted += (body['p_weight_logs'] as num?)?.toInt() ?? 0;
-      return ok(statsRow());
-    }
-    if (path.contains('/rpc/record_tracking_day')) {
-      if (rejectRpcs) return fail();
-      final body = jsonDecode(req.body) as Map<String, dynamic>;
-      trackedDay = body['p_day'] as String?;
-      return ok(statsRow());
-    }
     if (path.contains('/logged_meals')) {
-      if (rejectMealWrites && req.method != 'GET') return fail();
-      if (req.method == 'POST') {
-        for (final row in _rowsOf(req.body)) {
-          mealRows[row['id'] as String] = row;
-        }
-        return http.Response('', 201, request: req);
-      }
-      if (req.method == 'PATCH') {
-        final id = _eqParam(req, 'id');
-        final body = jsonDecode(req.body) as Map<String, dynamic>;
-        final existing = mealRows[id];
-        if (existing != null) mealRows[id!] = {...existing, ...body};
-        return ok(const <dynamic>[]);
-      }
-      if (req.method == 'DELETE') {
-        mealRows.remove(_eqParam(req, 'id'));
-        return ok(const <dynamic>[]);
-      }
       return ok(
         mealRows.values
             .map(
@@ -280,19 +214,13 @@ class FixlaufServer {
             .toList(),
       );
     }
-    if (path.contains('/profiles')) {
-      if (req.method == 'GET') {
-        if (rejectProfileReads) return fail();
-        return ok(
-          profileRow == null
-              ? const <dynamic>[]
-              : <Map<String, dynamic>>[profileRow!],
-        );
-      }
-      for (final row in _rowsOf(req.body)) {
-        profileRow = <String, dynamic>{...?profileRow, ...row};
-      }
-      return ok(profileRow!);
+    if (path.contains('/profiles') && req.method == 'GET') {
+      if (rejectProfileReads) return fail();
+      return ok(
+        profileRow == null
+            ? const <dynamic>[]
+            : <Map<String, dynamic>>[profileRow!],
+      );
     }
     if (path.endsWith('/rpc/load_recipe_photo_refs')) {
       return ok(recipeReads.photoPage(req, recipeRows.values));
@@ -301,30 +229,7 @@ class FixlaufServer {
       syncOperations.seedRecipeHeads();
       return ok(recipeReads.page(req, recipeRows.values));
     }
-    if (path.contains('/user_recipes')) {
-      if (req.method == 'POST') {
-        for (final row in _rowsOf(req.body)) {
-          recipeRows[row['slug'] as String] = row;
-        }
-        return http.Response('', 201, request: req);
-      }
-      if (req.method == 'DELETE') {
-        recipeRows.remove(_eqParam(req, 'slug'));
-        return ok(const <dynamic>[]);
-      }
-      return ok(recipeRows.values.toList());
-    }
     if (path.contains('/favorite_meals')) {
-      if (req.method == 'POST') {
-        for (final row in _rowsOf(req.body)) {
-          favoriteRows[row['favorite_key'] as String] = row;
-        }
-        return http.Response('', 201, request: req);
-      }
-      if (req.method == 'DELETE') {
-        favoriteRows.remove(_eqParam(req, 'favorite_key'));
-        return ok(const <dynamic>[]);
-      }
       return ok(
         favoriteRows.values
             .map(
@@ -339,13 +244,6 @@ class FixlaufServer {
       );
     }
     if (path.contains('/weight_log')) {
-      if (req.method == 'POST') {
-        for (final row in _rowsOf(req.body)) {
-          final id = row['id'] as String? ?? 'srv-${weightRows.length}';
-          weightRows[id] = row;
-        }
-        return http.Response('', 201, request: req);
-      }
       return ok(
         weightRows.values
             .map(
@@ -356,9 +254,6 @@ class FixlaufServer {
             )
             .toList(),
       );
-    }
-    if (path.endsWith('/training_history_deletions')) {
-      return ok(trainingHistoryDeletions.map((id) => {'id': id}).toList());
     }
     if (path.endsWith('/training_history')) {
       if (req.method != 'GET') {

@@ -10,7 +10,7 @@ import 'package:eatova/src/services/sync_outbox.dart';
 
 import 'outbox_test_helpers.dart';
 
-// The replay itself: coalescing, idempotent delivery, one blocked entity not
+// The replay itself: per-entity order, idempotent delivery, one blocked entity not
 // holding up the others, and gap B — the op is on disk BEFORE the live write,
 // so a kill in that window costs nothing and the replay does not double up.
 
@@ -184,7 +184,7 @@ void main() {
     expect(s.server.mealsCounted, 1);
   });
 
-  test('Bearbeiten online: der PATCH traegt logged_at + local_day — die '
+  test('Bearbeiten online: der mealUpsert traegt logged_at + local_day — die '
       'Tag-Verschiebung erreicht den Server auch ohne Outbox', () async {
     final s = setup();
     await boot(s.store);

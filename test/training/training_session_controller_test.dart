@@ -214,16 +214,8 @@ void main() {
     expect(session.completedSetCount, 1);
   });
 
-  test('previous exercise invalidates its ledger and all later sets', () {
-    session.nextExercise();
-    session.start();
-    session.completeCurrentSet();
-    session.previousExercise();
-    expect(session.exerciseIndex, 0);
-    expect(session.setIndex, 0);
-    expect(session.completedSetCount, 0);
-    expect(session.skippedSets, isEmpty);
-  });
+  // Going back an exercise drops its ledger: training_qa/timer_recovery_test
+  // ('previous exercise removes later progress; skip is never completion').
 
   test('previous set crosses exercise boundary to actual final set', () {
     session.nextExercise();
@@ -385,5 +377,82 @@ void main() {
     separate.completeCurrentSet();
     separate.continueAfterRest();
     expect(separate.isRunning, isFalse);
+  });
+
+  // Perf polish 2026-10-01: the 100 ms ticker used to notify (and rebuild the
+  // whole player) on every tick although the player shows whole seconds.
+  test('ticks notify only when the shown second changes; the phase end still '
+      'lands on the tick that reaches zero', () {
+    final shown = <(TrainingSessionPhase, int)>[];
+    session.addListener(
+      () => shown.add((session.phase, session.displaySeconds)),
+    );
+    session.start();
+    expect(shown, [(TrainingSessionPhase.exercise, 30)]);
+    shown.clear();
+    // 30 s of 100 ms ticks, exactly as the real ticker delivers them.
+    for (var i = 0; i < 300; i++) {
+      clock.elapse(const Duration(milliseconds: 100));
+      session.tick();
+      if (i == 299) {
+        // The set completes on this tick, not a second later.
+        expect(session.phase, TrainingSessionPhase.rest);
+        expect(session.completedSetCount, 1);
+        expect(session.isRunning, isTrue);
+      }
+    }
+    expect(shown, [
+      for (var second = 29; second >= 1; second--)
+        (TrainingSessionPhase.exercise, second),
+      (TrainingSessionPhase.rest, 15),
+    ]);
+  });
+
+  test('start, pause, adjust, reset and skips notify at once, also within '
+      'one shown second', () {
+    var notified = 0;
+    session.addListener(() => notified++);
+    void expectNotified(String action, void Function() run) {
+      final before = notified;
+      run();
+      expect(notified, before + 1, reason: action);
+    }
+
+    expectNotified('start', session.start);
+    clock.elapse(const Duration(milliseconds: 300));
+    expectNotified('pause', session.pause);
+    expectNotified('resume', session.start);
+    clock.elapse(const Duration(milliseconds: 200));
+    expectNotified('rewind', session.rewind10Seconds);
+    expectNotified('forward', session.forward10Seconds);
+    expectNotified('reset', session.resetPhase);
+    expectNotified('start again', session.start);
+    clock.elapse(const Duration(seconds: 30));
+    session.tick();
+    expect(session.phase, TrainingSessionPhase.rest);
+    clock.elapse(const Duration(milliseconds: 100));
+    expectNotified('skip rest', session.continueAfterRest);
+    expectNotified('skip set', session.nextSet);
+
+    // Losing visibility pauses on the next tick, whatever the second.
+    var visible = true;
+    final guarded = TrainingSessionController(
+      plan: timerPlan(),
+      monotonicNow: clock.now,
+      autoTick: false,
+      canRun: () => visible,
+    );
+    addTearDown(guarded.dispose);
+    guarded.start();
+    var guardedNotified = 0;
+    guarded.addListener(() => guardedNotified++);
+    clock.elapse(const Duration(milliseconds: 100));
+    guarded.tick();
+    expect(guardedNotified, 0);
+    visible = false;
+    clock.elapse(const Duration(milliseconds: 100));
+    guarded.tick();
+    expect(guardedNotified, 1);
+    expect(guarded.isRunning, isFalse);
   });
 }

@@ -26,7 +26,6 @@ class MealSuggestionItem extends StatefulWidget {
     required this.onAdd,
     this.imageUrl,
     this.fallbackIcon = Icons.fastfood_outlined,
-    this.accent,
     this.justAdded = false,
     this.onRemove,
     this.addButtonKey,
@@ -43,10 +42,6 @@ class MealSuggestionItem extends StatefulWidget {
   final ValueChanged<MealAnalysisResult> onAdd;
   final String? imageUrl;
   final IconData fallbackIcon;
-
-  /// Card accent. Null uses [AppTokens.accent]; a const default is impossible
-  /// because the color depends on the display mode.
-  final Color? accent;
 
   final bool justAdded;
   final VoidCallback? onRemove;
@@ -186,7 +181,7 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
     // promise instead of a fact; every portion change runs through setState.
     final angepasst = _adjusted;
     final t = context.t;
-    final accent = widget.accent ?? t.accent;
+    final accent = t.accent;
 
     // Quiet card: 1 px border instead of a shadow. Expanded, it stands out
     // via the lighter surface, not via elevation.
