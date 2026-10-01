@@ -136,13 +136,19 @@ void main() {
       expect(input.top, greaterThanOrEqualTo(card.top - 0.5));
       expect(input.bottom, lessThanOrEqualTo(card.bottom + 0.5));
 
-      // Manual-entry row grows with its label instead of clipping it.
+      // Manual-entry row grows with its label and its explanation line
+      // instead of clipping them (two texts since the 2026-10-02 polish).
       final row = find.byKey(const ValueKey('manual-entry-button'));
-      final label = find.descendant(of: row, matching: find.byType(Text));
-      expect(
-        tester.getSize(row).height,
-        greaterThanOrEqualTo(tester.getSize(label).height),
+      final labels = find
+          .descendant(of: row, matching: find.byType(Text))
+          .evaluate()
+          .toList();
+      expect(labels, hasLength(2));
+      final textHeight = labels.fold<double>(
+        0,
+        (sum, e) => sum + (e.renderObject! as RenderBox).size.height,
       );
+      expect(tester.getSize(row).height, greaterThanOrEqualTo(textHeight));
     },
     textScales: _skalen,
   );
