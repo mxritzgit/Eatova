@@ -156,6 +156,20 @@ class HealthConnectionCard extends StatelessWidget {
   }
 }
 
+/// Tinted capsule for the Health Connect actions; [quiet] for the secondary
+/// one. 48 px tall like every touch target on the page.
+ButtonStyle _pillStyle(AppTokens t, {bool quiet = false}) =>
+    TextButton.styleFrom(
+      backgroundColor: quiet ? t.surf2 : t.accentTint,
+      foregroundColor: quiet ? t.inkSoft : t.accentText,
+      disabledBackgroundColor: t.tile,
+      disabledForegroundColor: t.inkDisabled,
+      minimumSize: const Size(0, 48),
+      padding: const EdgeInsets.symmetric(horizontal: 18),
+      shape: const StadiumBorder(),
+      textStyle: AppType.ui(14, weight: FontWeight.w700),
+    );
+
 class _HealthConnectCard extends StatelessWidget {
   const _HealthConnectCard({
     required this.state,
@@ -198,7 +212,7 @@ class _HealthConnectCard extends StatelessWidget {
       _ => l10n.healthConnectSetup,
     };
     return AppCard(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -249,10 +263,10 @@ class _HealthConnectCard extends StatelessWidget {
             ),
           ],
           if (!unavailable) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: 14),
             Wrap(
               spacing: 8,
-              runSpacing: 4,
+              runSpacing: 8,
               children: [
                 TextButton(
                   key: ValueKey(
@@ -260,6 +274,7 @@ class _HealthConnectCard extends StatelessWidget {
                         ? 'profile-health-refresh'
                         : 'profile-health-connect',
                   ),
+                  style: _pillStyle(t),
                   onPressed: syncing
                       ? null
                       : connected
@@ -277,6 +292,7 @@ class _HealthConnectCard extends StatelessWidget {
                     state != HealthAuthState.updateRequired)
                   TextButton(
                     key: const ValueKey('profile-health-settings'),
+                    style: _pillStyle(t, quiet: true),
                     onPressed: syncing ? null : onSettings,
                     child: Text(l10n.healthConnectSettings),
                   ),
@@ -354,23 +370,26 @@ class _StatusLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        ExcludeSemantics(
-          child: Container(
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    // The dot rides inline, so it stays on the first line when the status
+    // wraps at large text.
+    return Text.rich(
+      TextSpan(
+        children: [
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 7),
+              child: Container(
+                width: 7,
+                height: 7,
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
+            ),
           ),
-        ),
-        const SizedBox(width: 7),
-        Flexible(
-          child: Text(
-            text,
-            style: AppType.ui(12.5, weight: FontWeight.w500, color: color),
-          ),
-        ),
-      ],
+          TextSpan(text: text),
+        ],
+      ),
+      style: AppType.ui(12.5, weight: FontWeight.w500, color: color),
     );
   }
 }

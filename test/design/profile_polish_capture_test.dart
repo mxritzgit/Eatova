@@ -7,7 +7,8 @@
 //   profile-de-00/01 the densest part in German
 //   profile-new-00   a fresh account (one weigh-in, nothing connected)
 //   profile-weight-sheet / profile-bmi-sheet  the two sheets
-//   profile-xl-00/01 the page at 2.0 text scale
+//   profile-xl-NN    the page at 2.0 text scale
+//   profile-hc       the Android Health Connect variant of the last card
 //
 // With --dart-define=DARK_REDESIGN_CAPTURE=true the shots land in
 // build/dark-redesign/. Without it the suite still pins that the page renders
@@ -78,6 +79,7 @@ Widget _screen({
   DateTime? lastFetch,
   int? steps = 6430,
   int kcal = 1221,
+  bool healthConnect = false,
 }) => ProfileScreen(
   name: 'Moritz Schneider',
   profile: profile,
@@ -92,6 +94,8 @@ Widget _screen({
   onOpenSettings: () {},
   onConnectHealth: () {},
   onRefreshHealth: () {},
+  healthConnect: healthConnect,
+  onHealthSettings: healthConnect ? () {} : null,
 );
 
 Future<void> _pump(
@@ -219,6 +223,17 @@ void main() {
     });
   });
 
+  testWidgets('profile-hc: the Android Health Connect card', (tester) async {
+    await withClock(Clock.fixed(_now), () async {
+      await _pump(tester, _screen(healthConnect: true));
+      await _scrollTo(tester, 100000);
+      expect(find.byKey(const ValueKey('profile-health-settings')),
+          findsOneWidget);
+      await captureDesignShot(tester, 'profile-hc');
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   testWidgets('profile sheets: log weight and the BMI explanation', (
     tester,
   ) async {
@@ -251,11 +266,7 @@ void main() {
     await withClock(Clock.fixed(_now), () async {
       final overflows = await collectOverflows(() async {
         await _pump(tester, _screen(), textScale: 2.0);
-        await captureDesignShot(tester, 'profile-xl-00');
-        await _scrollTo(tester, 900);
-        await captureDesignShot(tester, 'profile-xl-01');
-        final position = tester.state<ScrollableState>(_page()).position;
-        await _scrollTo(tester, position.maxScrollExtent);
+        await _shootPage(tester, 'profile-xl');
         expect(find.byKey(const ValueKey('profile-health-refresh')),
             findsOneWidget);
       });

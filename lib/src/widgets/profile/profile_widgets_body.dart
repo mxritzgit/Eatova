@@ -331,10 +331,11 @@ class BmiCard extends StatelessWidget {
                         spacing: 12,
                         runSpacing: 8,
                         children: <Widget>[
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.baseline,
-                            textBaseline: TextBaseline.alphabetic,
+                          // Wrap, not Row: at 2x the number alone fills a
+                          // small phone and "BMI" moves below it.
+                          Wrap(
+                            crossAxisAlignment: WrapCrossAlignment.end,
+                            spacing: 6,
                             children: <Widget>[
                               Text(
                                 formatBmiDe(bmi, l10n),
@@ -346,13 +347,15 @@ class BmiCard extends StatelessWidget {
                                   height: 1.05,
                                 ),
                               ),
-                              const SizedBox(width: 6),
-                              Text(
-                                'BMI',
-                                style: AppType.ui(
-                                  13,
-                                  weight: FontWeight.w600,
-                                  color: t.ink3,
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: Text(
+                                  'BMI',
+                                  style: AppType.ui(
+                                    13,
+                                    weight: FontWeight.w600,
+                                    color: t.ink3,
+                                  ),
                                 ),
                               ),
                             ],
