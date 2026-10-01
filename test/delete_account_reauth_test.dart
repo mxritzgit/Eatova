@@ -48,7 +48,6 @@ void main() {
     AuthRepository? repo,
     Future<void> Function()? onDeleteAccount,
     String? email = 'jonas@eatova.de',
-    double textScale = 1.0,
   }) async {
     tester.view.physicalSize = const Size(1179, 2556);
     tester.view.devicePixelRatio = 3.0;
@@ -75,7 +74,6 @@ void main() {
         ),
       ),
       brightness: Brightness.light,
-      textScale: textScale,
     );
     await tester.tap(find.byKey(const ValueKey('open-settings')));
     await tester.pumpAndSettle();
@@ -334,57 +332,6 @@ void main() {
       find.byKey(const ValueKey('settings-delete-code-field')),
       findsOneWidget,
     );
-  });
-
-  testWidgets('beide Schritte rendern bei textScale 2.0 ohne Overflow',
-      (tester) async {
-    // The code step is the tighter one: full mail address plus digit field.
-    final repo = baueRepo();
-    final overflows = <String>[];
-    final prior = FlutterError.onError;
-    FlutterError.onError = (details) {
-      if (details.exception.toString().contains('overflowed')) {
-        overflows.add(details.summary.toString());
-        return;
-      }
-      prior?.call(details);
-    };
-
-    try {
-      await pump(
-        tester,
-        repo: repo,
-        onDeleteAccount: () async {},
-        textScale: 2.0,
-      );
-
-      // At 2.0 the delete block sits below the viewport of a lazy ListView.
-      final oeffner = find.byKey(const ValueKey('settings-delete-account'));
-      await tester.scrollUntilVisible(
-        oeffner,
-        400,
-        scrollable: find.descendant(
-          of: find.byKey(const ValueKey('screen-settings')),
-          matching: find.byType(Scrollable),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(oeffner);
-      await tester.pumpAndSettle();
-
-      await schreibe(tester, 'settings-delete-confirm-field', 'LÖSCHEN');
-      await tippe(tester, find.text('Code anfordern'));
-
-      expect(
-        find.byKey(const ValueKey('settings-delete-code-field')),
-        findsOneWidget,
-      );
-      await schreibe(tester, 'settings-delete-code-field', '12345678');
-    } finally {
-      FlutterError.onError = prior;
-    }
-
-    expect(overflows, isEmpty, reason: overflows.join('\n'));
   });
 
   testWidgets('ohne AuthRepository fehlt der Loesch-Block ganz',

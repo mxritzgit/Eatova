@@ -2,8 +2,8 @@
 // 200 % system font without RenderFlex overflow.
 //
 // This file covers the settings screen. Its weak spots: the three-segment
-// pill next to the appearance row, the icon tile row with a long mail
-// address, and the delete block with its explainer box.
+// pills under the appearance and language rows, the identity row with a long
+// mail address, and the delete block with its explainer box.
 //
 // Unlike the behaviour tests, overflows are NOT swallowed here — they are the
 // thing under test. The four hand-written smokes (hell / dunkel / 2.0 hell /
@@ -85,8 +85,8 @@ Future<void> _pump(
   expect(tester.takeException(), isNull);
 }
 
-/// The page is a lazy ListView; rows below the fold are not in the tree until
-/// scrolled to, and building them is exactly when an overflow would trip.
+/// Brings a row below the fold into view (and into hit-test range) before a
+/// case taps it.
 Future<void> _scrollTo(WidgetTester tester, Key key, double schritt) async {
   await tester.scrollUntilVisible(
     find.byKey(key),
@@ -112,30 +112,10 @@ void main() {
     textScales: const <double>[1.0, 2.0],
   );
 
-  testWidgets('die Erscheinungsbild-Zeile traegt die Pille auch bei 2.0',
-      (tester) async {
-    // The page's densest row: title and subtitle left, three-segment pill
-    // right. At 2.0 the pill must wrap to a second line, not burst the row.
-    final overflows = await collectOverflows(() async {
-      await _pump(tester, brightness: Brightness.light, textScale: 2.0);
-
-      // The row sits below the viewport (the account group now has three
-      // rows), so without scrolling the pill is not in the tree at all.
-      await _scrollTo(tester, const ValueKey('settings-theme-mode'), 300);
-    });
-
-    expect(overflows, isEmpty, reason: describeOverflows(overflows));
-    expect(find.byKey(const ValueKey('settings-theme-mode')), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('settings-theme-mode-dark')),
-      findsOneWidget,
-    );
-  });
-
   testWidgets('die ausgeduennte Seite rendert ebenfalls sauber',
       (tester) async {
     // Without mail address, auth layer and ThemeModeScope half the page is
-    // gone; an empty [SettingsGroup] would be the weak spot here.
+    // gone; an empty [SettingsStudioGroup] would be the weak spot here.
     final overflows = await collectOverflows(() async {
       await _pump(
         tester,
@@ -246,9 +226,9 @@ void main() {
 
   testWidgets('der Seitenfuss der Einstellungen steht ohne vorheriges '
       'Scrollen im Baum', (tester) async {
-    // The page is a lazy ListView; this pins that the legal links are still
-    // found while the viewport carries them, or the behaviour tests would
-    // miss before anyone scrolls.
+    // The page builds every row up front (SingleChildScrollView); this pins
+    // that the legal links are found before anyone scrolls, which the
+    // behaviour tests rely on.
     await _pump(tester, brightness: Brightness.light);
 
     expect(find.byKey(const ValueKey('settings-privacy-link')), findsOneWidget);

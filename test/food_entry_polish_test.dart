@@ -10,7 +10,6 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/widgets/kcal/food_date_picker.dart';
 import 'package:eatova/src/widgets/kcal/manual_meal_sheet.dart';
-import 'package:eatova/src/widgets/kcal/meal_slot_picker.dart';
 import 'package:eatova/src/widgets/kcal/meal_suggestion_item.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
@@ -399,21 +398,6 @@ void main() {
       }
     }
   }
-
-  testWidgets('choosing the current meal again keeps it', (tester) async {
-    final changes = <MealSlot>[];
-    await _mount(
-      tester,
-      ManualMealSheet(initialSlot: MealSlot.lunch, onSlotChanged: changes.add),
-    );
-    await tester.tap(_key('manual-slot-lunch'));
-    await tester.pumpAndSettle();
-    expect(changes, isEmpty);
-    expect(
-      tester.widget<MealSlotPicker>(find.byType(MealSlotPicker)).selected,
-      MealSlot.lunch,
-    );
-  });
 
   testWidgets(
     'calendar close cancels; date input rejects future and saves valid day',

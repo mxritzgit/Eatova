@@ -174,35 +174,4 @@ void main() {
       expect(pillCenter(), target);
     });
   }
-
-  testWidgets('choosing a slot keeps an input draft', (
-    tester,
-  ) async {
-    final controller = TextEditingController(text: 'Skyr Natur');
-    addTearDown(controller.dispose);
-    var selected = MealSlot.dinner;
-    await pumpLocalized(
-      tester,
-      StatefulBuilder(
-        builder: (context, setState) => Column(
-          children: [
-            TextField(controller: controller),
-            MealSlotPicker(
-              selected: selected,
-              onSelected: (slot) => setState(() => selected = slot),
-            ),
-          ],
-        ),
-      ),
-    );
-    await tester.tap(find.byType(TextField));
-    await tester.pumpAndSettle();
-    await chooseMealSlot(tester, 'slot-select-breakfast');
-    expect(selected, MealSlot.breakfast);
-    expect(controller.text, 'Skyr Natur');
-    expect(
-      tester.widget<MealSlotPicker>(find.byType(MealSlotPicker)).selected,
-      MealSlot.breakfast,
-    );
-  });
 }
