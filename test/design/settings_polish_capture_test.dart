@@ -44,7 +44,6 @@ const UserProfile _profile = UserProfile(
 );
 
 Widget _settings({
-  Locale locale = const Locale('en'),
   int pending = 2,
   SyncBlockedReason? blocked,
 }) {
@@ -115,7 +114,7 @@ Future<void> _shootDown(
   }
 }
 
-Future<void> _tapRow(WidgetTester tester, String key, {Finder? page}) async {
+Future<void> _tapRow(WidgetTester tester, String key) async {
   final row = find.byKey(ValueKey<String>(key));
   await tester.ensureVisible(row);
   await tester.pumpAndSettle();
