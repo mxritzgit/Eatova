@@ -18,6 +18,7 @@ class ProfileStatTile extends StatelessWidget {
     this.tone,
     this.framed = true,
     this.large = false,
+    this.count,
   });
 
   final String label;
@@ -30,6 +31,10 @@ class ProfileStatTile extends StatelessWidget {
   /// Hero-sized number (the streak).
   final bool large;
 
+  /// The number behind [value]; when given, the tile counts up to it on
+  /// first display (instant under reduced motion).
+  final int? count;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
@@ -41,7 +46,6 @@ class ProfileStatTile extends StatelessWidget {
       letterSpacing: large ? -0.8 : -0.5,
       height: 1.1,
     );
-    final count = int.tryParse(value);
     final content = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisAlignment: MainAxisAlignment.center,
@@ -68,7 +72,7 @@ class ProfileStatTile extends StatelessWidget {
               Text(value, style: numberStyle)
             else
               CountingText(
-                value: count.toDouble(),
+                value: count!.toDouble(),
                 format: (v) => '${v.round()}',
                 style: numberStyle,
               ),

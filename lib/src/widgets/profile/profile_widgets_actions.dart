@@ -370,26 +370,25 @@ class _StatusLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // The dot rides inline, so it stays on the first line when the status
-    // wraps at large text.
-    return Text.rich(
-      TextSpan(
-        children: [
-          WidgetSpan(
-            alignment: PlaceholderAlignment.middle,
-            child: Padding(
-              padding: const EdgeInsets.only(right: 7),
-              child: Container(
-                width: 7,
-                height: 7,
-                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-              ),
+    final style = AppType.ui(12.5, weight: FontWeight.w500, color: color);
+    // The dot sits on the first line's centre, also when the status wraps
+    // at large text; the text stays its own Text widget.
+    final lineHeight = MediaQuery.textScalerOf(context).scale(12.5) * 1.25;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ExcludeSemantics(
+          child: Padding(
+            padding: EdgeInsets.only(top: (lineHeight - 7) / 2, right: 7),
+            child: Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(color: color, shape: BoxShape.circle),
             ),
           ),
-          TextSpan(text: text),
-        ],
-      ),
-      style: AppType.ui(12.5, weight: FontWeight.w500, color: color),
+        ),
+        Flexible(child: Text(text, style: style.copyWith(height: 1.25))),
+      ],
     );
   }
 }

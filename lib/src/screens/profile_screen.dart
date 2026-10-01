@@ -115,6 +115,7 @@ class ProfileScreen extends StatelessWidget {
                         left: ProfileStatTile(
                           label: l10n.profileLabelStreak,
                           value: '$streak',
+                          count: streak,
                           unit: l10n.coachStreakUnit(streak),
                           icon: Icons.local_fire_department_rounded,
                           tone: t.activityInk,
@@ -124,6 +125,7 @@ class ProfileScreen extends StatelessWidget {
                         right: ProfileStatTile(
                           label: l10n.profileLabelRecord,
                           value: '${stats.longestStreak}',
+                          count: stats.longestStreak,
                           unit: l10n.coachStreakUnit(stats.longestStreak),
                           icon: Icons.emoji_events_rounded,
                           tone: t.activityInk,
@@ -138,12 +140,14 @@ class ProfileScreen extends StatelessWidget {
                       left: ProfileStatTile(
                         label: l10n.profileLabelMeals,
                         value: '${stats.mealsLogged}',
+                        count: stats.mealsLogged,
                         unit: l10n.profileUnitTotal,
                         icon: Icons.restaurant_rounded,
                       ),
                       right: ProfileStatTile(
                         label: l10n.profileLabelWeighIns,
                         value: '${stats.weightLogs}',
+                        count: stats.weightLogs,
                         unit: l10n.profileUnitEntries(stats.weightLogs),
                         icon: Icons.monitor_weight_outlined,
                       ),
