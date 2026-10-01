@@ -77,44 +77,27 @@ Future<void> _warteAuf(
 
 /// Food tab -> settings -> "Profile & Goals".
 ///
-/// The settings page is a lazy [ListView], so the row is dragged into the
-/// build range first and only then scrolled into view — `tap` needs a hit
-/// target, `findsOneWidget` does not.
+/// The settings page builds every row up front; [_tippe] scrolls the row
+/// into view first, since `tap` needs a hit target.
 Future<void> _oeffneZiele(WidgetTester tester) async {
   await _tippe(tester, find.byKey(const ValueKey('nav-Food')));
   await tapHomeHeaderAction(tester, 'today-settings');
   expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
 
-  final zeile = find.byKey(const ValueKey('settings-open-goals'));
-  if (zeile.evaluate().isEmpty) {
-    await tester.dragUntilVisible(
-      zeile,
-      find.byKey(const ValueKey('screen-settings')),
-      const Offset(0, -150),
-    );
-  }
-  await _tippe(tester, zeile);
+  await _tippe(tester, find.byKey(const ValueKey('settings-open-goals')));
   expect(find.byKey(const ValueKey('screen-goals')), findsOneWidget);
 }
 
 /// Saves the goals page and closes settings, so the shell is visible again.
 ///
-/// The settings list is still scrolled down from [_oeffneZiele], so its header
-/// back button has to be dragged back into the build range first.
+/// The settings page is still scrolled down from [_oeffneZiele]; [_tippe]
+/// scrolls the header back button into view.
 Future<void> _speichernUndSchliessen(WidgetTester tester) async {
   await _tippe(tester, find.byKey(const ValueKey('settings-save')));
   expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget,
       reason: 'Speichern poppt zurueck auf die Einstellungen');
 
-  final zurueck = find.byKey(const ValueKey('settings-back'));
-  if (zurueck.evaluate().isEmpty) {
-    await tester.dragUntilVisible(
-      zurueck,
-      find.byKey(const ValueKey('screen-settings')),
-      const Offset(0, 200),
-    );
-  }
-  await _tippe(tester, zurueck);
+  await _tippe(tester, find.byKey(const ValueKey('settings-back')));
   // Settings sit behind the avatar's profile page since the redesign.
   await closeSettingsFromToday(tester);
 }

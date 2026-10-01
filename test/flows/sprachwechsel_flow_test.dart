@@ -149,19 +149,13 @@ Future<void> _oeffneEinstellungen(WidgetTester tester) async {
   expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
 }
 
-/// Scrolls the settings list back to its header.
+/// Scrolls the settings page back to its header.
 ///
 /// The language choice sits below the fold; return to the visible header
-/// before checking or leaving the translated route.
+/// before checking or leaving the translated route. The page builds every
+/// row up front, so the header is always in the tree.
 Future<void> _zumSeitenanfang(WidgetTester tester) async {
   final kopf = find.byKey(const ValueKey('settings-back'));
-  if (kopf.evaluate().isEmpty) {
-    await tester.dragUntilVisible(
-      kopf,
-      find.byKey(const ValueKey('screen-settings')),
-      const Offset(0, 200),
-    );
-  }
   await tester.ensureVisible(kopf);
   await tester.pumpAndSettle();
 }
@@ -175,17 +169,9 @@ Future<void> _schliesseEinstellungen(WidgetTester tester) async {
   await closeSettingsFromToday(tester);
 }
 
-/// Scrolls the language pill into range and takes one of its three options.
+/// Scrolls the language pill into view and takes one of its three options.
 Future<void> _waehleSprache(WidgetTester tester, String optionKey) async {
-  final option = find.byKey(ValueKey(optionKey));
-  if (option.evaluate().isEmpty) {
-    await tester.dragUntilVisible(
-      option,
-      find.byKey(const ValueKey('screen-settings')),
-      const Offset(0, -150),
-    );
-  }
-  await _tippe(tester, option);
+  await _tippe(tester, find.byKey(ValueKey(optionKey)));
 }
 
 void main() {
