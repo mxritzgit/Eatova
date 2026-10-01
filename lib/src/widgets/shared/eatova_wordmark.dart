@@ -24,7 +24,8 @@ class EatovaWordmark extends StatelessWidget {
   /// text, `lime` for the ring — meant for `forest` surfaces in both modes.
   /// The only current site, the auth screen, sits on the mode ground and
   /// passes `ink`/`accent` itself (`onForest` would vanish on the light
-  /// ground). The welcome screen paints its own mark with a CustomPainter.
+  /// ground). The welcome screen animates its own mark, drawn with the same
+  /// [paintFocusRing].
   final Color? textColor;
   final Color? ringColor;
 
@@ -70,6 +71,69 @@ class EatovaWordmark extends StatelessWidget {
   }
 }
 
+/// Paints the focus ring into a [box]-sized square centred on [center]: the
+/// one geometry of the mark, shared by [EatovaWordmark], the welcome screen
+/// and the native launch marks (`tool/launch_mark.py` mirrors these ratios).
+///
+/// [turn] is in quarter turns: the ticks rotate with it and, between two
+/// integer values, the ring contracts and the dot swells like a lens
+/// pulling focus. [tickReach] pushes the ticks outwards by that many logical
+/// pixels and [dotScale] scales the centre dot; both are for the reveal.
+void paintFocusRing(
+  Canvas canvas,
+  Offset center,
+  double box,
+  Color color, {
+  double turn = 0,
+  double tickReach = 0,
+  double dotScale = 1,
+}) {
+  final c = center;
+  final w = box;
+  final stroke = w * 0.105;
+  final tick = w * 0.115;
+  final gap = w * 0.075;
+  final focus = math.sin(turn * math.pi).abs();
+  // Ticks end at the box edge, which fixes the ring radius.
+  final ringRadius = w / 2 - tick - gap - stroke / 2;
+
+  canvas.drawCircle(
+    c,
+    ringRadius * (1 - focus * 0.12),
+    Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = stroke,
+  );
+  if (dotScale > 0) {
+    canvas.drawCircle(
+      c,
+      w * (0.10 + focus * 0.025) * dotScale,
+      Paint()..color = color,
+    );
+  }
+
+  final tickPaint = Paint()
+    ..color = color
+    ..strokeWidth = stroke
+    ..strokeCap = StrokeCap.butt;
+  final inner = ringRadius + stroke / 2 + gap + tickReach;
+  final outer = inner + tick;
+  canvas.save();
+  canvas.translate(c.dx, c.dy);
+  canvas.rotate(turn * math.pi / 2);
+  canvas.translate(-c.dx, -c.dy);
+  for (final d in const [
+    Offset(0, -1),
+    Offset(1, 0),
+    Offset(0, 1),
+    Offset(-1, 0),
+  ]) {
+    canvas.drawLine(c + d * inner, c + d * outer, tickPaint);
+  }
+  canvas.restore();
+}
+
 class _FocusRingPainter extends CustomPainter {
   const _FocusRingPainter(this.color, this.focusTurn);
 
@@ -77,46 +141,13 @@ class _FocusRingPainter extends CustomPainter {
   final double focusTurn;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final c = size.center(Offset.zero);
-    final w = size.width;
-    final stroke = w * 0.105;
-    final tick = w * 0.115;
-    final gap = w * 0.075;
-    final focus = math.sin(focusTurn * math.pi).abs();
-    // Ticks end at the box edge, which fixes the ring radius.
-    final ringRadius = w / 2 - tick - gap - stroke / 2;
-
-    canvas.drawCircle(
-      c,
-      ringRadius * (1 - focus * 0.12),
-      Paint()
-        ..color = color
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = stroke,
-    );
-    canvas.drawCircle(c, w * (0.10 + focus * 0.025), Paint()..color = color);
-
-    final tickPaint = Paint()
-      ..color = color
-      ..strokeWidth = stroke
-      ..strokeCap = StrokeCap.butt;
-    final inner = ringRadius + stroke / 2 + gap;
-    final outer = inner + tick;
-    canvas.save();
-    canvas.translate(c.dx, c.dy);
-    canvas.rotate(focusTurn * math.pi / 2);
-    canvas.translate(-c.dx, -c.dy);
-    for (final d in const [
-      Offset(0, -1),
-      Offset(1, 0),
-      Offset(0, 1),
-      Offset(-1, 0),
-    ]) {
-      canvas.drawLine(c + d * inner, c + d * outer, tickPaint);
-    }
-    canvas.restore();
-  }
+  void paint(Canvas canvas, Size size) => paintFocusRing(
+    canvas,
+    size.center(Offset.zero),
+    size.width,
+    color,
+    turn: focusTurn,
+  );
 
   @override
   bool shouldRepaint(covariant _FocusRingPainter oldDelegate) =>
