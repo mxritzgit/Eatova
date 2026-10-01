@@ -15,6 +15,7 @@ import 'package:eatova/src/screens/onboarding_screen.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/screens/settings/goals_screen.dart';
 import 'package:eatova/src/screens/settings/settings_controls.dart';
+import 'package:eatova/src/screens/settings/settings_plan_hero.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/theme/meal_slot_style.dart';
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
@@ -204,18 +205,20 @@ Map<Color, String> _verbotenAlsText(AppTokens t) => <Color, String>{
 ///
 /// Deliberately widget-level: the tones themselves are correct (3:1 for
 /// graphics), only their use as text is wrong, and no colour-pair check can
-/// see that.
+/// see that. Walks every span of a `Text.rich`, each with the colour it
+/// inherits from its parent span or the widget style.
 void _erwarteKeineMakroTexte(WidgetTester tester, AppTokens t) {
   final toene = _verbotenAlsText(t);
   final treffer = <String>[];
   for (final element in find.byType(Text).evaluate()) {
     final widget = element.widget as Text;
-    final farbe = widget.style?.color;
-    if (farbe == null) continue;
-    final name = toene[farbe];
-    if (name == null) continue;
-    final inhalt = widget.data ?? widget.textSpan?.toPlainText() ?? '';
-    treffer.add('"$inhalt" in $name');
+    final wurzel = widget.textSpan ?? TextSpan(text: widget.data);
+    _besucheSpans(wurzel, widget.style?.color, (text, farbe) {
+      if (farbe == null || text.isEmpty) return;
+      final name = toene[farbe];
+      if (name == null) return;
+      treffer.add('"$text" in $name');
+    });
   }
   expect(
     treffer,
@@ -226,6 +229,42 @@ void _erwarteKeineMakroTexte(WidgetTester tester, AppTokens t) {
         'Glyphe + Text in ink:\n'
         '${treffer.join('\n')}',
   );
+}
+
+/// Calls [onText] for every text-carrying span under [span], with the colour
+/// it is painted in ([inherited] when the span sets none).
+void _besucheSpans(
+  InlineSpan span,
+  Color? inherited,
+  void Function(String text, Color? farbe) onText,
+) {
+  final farbe = span.style?.color ?? inherited;
+  if (span is TextSpan) {
+    final text = span.text;
+    if (text != null) onText(text, farbe);
+    for (final kind in span.children ?? const <InlineSpan>[]) {
+      _besucheSpans(kind, farbe, onText);
+    }
+  }
+}
+
+/// The plan hero's gram numbers: every digits-only span inside
+/// [SettingsPlanHero], with the colour it is painted in.
+List<Color?> _planGrammFarben(WidgetTester tester) {
+  final farben = <Color?>[];
+  final texte = find.descendant(
+    of: find.byType(SettingsPlanHero),
+    matching: find.byType(Text),
+  );
+  for (final element in texte.evaluate()) {
+    final widget = element.widget as Text;
+    final wurzel = widget.textSpan;
+    if (wurzel == null) continue;
+    _besucheSpans(wurzel, widget.style?.color, (text, farbe) {
+      if (RegExp(r'^\d+$').hasMatch(text)) farben.add(farbe);
+    });
+  }
+  return farben;
 }
 
 /// Tones a macro MARKER may legitimately carry: the raw tone, which holds the
@@ -740,6 +779,11 @@ void main() {
       );
       expect(find.byKey(const ValueKey('screen-goals')), findsOneWidget);
       _erwarteKeineMakroTexte(tester, AppTokens.light);
+      // Positive pin: the three gram numbers are drawn, and in ink.
+      expect(
+        _planGrammFarben(tester),
+        <Color>[AppTokens.light.ink, AppTokens.light.ink, AppTokens.light.ink],
+      );
       expect(_makroPunkte(tester, AppTokens.light), greaterThanOrEqualTo(3));
     });
 
@@ -863,7 +907,7 @@ void main() {
             expect(n.glyphe, ton.$2 ?? t.ink2);
 
             expect(_contrast(n.text, n.flaeche), greaterThanOrEqualTo(4.5),
-                reason: '$modus: 12-px-Text auf ${ton.$1}@10 % ueber '
+                reason: '$modus: 13-px-Text auf ${ton.$1}@10 % ueber '
                     '${grund.$1}');
             // Glyph = graphical object (WCAG 1.4.11): 3:1.
             expect(_contrast(n.glyphe, n.flaeche), greaterThanOrEqualTo(3.0),
@@ -886,7 +930,7 @@ void main() {
             expect(n.text, ton.$2 ?? t.ink2);
             expect(n.glyphe, ton.$2 ?? t.ink2);
             expect(_contrast(n.text, n.flaeche), greaterThanOrEqualTo(4.5),
-                reason: '$modus: 12-px-Text (${ton.$1}) auf ${grund.$1}');
+                reason: '$modus: 13-px-Text (${ton.$1}) auf ${grund.$1}');
           });
         }
       }
