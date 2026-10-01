@@ -137,7 +137,8 @@ Finder _summe(String kcal) => find.descendant(
     );
 
 Future<void> _fuegeHinzu(WidgetTester tester, String kachel, String knopf) async {
-  // The tile can sit below the fold once the sheet's head grows.
+  // The inline slot control and the entry card push favourites below the
+  // first viewport.
   await tester.ensureVisible(find.byKey(ValueKey(kachel)));
   await tester.pumpAndSettle();
   await tester.tap(find.byKey(ValueKey(kachel)));
