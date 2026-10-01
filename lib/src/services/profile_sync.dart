@@ -155,37 +155,6 @@ class ProfileSync {
     }
   }
 
-  Future<void> save(UserProfile profile) async {
-    final payload = <String, dynamic>{
-      'id': _userId,
-      'weight_kg': profile.weightKg,
-      'height_cm': profile.heightCm,
-      'age_years': profile.ageYears,
-      'sex': profile.sex.name,
-      'activity_level': profile.activityLevel.name,
-      'target_weight_kg': profile.targetWeightKg,
-      'daily_steps_goal': profile.dailyStepsGoal,
-      'daily_kcal_goal': profile.dailyKcalGoal,
-      'daily_water_goal_ml': profile.dailyWaterGoalMl,
-      'daily_sleep_goal_minutes': profile.dailySleepGoalMinutes,
-      'protein_goal_g': profile.proteinGoalG,
-      'carbs_goal_g': profile.carbsGoalG,
-      'fat_goal_g': profile.fatGoalG,
-      'weight_goal': profile.weightGoal.name,
-      'diet_preference': profile.diet.name,
-      'onboarding_completed': profile.onboardingCompleted,
-      'manual_energy': profile.manualEnergy,
-    };
-    try {
-      // UPSERT, not UPDATE: the profile row may not exist yet.
-      // .select().single() forces a response, so an RLS block or 0 rows throws.
-      await _client.from('profiles').upsert(payload).select().single();
-    } catch (e, stack) {
-      dev.log('ProfileSync.save failed', error: e, stackTrace: stack, name: 'profile_sync');
-      rethrow;
-    }
-  }
-
   // Delegate to the pure top-level parsers above.
   static BiologicalSex _parseSex(String? raw) => parseProfileSex(raw);
 

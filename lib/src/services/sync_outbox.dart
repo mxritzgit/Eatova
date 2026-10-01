@@ -420,7 +420,7 @@ class SyncOp {
     payload: {'profile': userProfileToJson(profile)},
   );
 
-  /// A tracked logging day (`LifetimeStatsSync.recordTrackingDay`).
+  /// A tracked logging day (`record_tracking_day` via `apply_sync_operation`).
   ///
   /// [localDay] (`YYYY-MM-DD`) is also the [entityId], so all attempts for the
   /// same day share one [entityKey]. The payload is empty — the day is the
