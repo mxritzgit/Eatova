@@ -82,7 +82,7 @@ void main() {
       final cache = LocalCache(memory, 'A');
       final entries = [for (var i = 0; i < count; i++) _entry(i)];
       await cache.writeTrainingHistory(entries);
-      await cache.flush();
+      await cache.settle();
       final raw = (await memory.getString(_historyKey))!;
       // The two sizes cover both paths.
       expect(

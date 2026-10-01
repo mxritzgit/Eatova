@@ -68,7 +68,7 @@ void main() {
     final faults = AtomicStoreFaults(memory);
     final cache = LocalCache(faults, 'A');
     await cache.writeTrainingHistory([_finished(done)]);
-    await cache.flush();
+    await cache.settle();
     final storedHistory = await memory.getString(_historyKey);
     expect(storedHistory, isNotNull);
 
@@ -102,7 +102,7 @@ void main() {
       'Einheit wird nicht wiederbelebt', () async {
     final cache = LocalCache(InMemoryKeyValueStore(), 'A');
     await cache.writeTrainingHistory([_finished(done)]);
-    await cache.flush();
+    await cache.settle();
     await expectLater(
       cache.commitTrainingCheckpoint(
         _checkpoint(done, 20000),

@@ -427,9 +427,6 @@ class LocalCache {
   static const int historyIsolateMinChars = 256 * 1024;
 
   Future<List<TrainingHistoryEntry>?> readTrainingHistory() async {
-    // A pending debounced write is the newest state (see [_readJson]).
-    final pending = _pendingWrites[_trainingHistoryKey];
-    if (pending != null) return _historyFromJson(pending);
     try {
       final raw = await _store.getString(_trainingHistoryKey);
       if (raw == null || raw.isEmpty) return null;
