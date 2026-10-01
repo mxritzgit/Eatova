@@ -102,17 +102,11 @@ default, or infer that all later findings are fixed just because an earlier run 
    with green pre-merge CI, and `coach-chat` v37 is deployed and startup-verified.
    Produce/install a new device build through the usual workflow to include the
    165-second client deadline and Undo-state fix, then check the real recipe flow.
-2. **Remaining auth-review findings:** Claude's 2026-09-01 review lists outbox
-   replay across account changes, a consumed password-change nonce after
-   `same_password`, GoTrue 5xx/429 misclassified as invalid authentication,
-   auth-failure gate amplification, inconsistent AuthScreen error handling,
-   leaving password recovery without changing the password, missing Postgres
-   checks for reauthentication/session ownership, and missing live auth-config
-   drift checks. Treat these as an inherited backlog requiring targeted
-   reproduction, not as newly proven findings or a reliable numeric count.
-   Spot reads still show the relevant replay loop, password-change error path,
-   and Coach non-OK auth-response classification. Timeout handling already has
-   a distinct outage path; do not conflate timeout fixes with HTTP 5xx/429 handling.
+2. **Auth-review findings of 2026-09-01:** closed in code. A 2026-10-01 check
+   against `91ad800` found most already fixed by earlier work; the remainder
+   was fixed in the 2026-10-01 run (see "Remaining findings, 2026-10-01"). Its
+   rollout steps (migration, function deploy, live config confirmation) are
+   tracked there.
 3. **Release/website follow-ups:** older notes mention real-device Google login,
    privacy text synchronization, and store/legal-page finishing work. These need
    current verification before being scheduled. The marketing site is a separate
@@ -1528,7 +1522,7 @@ Sources: [current password contract and rollout](../supabase/AUTH_EMAIL_OTP.md),
 [session mutations](../lib/src/auth/auth_session_mutation.dart),
 [password matrix](../scripts/security/password_change_checks.py),
 [Auth probe guide](../scripts/security/README.md),
-[production configuration audit](../scripts/security/auth_password_policy.py).
+[production configuration audit](../scripts/security/auth_config_drift.py).
 
 ## Social recipe share import, 2026-09-21
 
@@ -2251,3 +2245,62 @@ in `reports/`) and were integrated in one PR.
     if light mode returns.
   - The blur on docked tabs is unchanged, because the capture tests cannot
     render blur.
+
+## Remaining findings, 2026-10-01
+
+A read-only check against `91ad800` showed that most of the 2026-09-01 auth
+backlog was already closed. That includes the outbox replay across accounts,
+`same_password`, the AuthScreen classifier, recovery without a password change,
+GoTrue 5xx/429 handling and the `delete_account` amr tests. Five agents fixed
+what remained, each in its own worktree. Agent reports and the evidence are in
+the git-ignored `.agents/remaining-fixes-2026-10-01/reports/`.
+
+- Security:
+  - The chat-session RPCs (`rename_chat_session`, `delete_chat_session`,
+    `list_chat_sessions`) now have real cross-user Postgres tests.
+  - A new static rule requires every definer UPDATE/DELETE to filter on the
+    caller.
+  - The live drift job checks the Auth config against
+    `supabase/auth_config.expected.json`. That covers 17 settings, the
+    redirect allow-list and the 13 templates, including the magic-link
+    takeover path and the project-wide mail quota.
+  - The auth-fail gate answers a token that was rejected twice within 60 s
+    before the GoTrue lookup and the DB write (P7-02). The memory is bounded
+    and per isolate. A valid token from the same IP is still always checked.
+  - A Keychain session that survives an iOS uninstall is discarded on a fresh
+    install. An update keeps its session.
+  - Reminders and the background-sync request are cancelled on every session
+    end.
+- Performance and cleanup:
+  - Acknowledging a meal no longer decodes the diary (1,000 meals: 29 ms →
+    0.7 ms).
+  - A cold start loads training history incrementally: a manifest of `id` and
+    `finished_at`, then only new rows. At 2,000 workouts that is about 174 kB
+    instead of about 21 MB. This relies on history rows never changing after
+    insert. A future in-place rewrite must add a revision to the manifest.
+  - Sync write methods that only tests called are removed.
+  - `record_training_history` and `delete_training_history` lose their
+    `authenticated` grant (migration `20261001100000`).
+  - The light `arcEnd` reaches 3.21:1.
+  - Dependency updates: `flutter_local_notifications` 22.3.0 and `image`
+    4.9.1.
+- Still open:
+  - `package_info_plus` 10 needs a Mac/iOS build check, because it pulls in
+    several majors.
+  - Meals and weight still load in full (meals have no revision column).
+  - `TrainingPlansSync.upsert` is still a direct table write.
+  - The legacy RPC grants for older builds stay on purpose (`OFFLINE_SYNC.md`).
+  - The Android backup rules let `eatova-cache.sqlite` move to another device
+    without its key. The existing recovery clears it after three starts.
+  - The drift contract does not pin `external_google_client_id`, SMTP or the
+    hooks yet.
+- Rollout, each step only with the user's approval:
+  1. Run the drift check once read-only against live before relying on the
+     main job. Its values marked UNCONFIRMED come from older reads.
+  2. Apply migration `20261001100000`, and only once no installed build
+     predates #98 (`01acb77`), because those builds call the RPCs directly.
+  3. Deploy `coach-chat`, `analyze-meal` and `search-key` together; P7-02 is
+     not live until then.
+  4. Everything on the client side reaches users with the next device build.
+     Check P3-01 on an iPhone: uninstall while signed in, reinstall, and the
+     app must show the login screen.
