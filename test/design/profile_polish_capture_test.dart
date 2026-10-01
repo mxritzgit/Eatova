@@ -162,7 +162,14 @@ void main() {
         await _pump(tester, _screen());
         expect(find.text('Moritz Schneider'), findsOneWidget);
         // Streak, lifetime and the daily rows from the scenario.
-        expect(find.text('12'), findsWidgets);
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('profile-studio-identity')),
+            matching: find.text('12'),
+          ),
+          findsOneWidget,
+          reason: 'the streak is the hero figure',
+        );
         expect(find.text('412'), findsOneWidget);
         expect(find.text('1221/2050'), findsOneWidget);
         expect(find.text('6430/8000'), findsOneWidget);
