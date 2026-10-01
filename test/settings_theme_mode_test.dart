@@ -13,7 +13,7 @@ import 'package:eatova/src/theme/theme_mode_controller.dart';
 //
 // It is a DEVICE setting, not a profile property: [ThemeModeController]
 // persists it immediately, so there is nothing to save or discard. It lives in
-// the settings screen, in the "PRÄFERENZEN" group.
+// the settings screen, in the preferences group (`settingsStudioPreferences`).
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 

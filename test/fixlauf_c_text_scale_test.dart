@@ -1,8 +1,8 @@
 // Fix run for review 2026-08-27, F3-05: the add-meal sheet, its slot
 // selector and the manual-entry sheet used fixed heights (46/46/56) that
-// left no room for large system text. Now `minHeight`, the slot segments
-// scale with the text like the edit sheet's day picker. Overflows are the
-// subject here, so `renderMatrix` asserts on them instead of swallowing them.
+// left no room for large system text. Now `minHeight`, and the slot segments
+// grow with the text. Overflows are the subject here, so `renderMatrix`
+// asserts on them instead of swallowing them.
 //
 // The scale loop (1.3 / 2.0) plus the separate 1.0 case are one matrix now:
 // 1.0 / 1.3 / 2.0 in BOTH brightnesses, since the light theme draws different
@@ -154,7 +154,7 @@ void main() {
   );
 
   renderMatrix(
-    'Der Mahlzeiten-Kontext waechst mit der Systemschrift',
+    'Die Mahlzeiten-Segmente wachsen mit der Systemschrift',
     (tester, c) async {
       await _pumpAddSheet(tester, c);
       expect(find.byType(MealSlotPicker), findsOneWidget);

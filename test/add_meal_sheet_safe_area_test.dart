@@ -1,5 +1,5 @@
-// Finding 2026-08-21 (iPhone 14 Pro): the add-meal sheet head with
-// camera/gallery/barcode ended up under the Dynamic Island, because
+// Finding 2026-08-21 (iPhone 14 Pro): the add-meal sheet's top (then a head
+// row with camera/gallery/barcode) ended up under the Dynamic Island, because
 // `maxHeight = size.height * 0.92` plus the 336 pt keyboard inset exceeded the
 // screen and the modal route pushed the sheet to y = 0.
 //
@@ -142,7 +142,7 @@ void main() {
     final kamera =
         tester.getRect(find.byKey(const ValueKey('analyse-camera-button')));
     expect(kamera.top, greaterThanOrEqualTo(_safeAreaOben));
-    // Same for gallery/barcode/close — one head row.
+    // Same for gallery, barcode and close.
     for (final key in const <String>[
       'analyse-gallery-button',
       'analyse-barcode-button',

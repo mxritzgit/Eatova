@@ -206,7 +206,7 @@ void main() {
     await tester.tap(plus);
     await tester.pumpAndSettle();
 
-    // The context row preserves the destination chosen in the diary.
+    // The sheet's slot control opens on the slot chosen in the diary.
     final picker = tester.widget<MealSlotPicker>(find.byType(MealSlotPicker));
     expect(picker.selected, MealSlot.dinner);
   });

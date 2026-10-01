@@ -1,6 +1,6 @@
 // Gaps 1 and 3 from B1 (docs/REVIEW-2026-08-08.md), measured on the expanded
-// MealSuggestionItem. Core question: does the number right above the add
-// button show the value that gets logged on tap?
+// MealSuggestionItem. Core question: does the kcal preview beside the round
+// add button show the value that gets logged on tap?
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';

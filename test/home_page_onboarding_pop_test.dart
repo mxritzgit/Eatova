@@ -69,7 +69,7 @@ Future<void> _pumpOnboarding(WidgetTester tester) async {
   addTearDown(tester.view.resetDevicePixelRatio);
 
   // Reduced motion collapses the welcome durations to Duration.zero; the
-  // indeterminate boot spinner would otherwise hang.
+  // welcome mark's endless focus hunt would otherwise never settle.
   tester.platformDispatcher.accessibilityFeaturesTestValue =
       const FakeAccessibilityFeatures(disableAnimations: true);
   addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);

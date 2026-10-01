@@ -152,8 +152,9 @@ Future<void> _pumpHome(
   // Force reduced motion. Under disableAnimations motionDuration collapses
   // every welcome duration to zero, so _exitController.forward() finishes
   // without a tick and the screen moves to onboarding/home deterministically.
-  // Otherwise the indeterminate spinner never settles and pumpAndSettle runs
-  // into the runner timeout. The clobber guard's behaviour is unaffected.
+  // Otherwise the welcome mark's endless focus hunt never settles and
+  // pumpAndSettle runs into the runner timeout. The clobber guard's behaviour
+  // is unaffected.
   tester.platformDispatcher.accessibilityFeaturesTestValue =
       const FakeAccessibilityFeatures(disableAnimations: true);
   addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
@@ -188,9 +189,9 @@ Future<void> _pumpHome(
   ));
 
   // Boot mixes real async (Supabase HTTP, cache reads) with fake-async
-  // animation. pumpAndSettle would never settle while the indeterminate
-  // welcome spinner is in the tree, so pump in a bounded loop instead — never
-  // a 10-minute hang even if the boot jams.
+  // animation. pumpAndSettle cannot be trusted while the welcome screen is in
+  // the tree, so pump in a bounded loop instead — never a 10-minute hang even
+  // if the boot jams.
   final welcome = find.byKey(const ValueKey('screen-welcome'));
   for (var i = 0; i < 80 && welcome.evaluate().isNotEmpty; i++) {
     await _drain(tester, rounds: 1);

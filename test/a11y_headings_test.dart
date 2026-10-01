@@ -351,10 +351,9 @@ void main() {
           (label: l10n.settingsStudioPrivacy, level: 2),
           (label: l10n.settingsStudioSession, level: 2),
         ],
-        reason: 'die Seite ist eine ListView: jedes Kind wird in '
-            'IndexedSemantics gewickelt, das vertraegliche Geschwister zu '
-            'EINEM Knoten verschmilzt. Ohne eigenen Knoten hiesse die Marke '
-            'der Ebene 1 „Zurück Einstellungen"',
+        reason: 'jede Marke braucht einen eigenen Semantik-Knoten; ohne '
+            'ihn verschmilzt der Titel mit dem Zurueck-Knopf und die Marke '
+            'der Ebene 1 hiesse „Zurück Einstellungen"',
       );
       // Gegenprobe: der Zurueck-Knopf behaelt seine Tipp-Aktion.
       expect(

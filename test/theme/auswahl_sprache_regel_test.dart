@@ -23,7 +23,7 @@
 // WHAT STAYS ALLOWED: static `t.forest` without a condition. `forest` keeps
 // every job it has as a brand SURFACE — the kcal tile and the profile badge in
 // the food tab, the onboarding intro badge and hero, the today hero, the
-// snackbar, the welcome screen. Those are not state indicators.
+// snackbar. Those are not state indicators.
 //
 // The rule reads SOURCE TEXT. It is deliberately NOT in
 // test/repo_rules_test.dart: it belongs next to the contrast assertions in

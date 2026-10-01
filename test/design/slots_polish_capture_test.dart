@@ -359,7 +359,7 @@ void main() {
     await _edit(tester, 'slots-edit-de', locale: const Locale('de'));
   });
 
-  // Proposed host wiring: the manual row joins the methods card.
+  // As the add sheet wires it: the manual row joins the methods card.
   testWidgets('entry methods with the manual row', (tester) async {
     final taps = <String>[];
     pinDesignViewport(tester);

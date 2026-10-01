@@ -157,9 +157,8 @@ void main() {
       expect(find.byKey(const ValueKey('screen-settings')), findsOneWidget);
     }
 
-    /// Die Seite ist eine faule Liste — was unterhalb der Kante liegt, steht
-    /// bis zum Scrollen gar nicht im Baum. `ensureVisible` obendrauf, weil
-    /// „im Baum" noch nicht „unter dem Finger" heisst.
+    /// Die Zeilen liegen unterhalb der Kante: erst hinscrollen, dann
+    /// `ensureVisible`, damit sie wirklich unter dem Finger liegen.
     Future<void> scrolleZu(WidgetTester tester, String key) async {
       final finder = find.byKey(ValueKey<String>(key));
       await tester.scrollUntilVisible(
@@ -175,7 +174,7 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    // Stelle 2: die drei Rechts-Zeilen unter DATEN & PRIVATSPHÄRE.
+    // Stelle 2: die drei Rechts-Zeilen unter „Daten & Privatsphäre".
     const zeilen = <({String key, String url})>[
       (key: 'settings-privacy-link', url: kPrivacyUrl),
       (key: 'settings-terms-link', url: kTermsUrl),

@@ -218,7 +218,7 @@ void main() {
   testWidgets('Suchfelder bekommen per TAP durch den Host den Fokus',
       (tester) async {
     await _pumpHome(tester);
-    // autofocus set it; drop it so the tap has to earn it back.
+    // Drop any focus so the tap has to earn it.
     FocusManager.instance.primaryFocus?.unfocus();
     await tester.pumpAndSettle();
     expect(_hasFocus(tester, 'kcal-product-search-input'), isFalse);

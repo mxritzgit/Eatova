@@ -301,8 +301,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('screen-profile')), findsOneWidget);
 
-      // The densest page: paired metric tiles, plan card with three macro
-      // columns, weight sparkline and the health card at the bottom.
+      // The densest page: the hero's stat pair, lifetime tiles, plan card,
+      // goals card with the macro bar, weight sparkline and the health card.
       await _scrollDurch(
         tester,
         find.byKey(const ValueKey('screen-profile')),

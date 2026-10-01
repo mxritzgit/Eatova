@@ -37,7 +37,7 @@ Future<InMemoryAuthRepository> _pump(WidgetTester tester, RenderCase c) async {
 }
 
 /// Scrolls the row into view and taps it; at double text scale it sits
-/// below the viewport of the lazy ListView.
+/// below the viewport.
 Future<void> _oeffne(WidgetTester tester, String schluessel) async {
   final ziel = find.byKey(ValueKey<String>(schluessel));
   await tester.scrollUntilVisible(
