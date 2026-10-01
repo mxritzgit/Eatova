@@ -264,7 +264,7 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
   /// Gap D: the save goes through `_syncOrQueue` and thus the outbox — a
   /// direct Supabase write left offline edits in the cache only, and the next
   /// online boot overwrote them with the old server row. All profile ops share
-  /// an entity key, so offline edits coalesce; last one wins. Not awaited —
+  /// an entity key and replay in order, so the last edit wins. Not awaited —
   /// delivery is the outbox's job.
   Future<void> applySettings({
     required UserProfile newProfile,

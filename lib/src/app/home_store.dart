@@ -1343,8 +1343,8 @@ class HomeStore extends _HomeStoreBase
   }
 
   /// Writes the healed live goals back — one full-row upsert through the
-  /// regular outbox path (same entity key as every profile op, so it
-  /// coalesces and never double-saves).
+  /// regular outbox path (same entity key as every profile op, so it replays
+  /// in order behind any pending profile edit).
   void _queueHealedProfileSave() {
     final s = sync;
     if (s == null || _disposed) return;

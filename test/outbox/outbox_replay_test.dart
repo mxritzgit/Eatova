@@ -10,7 +10,7 @@ import 'package:eatova/src/services/sync_outbox.dart';
 
 import 'outbox_test_helpers.dart';
 
-// The replay itself: coalescing, idempotent delivery, one blocked entity not
+// The replay itself: per-entity order, idempotent delivery, one blocked entity not
 // holding up the others, and gap B — the op is on disk BEFORE the live write,
 // so a kill in that window costs nothing and the replay does not double up.
 
