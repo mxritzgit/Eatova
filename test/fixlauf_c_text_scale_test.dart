@@ -157,16 +157,18 @@ void main() {
     'Der Mahlzeiten-Kontext waechst mit der Systemschrift',
     (tester, c) async {
       await _pumpAddSheet(tester, c);
-      final trigger = find.byKey(const ValueKey('slot-select-open'));
-      expect(tester.getSize(trigger).height, greaterThanOrEqualTo(48));
       expect(find.byType(MealSlotPicker), findsOneWidget);
-      for (final text in find
-          .descendant(of: trigger, matching: find.byType(Text))
-          .evaluate()) {
-        expect(
-          tester.getRect(find.byWidget(text.widget)).bottom,
-          lessThanOrEqualTo(tester.getRect(trigger).bottom),
-        );
+      for (final slot in MealSlot.values) {
+        final segment = find.byKey(ValueKey('slot-select-${slot.name}'));
+        expect(tester.getSize(segment).height, greaterThanOrEqualTo(48));
+        for (final text in find
+            .descendant(of: segment, matching: find.byType(Text))
+            .evaluate()) {
+          expect(
+            tester.getRect(find.byWidget(text.widget)).bottom,
+            lessThanOrEqualTo(tester.getRect(segment).bottom),
+          );
+        }
       }
     },
     textScales: _skalen,

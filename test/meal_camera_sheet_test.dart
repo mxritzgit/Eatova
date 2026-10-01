@@ -233,7 +233,7 @@ void main() {
         settle: true,
       );
       for (final key in ['meal-camera-close', 'meal-camera-gallery',
-        'meal-camera-slot-open']) {
+        for (final slot in MealSlot.values) 'meal-camera-slot-${slot.name}']) {
         expect(find.byKey(ValueKey(key)).hitTestable(), findsOneWidget);
       }
       if (denied) {
@@ -258,20 +258,17 @@ void main() {
     await _pumpSheet(tester);
     expect(tester.widget<MealSlotPicker>(find.byType(MealSlotPicker)).selected,
         MealSlot.lunch);
-    await tester.tap(find.byKey(const ValueKey('meal-camera-slot-open')));
-    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('meal-camera-slot-breakfast')));
     await tester.pumpAndSettle();
     expect(tester.widget<MealSlotPicker>(find.byType(MealSlotPicker)).selected,
         MealSlot.breakfast);
     expect(find.byType(CameraPreview), findsOneWidget);
     expect(fake.createCalls, 1);
-    await tester.tap(find.byKey(const ValueKey('meal-camera-slot-open')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('meal-camera-slot-close')));
+    await tester.tap(find.byKey(const ValueKey('meal-camera-slot-snack')));
     await tester.pumpAndSettle();
     expect(tester.widget<MealSlotPicker>(find.byType(MealSlotPicker)).selected,
-        MealSlot.breakfast);
+        MealSlot.snack);
+    expect(fake.createCalls, 1);
     expect(tester.takeException(), isNull);
   });
 

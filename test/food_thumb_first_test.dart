@@ -286,7 +286,7 @@ void main() {
         await tester.tap(find.byKey(const ValueKey('food-slot-add-breakfast')));
         await tester.pumpAndSettle();
         expect(
-          find.byKey(const ValueKey('slot-select-open')),
+          find.byKey(const ValueKey('slot-select-group')),
           findsOneWidget,
         );
         expect(tester.takeException(), isNull);
@@ -419,8 +419,6 @@ void main() {
           ),
           findsOneWidget,
         );
-        await tester.tap(find.byKey(const ValueKey('manual-slot-open')));
-        await tester.pumpAndSettle();
         await tester.tap(find.byKey(const ValueKey('manual-slot-breakfast')));
         await tester.pumpAndSettle();
         await tester.enterText(

@@ -246,9 +246,6 @@ void main() {
           await tester.enterText(_key('manual-meal-kcal100'), '120');
           await tester.enterText(_key('manual-meal-protein'), '10,5');
           await tester.enterText(_key('manual-meal-grams'), '250');
-          await tester.ensureVisible(_key('manual-slot-open'));
-          await tester.tap(_key('manual-slot-open'));
-          await tester.pumpAndSettle();
           await tester.ensureVisible(_key('manual-slot-dinner'));
           await tester.tap(_key('manual-slot-dinner'));
           await tester.pumpAndSettle();
@@ -403,14 +400,15 @@ void main() {
     }
   }
 
-  testWidgets('manual picker dismissal preserves the current meal', (
-    tester,
-  ) async {
-    await _mount(tester, const ManualMealSheet(initialSlot: MealSlot.lunch));
-    await tester.tap(_key('manual-slot-open'));
+  testWidgets('choosing the current meal again keeps it', (tester) async {
+    final changes = <MealSlot>[];
+    await _mount(
+      tester,
+      ManualMealSheet(initialSlot: MealSlot.lunch, onSlotChanged: changes.add),
+    );
+    await tester.tap(_key('manual-slot-lunch'));
     await tester.pumpAndSettle();
-    await tester.tap(_key('manual-slot-close'));
-    await tester.pumpAndSettle();
+    expect(changes, isEmpty);
     expect(
       tester.widget<MealSlotPicker>(find.byType(MealSlotPicker)).selected,
       MealSlot.lunch,

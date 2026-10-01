@@ -224,7 +224,7 @@ void main() {
           expect(sheet.top, greaterThanOrEqualTo(44));
           expect(sheet.bottom, lessThanOrEqualTo(552));
           for (final key in [
-            'slot-select-open',
+            for (final slot in MealSlot.values) 'slot-select-${slot.name}',
             'analyse-camera-button',
             'analyse-gallery-button',
             'analyse-barcode-button',
