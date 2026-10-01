@@ -358,7 +358,7 @@ void main() {
       expect(code.autofillHints, contains(AutofillHints.oneTimeCode));
 
       // The real field is transparent; the eight cells draw the code.
-      final t = AppTokens.dark;
+      const t = AppTokens.dark;
       final cells = find.byWidgetPredicate(
         (w) => w.runtimeType.toString() == '_CodeCell',
       );

@@ -273,7 +273,7 @@ void main() {
 
   // Layout rule: the greeting hangs below the mark and stays inside the safe
   // area; the pair moves up only as far as needed, never above the top inset.
-  for (final (name, size, insets) in <(String, Size, FakeViewPadding)>[
+  for (final (name, size, insets) in const <(String, Size, FakeViewPadding)>[
     ('390x844', Size(390, 844), FakeViewPadding(top: 177, bottom: 102)),
     ('320x640', Size(320, 640), FakeViewPadding(top: 60)),
   ]) {
