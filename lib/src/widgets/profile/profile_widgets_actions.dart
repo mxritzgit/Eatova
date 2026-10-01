@@ -78,9 +78,13 @@ class HealthConnectionCard extends StatelessWidget {
             label: actionLabel,
             onTap: onConnect,
           );
-    return _ProfileSurface(
+    // Short states sit as a status line under the name; the two repair
+    // hints are sentences and get the full card width below.
+    final longHint = needsAttention;
+    return AppCard(
+      padding: const EdgeInsets.fromLTRB(16, 16, 12, 16),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
@@ -89,20 +93,52 @@ class HealthConnectionCard extends StatelessWidget {
                     ? Icons.favorite_rounded
                     : Icons.favorite_border_rounded,
                 color: color,
-                size: 44,
+                size: 42,
               ),
               const SizedBox(width: 14),
               Expanded(
-                child: Text(
-                  'Apple Health',
-                  style: AppType.ui(16, weight: FontWeight.w600, color: t.ink),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Apple Health',
+                      style: AppType.ui(
+                        15,
+                        weight: FontWeight.w700,
+                        color: t.ink,
+                      ),
+                    ),
+                    if (!longHint) ...[
+                      const SizedBox(height: 3),
+                      _StatusLine(
+                        text: subtitle,
+                        color: isGranted ? t.accentText : t.ink2,
+                      ),
+                    ],
+                  ],
                 ),
               ),
+              if (isGranted) ...[const SizedBox(width: 8), action!],
             ],
           ),
-          const SizedBox(height: 12),
-          Text(subtitle, style: AppType.ui(13, color: color, height: 1.45)),
-          if (action != null) ...[const SizedBox(height: 12), action],
+          if (longHint) ...[
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Text(
+                subtitle,
+                style: AppType.ui(
+                  13,
+                  color: needsAttention ? color : t.ink2,
+                  height: 1.45,
+                ),
+              ),
+            ),
+          ],
+          if (!isGranted && action != null) ...[
+            const SizedBox(height: 14),
+            Padding(padding: const EdgeInsets.only(right: 4), child: action),
+          ],
         ],
       ),
     );
@@ -161,7 +197,8 @@ class _HealthConnectCard extends StatelessWidget {
       HealthAuthState.error => l10n.healthConnectError,
       _ => l10n.healthConnectSetup,
     };
-    return _ProfileSurface(
+    return AppCard(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -169,24 +206,36 @@ class _HealthConnectCard extends StatelessWidget {
             children: [
               IconTile(
                 icon: Icons.directions_walk_rounded,
-                color: t.accent,
-                size: 44,
+                color: connected ? t.accent : t.ink2,
+                size: 42,
               ),
               const SizedBox(width: 14),
               Expanded(
-                child: Text(
-                  l10n.healthConnectTitle,
-                  style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l10n.healthConnectTitle,
+                      style: AppType.ui(
+                        15,
+                        weight: FontWeight.w700,
+                        color: t.ink,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    _StatusLine(
+                      text: subtitle,
+                      color: connected ? t.accentText : t.ink2,
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          Text(subtitle, style: AppType.ui(12, color: t.ink2, height: 1.4)),
-          const SizedBox(height: 8),
           Text(
             l10n.healthConnectStepsOnly,
-            style: AppType.ui(12, color: t.ink2, height: 1.4),
+            style: AppType.ui(12.5, color: t.ink2, height: 1.45),
           ),
           if (syncing) ...[
             const SizedBox(height: 12),
@@ -240,11 +289,11 @@ class _HealthConnectCard extends StatelessWidget {
   }
 }
 
-/// Small filled button for an action inside a card.
+/// The connect/check action inside the health card: a full-width tinted
+/// capsule, quieter than the page's primary "Log weight".
 ///
-/// Not [PrimaryActionButton]: that one is a page's main action (54 px, full
-/// width) and would swamp a card row. [buttonKey] sits on the outermost
-/// Material so a tap in the middle hits the InkWell.
+/// [buttonKey] sits on the outermost Material so a tap in the middle hits the
+/// InkWell.
 class _CompactButton extends StatelessWidget {
   const _CompactButton({
     required this.buttonKey,
@@ -259,22 +308,69 @@ class _CompactButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return Material(
-      key: buttonKey,
-      color: t.forest,
-      borderRadius: BorderRadius.circular(rChip),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(rChip),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-          child: Text(
-            label,
-            style:
-                AppType.ui(12, weight: FontWeight.w700, color: t.onForest),
+    return Semantics(
+      button: true,
+      child: PressScale(
+        child: Material(
+          key: buttonKey,
+          color: t.accentTint,
+          borderRadius: BorderRadius.circular(rButton),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(rButton),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 48),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                child: Center(
+                  child: Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: AppType.ui(
+                      14,
+                      weight: FontWeight.w700,
+                      color: t.accentText,
+                    ),
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
       ),
+    );
+  }
+}
+
+/// A status dot and its line ("Synced · 12 min ago").
+class _StatusLine extends StatelessWidget {
+  const _StatusLine({required this.text, required this.color});
+
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        ExcludeSemantics(
+          child: Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+        ),
+        const SizedBox(width: 7),
+        Flexible(
+          child: Text(
+            text,
+            style: AppType.ui(12.5, weight: FontWeight.w500, color: color),
+          ),
+        ),
+      ],
     );
   }
 }

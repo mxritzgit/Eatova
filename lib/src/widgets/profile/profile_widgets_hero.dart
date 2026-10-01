@@ -1,11 +1,24 @@
 part of 'profile_widgets.dart';
 
-/// Real identity and profile choices, with no synthetic membership badges.
+/// The profile's hero: avatar, name and the two real profile choices (goal,
+/// routine), with the logging streak and record under a hairline when the
+/// screen passes them in.
+///
+/// Real data only: no membership badge and no "member since" — the account
+/// has neither (pinned by `profile_screen_design_test`).
 class IdentityCard extends StatelessWidget {
-  const IdentityCard({super.key, required this.name, required this.profile});
+  const IdentityCard({
+    super.key,
+    required this.name,
+    required this.profile,
+    this.stats,
+  });
 
   final String name;
   final UserProfile profile;
+
+  /// The streak row under the hairline (a [ProfileStatRow]); none without.
+  final Widget? stats;
 
   String get _initials {
     final parts = name.trim().split(RegExp(r'\s+'))
@@ -20,79 +33,105 @@ class IdentityCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
+    // Large system text: the avatar moves above the name so the name keeps
+    // the full card width (surname on one line at 2.0 on a 320 px phone).
+    final large = MediaQuery.textScalerOf(context).scale(16) > 24;
+    final nameText = Text(
+      name,
+      style: AppType.display(
+        large ? 20 : 26,
+        weight: FontWeight.w700,
+        color: t.ink,
+        height: 1.12,
+        letterSpacing: large ? null : -0.5,
+      ),
+    );
+    final pills = Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: <Widget>[
+        _IdentityPill(
+          icon: Icons.flag_rounded,
+          label: l10n.profileStudioFocus,
+          value: profile.weightGoal.label(l10n),
+        ),
+        _IdentityPill(
+          icon: Icons.directions_walk_rounded,
+          label: l10n.profileStudioActivity,
+          value: profile.activityLevel.label(l10n),
+        ),
+      ],
+    );
+    final identity = large
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              _HeroAvatar(initials: _initials, size: 56),
+              const SizedBox(height: 14),
+              nameText,
+              const SizedBox(height: 12),
+              pills,
+            ],
+          )
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  _HeroAvatar(initials: _initials, size: 64),
+                  const SizedBox(width: 16),
+                  Expanded(child: nameText),
+                ],
+              ),
+              const SizedBox(height: 16),
+              pills,
+            ],
+          );
+
     return Container(
       key: const ValueKey('profile-studio-identity'),
-      padding: const EdgeInsets.all(24),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
-        color: t.forest,
+        color: t.surf,
         borderRadius: BorderRadius.circular(rHero),
+        border: Border.all(color: t.cardBorder),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  l10n.profileStudioOverview,
-                  style: AppType.ui(
-                    13,
-                    weight: FontWeight.w600,
-                    color: t.onForest,
+      child: Stack(
+        children: <Widget>[
+          // The redesign's violet glow (as behind the Today arc), anchored
+          // behind the avatar.
+          Positioned(
+            top: -90,
+            left: -70,
+            width: 300,
+            height: 260,
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    colors: <Color>[
+                      t.arcStart.withValues(alpha: 0.24),
+                      t.arcStart.withValues(alpha: 0),
+                    ],
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
-              ExcludeSemantics(
-                child: Container(
-                  width: 52,
-                  height: 52,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: t.lime,
-                    shape: BoxShape.circle,
-                  ),
-                  child: _initials.isEmpty
-                      ? Icon(Icons.person_outline, color: t.onLime)
-                      : Padding(
-                          padding: const EdgeInsets.all(10),
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text(
-                              _initials,
-                              style: AppType.display(20, color: t.onLime),
-                            ),
-                          ),
-                        ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Text(
-            name,
-            style: AppType.display(
-              MediaQuery.textScalerOf(context).scale(16) > 24 ? 20 : 30,
-              color: t.onForest,
-              height: 1.12,
             ),
           ),
-          const SizedBox(height: 22),
-          Divider(height: 1, color: t.onForest.withValues(alpha: 0.18)),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 24,
-            runSpacing: 16,
-            children: [
-              _IdentityValue(
-                label: l10n.profileStudioFocus,
-                value: profile.weightGoal.label(l10n),
-              ),
-              _IdentityValue(
-                label: l10n.profileStudioActivity,
-                value: profile.activityLevel.label(l10n),
-              ),
-            ],
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                identity,
+                if (stats != null) ...<Widget>[
+                  const SizedBox(height: 18),
+                  Divider(height: 1, thickness: 1, color: t.line),
+                  const SizedBox(height: 16),
+                  stats!,
+                ],
+              ],
+            ),
           ),
         ],
       ),
@@ -100,27 +139,101 @@ class IdentityCard extends StatelessWidget {
   }
 }
 
-class _IdentityValue extends StatelessWidget {
-  const _IdentityValue({required this.label, required this.value});
+/// The initials in a circle with the accent ring — the large twin of the
+/// Today header's avatar that opens this page.
+class _HeroAvatar extends StatelessWidget {
+  const _HeroAvatar({required this.initials, required this.size});
+
+  final String initials;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return ExcludeSemantics(
+      child: Container(
+        width: size,
+        height: size,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: t.surf2,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: t.accent.withValues(alpha: 0.55),
+            width: 2,
+          ),
+          boxShadow: <BoxShadow>[
+            BoxShadow(
+              color: t.accentGlow.withValues(alpha: 0.35),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: initials.isEmpty
+            ? Icon(Icons.person_outline_rounded, color: t.inkSoft)
+            // Fixed circle, so the letters do not follow the system font.
+            : Text(
+                initials,
+                maxLines: 1,
+                textScaler: TextScaler.noScaling,
+                style: AppType.display(
+                  size * 0.36,
+                  weight: FontWeight.w700,
+                  color: t.inkSoft,
+                  letterSpacing: -0.5,
+                ),
+              ),
+      ),
+    );
+  }
+}
+
+/// One profile choice as a quiet capsule; the screen reader hears its field
+/// name ("Your goal") before the value.
+class _IdentityPill extends StatelessWidget {
+  const _IdentityPill({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
   final String label;
   final String value;
 
   @override
-  Widget build(BuildContext context) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(label, style: AppType.ui(11, color: context.t.onForest)),
-      const SizedBox(height: 5),
-      Text(
-        value,
-        style: AppType.ui(
-          13,
-          weight: FontWeight.w600,
-          color: context.t.onForest,
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Semantics(
+      container: true,
+      label: label,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(9, 6, 12, 6),
+        decoration: BoxDecoration(
+          color: t.surf2,
+          borderRadius: BorderRadius.circular(rPill),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Icon(icon, size: 14, color: t.accentText),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                value,
+                style: AppType.ui(
+                  12.5,
+                  weight: FontWeight.w600,
+                  color: t.inkSoft,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
-    ],
-  );
+    );
+  }
 }
 
 /// Goal overview: current weight → target weight, pace (kg/week), daily goal
@@ -173,10 +286,12 @@ class GoalPlanCard extends StatelessWidget {
             : targets.effectivePaceLabel(l10n);
     // A directional goal carries the brand accent, "maintain" stays quiet.
     final accent = isMaintain ? t.ink2 : t.accent;
+    final accentInk = isMaintain ? t.inkSoft : t.accentText;
 
-    return _ProfileSurface(
+    return AppCard(
+      padding: const EdgeInsets.fromLTRB(18, 16, 10, 18),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           Row(
             children: <Widget>[
@@ -208,10 +323,14 @@ class GoalPlanCard extends StatelessWidget {
                         color: t.ink,
                       ),
                     ),
-                    const SizedBox(height: 1),
+                    const SizedBox(height: 2),
                     Text(
                       goal.label(l10n),
-                      style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
+                      style: AppType.ui(
+                        12.5,
+                        weight: FontWeight.w500,
+                        color: t.ink2,
+                      ),
                     ),
                   ],
                 ),
@@ -223,95 +342,106 @@ class GoalPlanCard extends StatelessWidget {
                   onPressed: onEdit,
                   tooltip: l10n.profileGoalPlanEditTooltip,
                   icon: const Icon(Icons.tune_rounded, size: 18),
-                  color: accent,
+                  color: accentInk,
                 ),
             ],
           ),
           const SizedBox(height: 18),
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: _WeightPole(
-                  label: l10n.profileWeightPoleCurrent,
-                  value: '${profile.weightKg}',
-                  color: t.ink,
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: <Widget>[
+                Expanded(
+                  child: _WeightPole(
+                    label: l10n.profileWeightPoleCurrent,
+                    value: '${profile.weightKg}',
+                    color: t.ink,
+                    alignment: CrossAxisAlignment.start,
+                  ),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-                child: Icon(
-                  Icons.arrow_forward_rounded,
-                  color: accent,
-                  size: 22,
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+                  child: _JourneyArrow(color: accent),
                 ),
-              ),
-              Expanded(
-                child: _WeightPole(
-                  label: isMaintain
-                      ? l10n.profileWeightPoleHold
-                      : l10n.profileWeightPoleTarget,
-                  value: '${profile.targetWeightKg}',
-                  color: accent,
+                Expanded(
+                  child: _WeightPole(
+                    label: isMaintain
+                        ? l10n.profileWeightPoleHold
+                        : l10n.profileWeightPoleTarget,
+                    value: '${profile.targetWeightKg}',
+                    color: accentInk,
+                    alignment: CrossAxisAlignment.end,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           const SizedBox(height: 16),
-          Row(
-            children: <Widget>[
-              Expanded(
-                // paceWarning is not a separate text block here: the settings
-                // sheet (W3-04) already shows it, and repeating the three-liner
-                // would swamp the two-chip row. As a tooltip/semantics on the
-                // pace chip it explains the number on demand.
-                child: _MaybeTooltip(
-                  message: paceWarning,
-                  child: _PlanChip(
-                    icon: Icons.speed_rounded,
-                    label: l10n.profilePlanChipPace,
-                    value: pace,
-                    color: accent,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _PlanChip(
-                  icon: Icons.local_fire_department_rounded,
-                  label: l10n.profilePlanChipDailyGoal,
-                  value: '${profile.dailyKcalGoal} kcal',
-                  color: t.ink,
-                ),
-              ),
-            ],
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Divider(height: 1, thickness: 1, color: t.line),
+          ),
+          // paceWarning is not a separate text block here: the settings sheet
+          // (W3-04) already shows it, and repeating the three-liner would
+          // swamp the card. As a tooltip/semantics on the pace row it
+          // explains the number on demand.
+          _MaybeTooltip(
+            message: paceWarning,
+            child: _PlanRow(
+              icon: Icons.speed_rounded,
+              label: l10n.profilePlanChipPace,
+              value: pace,
+              valueColor: accentInk,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(left: 30, right: 8),
+            child: Divider(height: 1, thickness: 1, color: t.line),
+          ),
+          _PlanRow(
+            icon: Icons.local_fire_department_rounded,
+            label: l10n.profilePlanChipDailyGoal,
+            value: '${profile.dailyKcalGoal} kcal',
+            valueColor: t.ink,
           ),
           if (!isMaintain && gap > 0) ...<Widget>[
-            const SizedBox(height: 10),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-              decoration: BoxDecoration(
-                color: t.tile,
-                borderRadius: BorderRadius.circular(rControl),
-              ),
-              child: Row(
-                children: <Widget>[
-                  Icon(Icons.flag_rounded, color: accent, size: 16),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      weeks != null
-                          ? goalProgressWeeksText(l10n, gap: gap, weeks: weeks)
-                          : l10n.profileGoalProgressNoWeeks(gap),
-                      style: AppType.ui(
-                        13,
-                        weight: FontWeight.w600,
-                        color: t.ink,
-                        height: 1.35,
+            const SizedBox(height: 6),
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  color: t.accentTint,
+                  borderRadius: BorderRadius.circular(rControl),
+                ),
+                child: Row(
+                  children: <Widget>[
+                    Icon(Icons.flag_rounded, color: t.accentText, size: 16),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        weeks != null
+                            ? goalProgressWeeksText(
+                                l10n,
+                                gap: gap,
+                                weeks: weeks,
+                              )
+                            : l10n.profileGoalProgressNoWeeks(gap),
+                        style: AppType.ui(
+                          13,
+                          weight: FontWeight.w600,
+                          color: t.inkSoft,
+                          height: 1.35,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ],
@@ -338,24 +468,28 @@ class _MaybeTooltip extends StatelessWidget {
   }
 }
 
+/// One end of the weight journey: eyebrow over a large number with "kg".
 class _WeightPole extends StatelessWidget {
   const _WeightPole({
     required this.label,
     required this.value,
     required this.color,
+    required this.alignment,
   });
 
   final String label;
   final String value;
   final Color color;
+  final CrossAxisAlignment alignment;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     return Column(
+      crossAxisAlignment: alignment,
       children: <Widget>[
         Text(label.toUpperCase(), style: AppType.eyebrow(t.ink2, size: 10.5)),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
         // FittedBox: the big number grows with the system font, the half card
         // width does not.
         FittedBox(
@@ -367,16 +501,18 @@ class _WeightPole extends StatelessWidget {
             children: <Widget>[
               Text(
                 value,
-                style: AppType.display(30, color: color, height: 1),
-              ),
-              const SizedBox(width: 3),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 3),
-                child: Text(
-                  'kg',
-                  style:
-                      AppType.ui(12, weight: FontWeight.w700, color: t.ink2),
+                style: AppType.display(
+                  36,
+                  weight: FontWeight.w700,
+                  color: color,
+                  height: 1,
+                  letterSpacing: -0.7,
                 ),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                'kg',
+                style: AppType.ui(13, weight: FontWeight.w600, color: t.ink3),
               ),
             ],
           ),
@@ -386,43 +522,94 @@ class _WeightPole extends StatelessWidget {
   }
 }
 
-class _PlanChip extends StatelessWidget {
-  const _PlanChip({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.color,
-  });
+/// The track between the two weights: a faint line ending in an arrow chip.
+class _JourneyArrow extends StatelessWidget {
+  const _JourneyArrow({required this.color});
 
-  final IconData icon;
-  final String label;
-  final String value;
   final Color color;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+    return ExcludeSemantics(
+      child: SizedBox(
+        width: 56,
+        height: 28,
+        child: Row(
+          children: <Widget>[
+            Expanded(
+              child: Container(
+                height: 2,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(1),
+                  gradient: LinearGradient(
+                    colors: <Color>[t.tile, color.withValues(alpha: 0.6)],
+                  ),
+                ),
+              ),
+            ),
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.16),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.arrow_forward_rounded,
+                size: 16,
+                color: t.readableOnTint(color),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A plan figure as a row: icon, label, value right-aligned.
+class _PlanRow extends StatelessWidget {
+  const _PlanRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.valueColor,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color valueColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(0, 13, 8, 13),
       child: Row(
         children: <Widget>[
-          Icon(icon, color: color, size: 16),
-          const SizedBox(width: 8),
+          Icon(icon, color: t.ink2, size: 18),
+          const SizedBox(width: 12),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  label,
-                  style:
-                      AppType.ui(10.5, weight: FontWeight.w600, color: t.ink2),
+            child: _SpreadRow(
+              start: Text(
+                label,
+                style: AppType.ui(
+                  13.5,
+                  weight: FontWeight.w500,
+                  color: t.ink2,
                 ),
-                const SizedBox(height: 1),
-                Text(
-                  value,
-                  style: AppType.ui(13, weight: FontWeight.w700, color: color),
+              ),
+              end: Text(
+                value,
+                textAlign: TextAlign.right,
+                style: AppType.ui(
+                  14.5,
+                  weight: FontWeight.w700,
+                  color: valueColor,
                 ),
-              ],
+              ),
             ),
           ),
         ],

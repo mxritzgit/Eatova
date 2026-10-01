@@ -75,6 +75,7 @@ class ProfileScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final t = context.t;
     // Same clock as the Today tab, so both show the same streak.
     final streak = stats.effectiveStreakOn(clock.now());
 
@@ -104,38 +105,54 @@ class ProfileScreen extends StatelessWidget {
                         onTap: onOpenSettings,
                       ),
                     ),
-                    const SizedBox(height: 14),
-                    IdentityCard(name: name, profile: profile),
+                    const SizedBox(height: 16),
+                    // Hero: who, what for, and the streak as its display
+                    // figure; the lifetime counts follow as quieter tiles.
+                    IdentityCard(
+                      name: name,
+                      profile: profile,
+                      stats: ProfileStatRow(
+                        left: ProfileStatTile(
+                          label: l10n.profileLabelStreak,
+                          value: '$streak',
+                          unit: l10n.coachStreakUnit(streak),
+                          icon: Icons.local_fire_department_rounded,
+                          tone: t.activityInk,
+                          framed: false,
+                          large: true,
+                        ),
+                        right: ProfileStatTile(
+                          label: l10n.profileLabelRecord,
+                          value: '${stats.longestStreak}',
+                          unit: l10n.coachStreakUnit(stats.longestStreak),
+                          icon: Icons.emoji_events_rounded,
+                          tone: t.activityInk,
+                          framed: false,
+                          large: true,
+                        ),
+                      ),
+                    ),
                     const SizedBox(height: 10),
                     ProfileStatRow(
+                      gap: 10,
                       left: ProfileStatTile(
-                        label: l10n.profileLabelStreak,
-                        value: '$streak',
-                        unit: l10n.coachStreakUnit(streak),
-                      ),
-                      right: ProfileStatTile(
                         label: l10n.profileLabelMeals,
                         value: '${stats.mealsLogged}',
                         unit: l10n.profileUnitTotal,
-                      ),
-                    ),
-                    ProfileStatRow(
-                      left: ProfileStatTile(
-                        label: l10n.profileLabelRecord,
-                        value: '${stats.longestStreak}',
-                        unit: l10n.coachStreakUnit(stats.longestStreak),
+                        icon: Icons.restaurant_rounded,
                       ),
                       right: ProfileStatTile(
                         label: l10n.profileLabelWeighIns,
                         value: '${stats.weightLogs}',
                         unit: l10n.profileUnitEntries(stats.weightLogs),
+                        icon: Icons.monitor_weight_outlined,
                       ),
                     ),
-                    const SizedBox(height: 30),
+                    const SizedBox(height: 28),
                     SectionHeading(title: l10n.profileSectionPlan),
                     const SizedBox(height: 12),
                     GoalPlanCard(profile: profile, onEdit: onEditProfile),
-                    const SizedBox(height: 30),
+                    const SizedBox(height: 28),
                     SectionHeading(title: l10n.profileSectionBody),
                     const SizedBox(height: 12),
                     WeightCard(
@@ -143,9 +160,9 @@ class ProfileScreen extends StatelessWidget {
                       log: weightLog,
                       onLogWeight: onLogWeight,
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
                     BmiCard(profile: profile, log: weightLog),
-                    const SizedBox(height: 30),
+                    const SizedBox(height: 28),
                     SectionHeading(title: l10n.profileSectionDailyGoals),
                     const SizedBox(height: 12),
                     GoalsCard(
@@ -154,7 +171,7 @@ class ProfileScreen extends StatelessWidget {
                       dailySteps: dailySteps,
                       onEdit: onEditProfile,
                     ),
-                    const SizedBox(height: 30),
+                    const SizedBox(height: 28),
                     SectionHeading(title: l10n.profileSectionConnections),
                     const SizedBox(height: 12),
                     HealthConnectionCard(
