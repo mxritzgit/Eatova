@@ -35,10 +35,27 @@ ProfileScreen _profile(LifetimeStats stats) => ProfileScreen(
   onRefreshHealth: () {},
 );
 
-String _streakValue(WidgetTester tester, AppLocalizations l10n) => tester
-    .widgetList<ProfileStatTile>(find.byType(ProfileStatTile))
-    .firstWhere((tile) => tile.label == l10n.profileLabelStreak)
-    .value;
+// Reads the number the streak tile actually draws (the counted figure), and
+// pins that the tile sits in the identity hero.
+Future<void> _expectStreakShows(
+  WidgetTester tester,
+  AppLocalizations l10n,
+  String number,
+) async {
+  await tester.pumpAndSettle();
+  final tile = find.descendant(
+    of: find.byKey(const ValueKey('profile-studio-identity')),
+    matching: find.byWidgetPredicate(
+      (w) => w is ProfileStatTile && w.label == l10n.profileLabelStreak,
+    ),
+  );
+  expect(tile, findsOneWidget);
+  expect(
+    find.descendant(of: tile, matching: find.text(number)),
+    findsOneWidget,
+    reason: 'The streak tile must draw $number.',
+  );
+}
 
 void main() {
   testWidgets('Profil-Serie folgt der injizierten Uhr wie der Heute-Tab', (
@@ -58,8 +75,8 @@ void main() {
         scaffold: false,
         safeArea: false,
       );
-      expect(_streakValue(tester, c.l10n), '${stats.effectiveStreakOn(_day)}');
-      expect(_streakValue(tester, c.l10n), '7');
+      expect(stats.effectiveStreakOn(_day), 7);
+      await _expectStreakShows(tester, c.l10n, '7');
     });
   });
 
@@ -80,7 +97,7 @@ void main() {
         scaffold: false,
         safeArea: false,
       );
-      expect(_streakValue(tester, c.l10n), '0');
+      await _expectStreakShows(tester, c.l10n, '0');
     });
   });
 }
