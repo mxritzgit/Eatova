@@ -8,6 +8,12 @@ import '../design/sheets.dart';
 import '../design/surfaces.dart';
 
 /// Keeps the form readable on tablets and lets the keyboard resize it once.
+///
+/// Also lays the page's one decoration behind the form: a soft accent glow
+/// at the brand header, like the light behind the today hero and the coach
+/// orb. It reaches up under the status bar (the layout sits in a SafeArea, so
+/// the glow is offset past its top) and stays put while the form scrolls.
+/// Pure paint: no semantics, no hit testing.
 class AuthPageLayout extends StatelessWidget {
   const AuthPageLayout({
     super.key,
@@ -19,35 +25,13 @@ class AuthPageLayout extends StatelessWidget {
   final EdgeInsetsGeometry padding;
 
   @override
-  Widget build(BuildContext context) => Align(
-    alignment: Alignment.topCenter,
-    child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 520),
-      child: SingleChildScrollView(
-        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-        padding: padding,
-        child: child,
-      ),
-    ),
-  );
-}
-
-/// The page ground of both auth screens: [AppTokens.bg] with one soft accent
-/// glow behind the brand header, like the light behind the today hero and
-/// the coach orb. Pure decoration — no semantics, no hit testing — and it
-/// sits outside the safe area so it reaches under the status bar.
-class AuthBackdrop extends StatelessWidget {
-  const AuthBackdrop({super.key, required this.child});
-
-  final Widget child;
-
-  @override
   Widget build(BuildContext context) {
     final t = context.t;
     return Stack(
+      clipBehavior: Clip.none,
       children: [
         Positioned(
-          top: -220,
+          top: -270,
           left: -170,
           width: 560,
           height: 520,
@@ -70,7 +54,17 @@ class AuthBackdrop extends StatelessWidget {
             ),
           ),
         ),
-        Positioned.fill(child: child),
+        Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: SingleChildScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: padding,
+              child: child,
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -414,7 +408,10 @@ class AuthTextLink extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final color = emphasis ? t.accentText : t.inkMuted;
+    // Locked (busy page): the link fades with the rest of the form.
+    final color = (emphasis ? t.accentText : t.inkMuted).withValues(
+      alpha: onTap == null ? 0.5 : 1,
+    );
     return Semantics(
       button: true,
       enabled: onTap != null,

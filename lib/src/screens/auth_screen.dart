@@ -319,8 +319,7 @@ class _AuthScreenState extends State<AuthScreen> {
       child: Scaffold(
         key: const ValueKey('screen-auth'),
         backgroundColor: t.bg,
-        body: AuthBackdrop(
-          child: SafeArea(
+        body: SafeArea(
           child: AuthPageLayout(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -382,7 +381,6 @@ class _AuthScreenState extends State<AuthScreen> {
                 ),
               ],
             ),
-          ),
           ),
         ),
       ),

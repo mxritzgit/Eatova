@@ -263,6 +263,8 @@ void main() {
         FocusManager.instance.primaryFocus?.unfocus();
         await _submit(tester, settle: false);
         expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        // A few frames in, so the spinner shows its arc, not its seed dot.
+        await tester.pump(const Duration(milliseconds: 400));
         await captureDesignShot(tester, 'login-loading');
         login.complete();
         await tester.pumpAndSettle();
@@ -272,6 +274,8 @@ void main() {
         await tester.tap(_key('auth-google-oauth'));
         await tester.pump();
         expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        // A few frames in, so the spinner shows its arc, not its seed dot.
+        await tester.pump(const Duration(milliseconds: 400));
         await captureDesignShot(tester, 'google-loading');
         oauth.complete();
         await tester.pumpAndSettle();

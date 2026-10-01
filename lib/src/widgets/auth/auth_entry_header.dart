@@ -235,8 +235,17 @@ class AuthModeSelector extends StatelessWidget {
         }
 
         final edge = BorderSide(color: t.lineStrong);
+        // Locked while a sign-in runs: dimmed like the rest of the form.
+        Widget lockable(Widget child) => AnimatedOpacity(
+          duration: motionDuration(
+            context,
+            const Duration(milliseconds: 160),
+          ),
+          opacity: enabled ? 1 : 0.55,
+          child: child,
+        );
         if (stacked) {
-          return DecoratedBox(
+          return lockable(DecoratedBox(
             decoration: ShapeDecoration(
               color: t.surf,
               shape: RoundedRectangleBorder(
@@ -251,9 +260,9 @@ class AuthModeSelector extends StatelessWidget {
                 children: [option(false), option(true)],
               ),
             ),
-          );
+          ));
         }
-        return DecoratedBox(
+        return lockable(DecoratedBox(
           decoration: ShapeDecoration(
             color: t.surf,
             shape: StadiumBorder(side: edge),
@@ -290,7 +299,7 @@ class AuthModeSelector extends StatelessWidget {
               ],
             ),
           ),
-        );
+        ));
       },
     );
   }

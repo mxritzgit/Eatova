@@ -1537,7 +1537,7 @@
   "authCodeTitleEmail": "Reset password",
   "authCodeTitleCode": "Enter code",
   "authCodeTitlePassword": "New password",
-  "authCodeSubtitleEmail": "We'll email you a {digits}-digit code.",
+  "authCodeSubtitleEmail": "We'll email you a code with {digits} digits.",
   "@authCodeSubtitleEmail": {
     "placeholders": {
       "digits": { "type": "int" }

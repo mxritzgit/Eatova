@@ -849,8 +849,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
       child: Scaffold(
         key: const ValueKey('auth-code-screen'),
         backgroundColor: t.bg,
-        body: AuthBackdrop(
-          child: SafeArea(
+        body: SafeArea(
           child: AuthPageLayout(
             padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
             // One autofill context: the password manager sees e-mail and new
@@ -1081,7 +1080,6 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                 ],
               ),
             ),
-          ),
           ),
         ),
       ),
