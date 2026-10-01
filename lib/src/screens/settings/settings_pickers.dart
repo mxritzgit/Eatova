@@ -106,10 +106,12 @@ class _PickerSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    // Title geometry of [SheetScaffold]; no action at the foot, because a tap
+    // on an option already is the answer.
     return SafeArea(
       top: false,
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -121,10 +123,10 @@ class _PickerSheet extends StatelessWidget {
               level: 1,
               child: Text(
                 title,
-                style: AppType.display(23, color: t.ink, height: 1.15),
+                style: AppType.display(24, color: t.ink, height: 1.15),
               ),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 18),
             SettingsGroup(label: groupLabel, children: children),
           ],
         ),
@@ -135,6 +137,9 @@ class _PickerSheet extends StatelessWidget {
 
 /// One option. Closes the sheet with its own [BuildContext]; the caller's
 /// context would pop the settings route instead.
+///
+/// The chosen option carries the app's selection language: an accent-tinted
+/// row and a filled accent radio; the others an empty ring.
 class _PickerRow<T> extends StatelessWidget {
   const _PickerRow({
     super.key,
@@ -152,14 +157,43 @@ class _PickerRow<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return SettingsRow(
-      title: title,
-      subtitle: subtitle,
-      chevron: false,
-      onTap: () => Navigator.pop<T>(context, result),
-      trailing: selected
-          ? Icon(Icons.check_rounded, size: 18, color: t.accent)
-          : const SizedBox(width: 18),
+    return Semantics(
+      selected: selected,
+      inMutuallyExclusiveGroup: true,
+      child: Material(
+        color: selected ? t.accentTint : Colors.transparent,
+        child: SettingsRow(
+          title: title,
+          subtitle: subtitle,
+          chevron: false,
+          onTap: () => Navigator.pop<T>(context, result),
+          trailing: ExcludeSemantics(child: _Radio(selected: selected)),
+        ),
+      ),
+    );
+  }
+}
+
+/// 22 px radio mark: a filled accent disc with a check, or an empty ring.
+class _Radio extends StatelessWidget {
+  const _Radio({required this.selected});
+
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Container(
+      width: 22,
+      height: 22,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: selected ? t.selectedFill : Colors.transparent,
+        border: selected ? null : Border.all(color: t.ink3, width: 1.5),
+      ),
+      child: selected
+          ? Icon(Icons.check_rounded, size: 15, color: t.onSelected)
+          : null,
     );
   }
 }

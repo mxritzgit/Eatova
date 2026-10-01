@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -9,11 +11,13 @@ import '../../widgets/common/motion.dart';
 // Only for [SelectionTone]: these pills are a clone of [SegmentedPill] and
 // must speak the same selection language, not a second one.
 import '../../widgets/design/controls.dart';
+import '../../widgets/design/sheets.dart'
+    show FieldCapsule, SheetFieldShape;
 
 // ---------------------------------------------------------------------------
 // Controls of the settings page. Package-local clones because the shared
 // library covers none of these four cases: a key on the inner field, keys per
-// pill option, an outline button style, and explanatory rows. Once the library
+// pill option, a tonal secondary button, and explanatory rows. Once the library
 // catches up, they can go.
 // ---------------------------------------------------------------------------
 
@@ -24,7 +28,10 @@ import '../../widgets/design/controls.dart';
 /// below the row, or the range message would appear twice and break
 /// `findsOneWidget`. **A11y:** [MergeSemantics] folds the three siblings into
 /// one node.
-class SettingsNumberRow extends StatelessWidget {
+///
+/// Number and unit sit in a borderless [FieldCapsule]: the soft fill shows it
+/// is editable, and focus lightens it (the app's focus language).
+class SettingsNumberRow extends StatefulWidget {
   const SettingsNumberRow({
     super.key,
     required this.label,
@@ -51,16 +58,68 @@ class SettingsNumberRow extends StatelessWidget {
   final ValueChanged<String>? onChanged;
 
   @override
+  State<SettingsNumberRow> createState() => _SettingsNumberRowState();
+}
+
+class _SettingsNumberRowState extends State<SettingsNumberRow> {
+  final FocusNode _focus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onText);
+  }
+
+  @override
+  void didUpdateWidget(SettingsNumberRow old) {
+    super.didUpdateWidget(old);
+    if (old.controller != widget.controller) {
+      old.controller.removeListener(_onText);
+      widget.controller.addListener(_onText);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onText);
+    _focus.dispose();
+    super.dispose();
+  }
+
+  /// The capsule hugs the number, so it grows as digits are typed.
+  void _onText() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final hatFehler = errorText != null;
-    // Field width follows the system font but stays capped; at textScaler 2.0
-    // it would otherwise push the label out of the row.
-    final feldBreite =
-        MediaQuery.textScalerOf(context).scale(72).clamp(72.0, 140.0);
+    final hatFehler = widget.errorText != null;
+    final zahlStil = AppType.display(
+      18,
+      weight: FontWeight.w700,
+      color: hatFehler ? t.danger : t.ink,
+    );
+    // Field width = the typed number plus room for the caret, never under two
+    // digits and capped, so at textScaler 2.0 the label keeps its line.
+    final scaler = MediaQuery.textScalerOf(context);
+    final painter = TextPainter(
+      text: TextSpan(
+        text: widget.controller.text.isEmpty ? '00' : widget.controller.text,
+        style: zahlStil,
+      ),
+      textDirection: Directionality.of(context),
+      textScaler: scaler,
+      maxLines: 1,
+    )..layout();
+    final feldBreite = (painter.width + 4).clamp(
+      scaler.scale(24),
+      scaler.scale(64).clamp(64.0, 132.0),
+    );
+    painter.dispose();
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 11, 16, 11),
+      padding: const EdgeInsets.fromLTRB(18, 10, 14, 10),
       child: MergeSemantics(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -69,56 +128,76 @@ class SettingsNumberRow extends StatelessWidget {
               children: <Widget>[
                 Expanded(
                   child: Text(
-                    label,
+                    widget.label,
                     style:
-                        AppType.ui(13.5, weight: FontWeight.w600, color: t.ink),
+                        AppType.ui(15, weight: FontWeight.w600, color: t.ink),
                   ),
                 ),
-                SizedBox(
-                  width: feldBreite,
-                  child: TextField(
-                    key: fieldKey,
-                    controller: controller,
-                    // Without this the cursor fade never settles and
-                    // `pumpAndSettle` hangs.
-                    cursorOpacityAnimates: false,
-                    cursorColor: t.accent,
-                    textAlign: TextAlign.right,
-                    keyboardType: TextInputType.number,
-                    onChanged: onChanged,
-                    style: AppType.display(
-                      17,
-                      weight: FontWeight.w700,
-                      color: hatFehler ? t.danger : t.ink,
-                    ),
-                    // All border slots off and unfilled, or the app's
-                    // inputDecorationTheme paints a capsule inside the row.
-                    decoration: const InputDecoration(
-                      filled: false,
-                      isDense: true,
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      disabledBorder: InputBorder.none,
-                      errorBorder: InputBorder.none,
-                      focusedErrorBorder: InputBorder.none,
-                      contentPadding: EdgeInsets.zero,
+                const SizedBox(width: 12),
+                // The whole capsule focuses the field, not just the digits.
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _focus.requestFocus,
+                  child: FieldCapsule(
+                    focusNode: _focus,
+                    error: hatFehler,
+                    shape: SheetFieldShape.pill,
+                    shadow: false,
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 0),
+                    constraints: const BoxConstraints(minHeight: 44),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        SizedBox(
+                          width: feldBreite,
+                          child: TextField(
+                            key: widget.fieldKey,
+                            controller: widget.controller,
+                            focusNode: _focus,
+                            // Without this the cursor fade never settles and
+                            // `pumpAndSettle` hangs.
+                            cursorOpacityAnimates: false,
+                            cursorColor: t.accent,
+                            textAlign: TextAlign.right,
+                            keyboardType: TextInputType.number,
+                            onChanged: widget.onChanged,
+                            style: zahlStil,
+                            // All border slots off and unfilled: the capsule
+                            // around it is the field's surface.
+                            decoration: const InputDecoration(
+                              filled: false,
+                              isDense: true,
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              disabledBorder: InputBorder.none,
+                              errorBorder: InputBorder.none,
+                              focusedErrorBorder: InputBorder.none,
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          widget.suffix,
+                          style: AppType.ui(
+                            13,
+                            weight: FontWeight.w600,
+                            color: t.ink2,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-                const SizedBox(width: 7),
-                Text(
-                  suffix,
-                  style: AppType.ui(12, weight: FontWeight.w600, color: t.ink2),
                 ),
               ],
             ),
             if (hatFehler) ...<Widget>[
               const SizedBox(height: 6),
               Text(
-                errorText!,
+                widget.errorText!,
                 style:
-                    AppType.ui(11.5, weight: FontWeight.w500, color: t.danger),
+                    AppType.ui(12, weight: FontWeight.w500, color: t.danger),
               ),
             ],
           ],
@@ -166,13 +245,13 @@ class SettingsNote extends StatelessWidget {
     final zeile = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        Icon(icon, size: 15, color: ton),
-        const SizedBox(width: 9),
+        Icon(icon, size: 17, color: ton),
+        const SizedBox(width: 10),
         Expanded(
           child: Text(
             text,
             style: AppType.ui(
-              12,
+              13,
               weight: FontWeight.w500,
               color: textFarbe,
               height: 1.4,
@@ -184,18 +263,18 @@ class SettingsNote extends StatelessWidget {
 
     if (!boxed) {
       return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 13, 16, 13),
+        padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
         child: zeile,
       );
     }
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
       decoration: BoxDecoration(
         color: ton.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(rControl),
-        border: Border.all(color: ton.withValues(alpha: 0.32)),
+        borderRadius: BorderRadius.circular(rTile),
+        border: Border.all(color: ton.withValues(alpha: 0.24)),
       ),
       child: zeile,
     );
@@ -233,52 +312,86 @@ class _SettingsChoicePill<T> extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     if (expanded) {
+      // A recessed capsule track with the options inside, the chosen one an
+      // accent pill — the tabs' segmented language. At large text sizes the
+      // options stack into a full-width list in the same track.
       return LayoutBuilder(
         builder: (context, constraints) {
-          final stacked =
-              MediaQuery.textScalerOf(context).scale(110) * 3 >
-              constraints.maxWidth;
-          final width = stacked
-              ? constraints.maxWidth
-              : (constraints.maxWidth - 12) / 3;
-          return Wrap(
-            spacing: 6,
-            children: [
-              for (final (option, label, optionKey) in optionen)
-                SizedBox(
-                  width: width,
-                  child: Semantics(
-                    selected: option == value,
-                    button: true,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
+          const inset = 4.0;
+          final inner = constraints.maxWidth - inset * 2;
+          // Side by side while the widest label plus its padding fits a
+          // third of the track; otherwise one option per line.
+          final labelStyle = AppType.ui(14, weight: FontWeight.w700);
+          var widest = 0.0;
+          for (final (_, label, _) in optionen) {
+            final painter = TextPainter(
+              text: TextSpan(text: label, style: labelStyle),
+              textDirection: Directionality.of(context),
+              textScaler: MediaQuery.textScalerOf(context),
+              maxLines: 1,
+            )..layout();
+            widest = math.max(widest, painter.width);
+            painter.dispose();
+          }
+          final stacked = (widest + 24) * optionen.length > inner;
+          final width = stacked ? inner : inner / 3;
+          final segmentShape = stacked
+              ? RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(rControl),
+                )
+              : const StadiumBorder();
+          return Container(
+            padding: const EdgeInsets.all(inset),
+            decoration: BoxDecoration(
+              color: t.bg,
+              borderRadius: BorderRadius.circular(
+                stacked ? rControl + inset : rPill,
+              ),
+            ),
+            child: Wrap(
+              runSpacing: inset,
+              children: [
+                for (final (option, label, optionKey) in optionen)
+                  SizedBox(
+                    width: width,
+                    child: Semantics(
+                      selected: option == value,
+                      button: true,
                       child: Material(
-                        color: option == value ? t.selectedFill : t.field,
+                        color: option == value
+                            ? t.selectedFill
+                            : Colors.transparent,
                         animationDuration: motionDuration(
                           context,
                           const Duration(milliseconds: 160),
                         ),
-                        borderRadius: BorderRadius.circular(rControl),
+                        shape: segmentShape,
+                        clipBehavior: Clip.antiAlias,
                         child: InkWell(
                           key: ValueKey(optionKey),
                           onTap: () => onChanged(option),
                           focusColor: t.accent.withValues(alpha: 0.20),
                           hoverColor: t.accent.withValues(alpha: 0.10),
-                          borderRadius: BorderRadius.circular(rControl),
+                          customBorder: segmentShape,
                           child: Container(
                             constraints: const BoxConstraints(minHeight: 48),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
+                            alignment: stacked
+                                ? AlignmentDirectional.centerStart
+                                : Alignment.center,
+                            padding: EdgeInsets.symmetric(
+                              horizontal: stacked ? 16 : 8,
                               vertical: 12,
                             ),
                             child: Text(
                               label,
                               textAlign: stacked
-                                  ? TextAlign.left
+                                  ? TextAlign.start
                                   : TextAlign.center,
                               style: AppType.ui(
-                                13,
-                                weight: FontWeight.w600,
+                                14,
+                                weight: option == value
+                                    ? FontWeight.w700
+                                    : FontWeight.w600,
                                 color: option == value ? t.onSelected : t.ink2,
                               ),
                             ),
@@ -287,8 +400,8 @@ class _SettingsChoicePill<T> extends StatelessWidget {
                       ),
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           );
         },
       );
@@ -444,7 +557,7 @@ class SettingsLanguagePill extends StatelessWidget {
   }
 }
 
-/// Outline button for a secondary action. `onTap == null` means disabled:
+/// Tonal button for a secondary action. `onTap == null` means disabled:
 /// dimmed and inert, not hidden. **A11y:** a bare [InkWell] carries neither
 /// `isButton` nor the enabled state, so the explicit [Semantics] is what keeps
 /// a disabled button from sounding enabled to a screen reader (D11).
@@ -461,7 +574,7 @@ class SettingsSecondaryButton extends StatelessWidget {
   final IconData? icon;
   final VoidCallback? onTap;
 
-  /// Colors border, icon and text; defaults to the quiet card line.
+  /// Tints fill and icon; defaults to the neutral tile tone.
   final Color? tone;
 
   @override
@@ -473,27 +586,23 @@ class SettingsSecondaryButton extends StatelessWidget {
       enabled: onTap != null,
       child: Opacity(
         opacity: onTap == null ? 0.4 : 1,
+        // A tonal capsule, no outline: the tone tints the fill and the glyph,
+        // the label stays `ink` so it reads on every tint.
         child: Material(
-          color: Colors.transparent,
-          borderRadius: BorderRadius.circular(18),
+          color: ton == null ? t.tile : ton.withValues(alpha: 0.14),
+          shape: const StadiumBorder(),
+          clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: onTap,
-            borderRadius: BorderRadius.circular(18),
             child: Container(
               width: double.infinity,
               constraints: const BoxConstraints(minHeight: 50),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color: ton == null ? t.line : ton.withValues(alpha: 0.45),
-                ),
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: <Widget>[
                   if (icon != null) ...<Widget>[
-                    Icon(icon, size: 17, color: ton ?? t.ink2),
+                    Icon(icon, size: 18, color: ton ?? t.ink2),
                     const SizedBox(width: 8),
                   ],
                   Flexible(
@@ -503,7 +612,7 @@ class SettingsSecondaryButton extends StatelessWidget {
                       style: AppType.ui(
                         14,
                         weight: FontWeight.w700,
-                        color: ton ?? t.ink,
+                        color: t.ink,
                       ),
                     ),
                   ),

@@ -4,16 +4,16 @@ import '../../l10n/l10n.dart';
 import '../../models/user_profile.dart';
 import '../../services/kcal_calculator.dart';
 import '../../theme/app_tokens.dart';
-import '../../widgets/design/design.dart';
 import 'settings_controls.dart';
 
 // ---------------------------------------------------------------------------
 // The settings plan card: what body, activity and goal currently produce.
 //
-// Split by contrast, not taste: the hero carries maintenance, pace and the big
-// kcal number on [AppTokens.forest]; the three macro tiles sit BELOW on the
-// page ground, because [AppTokens.protein] on forest drops under 2:1 in light
-// mode and the nutrient coding would be unreadable.
+// One hero card in the Today language (polish 2026-10-02): `surf` with the
+// violet glow, the daily target as the big display number, maintenance and
+// pace under it, and the three macros below a hairline. Macro tones mark the
+// dots only, never the numbers: on `surf` in light mode `carbs` reaches
+// 3.39:1 and `fat` 3.73:1, enough for a graphic, short of text.
 // ---------------------------------------------------------------------------
 
 /// Weekly rate in kg that a given [tagesziel] yields against [erhaltung];
@@ -66,105 +66,146 @@ class SettingsPlanHero extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     final warnung = _paceWarning(l10n);
+    final eyebrow = manual
+        ? l10n.settingsPlanHeroEyebrowManual
+        : l10n.settingsPlanHeroEyebrow;
+    // The number is large text already; past 1.5x it would push the unit off
+    // a narrow phone without adding legibility.
+    final numberScaler =
+        MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.5);
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         Container(
-          width: double.infinity,
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
-            color: t.forest,
+            color: t.surf,
             borderRadius: BorderRadius.circular(rHero),
+            border: Border.all(color: t.cardBorder),
           ),
           child: Stack(
             children: <Widget>[
-              Positioned.fill(
-                child: DotGridBackground(
-                  color: t.onForest.withValues(alpha: 0.07),
+              // The Today hero's violet glow, pulled to the top corner
+              // behind the number.
+              Positioned(
+                top: -90,
+                right: -70,
+                width: 300,
+                height: 260,
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: RadialGradient(
+                        colors: <Color>[
+                          t.arcStart.withValues(alpha: 0.24),
+                          t.arcStart.withValues(alpha: 0),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 18),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
-                        Container(
-                          width: 34,
-                          height: 34,
-                          decoration: BoxDecoration(
-                            color: t.onForest.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(rChip),
-                          ),
-                          child: Icon(
-                            manual
-                                ? Icons.edit_rounded
-                                : Icons.calculate_outlined,
-                            size: 17,
-                            color: t.lime,
+                        Expanded(
+                          child: Text(
+                            eyebrow,
+                            // Stable handle for tests: without it they hang
+                            // off the ARB text, which every wording change
+                            // breaks.
+                            key: ValueKey(
+                              manual
+                                  ? 'settings-plan-eyebrow-manual'
+                                  : 'settings-plan-eyebrow-live',
+                            ),
+                            style: AppType.sectionEyebrow(t.accentText),
                           ),
                         ),
-                        const SizedBox(width: 11),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: <Widget>[
-                              Text(
-                                manual
-                                    ? l10n.settingsPlanHeroEyebrowManual
-                                    : l10n.settingsPlanHeroEyebrow,
-                                // Stable handle for tests: without it they
-                                // hang off the ARB text, which every wording
-                                // change breaks.
-                                key: ValueKey(
-                                  manual
-                                      ? 'settings-plan-eyebrow-manual'
-                                      : 'settings-plan-eyebrow-live',
-                                ),
-                                style: AppType.eyebrow(
-                                  t.onForest.withValues(alpha: 0.70),
-                                ),
-                              ),
-                              const SizedBox(height: 3),
-                              Text(
-                                l10n.settingsPlanHeroMaintenance(
-                                  targets.maintenanceKcal,
-                                  _paceLabel(l10n),
-                                ),
-                                style: AppType.ui(
-                                  12,
-                                  weight: FontWeight.w500,
-                                  color: t.onForest.withValues(alpha: 0.82),
-                                ),
-                              ),
-                            ],
+                        const SizedBox(width: 10),
+                        // Calculated or hand-set, as a glyph; the eyebrow
+                        // says it in words.
+                        ExcludeSemantics(
+                          child: Container(
+                            width: 34,
+                            height: 34,
+                            decoration: BoxDecoration(
+                              color: t.accentTint,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              manual
+                                  ? Icons.edit_rounded
+                                  : Icons.calculate_outlined,
+                              size: 17,
+                              color: t.accentText,
+                            ),
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 14),
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.baseline,
-                      textBaseline: TextBaseline.alphabetic,
+                    const SizedBox(height: 6),
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.end,
+                      spacing: 8,
                       children: <Widget>[
-                        Flexible(
+                        Text(
+                          '$kcal',
+                          textScaler: numberScaler,
+                          style: AppType.display(60, color: t.ink, height: 1),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
                           child: Text(
-                            '$kcal',
-                            maxLines: 1,
-                            style: AppType.display(46, color: t.lime, height: 1),
+                            l10n.commonKcalUnit,
+                            style: AppType.ui(
+                              16,
+                              weight: FontWeight.w700,
+                              color: t.ink2,
+                            ),
                           ),
                         ),
-                        const SizedBox(width: 6),
-                        Text(
-                          l10n.commonKcalUnit,
-                          style: AppType.ui(
-                            14,
-                            weight: FontWeight.w700,
-                            color: t.onForest.withValues(alpha: 0.70),
-                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      l10n.settingsPlanHeroMaintenance(
+                        targets.maintenanceKcal,
+                        _paceLabel(l10n),
+                      ),
+                      style: AppType.ui(
+                        14,
+                        weight: FontWeight.w500,
+                        color: t.ink2,
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Divider(height: 1, thickness: 1, color: t.line),
+                    const SizedBox(height: 16),
+                    _MacroRow(
+                      tiles: <_MacroTile>[
+                        _MacroTile(
+                          label: l10n.todayMacroProtein,
+                          value: '$protein',
+                          unit: l10n.commonUnitG,
+                          color: t.protein,
+                        ),
+                        _MacroTile(
+                          label: l10n.foodMacroTileCarbsLabel,
+                          value: '$carbs',
+                          unit: l10n.commonUnitG,
+                          color: t.carbs,
+                        ),
+                        _MacroTile(
+                          label: l10n.todayMacroFat,
+                          value: '$fat',
+                          unit: l10n.commonUnitG,
+                          color: t.fat,
                         ),
                       ],
                     ),
@@ -173,49 +214,6 @@ class SettingsPlanHero extends StatelessWidget {
               ),
             ],
           ),
-        ),
-        const SizedBox(height: 12),
-        // Text scaling as a layout feature (F8-09): FittedBox.scaleDown kept
-        // the 11-px labels at 11 px whatever the system font. The tiles now
-        // reserve their width from the text scaler and wrap to two or three
-        // rows instead of shrinking the text.
-        LayoutBuilder(
-          builder: (context, constraints) {
-            const gap = 10.0;
-            final scaler = MediaQuery.textScalerOf(context);
-            // 96 px holds "240 g" over "Kohlenhydrate" at scale 1.0 inside a
-            // third of the 335-px page; scaled with the font so the label
-            // stays legible instead of shrinking.
-            final minTile = scaler.scale(96);
-            final width = constraints.maxWidth;
-            final perRow =
-                ((width + gap) / (minTile + gap)).floor().clamp(1, 3);
-            final tileWidth = (width - gap * (perRow - 1)) / perRow;
-            final tiles = <Widget>[
-              _MacroTile(
-                label: l10n.todayMacroProtein,
-                value: '$protein ${l10n.commonUnitG}',
-                color: t.protein,
-              ),
-              _MacroTile(
-                label: l10n.foodMacroTileCarbsLabel,
-                value: '$carbs ${l10n.commonUnitG}',
-                color: t.carbs,
-              ),
-              _MacroTile(
-                label: l10n.todayMacroFat,
-                value: '$fat ${l10n.commonUnitG}',
-                color: t.fat,
-              ),
-            ];
-            return Wrap(
-              spacing: gap,
-              runSpacing: gap,
-              children: <Widget>[
-                for (final tile in tiles) SizedBox(width: tileWidth, child: tile),
-              ],
-            );
-          },
         ),
         if (warnung != null) ...<Widget>[
           const SizedBox(height: 12),
@@ -232,54 +230,99 @@ class SettingsPlanHero extends StatelessWidget {
   }
 }
 
+/// The three macro columns. Text scaling as a layout feature (F8-09): each
+/// column reserves its width from the text scaler, and the row wraps to two
+/// or three lines instead of shrinking the text.
+class _MacroRow extends StatelessWidget {
+  const _MacroRow({required this.tiles});
+
+  final List<_MacroTile> tiles;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = 10.0;
+        final scaler = MediaQuery.textScalerOf(context);
+        // 88 px holds "Kohlenhydrate" over "240 g" at scale 1.0 inside a
+        // third of the card; scaled with the font so the label stays legible.
+        final minTile = scaler.scale(88);
+        final width = constraints.maxWidth;
+        final perRow = ((width + gap) / (minTile + gap)).floor().clamp(1, 3);
+        final tileWidth = (width - gap * (perRow - 1)) / perRow;
+        return Wrap(
+          spacing: gap,
+          runSpacing: 14,
+          children: <Widget>[
+            for (final tile in tiles) SizedBox(width: tileWidth, child: tile),
+          ],
+        );
+      },
+    );
+  }
+}
+
 class _MacroTile extends StatelessWidget {
   const _MacroTile({
     required this.label,
     required this.value,
+    required this.unit,
     required this.color,
   });
 
   final String label;
   final String value;
+  final String unit;
 
-  /// Macro tone for the MARKER only, never for the number: on `surf` in light
-  /// mode `carbs` reaches 3.39:1 and `fat` 3.73:1 — enough for a graphical
-  /// object (WCAG 1.4.11, 3:1), short of text (4.5:1). Same rule as
-  /// `trends_screen`: coloured dot, text in text tokens.
+  /// Macro tone for the MARKER only, never for the number (see file header).
   final Color color;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    // Width is reserved by the parent from the text scaler, so the texts keep
-    // their scaled size; ellipsis is the safety net, not the plan.
-    return AppCard(
-      radius: rControl,
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+    // One spoken unit per macro: "Protein, 131 g".
+    return MergeSemantics(
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          // Above the number, not beside it: the tile width is reserved for
-          // the text, and a leading dot would eat into it at every scale.
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          Row(
+            children: <Widget>[
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 7),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppType.ui(13, weight: FontWeight.w600, color: t.ink2),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 7),
-          Text(
-            value,
+          const SizedBox(height: 5),
+          Text.rich(
+            TextSpan(
+              children: <InlineSpan>[
+                TextSpan(
+                  text: value,
+                  style: AppType.display(
+                    22,
+                    weight: FontWeight.w800,
+                    color: t.ink,
+                  ),
+                ),
+                TextSpan(
+                  text: ' $unit',
+                  style: AppType.ui(13, weight: FontWeight.w600, color: t.ink2),
+                ),
+              ],
+            ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: AppType.display(16, weight: FontWeight.w700, color: t.ink),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            label,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: AppType.ui(11, weight: FontWeight.w600, color: t.ink2),
           ),
         ],
       ),
