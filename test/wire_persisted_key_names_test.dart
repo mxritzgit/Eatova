@@ -1,9 +1,11 @@
+import 'package:eatova/src/config/install_marker.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/models/weight_log.dart';
+import 'package:eatova/src/services/durable_cache_store.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/search_credentials.dart';
 import 'package:eatova/src/services/secure_cache_store.dart';
@@ -56,6 +58,16 @@ void main() {
 
     test('Suchzugangsdaten', () {
       expect(SearchCredentialsStore.cacheKey, 'eatova.v1.search_credentials');
+    });
+
+    test('Installationsmarker und Cache-Datei (P3-01)', () {
+      expect(FreshInstallGuard.markerKey, 'eatova.install.marker.v1',
+          reason: 'umbenannt = jedes Geraet gilt beim Update wieder als '
+              'unmarkiert; nur die Belege trennen es dann noch von einer '
+              'Neuinstallation');
+      expect(DurableCacheStore.databaseFileName, 'eatova-cache.sqlite',
+          reason: 'umbenannt = der Cache und der Update-Beleg des Markers '
+              'liegen in einer neuen, leeren Datei');
     });
 
     group('Cache-Slots pro Nutzer', () {
