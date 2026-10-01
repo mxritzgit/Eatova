@@ -143,7 +143,7 @@ void main() {
         await _expectCenteredInk(
           tester,
           capture,
-          tokens.forest,
+          tokens.bg,
           'loading-${brightness.name}-${c.name}',
         );
         expect(completions, 0);
@@ -158,7 +158,7 @@ void main() {
         await _expectCenteredInk(
           tester,
           capture,
-          tokens.forest,
+          tokens.bg,
           'welcome-${brightness.name}-${c.name}',
         );
         expect(tester.takeException(), isNull);
@@ -193,7 +193,7 @@ void main() {
       await _expectCenteredInk(
         tester,
         capture,
-        tokens.forest,
+        tokens.bg,
         'reduced-${brightness.name}',
       );
       expect(tester.binding.hasScheduledFrame, isFalse);

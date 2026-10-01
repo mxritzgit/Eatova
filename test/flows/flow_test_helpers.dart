@@ -61,7 +61,7 @@ HomeStore storeOf(WidgetTester tester) =>
 
 /// Bounded settle instead of `pumpAndSettle`.
 ///
-/// A shell WITH sync never settles: the welcome gate orbits its comet with
+/// A shell WITH sync never settles: the welcome gate hunts focus with
 /// `repeat()` and every progress indicator on the boot path animates forever.
 /// The default 40 x 16 ms = 640 ms of fake time, well past the longest
 /// animation involved (sheet 300 ms, slidable resize 220 ms).

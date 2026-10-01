@@ -11,15 +11,15 @@ import '../support/harness.dart';
 // Widget tests for the boot/welcome screen. The wordmark is PAINTED, so
 // tests look for the key `boot-mark` rather than find.text.
 //
-// The screen is a deliberate exception to the design-refactor rules: as a
-// brand moment it uses the forest surface in both modes, never the mode
-// background. One test pins that down so nobody moves it to t.bg later.
+// Since the 2026-10-02 launch polish the screen stands on the page ground
+// `bg`: in the dark palette that is the native launch colour, so the native
+// splash hands over without a colour change. One test pins that down.
 //
-// The focus sweep runs as an endless loop, so `pumpAndSettle` never returns;
+// The focus hunt runs as an endless loop, so `pumpAndSettle` never returns;
 // every test pumps in fixed steps via [_tick].
 
-/// Advances the clock in steps; replaces `pumpAndSettle` while the comet
-/// loop is in the tree.
+/// Advances the clock in steps; replaces `pumpAndSettle` while the focus
+/// hunt is in the tree.
 Future<void> _tick(
   WidgetTester tester,
   Duration total, {
@@ -69,7 +69,7 @@ Future<void> _pumpWelcome(
     ),
     brightness: brightness,
     textScale: textScale,
-    // The comet sweep and the snap-in are the subject of several timing
+    // The focus hunt and the lock-in are the subject of several timing
     // assertions here, so animations stay ON.
     reducedMotion: false,
     // WelcomeScreen brings its own Scaffold; `screen-welcome` IS that Scaffold.
@@ -104,21 +104,17 @@ void main() {
         reason: '${c.brightness}: Marken-Block fehlt');
     expect(tester.takeException(), isNull, reason: '${c.brightness}');
 
-    // The screen is a deliberate exception to the design-refactor rules: as a
-    // brand moment it stands on `forest` in BOTH modes, never on the mode
-    // background. Pinned here so nobody moves it to t.bg later.
+    // Changed deliberately on 2026-10-02 (was `forest`, a lighter violet
+    // grey): the native launch screen is AppTokens.dark.bg, and a cold start
+    // flashed from it to forest. The page ground removes that flash; the
+    // native side is pinned in test/launch_screen_handoff_test.dart.
     final scaffold = tester.widget<Scaffold>(
       find.byKey(const ValueKey('screen-welcome')),
     );
     expect(
       scaffold.backgroundColor,
-      c.t.forest,
-      reason: '${c.brightness}: der Marken-Moment steht auf forest',
-    );
-    expect(
-      scaffold.backgroundColor,
-      isNot(c.t.bg),
-      reason: '${c.brightness}: kein Modus-Grund unter dem Marken-Moment',
+      c.t.bg,
+      reason: '${c.brightness}: der Start steht auf dem Seitengrund',
     );
   });
 
@@ -199,6 +195,50 @@ void main() {
 
     await _tick(tester, const Duration(milliseconds: 1500));
     expect(fertig, 1);
+  });
+
+  testWidgets('Session-Restore mit fertigem Profil: hoechstens 700 ms bis '
+      'onComplete', (tester) async {
+    pinPhoneViewport(tester);
+    var fertig = 0;
+    await _pumpWelcome(
+      tester,
+      brightness: Brightness.dark,
+      profileReady: Future<void>.value(),
+      onComplete: () => fertig++,
+    );
+    await _tick(
+      tester,
+      const Duration(milliseconds: 700),
+      step: const Duration(milliseconds: 20),
+    );
+    expect(fertig, 1, reason: 'kein langes Intro, wenn die Daten schon da sind');
+  });
+
+  testWidgets('Kaltstart: das erste Bild ist der native Startbildschirm', (
+    tester,
+  ) async {
+    // The first Flutter frame must repeat the native launch mark: ring alone,
+    // fully opaque, centred on the FULL screen (not the safe area).
+    pinPhoneViewport(tester);
+    // Asymmetric insets (status bar 47, home bar 34 logical) must not move
+    // the mark off the screen centre.
+    const insets = FakeViewPadding(top: 141, bottom: 102);
+    tester.view.padding = insets;
+    tester.view.viewPadding = insets;
+    addTearDown(tester.view.resetPadding);
+    addTearDown(tester.view.resetViewPadding);
+    await _pumpWelcome(
+      tester,
+      brightness: Brightness.dark,
+      profileReady: Completer<void>().future,
+    );
+    final screen = tester.getRect(find.byKey(const ValueKey('screen-welcome')));
+    final mark = tester.getRect(find.byKey(const ValueKey('boot-mark')));
+    expect(mark.center.dx, closeTo(screen.center.dx, 0.01));
+    expect(mark.center.dy, closeTo(screen.center.dy, 0.01));
+    await _tick(tester, const Duration(milliseconds: 1500));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('bleibt bei doppelter Systemschrift overflow-frei',
