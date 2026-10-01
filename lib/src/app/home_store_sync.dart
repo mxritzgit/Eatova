@@ -173,7 +173,14 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
     _trainingSessionEnded = true;
     await _localMutationTail;
     _endNotificationSession();
-    await notificationService.cancelAll();
+    try {
+      await notificationService.cancelAll();
+    } catch (error, stack) {
+      // P2-02: a notification error must not keep the user signed in. The
+      // gate cancels again once the session has ended.
+      unawaited(CrashReporter.capture(error, stack,
+          context: 'sign-out-notification-cancel'));
+    }
     _resetHealthConnection();
     // Confirmed pending changes are retained in their encrypted namespace.
     await _clearCache(preserveOutbox: true);
