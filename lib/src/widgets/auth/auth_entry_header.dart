@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
 import '../common/motion.dart';
+import '../design/controls.dart';
 import '../shared/eatova_wordmark.dart';
 import 'auth_controls.dart';
 
@@ -71,7 +72,7 @@ class _AuthEntryHeaderState extends State<AuthEntryHeader>
     final l10n = context.l10n;
     final keyboardOpen = widget.keyboardOpen;
     return Padding(
-      padding: EdgeInsets.fromLTRB(24, keyboardOpen ? 14 : 26, 24, 0),
+      padding: EdgeInsets.fromLTRB(24, keyboardOpen ? 12 : 16, 24, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -80,7 +81,7 @@ class _AuthEntryHeaderState extends State<AuthEntryHeader>
             builder: (context, _) => MediaQuery.withNoTextScaling(
               // The mark is one piece of artwork with a single spoken label.
               child: EatovaWordmark(
-                fontSize: 38,
+                fontSize: 32,
                 textColor: t.ink,
                 ringColor: t.accent,
                 focusTurn: _focus.value,
@@ -93,9 +94,9 @@ class _AuthEntryHeaderState extends State<AuthEntryHeader>
             curve: Curves.easeOutCubic,
             alignment: Alignment.topLeft,
             child: keyboardOpen
-                ? const SizedBox(width: double.infinity, height: 14)
+                ? const SizedBox(width: double.infinity, height: 18)
                 : Padding(
-                    padding: const EdgeInsets.only(top: 30, bottom: 26),
+                    padding: const EdgeInsets.only(top: 34, bottom: 28),
                     child: AnimatedSwitcher(
                       duration: motionDuration(
                         context,
@@ -120,9 +121,9 @@ class _AuthEntryHeaderState extends State<AuthEntryHeader>
                                 ? l10n.authHeadlineRegister
                                 : l10n.authHeadlineLogin,
                             style: AppType.display(
-                              42,
+                              40,
                               color: t.ink,
-                              height: 1.06,
+                              height: 1.05,
                             ),
                           ),
                           const SizedBox(height: 10),
@@ -130,7 +131,12 @@ class _AuthEntryHeaderState extends State<AuthEntryHeader>
                             widget.isRegister
                                 ? l10n.authSublineRegister
                                 : l10n.authSublineLogin,
-                            style: AppType.ui(14, color: t.ink2, height: 1.45),
+                            style: AppType.ui(
+                              15.5,
+                              weight: FontWeight.w500,
+                              color: t.ink2,
+                              height: 1.45,
+                            ),
                           ),
                         ],
                       ),
@@ -143,7 +149,10 @@ class _AuthEntryHeaderState extends State<AuthEntryHeader>
   }
 }
 
-/// Both account routes stay visible; the underline follows the chosen route.
+/// The two account routes as one segmented pill: a card-fill track with a
+/// `lineStrong` edge (like the redesign's neutral chips) and an accent thumb
+/// that slides to the chosen route. Labels that do not fit side by side stack
+/// into two full-width rows; the chosen one keeps the accent fill.
 class AuthModeSelector extends StatelessWidget {
   const AuthModeSelector({
     super.key,
@@ -156,12 +165,16 @@ class AuthModeSelector extends StatelessWidget {
   final bool enabled;
   final ValueChanged<bool> onChanged;
 
+  /// Inset of the thumb inside the track.
+  static const double _inset = 4;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
     final labels = [l10n.authToggleActionLogin, l10n.authToggleActionRegister];
-    final style = AppType.ui(15, weight: FontWeight.w700);
+    final style = AppType.ui(15, weight: FontWeight.w800);
+    final motion = motionDuration(context, const Duration(milliseconds: 280));
     return LayoutBuilder(
       builder: (context, constraints) {
         final measure = TextPainter(
@@ -172,7 +185,7 @@ class AuthModeSelector extends StatelessWidget {
         for (final label in labels) {
           measure.text = TextSpan(text: label, style: style);
           measure.layout();
-          stacked |= measure.width + 32 > constraints.maxWidth / 2;
+          stacked |= measure.width + 40 > constraints.maxWidth / 2 - _inset;
         }
         measure.dispose();
 
@@ -187,69 +200,95 @@ class AuthModeSelector extends StatelessWidget {
                 register ? 'auth-toggle-register' : 'auth-toggle-login',
               ),
               onTap: enabled ? () => onChanged(register) : null,
-              borderRadius: BorderRadius.circular(rChip),
-              child: Container(
-                constraints: const BoxConstraints(minHeight: 50),
+              customBorder: const StadiumBorder(),
+              child: AnimatedContainer(
+                duration: motion,
+                curve: Curves.easeOutCubic,
+                constraints: const BoxConstraints(minHeight: 48),
                 alignment: Alignment.center,
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 8,
-                  vertical: 12,
+                  horizontal: 16,
+                  vertical: 10,
                 ),
-                decoration: stacked && selected
-                    ? BoxDecoration(color: t.brandSurface)
-                    : null,
-                child: Text(
-                  labels[register ? 1 : 0],
-                  textAlign: TextAlign.center,
-                  style: style.copyWith(color: selected ? t.ink : t.ink2),
+                // Stacked rows carry their own fill; side by side the
+                // sliding thumb below draws it.
+                decoration: ShapeDecoration(
+                  shape: const StadiumBorder(),
+                  color: stacked && selected
+                      ? t.selectedFill
+                      : t.selectedFill.withValues(alpha: 0),
+                ),
+                child: AnimatedDefaultTextStyle(
+                  duration: motion,
+                  curve: Curves.easeOutCubic,
+                  style: style.copyWith(
+                    color: selected ? t.onSelected : t.inkMuted,
+                  ),
+                  child: Text(
+                    labels[register ? 1 : 0],
+                    textAlign: TextAlign.center,
+                  ),
                 ),
               ),
             ),
           );
         }
 
+        final edge = BorderSide(color: t.lineStrong);
         if (stacked) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [option(false), option(true)],
+          return DecoratedBox(
+            decoration: ShapeDecoration(
+              color: t.surf,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(rCard),
+                side: edge,
+              ),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(_inset),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [option(false), option(true)],
+              ),
+            ),
           );
         }
         return DecoratedBox(
-          decoration: BoxDecoration(
-            border: Border(bottom: BorderSide(color: t.line)),
+          decoration: ShapeDecoration(
+            color: t.surf,
+            shape: StadiumBorder(side: edge),
           ),
-          child: Stack(
-            alignment: Alignment.bottomCenter,
-            children: [
-              Row(
-                children: [
-                  Expanded(child: option(false)),
-                  Expanded(child: option(true)),
-                ],
-              ),
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                child: AnimatedAlign(
-                  duration: motionDuration(
-                    context,
-                    const Duration(milliseconds: 320),
-                  ),
-                  curve: Curves.easeOutCubic,
-                  alignment: isRegister
-                      ? AlignmentDirectional.centerEnd
-                      : AlignmentDirectional.centerStart,
-                  child: FractionallySizedBox(
-                    widthFactor: 0.5,
-                    child: ColoredBox(
-                      color: t.accent,
-                      child: const SizedBox(height: 2),
+          child: Padding(
+            padding: const EdgeInsets.all(_inset),
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: AnimatedAlign(
+                    duration: motion,
+                    curve: Curves.easeOutCubic,
+                    alignment: isRegister
+                        ? AlignmentDirectional.centerEnd
+                        : AlignmentDirectional.centerStart,
+                    child: FractionallySizedBox(
+                      widthFactor: 0.5,
+                      heightFactor: 1,
+                      child: DecoratedBox(
+                        decoration: ShapeDecoration(
+                          shape: const StadiumBorder(),
+                          color: t.selectedFill,
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
+                Row(
+                  children: [
+                    Expanded(child: option(false)),
+                    Expanded(child: option(true)),
+                  ],
+                ),
+              ],
+            ),
           ),
         );
       },
