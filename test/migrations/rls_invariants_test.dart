@@ -724,6 +724,59 @@ List<String> regelDefinerAuthUid(SchemaState s) => [
               'vorbei, ohne den Aufrufer an seine Zeilen zu binden',
     ];
 
+/// UPDATE/DELETE on a `public` table inside a function body (flattened,
+/// lowercase). Group 1 is the table. Inserts are out of scope: their owner
+/// sits in a VALUES list or a SELECT, which text matching cannot pair up.
+final _definerSchreibzugriff = RegExp(
+  r'\b(?:update\s+(?:only\s+)?|delete\s+from\s+(?:only\s+)?)public\.(\w+)[^;]*',
+);
+
+/// [regelDefinerAuthUid] is satisfied by ANY mention of auth.uid(). A
+/// client-callable definer function that takes a row id and updates or
+/// deletes by it runs past RLS, so only its own owner filter keeps it on the
+/// caller's rows (rename/delete_chat_session would otherwise reach any
+/// session). Every such statement must compare the table's owner column with
+/// auth.uid() or a uuid variable initialised from it. Known limit: an `or`
+/// next to that comparison is not detected; the SQL suite covers behaviour.
+List<String> regelDefinerSchreibtNurEigenes(SchemaState s) {
+  final funde = <String>[];
+  for (final name in (s.funktionen.keys.toList()..sort())) {
+    final f = s.funktionen[name]!;
+    if (!f.securityDefiner || !f.executeRollen.contains('authenticated')) {
+      continue;
+    }
+    final besitzer = [
+      r'\(\s*select\s+auth\.uid\(\)\s*\)',
+      r'auth\.uid\(\)',
+      for (final m in RegExp(
+        r'\b(\w+)\s+uuid\s*:=\s*auth\.uid\(\)',
+      ).allMatches(f.rumpf))
+        RegExp.escape(m.group(1)!),
+    ].join('|');
+    for (final m in _definerSchreibzugriff.allMatches(f.rumpf)) {
+      final tabelle = m.group(1)!;
+      final spalte = RegExp.escape(
+        _erwartet[tabelle]?.besitzerSpalte ?? 'user_id',
+      );
+      final filter = RegExp(
+        '\\b(?:\\w+\\.)?$spalte\\s*=\\s*(?:$besitzer)(?!\\w)'
+        '|(?:$besitzer)\\s*=\\s*(?:\\w+\\.)?$spalte\\b',
+      );
+      final anweisung = m.group(0)!;
+      final wo = anweisung.indexOf(' where ');
+      if (wo < 0 || !filter.hasMatch(anweisung.substring(wo))) {
+        funde.add(
+          'Funktion `public.$name` (${f.quelle}) ist `security definer`, fuer '
+          '`authenticated` ausfuehrbar und schreibt `public.$tabelle`, ohne '
+          '`$spalte` an auth.uid() zu binden — ein Aufrufer erreicht fremde '
+          'Zeilen: `$anweisung`',
+        );
+      }
+    }
+  }
+  return funde;
+}
+
 /// P12-01: the function counterpart of [regelTabellenMenge]. A function
 /// nobody entered here is a function whose EXECUTE grants nobody checks.
 List<String> regelFunktionsMenge(
@@ -955,6 +1008,11 @@ void main() {
     test('jede fuer `authenticated` freigegebene definer-Funktion nennt '
         'auth.uid()', () {
       expect(regelDefinerAuthUid(schema), isEmpty);
+    });
+
+    test('jede fuer `authenticated` freigegebene definer-Funktion schreibt '
+        'nur Zeilen des Aufrufers', () {
+      expect(regelDefinerSchreibtNurEigenes(schema), isEmpty);
     });
   });
 
@@ -1305,6 +1363,61 @@ end;
 grant execute on function public.eigen() to authenticated;
 ''');
         expect(regelDefinerAuthUid(s), isEmpty);
+      });
+
+      test('ohne Besitzerfilter fallen rename/delete_chat_session auf', () {
+        const datei = '20260517170000_chat_sessions.sql';
+        final mutant = schemaAusQuellen({
+          ...quellen,
+          datei: quellen[datei]!.replaceAll(
+            RegExp(r'\n\s+and user_id = v_uid;'),
+            ';',
+          ),
+        });
+        expect(regelReplayVollstaendig(mutant), isEmpty);
+        expect(regelDefinerAuthUid(mutant), isEmpty,
+            reason: 'diese Luecke liess die alte Regel offen');
+        final funde = regelDefinerSchreibtNurEigenes(mutant);
+        expect(funde, hasLength(2));
+        expect(funde, contains(contains('`public.rename_chat_session`')));
+        expect(funde, contains(contains('`public.delete_chat_session`')));
+      });
+
+      /// A definer RPC that deletes one `notizen` row by id; [besitzer] is
+      /// the declaration of `v_uid`.
+      String loescher(String besitzer) => '''
+create table public.notizen (id uuid primary key, user_id uuid not null);
+create or replace function public.notiz_loeschen(p_id uuid, p_user uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as \$\$
+declare
+  $besitzer
+begin
+  if auth.uid() is null then raise exception 'x'; end if;
+  delete from public.notizen where id = p_id and user_id = v_uid;
+end;
+\$\$;
+grant execute on function public.notiz_loeschen(uuid, uuid) to authenticated;
+''';
+
+      test('ein Besitzerfilter auf einen Parameter statt auth.uid() faellt '
+          'auf', () {
+        final s = bau(loescher('v_uid uuid := coalesce(p_user, auth.uid());'));
+        expect(regelDefinerAuthUid(s), isEmpty,
+            reason: 'die alte Regel sieht nur, dass auth.uid() vorkommt');
+        expect(regelDefinerSchreibtNurEigenes(s),
+            contains(contains('notiz_loeschen')));
+      });
+
+      test('ein Besitzerfilter auf auth.uid() loest NICHT aus', () {
+        expect(
+          regelDefinerSchreibtNurEigenes(
+              bau(loescher('v_uid uuid := auth.uid();'))),
+          isEmpty,
+        );
       });
     });
 
