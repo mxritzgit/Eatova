@@ -769,7 +769,7 @@ void main() {
       expect(route.barrierColor, const Color(0x80FF0000));
     });
 
-    renderMatrix('SheetHandle: 40x4, line, ohne Semantik', (tester, c) async {
+    renderMatrix('SheetHandle: 40x4, inkDisabled, ohne Semantik', (tester, c) async {
       final handle = tester.ensureSemantics();
       await c.pump(tester, const SheetHandle(), padding: _rand);
       final bar = tester.widget<Container>(
@@ -781,7 +781,8 @@ void main() {
             .first,
       );
       expect(tester.getSize(find.byWidget(bar)), const Size(40, 4));
-      expect((bar.decoration! as BoxDecoration).color, c.t.line);
+      // Not `line`: the 6 % hairline was invisible on the sheet ground.
+      expect((bar.decoration! as BoxDecoration).color, c.t.inkDisabled);
       expect(
         find.descendant(
           of: find.byType(SheetHandle),
