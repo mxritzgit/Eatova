@@ -48,6 +48,56 @@ void _expectWholeHeadlineWords(WidgetTester tester) {
   }
 }
 
+/// The visible code: the digits are drawn by the eight cells (the real field
+/// under them is transparent). Every digit sits in its own cell, whole, on
+/// screen, and the cells do not overlap.
+void _expectCodeDigitsVisible(WidgetTester tester, String code, Size screen) {
+  final cells = find.byWidgetPredicate(
+    (w) => w.runtimeType.toString() == '_CodeCell',
+  );
+  expect(cells, findsNWidgets(code.length));
+  final rects = <Rect>[];
+  for (var i = 0; i < code.length; i++) {
+    final cell = tester.getRect(cells.at(i));
+    rects.add(cell);
+    final digit = find.descendant(of: cells.at(i), matching: find.text(code[i]));
+    expect(digit, findsOneWidget, reason: 'Cell $i shows digit ${code[i]}.');
+    final paragraph = tester.renderObject<RenderParagraph>(
+      find.descendant(of: digit, matching: find.byType(RichText)),
+    );
+    expect(
+      paragraph.textSize.width,
+      lessThanOrEqualTo(paragraph.size.width + 0.01),
+      reason: 'Digit ${code[i]} is not clipped in width.',
+    );
+    expect(
+      paragraph.textSize.height,
+      lessThanOrEqualTo(paragraph.size.height + 0.01),
+      reason: 'Digit ${code[i]} is not clipped in height.',
+    );
+    final drawn = tester.getRect(digit);
+    expect(
+      cell.inflate(0.01).contains(drawn.topLeft) &&
+          cell.inflate(0.01).contains(drawn.bottomRight),
+      isTrue,
+      reason: 'Digit ${code[i]} $drawn fits inside its cell $cell.',
+    );
+    expect(
+      (Offset.zero & screen).inflate(0.01).contains(cell.topLeft) &&
+          (Offset.zero & screen).inflate(0.01).contains(cell.bottomRight),
+      isTrue,
+      reason: 'Cell $i $cell is fully on screen.',
+    );
+  }
+  for (var i = 1; i < rects.length; i++) {
+    expect(
+      rects[i].left,
+      greaterThanOrEqualTo(rects[i - 1].right),
+      reason: 'Cells ${i - 1} and $i do not overlap.',
+    );
+  }
+}
+
 void main() {
   setUpAll(loadAccountFonts);
   for (final brightness in Brightness.values) {
@@ -247,13 +297,10 @@ void main() {
             '48291357',
           );
           await tester.pumpAndSettle();
-          final editable = tester
-              .state<EditableTextState>(find.byType(EditableText))
-              .renderEditable;
-          expect(
-            editable.maxScrollExtent,
-            0,
-            reason: 'All eight digits stay visible at large text sizes.',
+          _expectCodeDigitsVisible(
+            tester,
+            '48291357',
+            scale == 1 ? const Size(390, 844) : const Size(320, 640),
           );
           await _capture(tester, capture, 'code-$suffix');
           _expectWholeHeadlineWords(tester);
