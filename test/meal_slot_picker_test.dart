@@ -63,7 +63,7 @@ void main() {
               final rect = tester.getRect(segment);
               expect(rect.height, greaterThanOrEqualTo(48));
               expect(rect.width, greaterThanOrEqualTo(48));
-              // Inside the track's padding and edge, never under them.
+              // Inside the track's padding, never under its edge.
               expect(bounds.deflate(4).contains(rect.topLeft), isTrue);
               expect(
                 bounds.deflate(4).contains(

@@ -111,8 +111,7 @@ class MealSlotSegments extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Padding plus the 1 px edge on each side.
-        final inner = constraints.maxWidth - 2 * (_pad + 1);
+        final inner = constraints.maxWidth - 2 * _pad;
         bool fits((int, _SegmentShape) option) =>
             option.$1 * need(option.$2) + (option.$1 - 1) * _gap <= inner;
         final (columns, shape) = const <(int, _SegmentShape)>[
@@ -126,7 +125,7 @@ class MealSlotSegments extends StatelessWidget {
         final cellHeight = switch (shape) {
           _SegmentShape.stacked => math.max(
             56.0,
-            6 + tile + 3 + lineHeight(shape) + 6,
+            5 + tile + 2 + lineHeight(shape) + 5,
           ),
           _SegmentShape.row => math.max(
             48.0,
@@ -155,9 +154,14 @@ class MealSlotSegments extends StatelessWidget {
           child: Container(
             key: ValueKey('${keyPrefix}group'),
             padding: const EdgeInsets.all(_pad),
-            // The track is a card surface with the cards' hairline edge.
+            // The track is a card surface with the cards' hairline edge,
+            // painted on top so it takes no layout space (the scanner
+            // sheets have no pixel to spare).
             decoration: BoxDecoration(
               color: t.surf,
+              borderRadius: BorderRadius.circular(radius + _pad),
+            ),
+            foregroundDecoration: BoxDecoration(
               borderRadius: BorderRadius.circular(radius + _pad),
               border: Border.all(color: t.cardBorder),
             ),
@@ -301,7 +305,7 @@ class _Segment extends StatelessWidget {
             child: switch (shape) {
               _SegmentShape.stacked => Column(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: [mark, const SizedBox(height: 3), label],
+                children: [mark, const SizedBox(height: 2), label],
               ),
               _SegmentShape.row => Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
