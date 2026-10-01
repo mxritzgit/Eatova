@@ -312,17 +312,9 @@ void main() {
       await captureDesignShot(tester, 'add-items-added');
       await tester.pump(const Duration(seconds: 5));
       await tester.pumpAndSettle();
-      // Known, outside this surface: with the reference phone's 34 pt home
-      // indicator the add sheet's toast strip is shorter than the floating
-      // SnackBar plus the inset, which Flutter reports in debug builds. The
-      // toast itself renders (see the shot); add-sheet owns the strip.
-      final snackError = tester.takeException();
-      expect(
-        snackError == null ||
-            '$snackError'.contains('Floating SnackBar presented off screen'),
-        isTrue,
-        reason: '$snackError',
-      );
+      // The toast strip measures the SnackBar, so even with the reference
+      // phone's 34 pt home indicator it is not reported off screen.
+      expect(tester.takeException(), isNull);
 
       // A pinned favourite, expanded.
       await _scrollTo(tester, _key('favorite-pinned-0'));
