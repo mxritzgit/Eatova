@@ -1,8 +1,8 @@
 // Visual evidence for the settings polish (2026-10-02).
 //
-// Mounts the settings page, the goals page it leads to (plan hero, pickers)
-// and the profile's goals card (a SettingsRow user) with realistic data at the
-// design's reference geometry (390x844, DPR 2, real fonts).
+// Mounts the settings page and the goals page it leads to (plan hero,
+// pickers) with realistic data at the design's reference geometry (390x844,
+// DPR 2, real fonts). The profile has its own capture suite.
 //
 // With --dart-define=DARK_REDESIGN_CAPTURE=true the PNGs land in
 // build/dark-redesign/. Without it the suite still checks that every surface
@@ -12,13 +12,9 @@ import 'package:clock/clock.dart';
 import 'package:eatova/src/app/home_store.dart' show ReminderState;
 import 'package:eatova/src/app/locale_controller.dart';
 import 'package:eatova/src/auth/auth_repository.dart';
-import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/models/user_profile.dart';
-import 'package:eatova/src/models/weight_log.dart';
-import 'package:eatova/src/screens/profile_screen.dart';
 import 'package:eatova/src/screens/settings/goals_screen.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
-import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -311,49 +307,6 @@ void main() {
         await tester.tap(find.byKey(ValueKey<String>(option)));
         await tester.pumpAndSettle();
       }
-    });
-  });
-
-  testWidgets('profile: the goals card built from SettingsRow', (
-    tester,
-  ) async {
-    await withClock(Clock.fixed(_now), () async {
-      await _mount(
-        tester,
-        ProfileScreen(
-          name: 'Moritz Schneider',
-          profile: _profile,
-          weightLog: WeightLog(
-            entries: [
-              WeightLogEntry(timestamp: DateTime(2026, 9, 1), weightKg: 84),
-              WeightLogEntry(timestamp: DateTime(2026, 9, 27), weightKg: 82),
-            ],
-          ),
-          stats: LifetimeStats(
-            mealsLogged: 124,
-            weightLogs: 12,
-            longestStreak: 21,
-            sessionStart: DateTime(2026, 9, 1),
-          ),
-          dailyConsumedKcal: 1460,
-          dailySteps: 6430,
-          healthAuthState: HealthAuthState.denied,
-          healthLastFetch: null,
-          onLogWeight: (_) {},
-          onEditProfile: () {},
-          onOpenSettings: () {},
-          onConnectHealth: () {},
-          onRefreshHealth: () {},
-        ),
-      );
-      await captureDesignShot(tester, 'profile-00');
-      final edit = find.byKey(const ValueKey('profile-edit-goals'));
-      if (edit.evaluate().isNotEmpty) {
-        await tester.ensureVisible(edit);
-        await tester.pumpAndSettle();
-      }
-      expect(tester.takeException(), isNull);
-      await captureDesignShot(tester, 'profile-goals-card');
     });
   });
 }

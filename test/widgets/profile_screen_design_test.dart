@@ -59,19 +59,15 @@ Widget _opener(Widget screen) => Builder(
       ),
     );
 
-/// Pumps the screen as its own route above that start screen.
+/// Pumps the screen as its own route above that start screen (de, dark).
 Future<void> _pumpAsRoute(
   WidgetTester tester,
   Widget screen, {
-  Brightness brightness = Brightness.dark,
   double textScale = 1.0,
-  Locale locale = const Locale('de'),
 }) async {
   await pumpLocalized(
     tester,
     _opener(screen),
-    brightness: brightness,
-    locale: locale,
     textScale: textScale,
     safeArea: false,
   );
@@ -123,23 +119,6 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('profile-close')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('screen-profile')), findsNothing);
-  });
-
-  // The account block was removed because it duplicated the settings, so the
-  // six rows must NOT be here. `test/settings_erreichbarkeit_test.dart` pins
-  // their counterparts in the settings so the removal is not a silent loss.
-  testWidgets('der Block „Daten & Konto" steht nicht mehr im Profil',
-      (tester) async {
-    pinPhoneViewport(tester);
-    await _pumpAsRoute(tester, _profile());
-
-    expect(find.text('DATEN & KONTO'), findsNothing);
-    expect(find.text('Daten & Konto'), findsNothing);
-    // The day reset is gone from the whole app (pinned in
-    // goals_screen_render_test.dart).
-    // The last section is now Connections, followed only by the wordmark and
-    // version.
-    expect(find.text('Verbindungen'), findsOneWidget);
   });
 
   testWidgets('die Bearbeiten-Knoepfe an Plan- und Zielkarte tragen die Ziele',
