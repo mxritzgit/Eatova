@@ -21,12 +21,6 @@ class UserRecipesSync {
   Future<Set<String>> loadPhotoReferences() =>
       UserRecipeReads(_client, _userId).loadPhotoReferences();
 
-  Future<RecipeHistoryPage> loadHistory({String? slug, int? beforeRevision}) =>
-      UserRecipeReads(
-        _client,
-        _userId,
-      ).loadHistory(slug: slug, beforeRevision: beforeRevision);
-
   /// Durable replay uses SyncOperationSync with its persisted operation UUID.
   Future<RecipeMutationResult> upsert(
     FitnessRecipe recipe, {
