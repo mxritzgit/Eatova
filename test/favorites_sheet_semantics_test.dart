@@ -1,6 +1,6 @@
 // A11y of the favorites sheet (feature 2026-08-27): what heart, add, search
 // and clear SAY to a screen reader (tooltip / label / hint), the title as a
-// header, the 44 pt tap floor for clear and the shared 40 pt floor for the
+// header, the 44 pt tap floor for clear and Material's 48 pt floor for the
 // heart. `getSemantics` walks
 // UP the render tree, so the text field is found via a semantics finder.
 
@@ -195,20 +195,16 @@ void main() {
         isHeader: false));
   });
 
-  testWidgets('Herz hat mindestens 40×40 pt Tap-Fläche (geteilte Kachel)',
-      (tester) async {
+  testWidgets('Herz hat mindestens 48×48 pt Tap-Fläche', (tester) async {
     await _pump(tester);
 
-    // The heart lives in the shared MealSuggestionItem, which uses
-    // VisualDensity.compact app-wide (48 - 8 = 40 pt). Raising it to 44 is a
-    // repo-wide layout change outside the favorites feature; this pins the
-    // shared floor so a regression below Material's compact size is caught.
-    const geteilteKachelMindestTap = 40.0;
+    // The heart is the shared MealFavoriteButton, an IconButton with a
+    // 48 x 48 minimum and no compact density.
     final groesse = tester.getSize(find.byKey(_herz0));
-    expect(groesse.width, greaterThanOrEqualTo(geteilteKachelMindestTap),
-        reason: 'Herz-IconButton (meal_suggestion_item.dart) ist $groesse');
-    expect(groesse.height, greaterThanOrEqualTo(geteilteKachelMindestTap),
-        reason: 'Herz-IconButton (meal_suggestion_item.dart) ist $groesse');
+    expect(groesse.width, greaterThanOrEqualTo(kMinInteractiveDimension),
+        reason: 'Herz (saved_meal_presentation.dart) ist $groesse');
+    expect(groesse.height, greaterThanOrEqualTo(kMinInteractiveDimension),
+        reason: 'Herz (saved_meal_presentation.dart) ist $groesse');
   });
 
   testWidgets('Clear-Button hat mindestens 44×44 pt Tap-Fläche',
