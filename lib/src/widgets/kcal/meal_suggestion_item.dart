@@ -44,6 +44,9 @@ class MealSuggestionItem extends StatefulWidget {
   final VoidCallback onTap;
   final ValueChanged<MealAnalysisResult> onAdd;
   final String? imageUrl;
+
+  /// Kept for callers; the rows now lead with the name's initial (or the
+  /// product photo) instead of a category icon.
   final IconData fallbackIcon;
 
   final bool justAdded;
@@ -53,7 +56,8 @@ class MealSuggestionItem extends StatefulWidget {
   /// Whether this item is currently favorited (filled heart).
   final bool isFavorite;
 
-  /// Optional favorite toggle in the header; null means no heart button.
+  /// Optional favorite toggle; null means no heart. Pinned favorites and
+  /// product hits show it in the row, recents in the open panel.
   final ValueChanged<MealAnalysisResult>? onToggleFavorite;
   final Key? favoriteButtonKey;
 

@@ -2205,7 +2205,6 @@
   "foodSearchClear": "Clear search",
   "foodEntryEmptyTitle": "Quicker next time",
   "foodEntryEmptyHint": "Meals you log will appear here, ready to use again.",
-  "foodFavoriteSavedPortion": "Saved portion",
   "foodFavoritePortionAction": "Adjust portion",
   "foodFavoriteAdded": "Added",
   "foodFavoritesForSlot": "For {slot}",

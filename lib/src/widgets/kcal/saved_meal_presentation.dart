@@ -122,8 +122,12 @@ class MealItemRow extends StatelessWidget {
         if (stacked && value != null) ...[const SizedBox(height: 4), value!],
       ],
     );
+    // The row itself opens the portion panel; say so, since nothing on it
+    // looks like a button.
     return Semantics(
+      button: true,
       expanded: expanded,
+      hint: context.l10n.foodFavoritePortionAction,
       child: InkWell(
         onTap: onTap,
         child: ConstrainedBox(
@@ -273,10 +277,18 @@ class MealItemTile extends StatelessWidget {
         ),
       ),
     );
-    // The check pops in; after its dwell the tile simply returns.
-    return ExcludeSemantics(
-      child: SizedBox.square(dimension: side, child: justAdded ? done : idle),
+    // The check pops in; after its dwell the tile simply returns. Only the
+    // check speaks ("Added"); the letter or photo is decoration.
+    final tile = SizedBox.square(
+      dimension: side,
+      child: justAdded ? done : idle,
     );
+    return justAdded
+        ? Semantics(
+            label: context.l10n.foodFavoriteAdded,
+            child: ExcludeSemantics(child: tile),
+          )
+        : ExcludeSemantics(child: tile);
   }
 }
 
@@ -303,9 +315,7 @@ class SavedMealHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final (title, brand) = mealTitleAndBrand(result, l10n);
-    final portion = result.isRecipeWithoutCookedWeight
-        ? l10n.recipeCalcSavedPortion
-        : '${l10n.foodFavoriteSavedPortion} · ${result.estimatedGrams} g';
+    final portion = mealAmountLabel(result, l10n);
     return MealItemRow(
       leading: MealItemTile(name: title, justAdded: justAdded),
       title: title,

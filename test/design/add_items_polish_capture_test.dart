@@ -325,6 +325,7 @@ void main() {
       );
 
       // A pinned favourite, expanded.
+      await _scrollTo(tester, _key('favorite-pinned-0'));
       await tester.tap(
         find.descendant(
           of: _key('favorite-pinned-0'),
@@ -332,6 +333,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      expect(_key('favorite-pinned-add-0'), findsOneWidget);
       await _scrollTo(tester, _key('favorite-pinned-0'));
       await captureDesignShot(tester, 'add-items-saved-expanded');
       expect(tester.takeException(), isNull);
@@ -358,7 +360,7 @@ void main() {
     });
   });
 
-  testWidgets('add sheet in German at 2.0 text scale', (tester) async {
+  testWidgets('add sheet in German', (tester) async {
     await withClock(Clock.fixed(_now), () async {
       final errors = await collectOverflows(() async {
         await _openAddSheet(tester, locale: const Locale('de'));
