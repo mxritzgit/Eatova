@@ -717,7 +717,7 @@ void main() {
       expect(route.barrierColor, AppTokens.light.scrim);
       final theme = buildEatovaTheme(Brightness.light).bottomSheetTheme;
       expect(theme.dragHandleSize, const Size(40, 4));
-      expect(theme.dragHandleColor, AppTokens.light.line);
+      expect(theme.dragHandleColor, AppTokens.light.inkDisabled);
     });
 
     testWidgets('dragHandle:false zeichnet keinen Material-Griff',

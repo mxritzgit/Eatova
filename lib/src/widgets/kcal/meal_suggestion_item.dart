@@ -28,7 +28,6 @@ class MealSuggestionItem extends StatefulWidget {
     required this.onTap,
     required this.onAdd,
     this.imageUrl,
-    this.fallbackIcon = Icons.fastfood_outlined,
     this.justAdded = false,
     this.onRemove,
     this.addButtonKey,
@@ -44,10 +43,6 @@ class MealSuggestionItem extends StatefulWidget {
   final VoidCallback onTap;
   final ValueChanged<MealAnalysisResult> onAdd;
   final String? imageUrl;
-
-  /// Kept for callers; the rows now lead with the name's initial (or the
-  /// product photo) instead of a category icon.
-  final IconData fallbackIcon;
 
   final bool justAdded;
   final VoidCallback? onRemove;

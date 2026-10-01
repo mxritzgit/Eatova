@@ -12,9 +12,10 @@ import 'diary_meal_card.dart' show diaryAmountLabel;
 // tile, the name in semibold ink, one muted line below, the kcal right-aligned
 // with a small unit — and rows sit in ONE card with hairline dividers.
 
-/// Left inset of the hairline between rows: card padding plus tile plus gap,
+/// Left inset of the hairline between rows: row margin and padding (6 + 10,
+/// so the tile sits 16 in like the entry-method rows) plus tile plus gap,
 /// so the line starts under the text like in the Food diary card.
-const double kMealRowDividerInset = 14 + kMealRowTileSize + 12;
+const double kMealRowDividerInset = 6 + 10 + kMealRowTileSize + 12;
 
 /// Side of the leading tile.
 const double kMealRowTileSize = 40;
@@ -133,7 +134,7 @@ class MealItemRow extends StatelessWidget {
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 64),
           child: Padding(
-            padding: EdgeInsets.fromLTRB(14, 10, actions.isEmpty ? 14 : 4, 10),
+            padding: EdgeInsets.fromLTRB(10, 10, actions.isEmpty ? 14 : 4, 10),
             child: Row(
               children: [
                 leading,

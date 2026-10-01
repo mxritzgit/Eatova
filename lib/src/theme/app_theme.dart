@@ -112,7 +112,7 @@ ThemeData buildEatovaTheme(Brightness brightness) {
       surfaceTintColor: Colors.transparent,
       showDragHandle: false,
       // One handle geometry app-wide (same as [SheetHandle]).
-      dragHandleColor: t.line,
+      dragHandleColor: t.inkDisabled,
       dragHandleSize: const Size(40, 4),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),

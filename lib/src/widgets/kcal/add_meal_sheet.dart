@@ -1093,15 +1093,17 @@ class _AddMealSheetState extends State<AddMealSheet> {
                 // active; after that the contextual CTA under "nothing
                 // found" takes over (_buildSearchResults).
                 if (!searchActive) ...[
-                  if (!widget.searchMode) ...[
+                  // Manual entry joins the entry-method card; the search
+                  // mode has no method card, so it keeps its own row.
+                  if (widget.searchMode)
+                    _ManualEntryRow(onTap: () => _openManualEntry())
+                  else
                     MealEntryMethods(
                       onCamera: () => _pickAndAnalyze(ImageSource.camera),
                       onGallery: () => _pickAndAnalyze(ImageSource.gallery),
                       onBarcode: _scanBarcode,
+                      onManual: () => _openManualEntry(),
                     ),
-                    const SizedBox(height: _kBlockGap),
-                  ],
-                  _ManualEntryRow(onTap: () => _openManualEntry()),
                   const SizedBox(height: _kSectionGap),
                 ],
                 if (_slotMeals.isNotEmpty) ...[
@@ -1246,7 +1248,6 @@ class _AddMealSheetState extends State<AddMealSheet> {
       productPresentation: true,
       result: suggestion.result,
       imageUrl: suggestion.imageUrl,
-      fallbackIcon: Icons.fastfood_outlined,
       expanded: _expandedItemKey == key,
       justAdded: _justAddedKeys.contains(key),
       onTap: () => _toggleExpanded(key),
@@ -1330,7 +1331,6 @@ class _AddMealSheetState extends State<AddMealSheet> {
       key: ValueKey(tileKey),
       savedPresentation: pinned,
       result: favorite.result,
-      fallbackIcon: pinned ? Icons.favorite_rounded : Icons.history_rounded,
       expanded: _expandedItemKey == key,
       justAdded: _justAddedKeys.contains(key),
       onTap: () => _toggleExpanded(key),
@@ -1897,7 +1897,7 @@ class _ManualEntryRow extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        l10n.foodManualEntrySubtitle,
+                        l10n.foodManualEntryHint,
                         style: AppType.ui(12.5, color: t.ink2, height: 1.3),
                       ),
                     ],

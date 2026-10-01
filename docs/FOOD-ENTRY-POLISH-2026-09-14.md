@@ -1,5 +1,10 @@
 # Food entry and calendar design
 
+> **Superseded 2026-10-02:** the meal-slot choice is now one inline segmented
+> control in every host (add, barcode, camera, manual and edit sheets) using
+> the `SlotIconTile` glyphs; the compact row with its separate choice sheet
+> is gone. See `docs/PROJECT_HANDOFF.md`, "Design polish, 2026-10-02".
+
 > **Palette and typography dated.** Since the dark redesign (2026-09-28,
 > PR #118) these sheets use the dark tokens and Figtree (which replaced
 > Archivo) with Bricolage Grotesque; the app is dark-only and the Food calendar

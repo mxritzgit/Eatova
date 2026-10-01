@@ -339,7 +339,6 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
       key: ValueKey('favorites-sheet-item-$index'),
       savedPresentation: true,
       result: favorite.result,
-      fallbackIcon: Icons.favorite_rounded,
       expanded: _expandedItemKey == key,
       justAdded: _justAddedKeys.contains(key),
       onTap: () => _toggleExpanded(key),
