@@ -11,7 +11,8 @@
 // Rules, identical for every caller:
 //  - Consume ONLY after a failed lookup. consume_edge_rate_limit is
 //    check+increment ATOMICALLY, so there is no "peek", and consuming before
-//    the lookup would count successful auths.
+//    the lookup would count successful auths. (What is known without a peek
+//    is cached in-isolate instead, see P7-02 below.)
 //  - Local rejections (no bearer, the public anon key) cost no roundtrip and
 //    must not reach this gate; a 200 without a usable id is not a failure
 //    here either — nothing was amplified, and counting it would let a broken
@@ -46,6 +47,28 @@
 // happening — the console.warn below. If that line ever shows up in
 // function_logs, the environment assumption broke and the shared bucket
 // deserves its own, much larger limit.
+//
+// P7-02 (review 2026-10-01): the bucket answered 429 but did not CAP the
+// amplification — every replay of a revoked token still cost one GoTrue
+// lookup plus one upsert, because the consume has no peek. Two small,
+// bounded, per-isolate caches (no migration) now short-circuit what is
+// already known:
+//  - rejected tokens: SHA-256 of the exact token GoTrue answered 401/403 for.
+//    Only the SECOND rejection within AUTH_FAIL_TOKEN_TTL_MS makes a token
+//    "known bad"; from then on it is answered before the lookup. Two strikes,
+//    because GoTrue occasionally 401s a brand-new valid token (Sentry
+//    FLUTTER-9/-A/-B): a client retrying the same token once must still reach
+//    GoTrue (StaleAuthRetry's first retry reuses its token, the second one
+//    refreshes it — a new token is a new hash). A successful lookup clears the
+//    token's strike. 429/5xx/timeouts never get here (`auth_unavailable`).
+//  - blocked buckets: when the consume reports `allowed: false`, the bucket is
+//    remembered until its resetAt (capped at one window), and further failed
+//    lookups from it get the same 429 without another upsert.
+// The bucket key is the client IP, so a blocked bucket NEVER short-circuits a
+// request before its lookup — a valid token from the same IP (CGNAT, office)
+// still reaches GoTrue and passes. Only a token that is itself known bad is
+// answered early: 429 while its bucket is known blocked, else its 401.
+// Memory is capped per cache; only hashes are stored, nothing is logged.
 
 import { isIpSubject } from "./client_ip.ts";
 
@@ -54,6 +77,162 @@ import { isIpSubject } from "./client_ip.ts";
  *  coach-chat tests; all three functions share it. */
 export const AUTH_FAIL_LIMIT = 30;
 export const AUTH_FAIL_WINDOW_SECONDS = 3600;
+
+/** P7-02: rejections of the same token before it is answered without a
+ *  lookup, how long a strike lives, and the entry cap of each cache. */
+export const AUTH_FAIL_TOKEN_STRIKES = 2;
+export const AUTH_FAIL_TOKEN_TTL_MS = 60_000;
+export const AUTH_FAIL_CACHE_MAX_ENTRIES = 1000;
+
+type TokenStrike = { strikes: number; expiresAt: number };
+type BlockedBucket = { limit: number; resetAt: string; windowSeconds: number; expiresAt: number };
+
+/** Insertion-ordered map with a hard size cap: expired entries go first,
+ *  then the oldest. Re-setting a key moves it to the end. */
+class BoundedExpiringMap<V extends { expiresAt: number }> {
+  readonly #entries = new Map<string, V>();
+  constructor(readonly maxEntries: number) {}
+
+  get size(): number {
+    return this.#entries.size;
+  }
+
+  get(key: string, now: number): V | undefined {
+    const entry = this.#entries.get(key);
+    if (entry === undefined) return undefined;
+    if (entry.expiresAt <= now) {
+      this.#entries.delete(key);
+      return undefined;
+    }
+    return entry;
+  }
+
+  set(key: string, value: V, now: number): void {
+    this.#entries.delete(key);
+    if (this.#entries.size >= this.maxEntries) {
+      for (const [k, v] of this.#entries) {
+        if (v.expiresAt <= now) this.#entries.delete(k);
+      }
+    }
+    while (this.#entries.size >= this.maxEntries) {
+      const oldest = this.#entries.keys().next().value;
+      if (oldest === undefined) break;
+      this.#entries.delete(oldest);
+    }
+    this.#entries.set(key, value);
+  }
+
+  delete(key: string): void {
+    this.#entries.delete(key);
+  }
+
+  clear(): void {
+    this.#entries.clear();
+  }
+}
+
+// Per isolate, like every other module-level state of an edge function.
+const rejectedTokens = new BoundedExpiringMap<TokenStrike>(AUTH_FAIL_CACHE_MAX_ENTRIES);
+const blockedBuckets = new BoundedExpiringMap<BlockedBucket>(AUTH_FAIL_CACHE_MAX_ENTRIES);
+let clock: () => number = () => Date.now();
+
+/** Test seam: a cold isolate (empty caches, real clock). */
+export function resetAuthFailCacheForTests(): void {
+  rejectedTokens.clear();
+  blockedBuckets.clear();
+  clock = () => Date.now();
+}
+
+/** Test seam: frozen/advanced time for TTL tests, never sleeps. */
+export function setAuthFailClockForTests(now: () => number): void {
+  clock = now;
+}
+
+/** Test seam: entry counts, to pin the memory bound. */
+export function authFailCacheSizesForTests(): { tokens: number; buckets: number } {
+  return { tokens: rejectedTokens.size, buckets: blockedBuckets.size };
+}
+
+// The scope keeps the functions apart where they share an isolate (tests);
+// \u0000 cannot occur in a scope.
+function bucketKey(scope: string, subject: string): string {
+  return `${scope}\u0000${subject}`;
+}
+
+async function tokenKey(scope: string, token: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  const hex = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${scope}\u0000${hex}`;
+}
+
+function blockedResult(bucket: BlockedBucket, now: number): AuthFailGateResult {
+  return {
+    limited: true,
+    limit: bucket.limit,
+    remaining: 0,
+    resetAt: bucket.resetAt,
+    windowSeconds: bucket.windowSeconds,
+    retryAfterSeconds: retryAfterSeconds(bucket.resetAt, bucket.windowSeconds, now),
+  };
+}
+
+export type KnownAuthFailureOptions = {
+  /** Same scope and subject the caller passes to authFailGate. */
+  scope: string;
+  subject: string;
+  /** The bearer exactly as it would be sent to /auth/v1/user. */
+  token: string;
+};
+
+/**
+ * P7-02, BEFORE the /auth/v1/user lookup: `null` means "look it up" — the
+ * answer for every token that is not itself known bad, whatever its IP did.
+ * For a known-bad token it returns what the failure path would answer
+ * without a lookup or upsert: `limited` (429) while the bucket is known
+ * blocked, else `{ limited: false }` (401). Never throws.
+ */
+export async function knownAuthFailure(options: KnownAuthFailureOptions): Promise<AuthFailGateResult | null> {
+  // Fast path: an isolate that has seen no rejection hashes nothing.
+  if (rejectedTokens.size === 0) return null;
+  try {
+    const now = clock();
+    const strike = rejectedTokens.get(await tokenKey(options.scope, options.token), now);
+    if (strike === undefined || strike.strikes < AUTH_FAIL_TOKEN_STRIKES) return null;
+    const bucket = blockedBuckets.get(bucketKey(options.scope, options.subject), now);
+    return bucket === undefined ? { limited: false } : blockedResult(bucket, now);
+  } catch {
+    return null;
+  }
+}
+
+/** P7-02: GoTrue accepted this token, so an earlier strike was a flake. */
+export async function forgetAuthFailure(scope: string, token: string): Promise<void> {
+  if (rejectedTokens.size === 0) return;
+  try {
+    rejectedTokens.delete(await tokenKey(scope, token));
+  } catch {
+    // Nothing to undo: a missing strike only means one more lookup.
+  }
+}
+
+async function recordRejection(scope: string, rejection: AuthRejection): Promise<void> {
+  // Only a definite "this token is not valid"; anything else is not cached.
+  if (rejection.status !== 401 && rejection.status !== 403) return;
+  try {
+    const key = await tokenKey(scope, rejection.token);
+    const now = clock();
+    const previous = rejectedTokens.get(key, now);
+    rejectedTokens.set(key, {
+      strikes: (previous?.strikes ?? 0) + 1,
+      expiresAt: now + AUTH_FAIL_TOKEN_TTL_MS,
+    }, now);
+  } catch {
+    // A missing strike only means one more lookup.
+  }
+}
+
+/** The failed lookup behind a gate call: the token and GoTrue's status. */
+export type AuthRejection = { token: string; status: number };
 
 export type AuthFailGateOptions = {
   supabaseUrl: string;
@@ -77,6 +256,12 @@ export type AuthFailGateOptions = {
    * and reports `{ limited: false }`. The helper still never throws.
    */
   signal?: AbortSignal;
+  /**
+   * P7-02: the failed lookup this call is about. A 401/403 counts as a strike
+   * against the exact token (hashed); without it nothing is remembered about
+   * the token, only about the bucket.
+   */
+  rejection?: AuthRejection;
 };
 
 export type AuthFailGateResult =
@@ -102,6 +287,13 @@ export async function authFailGate(options: AuthFailGateOptions): Promise<AuthFa
   const limit = options.limit ?? AUTH_FAIL_LIMIT;
   const windowSeconds = options.windowSeconds ?? AUTH_FAIL_WINDOW_SECONDS;
   const label = `consume_edge_rate_limit (${options.scope})`;
+
+  if (options.rejection !== undefined) await recordRejection(options.scope, options.rejection);
+  // P7-02: a bucket the limiter already reported exhausted answers the same
+  // 429 without another upsert. Only reached AFTER a failed lookup.
+  const key = bucketKey(options.scope, options.subject);
+  const known = blockedBuckets.get(key, clock());
+  if (known !== undefined) return blockedResult(known, clock());
 
   let data: unknown;
   try {
@@ -160,17 +352,30 @@ export async function authFailGate(options: AuthFailGateOptions): Promise<AuthFa
   }
   const reportedWindow = Number(record.windowSeconds);
   const effectiveWindow = Number.isFinite(reportedWindow) && reportedWindow > 0 ? reportedWindow : windowSeconds;
-  return {
-    limited: true,
+  const result = {
+    limited: true as const,
     limit: Number(record.limit ?? limit),
     remaining: Number(record.remaining ?? 0),
     resetAt,
     windowSeconds: effectiveWindow,
-    retryAfterSeconds: retryAfterSeconds(resetAt, effectiveWindow),
+    retryAfterSeconds: retryAfterSeconds(resetAt, effectiveWindow, clock()),
   };
+  // P7-02: remembered until the bucket resets, never longer than one window.
+  // An unreadable or past resetAt is not cached: the next failure asks again.
+  const now = clock();
+  const resetMs = new Date(resetAt).getTime();
+  if (Number.isFinite(resetMs) && resetMs > now) {
+    blockedBuckets.set(key, {
+      limit: result.limit,
+      resetAt,
+      windowSeconds: effectiveWindow,
+      expiresAt: Math.min(resetMs, now + effectiveWindow * 1000),
+    }, now);
+  }
+  return result;
 }
 
-function retryAfterSeconds(resetAt: string, fallback: number): number {
-  const ms = new Date(resetAt).getTime() - Date.now();
+function retryAfterSeconds(resetAt: string, fallback: number, now: number): number {
+  const ms = new Date(resetAt).getTime() - now;
   return Number.isFinite(ms) ? Math.max(1, Math.ceil(ms / 1000)) : fallback;
 }

@@ -18,6 +18,7 @@ import { userToken } from "../_shared/auth_test_fixtures.ts";
 // one would need --allow-read, which CI does not grant).
 
 import { handleRequest } from './handler.ts';
+import { resetAuthFailCacheForTests } from '../_shared/auth_fail_gate.ts';
 import { pruneRateLimits } from '../_shared/rate_limit_prune.ts';
 import { PNG_BASE64 } from './image_fixtures.ts';
 
@@ -171,6 +172,8 @@ function stallingBody(signal: AbortSignal | null | undefined, head: string): Res
 }
 
 function installFetch(options: StubOptions = {}): FetchStub {
+  // P7-02: every stub starts from a cold isolate (empty auth-fail caches).
+  resetAuthFailCacheForTests();
   const calls: RecordedCall[] = [];
   // What the limiter actually COUNTED, in order, normalised to the p_-names.
   // Recorded here rather than derived from the request bodies because a batch

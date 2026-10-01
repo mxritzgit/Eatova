@@ -38,6 +38,21 @@ void main() {
       expect(AppTokens.dark.bg, isNot(const Color(0xFF000000)));
     });
 
+    // WCAG 1.4.11: the calorie arc is a graphical object, so every stop of its
+    // gradient needs 3:1 against the unfilled track. Light arcEnd #B7A6F0 sat
+    // at 1.77:1; light mode is parked behind kDarkOnly, not abandoned.
+    test('Kalorienbogen: jeder Verlaufston hebt sich 3:1 von der Spur ab', () {
+      for (final (modus, t) in [
+        ('hell', AppTokens.light),
+        ('dunkel', AppTokens.dark),
+      ]) {
+        expect(_contrast(t.arcStart, t.arcTrack), greaterThanOrEqualTo(3.0),
+            reason: '$modus: arcStart auf arcTrack');
+        expect(_contrast(t.arcEnd, t.arcTrack), greaterThanOrEqualTo(3.0),
+            reason: '$modus: arcEnd auf arcTrack');
+      }
+    });
+
     test('Fliesstext erreicht in beiden Modi WCAG AA (4.5:1)', () {
       for (final entry in <String, AppTokens>{
         'hell': AppTokens.light,

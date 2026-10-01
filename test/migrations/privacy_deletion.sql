@@ -50,10 +50,8 @@ begin
     '44444444-4444-4444-8444-444444444444'
   ] loop
     perform set_config('request.jwt.claims', jsonb_build_object('sub',u)::text,true);
-    perform public.record_training_history(
-      '66666666-6666-4666-8666-666666666666','2026-09-10T12:02:00Z',
-      rlstest.training_history('66666666-6666-4666-8666-666666666666'));
-    perform public.delete_training_history('77777777-7777-4777-8777-777777777777');
+    perform rlstest.training_record('66666666-6666-4666-8666-666666666666');
+    perform rlstest.training_delete('77777777-7777-4777-8777-777777777777');
     perform public.save_planned_meal(rlstest.meal_plan('88888888-8888-4888-8888-888888888888'));
     perform public.save_shopping_check('2026-09-07:'||repeat('a',64),true);
   end loop;

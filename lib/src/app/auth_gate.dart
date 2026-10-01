@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 import '../auth/auth_repository.dart';
 import '../l10n/l10n.dart';
 import '../screens/auth_screen.dart';
+import '../services/background_sync_scheduler.dart';
 import '../services/crash_reporter.dart';
 import '../services/local_cache.dart';
+import '../services/notification_service.dart';
 import '../services/recipe_image_store.dart';
 import '../services/sync_execution_guard.dart';
 import '../widgets/common/app_snack.dart';
@@ -118,6 +120,39 @@ Future<void> purgePersonalCache(
   }
 }
 
+/// P2-02: reminders live in the OS, not in the account's cache, and outlive
+/// the session that scheduled them: the streak reminder (up to 28 dated
+/// one-shots, the body carrying the streak count) kept firing for the next
+/// person on the phone. Runs on every session end the gate sees: sign-out,
+/// session loss, a direct switch to another account, and a cold start without
+/// a session. Idempotent and never throws, so it cannot hold up an auth
+/// transition.
+///
+/// The background-sync request goes too: its runner re-checks the persisted
+/// session, so a leftover only costs an empty OS wake-up. The next account's
+/// home page requests it again (pending outbox, app pause).
+Future<void> cancelDeviceSchedules({
+  NotificationService? notifications,
+  BackgroundSyncScheduler? backgroundSync,
+}) async {
+  if (notifications != null) {
+    try {
+      await notifications.cancelAll();
+    } catch (error, stack) {
+      unawaited(CrashReporter.capture(error, stack,
+          context: 'auth-gate-notification-cancel'));
+    }
+  }
+  if (backgroundSync != null) {
+    try {
+      await backgroundSync.cancel();
+    } catch (error, stack) {
+      unawaited(CrashReporter.capture(error, stack,
+          context: 'auth-gate-background-sync-cancel'));
+    }
+  }
+}
+
 class AuthGate extends StatefulWidget {
   const AuthGate({
     super.key,
@@ -125,10 +160,16 @@ class AuthGate extends StatefulWidget {
     required this.builder,
     this.debugPurgeCache,
     this.onUserChanged,
+    this.notificationService,
+    this.backgroundSyncScheduler,
   });
 
   final AuthRepository authRepository;
   final ValueChanged<EatovaUser?>? onUserChanged;
+
+  /// Cancelled whenever a session ends, see [cancelDeviceSchedules].
+  final NotificationService? notificationService;
+  final BackgroundSyncScheduler? backgroundSyncScheduler;
 
   /// Test seam for [purgePersonalCacheFor] — `LocalCache.create` returns null
   /// in widget tests. Always null in production.
@@ -163,6 +204,9 @@ class _AuthGateState extends State<AuthGate> {
     // Finding 5: the recipe photo store is bound to the active user id. Cold
     // start binds the restored user; later transitions go via _onAuthEvent.
     unawaited(RecipeImageStore.instance.setActiveUser(initial?.id, sessionId: initial?.sessionId));
+    // A cold start without a session: the session ended while the app was
+    // not running, and what it scheduled with the OS is still there.
+    if (initial == null) _cancelDeviceSchedules();
     _subscription = widget.authRepository.authStateChanges
         .listen(_onAuthEvent, onError: _onAuthStreamError);
   }
@@ -234,6 +278,7 @@ class _AuthGateState extends State<AuthGate> {
   }
 
   void _purgePrevious(EatovaUser previous) {
+    _cancelDeviceSchedules();
     final debugPurge = widget.debugPurgeCache;
     if (debugPurge != null) {
       unawaited(debugPurge(previous.id));
@@ -242,6 +287,16 @@ class _AuthGateState extends State<AuthGate> {
     unawaited(purgePersonalCacheFor(previous.id,
         expectedSessionId: previous.sessionId,
         isInactive: () => widget.authRepository.currentUser?.id != previous.id));
+  }
+
+  /// Invoked synchronously before the next account's store exists, so the
+  /// notification service's FIFO queue orders this cancel before any of its
+  /// reminders.
+  void _cancelDeviceSchedules() {
+    unawaited(cancelDeviceSchedules(
+      notifications: widget.notificationService,
+      backgroundSync: widget.backgroundSyncScheduler,
+    ));
   }
 
   /// Pops everything above the root route. `maybeOf` hits the right navigator

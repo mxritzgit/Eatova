@@ -1148,7 +1148,11 @@ class HomeStore extends _HomeStoreBase
       _safeLoad('boot-training-plans', () => auth.run(s.trainingPlans.load)),
       _safeLoad(
         'boot-training-history',
-        () => auth.run(s.trainingHistory.load),
+        // This account's cached rows: only rows the server lists but the
+        // cache lacks are downloaded in full.
+        () => auth.run(
+          () => s.trainingHistory.load(known: vorher.trainingHistory),
+        ),
       ),
       _safeLoad('boot-recipe-photo-refs', () async {
         // A later watermark includes history retained during the recipe load.

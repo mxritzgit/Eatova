@@ -1,5 +1,53 @@
 # E-Mail-OTP-Konfiguration (GoTrue)
 
+## Live-Konfigurationsvertrag (seit 2026-10-01)
+
+Die einzige Quelle für die erwartete Live-Auth-Konfiguration ist
+[`auth_config.expected.json`](auth_config.expected.json). Der geschützte Job
+`supabase-migration-drift-live` (nur `main`, Environment `supabase-drift`)
+liest `GET /v1/projects/{ref}/config/auth` ausschließlich lesend und vergleicht
+mit [`auth_config_drift.py`](../scripts/security/auth_config_drift.py):
+
+- **Sicherheitswerte exakt, mit Typ:** `site_url`, `rate_limit_email_sent`,
+  `rate_limit_verify`, OTP-Länge/-Gültigkeit, sichere E-Mail-Änderung,
+  `mailer_autoconfirm`, aktuelles Passwort + Reauthentifizierung,
+  Passwortwechsel-Benachrichtigung, Refresh-Rotation und Reuse-Intervall,
+  `jwt_exp`, Passwort-Mindestlänge, anonyme Anmeldung, Apple aus, Google an.
+  Jeder Eintrag trägt seinen Beleg (`evidence`). Kosmetische Felder, Secrets,
+  SMTP-Zugang und bewusst schwache Ist-Werte (Captcha, HIBP,
+  `skip_nonce_check`) werden nicht gepinnt.
+- **`uri_allow_list` als exakte Menge** (Reihenfolge und Leerzeichen egal):
+  `eatova://login-callback/` und die zwei Zweck-Adressen der Recovery-Vorlage.
+  Jeder zusätzliche Eintrag, etwa ein Wildcard oder `fitpilot://`, ist Drift.
+- **13 Vorlagen und Betreffzeilen byte-genau** gegen
+  [`email_templates/`](email_templates/): Sie werden generiert, wurden am
+  2026-09-20 veröffentlicht und exakt zurückgelesen. Unabhängig davon prüft
+  der Audit Sicherheitseigenschaften der Live-Inhalte: kein `.ConfirmationURL`
+  außer in der Einladung, nirgends `.TokenHash` oder `eatova://`, OTP-Vorlagen
+  rendern `{{ .Token }}`, alle anderen enthalten kein `.Token`, Links nur auf
+  Datenschutz, Impressum und Support. Betreffzeilen enthalten weder Aktionen
+  noch Links. Damit fällt insbesondere die alte Magic-Link-Vorlage mit
+  Bestätigungslink auf.
+
+Die Ausgabe nennt nur Schlüssel, erwartete und gelesene Werte gepinnter
+Nicht-Geheimnisse, Allow-List-Einträge und gekürzte SHA-256-Werte der
+Vorlagen; nie Zugangsdaten, ungepinnte Werte oder Vorlageninhalte.
+
+Wer eine dieser Einstellungen live ändert, ändert diese Datei im selben PR
+(Vorlagen über `python scripts/auth_email_templates.py`), sonst wird `main`
+rot. Die Offline-Regressionen laufen ohne Zugangsdaten in PR-CI:
+`python scripts/security/test_auth_config_drift.py`. Sie prüfen auch, dass der
+Vertrag zu den App-Konstanten (`kAccountCodeLength`,
+`kAccountMinPasswordLength`, OAuth-Callback), den generierten Vorlagen und der
+lokalen GoTrue-Lifecycle-Probe passt. Ein Operator prüft live vor dem Merge
+(ausschließlich lesend, Token nur in der eigenen Shell):
+
+```sh
+read -rs SUPABASE_ACCESS_TOKEN && export SUPABASE_ACCESS_TOKEN
+SUPABASE_PROJECT_REF=ftoozzvmduptrvrrrshb python scripts/security/auth_config_drift.py
+unset SUPABASE_ACCESS_TOKEN
+```
+
 ## Passwortänderung: Plan und Sicherheitsvertrag, 2026-09-20
 
 Der Zielvertrag nutzt die unterstützte native Supabase-Härtung: Bei normalen
@@ -100,10 +148,8 @@ Keine Passwortmutation an echten Nutzerkonten ist Teil der Überprüfung.
 
 Prüfbefehle und genaue Matrix stehen im
 [Security-Probe-Guide](../scripts/security/README.md#real-recovery-mail-purpose-otp-and-password-change-contract).
-Die reine Konfigurationsprüfung läuft mit
-`python scripts/security/auth_password_policy.py`; sie ersetzt keine
-Verhaltenstests. Ihre Offline-Regressionen benötigen keine Zugangsdaten:
-`python scripts/security/test_auth_password_policy.py`.
+Die reine Konfigurationsprüfung ist Teil des Live-Konfigurationsvertrags
+(Abschnitt oben); sie ersetzt keine Verhaltenstests.
 
 
 ## Aktueller Vorlagenstand: 2026-09-20
@@ -331,5 +377,8 @@ Optional pruefen: die GoTrue-Benachrichtigung „Passwort geaendert"
   `verifySignupCode` (`verifyOTP`), `resendSignupCode`,
   `sendPasswordReset`.
 
-Wer eines der Felder aendert, muss die jeweils andere Seite nachziehen —
-es gibt keinen Test, der App und Auth-Config gegeneinander prueft.
+Wer eines der Felder aendert, muss die jeweils andere Seite nachziehen.
+Seit 2026-10-01 prueft `scripts/security/test_auth_config_drift.py` offline,
+dass `auth_config.expected.json` zu `kAccountCodeLength` und
+`kAccountMinPasswordLength` passt; der Live-Audit vergleicht den Vertrag mit
+der Projektkonfiguration (Abschnitt „Live-Konfigurationsvertrag").

@@ -30,6 +30,23 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
       !_notificationSessionEnded &&
       revision == _notificationRevision;
 
+  /// P2-02: the auth client switches its session BEFORE the gate cancels the
+  /// reminders and disposes this store, so a schedule from this store's late
+  /// continuation would land after that cancel. Same owner and session test
+  /// as `_ensureMutationActive`, without its cache conditions.
+  bool get _accountStillSignedIn {
+    final auth = sync?.client.auth;
+    if (auth == null) return true;
+    final owner = auth.currentUser;
+    if (owner != null && owner.id != sync?.userId) return false;
+    final bound = _boundSyncSessionId;
+    return bound == null ||
+        bound ==
+            syncSessionIdFromAccessToken(
+              auth.currentSession?.accessToken ?? '',
+            );
+  }
+
   /// Whether anything actually fires in the evening. True only for
   /// [ReminderState.active] — "blocked" is not "on" (D11).
   bool get notificationsEnabled => _reminderState == ReminderState.active;
@@ -65,8 +82,18 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     if (cache == null) return;
     final enabled = await cache.readNotificationsEnabled() ?? false;
     if (!_notificationRequestIsCurrent(revision)) return;
-    // No opt-in -> the OS is never asked.
-    if (!enabled) return;
+    // No opt-in -> the OS is never asked for permission. P2-02: but what an
+    // earlier account on this device scheduled is still cancelled. The gate
+    // cancels on every session end it sees; this covers one it did not.
+    if (!enabled) {
+      try {
+        await notificationService.cancelAll();
+      } catch (e, st) {
+        unawaited(CrashReporter.capture(e, st,
+            context: 'notifications-cold-start-cancel'));
+      }
+      return;
+    }
 
     await _syncWithOsGuarded(
       cache,
@@ -216,7 +243,8 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
   Future<void> _rescheduleStreakReminder() async {
     if (_disposed ||
         _notificationSessionEnded ||
-        _reminderState != ReminderState.active) {
+        _reminderState != ReminderState.active ||
+        !_accountStillSignedIn) {
       return;
     }
     await notificationService.scheduleAll(

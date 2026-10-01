@@ -500,11 +500,10 @@ void main() {
     });
 
     test('der Makro-Nachbau passt noch zur Regex der Mahlzeit-Zeilen', () {
-      // Beide Wege schreiben logged_meals-Makros: die Sync-Operation und die
-      // Umwandlung einer geplanten Mahlzeit.
+      // Alle logged_meals-Makros laufen über die Sync-Operation, auch die
+      // Umwandlung einer geplanten Mahlzeit (mealPlanConvert).
       for (final pfad in const [
         'lib/src/services/sync_operation_payload.dart',
-        'lib/src/services/meal_plans_sync.dart',
       ]) {
         expect(
           _lies(pfad).contains(r"r'\d+(?:[.,]\d+)?'"),

@@ -117,8 +117,8 @@ Map<String, dynamic> _serverZeile({
       if (manual != null) 'manual_energy': manual,
     };
 
-/// Client answering every request with [zeile]; records the requests so the
-/// save payload can be inspected.
+/// Client answering every request with [zeile]; records the requests for
+/// inspection.
 ({SupabaseClient client, List<http.Request> requests}) _client(
   Map<String, dynamic> zeile,
 ) {
@@ -267,22 +267,6 @@ void main() {
       final p = await ProfileSync(c.client, 'user-1').load();
 
       expect(p!.dailyKcalGoal, 2000);
-    });
-
-    test('save schreibt manual_energy explizit (false UND true)', () async {
-      final c = _client(_serverZeile());
-      final sync = ProfileSync(c.client, 'user-1');
-
-      await sync.save(_altesLiveProfil);
-      await sync.save(_manuellesProfil);
-
-      final payloads = c.requests
-          .where((r) => r.method == 'POST')
-          .map((r) => jsonDecode(r.body))
-          .toList();
-      expect(payloads, hasLength(2));
-      expect(payloads[0]['manual_energy'], isFalse);
-      expect(payloads[1]['manual_energy'], isTrue);
     });
 
     test('load fragt die Spalte manual_energy ab', () async {

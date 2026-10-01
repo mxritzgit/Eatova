@@ -401,9 +401,13 @@ class DurableCacheStore {
     return result;
   }
 
+  /// File name below the application support directory. Also the
+  /// earlier-launch evidence of the install marker (`install_marker.dart`).
+  static const databaseFileName = 'eatova-cache.sqlite';
+
   static Future<String> _path(String? path) async =>
       path ??
-      '${(await getApplicationSupportDirectory()).path}/eatova-cache.sqlite';
+      '${(await getApplicationSupportDirectory()).path}/$databaseFileName';
 
   static Future<DurableCacheConnection?> acquire({
     String? databasePath,

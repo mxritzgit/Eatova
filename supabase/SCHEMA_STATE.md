@@ -32,7 +32,7 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 `.github/workflows/security.yml`; die Bedienung steht in
 `supabase/SCHEMA_STATE_2026-06-07.md`.
 
-## Migrationen (50)
+## Migrationen (51)
 
 1. `20260516150000_create_profiles.sql`
 2. `20260516160000_app_data_schema.sql`
@@ -84,6 +84,7 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 48. `20260920100500_training_plan_incarnations.sql`
 49. `20260920101000_sync_operation_receipts.sql`
 50. `20260925100000_provider_usage_denied_retention.sql`
+51. `20261001100000_training_history_rpc_least_privilege.sql`
 
 ## Tabellen in `public` (24)
 
@@ -208,7 +209,7 @@ als dieselbe Bedingung; der Waechter prueft beide Varianten.
 | `create_training_plan_head` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260920100500_training_plan_incarnations.sql` |
 | `delete_account` | **Eigentuemers** | `''` | `authenticated`, `service_role` | `20260815120000_delete_account_reauth.sql` |
 | `delete_chat_session` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260517170000_chat_sessions.sql` |
-| `delete_training_history` | **Eigentuemers** | `pg_catalog` | `authenticated`, `service_role` | `20260910181000_training_history.sql` |
+| `delete_training_history` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260910181000_training_history.sql` |
 | `eat_planned_meal` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260920101000_sync_operation_receipts.sql` |
 | `enforce_user_row_cap` | **Eigentuemers** | `public` | `service_role` | `20260829120000_row_caps_and_hardening.sql` |
 | `ensure_default_chat_session` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260609120000_chat_rpc_least_privilege.sql` |
@@ -234,7 +235,7 @@ als dieselbe Bedingung; der Waechter prueft beide Varianten.
 | `recipe_revision_after` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260920100000_offline_sync_versions.sql` |
 | `recipe_revision_before` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260920100000_offline_sync_versions.sql` |
 | `record_tracking_day` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260811120000_lifetime_stats_integrity.sql` |
-| `record_training_history` | **Eigentuemers** | `pg_catalog` | `authenticated`, `service_role` | `20260910181000_training_history.sql` |
+| `record_training_history` | **Eigentuemers** | `pg_catalog` | `service_role` | `20260910181000_training_history.sql` |
 | `refund_chat_quota` | **Eigentuemers** | `public` | `service_role` | `20260808210000_chat_quota_honesty.sql` |
 | `refund_chat_quota_for_day` | **Eigentuemers** | `public` | `service_role` | `20260908120000_chat_quota_refund_day.sql` |
 | `rename_chat_session` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260517170000_chat_sessions.sql` |

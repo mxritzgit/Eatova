@@ -11,6 +11,7 @@ import '../services/local_cache.dart' show KeyValueStore, SharedPreferencesStore
 import '../services/secure_cache_store.dart'
     show PluginSecureKeyStore, SecureKeyStore;
 import '../services/session_revocations.dart';
+import 'install_marker.dart';
 
 class EatovaSupabaseConfig {
   const EatovaSupabaseConfig._();
@@ -84,6 +85,11 @@ class EatovaSupabaseConfig {
           Supabase.instance.client.auth.currentSession?.accessToken,
     );
     _sessionStorage = sessionStorage;
+    // P3-01: must run before Supabase restores the persisted session. Never
+    // throws.
+    await FreshInstallGuard.run(
+      discardLeftoverSession: sessionStorage.discardLeftoverSession,
+    );
     // supabase_flutter 2.14 deprecated the `anonKey` init parameter in favour
     // of `publishableKey` (legacy anon JWT still accepted); the internal
     // constant keeps the name `anonKey`.
@@ -263,10 +269,15 @@ class SecureSessionLocalStorage extends LocalStorage {
   final String? Function()? _currentAccessToken;
   Future<void> _storageQueue = Future<void>.value();
   String? _lastSession;
+
+  /// P3-01: set by [discardLeftoverSession]; no session is restored in this
+  /// process until a new login persists one.
+  bool _restoreDenied = false;
   late final SessionRevocations _revocations = SessionRevocations(
-    '$persistSessionKey.logout-v1',
+    _journalKey,
     _legacyStore,
   );
+  String get _journalKey => '$persistSessionKey.logout-v1';
 
   Future<KeyValueStore> _legacyStore() async =>
       _legacyOverride ?? await SharedPreferencesStore.create();
@@ -395,6 +406,7 @@ class SecureSessionLocalStorage extends LocalStorage {
   @override
   Future<String?> accessToken() => _ordered(() async {
     await _migrateLegacySession();
+    if (_restoreDenied) return null;
     try {
       final value = await _secure.read(persistSessionKey);
       if (value == null ||
@@ -436,6 +448,7 @@ class SecureSessionLocalStorage extends LocalStorage {
         }
         await _secure.write(persistSessionKey, persistSessionString);
         _lastSession = persistSessionString;
+        _restoreDenied = false;
         await _retireAbsentRevocations();
       } catch (e, s) {
         // The write is what makes the session durable. If it fails the app runs
@@ -451,6 +464,41 @@ class SecureSessionLocalStorage extends LocalStorage {
       }
     },
   );
+
+  /// P3-01: removes a session that outlived an uninstall.
+  ///
+  /// The iOS Keychain keeps entries across uninstall, the logout journal in
+  /// SharedPreferences does not, so a reinstall would silently restore the
+  /// previous account. Called by [FreshInstallGuard] before the SDK reads the
+  /// storage. Fails closed: whatever happens, this process restores nothing
+  /// until a new login. Returns whether no restorable session is left, so the
+  /// guard retries on the next start otherwise. Never throws.
+  Future<bool> discardLeftoverSession() async {
+    _restoreDenied = true;
+    final String? leftover;
+    try {
+      leftover = await _ordered(() => _secure.read(persistSessionKey));
+    } catch (error, stack) {
+      _meldeEinmal('session_install_purge', error, stack);
+      return false;
+    }
+    if (leftover == null || leftover.isEmpty) return true;
+    // Journal first, then erasure: the same path as an involuntary sign-out.
+    await removePersistedSession();
+    return _ordered(() async {
+      try {
+        final remaining = await _secure.read(persistSessionKey);
+        if (remaining == null || remaining.isEmpty) return true;
+        // A fresh journal reads the disk only: this instance's in-memory
+        // denial would not survive into the next process.
+        final durable = SessionRevocations(_journalKey, _legacyStore);
+        return !await durable.permits(remaining);
+      } catch (error, stack) {
+        _meldeEinmal('session_install_purge', error, stack);
+        return false;
+      }
+    });
+  }
 
   @override
   Future<void> removePersistedSession() => _ordered(() async {

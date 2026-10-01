@@ -5,10 +5,17 @@
 //
 // Structural check of the SQL text (pattern of migration_*_test.dart): it
 // cannot prove PostgreSQL accepts it, but it goes red if either side moves —
-// the column, its grants, or the ProfileSync payload.
+// the column, its grants, the server insert, or the client wire payload.
+//
+// The current client writes profiles only through apply_sync_operation
+// (SECURITY DEFINER). The column grants remain for older builds that still
+// upsert directly; their payload is pinned in [_legacyDirectWriteColumns].
 
 import 'dart:io';
 
+import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/services/sync_operation_payload.dart';
+import 'package:eatova/src/services/sync_outbox.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 const String _migrationPfad =
@@ -16,6 +23,18 @@ const String _migrationPfad =
 const String _grantsPfad =
     'supabase/migrations/20260819100000_profiles_column_grants.sql';
 const String _profileSyncPfad = 'lib/src/services/profile_sync.dart';
+const String _syncReceiptsPfad =
+    'supabase/migrations/20260920101000_sync_operation_receipts.sql';
+
+/// Profile columns of the removed direct `ProfileSync.save` upsert (besides
+/// `id`), as builds before 2026-10-01 still send them.
+const Set<String> _legacyDirectWriteColumns = {
+  'weight_kg', 'height_cm', 'age_years', 'sex', 'activity_level',
+  'target_weight_kg', 'daily_steps_goal', 'daily_kcal_goal',
+  'daily_water_goal_ml', 'daily_sleep_goal_minutes', 'protein_goal_g',
+  'carbs_goal_g', 'fat_goal_g', 'weight_goal', 'diet_preference',
+  'onboarding_completed', 'manual_energy',
+};
 
 String _lies(String pfad) {
   final datei = File(pfad);
@@ -58,22 +77,33 @@ void main() {
     );
   });
 
-  test('JEDE Spalte des ProfileSync-Payloads ist gewaehrt (insert + update)',
-      () {
+  test('Live-Profil-Operation transportiert und schreibt manual_energy', () {
+    for (final manual in [false, true]) {
+      final payload = encodeSyncOperationPayload(
+        SyncOp.profileUpsert(
+          UserProfile(onboardingCompleted: true, manualEnergy: manual),
+        ),
+      );
+      expect((payload['row'] as Map)['manual_energy'], manual,
+          reason: 'das Flag muss im Wire-Payload stehen');
+    }
+    final sql = _ohneKommentare(_lies(_syncReceiptsPfad)).toLowerCase();
+    final insert = RegExp(
+      r"elsif\s+p_kind\s*=\s*'profileupsert'.*?insert\s+into\s+public\.profiles\s*\(([^)]*)\)",
+      dotAll: true,
+    ).firstMatch(sql);
+    expect(insert, isNotNull);
+    expect(insert!.group(1)!.split(',').map((c) => c.trim()),
+        contains('manual_energy'),
+        reason: 'apply_sync_operation muss die Spalte schreiben');
+  });
+
+  test('Direkt-Upsert älterer Builds bleibt gewährt (insert + update)', () {
     final grants = _ohneKommentare(_lies(_grantsPfad)).toLowerCase() +
         _ohneKommentare(_lies(_migrationPfad)).toLowerCase();
     final insert = _gewaehrt(grants, 'insert');
     final update = _gewaehrt(grants, 'update');
-
-    final dart = _lies(_profileSyncPfad);
-    // Payload keys of ProfileSync.save: `'column': profile.xxx`.
-    final payload = RegExp(r"'([a-z_]+)':\s*profile\.")
-        .allMatches(dart)
-        .map((m) => m.group(1)!)
-        .toSet();
-    expect(payload, contains('manual_energy'),
-        reason: 'save() muss das Flag schreiben, sonst bleibt es unpersistiert');
-    for (final spalte in payload) {
+    for (final spalte in _legacyDirectWriteColumns) {
       expect(insert, contains(spalte), reason: '$spalte ohne insert-Grant');
       expect(update, contains(spalte), reason: '$spalte ohne update-Grant');
     }
@@ -118,6 +148,10 @@ void main() {
       expect(dart, isNot(contains(spalte)),
           reason: 'der Snapshot ist server-only; der Client schreibt und '
               'liest ihn nicht');
+      final row = encodeSyncOperationPayload(
+        SyncOp.profileUpsert(const UserProfile(onboardingCompleted: true)),
+      )['row'] as Map;
+      expect(row.keys, isNot(contains(spalte)));
     });
   });
 }

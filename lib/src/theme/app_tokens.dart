@@ -300,7 +300,9 @@ class AppTokens extends ThemeExtension<AppTokens> {
     accentGlow: Color(0x406550A8),
     progressAccent: Color(0xFF9782DC),
     arcStart: Color(0xFF6550A8),
-    arcEnd: Color(0xFFB7A6F0),
+    // Same hue as before (#B7A6F0, 1.77:1); 3.21:1 on arcTrack (WCAG 1.4.11),
+    // arcStart is 5.26:1, so the gradient still lightens towards the end.
+    arcEnd: Color(0xFF8870D8),
     arcTrack: Color(0xFFEAE7F0),
     chartViolet: Color(0xFFD7CFF2),
     orbLight: Color(0xFFF1ECFF),
