@@ -247,7 +247,7 @@ void main() {
       await _pump(
         tester,
         SettingsGroup(
-          label: 'KONTO',
+          label: 'Konto',
           children: <Widget>[
             SettingsRow(
               key: const ValueKey('settings-group-row'),
@@ -263,11 +263,12 @@ void main() {
           tester.getSemantics(find.byKey(const ValueKey('settings-group-row')));
       handle.dispose();
 
+      // Drawn as "KONTO", read in its own case.
       expect(
         beschriftung,
-        isSemantics(label: 'KONTO', isHeader: true),
-        reason: 'rows.dart: die Gruppen-Beschriftung ist die einzige '
-            'Abschnitts-Marke der Einstellungen',
+        isSemantics(label: 'Konto', isHeader: true),
+        reason: 'rows.dart: die Gruppen-Beschriftung ist die Abschnitts-Marke '
+            'ihrer Gruppe',
       );
       expect(beschriftung.headingLevel, 2);
       expect(zeile, isSemantics(hasTapAction: true, isHeader: false));
