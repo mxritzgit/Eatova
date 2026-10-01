@@ -5,7 +5,7 @@
 // bottom "Search food or meals" capsule and a slot's "+ Add to …" row. Every
 // sheet state gets a shot: idle with favorites/recents, product results,
 // loading, the slow hint, nothing found, unreachable, no history, German and
-// 2.0x text. Two other sheets that share `design/sheets.dart` (favorites
+// 2.0x text. Three other sheets that share `design/sheets.dart` (favorites
 // sheet, manual entry, date picker) are shot as regression evidence.
 //
 // With --dart-define=DARK_REDESIGN_CAPTURE=true the PNGs land in
@@ -19,6 +19,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/eatova_home_page.dart';
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/favorite_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
@@ -331,6 +332,8 @@ void main() {
         await _search(tester, 'skyr');
         await tester.pump(const Duration(seconds: 3));
         await tester.pumpAndSettle();
+        // The error state rendered, and it offers no manual-entry CTA.
+        expect(find.text(enL10n.foodSearchUnreachableHint), findsOneWidget);
         expect(find.byKey(const ValueKey('manual-entry-cta')), findsNothing);
         await _shot(tester, 'add-sheet-error');
       });

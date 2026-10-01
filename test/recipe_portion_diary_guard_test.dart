@@ -142,7 +142,13 @@ void main() {
       expect(find.byType(Slider), findsNothing);
       expect(find.byType(TextField), findsNothing);
       expect(find.text(enL10n.recipeCalcNoCookedWeight), findsOneWidget);
-      expect(find.textContaining('kcal / 100 g'), findsNothing);
+      // The recent row names the saved portion, not a gram amount.
+      expect(
+        find.textContaining(enL10n.recipeCalcSavedPortion),
+        findsOneWidget,
+      );
+      // Header and panel preview both show the unchanged portion kcal.
+      expect(find.text('175 kcal'), findsNWidgets(2));
       await tester.ensureVisible(find.byKey(const ValueKey('readd-recipe')));
       await tester.tap(find.byKey(const ValueKey('readd-recipe')));
       expect(identical(added, original), isTrue);

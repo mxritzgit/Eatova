@@ -16,6 +16,7 @@ import 'package:eatova/src/widgets/common/app_snack.dart';
 import 'package:eatova/src/widgets/kcal/diary_meal_card.dart';
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/meal_suggestion_item.dart';
+import 'package:eatova/src/widgets/kcal/saved_meal_presentation.dart';
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
 
 import 'support/harness.dart';
@@ -123,8 +124,8 @@ LoggedMeal _mahlzeit(String id, MealSlot slot) => LoggedMeal(
 
 void main() {
   group('MealSuggestionItem', () {
-    // Four sites in one file: card border, expand height, chevron and the
-    // focus highlight of the gram field.
+    // Sites in one item: panel fill, expand height, add glow, capsule focus,
+    // the "added" check tile and the heart switch.
     testWidgets('aufgeklappt steht sofort im Endzustand', (tester) async {
       await _pump(
         tester,
@@ -146,17 +147,33 @@ void main() {
     });
 
     testWidgets('zugeklappt ebenso', (tester) async {
+      // Saved row, just added, pinned: mounts the check tile and the heart.
       await _pump(
         tester,
         MealSuggestionItem(
           result: _haferbrei,
           expanded: false,
+          justAdded: true,
+          savedPresentation: true,
+          isFavorite: true,
+          onToggleFavorite: (_) {},
           onTap: () {},
           onAdd: (_) {},
         ),
       );
       await tester.pump();
 
+      expect(
+        find.byKey(const ValueKey('meal-item-added-check')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(MealFavoriteButton),
+          matching: find.byType(AnimatedSwitcher),
+        ),
+        findsOneWidget,
+      );
       expect(
         _offeneAnimationen(tester, find.byType(MealSuggestionItem)),
         _keineBewegung,
