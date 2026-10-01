@@ -2294,13 +2294,18 @@ the git-ignored `.agents/remaining-fixes-2026-10-01/reports/`.
     without its key. The existing recovery clears it after three starts.
   - The drift contract does not pin `external_google_client_id`, SMTP or the
     hooks yet.
-- Rollout, each step only with the user's approval:
-  1. Run the drift check once read-only against live before relying on the
-     main job. Its values marked UNCONFIRMED come from older reads.
-  2. Apply migration `20261001100000`, and only once no installed build
-     predates #98 (`01acb77`), because those builds call the RPCs directly.
-  3. Deploy `coach-chat`, `analyze-meal` and `search-key` together; P7-02 is
-     not live until then.
-  4. Everything on the client side reaches users with the next device build.
+- Rollout, completed 2026-10-01 with the user's approval:
+  1. The live drift check first found two unused redirect allow-list entries:
+     `eatova://login-callback` without the slash, and the project's own
+     `/auth/v1/verify` URL. Both were removed and read back. The check now
+     matches: 17 settings, 3 allow-list entries, 13 templates.
+  2. Migration `20261001100000` is applied and registered (51 = 51).
+     `authenticated` has no EXECUTE on the two training-history RPCs, while
+     `apply_sync_operation` still works. The handoff records no device
+     installation between #77 and #98.
+  3. `analyze-meal` v34, `coach-chat` v51 and `search-key` v12 are deployed
+     from `581d67a`. Each booted and answered with its own 401/405, so P7-02
+     is live.
+  4. Open: the client-side fixes reach users with the next device build.
      Check P3-01 on an iPhone: uninstall while signed in, reinstall, and the
      app must show the login screen.
