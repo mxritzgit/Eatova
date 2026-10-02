@@ -123,28 +123,6 @@ void main() {
         expect(divider.endIndent, 18);
       }
     });
-
-    testWidgets('labelColor und borderColor schlagen durch', (tester) async {
-      await tester.pumpWidget(
-        designHarness(
-          const SettingsGroup(
-            label: 'GEFAHRENZONE',
-            labelColor: Color(0xFFB23A28),
-            borderColor: Color(0xFFB23A28),
-            children: <Widget>[SettingsRow(title: 'Konto loeschen')],
-          ),
-        ),
-      );
-
-      expect(
-        tester.widget<Text>(find.text('GEFAHRENZONE')).style?.color,
-        const Color(0xFFB23A28),
-      );
-      expect(
-        decorationOf(tester, find.byType(SettingsGroup)).border,
-        Border.all(color: const Color(0xFFB23A28)),
-      );
-    });
   });
 
   group('SettingsRow', () {

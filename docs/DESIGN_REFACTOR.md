@@ -150,8 +150,8 @@ Zeilen, Schalter und Sheets erneut zu bauen.** Inhalt:
 - `surfaces.dart` — `AppCard`, `ScreenTitle`, `SectionHeading`,
   `HeadingSemantics`, `ImagePlaceholder`, `DottedAddSlot`
 - `controls.dart` — `SelectionTone` (Erweiterung auf `AppTokens`),
-  `SquareIconButton`, `IconTile`, `AppToggle`, `SegmentedPill`,
-  `FilterChipPill`, `PrimaryActionButton`, `AppNavBar` (+ `AppNavItem`)
+  `SquareIconButton`, `IconTile`, `AppToggle`, `FilterChipPill`,
+  `PrimaryActionButton`, `AppNavBar` (+ `AppNavItem`)
 - `rows.dart` — `PageHeader`, `SettingsGroup`, `SettingsRow`
 - `sheets.dart` — `SheetScaffold`, `SheetField`, `FieldCapsule`, `SheetHandle`,
   `SheetDismissGuard`, `showEatovaSheet`, `sheetMaxHeight`/`sheetMaxHeightOf`
@@ -204,18 +204,13 @@ nur für die Bibliothekswidgets:
    Tipp-Aktionen im Überschriften-Knoten. `test/a11y_headings_test.dart` prüft
    die vollständige Liste der Marken je Screen samt Rang und Lesereihenfolge.
 
-**`SegmentedPill` hat heute keinen Aufrufer in `lib/`.** Er bleibt gelistet,
-weil er das Segment-Control der Bibliothek ist und weil die *lebende*
-Umsetzung — `_SettingsChoicePill` in
-`lib/src/screens/settings/settings_controls.dart`, hinter
-`SettingsThemeModePill`/`SettingsLanguagePill` — eine Kopie seiner Geometrie
-ist; ein Fix, der nur an einer der beiden Stellen landet, treibt sie
-auseinander. Beide tragen deshalb `SelectionTone`. **Achtung, genau das ist
-mit dem Tippziel passiert:** P9-05 hat die Einstellungs-Pille auf 44 pt
-gezogen (gemessen 89,5 × 50), `SegmentedPill` steht weiter bei 44,5 × **26**.
-Wer ihn als Erster benutzt, zieht das Tippziel vorher nach. Und wenn die
-Einstellungs-Pillen eines Tages in `controls.dart` umziehen, verschwindet
-`SegmentedPill` zusammen mit diesem Absatz.
+**`SegmentedPill` ist seit 2026-10-03 entfernt.** Er hatte keinen Aufrufer in
+`lib/`, noch den kompakten Vor-Redesign-Look und ein Tippziel von nur 26 pt.
+Das Segment-Control der App ist `_SettingsChoicePill` in
+`lib/src/screens/settings/settings_controls.dart` (hinter
+`SettingsThemeModePill`/`SettingsLanguagePill`): eine eingelassene Spur mit
+vollen `SelectionTone`-Segmenten von mindestens 48 px. Wer ein Segment-Control
+an anderer Stelle braucht, zieht diese Pille nach `controls.dart` um.
 
 ---
 

@@ -29,13 +29,11 @@ class SettingsStudioGroup extends StatelessWidget {
     super.key,
     required this.label,
     required this.children,
-    this.labelColor,
     this.footer,
   });
 
   final String label;
   final List<Widget> children;
-  final Color? labelColor;
   final Widget? footer;
 
   @override
@@ -55,7 +53,7 @@ class SettingsStudioGroup extends StatelessWidget {
                 style: AppType.display(
                   19,
                   weight: FontWeight.w700,
-                  color: labelColor ?? t.ink,
+                  color: t.ink,
                 ),
               ),
             ),
@@ -140,7 +138,6 @@ class SettingsStudioRow extends StatelessWidget {
     this.chevron = true,
     this.endIcon,
     this.onTap,
-    this.titleColor,
   });
 
   final String title;
@@ -150,9 +147,6 @@ class SettingsStudioRow extends StatelessWidget {
   final bool chevron;
   final IconData? endIcon;
   final VoidCallback? onTap;
-
-  /// Recolors the title, e.g. [AppTokens.danger] for a destructive row.
-  final Color? titleColor;
 
   @override
   Widget build(BuildContext context) {
@@ -165,8 +159,8 @@ class SettingsStudioRow extends StatelessWidget {
           title,
           style: AppType.ui(
             15,
-            weight: titleColor == null ? FontWeight.w600 : FontWeight.w700,
-            color: titleColor ?? t.ink,
+            weight: FontWeight.w600,
+            color: t.ink,
           ),
         ),
         if (subtitle != null) ...[

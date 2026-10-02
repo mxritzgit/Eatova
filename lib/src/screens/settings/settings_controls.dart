@@ -8,8 +8,8 @@ import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/motion.dart';
-// Only for [SelectionTone]: these pills are a clone of [SegmentedPill] and
-// must speak the same selection language, not a second one.
+// Only for [SelectionTone]: the settings pills speak the app's selection
+// language, not a second one.
 import '../../widgets/design/controls.dart';
 import '../../widgets/design/sheets.dart'
     show FieldCapsule, SheetFieldShape;
@@ -287,211 +287,114 @@ class SettingsNote extends StatelessWidget {
   }
 }
 
-/// Transparent tap margin above and below a segment. The drawn capsule is
-/// ~22 px tall (11 px label + 2x5 padding), which was the whole target; 12 px
-/// of invisible margin per side lifts it over the 44 px floor without moving
-/// a single pixel of paint — the same trick [AppToggle] uses.
-const double _segmentSaum = 12;
-
-/// Inset of the PAINTED pill inside that enlarged target. The capsule keeps
-/// the 3 px gutter it always had ([_segmentSaum] - 3), so the pill still
-/// measures capsule + 6 in height no matter how the label scales.
-const double _pillSaum = _segmentSaum - 3;
-
-/// Shared rendering base of the settings pills: geometry of [SegmentedPill],
-/// plus test keys per option and a width cap so segments wrap at textScaler
-/// 2.0 instead of blowing up the row.
+/// Shared rendering base of the settings pills: a recessed capsule track
+/// with full-width segments of at least 48 px and a test key per option.
 class _SettingsChoicePill<T> extends StatelessWidget {
   const _SettingsChoicePill({
     required this.value,
     required this.optionen,
     required this.onChanged,
-    this.expanded = false,
   });
 
   final T value;
   final List<(T, String, String)> optionen;
-  final bool expanded;
   final ValueChanged<T> onChanged;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    if (expanded) {
-      // A recessed capsule track with the options inside, the chosen one an
-      // accent pill — the tabs' segmented language. At large text sizes the
-      // options stack into a full-width list in the same track.
-      return LayoutBuilder(
-        builder: (context, constraints) {
-          const inset = 4.0;
-          final inner = constraints.maxWidth - inset * 2;
-          // Side by side while the widest label plus its padding fits a
-          // third of the track; otherwise one option per line.
-          final labelStyle = AppType.ui(14, weight: FontWeight.w700);
-          var widest = 0.0;
-          for (final (_, label, _) in optionen) {
-            final painter = TextPainter(
-              text: TextSpan(text: label, style: labelStyle),
-              textDirection: Directionality.of(context),
-              textScaler: MediaQuery.textScalerOf(context),
-              maxLines: 1,
-            )..layout();
-            widest = math.max(widest, painter.width);
-            painter.dispose();
-          }
-          final stacked = (widest + 24) * optionen.length > inner;
-          final width = stacked ? inner : inner / 3;
-          final segmentShape = stacked
-              ? RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(rControl),
-                )
-              : const StadiumBorder();
-          return Container(
-            padding: const EdgeInsets.all(inset),
-            decoration: BoxDecoration(
-              color: t.bg,
-              borderRadius: BorderRadius.circular(
-                stacked ? rControl + inset : rPill,
-              ),
-            ),
-            child: Wrap(
-              runSpacing: inset,
-              children: [
-                for (final (option, label, optionKey) in optionen)
-                  SizedBox(
-                    width: width,
-                    child: Semantics(
-                      selected: option == value,
-                      button: true,
-                      child: Material(
-                        color: option == value
-                            ? t.selectedFill
-                            : Colors.transparent,
-                        animationDuration: motionDuration(
-                          context,
-                          const Duration(milliseconds: 160),
-                        ),
-                        shape: segmentShape,
-                        clipBehavior: Clip.antiAlias,
-                        child: InkWell(
-                          key: ValueKey(optionKey),
-                          onTap: () => onChanged(option),
-                          focusColor: t.accent.withValues(alpha: 0.20),
-                          hoverColor: t.accent.withValues(alpha: 0.10),
-                          customBorder: segmentShape,
-                          child: Container(
-                            constraints: const BoxConstraints(minHeight: 48),
-                            alignment: stacked
-                                ? AlignmentDirectional.centerStart
-                                : Alignment.center,
-                            padding: EdgeInsets.symmetric(
-                              horizontal: stacked ? 16 : 8,
-                              vertical: 12,
-                            ),
-                            child: Text(
-                              label,
-                              textAlign: stacked
-                                  ? TextAlign.start
-                                  : TextAlign.center,
-                              style: AppType.ui(
-                                14,
-                                weight: option == value
-                                    ? FontWeight.w700
-                                    : FontWeight.w600,
-                                color: option == value ? t.onSelected : t.ink2,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          );
-        },
-      );
-    }
-    return ConstrainedBox(
-      constraints: BoxConstraints(
-        maxWidth: MediaQuery.sizeOf(context).width * 0.55,
-      ),
-      // The tap floor lives in transparent margins around the segments, so
-      // the pill must NOT grow with it — it is painted as a background layer
-      // inset by exactly those margins and keeps its compact geometry.
-      child: Stack(
-        children: <Widget>[
-          Positioned.fill(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: _pillSaum),
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: t.tile,
-                  borderRadius: BorderRadius.circular(9),
-                ),
-              ),
+    // A recessed capsule track with the options inside, the chosen one an
+    // accent pill — the tabs' segmented language. At large text sizes the
+    // options stack into a full-width list in the same track.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const inset = 4.0;
+        final inner = constraints.maxWidth - inset * 2;
+        // Side by side while the widest label plus its padding fits a
+        // third of the track; otherwise one option per line.
+        final labelStyle = AppType.ui(14, weight: FontWeight.w700);
+        var widest = 0.0;
+        for (final (_, label, _) in optionen) {
+          final painter = TextPainter(
+            text: TextSpan(text: label, style: labelStyle),
+            textDirection: Directionality.of(context),
+            textScaler: MediaQuery.textScalerOf(context),
+            maxLines: 1,
+          )..layout();
+          widest = math.max(widest, painter.width);
+          painter.dispose();
+        }
+        final stacked = (widest + 24) * optionen.length > inner;
+        final width = stacked ? inner : inner / 3;
+        final segmentShape = stacked
+            ? RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(rControl),
+              )
+            : const StadiumBorder();
+        return Container(
+          padding: const EdgeInsets.all(inset),
+          decoration: BoxDecoration(
+            color: t.bg,
+            borderRadius: BorderRadius.circular(
+              stacked ? rControl + inset : rPill,
             ),
           ),
-          Padding(
-            // The 3 px side gutter of the old `EdgeInsets.all(3)`; the
-            // vertical half of it is inside [_pillSaum].
-            padding: const EdgeInsets.symmetric(horizontal: 3),
-            child: Wrap(
-              // No runSpacing: the transparent margins already separate the
-              // rows once the labels wrap at textScaler 2.0.
-              children: <Widget>[
-                for (final (wert, beschriftung, schluessel) in optionen)
-                  GestureDetector(
-                    key: ValueKey<String>(schluessel),
-                    // Opaque, or the margin is not part of the target: the
-                    // default `deferToChild` ends it at the drawn capsule.
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => onChanged(wert),
-                    // Outside the padding, so the semantics node covers the
-                    // whole 44 px target and not just the label.
-                    child: Semantics(
-                      selected: wert == value,
-                      button: true,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          vertical: _segmentSaum,
-                        ),
-                        child: AnimatedContainer(
-                          // DESIGN_REFACTOR §5: respects "reduce motion".
-                          duration: motionDuration(
-                            context,
-                            const Duration(milliseconds: 160),
-                          ),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 11,
-                            vertical: 5,
-                          ),
-                          decoration: BoxDecoration(
-                            // App-wide selection language ([SelectionTone]):
-                            // `forest` measured 1.10:1 against this `tile`
-                            // track in dark mode.
-                            color: wert == value
-                                ? t.selectedFill
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(7),
+          child: Wrap(
+            runSpacing: inset,
+            children: [
+              for (final (option, label, optionKey) in optionen)
+                SizedBox(
+                  width: width,
+                  child: Semantics(
+                    selected: option == value,
+                    button: true,
+                    child: Material(
+                      color: option == value
+                          ? t.selectedFill
+                          : Colors.transparent,
+                      animationDuration: motionDuration(
+                        context,
+                        const Duration(milliseconds: 160),
+                      ),
+                      shape: segmentShape,
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        key: ValueKey(optionKey),
+                        onTap: () => onChanged(option),
+                        focusColor: t.accent.withValues(alpha: 0.20),
+                        hoverColor: t.accent.withValues(alpha: 0.10),
+                        customBorder: segmentShape,
+                        child: Container(
+                          constraints: const BoxConstraints(minHeight: 48),
+                          alignment: stacked
+                              ? AlignmentDirectional.centerStart
+                              : Alignment.center,
+                          padding: EdgeInsets.symmetric(
+                            horizontal: stacked ? 16 : 8,
+                            vertical: 12,
                           ),
                           child: Text(
-                            beschriftung,
+                            label,
+                            textAlign: stacked
+                                ? TextAlign.start
+                                : TextAlign.center,
                             style: AppType.ui(
-                              11,
-                              weight: FontWeight.w600,
-                              color: wert == value ? t.onSelected : t.ink2,
+                              14,
+                              weight: option == value
+                                  ? FontWeight.w700
+                                  : FontWeight.w600,
+                              color: option == value ? t.onSelected : t.ink2,
                             ),
                           ),
                         ),
                       ),
                     ),
                   ),
-              ],
-            ),
+                ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -502,11 +405,9 @@ class SettingsThemeModePill extends StatelessWidget {
     super.key,
     required this.mode,
     required this.onChanged,
-    this.expanded = false,
   });
 
   final ThemeMode mode;
-  final bool expanded;
   final ValueChanged<ThemeMode> onChanged;
 
   @override
@@ -525,7 +426,6 @@ class SettingsThemeModePill extends StatelessWidget {
       value: mode,
       optionen: optionen,
       onChanged: onChanged,
-      expanded: expanded,
     );
   }
 }
@@ -538,12 +438,10 @@ class SettingsLanguagePill extends StatelessWidget {
     super.key,
     required this.value,
     required this.onChanged,
-    this.expanded = false,
   });
 
   /// null = system (device language).
   final Locale? value;
-  final bool expanded;
   final ValueChanged<Locale?> onChanged;
 
   @override
@@ -558,7 +456,6 @@ class SettingsLanguagePill extends StatelessWidget {
       value: value,
       optionen: optionen,
       onChanged: onChanged,
-      expanded: expanded,
     );
   }
 }

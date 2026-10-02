@@ -369,9 +369,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // stray tap against the label would silently change the theme, and on
       // the language row the whole app's language, with no hint that the row
       // was even a control (both rows deliberately carry `chevron: false`).
-      // The dead zone is closed at the other end instead: the rows pass
-      // `expanded: true`, so each segment is a full-width pill of at least
-      // 48 px and a tap anywhere on it lands ON that segment.
+      // The dead zone is closed at the other end instead: each segment is a
+      // full-width pill of at least 48 px, and a tap anywhere on it lands ON
+      // that segment.
       if (controller != null)
         SettingsStudioRow(
           // Three states, not a toggle (DESIGN_REFACTOR §2: default is
@@ -383,7 +383,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           chevron: false,
           trailing: SettingsThemeModePill(
             key: const ValueKey('settings-theme-mode'),
-            expanded: true,
             mode: controller.mode,
             // Device setting: persisted immediately, nothing to save or drop.
             onChanged: controller.setMode,
@@ -397,7 +396,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           chevron: false,
           trailing: SettingsLanguagePill(
             key: const ValueKey('settings-language'),
-            expanded: true,
             value: localeController.override,
             // Device setting: persisted immediately, nothing to drop.
             onChanged: localeController.setOverride,

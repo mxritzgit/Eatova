@@ -194,14 +194,10 @@ class SettingsGroup extends StatelessWidget {
     super.key,
     required this.label,
     required this.children,
-    this.labelColor,
-    this.borderColor,
   });
 
   final String label;
   final List<Widget> children;
-  final Color? labelColor;
-  final Color? borderColor;
 
   @override
   Widget build(BuildContext context) {
@@ -220,7 +216,7 @@ class SettingsGroup extends StatelessWidget {
             child: Text(
               label.toUpperCase(),
               semanticsLabel: label,
-              style: AppType.sectionEyebrow(labelColor ?? t.ink2),
+              style: AppType.sectionEyebrow(t.ink2),
             ),
           ),
         ),
@@ -229,7 +225,7 @@ class SettingsGroup extends StatelessWidget {
           decoration: BoxDecoration(
             color: t.surf,
             borderRadius: BorderRadius.circular(rCard),
-            border: Border.all(color: borderColor ?? t.cardBorder),
+            border: Border.all(color: t.cardBorder),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,

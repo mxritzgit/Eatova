@@ -158,16 +158,9 @@ class MealItemRow extends StatelessWidget {
 /// "412 kcal": the number in ink, the unit small and muted. One [Text], so
 /// its plain text is the familiar string.
 class MealKcalValue extends StatelessWidget {
-  const MealKcalValue({
-    super.key,
-    required this.number,
-    this.unit = ' kcal',
-    this.size = 15,
-  });
+  const MealKcalValue({super.key, required this.number});
 
   final String number;
-  final String unit;
-  final double size;
 
   @override
   Widget build(BuildContext context) {
@@ -177,13 +170,13 @@ class MealKcalValue extends StatelessWidget {
         children: [
           TextSpan(
             text: number,
-            style: AppType.ui(size, weight: FontWeight.w700, color: t.ink)
+            style: AppType.ui(15, weight: FontWeight.w700, color: t.ink)
                 .copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
           ),
           TextSpan(
-            text: unit,
+            text: ' kcal',
             style: AppType.ui(
-              size * 0.8,
+              12,
               weight: FontWeight.w500,
               color: t.ink3,
             ),
