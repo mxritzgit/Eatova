@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:clock/clock.dart';
 
 import 'model_limits.dart';
@@ -62,6 +64,56 @@ class WeightLog {
   double? get trendDelta {
     if (entries.length < 2) return null;
     return entries.last.weightKg - entries.first.weightKg;
+  }
+
+  /// Daily smoothing of [trendKg]: a weigh-in moves the trend by 10 % of its
+  /// distance, the classic weight-trend value.
+  static const double trendAlphaPerDay = 0.1;
+
+  /// A day further than this share from the trend reseeds it: a correction or
+  /// a typo, not water. Normal daily swings stay well below 5 %.
+  static const double trendReseedShare = 0.05;
+
+  /// The smoothed current weight that goals, forecast and BMI use
+  /// (docs/WEIGHT-TREND.md); null without weigh-ins.
+  ///
+  /// A time-aware exponentially weighted moving average over the mean of each
+  /// local calendar day: a day `Δ` days after the previous one moves the trend
+  /// by `1 − (1 − trendAlphaPerDay)^Δ`, so sparse weigh-ins count for more.
+  double? get trendKg {
+    if (entries.isEmpty) return null;
+    final sorted = [...entries]
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    final days = <(DateTime, double)>[];
+    DateTime? day;
+    var sum = 0.0;
+    var count = 0;
+    for (final entry in sorted) {
+      final local = entry.timestamp.toLocal();
+      // UTC midnight of the local date: day gaps stay whole across DST.
+      final date = DateTime.utc(local.year, local.month, local.day);
+      if (date != day) {
+        if (day != null) days.add((day, sum / count));
+        day = date;
+        sum = 0;
+        count = 0;
+      }
+      sum += entry.weightKg;
+      count++;
+    }
+    days.add((day!, sum / count));
+
+    var (previous, trend) = days.first;
+    for (final (date, kg) in days.skip(1)) {
+      if ((kg - trend).abs() > trend * trendReseedShare) {
+        trend = kg;
+      } else {
+        final gap = date.difference(previous).inDays;
+        trend += (1 - math.pow(1 - trendAlphaPerDay, gap)) * (kg - trend);
+      }
+      previous = date;
+    }
+    return trend;
   }
 
   WeightLog add(double kg) =>

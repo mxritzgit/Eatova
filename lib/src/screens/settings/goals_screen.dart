@@ -33,9 +33,15 @@ class GoalsScreen extends StatefulWidget {
     this.reminderState,
     this.onOpenSystemSettings,
     this.onSave,
+    this.weightTrendKg,
   });
 
   final UserProfile profile;
+
+  /// The weight trend ([WeightLog.trendKg]), null without weigh-ins. With it
+  /// the weight row is read-only: the plan follows the trend
+  /// (docs/WEIGHT-TREND.md), so a typed value would be smoothed straight back.
+  final double? weightTrendKg;
   final PersistValueChanged<SettingsResult>? onSave;
 
   /// Callers that do not know the full state pass only this flag; it maps to
@@ -96,7 +102,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
             : ReminderState.off);
     _reminderStart = _reminder;
     final p = widget.profile;
-    _weight = TextEditingController(text: p.weightKg.toString());
+    _weight = TextEditingController(text: _trendWeightKg(p).toString());
     _height = TextEditingController(text: p.heightCm.toString());
     _age = TextEditingController(text: p.ageYears.toString());
     _steps = TextEditingController(text: p.dailyStepsGoal.toString());
@@ -672,22 +678,45 @@ class _GoalsScreenState extends State<GoalsScreen> {
     );
   }
 
+  /// The weight the plan uses: the rounded trend when there is one inside the
+  /// profile range (what the store re-anchors to), else the profile weight.
+  int _trendWeightKg(UserProfile p) {
+    final trend = widget.weightTrendKg?.round();
+    if (trend == null ||
+        trend < ProfileLimits.weightKgMin ||
+        trend > ProfileLimits.weightKgMax) {
+      return p.weightKg;
+    }
+    return trend;
+  }
+
   // --- Groups ---------------------------------------------------------------
 
   List<Widget> _koerperGruppe() {
     final l10n = context.l10n;
+    final trend = widget.weightTrendKg;
     return <Widget>[
       SettingsGroup(
         label: l10n.goalsGroupBody,
         children: <Widget>[
-          SettingsNumberRow(
-            label: l10n.goalsFieldWeight,
-            suffix: l10n.commonUnitKg,
-            controller: _weight,
-            fieldKey: const ValueKey('settings-weight'),
-            errorText: _weightError,
-            onChanged: (_) => _recompute(),
-          ),
+          if (trend != null)
+            SettingsRow(
+              key: const ValueKey('settings-weight-trend'),
+              title: l10n.goalsFieldWeight,
+              subtitle: l10n.goalsWeightFromTrend,
+              value: '${formatDecimal(trend, l10n, maxFractionDigits: 1)} '
+                  '${l10n.commonUnitKg}',
+              chevron: false,
+            )
+          else
+            SettingsNumberRow(
+              label: l10n.goalsFieldWeight,
+              suffix: l10n.commonUnitKg,
+              controller: _weight,
+              fieldKey: const ValueKey('settings-weight'),
+              errorText: _weightError,
+              onChanged: (_) => _recompute(),
+            ),
           SettingsNumberRow(
             label: l10n.goalsFieldHeight,
             suffix: l10n.commonUnitCm,

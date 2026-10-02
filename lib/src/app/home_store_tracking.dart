@@ -338,18 +338,86 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
   }) async {
     final kg = WeightLog.sanitizeKg(rawKg);
     if (kg == null) throw const FormatException('Invalid weight');
+    // The re-anchored profile is derived from the PUBLISHED profile, so a
+    // goals save still in flight must land first.
+    await _settledLocalMutations();
     final ts = clock.now();
+    final entry = WeightLogEntry(timestamp: ts, weightKg: kg);
     final op = SyncOp.weightInsert(id: uuidV4(), weightKg: kg, recordedAt: ts);
+    final before = profile;
+    final reanchored = _reanchoredProfile(before, weightLog.addEntry(entry));
+    // One local commit: the weigh-in and the profile it moves never diverge.
     await _commitSyncIntents(
-      [op],
+      [op, if (reanchored != null) SyncOp.profileUpsert(reanchored)],
       publish: () {
-        weightLog = weightLog.addEntry(
-          WeightLogEntry(timestamp: ts, weightKg: kg),
-        );
+        weightLog = weightLog.addEntry(entry);
         lifetimeStats = lifetimeStats.incrementWeightLogs();
+        if (reanchored != null) profile = reanchored;
       },
     );
     HapticFeedback.lightImpact();
     if (writeToHealth) unawaited(health.writeWeight(kg, ts));
+    if (reanchored != null) _announceReanchor(before, reanchored);
+  }
+
+  // --- Weight trend re-anchoring (docs/WEIGHT-TREND.md) ---------------------
+
+  /// [p] with its weight moved to the rounded [WeightLog.trendKg] of [log]
+  /// and, in live mode, its goals recomputed; null when nothing moves.
+  ///
+  /// Skipped before onboarding completes, without weigh-ins, and outside the
+  /// profile's weight range — the profile then keeps its own weight.
+  UserProfile? _reanchoredProfile(UserProfile p, WeightLog log) {
+    if (!p.onboardingCompleted) return null;
+    if (sync != null && !_hydratedFromRealSource) return null;
+    final trend = log.trendKg;
+    if (trend == null) return null;
+    final kg = trend.round();
+    if (kg == p.weightKg ||
+        kg < ProfileLimits.weightKgMin ||
+        kg > ProfileLimits.weightKgMax) {
+      return null;
+    }
+    return const KcalCalculator().applyLiveGoals(p.copyWith(weightKg: kg));
+  }
+
+  /// Names a live kcal goal the re-anchor changed. Manual goals do not move,
+  /// and a macro-only shift is not worth a message.
+  void _announceReanchor(UserProfile before, UserProfile after) {
+    if (_disposed || after.manualEnergy) return;
+    if (after.dailyKcalGoal == before.dailyKcalGoal) return;
+    _emitSnack(
+      _l10n.commonDailyGoalReanchored(after.dailyKcalGoal),
+      icon: Icons.monitor_weight_outlined,
+    );
+  }
+
+  /// Catches the profile up with weigh-ins it has not seen yet: the first
+  /// boot after this feature, or weigh-ins from another device.
+  Future<void> _reanchorToWeightTrend() async {
+    await _settledLocalMutations();
+    if (_disposed || _trainingSessionEnded) return;
+    final before = profile;
+    final reanchored = _reanchoredProfile(before, weightLog);
+    if (reanchored == null) return;
+    await _commitSyncIntents(
+      [SyncOp.profileUpsert(reanchored)],
+      publish: () => profile = reanchored,
+      notifyQueued: false,
+    );
+    _announceReanchor(before, reanchored);
+  }
+
+  /// Waits until no local mutation is queued. A commit chains onto the tail
+  /// at call time, so once the tail is stable, a value computed from the
+  /// published state and committed without another await cannot overtake or
+  /// overwrite a mutation in flight.
+  Future<void> _settledLocalMutations() async {
+    var tail = _localMutationTail;
+    while (true) {
+      await tail;
+      if (identical(tail, _localMutationTail)) return;
+      tail = _localMutationTail;
+    }
   }
 }

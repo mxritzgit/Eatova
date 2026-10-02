@@ -19,7 +19,7 @@ import '../models/planned_meal.dart';
 import '../models/recipe_pick.dart';
 import '../models/macro_progress.dart';
 import '../models/meal_analysis_result.dart';
-import '../models/model_limits.dart' show isValidWeightLogKg;
+import '../models/model_limits.dart' show ProfileLimits, isValidWeightLogKg;
 import '../models/training_plan.dart';
 import '../models/training_plan_head.dart';
 import '../models/training_session.dart';
@@ -1165,6 +1165,7 @@ class HomeStore extends _HomeStoreBase
       return;
     }
     var healSave = false;
+    var adoptedServerProfile = false;
     _mutate(() {
       _bootLoadInFlight = false;
       final loadedProfile = results[0] as UserProfile?;
@@ -1172,6 +1173,7 @@ class HomeStore extends _HomeStoreBase
       // saved) is newer than any snapshot the server can return.
       if (loadedProfile != null && vorher.profileVersion == _profileVersion) {
         profile = loadedProfile;
+        adoptedServerProfile = true;
         _hydratedFromRealSource = true;
         healSave =
             s.profile.lastLoadHealed && _serverGoalsLookStale(loadedProfile);
@@ -1307,6 +1309,16 @@ class HomeStore extends _HomeStoreBase
       unawaited(_ensureArchiveDayLoaded(selectedFoodDate));
     }
     if (healSave) _queueHealedProfileSave();
+    // The profile follows the weight trend (docs/WEIGHT-TREND.md). Only on a
+    // row the server just answered: an automatic write from a cached profile
+    // could overwrite a newer one. Queued behind a heal save.
+    if (adoptedServerProfile) {
+      unawaited(
+        _reanchorToWeightTrend().catchError((Object error, StackTrace stack) {
+          _reportSyncError('weight-reanchor', error, stack);
+        }),
+      );
+    }
     // Valid training data remains cacheable even if the profile did not load.
 
     if (results[6] != null && !_outboxHydrationFailed) {

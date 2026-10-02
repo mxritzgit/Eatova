@@ -239,6 +239,12 @@
     }
   },
   "commonHealthWeightOfferAction": "Übernehmen",
+  "commonDailyGoalReanchored": "Neues Tagesziel: {kcal} kcal – an deinen Gewichtstrend angepasst.",
+  "@commonDailyGoalReanchored": {
+    "placeholders": {
+      "kcal": { "type": "int" }
+    }
+  },
   "foodRemoveFavoriteTooltip": "Aus Favoriten entfernen",
   "foodAddFavoriteTooltip": "Als Favorit speichern",
   "foodDecreaseAmountSemantics": "Menge verringern",
@@ -708,6 +714,12 @@
   "profileGoalPlanTitle": "Mein Ziel",
   "profileGoalPlanEditTooltip": "Ziel anpassen",
   "profileWeightPoleCurrent": "Aktuell",
+  "profileWeightTrend": "Trend {kg} kg",
+  "@profileWeightTrend": {
+    "placeholders": {
+      "kg": { "type": "String" }
+    }
+  },
   "profileWeightPoleHold": "Halten",
   "profileWeightPoleTarget": "Wunsch",
   "profilePlanChipPace": "Tempo",
@@ -1059,6 +1071,7 @@
   "goalsPageTitle": "Profil & Ziele",
   "goalsGroupBody": "KÖRPER",
   "goalsFieldWeight": "Gewicht",
+  "goalsWeightFromTrend": "Trend aus deinen Wiegungen – neue Wiegung im Profil eintragen.",
   "goalsFieldHeight": "Größe",
   "goalsFieldAge": "Alter",
   "goalsUnitAgeAbbrev": "J.",

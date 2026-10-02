@@ -364,6 +364,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
           selector: () => _store.reminderState,
           builder: (_) => GoalsScreen(
             profile: _store.profile,
+            weightTrendKg: _store.weightLog.trendKg,
             notificationsEnabled: _store.notificationsEnabled,
             // Resume may change permission while this route remains open.
             reminderState: _store.reminderState,

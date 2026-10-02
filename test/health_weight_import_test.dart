@@ -338,6 +338,9 @@ void main() {
         expect(s.store.weightLog.entries, isEmpty);
         expect(s.store.lifetimeStats.weightLogs, 0);
         expect(s.store.pendingOutbox, isEmpty);
+        // The re-anchor shares the weigh-in's commit, so a failed commit
+        // must not move the profile either (docs/WEIGHT-TREND.md).
+        expect(s.store.profile.weightKg, 80);
         expect((await s.cache.readWeightLog())?.entries ?? [], isEmpty);
         expect(await s.cache.readOutbox(), isEmpty);
         expect(s.health.writeWeightCalls, 0);
@@ -356,7 +359,13 @@ void main() {
         await s.store.syncPendingWrites();
         expect(s.store.weightLog.latest?.weightKg, 82.4);
         expect(s.store.lifetimeStats.weightLogs, 1);
-        expect(s.store.pendingOutbox.single.kind, SyncOpKind.weightInsert);
+        // One commit: the weigh-in and the profile re-anchored to its trend
+        // (82.4 → 82 kg).
+        expect(s.store.pendingOutbox.map((op) => op.kind), [
+          SyncOpKind.weightInsert,
+          SyncOpKind.profileUpsert,
+        ]);
+        expect(s.store.profile.weightKg, 82);
         expect((await s.cache.readWeightLog())!.entries, hasLength(1));
         expect(s.health.writeWeightCalls, 0);
         final notices = s.snacks.messages.length;

@@ -16,6 +16,10 @@ class WeightCard extends StatelessWidget {
 
   double get _current => log.latest?.weightKg ?? profile.weightKg.toDouble();
 
+  /// What goals and progress use: the trend, which a single light or heavy
+  /// morning does not move (docs/WEIGHT-TREND.md).
+  double get _trend => log.trendKg ?? _current;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
@@ -90,6 +94,14 @@ class WeightCard extends StatelessWidget {
               ],
             ],
           ),
+          if (hatVerlauf) ...<Widget>[
+            const SizedBox(height: 4),
+            Text(
+              l10n.profileWeightTrend(formatKgDe(_trend, l10n)),
+              key: const ValueKey('profile-weight-trend'),
+              style: AppType.ui(12.5, weight: FontWeight.w600, color: t.ink2),
+            ),
+          ],
           const SizedBox(height: 16),
           // A11y: the chart is painted only -> announce the range.
           Semantics(
@@ -180,7 +192,7 @@ class WeightCard extends StatelessWidget {
 
     // Weight moving the wrong way clamps to 0 on purpose; a negative bar
     // helps nobody.
-    final fortschritt = ((start - _current) / (start - ziel)).clamp(0.0, 1.0);
+    final fortschritt = ((start - _trend) / (start - ziel)).clamp(0.0, 1.0);
     final prozent = (fortschritt * 100).round();
 
     return <Widget>[
@@ -280,7 +292,8 @@ class BmiCard extends StatelessWidget {
   double get _bmi {
     final m = profile.heightCm / 100.0;
     if (m <= 0) return 0;
-    final w = log.latest?.weightKg ?? profile.weightKg.toDouble();
+    // The trend, like goals and plan: one current weight on the page.
+    final w = log.trendKg ?? profile.weightKg.toDouble();
     return w / (m * m);
   }
 

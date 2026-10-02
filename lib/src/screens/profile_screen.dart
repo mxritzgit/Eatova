@@ -155,7 +155,11 @@ class ProfileScreen extends StatelessWidget {
                     const SizedBox(height: 28),
                     SectionHeading(title: l10n.profileSectionPlan),
                     const SizedBox(height: 12),
-                    GoalPlanCard(profile: profile, onEdit: onEditProfile),
+                    GoalPlanCard(
+                      profile: profile,
+                      onEdit: onEditProfile,
+                      currentWeightKg: weightLog.trendKg,
+                    ),
                     const SizedBox(height: 28),
                     SectionHeading(title: l10n.profileSectionBody),
                     const SizedBox(height: 12),
