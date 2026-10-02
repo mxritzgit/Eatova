@@ -139,6 +139,31 @@ void main() {
     textScales: const <double>[2.0],
   );
 
+  testWidgets('blocked: no hairline between the note and its repair button',
+      (tester) async {
+    await _pump(
+      tester,
+      brightness: Brightness.dark,
+      reminderState: ReminderState.blocked,
+      onOpenSystemSettings: () {},
+    );
+    final button = find.byKey(const ValueKey('settings-open-system-settings'));
+    await tester.ensureVisible(button);
+    await tester.pumpAndSettle();
+    final note = tester.getRect(
+      find.byKey(const ValueKey('settings-reminder-note')),
+    );
+    final buttonRect = tester.getRect(button);
+    for (final divider in find.byType(Divider).evaluate()) {
+      final line = tester.getRect(find.byWidget(divider.widget));
+      expect(
+        line.top >= note.bottom - 0.5 && line.bottom <= buttonRect.top + 0.5,
+        isFalse,
+        reason: 'a group hairline at $line splits the note from its button',
+      );
+    }
+  });
+
   testWidgets('die Fehler-Sammelmeldung sprengt die Seite nicht',
       (tester) async {
     final overflows = await collectOverflows(() async {
