@@ -270,14 +270,20 @@ class AppToggle extends StatelessWidget {
                 width: 46,
                 height: 27,
                 padding: const EdgeInsets.all(3),
-                // OFF: track ink2@35 %, knob edge full ink2 — `tile`/`line`
-                // were under 1.4:1 everywhere. The track itself is only
-                // ~1.7:1 (L) / 1.8:1 (D) against the card: WCAG 1.4.11 asks
-                // 3:1 for the component BOUNDARY, and that is the knob's ink2
-                // ring — 3.3–3.5:1 against the track, 5.7+ against card and
-                // knob. A 3:1 track would need ink2@75 % and eat the knob.
+                // The app's selection language ([SelectionTone]), as in the
+                // settings segments: ON is a solid `selectedFill` track with
+                // an `onSelected` knob, OFF a quiet ink2@35 % track with a
+                // solid ink2 knob.
+                // The OFF track is only 1.7:1 (L) / 2.1:1 (D) against the
+                // card; WCAG 1.4.11 asks 3:1 for the component BOUNDARY, and
+                // that is the knob: 3.7:1 (L) / 4.1:1 (D) against the track,
+                // 6.2:1 / 8.5:1 against the card. A 3:1 track would need
+                // ink2@75 % and eat the knob. ON: track 6.4:1 / 8.7:1
+                // against the card, knob 6.4:1 / 8.6:1 against the track.
                 decoration: BoxDecoration(
-                  color: value ? t.forest : t.ink2.withValues(alpha: 0.35),
+                  color: value
+                      ? t.selectedFill
+                      : t.ink2.withValues(alpha: 0.35),
                   borderRadius: BorderRadius.circular(rPill),
                 ),
                 child: AnimatedAlign(
@@ -289,9 +295,8 @@ class AppToggle extends StatelessWidget {
                     width: 21,
                     height: 21,
                     decoration: BoxDecoration(
-                      color: value ? t.lime : t.surf,
+                      color: value ? t.onSelected : t.ink2,
                       shape: BoxShape.circle,
-                      border: value ? null : Border.all(color: t.ink2),
                     ),
                   ),
                 ),

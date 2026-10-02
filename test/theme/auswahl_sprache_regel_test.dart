@@ -123,10 +123,6 @@ List<String> _funde(String pfad, String roh) {
 /// The bar for a new entry: the condition must NOT be a selection state, and
 /// the state must be carried by something other than these two tokens.
 const Map<String, String> _bedingtesForestErlaubt = <String, String>{
-  'lib/src/widgets/design/controls.dart':
-      'AppToggle track: not a selection, and the state is carried by the KNOB '
-          '(position left/right plus lime/surf with an ink2 ring at 3.3-3.5:1 '
-          'against the track) — the track is decoration, documented in place',
   'lib/src/screens/coach/coach_message_list.dart':
       'chat bubble by AUTHOR, not by selection: who wrote a message is also '
           'carried by side (left/right alignment) and by the tail radius, and '

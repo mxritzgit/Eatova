@@ -551,14 +551,15 @@ void main() {
   });
 
   // =========================================================================
-  // F8-04 — AppToggle OFF
+  // F8-04 — AppToggle OFF and ON
   // =========================================================================
-  group('F8-04 AppToggle AUS', () {
-    renderMatrix('Knopf und Spur sind gegen surf >= 3:1 erkennbar',
-        (tester, c) async {
-      await c.pump(tester, AppToggle(value: false, onChanged: (_) {}),
-          padding: _rand);
-      final t = c.t;
+  group('F8-04 AppToggle', () {
+    /// The painted track and knob of the pumped toggle, both composited
+    /// onto the card (`surf`) they sit on in the goals screen.
+    ({Color spur, Color knopf, BoxDecoration knopfDeco}) farben(
+      WidgetTester tester,
+      AppTokens t,
+    ) {
       final spurBox = tester.widget<AnimatedContainer>(
         find
             .descendant(
@@ -571,31 +572,58 @@ void main() {
         (spurBox.decoration! as BoxDecoration).color!,
         t.surf,
       );
-      final knopfBox = tester.widget<Container>(
-        find
-            .descendant(
-              of: find.byType(AppToggle),
-              matching: find.byType(Container),
-            )
-            .last,
+      final knopfDeco = tester
+          .widget<Container>(
+            find
+                .descendant(
+                  of: find.byType(AppToggle),
+                  matching: find.byType(Container),
+                )
+                .last,
+          )
+          .decoration! as BoxDecoration;
+      return (
+        spur: spur,
+        knopf: _ueber(knopfDeco.color!, spur),
+        knopfDeco: knopfDeco,
       );
-      final knopfDeco = knopfBox.decoration! as BoxDecoration;
-      final knopf = _ueber(knopfDeco.color!, spur);
-      final rand = _ueber(knopfDeco.border!.top.color, spur);
+    }
+
+    renderMatrix('AUS: der volle Knopf ist gegen Karte und Spur >= 3:1',
+        (tester, c) async {
+      await c.pump(tester, AppToggle(value: false, onChanged: (_) {}),
+          padding: _rand);
+      final t = c.t;
+      final (:spur, :knopf, :knopfDeco) = farben(tester, t);
 
       // WCAG 1.4.11: the component BOUNDARY against every adjacent color.
-      // The knob's edge is its `ink2` ring — it must read against the
-      // card, the knob fill and the track (before: 1.10–1.34:1).
-      expect(_kontrast(rand, t.surf), greaterThanOrEqualTo(3.0),
-          reason: 'Knopf-Rand gegen die Karte');
-      expect(_kontrast(rand, knopf), greaterThanOrEqualTo(3.0),
-          reason: 'Knopf-Rand gegen den Knopf');
-      expect(_kontrast(rand, spur), greaterThanOrEqualTo(3.0),
-          reason: 'Knopf-Rand gegen die Spur');
-      // The track itself is a state carrier (forest = on): it must be
-      // more than a whisper against the card.
+      // Since 2026-10-03 that is the solid knob itself (before the ring of
+      // a hollow knob, and before that 1.10–1.34:1).
+      expect(knopfDeco.border, isNull, reason: 'voller Knopf, kein Ring');
+      expect(_kontrast(knopf, t.surf), greaterThanOrEqualTo(3.0),
+          reason: 'Knopf gegen die Karte');
+      expect(_kontrast(knopf, spur), greaterThanOrEqualTo(3.0),
+          reason: 'Knopf gegen die Spur');
+      // The track itself is a state carrier: it must be more than a
+      // whisper against the card.
       expect(_kontrast(spur, t.surf), greaterThanOrEqualTo(1.5),
           reason: 'Spur gegen die Karte');
+    });
+
+    renderMatrix('AN: Akzent-Spur und Knopf sind >= 3:1 erkennbar',
+        (tester, c) async {
+      await c.pump(tester, AppToggle(value: true, onChanged: (_) {}),
+          padding: _rand);
+      final t = c.t;
+      final (:spur, :knopf, knopfDeco: _) = farben(tester, t);
+
+      // The app's selection language ([SelectionTone]): a solid fill, like
+      // the chosen settings segment. A tint (the old `forest`) read as off.
+      expect(spur, t.selectedFill, reason: 'volle Auswahl-Spur');
+      expect(_kontrast(spur, t.surf), greaterThanOrEqualTo(3.0),
+          reason: 'Spur gegen die Karte');
+      expect(_kontrast(knopf, spur), greaterThanOrEqualTo(3.0),
+          reason: 'Knopf gegen die Spur');
     });
   });
 
