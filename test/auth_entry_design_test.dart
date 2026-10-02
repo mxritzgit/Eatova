@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -13,6 +14,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'account_studio_layout_test.dart' show loadAccountFonts;
 import 'support/harness.dart';
+import 'widgets/welcome_screen_test.dart' show expectGreetingInSafeArea;
 
 Future<void> _capture(WidgetTester tester, GlobalKey key, String name) async {
   const directory = String.fromEnvironment('AUTH_PREVIEW_DIR');
@@ -44,6 +46,56 @@ void _expectWholeHeadlineWords(WidgetTester tester) {
       hasLength(1),
       reason:
           'The headline word "${word.group(0)}" should not split across lines.',
+    );
+  }
+}
+
+/// The visible code: the digits are drawn by the eight cells (the real field
+/// under them is transparent). Every digit sits in its own cell, whole, on
+/// screen, and the cells do not overlap.
+void _expectCodeDigitsVisible(WidgetTester tester, String code, Size screen) {
+  final cells = find.byWidgetPredicate(
+    (w) => w.runtimeType.toString() == '_CodeCell',
+  );
+  expect(cells, findsNWidgets(code.length));
+  final rects = <Rect>[];
+  for (var i = 0; i < code.length; i++) {
+    final cell = tester.getRect(cells.at(i));
+    rects.add(cell);
+    final digit = find.descendant(of: cells.at(i), matching: find.text(code[i]));
+    expect(digit, findsOneWidget, reason: 'Cell $i shows digit ${code[i]}.');
+    final paragraph = tester.renderObject<RenderParagraph>(
+      find.descendant(of: digit, matching: find.byType(RichText)),
+    );
+    expect(
+      paragraph.textSize.width,
+      lessThanOrEqualTo(paragraph.size.width + 0.01),
+      reason: 'Digit ${code[i]} is not clipped in width.',
+    );
+    expect(
+      paragraph.textSize.height,
+      lessThanOrEqualTo(paragraph.size.height + 0.01),
+      reason: 'Digit ${code[i]} is not clipped in height.',
+    );
+    final drawn = tester.getRect(digit);
+    expect(
+      cell.inflate(0.01).contains(drawn.topLeft) &&
+          cell.inflate(0.01).contains(drawn.bottomRight),
+      isTrue,
+      reason: 'Digit ${code[i]} $drawn fits inside its cell $cell.',
+    );
+    expect(
+      (Offset.zero & screen).inflate(0.01).contains(cell.topLeft) &&
+          (Offset.zero & screen).inflate(0.01).contains(cell.bottomRight),
+      isTrue,
+      reason: 'Cell $i $cell is fully on screen.',
+    );
+  }
+  for (var i = 1; i < rects.length; i++) {
+    expect(
+      rects[i].left,
+      greaterThanOrEqualTo(rects[i - 1].right),
+      reason: 'Cells ${i - 1} and $i do not overlap.',
     );
   }
 }
@@ -247,13 +299,10 @@ void main() {
             '48291357',
           );
           await tester.pumpAndSettle();
-          final editable = tester
-              .state<EditableTextState>(find.byType(EditableText))
-              .renderEditable;
-          expect(
-            editable.maxScrollExtent,
-            0,
-            reason: 'All eight digits stay visible at large text sizes.',
+          _expectCodeDigitsVisible(
+            tester,
+            '48291357',
+            scale == 1 ? const Size(390, 844) : const Size(320, 640),
           );
           await _capture(tester, capture, 'code-$suffix');
           _expectWholeHeadlineWords(tester);
@@ -300,20 +349,36 @@ void main() {
   testWidgets('welcome fits a short landscape window with large type', (
     tester,
   ) async {
+    final ready = Completer<void>();
     await pumpLocalized(
       tester,
       WelcomeScreen(
         firstName: 'Alexandria',
-        profileReady: Future<void>.value(),
+        profileReady: ready.future,
         celebrateLogin: true,
         onComplete: () {},
       ),
       surfaceSize: const Size(568, 320),
       textScale: 2,
+      // With motion the greeting holds on screen; reduced motion would exit
+      // at once and leave nothing to measure.
+      reducedMotion: false,
       scaffold: false,
       safeArea: false,
-      settle: true,
     );
+    Future<void> advance(int ms) async {
+      for (var i = 0; i < ms ~/ 20; i++) {
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+    }
+
+    await advance(200);
+    ready.complete();
+    await tester.pump();
+    await advance(900);
+    expect(find.byKey(const ValueKey('welcome-text')), findsOneWidget);
+    expectGreetingInSafeArea(tester, const Size(568, 320), EdgeInsets.zero);
     expect(tester.takeException(), isNull);
+    await advance(2000);
   });
 }

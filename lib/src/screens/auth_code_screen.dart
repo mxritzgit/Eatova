@@ -12,9 +12,9 @@ import '../services/local_cache.dart'
 import '../services/secure_screen.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/auth/auth_controls.dart';
+import '../widgets/common/motion.dart';
 import '../widgets/shared/eatova_wordmark.dart';
 import '../widgets/design/controls.dart';
-import '../widgets/design/sheets.dart';
 import 'settings/account_change_messages.dart'
     show
         AuthErrorBefund,
@@ -837,6 +837,11 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
     // (W3).
     final fehlerText =
         _error ?? (gesperrt ? _l10n.authCodeTooManyAttempts : null);
+    // Only notes about the CODE itself tint the cells; a send throttle or an
+    // outage is not the typed code's fault.
+    final codeFehler = gesperrt ||
+        _error == _l10n.authCodeErrorRejected ||
+        _error == _l10n.authCodeErrorLength(kAccountCodeLength);
     final t = context.t;
     final l10n = _l10n;
     final email = _email.text.trim();
@@ -857,7 +862,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                   // its scheme surface over the page ground (F2-01).
                   Row(
                     children: [
-                      SquareIconButton(
+                      HeaderIconButton(
                         key: const ValueKey('auth-code-back'),
                         icon: Icons.chevron_left_rounded,
                         onTap: _busy
@@ -866,28 +871,43 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                         semanticLabel: l10n.authBackSemanticLabel,
                       ),
                       const Spacer(),
-                      EatovaWordmark(
-                        fontSize: 25,
-                        textColor: t.ink,
-                        ringColor: t.accent,
+                      MediaQuery.withNoTextScaling(
+                        child: EatovaWordmark(
+                          fontSize: 24,
+                          textColor: t.ink,
+                          ringColor: t.accent,
+                        ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 30),
+                  const SizedBox(height: 28),
                   if (_isRecovery) ...[
+                    Text(
+                      l10n.authRecoveryProgress(_step.index + 1, 3)
+                          .toUpperCase(),
+                      semanticsLabel:
+                          l10n.authRecoveryProgress(_step.index + 1, 3),
+                      style: AppType.sectionEyebrow(t.accentText),
+                    ),
+                    const SizedBox(height: 10),
                     ExcludeSemantics(
                       child: Row(
                         children: [
                           for (var index = 0; index < 3; index++) ...[
                             if (index > 0) const SizedBox(width: 6),
                             Expanded(
-                              child: Container(
+                              child: AnimatedContainer(
+                                duration: motionDuration(
+                                  context,
+                                  const Duration(milliseconds: 280),
+                                ),
+                                curve: Curves.easeOutCubic,
                                 height: 4,
                                 decoration: BoxDecoration(
                                   color: index <= _step.index
                                       ? t.accent
-                                      : t.line,
-                                  borderRadius: BorderRadius.circular(rChip),
+                                      : t.surf2,
+                                  borderRadius: BorderRadius.circular(rPill),
                                 ),
                               ),
                             ),
@@ -895,31 +915,39 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    Text(
-                      l10n.authRecoveryProgress(_step.index + 1, 3),
-                      style: AppType.ui(
-                        12,
-                        weight: FontWeight.w600,
-                        color: t.ink2,
-                      ),
-                    ),
-                    const SizedBox(height: 26),
+                    const SizedBox(height: 24),
                   ],
-                  AuthHeadline(
-                    switch (_step) {
-                      _Step.email => l10n.authCodeTitleEmail,
-                      _Step.code => l10n.authCodeTitleCode,
-                      _Step.password => l10n.authCodeTitlePassword,
-                    },
-                    style: AppType.display(
-                      32,
-                      color: t.ink,
-                      height: 1.08,
-                      letterSpacing: -0.9,
-                    ),
+                  // The step's disc sits beside the title, not above it: an
+                  // anchor for the eye that costs no height.
+                  Row(
+                    children: [
+                      AuthIconDisc(
+                        icon: switch (_step) {
+                          _Step.email => Icons.lock_reset_rounded,
+                          _Step.code => Icons.mark_email_unread_outlined,
+                          _Step.password => Icons.key_rounded,
+                        },
+                        active: true,
+                        size: 46,
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: AuthHeadline(
+                          switch (_step) {
+                            _Step.email => l10n.authCodeTitleEmail,
+                            _Step.code => l10n.authCodeTitleCode,
+                            _Step.password => l10n.authCodeTitlePassword,
+                          },
+                          style: AppType.display(
+                            32,
+                            color: t.ink,
+                            height: 1.06,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 10),
                   Text(switch (_step) {
                     _Step.email => l10n.authCodeSubtitleEmail(
                       kAccountCodeLength,
@@ -929,7 +957,12 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                           ? l10n.authCodeSubtitleRecovery(email)
                           : l10n.authCodeSubtitleSignup(email),
                     _Step.password => l10n.authCodeSubtitlePassword,
-                  }, style: AppType.ui(15, color: t.ink2, height: 1.45)),
+                  }, style: AppType.ui(
+                    15.5,
+                    weight: FontWeight.w500,
+                    color: t.ink2,
+                    height: 1.45,
+                  )),
                   const SizedBox(height: 26),
                   if (_step == _Step.email) ...[
                     AuthField(
@@ -952,6 +985,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                       fieldKey: const ValueKey('code-field'),
                       controller: _code,
                       enabled: !_busy && !gesperrt,
+                      error: codeFehler,
                       onSubmitted: _verify,
                     ),
                   ],
@@ -981,7 +1015,7 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                     ),
                   ],
                   if (fehlerText != null) ...[
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 16),
                     AuthInlineNote(
                       noteKey: const ValueKey('code-error'),
                       text: fehlerText,
@@ -989,14 +1023,14 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                     ),
                   ],
                   if (_message != null) ...[
-                    const SizedBox(height: 14),
+                    SizedBox(height: fehlerText == null ? 16 : 10),
                     AuthInlineNote(
                       noteKey: const ValueKey('code-message'),
                       text: _message!,
                       tone: AuthNoteTone.info,
                     ),
                   ],
-                  const SizedBox(height: 22),
+                  const SizedBox(height: 24),
                   AuthPrimaryButton(
                     buttonKey: const ValueKey('code-primary'),
                     label: switch (_step) {
@@ -1028,6 +1062,12 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
                         label: _cooldownSeconds > 0
                             ? _countdownLabel(_cooldownSeconds)
                             : l10n.authCodeResendCta,
+                        // Counting down it reads as waiting, ready as the
+                        // accent action; the tap works either way.
+                        emphasis: _cooldownSeconds <= 0,
+                        icon: _cooldownSeconds > 0
+                            ? Icons.schedule_rounded
+                            : null,
                         // The tap stays enabled during the cooldown so
                         // _resend can say how long is left; a dead link
                         // would leave the user guessing.
@@ -1047,120 +1087,239 @@ class _AuthCodeScreenState extends State<AuthCodeScreen> {
   }
 }
 
-/// Large code capsule: [kAccountCodeLength] digits, wide tracking, tabular.
-/// A [FieldCapsule] like [AuthField] (field / fieldFocus, no ring); a minimum
-/// height instead of a fixed one, so 200 % system font does not overflow.
+/// The [kAccountCodeLength]-digit code as a row of soft cells (two groups of
+/// four), one per digit, with the next cell to fill marked while the field
+/// has focus.
+///
+/// ONE real [TextField] lies over the whole row, transparent: it takes the
+/// taps, the keyboard, paste and the one-time-code autofill, and carries the
+/// spoken name. The cells are its picture only ([ExcludeSemantics]). Cells
+/// follow the input language: `field` at rest, `fieldFocus` for the active
+/// cell (plus an accent caret bar, so focus never rests on the fill alone),
+/// `fieldError` while a code error shows; no hairline, no ring.
 class _CodeField extends StatelessWidget {
   const _CodeField({
     required this.fieldKey,
     required this.controller,
     required this.enabled,
+    required this.error,
     required this.onSubmitted,
   });
 
   final Key fieldKey;
   final TextEditingController controller;
   final bool enabled;
+
+  /// A code error is showing: every cell takes the error tint.
+  final bool error;
   final VoidCallback onSubmitted;
+
+  static const double _gap = 6;
+  static const double _groupGap = 14;
+  static const double _maxCell = 52;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final label = context.l10n.authCodeFieldLabel;
+    final scale = MediaQuery.textScalerOf(context).scale(1);
+    // No visible caption: the page title right above already says "enter
+    // code"; the field keeps [label] as its spoken name.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          label,
-          style: AppType.ui(13, weight: FontWeight.w600, color: t.ink2),
-        ),
-        const SizedBox(height: 8),
         // The `Focus` ancestor only observes (cannot take focus, skipped in
-        // traversal): `Focus.of` rebuilds the capsule on focus changes.
+        // traversal): `Focus.of` rebuilds the cells on focus changes.
         Focus(
           canRequestFocus: false,
           skipTraversal: true,
           includeSemantics: false,
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final tracking =
-                  constraints.maxWidth < 320 ||
-                      MediaQuery.textScalerOf(context).scale(1) > 1.3
-                  ? 2.0
-                  : 6.0;
-              final baseStyle = AppType.display(
-                24,
-                color: t.ink,
-                letterSpacing: tracking,
-              );
-              // Keep the complete code in view, including the widest digits,
-              // while using as much of the requested text size as will fit.
-              final measure = TextPainter(
-                text: TextSpan(
-                  text: '8' * kAccountCodeLength,
-                  style: baseStyle,
-                ),
-                textDirection: Directionality.of(context),
-                textScaler: MediaQuery.textScalerOf(context),
-              )..layout();
-              final fit = ((constraints.maxWidth - 44) / measure.width).clamp(
-                0.0,
-                1.0,
-              );
-              measure.dispose();
-              final codeStyle = baseStyle.copyWith(
-                fontSize: 24 * fit,
-                letterSpacing: tracking * fit,
-              );
-              return FieldCapsule(
-                focused: Focus.of(context).hasFocus,
-                enabled: enabled,
-                constraints: const BoxConstraints(minHeight: 64),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
-                ),
-                alignment: Alignment.center,
-                // Spoken name for the field; without it a screen reader only
-                // reads the dot hint.
-                child: Semantics(
-                  label: label,
-                  child: TextField(
-                    key: fieldKey,
-                    controller: controller,
-                    enabled: enabled,
-                    autofocus: true,
-                    keyboardType: TextInputType.number,
-                    // Without this hint the password manager never offers the
-                    // code.
-                    autofillHints: const [AutofillHints.oneTimeCode],
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(kAccountCodeLength),
-                    ],
-                    textAlign: TextAlign.center,
-                    cursorColor: t.accent,
-                    onSubmitted: (_) => onSubmitted(),
-                    style: codeStyle,
-                    decoration: InputDecoration(
-                      // One placeholder dot per digit.
-                      hintText: '·' * kAccountCodeLength,
-                      hintStyle: codeStyle.copyWith(color: t.ink2),
-                      border: InputBorder.none,
-                      enabledBorder: InputBorder.none,
-                      focusedBorder: InputBorder.none,
-                      disabledBorder: InputBorder.none,
-                      filled: false,
-                      isCollapsed: true,
-                      contentPadding: EdgeInsets.zero,
+              const half = kAccountCodeLength ~/ 2;
+              final cellWidth = ((constraints.maxWidth -
+                          _gap * (kAccountCodeLength - 2) -
+                          _groupGap) /
+                      kAccountCodeLength)
+                  .clamp(0.0, _maxCell);
+              // Taller with large text, never a sliver: the digit scales
+              // down to the cell (FittedBox) rather than overflow it.
+              final cellHeight = (cellWidth * 1.3 * scale.clamp(1.0, 1.35))
+                  .clamp(56.0, 76.0);
+              final focused = Focus.of(context).hasFocus;
+              return SizedBox(
+                height: cellHeight,
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: ExcludeSemantics(
+                        child: ValueListenableBuilder<TextEditingValue>(
+                          valueListenable: controller,
+                          builder: (context, value, _) {
+                            final digits = value.text;
+                            final active = focused && enabled
+                                ? digits.length.clamp(0, kAccountCodeLength - 1)
+                                : -1;
+                            Widget cell(int index) => _CodeCell(
+                              digit: index < digits.length
+                                  ? digits[index]
+                                  : null,
+                              active: index == active,
+                              caret: index == active &&
+                                  digits.length < kAccountCodeLength,
+                              error: error,
+                              width: cellWidth,
+                            );
+                            return Opacity(
+                              opacity: enabled ? 1 : 0.55,
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  for (var i = 0; i < kAccountCodeLength; i++)
+                                    ...[
+                                      if (i == half)
+                                        const SizedBox(width: _groupGap)
+                                      else if (i > 0)
+                                        const SizedBox(width: _gap),
+                                      cell(i),
+                                    ],
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
                     ),
-                  ),
+                    Positioned.fill(
+                      // Spoken name for the field; without it a screen
+                      // reader only reads the dot hint.
+                      child: Semantics(
+                        label: label,
+                        // The glyphs are drawn by the cells; a transparent
+                        // selection keeps paste working without painting
+                        // highlight boxes over them.
+                        child: DefaultSelectionStyle(
+                          selectionColor: t.accent.withValues(alpha: 0),
+                          child: TextField(
+                            key: fieldKey,
+                            controller: controller,
+                            enabled: enabled,
+                            autofocus: true,
+                            showCursor: false,
+                            // The cells mark the position; no handle art.
+                            selectionControls: emptyTextSelectionControls,
+                            keyboardType: TextInputType.number,
+                            // Without this hint the password manager never
+                            // offers the code.
+                            autofillHints: const [AutofillHints.oneTimeCode],
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                              LengthLimitingTextInputFormatter(
+                                kAccountCodeLength,
+                              ),
+                            ],
+                            textAlign: TextAlign.center,
+                            textAlignVertical: TextAlignVertical.center,
+                            onSubmitted: (_) => onSubmitted(),
+                            // Tiny and centred: the invisible text keeps the
+                            // selection handles' touch area inside the cells,
+                            // off the button below.
+                            style: AppType.ui(
+                              2,
+                              color: t.ink.withValues(alpha: 0),
+                            ),
+                            decoration: InputDecoration(
+                              // One placeholder per digit; the cells show
+                              // the empty state, so it stays invisible.
+                              hintText: '·' * kAccountCodeLength,
+                              hintStyle: AppType.ui(
+                                2,
+                                color: t.ink2.withValues(alpha: 0),
+                              ),
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              disabledBorder: InputBorder.none,
+                              filled: false,
+                              isCollapsed: true,
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               );
             },
           ),
         ),
       ],
+    );
+  }
+}
+
+/// One digit cell of [_CodeField].
+class _CodeCell extends StatelessWidget {
+  const _CodeCell({
+    required this.digit,
+    required this.active,
+    required this.caret,
+    required this.error,
+    required this.width,
+  });
+
+  final String? digit;
+  final bool active;
+  final bool caret;
+  final bool error;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final fill = error
+        ? t.fieldError
+        : active
+        ? t.fieldFocus
+        : t.field;
+    final value = digit;
+    return AnimatedContainer(
+      duration: motionDuration(context, const Duration(milliseconds: 140)),
+      curve: Curves.easeOut,
+      width: width,
+      decoration: BoxDecoration(
+        color: fill,
+        borderRadius: BorderRadius.circular(rChip),
+        boxShadow: softShadow(t),
+      ),
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+      child: value != null
+          ? FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                value,
+                style: AppType.display(26, color: t.ink, height: 1),
+              ),
+            )
+          : caret
+          ? Container(
+              width: 2.5,
+              height: 24,
+              decoration: BoxDecoration(
+                color: t.accent,
+                borderRadius: BorderRadius.circular(rPill),
+              ),
+            )
+          : Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: t.inkFaint,
+                shape: BoxShape.circle,
+              ),
+            ),
     );
   }
 }

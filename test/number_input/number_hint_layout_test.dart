@@ -91,8 +91,8 @@ void main() {
     });
 
     testWidgets('Portions-Gramm [$code] bei 320 px und 200 %', (tester) async {
-      // The expanded item itself must fit first: its `_LivePreview` row
-      // ("= 250 kcal ...") used to overflow at this size.
+      // The expanded item itself must fit first: its old live-preview row
+      // once overflowed at this size.
       final vorher = await collectOverflows(() async {
         await pumpLocalized(
           tester,

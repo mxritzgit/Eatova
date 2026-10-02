@@ -247,7 +247,7 @@ void main() {
       await _pump(
         tester,
         SettingsGroup(
-          label: 'KONTO',
+          label: 'Konto',
           children: <Widget>[
             SettingsRow(
               key: const ValueKey('settings-group-row'),
@@ -263,11 +263,12 @@ void main() {
           tester.getSemantics(find.byKey(const ValueKey('settings-group-row')));
       handle.dispose();
 
+      // Drawn as "KONTO", read in its own case.
       expect(
         beschriftung,
-        isSemantics(label: 'KONTO', isHeader: true),
-        reason: 'rows.dart: die Gruppen-Beschriftung ist die einzige '
-            'Abschnitts-Marke der Einstellungen',
+        isSemantics(label: 'Konto', isHeader: true),
+        reason: 'rows.dart: die Gruppen-Beschriftung ist die Abschnitts-Marke '
+            'ihrer Gruppe',
       );
       expect(beschriftung.headingLevel, 2);
       expect(zeile, isSemantics(hasTapAction: true, isHeader: false));
@@ -350,10 +351,9 @@ void main() {
           (label: l10n.settingsStudioPrivacy, level: 2),
           (label: l10n.settingsStudioSession, level: 2),
         ],
-        reason: 'die Seite ist eine ListView: jedes Kind wird in '
-            'IndexedSemantics gewickelt, das vertraegliche Geschwister zu '
-            'EINEM Knoten verschmilzt. Ohne eigenen Knoten hiesse die Marke '
-            'der Ebene 1 „Zurück Einstellungen"',
+        reason: 'jede Marke braucht einen eigenen Semantik-Knoten; ohne '
+            'ihn verschmilzt der Titel mit dem Zurueck-Knopf und die Marke '
+            'der Ebene 1 hiesse „Zurück Einstellungen"',
       );
       // Gegenprobe: der Zurueck-Knopf behaelt seine Tipp-Aktion.
       expect(

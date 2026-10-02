@@ -116,7 +116,7 @@ void main() {
       (tester) async {
     await _pumpCard(tester, _standard);
 
-    // KcalTargets.paceWarning hangs on the pace chip as tooltip/semantics —
+    // KcalTargets.paceWarning hangs on the pace row as tooltip/semantics —
     // no second prose block on the card, but not silent either. For the
     // standard profile only the cap bites.
     expect(
@@ -148,7 +148,7 @@ void main() {
         reason: '5 kg / 0,3436 = 14,6 → 15 linear, 18 dynamisch');
   });
 
-  testWidgets('Ohne Abweichung haengt kein Hinweis am Tempo-Chip',
+  testWidgets('Ohne Abweichung haengt kein Hinweis an der Tempo-Zeile',
       (tester) async {
     // Large, active user (maintenance 3570 at PAL 1.75): neither the 1500
     // floor nor the cap bites, only the 50-kcal rounding of the daily target
@@ -173,7 +173,7 @@ void main() {
     expect(find.text('−0,52 kg/Woche'), findsNothing,
         reason: 'Label rastert auf 0,05 kg/Woche');
     // The edit IconButton has its own tooltip; what counts is that NO tooltip
-    // wraps the pace chip (_MaybeTooltip passes it through when paceWarning is
+    // wraps the pace row (_MaybeTooltip passes it through when paceWarning is
     // null).
     expect(find.ancestor(of: paceValue, matching: find.byType(Tooltip)),
         findsNothing,

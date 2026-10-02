@@ -103,7 +103,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('screen-profile')), findsOneWidget);
 
-    // Default steps goal is 8000; the tile shows the boot state 1000/8000.
+    // Default steps goal is 8000; the goals card's steps row shows the boot
+    // state 1000/8000.
     expect(find.text('1000/8000'), findsOneWidget);
 
     // Switch the health store mid-route and trigger _refreshHealthSteps from

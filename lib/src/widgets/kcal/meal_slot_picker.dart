@@ -1,13 +1,21 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/logged_meal.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
-import '../design/design.dart';
+import '../common/lively.dart';
+import '../common/motion.dart';
+import '../design/slot_icon_tile.dart';
 
-/// One quiet context row, with the complete choices available on demand.
-class MealSlotPicker extends StatefulWidget {
+/// The meal a new entry lands in: all four slots side by side, the chosen one
+/// on a tinted pill in its slot colour.
+///
+/// Used by the add-meal, barcode, camera and manual sheets. Picking the
+/// selected slot again does not call [onSelected].
+class MealSlotPicker extends StatelessWidget {
   const MealSlotPicker({
     super.key,
     required this.selected,
@@ -17,247 +25,308 @@ class MealSlotPicker extends StatefulWidget {
 
   final MealSlot selected;
   final ValueChanged<MealSlot> onSelected;
+
+  /// Segment keys are `<keyPrefix><slot.name>`, the track `<keyPrefix>group`.
   final String keyPrefix;
 
   @override
-  State<MealSlotPicker> createState() => _MealSlotPickerState();
+  Widget build(BuildContext context) => MealSlotSegments(
+    selected: selected,
+    keyPrefix: keyPrefix,
+    onSelected: (slot) {
+      if (slot != selected) onSelected(slot);
+    },
+  );
 }
 
-class _MealSlotPickerState extends State<MealSlotPicker> {
-  bool _open = false;
-
-  Future<void> _choose() async {
-    if (_open) return;
-    _open = true;
-    try {
-      final slot = await showEatovaSheet<MealSlot>(
-        context,
-        _MealSlotChoices(
-          selected: widget.selected,
-          keyPrefix: widget.keyPrefix,
-        ),
-      );
-      if (mounted && slot != null && slot != widget.selected) {
-        widget.onSelected(slot);
-      }
-    } finally {
-      _open = false;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final slot = widget.selected;
-    return Semantics(
-      button: true,
-      label: context.l10n.mealSlotPickerTitle,
-      value: slot.label(context.l10n),
-      excludeSemantics: true,
-      onTap: _choose,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          key: ValueKey('${widget.keyPrefix}open'),
-          onTap: _choose,
-          borderRadius: BorderRadius.circular(rControl),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            child: Row(
-              children: [
-                _SlotMark(slot: slot, size: 36),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        context.l10n.mealSlotPickerContext,
-                        style: AppType.ui(11, color: t.ink2),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        slot.label(context.l10n),
-                        style: AppType.ui(
-                          15,
-                          weight: FontWeight.w600,
-                          color: t.ink,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Icon(Icons.keyboard_arrow_down_rounded, color: t.ink2),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _MealSlotChoices extends StatelessWidget {
-  const _MealSlotChoices({required this.selected, required this.keyPrefix});
+/// Segmented slot control shared by [MealSlotPicker] and the edit sheet's
+/// `SlotSelector`.
+///
+/// The first layout whose labels fit wins: four segments with the glyph
+/// beside the name (wide screens), four with the glyph over a short name
+/// (phones), a 2x2 grid with glyph and name, a 2x2 grid of names alone (large
+/// text), and only as a last resort one slot per row. A single pill slides to
+/// the selected segment and takes on its slot tint; under reduced motion it
+/// jumps.
+class MealSlotSegments extends StatelessWidget {
+  const MealSlotSegments({
+    super.key,
+    required this.selected,
+    required this.onSelected,
+    required this.keyPrefix,
+  });
 
   final MealSlot selected;
+
+  /// Called for every tap, also on the selected segment.
+  final ValueChanged<MealSlot> onSelected;
   final String keyPrefix;
+
+  static const double _pad = 4;
+  static const double _gap = 4;
+  static const double _tile = 28;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    return Column(
-      key: ValueKey('${keyPrefix}sheet'),
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 0, 12, 12),
-          child: Row(
-            children: [
-              Expanded(
-                child: HeadingSemantics(
-                  level: 1,
-                  child: Text(
-                    l10n.mealSlotPickerTitle,
-                    style: AppType.display(23, color: t.ink),
-                  ),
-                ),
-              ),
-              IconButton(
-                key: ValueKey('${keyPrefix}close'),
-                tooltip: l10n.commonClose,
-                onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close_rounded),
-              ),
-            ],
+    final scaler = MediaQuery.textScalerOf(context);
+    final direction = Directionality.of(context);
+    const slots = MealSlot.values;
+
+    TextPainter layout(String text, TextStyle style) => TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: direction,
+      textScaler: scaler,
+      maxLines: 1,
+    )..layout();
+
+    double widest(_SegmentShape shape) {
+      var max = 0.0;
+      for (final slot in slots) {
+        final painter = layout(shape.text(slot, l10n), shape.style(t, true));
+        max = math.max(max, painter.width);
+        painter.dispose();
+      }
+      return max;
+    }
+
+    double lineHeight(_SegmentShape shape) {
+      final painter = layout('Ag', shape.style(t, true));
+      final height = painter.height;
+      painter.dispose();
+      return height;
+    }
+
+    // The slot tile grows a little with the text, so it never looks like a
+    // speck beside an enlarged name.
+    final rowTile = scaler.scale(_tile).clamp(_tile, 36.0);
+    double need(_SegmentShape shape) => switch (shape) {
+      // Glyph over the short name, 8 px a side.
+      _SegmentShape.stacked => math.max(_tile, widest(shape)) + 16,
+      // Glyph beside the name, 12 px insets.
+      _SegmentShape.row => rowTile + 10 + widest(shape) + 24,
+      _SegmentShape.label => widest(shape) + 16,
+    };
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final inner = constraints.maxWidth - 2 * _pad;
+        bool fits((int, _SegmentShape) option) =>
+            option.$1 * need(option.$2) + (option.$1 - 1) * _gap <= inner;
+        final (columns, shape) = const <(int, _SegmentShape)>[
+          (4, _SegmentShape.row),
+          (4, _SegmentShape.stacked),
+          (2, _SegmentShape.row),
+          (2, _SegmentShape.label),
+        ].firstWhere(fits, orElse: () => (1, _SegmentShape.row));
+        final tile = shape == _SegmentShape.stacked ? _tile : rowTile;
+        final cellWidth = (inner - (columns - 1) * _gap) / columns;
+        final cellHeight = switch (shape) {
+          _SegmentShape.stacked => math.max(
+            56.0,
+            5 + tile + 2 + lineHeight(shape) + 5,
           ),
-        ),
-        Flexible(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-              16,
-              0,
-              16,
-              20 + MediaQuery.viewPaddingOf(context).bottom,
+          _SegmentShape.row => math.max(
+            48.0,
+            math.max(tile, lineHeight(shape)) + 16,
+          ),
+          _SegmentShape.label => math.max(48.0, lineHeight(shape) + 16),
+        };
+        final rows = (slots.length / columns).ceil();
+        Offset origin(int i) => Offset(
+          (i % columns) * (cellWidth + _gap),
+          (i ~/ columns) * (cellHeight + _gap),
+        );
+        final motion = motionDuration(context, kMotionEnter * 1.3);
+        final at = origin(slots.indexOf(selected));
+        // Capsules for one-line segments, a softer corner for the taller
+        // stacked ones (a full pill would pinch glyph and name); the track
+        // stays concentric.
+        final radius = shape == _SegmentShape.stacked
+            ? rTile
+            : math.min(cellHeight / 2, rCard);
+
+        return Semantics(
+          container: true,
+          explicitChildNodes: true,
+          label: l10n.mealSlotPickerTitle,
+          child: Container(
+            key: ValueKey('${keyPrefix}group'),
+            padding: const EdgeInsets.all(_pad),
+            // The track is a card surface with the cards' hairline edge,
+            // painted on top so it takes no layout space (the scanner
+            // sheets have no pixel to spare).
+            decoration: BoxDecoration(
+              color: t.surf,
+              borderRadius: BorderRadius.circular(radius + _pad),
             ),
-            child: Column(
-              children: [
-                for (final slot in MealSlot.values) ...[
-                  _SlotChoice(
-                    slot: slot,
-                    selected: slot == selected,
-                    actionKey: ValueKey('$keyPrefix${slot.name}'),
+            foregroundDecoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(radius + _pad),
+              border: Border.all(color: t.cardBorder),
+            ),
+            child: SizedBox(
+              height: rows * cellHeight + (rows - 1) * _gap,
+              child: Stack(
+                children: [
+                  AnimatedPositioned(
+                    key: ValueKey('${keyPrefix}indicator'),
+                    duration: motion,
+                    curve: kMotionCurve,
+                    left: at.dx,
+                    top: at.dy,
+                    width: cellWidth,
+                    height: cellHeight,
+                    child: AnimatedContainer(
+                      duration: motion,
+                      curve: kMotionCurve,
+                      decoration: BoxDecoration(
+                        color: selected.tileTint(t),
+                        borderRadius: BorderRadius.circular(radius),
+                        // 80 % of the slot ink: >= 3:1 against both the
+                        // tint and the track in either palette.
+                        border: Border.all(
+                          color: selected.tileInk(t).withValues(alpha: 0.8),
+                          width: 1.5,
+                        ),
+                      ),
+                    ),
                   ),
-                  if (slot != MealSlot.values.last)
-                    Divider(
-                      height: 1,
-                      indent: MediaQuery.textScalerOf(context).scale(17) > 25.5
-                          ? 12
-                          : 68,
-                      endIndent: 12,
-                      color: t.line,
+                  for (var i = 0; i < slots.length; i++)
+                    Positioned(
+                      left: origin(i).dx,
+                      top: origin(i).dy,
+                      width: cellWidth,
+                      height: cellHeight,
+                      child: _Segment(
+                        actionKey: ValueKey('$keyPrefix${slots[i].name}'),
+                        slot: slots[i],
+                        selected: slots[i] == selected,
+                        shape: shape,
+                        tile: tile,
+                        radius: radius,
+                        onTap: () => onSelected(slots[i]),
+                      ),
                     ),
                 ],
-              ],
+              ),
             ),
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 }
 
-class _SlotChoice extends StatelessWidget {
-  const _SlotChoice({
+/// How one segment arranges its glyph and name.
+enum _SegmentShape {
+  /// Glyph over the short name.
+  stacked,
+
+  /// Glyph beside the full name.
+  row,
+
+  /// The short name alone: large text in a 2x2 grid.
+  label;
+
+  String text(MealSlot slot, AppLocalizations l10n) =>
+      this == row ? slot.label(l10n) : slot.shortLabel(l10n);
+
+  TextStyle style(AppTokens t, bool selected) => AppType.ui(
+    this == row ? 13 : 12,
+    weight: FontWeight.w700,
+    color: selected ? t.ink : t.ink2,
+  );
+}
+
+class _Segment extends StatelessWidget {
+  const _Segment({
+    required this.actionKey,
     required this.slot,
     required this.selected,
-    required this.actionKey,
+    required this.shape,
+    required this.tile,
+    required this.radius,
+    required this.onTap,
   });
+
+  final Key actionKey;
   final MealSlot slot;
   final bool selected;
-  final Key actionKey;
+  final _SegmentShape shape;
+  final double tile;
+  final double radius;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    final hint = switch (slot) {
-      MealSlot.breakfast => l10n.mealSlotPickerBreakfastHint,
-      MealSlot.lunch => l10n.mealSlotPickerLunchHint,
-      MealSlot.dinner => l10n.mealSlotPickerDinnerHint,
-      MealSlot.snack => l10n.mealSlotPickerSnackHint,
-    };
+    final motion = motionDuration(context, kMotionEnter);
+    final corners = BorderRadius.circular(radius);
+    // Unselected slots stay recognisable by their tile but step back.
+    final mark = AnimatedOpacity(
+      opacity: selected ? 1 : 0.72,
+      duration: motion,
+      curve: kMotionCurve,
+      child: SlotIconTile(slot: slot, size: tile),
+    );
+    final label = AnimatedDefaultTextStyle(
+      duration: motion,
+      curve: kMotionCurve,
+      style: shape.style(t, selected),
+      child: Text(
+        shape.text(slot, l10n),
+        maxLines: 1,
+        softWrap: false,
+        overflow: TextOverflow.fade,
+        textAlign: shape == _SegmentShape.row
+            ? TextAlign.start
+            : TextAlign.center,
+      ),
+    );
+    // The full slot name is spoken; the short visible label would be a
+    // truncated word ("Mittag").
     return Semantics(
       button: true,
       selected: selected,
-      child: Material(
-        color: selected ? t.surf2 : Colors.transparent,
-        borderRadius: BorderRadius.circular(rControl),
-        child: InkWell(
-          key: actionKey,
-          borderRadius: BorderRadius.circular(rControl),
-          onTap: () => Navigator.of(context).pop(slot),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-            child: Row(
-              children: [
-                if (MediaQuery.textScalerOf(context).scale(17) <= 25.5) ...[
-                  _SlotMark(slot: slot, size: 44),
-                  const SizedBox(width: 12),
-                ],
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        slot.label(l10n),
-                        style: AppType.ui(
-                          17,
-                          weight: FontWeight.w600,
-                          color: t.ink,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        hint,
-                        style: AppType.ui(12, color: t.ink2, height: 1.4),
-                      ),
-                    ],
-                  ),
+      inMutuallyExclusiveGroup: true,
+      label: slot.label(l10n),
+      excludeSemantics: true,
+      onTap: onTap,
+      child: PressScale(
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            key: actionKey,
+            onTap: onTap,
+            borderRadius: corners,
+            customBorder: RoundedRectangleBorder(borderRadius: corners),
+            child: switch (shape) {
+              _SegmentShape.stacked => Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [mark, const SizedBox(height: 2), label],
+              ),
+              _SegmentShape.row => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  children: [
+                    mark,
+                    const SizedBox(width: 10),
+                    Expanded(child: label),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                if (selected)
-                  ExcludeSemantics(
-                    child: Icon(Icons.check_rounded, size: 23, color: t.accent),
-                  )
-                else
-                  const SizedBox(width: 23),
-              ],
-            ),
+              ),
+              _SegmentShape.label => Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: label,
+                ),
+              ),
+            },
           ),
         ),
       ),
     );
   }
-}
-
-class _SlotMark extends StatelessWidget {
-  const _SlotMark({required this.slot, required this.size});
-  final MealSlot slot;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) => ExcludeSemantics(
-    child: Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: slot.diarySurface(context.t),
-        shape: BoxShape.circle,
-      ),
-      child: AppIcon(slot.symbol, size: 21, color: context.t.ink),
-    ),
-  );
 }

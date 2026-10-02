@@ -5,4 +5,6 @@
          stays dark in either OS mode. Kept apart from colors.xml, which
          flutter_launcher_icons rewrites. -->
     <color name="launch_background">#09090C</color>
+    <!-- The focus ring of the launch mark: AppTokens.dark.accent. -->
+    <color name="launch_mark">#B9A5FF</color>
 </resources>

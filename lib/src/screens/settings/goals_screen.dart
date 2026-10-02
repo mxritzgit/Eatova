@@ -613,13 +613,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
                     PageHeader(
                       large: l10n.goalsPageTitle,
                       backKey: const ValueKey('settings-close'),
+                      prominent: true,
+                      subtitle: l10n.goalsIntroHint,
                     ),
-                    const SizedBox(height: 10),
-                    Text(
-                      l10n.goalsIntroHint,
-                      style: AppType.ui(12.5, color: t.ink2, height: 1.45),
-                    ),
-                    const SizedBox(height: 18),
+                    const SizedBox(height: 24),
                     SettingsPlanHero(
                       kcal: heroKcal,
                       protein: heroProtein,

@@ -1,11 +1,19 @@
 import 'package:flutter/material.dart';
 
 import '../../theme/app_tokens.dart';
+import '../common/lively.dart';
+import '../common/motion.dart';
 import '../design/controls.dart';
 import '../design/sheets.dart';
 import '../design/surfaces.dart';
 
 /// Keeps the form readable on tablets and lets the keyboard resize it once.
+///
+/// Also lays the page's one decoration behind the form: a soft accent glow
+/// at the brand header, like the light behind the today hero and the coach
+/// orb. It reaches up under the status bar (the layout sits in a SafeArea, so
+/// the glow is offset past its top) and stays put while the form scrolls.
+/// Pure paint: no semantics, no hit testing.
 class AuthPageLayout extends StatelessWidget {
   const AuthPageLayout({
     super.key,
@@ -17,34 +25,76 @@ class AuthPageLayout extends StatelessWidget {
   final EdgeInsetsGeometry padding;
 
   @override
-  Widget build(BuildContext context) => Align(
-    alignment: Alignment.topCenter,
-    child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 520),
-      child: SingleChildScrollView(
-        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-        padding: padding,
-        child: child,
-      ),
-    ),
-  );
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Positioned(
+          top: -270,
+          left: -170,
+          width: 560,
+          height: 520,
+          child: IgnorePointer(
+            child: ExcludeSemantics(
+              child: RepaintBoundary(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: RadialGradient(
+                      colors: [
+                        t.accentGlow.withValues(alpha: 0.30),
+                        t.accentGlow.withValues(alpha: 0.10),
+                        t.accentGlow.withValues(alpha: 0),
+                      ],
+                      stops: const [0, 0.45, 1],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: SingleChildScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: padding,
+              child: child,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 /// Honors large text without splitting a headline's words on narrow phones.
+///
+/// Like the tab titles ([AppType.pageTitleMaxScale]) the headline grows with
+/// the system text size only up to [maxPixelSize]: a display headline is large
+/// text already, and the body below keeps the full scale.
 class AuthHeadline extends StatelessWidget {
   const AuthHeadline(this.text, {super.key, required this.style});
 
   final String text;
   final TextStyle style;
 
+  /// Largest rendered font size, reached at a high system text scale.
+  static const double maxPixelSize = 60;
+
   @override
   Widget build(BuildContext context) => HeadingSemantics(
     level: 1,
     child: LayoutBuilder(
       builder: (context, constraints) {
+        final scaler = MediaQuery.textScalerOf(context).clamp(
+          maxScaleFactor: maxPixelSize / style.fontSize!,
+        );
         final measure = TextPainter(
           textDirection: Directionality.of(context),
-          textScaler: MediaQuery.textScalerOf(context),
+          textScaler: scaler,
         );
         var longestWord = 0.0;
         for (final word in text.split(RegExp(r'\s+'))) {
@@ -58,6 +108,7 @@ class AuthHeadline extends StatelessWidget {
             : ((constraints.maxWidth - 1) / longestWord).clamp(0.0, 1.0);
         return Text(
           text,
+          textScaler: scaler,
           style: style.copyWith(
             fontSize: style.fontSize! * fit,
             letterSpacing: (style.letterSpacing ?? 0) * fit,
@@ -71,12 +122,17 @@ class AuthHeadline extends StatelessWidget {
 // AUTH CONTROLS — shared by auth_screen.dart and auth_code_screen.dart.
 //
 // Inputs follow the house rule: no hairline, no focus ring. The capsule is a
-// [FieldCapsule] (rest `field`, focus `fieldFocus`, depth from [softShadow]).
-// Colors via `context.t`, type via [AppType].
+// pill [FieldCapsule] (rest `field`, focus `fieldFocus`, error `fieldError`,
+// depth from [softShadow]); focus also lights the leading icon disc in the
+// accent, so focus never rests on the subtle fill change alone. Colors via
+// `context.t`, type via [AppType].
 // ---------------------------------------------------------------------------
 
-/// Borderless soft-capsule text field with an optional persistent label and
-/// leading icon.
+/// Height floor of an [AuthField] capsule.
+const double kAuthFieldHeight = 56;
+
+/// Borderless soft-pill text field with an optional persistent label and a
+/// leading icon disc.
 class AuthField extends StatefulWidget {
   const AuthField({
     super.key,
@@ -86,6 +142,7 @@ class AuthField extends StatefulWidget {
     this.label,
     this.icon,
     this.enabled = true,
+    this.error = false,
     this.obscure = false,
     this.keyboardType,
     this.textInputAction,
@@ -106,6 +163,10 @@ class AuthField extends StatefulWidget {
   final String? label;
   final IconData? icon;
   final bool enabled;
+
+  /// Tints the capsule and the icon disc: the current note is about this
+  /// field.
+  final bool error;
   final bool obscure;
   final TextInputType? keyboardType;
   final TextInputAction? textInputAction;
@@ -149,12 +210,23 @@ class _AuthFieldState extends State<AuthField> {
     final t = context.t;
     final capsule = FieldCapsule(
       focusNode: _focus,
-      padding: const EdgeInsets.symmetric(horizontal: 14),
+      error: widget.error,
+      enabled: widget.enabled,
+      shape: SheetFieldShape.pill,
+      constraints: const BoxConstraints(minHeight: kAuthFieldHeight),
+      padding: EdgeInsets.only(
+        left: widget.icon == null ? 20 : 10,
+        right: widget.trailing == null ? 20 : 4,
+      ),
       child: Row(
         children: [
           if (widget.icon != null) ...[
-            Icon(widget.icon, size: 18, color: _focused ? t.accent : t.ink2),
-            const SizedBox(width: 10),
+            AuthIconDisc(
+              icon: widget.icon!,
+              active: _focused,
+              error: widget.error,
+            ),
+            const SizedBox(width: 12),
           ],
           Expanded(
             // Spoken name for the field (pattern: manual_meal_sheet); without
@@ -176,7 +248,7 @@ class _AuthFieldState extends State<AuthField> {
                 onSubmitted: widget.onSubmitted,
                 cursorColor: t.accent,
                 cursorOpacityAnimates: false,
-                style: AppType.ui(15, weight: FontWeight.w500, color: t.ink),
+                style: AppType.ui(15.5, weight: FontWeight.w600, color: t.ink),
                 decoration: InputDecoration(
                   isCollapsed: true,
                   border: InputBorder.none,
@@ -184,9 +256,9 @@ class _AuthFieldState extends State<AuthField> {
                   focusedBorder: InputBorder.none,
                   disabledBorder: InputBorder.none,
                   filled: false,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 16),
+                  contentPadding: const EdgeInsets.symmetric(vertical: 17),
                   hintText: widget.hint,
-                  hintStyle: AppType.ui(15, color: t.ink2),
+                  hintStyle: AppType.ui(15.5, color: t.ink2),
                 ),
               ),
             ),
@@ -199,19 +271,60 @@ class _AuthFieldState extends State<AuthField> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (widget.label != null) ...[
-          Text(
-            widget.label!,
-            style: AppType.ui(13, weight: FontWeight.w600, color: t.ink2),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Text(
+              widget.label!,
+              style: AppType.ui(13, weight: FontWeight.w700, color: t.ink2),
+            ),
           ),
           const SizedBox(height: 8),
         ],
-        Opacity(opacity: widget.enabled ? 1 : 0.6, child: capsule),
+        capsule,
       ],
     );
   }
 }
 
-/// The password "eye": a real button with label and a 44 px hit box, so a
+/// Round icon disc at the start of an input or a note. [active] lights it in
+/// the accent (the field's focus mark), [error] in `danger`.
+class AuthIconDisc extends StatelessWidget {
+  const AuthIconDisc({
+    super.key,
+    required this.icon,
+    this.active = false,
+    this.error = false,
+    this.size = 36,
+  });
+
+  final IconData icon;
+  final bool active;
+  final bool error;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final (Color fill, Color ink) = error
+        ? (t.danger.withValues(alpha: 0.16), t.danger)
+        : active
+        ? (t.accentTintStrong, t.accentText)
+        : (t.tile, t.ink2);
+    return ExcludeSemantics(
+      child: AnimatedContainer(
+        duration: motionDuration(context, const Duration(milliseconds: 160)),
+        curve: Curves.easeOut,
+        width: size,
+        height: size,
+        decoration: BoxDecoration(color: fill, shape: BoxShape.circle),
+        alignment: Alignment.center,
+        child: Icon(icon, size: size * 0.5, color: ink),
+      ),
+    );
+  }
+}
+
+/// The password "eye": a real button with label and a 48 px hit box, so a
 /// screen reader announces it and a thumb hits it.
 class AuthPasswordToggle extends StatelessWidget {
   const AuthPasswordToggle({
@@ -256,7 +369,7 @@ class AuthPasswordToggle extends StatelessWidget {
                     ? Icons.visibility_off_rounded
                     : Icons.visibility_rounded,
                 size: 20,
-                color: t.ink2,
+                color: t.inkMuted,
               ),
             ),
           ),
@@ -266,8 +379,10 @@ class AuthPasswordToggle extends StatelessWidget {
   }
 }
 
-/// Underlined text action (forgot password, resend, inline note action) with
-/// button semantics and a 44 px minimum height.
+/// Text action (forgot password, resend, a note's way out) with button
+/// semantics and a 48 px minimum height. [emphasis] draws it in the accent;
+/// the quiet variant is `inkMuted` — still clearly a control by weight and
+/// placement, never body-text grey.
 class AuthTextLink extends StatelessWidget {
   const AuthTextLink({
     super.key,
@@ -275,41 +390,62 @@ class AuthTextLink extends StatelessWidget {
     required this.label,
     this.onTap,
     this.emphasis = false,
+    this.icon,
+    this.trailingIcon,
   });
 
   final Key linkKey;
   final String label;
   final VoidCallback? onTap;
 
-  /// Accent instead of muted ink — for the one action a note offers.
+  /// Accent instead of muted ink — for the one action a spot offers.
   final bool emphasis;
+
+  /// Optional glyphs before / after the label, in the label colour.
+  final IconData? icon;
+  final IconData? trailingIcon;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final color = emphasis ? t.accent : t.ink2;
+    // Locked (busy page): the link fades with the rest of the form.
+    final color = (emphasis ? t.accentText : t.inkMuted).withValues(
+      alpha: onTap == null ? 0.5 : 1,
+    );
     return Semantics(
       button: true,
       enabled: onTap != null,
       child: InkWell(
         key: linkKey,
         onTap: onTap,
-        borderRadius: BorderRadius.circular(rChip),
+        borderRadius: BorderRadius.circular(rPill),
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 48),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            child: Center(
-              widthFactor: 1,
-              child: Text(
-                label,
-                textAlign: TextAlign.center,
-                style: AppType.ui(12.5, weight: FontWeight.w600, color: color)
-                    .copyWith(
-                      decoration: TextDecoration.underline,
-                      decorationColor: color.withValues(alpha: 0.5),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (icon != null) ...[
+                  Icon(icon, size: 16, color: color),
+                  const SizedBox(width: 6),
+                ],
+                Flexible(
+                  child: Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    style: AppType.ui(
+                      13.5,
+                      weight: FontWeight.w700,
+                      color: color,
                     ),
-              ),
+                  ),
+                ),
+                if (trailingIcon != null) ...[
+                  const SizedBox(width: 6),
+                  Icon(trailingIcon, size: 16, color: color),
+                ],
+              ],
             ),
           ),
         ),
@@ -319,7 +455,7 @@ class AuthTextLink extends StatelessWidget {
 }
 
 /// [PrimaryActionButton] with a loading state: while [loading] the same
-/// ink surface shows a spinner and takes no taps.
+/// accent pill shows a spinner and takes no taps.
 class AuthPrimaryButton extends StatelessWidget {
   const AuthPrimaryButton({
     super.key,
@@ -349,7 +485,7 @@ class AuthPrimaryButton extends StatelessWidget {
       );
     }
     final t = context.t;
-    // Same geometry as PrimaryActionButton (ink fill, rButton,
+    // Same geometry and fill as PrimaryActionButton (accent pill, rButton,
     // kPrimaryButtonHeight), so nothing jumps when the spinner replaces the
     // label.
     return Semantics(
@@ -360,14 +496,95 @@ class AuthPrimaryButton extends StatelessWidget {
         key: buttonKey,
         constraints: const BoxConstraints(minHeight: kPrimaryButtonHeight),
         decoration: BoxDecoration(
-          color: t.ink,
+          color: t.accentFill,
           borderRadius: BorderRadius.circular(rButton),
         ),
         alignment: Alignment.center,
         child: SizedBox(
-          width: 18,
-          height: 18,
-          child: CircularProgressIndicator(strokeWidth: 2.2, color: t.bg),
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.4,
+            color: t.onAccentFill,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Quiet secondary pill (Google sign-in): card fill, 1 px `lineStrong` edge
+/// like the redesign's neutral chips and header buttons, ink label.
+class AuthSecondaryButton extends StatelessWidget {
+  const AuthSecondaryButton({
+    super.key,
+    required this.buttonKey,
+    required this.label,
+    required this.leading,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  /// Goes on the [InkWell] (tests read its `onTap`).
+  final Key buttonKey;
+  final String label;
+  final Widget leading;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final shape = StadiumBorder(side: BorderSide(color: t.lineStrong));
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      child: AnimatedOpacity(
+        duration: motionDuration(context, const Duration(milliseconds: 160)),
+        opacity: enabled ? 1 : 0.55,
+        child: PressScale(
+          enabled: enabled,
+          child: Material(
+            color: t.surf,
+            shape: shape,
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              key: buttonKey,
+              onTap: enabled ? onTap : null,
+              customBorder: shape,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(
+                  minHeight: kPrimaryButtonHeight,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 8,
+                    horizontal: 18,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox.square(dimension: 20, child: leading),
+                      const SizedBox(width: 12),
+                      // Flexible: at 200 % system font the label would
+                      // otherwise burst the button width.
+                      Flexible(
+                        child: Text(
+                          label,
+                          textAlign: TextAlign.center,
+                          style: AppType.ui(
+                            15,
+                            weight: FontWeight.w700,
+                            color: t.ink,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
@@ -378,6 +595,9 @@ enum AuthNoteTone { error, info }
 
 /// Inline note under the form: error (danger) or confirmation (accent), with
 /// an optional action link — the way out of a dead-end message.
+///
+/// Calm on purpose: a faint tone tint, the tone only in the icon disc, the
+/// sentence itself in readable `ink`.
 class AuthInlineNote extends StatelessWidget {
   const AuthInlineNote({
     super.key,
@@ -400,14 +620,14 @@ class AuthInlineNote extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final isError = tone == AuthNoteTone.error;
-    final color = isError ? t.danger : t.accent;
+    final color = isError ? t.danger : t.accentText;
     final action = actionLabel;
     return Container(
       key: noteKey,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(12, 12, 14, 12),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(rControl),
+        color: isError ? t.danger.withValues(alpha: 0.11) : t.accentTint,
+        borderRadius: BorderRadius.circular(rTile),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -420,22 +640,36 @@ class AuthInlineNote extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  isError
-                      ? Icons.error_outline_rounded
-                      : Icons.check_circle_outline_rounded,
-                  size: 16,
-                  color: color,
-                ),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: Text(
-                    text,
-                    style: AppType.ui(
-                      12.5,
-                      weight: FontWeight.w500,
+                ExcludeSemantics(
+                  child: Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.16),
+                      shape: BoxShape.circle,
+                    ),
+                    alignment: Alignment.center,
+                    child: Icon(
+                      isError
+                          ? Icons.priority_high_rounded
+                          : Icons.check_rounded,
+                      size: 16,
                       color: color,
-                      height: 1.4,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      text,
+                      style: AppType.ui(
+                        13.5,
+                        weight: FontWeight.w500,
+                        color: t.ink,
+                        height: 1.4,
+                      ),
                     ),
                   ),
                 ),
@@ -443,13 +677,19 @@ class AuthInlineNote extends StatelessWidget {
             ),
           ),
           if (action != null && onAction != null)
-            Align(
-              alignment: Alignment.centerRight,
-              child: AuthTextLink(
-                linkKey: actionKey ?? ValueKey('$text-action'),
-                label: action,
-                onTap: onAction,
-                emphasis: true,
+            Padding(
+              // Under the sentence, not under the disc; the link's own 12 px
+              // inset is taken back so its text lines up with the sentence.
+              padding: const EdgeInsets.only(left: 28),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: AuthTextLink(
+                  linkKey: actionKey ?? ValueKey('$text-action'),
+                  label: action,
+                  onTap: onAction,
+                  emphasis: true,
+                  trailingIcon: Icons.arrow_forward_rounded,
+                ),
               ),
             ),
         ],

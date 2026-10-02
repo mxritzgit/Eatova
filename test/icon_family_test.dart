@@ -358,16 +358,14 @@ void main() {
               await tester.pumpAndSettle();
               FocusManager.instance.primaryFocus?.unfocus();
               await tester.pumpAndSettle();
-              await tester.ensureVisible(_key('slot-select-open'));
-              await tester.tap(_key('slot-select-open'));
+              await tester.ensureVisible(_key('slot-select-dinner'));
               await tester.pumpAndSettle();
               await _capture(tester, 'meal-picker-$id');
-              await tester.ensureVisible(_key('slot-select-dinner'));
               await tester.tap(_key('slot-select-dinner'));
               await tester.pumpAndSettle();
               expect(
-                find.byKey(const ValueKey('slot-select-sheet')),
-                findsNothing,
+                tester.getSemantics(_key('slot-select-dinner')),
+                isSemantics(isSelected: true),
               );
               expect(tester.takeException(), isNull);
             } finally {

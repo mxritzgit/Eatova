@@ -1,8 +1,8 @@
 // Fix run for review 2026-08-27, F3-05: the add-meal sheet, its slot
 // selector and the manual-entry sheet used fixed heights (46/46/56) that
-// left no room for large system text. Now `minHeight`, the slot segments
-// scale with the text like the edit sheet's day picker. Overflows are the
-// subject here, so `renderMatrix` asserts on them instead of swallowing them.
+// left no room for large system text. Now `minHeight`, and the slot segments
+// grow with the text. Overflows are the subject here, so `renderMatrix`
+// asserts on them instead of swallowing them.
 //
 // The scale loop (1.3 / 2.0) plus the separate 1.0 case are one matrix now:
 // 1.0 / 1.3 / 2.0 in BOTH brightnesses, since the light theme draws different
@@ -136,31 +136,39 @@ void main() {
       expect(input.top, greaterThanOrEqualTo(card.top - 0.5));
       expect(input.bottom, lessThanOrEqualTo(card.bottom + 0.5));
 
-      // Manual-entry row grows with its label instead of clipping it.
+      // Manual-entry row grows with its label and its explanation line
+      // instead of clipping them (two texts since the 2026-10-02 polish).
       final row = find.byKey(const ValueKey('manual-entry-button'));
-      final label = find.descendant(of: row, matching: find.byType(Text));
-      expect(
-        tester.getSize(row).height,
-        greaterThanOrEqualTo(tester.getSize(label).height),
+      final labels = find
+          .descendant(of: row, matching: find.byType(Text))
+          .evaluate()
+          .toList();
+      expect(labels, hasLength(2));
+      final textHeight = labels.fold<double>(
+        0,
+        (sum, e) => sum + (e.renderObject! as RenderBox).size.height,
       );
+      expect(tester.getSize(row).height, greaterThanOrEqualTo(textHeight));
     },
     textScales: _skalen,
   );
 
   renderMatrix(
-    'Der Mahlzeiten-Kontext waechst mit der Systemschrift',
+    'Die Mahlzeiten-Segmente wachsen mit der Systemschrift',
     (tester, c) async {
       await _pumpAddSheet(tester, c);
-      final trigger = find.byKey(const ValueKey('slot-select-open'));
-      expect(tester.getSize(trigger).height, greaterThanOrEqualTo(48));
       expect(find.byType(MealSlotPicker), findsOneWidget);
-      for (final text in find
-          .descendant(of: trigger, matching: find.byType(Text))
-          .evaluate()) {
-        expect(
-          tester.getRect(find.byWidget(text.widget)).bottom,
-          lessThanOrEqualTo(tester.getRect(trigger).bottom),
-        );
+      for (final slot in MealSlot.values) {
+        final segment = find.byKey(ValueKey('slot-select-${slot.name}'));
+        expect(tester.getSize(segment).height, greaterThanOrEqualTo(48));
+        for (final text in find
+            .descendant(of: segment, matching: find.byType(Text))
+            .evaluate()) {
+          expect(
+            tester.getRect(find.byWidget(text.widget)).bottom,
+            lessThanOrEqualTo(tester.getRect(segment).bottom),
+          );
+        }
       }
     },
     textScales: _skalen,

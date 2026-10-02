@@ -1,5 +1,10 @@
 # Today, Food and navigation icon family
 
+> **Superseded 2026-10-02:** the meal-slot choice is now one inline segmented
+> control in every host (add, barcode, camera, manual and edit sheets) using
+> the `SlotIconTile` glyphs; the compact row with its separate choice sheet
+> is gone. See `docs/PROJECT_HANDOFF.md`, "Design polish, 2026-10-02".
+
 > **Partly superseded by the dark redesign (2026-09-28, PR #118).** The five
 > tab glyphs in `AppIcon` were redrawn as the design's open-stroke icons, and
 > the Today and Food meal rows use `SlotIconTile` with its own glyphs (sunrise,

@@ -6,9 +6,12 @@
 library;
 
 import 'package:clock/clock.dart';
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
 import '../common/decimal_text.dart';
+import '../common/lively.dart';
+import '../common/motion.dart';
 import '../common/persistence_action.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
@@ -44,16 +47,20 @@ String formatShortDate(DateTime d, AppLocalizations l10n) {
   return DateFormat.Md(l10n.localeName).format(d);
 }
 
-/// Profile sections sit on the page ground; only the identity and weight
-/// history need a distinct surface.
-class _ProfileSurface extends StatelessWidget {
-  const _ProfileSurface({required this.child, this.clip = false});
-  final Widget child;
-  final bool clip;
+/// Label at the start, value at the end of one line; at large text the value
+/// drops under the label instead of squeezing it.
+class _SpreadRow extends StatelessWidget {
+  const _SpreadRow({required this.start, required this.end});
+
+  final Widget start;
+  final Widget end;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: clip ? EdgeInsets.zero : const EdgeInsets.symmetric(vertical: 8),
-    child: child,
+  Widget build(BuildContext context) => Wrap(
+    alignment: WrapAlignment.spaceBetween,
+    crossAxisAlignment: WrapCrossAlignment.center,
+    spacing: 12,
+    runSpacing: 2,
+    children: <Widget>[start, end],
   );
 }

@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -298,7 +296,22 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     final unconfirmed = _unconfirmedEmail;
+    // Which field a LOCAL validation note is about, read off the note itself:
+    // that field's capsule takes the error tint. Server answers name no field.
+    final error = _error;
+    final invalidField = error == null
+        ? null
+        : error == l10n.authErrorInvalidEmail
+        ? _FormField.email
+        : error == l10n.authErrorPasswordMissing ||
+              error ==
+                  l10n.authErrorPasswordTooShort(kAccountMinPasswordLength)
+        ? _FormField.password
+        : error == l10n.authErrorNameMissing
+        ? _FormField.name
+        : null;
     // Scaffold removes this inset from its resized body's MediaQuery.
     final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
 
@@ -317,7 +330,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   keyboardOpen: keyboardOpen,
                 ),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
@@ -326,15 +339,15 @@ class _AuthScreenState extends State<AuthScreen> {
                         enabled: !_busy,
                         onChanged: _setMode,
                       ),
-                      const SizedBox(height: 22),
+                      const SizedBox(height: 24),
                       _GoogleButton(
                         enabled: !_busy,
                         loading: _oauthLoading == EatovaOAuthProvider.google,
                         onTap: () => _startOAuth(EatovaOAuthProvider.google),
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 18),
                       const _OrDivider(),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 18),
                       // One autofill context for the whole form, so the
                       // password manager sees name, e-mail and password together.
                       AutofillGroup(
@@ -347,6 +360,7 @@ class _AuthScreenState extends State<AuthScreen> {
                           emailController: _emailController,
                           passwordController: _passwordController,
                           error: _error,
+                          invalidField: invalidField,
                           message: _message,
                           onTogglePassword: () => setState(
                             () => _passwordVisible = !_passwordVisible,
@@ -388,74 +402,25 @@ class _GoogleButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return Semantics(
-      button: true,
+    return AuthSecondaryButton(
+      buttonKey: const ValueKey('auth-google-oauth'),
+      label: context.l10n.authGoogleCta,
       enabled: enabled,
-      child: AnimatedOpacity(
-        duration: motionDuration(context, const Duration(milliseconds: 160)),
-        opacity: enabled ? 1 : 0.55,
-        child: Container(
-          decoration: BoxDecoration(
-            color: t.surf,
-            borderRadius: BorderRadius.circular(rControl),
-            border: Border.all(color: t.line),
-          ),
-          child: Material(
-            type: MaterialType.transparency,
-            borderRadius: BorderRadius.circular(rControl),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              key: const ValueKey('auth-google-oauth'),
-              onTap: enabled ? onTap : null,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 16,
-                  horizontal: 18,
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: loading
-                          ? CircularProgressIndicator(
-                              strokeWidth: 2.2,
-                              color: t.ink,
-                            )
-                          : const CustomPaint(painter: _GoogleGPainter()),
-                    ),
-                    const SizedBox(width: 12),
-                    // Flexible + ellipsis: at 200% system font the label would
-                    // otherwise burst the button width.
-                    Flexible(
-                      child: Text(
-                        context.l10n.authGoogleCta,
-                        textAlign: TextAlign.center,
-                        style: AppType.ui(
-                          15.5,
-                          weight: FontWeight.w700,
-                          color: t.ink,
-                          letterSpacing: -0.1,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
+      onTap: onTap,
+      leading: loading
+          ? CircularProgressIndicator(strokeWidth: 2.2, color: t.inkMuted)
+          : const CustomPaint(painter: _GoogleGPainter()),
     );
   }
 }
 
+/// Google's "G" as Google ships it (sign-in branding guidelines), drawn from
+/// the official 48 x 48 vector paths so no image asset is needed.
 class _GoogleGPainter extends CustomPainter {
   const _GoogleGPainter();
 
-  // Google's own brand colors (sign-in branding guidelines): the "G" must not
-  // follow the app theme, so these are the one place with fixed colors.
+  // Google's own brand colors: the "G" must not follow the app theme, so
+  // these are the one place with fixed colors.
   static const Color _blue = Color.fromARGB(255, 66, 133, 244);
   static const Color _green = Color.fromARGB(255, 52, 168, 83);
   static const Color _yellow = Color.fromARGB(255, 251, 188, 5);
@@ -463,32 +428,60 @@ class _GoogleGPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final cx = size.width / 2;
-    final cy = size.height / 2;
-    final r = size.width / 2 - 1;
-    const stroke = 2.8;
+    canvas.save();
+    canvas.scale(size.width / 48, size.height / 48);
+    final paint = Paint()..isAntiAlias = true;
 
-    void arc(double startDeg, double sweepDeg, Color color) {
-      final p = Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = stroke
-        ..color = color;
-      canvas.drawArc(
-        Rect.fromCircle(center: Offset(cx, cy), radius: r),
-        startDeg * math.pi / 180,
-        sweepDeg * math.pi / 180,
-        false,
-        p,
-      );
-    }
-
-    arc(-90, 90, _blue);
-    arc(0, 90, _green);
-    arc(90, 90, _yellow);
-    arc(180, 90, _red);
-
-    final p = Paint()..color = _blue;
-    canvas.drawRect(Rect.fromLTWH(cx, cy - 1.4, r, 2.8), p);
+    canvas.drawPath(
+      Path()
+        ..moveTo(24, 9.5)
+        ..cubicTo(27.54, 9.5, 30.71, 10.72, 33.21, 13.1)
+        ..lineTo(40.06, 6.25)
+        ..cubicTo(35.9, 2.38, 30.47, 0, 24, 0)
+        ..cubicTo(14.62, 0, 6.51, 5.38, 2.56, 13.22)
+        ..lineTo(10.54, 19.41)
+        ..cubicTo(12.43, 13.72, 17.74, 9.5, 24, 9.5)
+        ..close(),
+      paint..color = _red,
+    );
+    canvas.drawPath(
+      Path()
+        ..moveTo(46.98, 24.55)
+        ..cubicTo(46.98, 22.98, 46.83, 21.46, 46.6, 20)
+        ..lineTo(24, 20)
+        ..lineTo(24, 29.02)
+        ..lineTo(36.94, 29.02)
+        ..cubicTo(36.36, 31.98, 34.68, 34.5, 32.16, 36.2)
+        ..lineTo(39.89, 42.2)
+        ..cubicTo(44.4, 38.02, 46.98, 31.84, 46.98, 24.55)
+        ..close(),
+      paint..color = _blue,
+    );
+    canvas.drawPath(
+      Path()
+        ..moveTo(10.53, 28.59)
+        ..cubicTo(10.05, 27.14, 9.77, 25.6, 9.77, 24)
+        ..cubicTo(9.77, 22.4, 10.04, 20.86, 10.53, 19.41)
+        ..lineTo(2.55, 13.22)
+        ..cubicTo(0.92, 16.46, 0, 20.12, 0, 24)
+        ..cubicTo(0, 27.88, 0.92, 31.54, 2.56, 34.78)
+        ..lineTo(10.53, 28.59)
+        ..close(),
+      paint..color = _yellow,
+    );
+    canvas.drawPath(
+      Path()
+        ..moveTo(24, 48)
+        ..cubicTo(30.48, 48, 35.93, 45.87, 39.89, 42.19)
+        ..lineTo(32.16, 36.19)
+        ..cubicTo(30.01, 37.64, 27.24, 38.49, 24, 38.49)
+        ..cubicTo(17.74, 38.49, 12.43, 34.27, 10.53, 28.58)
+        ..lineTo(2.55, 34.77)
+        ..cubicTo(6.51, 42.62, 14.62, 48, 24, 48)
+        ..close(),
+      paint..color = _green,
+    );
+    canvas.restore();
   }
 
   @override
@@ -505,27 +498,37 @@ class _OrDivider extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return Row(
-      children: [
-        const Expanded(child: Divider()),
-        const SizedBox(width: 12),
-        // Flexible + ellipsis: large system fonts must not burst the
-        // divider row.
-        Flexible(
-          child: Text(
-            context.l10n.authOrWithEmail,
-            textAlign: TextAlign.center,
-            style: AppType.ui(
-              12,
-              weight: FontWeight.w600,
-              color: t.ink2,
-              letterSpacing: 0.2,
+    final rule = Expanded(child: Container(height: 1, color: t.lineStrong));
+    return LayoutBuilder(
+      builder: (context, constraints) => Row(
+        children: [
+          rule,
+          const SizedBox(width: 14),
+          // Capped, not Flexible: the label keeps its own width and the two
+          // rules share the rest evenly; only very large system fonts wrap
+          // it, and then both rules keep a stub.
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: (constraints.maxWidth - 28 - 64).clamp(
+                0.0,
+                double.infinity,
+              ),
+            ),
+            child: Text(
+              context.l10n.authOrWithEmail,
+              textAlign: TextAlign.center,
+              style: AppType.ui(
+                12.5,
+                weight: FontWeight.w600,
+                color: t.ink2,
+                letterSpacing: 0.2,
+              ),
             ),
           ),
-        ),
-        const SizedBox(width: 12),
-        const Expanded(child: Divider()),
-      ],
+          const SizedBox(width: 14),
+          rule,
+        ],
+      ),
     );
   }
 }
@@ -533,6 +536,9 @@ class _OrDivider extends StatelessWidget {
 // ═════════════════════════════════════════════════════════════════════
 // Email form
 // ═════════════════════════════════════════════════════════════════════
+
+/// The form's fields, for pointing a validation note at one of them.
+enum _FormField { name, email, password }
 
 class _EmailForm extends StatelessWidget {
   const _EmailForm({
@@ -544,6 +550,7 @@ class _EmailForm extends StatelessWidget {
     required this.emailController,
     required this.passwordController,
     required this.error,
+    required this.invalidField,
     required this.message,
     required this.onTogglePassword,
     required this.onSubmit,
@@ -559,6 +566,9 @@ class _EmailForm extends StatelessWidget {
   final TextEditingController emailController;
   final TextEditingController passwordController;
   final String? error;
+
+  /// The field a local validation [error] is about; it takes the error tint.
+  final _FormField? invalidField;
   final String? message;
   final VoidCallback onTogglePassword;
   final VoidCallback onSubmit;
@@ -570,6 +580,10 @@ class _EmailForm extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    // In login mode the forgot-password link already spaces the password
+    // field from what follows.
+    final afterFields = isRegister ? 18.0 : 6.0;
+    final hasNote = error != null || message != null;
     return Column(
       key: const ValueKey('auth-email-card'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -582,9 +596,10 @@ class _EmailForm extends StatelessWidget {
           child: isRegister
               ? Padding(
                   key: const ValueKey('name-field-wrap'),
-                  padding: const EdgeInsets.only(bottom: 14),
+                  padding: const EdgeInsets.only(bottom: 16),
                   child: AuthField(
                     fieldKey: const ValueKey('auth-name-field'),
+                    error: invalidField == _FormField.name,
                     icon: Icons.person_outline_rounded,
                     label: l10n.authFieldNameLabel,
                     hint: l10n.authFieldNameHint,
@@ -599,6 +614,7 @@ class _EmailForm extends StatelessWidget {
         ),
         AuthField(
           fieldKey: const ValueKey('auth-email-field'),
+          error: invalidField == _FormField.email,
           icon: Icons.alternate_email_rounded,
           label: l10n.authFieldEmailLabel,
           hint: l10n.authFieldEmailHint,
@@ -610,9 +626,10 @@ class _EmailForm extends StatelessWidget {
           enableSuggestions: false,
           autofillHints: const [AutofillHints.email],
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 16),
         AuthField(
           fieldKey: const ValueKey('auth-password-field'),
+          error: invalidField == _FormField.password,
           icon: Icons.lock_outline_rounded,
           label: l10n.authFieldPasswordLabel,
           hint: isRegister
@@ -637,18 +654,19 @@ class _EmailForm extends StatelessWidget {
           ),
         ),
         if (!isRegister) ...[
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Align(
             alignment: Alignment.centerRight,
             child: AuthTextLink(
               linkKey: const ValueKey('auth-forgot-password'),
               label: l10n.authForgotPasswordCta,
+              emphasis: true,
               onTap: busy ? null : onForgotPassword,
             ),
           ),
         ],
         if (error != null) ...[
-          const SizedBox(height: 14),
+          SizedBox(height: afterFields),
           AuthInlineNote(
             noteKey: const ValueKey('auth-error'),
             text: error!,
@@ -659,18 +677,17 @@ class _EmailForm extends StatelessWidget {
           ),
         ],
         if (message != null) ...[
-          const SizedBox(height: 14),
+          SizedBox(height: error == null ? afterFields : 10),
           AuthInlineNote(
             noteKey: const ValueKey('auth-message'),
             text: message!,
             tone: AuthNoteTone.info,
           ),
         ],
-        const SizedBox(height: 22),
+        SizedBox(height: hasNote ? 20 : afterFields + 6),
         AuthPrimaryButton(
           buttonKey: const ValueKey('auth-submit'),
           label: isRegister ? l10n.authSubmitRegister : l10n.authSubmitLogin,
-          icon: Icons.arrow_forward_rounded,
           loading: loading,
           enabled: !busy,
           onTap: onSubmit,
@@ -735,17 +752,20 @@ class _ConsentNoticeState extends State<_ConsentNotice> {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    final linkStyle = TextStyle(color: t.accent, fontWeight: FontWeight.w700);
+    final linkStyle = TextStyle(
+      color: t.accentText,
+      fontWeight: FontWeight.w700,
+    );
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Text.rich(
         key: const ValueKey('auth-consent-notice'),
         TextSpan(
           style: AppType.ui(
-            11.5,
+            12,
             weight: FontWeight.w500,
             color: t.ink2,
-            height: 1.4,
+            height: 1.5,
           ),
           children: [
             TextSpan(text: l10n.authConsentPrefix),

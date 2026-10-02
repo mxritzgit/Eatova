@@ -32,6 +32,11 @@ Duo, Food Thumb First, Recipe and Training Nachtstudio designs.
 
 ### Meal context
 
+> **Superseded 2026-10-02:** the meal-slot choice is now one inline segmented
+> control in every host (add, barcode, camera, manual and edit sheets) using
+> the `SlotIconTile` glyphs; the compact row with its separate choice sheet
+> is gone. See `docs/PROJECT_HANDOFF.md`, "Design polish, 2026-10-02".
+
 Add Meal and Barcode show the current meal in one compact context row. Tapping
 it opens a shared selection sheet with four generous rows, distinctive meal
 icons, a selected checkmark and clear labels. Dismissing the sheet keeps the

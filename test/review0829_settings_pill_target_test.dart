@@ -7,15 +7,17 @@
 // nothing. Project floor: 44 pt (AppToggle, pinned in
 // review0819_controls_toggle_target_test.dart).
 //
-// Three halves are tested here:
-//   1. the target reaches 44 px WITHOUT the painted capsule growing,
-//   2. the transparent margin really switches (opaque hit test) and the
-//      semantics node covers it too,
+// Since the 2026-10-02 polish the settings page renders the pills
+// `expanded: true`: a recessed track with full-width segments, each at least
+// 48 px tall, stacking one per line at large text. Tested here:
+//   1. every segment of that shipped pill is a 48 px target, at 1.0 on a
+//      phone row and at 2.0 on a narrow one,
+//   2. a tap at the segment's top edge switches, and the semantics node
+//      (button, selected) covers the whole target,
 //   3. the row DELIBERATELY has no `onTap`. A two-state switch can toggle on
 //      a row tap; a three-way segment cannot — cycling System -> Hell ->
 //      Dunkel on a stray tap would be mystery meat, and on the language row
-//      it would silently reset the app language. The dead zone is closed from
-//      the other side instead: the pill now fills the row's content height.
+//      it would silently reset the app language.
 // ---------------------------------------------------------------------------
 
 import 'package:flutter/material.dart';
@@ -32,27 +34,33 @@ import 'support/harness.dart';
 
 const ValueKey<String> _pilleKey = ValueKey<String>('pille-unter-test');
 
-/// The pill on its own, left-aligned so it keeps its INTRINSIC size: pumped
-/// straight into the body it would inherit the screen's tight constraints and
-/// every measurement would read 800x600.
-Future<void> _pumpePille(WidgetTester tester, Widget pille) => pumpLocalized(
+/// The pill on its own at the width the settings row gives it ([breite]),
+/// top-left so it keeps its own height.
+Future<void> _pumpePille(
+  WidgetTester tester,
+  Widget pille, {
+  required double breite,
+  required double textScale,
+}) =>
+    pumpLocalized(
       tester,
       Align(
         alignment: Alignment.topLeft,
-        child: KeyedSubtree(key: _pilleKey, child: pille),
+        child: SizedBox(
+          width: breite,
+          child: KeyedSubtree(key: _pilleKey, child: pille),
+        ),
       ),
       brightness: Brightness.light,
+      textScale: textScale,
     );
 
-/// The painted pill: first [DecoratedBox] of the subtree, i.e. the background
-/// layer of the Stack — the segments come after it.
-Finder _gemalteFlaeche() => find
-    .descendant(of: find.byKey(_pilleKey), matching: find.byType(DecoratedBox))
-    .first;
-
-/// The painted capsule of one segment.
-Finder _kapsel(Finder segment) =>
-    find.descendant(of: segment, matching: find.byType(AnimatedContainer));
+/// Row widths: a 390 pt phone at 1.0, and 236 px of a 320 pt phone at 2.0.
+const List<({double breite, double scale})> _groessen =
+    <({double breite, double scale})>[
+  (breite: 335, scale: 1.0),
+  (breite: 236, scale: 2.0),
+];
 
 /// Settings page with BOTH scopes above the MaterialApp — the page is pushed
 /// as a route, so a scope inside `home` would not be an ancestor of it.
@@ -99,82 +107,102 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
   group('Die Segmente der Einstellungs-Pillen', () {
-    for (final fall in <({String zeile, String segment, Object? wert})>[
+    for (final fall in <({String zeile, List<String> segmente, Object? wert})>[
       (
         zeile: 'Erscheinungsbild',
-        segment: 'settings-theme-mode-dark',
+        segmente: <String>[
+          'settings-theme-mode-system',
+          'settings-theme-mode-light',
+          'settings-theme-mode-dark',
+        ],
         wert: ThemeMode.dark,
       ),
       (
         zeile: 'Sprache',
-        segment: 'settings-language-en',
+        segmente: <String>[
+          'settings-language-system',
+          'settings-language-de',
+          'settings-language-en',
+        ],
         wert: const Locale('en'),
       ),
     ]) {
+      // As the settings screen builds them: `expanded: true`.
       Widget bauen(List<Object?> senke) => fall.wert is Locale
-          ? SettingsLanguagePill(value: null, onChanged: senke.add)
+          ? SettingsLanguagePill(
+              value: null,
+              expanded: true,
+              onChanged: senke.add,
+            )
           : SettingsThemeModePill(
               mode: ThemeMode.system,
+              expanded: true,
               onChanged: senke.add,
             );
 
-      testWidgets('${fall.zeile}: 44 px Ziel, ohne dass die Kapsel waechst',
-          (tester) async {
-        await _pumpePille(tester, bauen(<Object?>[]));
+      for (final g in _groessen) {
+        final groesse = '${g.breite.toInt()} px, ${g.scale}x';
 
-        final segment = find.byKey(ValueKey<String>(fall.segment));
-        expect(
-          tester.getSize(segment).height,
-          greaterThanOrEqualTo(44.0),
-          reason: '22 px sind kein Fingerziel',
-        );
+        testWidgets('${fall.zeile} ($groesse): jedes Segment ist ein '
+            '48-px-Ziel', (tester) async {
+          await _pumpePille(tester, bauen(<Object?>[]),
+              breite: g.breite, textScale: g.scale);
 
-        // The optics stay compact: the drawn capsule keeps its ~22 px, and
-        // the pill keeps exactly the 3 px gutter it had around it.
-        final kapselHoehe = tester.getSize(_kapsel(segment)).height;
-        expect(kapselHoehe, lessThan(28.0),
-            reason: 'die gemalte Kapsel darf NICHT mitwachsen');
-        expect(
-          tester.getSize(_gemalteFlaeche()).height,
-          closeTo(kapselHoehe + 6, 0.01),
-          reason: 'die Pille bleibt Kapsel + 2x3 px Saum hoch',
-        );
-      });
+          for (final key in fall.segmente) {
+            final segment = tester.getRect(find.byKey(ValueKey<String>(key)));
+            expect(segment.height,
+                greaterThanOrEqualTo(kMinInteractiveDimension),
+                reason: '$key: kein Fingerziel unter 48 px');
+            expect(segment.width,
+                greaterThanOrEqualTo(kMinInteractiveDimension),
+                reason: '$key: kein Fingerziel unter 48 px');
+          }
+          expect(tester.takeException(), isNull);
+        });
 
-      testWidgets('${fall.zeile}: der durchsichtige Saum schaltet mit',
-          (tester) async {
-        final senke = <Object?>[];
-        await _pumpePille(tester, bauen(senke));
+        testWidgets('${fall.zeile} ($groesse): die Oberkante schaltet mit',
+            (tester) async {
+          final senke = <Object?>[];
+          await _pumpePille(tester, bauen(senke),
+              breite: g.breite, textScale: g.scale);
 
-        final segment = find.byKey(ValueKey<String>(fall.segment));
-        final ziel = tester.getRect(segment);
-        final kapsel = tester.getRect(_kapsel(segment));
-        final punkt = Offset(ziel.center.dx, ziel.top + 2);
-        expect(kapsel.contains(punkt), isFalse,
-            reason: 'der Tippunkt muss AUSSERHALB der gemalten Kapsel liegen, '
-                'sonst misst der Test nur die Kapsel');
+          final ziel = tester.getRect(
+            find.byKey(ValueKey<String>(fall.segmente.last)),
+          );
+          await tester.tapAt(Offset(ziel.center.dx, ziel.top + 2));
+          await tester.pumpAndSettle();
 
-        await tester.tapAt(punkt);
-        await tester.pumpAndSettle();
+          expect(senke, <Object?>[fall.wert]);
+        });
 
-        expect(senke, <Object?>[fall.wert]);
-      });
+        testWidgets('${fall.zeile} ($groesse): der Semantik-Knoten deckt das '
+            'Ziel', (tester) async {
+          // Screen readers and switch access aim at the NODE, not at the hit
+          // test. `dispose` inline, not via addTearDown: the framework checks
+          // for leaked handles BEFORE the tear-downs run.
+          final handle = tester.ensureSemantics();
 
-      testWidgets('${fall.zeile}: auch der Semantik-Knoten ist 44 px hoch',
-          (tester) async {
-        // Screen readers and switch access aim at the NODE, not at the hit
-        // test — a 44 px target with a 22 px node is only half a fix.
-        // `dispose` inline, not via addTearDown: the framework checks for
-        // leaked handles BEFORE the tear-downs run.
-        final handle = tester.ensureSemantics();
+          await _pumpePille(tester, bauen(<Object?>[]),
+              breite: g.breite, textScale: g.scale);
 
-        await _pumpePille(tester, bauen(<Object?>[]));
-
-        final knoten =
-            tester.getSemantics(find.byKey(ValueKey<String>(fall.segment)));
-        expect(knoten.rect.height, greaterThanOrEqualTo(44.0));
-        handle.dispose();
-      });
+          for (final (i, key) in fall.segmente.indexed) {
+            final knoten = tester.getSemantics(find.byKey(ValueKey<String>(key)));
+            expect(
+              knoten,
+              isSemantics(
+                isButton: true,
+                isSelected: i == 0,
+                hasTapAction: true,
+              ),
+              reason: key,
+            );
+            expect(knoten.rect.height,
+                greaterThanOrEqualTo(kMinInteractiveDimension),
+                reason: key);
+          }
+          handle.dispose();
+        });
+      }
     }
   });
 
@@ -201,9 +229,12 @@ void main() {
               'blindes Durchschalten der Sprache waere schlimmer als nichts',
         );
 
-        // Tapping the label really changes nothing.
-        final rect = tester.getRect(zeile);
-        await tester.tapAt(Offset(rect.left + 24, rect.top + 24));
+        // Tapping the row's title really changes nothing.
+        final titel =
+            find.descendant(of: zeile, matching: find.byType(Text)).first;
+        await tester.ensureVisible(titel);
+        await tester.pumpAndSettle();
+        await tester.tap(titel);
         await tester.pumpAndSettle();
       }
 
@@ -211,11 +242,10 @@ void main() {
       expect(c.sprache.override, isNull);
     });
 
-    testWidgetsRobust('ueber der Kapsel liegt jetzt das Segment, nicht Leere',
+    testWidgetsRobust('das Segment schaltet bis an seine Oberkante',
         (tester) async {
-      // That is the answer to "tapping beside it does nothing": the segment
-      // now spans the row's whole content height, so the vertical dead zone
-      // between capsule and row edge is gone.
+      // On the real page: the shipped segment is 48 px tall and a tap at its
+      // top edge, not only on the label, switches the mode.
       final c = _controllers();
       await _oeffneEinstellungen(tester, c);
 

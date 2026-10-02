@@ -137,6 +137,10 @@ Finder _summe(String kcal) => find.descendant(
     );
 
 Future<void> _fuegeHinzu(WidgetTester tester, String kachel, String knopf) async {
+  // The inline slot control and the entry card push favourites below the
+  // first viewport.
+  await tester.ensureVisible(find.byKey(ValueKey(kachel)));
+  await tester.pumpAndSettle();
   await tester.tap(find.byKey(ValueKey(kachel)));
   await tester.pumpAndSettle();
   final add = find.byKey(ValueKey(knopf));

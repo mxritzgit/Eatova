@@ -23,10 +23,12 @@ import '../../services/open_food_facts_product_service.dart';
 import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
 import '../common/app_snack.dart';
+import '../common/lively.dart';
 import '../common/motion.dart';
 import '../design/design.dart';
 import 'edit_meal_sheet.dart';
 import 'existing_meals_list.dart';
+import 'food_glyphs.dart';
 import 'favorites_sheet.dart';
 import 'manual_meal_sheet.dart';
 import 'meal_analysis_sheet.dart';
@@ -1046,7 +1048,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
     final body = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const _SheetHandle(),
+        const SheetHandle(padding: EdgeInsets.only(top: 10, bottom: 2)),
         _SheetHeader(
           slot: _selectedSlot,
           foodDate: widget.foodDate ?? clock.now(),
@@ -1072,16 +1074,16 @@ class _AddMealSheetState extends State<AddMealSheet> {
             controller: _scrollController,
             padding: EdgeInsets.fromLTRB(
               20,
-              12,
+              14,
               20,
               28 + mediaQuery.viewPadding.bottom,
             ),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Padding(
                   key: const ValueKey('add-meal-slot-select'),
-                  padding: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.only(bottom: _kBlockGap),
                   child: MealSlotPicker(
                     selected: _selectedSlot,
                     onSelected: _selectSlot,
@@ -1091,16 +1093,18 @@ class _AddMealSheetState extends State<AddMealSheet> {
                 // active; after that the contextual CTA under "nothing
                 // found" takes over (_buildSearchResults).
                 if (!searchActive) ...[
-                  if (!widget.searchMode) ...[
+                  // Manual entry joins the entry-method card; the search
+                  // mode has no method card, so it keeps its own row.
+                  if (widget.searchMode)
+                    _ManualEntryRow(onTap: () => _openManualEntry())
+                  else
                     MealEntryMethods(
                       onCamera: () => _pickAndAnalyze(ImageSource.camera),
                       onGallery: () => _pickAndAnalyze(ImageSource.gallery),
                       onBarcode: _scanBarcode,
+                      onManual: () => _openManualEntry(),
                     ),
-                    const SizedBox(height: 10),
-                  ],
-                  _ManualEntryRow(onTap: () => _openManualEntry()),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: _kSectionGap),
                 ],
                 if (_slotMeals.isNotEmpty) ...[
                   ExistingMealsList(
@@ -1116,7 +1120,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
                         ? null
                         : _editExisting,
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: _kSectionGap),
                 ],
                 if (searchActive)
                   _buildSearchResults()
@@ -1139,80 +1143,99 @@ class _AddMealSheetState extends State<AddMealSheet> {
     // SnackHost INSIDE the ground color: the sheet stays open after adds and
     // deletes, so its toasts (and the store's undo) render above the scrim,
     // in a strip the host reserves below the content.
+    //
+    // `measureToast`: the content scrolls down to the screen edge, so the
+    // strip sits on the home indicator. Its Scaffold lifts a floating toast
+    // above that inset; the measured reserve counts the inset too, the fixed
+    // one did not and the toast was pushed off the strip ("Floating SnackBar
+    // presented off screen" on every add, found 2026-10-02).
     return Padding(
       padding: EdgeInsets.only(bottom: keyboardInset),
       child: Container(
         key: const ValueKey('add-meal-sheet'),
         constraints: BoxConstraints(maxHeight: maxHeight),
+        // The page ground plus the same 1 px edge as every Eatova sheet
+        // (`showEatovaSheet`): cards inside read exactly like the Food tab's.
         decoration: BoxDecoration(
           color: t.bg,
           borderRadius: const BorderRadius.vertical(
             top: Radius.circular(rSheet),
           ),
+          border: Border.all(color: t.lineStrong),
         ),
-        child: SnackHost(child: body),
+        child: SnackHost(measureToast: true, child: body),
       ),
     );
   }
 
   Widget _buildSearchResults() {
+    final l10n = context.l10n;
     if (_isSearchingProducts && _productSuggestions.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 24),
-        child: Column(
-          children: [
-            SizedBox(
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _SectionLabel(
+            l10n.ingredientSearching,
+            trailing: SizedBox(
               key: const ValueKey('product-search-spinner'),
-              width: 22,
-              height: 22,
+              width: 16,
+              height: 16,
               child: CircularProgressIndicator(
                 strokeWidth: 2,
                 color: context.t.accent,
               ),
             ),
-            // Same gesture as the photo scan: after
-            // [_productSearchSlowAfter] the wait gets a name and a way out.
-            if (_searchIsSlow) ...[
-              const SizedBox(height: 12),
-              _SearchSlowHint(onCancel: _cancelProductSearch),
-            ],
+          ),
+          const SizedBox(height: _kLabelGap),
+          const _SkeletonGroup(),
+          // Same gesture as the photo scan: after
+          // [_productSearchSlowAfter] the wait gets a name and a way out.
+          if (_searchIsSlow) ...[
+            const SizedBox(height: 12),
+            _SearchSlowHint(onCancel: _cancelProductSearch),
           ],
-        ),
+        ],
       );
     }
     if (_productSuggestions.isEmpty && _productSearchMessage != null) {
-      return Column(
-        children: [
-          _HintBlock(text: _productSearchMessage!),
-          if (_offerManualEntry)
+      final message = _productSearchMessage!;
+      return _CalmState(
+        icon: _searchCameUpEmpty
+            ? Icons.search_off_rounded
+            : _searchGaveUp
+            ? Icons.hourglass_empty_rounded
+            : message == l10n.foodSearchMinCharsHint
+            ? Icons.keyboard_rounded
+            : Icons.cloud_off_rounded,
+        text: message,
+        action: _offerManualEntry
             // Definitively nothing found, or the search gave up -> straight
             // into the form, with the query prefilled as the name.
-            TextButton.icon(
-              key: const ValueKey('manual-entry-cta'),
-              onPressed: () =>
-                  _openManualEntry(initialName: _searchController.text.trim()),
-              icon: const Icon(Icons.edit_rounded, size: 18),
-              label: Text(context.l10n.foodManualEntryCta),
-            ),
-        ],
+            ? _TintedPillButton(
+                key: const ValueKey('manual-entry-cta'),
+                icon: Icons.edit_rounded,
+                label: l10n.foodManualEntryCta,
+                onTap: () => _openManualEntry(
+                  initialName: _searchController.text.trim(),
+                ),
+              )
+            : null,
       );
     }
     if (_productSuggestions.isEmpty) {
       return const SizedBox.shrink();
     }
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          context.l10n.foodSectionSearchResults,
-          style: AppType.display(22, color: context.t.ink),
+        _SectionLabel(l10n.foodSectionSearchResults),
+        const SizedBox(height: _kLabelGap),
+        SavedMealCollection(
+          children: [
+            for (var i = 0; i < _productSuggestions.length; i++)
+              _suggestionItem(i),
+          ],
         ),
-        const SizedBox(height: 8),
-        for (var i = 0; i < _productSuggestions.length; i++) ...[
-          _suggestionItem(i),
-          if (i != _productSuggestions.length - 1)
-            Divider(height: 1, indent: 8, endIndent: 8, color: context.t.line),
-        ],
       ],
     );
   }
@@ -1225,7 +1248,6 @@ class _AddMealSheetState extends State<AddMealSheet> {
       productPresentation: true,
       result: suggestion.result,
       imageUrl: suggestion.imageUrl,
-      fallbackIcon: Icons.fastfood_outlined,
       expanded: _expandedItemKey == key,
       justAdded: _justAddedKeys.contains(key),
       onTap: () => _toggleExpanded(key),
@@ -1260,34 +1282,34 @@ class _AddMealSheetState extends State<AddMealSheet> {
     final inline = pinned.take(kInlineFavoritesCount).toList(growable: false);
     final recents = _recents;
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (inline.isNotEmpty) ...[
-          Row(
-            children: [
-              Expanded(child: _SectionLabel(context.l10n.foodSectionFavorites)),
-              _FavoritesAllButton(
-                count: pinnedCount,
-                onTap: _openFavoritesSheet,
-              ),
-            ],
+          _SectionLabel(
+            context.l10n.foodSectionFavorites,
+            trailing: _FavoritesAllButton(
+              count: pinnedCount,
+              onTap: _openFavoritesSheet,
+            ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: _kLabelGap),
           SavedMealCollection(
             children: [
               for (var i = 0; i < inline.length; i++)
                 _favoriteItem(inline[i], i, pinned: true),
             ],
           ),
-          if (recents.isNotEmpty) const SizedBox(height: 18),
+          if (recents.isNotEmpty) const SizedBox(height: _kSectionGap),
         ],
         if (recents.isNotEmpty) ...[
           _SectionLabel(context.l10n.foodSectionRecentMeals),
-          const SizedBox(height: 8),
-          for (var i = 0; i < recents.length; i++) ...[
-            _favoriteItem(recents[i], i, pinned: false),
-            if (i != recents.length - 1) const SizedBox(height: 8),
-          ],
+          const SizedBox(height: _kLabelGap),
+          SavedMealCollection(
+            children: [
+              for (var i = 0; i < recents.length; i++)
+                _favoriteItem(recents[i], i, pinned: false),
+            ],
+          ),
         ],
       ],
     );
@@ -1309,7 +1331,6 @@ class _AddMealSheetState extends State<AddMealSheet> {
       key: ValueKey(tileKey),
       savedPresentation: pinned,
       result: favorite.result,
-      fallbackIcon: pinned ? Icons.favorite_rounded : Icons.history_rounded,
       expanded: _expandedItemKey == key,
       justAdded: _justAddedKeys.contains(key),
       onTap: () => _toggleExpanded(key),
@@ -1418,26 +1439,19 @@ class _AddMealSheetState extends State<AddMealSheet> {
   }
 }
 
+// ─── Layout rhythm ──────────────────────────────────────────────────────
+
+/// Gap between blocks of one group (slot picker, entry methods, manual row).
+const double _kBlockGap = 12;
+
+/// Gap before a new section (already added, favorites, recents, results).
+const double _kSectionGap = 20;
+
+/// Gap between a section label row and its card. The label row itself is
+/// 48 px tall (the "All (N)" target), so the text keeps ~16 px of air.
+const double _kLabelGap = 0;
+
 // ─── Header ─────────────────────────────────────────────────────────────
-
-class _SheetHandle extends StatelessWidget {
-  const _SheetHandle();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 10, bottom: 6),
-      child: Container(
-        width: 40,
-        height: 4,
-        decoration: BoxDecoration(
-          color: context.t.line,
-          borderRadius: BorderRadius.circular(rPill),
-        ),
-      ),
-    );
-  }
-}
 
 class _SheetHeader extends StatelessWidget {
   const _SheetHeader({
@@ -1460,9 +1474,9 @@ class _SheetHeader extends StatelessWidget {
     final l10n = context.l10n;
     final date = MaterialLocalizations.of(context).formatMediumDate(foodDate);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 12, 16),
+      padding: const EdgeInsets.fromLTRB(20, 8, 16, 16),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(
             child: Column(
@@ -1473,26 +1487,70 @@ class _SheetHeader extends StatelessWidget {
                     level: 1,
                     child: Text(
                       searchMode ? l10n.foodSearchModeTitle : l10n.todayAddMeal,
-                      style: AppType.display(24, color: t.ink, height: 1.15),
+                      style: AppType.display(28, color: t.ink, height: 1.1),
+                      textScaler: AppType.pageTitleScaler(context),
                     ),
                   ),
                   const SizedBox(height: 6),
                 ],
-                Text(
-                  '$date · ${slot.label(l10n)}',
-                  key: const ValueKey('add-meal-date-context'),
-                  style: AppType.ui(13, color: t.ink2, height: 1.4),
+                // The diary day and the target slot, with the slot's own
+                // color as a dot — the same identity as the Food tab's tiles.
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Centered on the FIRST line, also when the line wraps
+                    // at large text.
+                    SizedBox(
+                      height: MediaQuery.textScalerOf(context).scale(13.5) * 1.3,
+                      child: Center(
+                        child: ExcludeSemantics(
+                          child: Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: slot.accentIn(context),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        '$date · ${slot.label(l10n)}',
+                        key: const ValueKey('add-meal-date-context'),
+                        style: AppType.ui(
+                          13.5,
+                          weight: FontWeight.w600,
+                          color: t.ink2,
+                          height: 1.3,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 8),
-          IconButton(
-            key: const ValueKey('add-meal-sheet-close'),
-            onPressed: onClose,
-            tooltip: l10n.commonClose,
-            style: IconButton.styleFrom(backgroundColor: t.surf2),
-            icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
+          const SizedBox(width: 12),
+          // The Food tab's round header button (card fill, strong outline),
+          // drawn at 44 inside Material's 48 px touch target.
+          PressScale(
+            child: IconButton(
+              key: const ValueKey('add-meal-sheet-close'),
+              onPressed: onClose,
+              tooltip: l10n.commonClose,
+              style: IconButton.styleFrom(
+                backgroundColor: t.surf,
+                foregroundColor: t.inkMuted,
+                fixedSize: const Size.square(44),
+                minimumSize: const Size.square(44),
+                padding: EdgeInsets.zero,
+                shape: CircleBorder(side: BorderSide(color: t.lineStrong)),
+              ),
+              icon: const Icon(Icons.close_rounded, size: 20),
+            ),
           ),
         ],
       ),
@@ -1502,8 +1560,10 @@ class _SheetHeader extends StatelessWidget {
 
 // ─── Search bar ─────────────────────────────────────────────────────────
 
-/// Borderless soft capsule ([FieldCapsule]): rest `field`, focus `fieldFocus`,
-/// no hairline, no focus ring.
+/// The Food tab's "Search food or meals" capsule, made real: 54 px pill on a
+/// [FieldCapsule] (rest `field`, focus `fieldFocus`, no hairline, no ring),
+/// the dock's search glyph in front and a round accent search button at the
+/// end. Focus also tints the glyph, a second cue next to the fill change.
 class _SearchBar extends StatefulWidget {
   const _SearchBar({
     required this.controller,
@@ -1531,7 +1591,16 @@ class _SearchBarState extends State<_SearchBar> {
   final FocusNode _focus = FocusNode();
 
   @override
+  void initState() {
+    super.initState();
+    _focus.addListener(_onFocus);
+  }
+
+  void _onFocus() => setState(() {});
+
+  @override
   void dispose() {
+    _focus.removeListener(_onFocus);
     _focus.dispose();
     super.dispose();
   }
@@ -1539,23 +1608,29 @@ class _SearchBarState extends State<_SearchBar> {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
+    final l10n = context.l10n;
     return Padding(
       key: const ValueKey('kcal-product-search-card'),
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 4),
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
       child: FieldCapsule(
         focusNode: _focus,
+        shape: SheetFieldShape.pill,
         // Minimum, not fixed: at large system text the hint needs more than
-        // 46 pt and would hang out of a fixed capsule (review F3-05).
-        constraints: const BoxConstraints(minHeight: 46),
-        padding: EdgeInsets.zero,
+        // the dock's 54 px and would hang out of a fixed capsule (F3-05).
+        constraints: const BoxConstraints(minHeight: 54),
+        padding: const EdgeInsets.only(left: 18, right: 7),
         child: Row(
           children: [
+            FoodGlyphIcon(
+              FoodGlyph.search,
+              // Grows with the query text instead of shrinking beside it.
+              size: scaledWidth(context, 20),
+              color: _focus.hasFocus ? t.accentText : t.ink2,
+            ),
             const SizedBox(width: 12),
-            Icon(Icons.search_rounded, size: 18, color: t.ink2),
-            const SizedBox(width: 8),
             Expanded(
               child: Semantics(
-                label: context.l10n.foodSearchModeTitle,
+                label: l10n.foodSearchModeTitle,
                 child: TextField(
                   key: const ValueKey('kcal-product-search-input'),
                   controller: widget.controller,
@@ -1569,20 +1644,16 @@ class _SearchBarState extends State<_SearchBar> {
                   onChanged: widget.onChanged,
                   onSubmitted: widget.onSubmitted,
                   textInputAction: TextInputAction.search,
-                  style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
+                  style: AppType.ui(16, weight: FontWeight.w600, color: t.ink),
                   decoration: InputDecoration(
-                    hintText: context.l10n.foodSearchInputHint,
-                    hintStyle: AppType.ui(
-                      14,
-                      weight: FontWeight.w500,
-                      color: t.ink2,
-                    ),
+                    hintText: l10n.foodSearchInputHint,
+                    hintStyle: AppType.ui(16, color: t.ink2),
                     isCollapsed: true,
                     border: InputBorder.none,
                     enabledBorder: InputBorder.none,
                     focusedBorder: InputBorder.none,
                     filled: false,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 14),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 16),
                   ),
                 ),
               ),
@@ -1593,29 +1664,27 @@ class _SearchBarState extends State<_SearchBar> {
                   ? const SizedBox.shrink()
                   : IconButton(
                       key: const ValueKey('kcal-product-search-clear'),
-                      tooltip: context.l10n.foodSearchClear,
+                      tooltip: l10n.foodSearchClear,
                       onPressed: widget.onClear,
                       icon: Icon(Icons.close_rounded, color: t.ink2, size: 19),
                     ),
             ),
             IconButton(
               key: const ValueKey('kcal-product-search-button'),
-              tooltip: context.l10n.foodSearchButtonTooltip,
+              tooltip: l10n.foodSearchButtonTooltip,
               onPressed: widget.isSearching ? null : widget.onSearchPressed,
-              icon: widget.isSearching
-                  ? SizedBox(
-                      height: 16,
-                      width: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: t.accent,
-                      ),
-                    )
-                  : Icon(
-                      Icons.arrow_forward_rounded,
-                      size: 18,
-                      color: t.accent,
-                    ),
+              style: IconButton.styleFrom(
+                backgroundColor: t.accentTint,
+                disabledBackgroundColor: t.accentTint,
+                foregroundColor: t.accentText,
+                disabledForegroundColor: t.accentText.withValues(alpha: 0.45),
+                fixedSize: const Size.square(40),
+                minimumSize: const Size.square(40),
+                padding: EdgeInsets.zero,
+              ),
+              // While a search runs the button rests dimmed; the one spinner
+              // sits in the results zone, next to "Searching products…".
+              icon: const Icon(Icons.arrow_forward_rounded, size: 20),
             ),
           ],
         ),
@@ -1624,25 +1693,44 @@ class _SearchBarState extends State<_SearchBar> {
   }
 }
 
-// ─── Empty / hint / labels ──────────────────────────────────────────────
+// ─── Sections ───────────────────────────────────────────────────────────
 
+/// The tabs' small uppercase tracked label ("LOGGED", "LEFT TODAY") as a
+/// section head, with an optional action on the right. The row is 48 px
+/// tall so a trailing button keeps its touch target without shifting the
+/// rhythm between sections with and without one.
 class _SectionLabel extends StatelessWidget {
-  const _SectionLabel(this.text);
+  const _SectionLabel(this.text, {this.trailing});
 
   final String text;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
-    return HeadingSemantics(
-      level: 2,
-      child: Text(text, style: AppType.display(17, color: context.t.ink)),
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 48),
+      child: Row(
+        children: [
+          Expanded(
+            child: HeadingSemantics(
+              level: 2,
+              child: Text(
+                text.toUpperCase(),
+                semanticsLabel: text,
+                style: AppType.sectionEyebrow(context.t.ink2),
+              ),
+            ),
+          ),
+          if (trailing != null) ...[const SizedBox(width: 12), trailing!],
+        ],
+      ),
     );
   }
 }
 
 /// "All (N)" link on the favorites section head (feature 2026-08-27). Bare
 /// accent text plus chevron, no capsule: it sits beside an eyebrow label and
-/// must not compete with the tiles. The 44 pt minimum keeps the tap target.
+/// must not compete with the rows. The 48 px minimum keeps the tap target.
 class _FavoritesAllButton extends StatelessWidget {
   const _FavoritesAllButton({required this.count, required this.onTap});
 
@@ -1665,8 +1753,8 @@ class _FavoritesAllButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(rPill),
         onTap: onTap,
         child: Container(
-          constraints: const BoxConstraints(minHeight: 44),
-          padding: const EdgeInsets.only(left: 10, right: 2),
+          constraints: const BoxConstraints(minHeight: 48),
+          padding: const EdgeInsets.only(left: 12, right: 4),
           alignment: Alignment.centerRight,
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -1674,13 +1762,17 @@ class _FavoritesAllButton extends StatelessWidget {
               Text(
                 label,
                 style: AppType.ui(
-                  12.5,
-                  weight: FontWeight.w600,
-                  color: t.accent,
+                  13.5,
+                  weight: FontWeight.w700,
+                  color: t.accentText,
                 ),
               ),
-              const SizedBox(width: 2),
-              Icon(Icons.chevron_right_rounded, size: 18, color: t.accent),
+              const SizedBox(width: 4),
+              FoodGlyphIcon(
+                FoodGlyph.chevronRight,
+                size: 16,
+                color: t.accentText,
+              ),
             ],
           ),
         ),
@@ -1689,7 +1781,63 @@ class _FavoritesAllButton extends StatelessWidget {
   }
 }
 
-/// A quiet, labeled alternative to photo and product lookup.
+/// Placeholder rows while the first search answer is on its way: the shape
+/// of the result card, so the answer replaces it without a jump. Static on
+/// purpose — the spinner in the label already says "working".
+class _SkeletonGroup extends StatelessWidget {
+  const _SkeletonGroup();
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    Widget bar(double widthFactor, double height) => FractionallySizedBox(
+      alignment: Alignment.centerLeft,
+      widthFactor: widthFactor,
+      child: Container(
+        height: height,
+        decoration: BoxDecoration(
+          color: t.tile,
+          borderRadius: BorderRadius.circular(rPill),
+        ),
+      ),
+    );
+    // The row geometry of the result rows: 64 tall, 14 inset, 40 tile.
+    Widget row(double nameWidth, double metaWidth) => Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: t.tile,
+              borderRadius: BorderRadius.circular(rChip),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                bar(nameWidth, 12),
+                const SizedBox(height: 9),
+                bar(metaWidth, 10),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+    return ExcludeSemantics(
+      child: SavedMealCollection(
+        children: [row(0.62, 0.34), row(0.48, 0.3), row(0.7, 0.38)],
+      ),
+    );
+  }
+}
+
+/// A quiet, labeled alternative to photo and product lookup: one row card
+/// with the accent icon tile, the label and what the form does.
 class _ManualEntryRow extends StatelessWidget {
   const _ManualEntryRow({required this.onTap});
 
@@ -1698,29 +1846,73 @@ class _ManualEntryRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(rControl),
-      child: InkWell(
-        key: const ValueKey('manual-entry-button'),
-        borderRadius: BorderRadius.circular(rControl),
-        onTap: onTap,
-        child: Container(
-          // Grows with the label at large system text (review F3-05).
-          constraints: const BoxConstraints(minHeight: 46),
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 6),
-          child: Row(
-            children: [
-              Icon(Icons.edit_outlined, size: 18, color: t.accent),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  context.l10n.foodManualEntryCta,
-                  style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
+    final l10n = context.l10n;
+    return PressScale(
+      scale: kPressScaleCard,
+      child: Material(
+        color: t.surf,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(rCard),
+          side: BorderSide(color: t.cardBorder),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: const ValueKey('manual-entry-button'),
+          onTap: onTap,
+          child: Container(
+            // Grows with the label at large system text (review F3-05).
+            constraints: const BoxConstraints(minHeight: 64),
+            // The row geometry of the entry-method rows right above it
+            // (`meal_entry_methods.dart`): 16 inset, 40 tile, 14 gap.
+            padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+            child: Row(
+              children: [
+                ExcludeSemantics(
+                  child: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: t.tile,
+                      borderRadius: BorderRadius.circular(rChip),
+                    ),
+                    child: Icon(
+                      Icons.edit_rounded,
+                      size: 20,
+                      color: t.accentText,
+                    ),
+                  ),
                 ),
-              ),
-              Icon(Icons.chevron_right_rounded, size: 20, color: t.ink2),
-            ],
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l10n.foodManualEntryCta,
+                        style: AppType.ui(
+                          15,
+                          weight: FontWeight.w600,
+                          color: t.ink,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        l10n.foodManualEntryHint,
+                        style: AppType.ui(12.5, color: t.ink2, height: 1.3),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ExcludeSemantics(
+                  child: Icon(
+                    Icons.chevron_right_rounded,
+                    size: 22,
+                    color: t.ink3,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1728,14 +1920,16 @@ class _ManualEntryRow extends StatelessWidget {
   }
 }
 
-/// "Taking longer" line plus cancel, shown under the search spinner once
+// ─── Hints and empty state ──────────────────────────────────────────────
+
+/// "Taking longer" line plus cancel, shown under the search skeleton once
 /// `_AddMealSheetState._productSearchSlowAfter` passed.
 ///
-/// Deliberately the same shape and the same ARB key as `_SlowHint` in
-/// `meal_analysis_sheet.dart`: one wording for "this is taking a while", so
-/// the photo scan and the product search speak with one voice. Its own widget
-/// rather than a shared one — the analysis sheet's version sits under a
-/// loading CARD and carries that card's insets.
+/// Deliberately the same ARB key as `_SlowHint` in `meal_analysis_sheet.dart`:
+/// one wording for "this is taking a while", so the photo scan and the
+/// product search speak with one voice. Its own widget rather than a shared
+/// one — the analysis sheet's version sits under a loading CARD and carries
+/// that card's insets.
 class _SearchSlowHint extends StatelessWidget {
   const _SearchSlowHint({required this.onCancel});
 
@@ -1752,12 +1946,14 @@ class _SearchSlowHint extends StatelessWidget {
         Flexible(
           child: Text(
             l10n.foodAnalysisSlowHint,
-            style: AppType.ui(12.5, weight: FontWeight.w500, color: t.ink2),
+            style: AppType.ui(13, weight: FontWeight.w500, color: t.ink2),
           ),
         ),
+        const SizedBox(width: 4),
         TextButton(
           key: const ValueKey('product-search-cancel'),
           onPressed: onCancel,
+          style: TextButton.styleFrom(foregroundColor: t.accentText),
           child: Text(l10n.commonCancel),
         ),
       ],
@@ -1765,23 +1961,97 @@ class _SearchSlowHint extends StatelessWidget {
   }
 }
 
-class _HintBlock extends StatelessWidget {
-  const _HintBlock({required this.text});
+/// The sheet's one shape for "nothing to show here": an icon tile, one line
+/// of guidance and at most one way forward.
+class _CalmState extends StatelessWidget {
+  const _CalmState({
+    required this.icon,
+    required this.text,
+    this.title,
+    this.action,
+  });
 
+  final IconData icon;
   final String text;
+  final String? title;
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 18),
-      child: Text(
-        text,
-        textAlign: TextAlign.center,
-        style: AppType.ui(
-          13,
-          weight: FontWeight.w500,
-          color: context.t.ink2,
-          height: 1.4,
+      padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+      child: Column(
+        children: [
+          IconTile.custom(
+            size: 48,
+            child: Icon(icon, size: 22, color: t.ink2),
+          ),
+          const SizedBox(height: 14),
+          if (title != null) ...[
+            Text(
+              title!,
+              textAlign: TextAlign.center,
+              style: AppType.ui(15, weight: FontWeight.w700, color: t.ink),
+            ),
+            const SizedBox(height: 4),
+          ],
+          Text(
+            text,
+            textAlign: TextAlign.center,
+            style: AppType.ui(13.5, color: t.ink2, height: 1.4),
+          ),
+          if (action != null) ...[const SizedBox(height: 16), action!],
+        ],
+      ),
+    );
+  }
+}
+
+/// Accent-tinted pill for the one secondary action of a [_CalmState].
+class _TintedPillButton extends StatelessWidget {
+  const _TintedPillButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return PressScale(
+      child: Material(
+        color: t.accentTint,
+        shape: const StadiumBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 48),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 18, color: t.accentText),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    label,
+                    style: AppType.ui(
+                      14,
+                      weight: FontWeight.w700,
+                      color: t.accentText,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );
@@ -1793,32 +2063,11 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.t;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.history_rounded, color: t.ink2, size: 24),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  context.l10n.foodEntryEmptyTitle,
-                  style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  context.l10n.foodEntryEmptyHint,
-                  style: AppType.ui(13, color: t.ink2, height: 1.4),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+    final l10n = context.l10n;
+    return _CalmState(
+      icon: Icons.history_rounded,
+      title: l10n.foodEntryEmptyTitle,
+      text: l10n.foodEntryEmptyHint,
     );
   }
 }

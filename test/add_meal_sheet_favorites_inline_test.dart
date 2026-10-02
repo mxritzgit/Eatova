@@ -182,7 +182,7 @@ void main() {
     ]);
 
     expect(_alleKnopf(), findsNothing);
-    expect(find.text('Favoriten'), findsNothing);
+    expect(find.text('FAVORITEN'), findsNothing);
     expect(_inlineKachel(0), findsNothing);
     // Recents keep their keys and their incoming order.
     expect(find.byKey(const ValueKey('favorite-tile-0')), findsOneWidget);

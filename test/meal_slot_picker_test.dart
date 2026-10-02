@@ -20,160 +20,158 @@ Future<void> _fonts() async {
   }
 }
 
+Finder _slot(MealSlot slot) => find.byKey(ValueKey('slot-select-${slot.name}'));
+
 void main() {
   for (final brightness in Brightness.values) {
     for (final locale in [const Locale('de'), const Locale('en')]) {
-      testWidgets(
-        'choices remain reachable with real fonts, keyboard and 2x text: $brightness $locale',
-        (tester) async {
-          await _fonts();
-          tester.view.physicalSize = const Size(320, 852);
-          tester.view.devicePixelRatio = 1;
-          tester.view.viewPadding = const FakeViewPadding(top: 44, bottom: 24);
-          tester.view.viewInsets = const FakeViewPadding(bottom: 300);
-          addTearDown(tester.view.reset);
-          var selected = MealSlot.lunch;
-          final choices = <MealSlot>[];
-          final semantics = tester.ensureSemantics();
-          await pumpLocalized(
-            tester,
-            StatefulBuilder(
-              builder: (context, setState) => MealSlotPicker(
-                selected: selected,
-                onSelected: (slot) => setState(() {
-                  selected = slot;
-                  choices.add(slot);
-                }),
+      for (final scale in [1.0, 2.0]) {
+        testWidgets(
+          'all four slots stay reachable inline with real fonts: '
+          '$brightness $locale x$scale',
+          (tester) async {
+            await _fonts();
+            tester.view.physicalSize = const Size(320, 852);
+            tester.view.devicePixelRatio = 1;
+            addTearDown(tester.view.reset);
+            var selected = MealSlot.lunch;
+            final choices = <MealSlot>[];
+            final semantics = tester.ensureSemantics();
+            await pumpLocalized(
+              tester,
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: StatefulBuilder(
+                  builder: (context, setState) => MealSlotPicker(
+                    selected: selected,
+                    onSelected: (slot) => setState(() {
+                      selected = slot;
+                      choices.add(slot);
+                    }),
+                  ),
+                ),
               ),
-            ),
-            brightness: brightness,
-            locale: locale,
-            textScale: 2,
-          );
-          final trigger = find.byKey(const ValueKey('slot-select-open'));
-          expect(tester.getSize(trigger).height, greaterThanOrEqualTo(48));
-          expect(find.byKey(const ValueKey('slot-select-lunch')), findsNothing);
-          final node = tester.getSemantics(trigger);
-          expect(
-            node.getSemanticsData().hasAction(SemanticsAction.tap),
-            isTrue,
-          );
-          tester.semantics.performAction(
-            find.semantics.byLabel(node.getSemanticsData().label),
-            SemanticsAction.tap,
-          );
-          await tester.pumpAndSettle();
-          final sheet = find.byKey(const ValueKey('slot-select-sheet'));
-          expect(tester.getRect(sheet).top, greaterThanOrEqualTo(44));
-          expect(tester.getRect(sheet).bottom, lessThanOrEqualTo(552));
-          for (final slot in MealSlot.values) {
-            final row = find.byKey(ValueKey('slot-select-${slot.name}'));
-            await tester.ensureVisible(row);
-            await tester.pumpAndSettle();
-            expect(row.hitTestable(), findsOneWidget);
-            expect(tester.getSize(row).height, greaterThanOrEqualTo(48));
-            final title = find
-                .descendant(of: row, matching: find.byType(Text))
-                .first;
-            final paragraph = tester.renderObject<RenderParagraph>(title);
-            final label = tester.widget<Text>(title).data!;
-            expect(
-              paragraph.getBoxesForSelection(
-                TextSelection(baseOffset: 0, extentOffset: label.length),
-              ),
-              hasLength(1),
-              reason: 'A meal name should not split mid-word.',
+              brightness: brightness,
+              locale: locale,
+              textScale: scale,
             );
-            final selectedSemantics = tester.widget<Semantics>(
-              find.ancestor(of: row, matching: find.byType(Semantics)).first,
-            );
-            expect(selectedSemantics.properties.selected, slot == selected);
-            for (final label
-                in find
-                    .descendant(of: row, matching: find.byType(Text))
-                    .evaluate()) {
-              final bounds = tester.getRect(find.byWidget(label.widget));
+            final group = find.byKey(const ValueKey('slot-select-group'));
+            final bounds = tester.getRect(group);
+            for (final slot in MealSlot.values) {
+              final segment = _slot(slot);
+              expect(segment.hitTestable(), findsOneWidget);
+              final rect = tester.getRect(segment);
+              expect(rect.height, greaterThanOrEqualTo(48));
+              expect(rect.width, greaterThanOrEqualTo(48));
+              // Inside the track's padding, never under its edge.
+              expect(bounds.deflate(4).contains(rect.topLeft), isTrue);
               expect(
-                bounds.right,
-                lessThanOrEqualTo(tester.getRect(row).right),
+                bounds.deflate(4).contains(
+                  rect.bottomRight - const Offset(0.01, 0.01),
+                ),
+                isTrue,
+              );
+              final title =
+                  find.descendant(of: segment, matching: find.byType(Text));
+              final paragraph = tester.renderObject<RenderParagraph>(title);
+              final label = tester.widget<Text>(title).data!;
+              expect(
+                paragraph.getBoxesForSelection(
+                  TextSelection(baseOffset: 0, extentOffset: label.length),
+                ),
+                hasLength(1),
+                reason: 'A meal name should not split mid-word.',
+              );
+              // One line without wrapping: the full text width must fit.
+              expect(
+                paragraph.getMaxIntrinsicWidth(double.infinity),
+                lessThanOrEqualTo(paragraph.size.width + 0.5),
+                reason: '$label must fit its segment',
               );
               expect(
-                bounds.bottom,
-                lessThanOrEqualTo(tester.getRect(row).bottom),
+                tester.getSemantics(segment),
+                isSemantics(
+                  isButton: true,
+                  isSelected: slot == selected,
+                  isInMutuallyExclusiveGroup: true,
+                  hasTapAction: true,
+                ),
               );
             }
-          }
-          await tester.tap(find.byKey(const ValueKey('slot-select-close')));
-          await tester.pumpAndSettle();
-          expect(choices, isEmpty);
-          expect(
-            tester.widget<MealSlotPicker>(find.byType(MealSlotPicker)).selected,
-            MealSlot.lunch,
-          );
-          await chooseMealSlot(tester, 'slot-select-snack');
-          expect(choices, [MealSlot.snack]);
-          expect(tester.takeException(), isNull);
-          semantics.dispose();
-        },
-      );
+            // Tapping the current slot is no choice.
+            await tester.tap(_slot(MealSlot.lunch));
+            await tester.pump();
+            expect(choices, isEmpty);
+            await chooseMealSlot(tester, 'slot-select-snack');
+            expect(choices, [MealSlot.snack]);
+            expect(
+              tester.getSemantics(_slot(MealSlot.snack)),
+              isSemantics(isSelected: true),
+            );
+            expect(
+              tester.getSemantics(_slot(MealSlot.lunch)),
+              isSemantics(isSelected: false),
+            );
+            expect(tester.takeException(), isNull);
+            semantics.dispose();
+          },
+        );
+      }
     }
   }
 
-  testWidgets('barrier dismissal preserves the slot and an input draft', (
+  testWidgets('the slot names are spoken in full inside a named group', (
     tester,
   ) async {
-    final controller = TextEditingController(text: 'Skyr Natur');
-    addTearDown(controller.dispose);
-    var calls = 0;
+    final semantics = tester.ensureSemantics();
     await pumpLocalized(
       tester,
-      Column(
-        children: [
-          TextField(controller: controller),
-          MealSlotPicker(selected: MealSlot.dinner, onSelected: (_) => calls++),
-        ],
-      ),
+      MealSlotPicker(selected: MealSlot.dinner, onSelected: (_) {}),
+      surfaceSize: const Size(390, 400),
     );
-    await tester.tap(find.byType(TextField));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('slot-select-open')));
-    await tester.pumpAndSettle();
-    await tester.tapAt(const Offset(10, 10));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('slot-select-sheet')), findsNothing);
-    expect(controller.text, 'Skyr Natur');
-    expect(calls, 0);
-    expect(
-      tester.widget<MealSlotPicker>(find.byType(MealSlotPicker)).selected,
-      MealSlot.dinner,
-    );
+    // On a phone, German short labels ("Mittag") stay visual; the full name is read.
+    expect(find.text('Mittag'), findsOneWidget);
+    expect(find.bySemanticsLabel('Mittagessen'), findsOneWidget);
+    expect(find.bySemanticsLabel('Mahlzeit wählen'), findsOneWidget);
+    semantics.dispose();
   });
 
-  testWidgets('a removed owner cannot receive a late choice', (tester) async {
-    var show = true;
-    var calls = 0;
-    late StateSetter update;
-    await pumpLocalized(
-      tester,
-      StatefulBuilder(
-        builder: (context, setState) {
-          update = setState;
-          return show
-              ? MealSlotPicker(
-                  selected: MealSlot.lunch,
-                  onSelected: (_) => calls++,
-                )
-              : const SizedBox.shrink();
-        },
-      ),
-    );
-    await tester.tap(find.byKey(const ValueKey('slot-select-open')));
-    await tester.pumpAndSettle();
-    update(() => show = false);
-    await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('slot-select-snack')));
-    await tester.pumpAndSettle();
-    expect(calls, 0);
-    expect(tester.takeException(), isNull);
-  });
+  for (final reduced in [true, false]) {
+    testWidgets('the selection pill slides, or jumps under reduced motion: '
+        '$reduced', (tester) async {
+      var selected = MealSlot.breakfast;
+      await pumpLocalized(
+        tester,
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: StatefulBuilder(
+            builder: (context, setState) => MealSlotPicker(
+              selected: selected,
+              onSelected: (slot) => setState(() => selected = slot),
+            ),
+          ),
+        ),
+        reducedMotion: reduced,
+        surfaceSize: const Size(390, 400),
+      );
+      final pill = find.byKey(const ValueKey('slot-select-indicator'));
+      double pillCenter() => tester.getCenter(pill).dx;
+      expect(pillCenter(), tester.getCenter(_slot(MealSlot.breakfast)).dx);
+      await tester.tap(_slot(MealSlot.snack));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 60));
+      final target = tester.getCenter(_slot(MealSlot.snack)).dx;
+      if (reduced) {
+        expect(pillCenter(), target);
+      } else {
+        expect(pillCenter(), lessThan(target));
+        expect(
+          pillCenter(),
+          greaterThan(tester.getCenter(_slot(MealSlot.breakfast)).dx),
+        );
+      }
+      await tester.pumpAndSettle();
+      expect(pillCenter(), target);
+    });
+  }
 }

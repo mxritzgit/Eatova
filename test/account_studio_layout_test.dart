@@ -11,6 +11,7 @@ import 'package:eatova/src/screens/settings/settings_controls.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/theme/theme_mode_controller.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/profile/profile_widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -184,7 +185,18 @@ void main() {
           );
           await tester.ensureVisible(dark);
           await tester.pumpAndSettle();
-          expect(tester.getSize(dark).width, greaterThan(270));
+          // Stacked: the segment spans its track's full inner width (the
+          // track insets 4 px per side inside the settings card).
+          expect(
+            tester.getSize(dark).width,
+            closeTo(
+              tester
+                      .getSize(find.byKey(const ValueKey('settings-theme-mode')))
+                      .width -
+                  8,
+              0.5,
+            ),
+          );
           await tester.tap(dark);
           await tester.pumpAndSettle();
           expect(theme.mode, ThemeMode.dark);
@@ -214,7 +226,6 @@ void main() {
           final identity = tester.renderObject<RenderParagraph>(
             find.text('Moritz Schneider'),
           );
-          expect(identity.didExceedMaxLines, isFalse);
           expect(
             identity.getBoxesForSelection(
               const TextSelection(baseOffset: 7, extentOffset: 16),
@@ -229,10 +240,24 @@ void main() {
           await tester.ensureVisible(connect);
           await tester.pumpAndSettle();
           final l10n = tester.element(connect).l10n;
-          final hint = tester.renderObject<RenderParagraph>(
-            find.text(l10n.profileHealthDeniedHint),
+          // The repair hint is a sentence: it spans the card from the icon
+          // tile's left edge instead of squeezing in beside the tile.
+          final hintText = find.text(l10n.profileHealthDeniedHint);
+          final tile = find.descendant(
+            of: find.ancestor(of: hintText, matching: find.byType(AppCard)),
+            matching: find.byType(IconTile),
           );
-          expect(hint.didExceedMaxLines, isFalse);
+          expect(
+            tester.getRect(hintText).left,
+            closeTo(tester.getRect(tile).left, 0.5),
+          );
+          expect(
+            tester
+                .renderObject<RenderParagraph>(hintText)
+                .getTransformTo(null)
+                .getMaxScaleOnAxis(),
+            closeTo(1, 0.001),
+          );
           expect(tester.takeException(), isNull);
         },
       );

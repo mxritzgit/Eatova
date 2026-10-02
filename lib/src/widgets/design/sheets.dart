@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../theme/app_tokens.dart';
 import '../common/motion.dart';
 import 'controls.dart';
+import 'surfaces.dart';
 
 // ---------------------------------------------------------------------------
 // SHEETS — scaffold, input field, handle and the opener.
@@ -49,12 +50,15 @@ class SheetScaffold extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(
-            title,
-            style: AppType.display(
-              24,
-              color: destructive ? t.danger : t.ink,
-              height: 1.15,
+          HeadingSemantics(
+            level: 1,
+            child: Text(
+              title,
+              style: AppType.display(
+                24,
+                color: destructive ? t.danger : t.ink,
+                height: 1.15,
+              ),
             ),
           ),
           const SizedBox(height: 6),
@@ -384,8 +388,11 @@ class _SheetFieldState extends State<SheetField> {
 
 /// The drag handle sheets draw themselves when they cannot use Material's
 /// (`dragHandle: false` in [showEatovaSheet], e.g. under a discard guard).
-/// ONE geometry app-wide: 40 x 4, [AppTokens.line] — the same as the themed
-/// Material handle.
+/// ONE geometry app-wide: 40 x 4 — the same as the themed Material handle.
+///
+/// Colored [AppTokens.inkDisabled], not [AppTokens.line]: the 6 % hairline
+/// measured 1.15:1 on the sheet ground and read as no handle at all; this
+/// grey is 3.0:1 on the dark `bg`.
 ///
 /// Decoration only ([ExcludeSemantics]): Material's handle also carries a
 /// "dismiss" semantics action, and that goes away with `dragHandle: false`.
@@ -411,7 +418,7 @@ class SheetHandle extends StatelessWidget {
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-              color: t.line,
+              color: t.inkDisabled,
               borderRadius: BorderRadius.circular(rPill),
             ),
           ),
@@ -616,10 +623,16 @@ Future<T?> showEatovaSheet<T>(
     backgroundColor: transparentShell ? Colors.transparent : t.bg,
     barrierColor: barrierColor ?? t.scrim,
     showDragHandle: dragHandle,
+    // A 1 px [AppTokens.lineStrong] edge lifts the sheet off the scrim: the
+    // sheet ground is the page's `bg`, which alone barely differs from the
+    // dimmed page behind it. Sides and bottom sit on the screen edge.
     shape: transparentShell
         ? null
-        : const RoundedRectangleBorder(
-            borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
+        : RoundedRectangleBorder(
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(rSheet),
+            ),
+            side: BorderSide(color: t.lineStrong),
           ),
     builder: (sheetContext) => Padding(
       padding: EdgeInsets.only(

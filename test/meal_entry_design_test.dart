@@ -224,7 +224,7 @@ void main() {
           expect(sheet.top, greaterThanOrEqualTo(44));
           expect(sheet.bottom, lessThanOrEqualTo(552));
           for (final key in [
-            'slot-select-open',
+            for (final slot in MealSlot.values) 'slot-select-${slot.name}',
             'analyse-camera-button',
             'analyse-gallery-button',
             'analyse-barcode-button',
@@ -234,9 +234,12 @@ void main() {
             final action = _key(key);
             // A large-text card can exceed the keyboard's remaining viewport.
             // Its label must still be reachable and tappable while scrolling.
-            final label = find
-                .descendant(of: action, matching: find.byType(Text))
-                .first;
+            // The saved row's first Text is its decorative initial, so that
+            // row is checked by the meal's name.
+            final label = key == 'favorite-pinned-0'
+                ? find.descendant(of: action, matching: find.text('Skyr'))
+                : find.descendant(of: action, matching: find.byType(Text)).first;
+            expect(label, findsOneWidget, reason: key);
             await tester.ensureVisible(label);
             await tester.pumpAndSettle();
             expect(label.hitTestable(), findsOneWidget, reason: key);

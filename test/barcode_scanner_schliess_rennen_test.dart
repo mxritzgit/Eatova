@@ -267,20 +267,16 @@ void main() {
     (tester) async {
       final ergebnis = _Ergebnis();
       await _oeffneScannerUeberSheet(tester, platform, ergebnis);
-      expect(find.byKey(const ValueKey('barcode-slot-open')), findsOneWidget);
-      expect(find.byKey(const ValueKey('barcode-slot-dinner')), findsNothing);
-      await tester.tap(find.byKey(const ValueKey('barcode-slot-open')));
-      await tester.pumpAndSettle();
+      // All four slots sit inline above the camera; nothing covers it.
       for (final slot in MealSlot.values) {
-        expect(find.byKey(ValueKey('barcode-slot-${slot.name}')), findsOneWidget);
+        expect(
+          find.byKey(ValueKey('barcode-slot-${slot.name}')).hitTestable(),
+          findsOneWidget,
+        );
       }
-      // A live detection behind the picker must not close either route.
-      platform.emit('4001234567890');
-      await tester.pumpAndSettle();
-      expect(ergebnis.geschlossen, isFalse);
-      expect(find.byKey(const ValueKey('barcode-slot-sheet')), findsOneWidget);
       await tester.tap(find.byKey(const ValueKey('barcode-slot-dinner')));
       await tester.pumpAndSettle();
+      expect(ergebnis.geschlossen, isFalse);
       await tester.pump(const Duration(milliseconds: 250));
 
       platform.emit('4001234567890');
@@ -312,7 +308,10 @@ void main() {
           find.byKey(const ValueKey('barcode-scan-frame')),
         );
         expect(hint.bottom, lessThanOrEqualTo(frame.top));
-        for (final key in ['barcode-slot-open', 'barcode-close-button']) {
+        for (final key in [
+          for (final slot in MealSlot.values) 'barcode-slot-${slot.name}',
+          'barcode-close-button',
+        ]) {
           expect(find.byKey(ValueKey(key)).hitTestable(), findsOneWidget);
         }
         expect(tester.takeException(), isNull);

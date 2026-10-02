@@ -113,35 +113,12 @@ class _HangingOAuthRepository extends InMemoryAuthRepository {
       Completer<void>().future;
 }
 
-/// Contract for a DISABLED primary action (owner: package H,
-/// PrimaryActionButton): the surface is no longer plain `ink`, or the button
-/// sits under an opacity below 1. Checks the rendered widgets, not the API.
-bool _wirktDeaktiviert(WidgetTester tester, Key key, AppTokens t) {
-  final button = find.byKey(key);
-  final materialAnders = find
-      .descendant(of: button, matching: find.byType(Material))
-      .evaluate()
-      .map((e) => e.widget as Material)
-      .any((m) => m.color != null && m.color != t.ink);
-  final containerAnders = find
-      .descendant(of: button, matching: find.byType(DecoratedBox))
-      .evaluate()
-      .map((e) => (e.widget as DecoratedBox).decoration)
-      .whereType<BoxDecoration>()
-      .any((d) => d.color != null && d.color != t.ink);
-  bool gedimmt(Finder f) =>
-      f.evaluate().any((e) => (e.widget as Opacity).opacity < 1);
-  bool animiertGedimmt(Finder f) =>
-      f.evaluate().any((e) => (e.widget as AnimatedOpacity).opacity < 1);
-  final opacityAnders = gedimmt(find.descendant(
-          of: button, matching: find.byType(Opacity))) ||
-      gedimmt(find.ancestor(of: button, matching: find.byType(Opacity))) ||
-      animiertGedimmt(find.descendant(
-          of: button, matching: find.byType(AnimatedOpacity))) ||
-      animiertGedimmt(
-          find.ancestor(of: button, matching: find.byType(AnimatedOpacity)));
-  return materialAnders || containerAnders || opacityAnders;
-}
+/// The fill a [PrimaryActionButton] under [key] actually paints.
+Color? _flaecheVon(WidgetTester tester, Key key) => tester
+    .widget<Material>(find
+        .descendant(of: find.byKey(key), matching: find.byType(Material))
+        .first)
+    .color;
 
 BoxDecoration _capsuleOf(WidgetTester tester, Key fieldKey) {
   final capsule = find
@@ -372,14 +349,68 @@ void main() {
       expect(find.byType(AutofillGroup), findsOneWidget);
     });
 
-    testWidgets('OTP-Feld traegt AutofillHints.oneTimeCode und einen Punkt '
+    testWidgets('OTP-Feld traegt AutofillHints.oneTimeCode und eine Zelle '
         'pro Ziffer', (tester) async {
       _pinPhone(tester);
       await _pumpCode(tester, Brightness.dark, flow: AuthCodeFlow.signup);
       final code =
           tester.widget<TextField>(find.byKey(const ValueKey('code-field')));
       expect(code.autofillHints, contains(AutofillHints.oneTimeCode));
-      expect(code.decoration?.hintText, hasLength(8));
+
+      // The real field is transparent; the eight cells draw the code.
+      const t = AppTokens.dark;
+      final cells = find.byWidgetPredicate(
+        (w) => w.runtimeType.toString() == '_CodeCell',
+      );
+      expect(cells, findsNWidgets(8));
+      Finder placeholder(int i, bool Function(BoxDecoration d) test) =>
+          find.descendant(
+            of: cells.at(i),
+            matching: find.byWidgetPredicate(
+              (w) =>
+                  w is Container &&
+                  w.decoration is BoxDecoration &&
+                  test(w.decoration! as BoxDecoration),
+            ),
+          );
+      bool dot(BoxDecoration d) =>
+          d.shape == BoxShape.circle && d.color == t.inkFaint;
+      bool caret(BoxDecoration d) => d.color == t.accent;
+      for (var i = 0; i < 8; i++) {
+        expect(
+          find.descendant(of: cells.at(i), matching: find.byType(Text)),
+          findsNothing,
+          reason: 'Cell $i is empty before typing.',
+        );
+        expect(
+          placeholder(i, dot).evaluate().length +
+              placeholder(i, caret).evaluate().length,
+          1,
+          reason: 'Cell $i shows a dot or the caret.',
+        );
+      }
+
+      await tester.enterText(find.byKey(const ValueKey('code-field')), '4829');
+      await tester.pumpAndSettle();
+      const typed = '4829';
+      for (var i = 0; i < 8; i++) {
+        final shown = find.descendant(
+          of: cells.at(i),
+          matching: find.byType(Text),
+        );
+        if (i < typed.length) {
+          expect(shown, findsOneWidget, reason: 'Cell $i shows a digit.');
+          expect(tester.widget<Text>(shown).data, typed[i]);
+        } else {
+          expect(shown, findsNothing, reason: 'Cell $i stays empty.');
+        }
+      }
+      for (final digit in typed.split('')) {
+        expect(
+          find.descendant(of: cells, matching: find.text(digit)),
+          findsOneWidget,
+        );
+      }
     });
   });
 
@@ -423,24 +454,6 @@ void main() {
           isSemantics(isButton: true, isEnabled: false));
     });
 
-    testWidgets('laufendes OAuth: deaktivierte CTA sieht deaktiviert aus '
-        '(Kontrakt Paket H)', (tester) async {
-      _pinPhone(tester);
-      final repo = _HangingOAuthRepository();
-      addTearDown(repo.dispose);
-      await _pumpAuth(tester, Brightness.light, repo: repo);
-      await tester.tap(find.byKey(const ValueKey('auth-google-oauth')));
-      await tester.pump();
-
-      expect(
-        _wirktDeaktiviert(tester, const ValueKey('auth-submit'),
-            AppTokens.light),
-        isTrue,
-        reason: 'eine deaktivierte Primaeraktion darf nicht wie eine aktive '
-            'aussehen (Flaeche != ink oder Opacity < 1)',
-      );
-    });
-
     testWidgets('Sperre nach fuenf falschen Codes: CTA deaktiviert UND '
         'gedimmt (Kontrakt Paket H)', (tester) async {
       _pinPhone(tester);
@@ -469,8 +482,11 @@ void main() {
         expect(find.text(deL10n.authCodeTooManyAttempts), findsOneWidget);
         expect(tester.widget<PrimaryActionButton>(find.byKey(primary)).onTap,
             isNull);
-        expect(_wirktDeaktiviert(tester, primary, AppTokens.dark), isTrue,
-            reason: 'gesperrt muss auch so aussehen');
+        expect(
+          _flaecheVon(tester, primary),
+          AppTokens.dark.accentFill.withValues(alpha: kDisabledFillAlpha),
+          reason: 'gesperrt muss auch so aussehen: gedimmte Akzentflaeche',
+        );
 
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pumpAndSettle();

@@ -12,9 +12,10 @@ import 'support/harness.dart';
 // F7-09: hand-built "dd.MM." captions and "×1.45" showed the German dot
 // under `de` and the German order under `en`. Both go through intl now.
 //
-// F8-09: the plan hero's macro tiles shrank their 11-px labels via
-// FittedBox.scaleDown, so a 1.3× system font left them at 11 px. The tiles
-// now reserve width from the text scaler and wrap instead.
+// F8-09: the plan hero's macro tiles shrank their (then 11-px) labels via
+// FittedBox.scaleDown, so a 1.3× system font left them small. The macros
+// now reserve width from the text scaler and switch to one line each at
+// large sizes instead of shrinking.
 
 Future<void> _pumpHero(WidgetTester tester, {double scale = 1.0}) async {
   tester.view.physicalSize = const Size(1179, 2556);
@@ -77,8 +78,8 @@ void main() {
       expect(tester.takeException(), isNull);
 
       final label = tester.widget<Text>(find.text('Protein'));
-      expect(label.style!.fontSize, 11,
-          reason: 'der Stil bleibt 11 — der Scaler rendert ihn 22 px gross');
+      expect(label.style!.fontSize, 13,
+          reason: 'der Stil bleibt 13 — der Scaler rendert ihn 26 px gross');
       // The rendered label really is twice as tall as at 1.0×.
       final hoehe = tester.getSize(find.text('Protein')).height;
       expect(hoehe, greaterThan(20));

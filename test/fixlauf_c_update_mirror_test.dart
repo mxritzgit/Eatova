@@ -152,12 +152,17 @@ void main() {
       findsOneWidget,
       reason: 'die Slot-Summe kennt die Anpassung nicht',
     );
+    // The row is a diary row: amount below the name, kcal number right.
     expect(
-      find.descendant(of: liste, matching: find.text('775 kcal · 500 g')),
+      find.descendant(of: liste, matching: find.text('775')),
       findsOneWidget,
       reason: 'die Zeile kennt die Anpassung nicht',
     );
-    expect(find.descendant(of: liste, matching: find.text('855 kcal · 600 g')),
+    expect(find.descendant(of: liste, matching: find.text('~500 g')),
+        findsOneWidget);
+    expect(find.descendant(of: liste, matching: find.text('855')),
+        findsNothing);
+    expect(find.descendant(of: liste, matching: find.text('~600 g')),
         findsNothing);
   });
 }

@@ -30,10 +30,10 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('food-search')));
     await tester.pumpAndSettle();
 
-    // All destinations are available on demand, leaving capture choices clear.
+    // All destinations sit inline above the capture choices.
     expect(find.byKey(const ValueKey('add-meal-slot-select')), findsOneWidget);
-    expect(find.byKey(const ValueKey('slot-select-open')), findsOneWidget);
-    expect(find.byKey(const ValueKey('slot-select-breakfast')), findsNothing);
+    expect(find.byKey(const ValueKey('slot-select-group')), findsOneWidget);
+    expect(find.byKey(const ValueKey('slot-select-breakfast')), findsOneWidget);
 
     await tester.enterText(
       find.byKey(const ValueKey('kcal-product-search-input')),

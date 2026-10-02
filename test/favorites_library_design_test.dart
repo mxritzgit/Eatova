@@ -79,8 +79,9 @@ void main() {
         },
       );
       expect(find.text('420 kcal'), findsOneWidget);
-      expect(find.text('78 kcal / 100 g'), findsNothing);
-      expect(find.text('Gespeicherte Portion · 300 g'), findsOneWidget);
+      // The row reads like a diary row: the saved amount under the name
+      // ("~" marks an estimate, as in the diary).
+      expect(find.text('~300 g'), findsOneWidget);
       await tester.tap(find.text('Skyr'));
       await tester.pumpAndSettle();
       final grams = find.descendant(

@@ -1,6 +1,10 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/auth/auth_repository.dart';
+import 'package:eatova/src/screens/auth_screen.dart';
 import 'package:eatova/src/widgets/shared/eatova_wordmark.dart';
 
 import '../support/harness.dart';
@@ -11,6 +15,13 @@ import '../support/harness.dart';
 // Structure and ink used to be two tests, one of them looping over both
 // brightnesses by hand. `renderMatrix` declares the same two cases and now
 // checks BOTH claims in each of them.
+/// WCAG 2.1 contrast of two opaque colours.
+double _contrast(Color a, Color b) {
+  final la = a.computeLuminance();
+  final lb = b.computeLuminance();
+  return (math.max(la, lb) + 0.05) / (math.min(la, lb) + 0.05);
+}
+
 void main() {
   renderMatrix('EatovaWordmark rendert eat + Fokusring + va', (tester, c) async {
     await c.pump(tester, const Center(child: EatovaWordmark(fontSize: 26)));
@@ -26,14 +37,52 @@ void main() {
     );
     expect(tester.takeException(), isNull);
 
-    // Its only site is the auth screen, which is dark in both modes. With
-    // `ink`/`accent` as default the mark would be black on black in light
-    // mode, so the ink is pinned to the brand surface colour.
-    final text = tester.widget<Text>(find.text('eat'));
+    // Every site (auth entry, code screen, About) passes the mode's colours
+    // itself; they must win over the forest-surface defaults.
+    await c.pump(
+      tester,
+      Center(
+        child: EatovaWordmark(
+          fontSize: 26,
+          textColor: c.t.ink,
+          ringColor: c.t.accent,
+        ),
+      ),
+    );
+    for (final word in ['eat', 'va']) {
+      expect(
+        tester.widget<Text>(find.text(word)).style!.color,
+        c.t.ink,
+        reason: '${c.brightness}: "$word" traegt die uebergebene Farbe',
+      );
+    }
+  });
+
+  // A real site: the auth entry header sits on the mode ground `bg`, so the
+  // lettering must be the mode's ink and read at 4.5:1 there.
+  renderMatrix('Die Marke im Auth-Kopf ist auf dem Seitengrund lesbar', (
+    tester,
+    c,
+  ) async {
+    final repository = InMemoryAuthRepository();
+    addTearDown(repository.dispose);
+    await c.pump(
+      tester,
+      AuthScreen(authRepository: repository),
+      scaffold: false,
+      safeArea: false,
+      settle: true,
+    );
+    final eat = find.descendant(
+      of: find.byType(EatovaWordmark),
+      matching: find.text('eat'),
+    );
+    final color = tester.widget<Text>(eat).style!.color!;
+    expect(color, c.t.ink, reason: '${c.brightness}');
     expect(
-      text.style!.color,
-      c.t.onForest,
-      reason: '${c.brightness}: Schrift muss die Marken-Flaechenfarbe tragen',
+      _contrast(color, c.t.bg),
+      greaterThanOrEqualTo(4.5),
+      reason: '${c.brightness}: Schrift gegen bg',
     );
   });
 

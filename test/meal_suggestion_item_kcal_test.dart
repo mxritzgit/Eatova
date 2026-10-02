@@ -1,6 +1,6 @@
 // Gaps 1 and 3 from B1 (docs/REVIEW-2026-08-08.md), measured on the expanded
-// MealSuggestionItem. Core question: does the number right above the add
-// button show the value that gets logged on tap?
+// MealSuggestionItem. Core question: does the kcal preview beside the round
+// add button show the value that gets logged on tap?
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -41,17 +41,15 @@ const MealAnalysisResult fertiggericht = MealAnalysisResult(
 
 const Key _addKey = ValueKey('suggestion-add');
 
-/// The only `<n> kcal` number in the expanded card: the live preview above the
-/// button. The header subtitle ends in "/ 100 g" and is not matched.
+/// The live preview next to the add button — the number the user sees right
+/// before tapping. (The row header shows the saved portion's kcal, so the
+/// preview is read by its key, not as "the only `<n> kcal` text".)
 int vorschauKcal(WidgetTester tester) {
-  final treffer = tester
-      .widgetList<Text>(find.byType(Text))
-      .map((text) => text.data)
-      .whereType<String>()
-      .where((text) => RegExp(r'^\d+ kcal$').hasMatch(text))
-      .toList(growable: false);
-  expect(treffer, hasLength(1), reason: 'genau eine Live-Vorschau erwartet');
-  return int.parse(treffer.single.split(' ').first);
+  final vorschau = find.byKey(const ValueKey('live-preview-kcal'));
+  expect(vorschau, findsOneWidget, reason: 'genau eine Live-Vorschau erwartet');
+  final text = tester.widget<Text>(vorschau).textSpan!.toPlainText();
+  expect(text, matches(RegExp(r'^\d+ kcal$')));
+  return int.parse(text.split(' ').first);
 }
 
 Future<List<MealAnalysisResult>> pumpItem(

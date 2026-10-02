@@ -147,7 +147,7 @@ void main() {
 
   // --- ACCOUNT --------------------------------------------------------------
 
-  testWidgets('die Mailadresse steht als Untertitel', (tester) async {
+  testWidgets('die Mailadresse steht in der Kontozeile', (tester) async {
     await pump(tester, email: 'jonas@example.com');
 
     expect(find.byKey(const ValueKey('settings-email')), findsOneWidget);

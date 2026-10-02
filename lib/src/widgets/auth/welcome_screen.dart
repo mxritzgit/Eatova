@@ -1,24 +1,31 @@
 import 'dart:math' as math;
+import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
 import '../common/motion.dart';
+import '../shared/eatova_wordmark.dart';
 
-/// Boot/welcome gate: "finding focus".
+/// Boot/welcome gate: the focus ring locks in.
 ///
-/// While ProfileSync.load() runs, the brand's focus ring *is* the loading
-/// indicator — dimmed track, a lime comet orbiting, a breathing centre dot.
-/// Once data arrives the focus locks in: full track, ticks snap on, the ring
-/// shrinks into its place in the wordmark while "eat" and "va" slide out. A
-/// fresh login then shows the greeting; a session restore fades straight out.
+/// The first frame repeats the native launch screen exactly: the page ground
+/// with the focus ring alone, 80 logical px, centred on the full screen (see
+/// `tool/launch_mark.py`). So a cold start hands over from native to Flutter
+/// without a visible change. From there:
+///  * profile slow: after a beat the ring hunts for focus, a quarter turn of
+///    the ticks with the lens contracting, then a rest; the mark itself is
+///    the loading indicator, no spinner;
+///  * profile ready: the ring shrinks into its slot in the wordmark while
+///    "eat" and "va" emerge from behind it, then the stage fades out. On a
+///    session restore that is about 600 ms from data to home;
+///  * fresh login: the ring is revealed first (it follows the auth screen,
+///    not the native splash), and after the lock-in a short greeting holds.
 ///
-/// Intentional: this screen does NOT follow the display mode. It uses
-/// [AppTokens.forest], [AppTokens.lime] and [AppTokens.onForest] in both
-/// themes, which is safe because that trio is contrast-checked in both
-/// palettes. Do not "fix" it to `t.bg`/`t.ink` — in light mode that gives a
-/// beige screen with a near-invisible ring.
+/// Colours are mode tokens (`bg`, `ink`, `inkMuted`, `accent`): in the dark
+/// palette `bg` is the native launch colour #09090C, and the light palette's
+/// pairs keep the mark and greeting readable should light mode return.
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({
     super.key,
@@ -43,38 +50,57 @@ class WelcomeScreen extends StatefulWidget {
   /// the screen fades straight out.
   final bool celebrateLogin;
 
+  /// Edge length of the focus ring before the lock-in, in logical px. The
+  /// native launch marks are drawn at exactly this size (dp / pt), see
+  /// `tool/launch_mark.py`; test/launch_screen_handoff_test.dart pins both.
+  static const double launchMarkSize = 80;
+
   @override
   State<WelcomeScreen> createState() => _WelcomeScreenState();
 }
+
+/// Soft start, long landing: the ring moves as one decisive gesture.
+const Curve _kLockCurve = Cubic(0.3, 0.0, 0.0, 1.0);
+
+/// Entrances (reveal, letters, greeting): fast start, no overshoot.
+const Curve _kEnterCurve = Cubic(0.2, 0.0, 0.0, 1.0);
+
+/// Exit: holds still a moment, then gets out of the way.
+const Curve _kExitCurve = Cubic(0.4, 0.0, 1.0, 1.0);
+
+/// One focus hunt: rest first, then a quarter turn. The leading rest means a
+/// profile that arrives within ~0.5 s never sees the loader move.
+const Duration _kHuntPeriod = Duration(milliseconds: 1200);
+const double _kHuntRest = 0.4;
 
 class _WelcomeScreenState extends State<WelcomeScreen>
     with TickerProviderStateMixin {
   late final AnimationController _introController;
   late final AnimationController _loopController;
-  late final AnimationController _assembleController;
+  late final AnimationController _lockController;
   late final AnimationController _exitController;
   bool _showWelcome = false;
   bool _bootStarted = false;
-  bool _reduceMotion = false;
+
+  /// Hunt position (quarter turns, 0..1) when the profile arrived; the
+  /// lock-in finishes that turn instead of snapping back.
+  double _turnAtLock = 0;
 
   @override
   void initState() {
     super.initState();
     _introController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1050),
+      duration: const Duration(milliseconds: 520),
     );
-    _loopController = AnimationController(
+    _loopController = AnimationController(vsync: this, duration: _kHuntPeriod);
+    _lockController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1600),
-    );
-    _assembleController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 460),
+      duration: const Duration(milliseconds: 560),
     );
     _exitController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 320),
+      duration: const Duration(milliseconds: 300),
     );
     widget.profileReady.then(_onProfileReady);
   }
@@ -84,38 +110,52 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     super.didChangeDependencies();
     if (_bootStarted) return;
     _bootStarted = true;
-    // A11y: with reduced motion, no intro and no endless loop — the mark is
-    // assembled immediately. Tests rely on nothing ticking here.
-    _reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
-    if (_reduceMotion) {
+    // A11y: with reduced motion the ring stands still, as on the native
+    // launch screen: no reveal, no hunt. Tests rely on nothing ticking here.
+    final still = reducedMotion(context);
+    if (still || !widget.celebrateLogin) {
+      // Cold start: the native launch screen already showed the ring.
       _introController.value = 1;
-      _assembleController.value = 1;
     } else {
       _introController.forward();
-      _loopController.repeat();
     }
+    if (!still) _loopController.repeat();
+  }
+
+  double _huntTurn() {
+    final p = _loopController.value;
+    if (p <= _kHuntRest) return 0;
+    return Curves.easeInOutCubic.transform((p - _kHuntRest) / (1 - _kHuntRest));
   }
 
   Future<void> _onProfileReady(void _) async {
     if (!mounted) return;
-    // A11y: reduced motion collapses lock-in and hold to near-instant.
-    _assembleController.duration = motionDuration(
+    // A11y: reduced motion collapses lock-in, hold and exit to instant.
+    _lockController.duration = motionDuration(
       context,
-      Duration(milliseconds: widget.celebrateLogin ? 460 : 380),
+      Duration(milliseconds: widget.celebrateLogin ? 560 : 380),
     );
-    _exitController.duration =
-        motionDuration(context, const Duration(milliseconds: 320));
+    _exitController.duration = motionDuration(
+      context,
+      Duration(milliseconds: widget.celebrateLogin ? 300 : 240),
+    );
     final holdDelay = motionDelay(
       context,
-      Duration(milliseconds: widget.celebrateLogin ? 900 : 0),
+      Duration(milliseconds: widget.celebrateLogin ? 1000 : 0),
     );
-    // Lock in: the ring becomes the wordmark (faster on session restore).
-    await _assembleController.forward();
-    if (!mounted) return;
+    _turnAtLock = _loopController.isAnimating ? _huntTurn() : 0;
     _loopController.stop();
+    // Never waits for a running reveal: it finishes inside the lock-in.
+    final locked = _lockController.forward();
     if (widget.celebrateLogin) {
+      // The greeting starts while the wordmark is still landing, so the two
+      // read as one gesture.
+      await Future<void>.delayed(_lockController.duration! * 0.7);
+      if (!mounted) return;
       setState(() => _showWelcome = true);
     }
+    await locked;
+    if (!mounted) return;
     if (holdDelay > Duration.zero) await Future<void>.delayed(holdDelay);
     if (!mounted) return;
     await _exitController.forward();
@@ -127,7 +167,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
   void dispose() {
     _introController.dispose();
     _loopController.dispose();
-    _assembleController.dispose();
+    _lockController.dispose();
     _exitController.dispose();
     super.dispose();
   }
@@ -135,355 +175,279 @@ class _WelcomeScreenState extends State<WelcomeScreen>
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    // Brand surface, not the mode surface — see the class doc.
-    return Scaffold(
-      key: const ValueKey('screen-welcome'),
-      backgroundColor: t.forest,
-      body: SafeArea(
-        child: AnimatedBuilder(
-          animation: _exitController,
-          builder: (context, child) {
-            final exit = _exitController.value;
-            return Opacity(
-              opacity: 1 - exit,
-              child: Transform.translate(
-                offset: Offset(0, -16 * exit),
-                child: Transform.scale(scale: 1 - 0.015 * exit, child: child),
-              ),
-            );
-          },
-          child: LayoutBuilder(
-            builder: (context, constraints) => SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  // The scroll view receives loose width constraints from the
-                  // Scaffold. Keep its centre independent of greeting width.
-                  minWidth: math.max(0, constraints.maxWidth - 48),
-                  minHeight: math.max(0, constraints.maxHeight - 48),
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    AnimatedBuilder(
-                      animation: Listenable.merge([
-                        _introController,
-                        _loopController,
-                        _assembleController,
-                      ]),
-                      builder: (context, _) {
-                        final iv = _introController.value;
-                        double seg(double a, double b, Curve curve) => curve
-                            .transform(((iv - a) / (b - a)).clamp(0.0, 1.0));
-                        // Staged intro: the mark fades in, the ring draws itself,
-                        // ticks and dot follow, then the hunt takes over.
-                        final appear = seg(0.0, 0.35, Curves.easeOutCubic);
-                        final draw = seg(0.08, 0.60, Curves.easeInOutCubic);
-                        final ticksIn = seg(0.52, 0.86, Curves.easeOutCubic);
-                        final dotPop = seg(0.62, 0.95, Curves.easeOutBack);
-                        final cometIn = seg(0.60, 0.80, Curves.easeOutCubic);
-                        // Lock-in: position/size follow the eased curve, the comet
-                        // leaves within the first third.
-                        final av = _reduceMotion
-                            ? 1.0
-                            : _assembleController.value;
-                        final assemble = Curves.easeInOutCubic.transform(av);
-                        final hunt = _reduceMotion
-                            ? 0.0
-                            : 1 - (av / 0.35).clamp(0.0, 1.0);
-                        // Dot breathing: one full wave per orbit.
-                        final breath =
-                            0.5 -
-                            0.5 * math.cos(2 * math.pi * _loopController.value);
-                        // Painted lettering, so screen readers need a label.
-                        return Semantics(
-                          label: 'Eatova',
-                          child: SizedBox(
-                            key: const ValueKey('boot-mark'),
-                            width: 280,
-                            height: 132,
-                            child: CustomPaint(
-                              painter: _BootMarkPainter(
-                                ring: t.lime,
-                                text: t.onForest,
-                                appear: appear,
-                                draw: draw,
-                                ticksIn: ticksIn,
-                                dotPop: dotPop,
-                                cometIn: cometIn,
-                                orbit: _loopController.value,
-                                breath: breath,
-                                hunt: hunt,
-                                assemble: assemble,
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    // Reserved height so the mark does not jump when the greeting
-                    // appears. A MINIMUM, scaled with the system text size: at
-                    // textScaler 2.0 the two-line greeting needs more than 68 px,
-                    // and a fixed height would overflow there.
-                    ConstrainedBox(
-                      constraints: BoxConstraints(
-                        minHeight: MediaQuery.textScalerOf(context).scale(68),
-                      ),
-                      child: AnimatedSwitcher(
-                        duration: motionDuration(
-                          context,
-                          const Duration(milliseconds: 260),
-                        ),
-                        switchInCurve: Curves.easeOutCubic,
-                        switchOutCurve: Curves.easeIn,
-                        child: _showWelcome
-                            ? _WelcomeText(
-                                key: const ValueKey('welcome-text'),
-                                firstName: widget.firstName,
-                              )
-                            : const SizedBox.shrink(key: ValueKey('boot-hold')),
-                      ),
-                    ),
-                  ],
-                ),
+    final mark = AnimatedBuilder(
+      animation: Listenable.merge([
+        _introController,
+        _loopController,
+        _lockController,
+      ]),
+      builder: (context, _) {
+        final lock = _lockController.value;
+        final turn = _lockController.isDismissed
+            ? _huntTurn()
+            : _turnAtLock == 0
+            ? 0.0
+            // The interrupted quarter turn completes early in the lock-in,
+            // so the ticks stand square before the lettering arrives.
+            : _turnAtLock +
+                  (1 - _turnAtLock) *
+                      _kEnterCurve.transform((lock / 0.45).clamp(0.0, 1.0));
+        // Painted lettering, so screen readers need a label.
+        return Semantics(
+          label: 'Eatova',
+          child: SizedBox(
+            key: const ValueKey('boot-mark'),
+            width: 300,
+            height: _LaunchMarkPainter.stageHeight,
+            child: CustomPaint(
+              painter: _LaunchMarkPainter(
+                ring: t.accent,
+                text: t.ink,
+                intro: _introController.value,
+                turn: turn,
+                lock: lock,
               ),
             ),
           ),
+        );
+      },
+    );
+    final greeting = AnimatedSwitcher(
+      duration: motionDuration(context, const Duration(milliseconds: 420)),
+      switchInCurve: _kEnterCurve,
+      switchOutCurve: Curves.easeIn,
+      transitionBuilder: (child, animation) => FadeTransition(
+        opacity: animation,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.18),
+            end: Offset.zero,
+          ).animate(animation),
+          child: child,
+        ),
+      ),
+      child: _showWelcome
+          ? _WelcomeText(
+              key: const ValueKey('welcome-text'),
+              firstName: widget.firstName,
+            )
+          : const SizedBox.shrink(key: ValueKey('boot-hold')),
+    );
+    return Scaffold(
+      key: const ValueKey('screen-welcome'),
+      backgroundColor: t.bg,
+      body: AnimatedBuilder(
+        animation: _exitController,
+        builder: (context, child) {
+          final exit = _kExitCurve.transform(_exitController.value);
+          return Opacity(
+            opacity: 1 - exit,
+            child: Transform.scale(scale: 1 - 0.02 * exit, child: child),
+          );
+        },
+        // No SafeArea: the mark centres on the full screen, like the native
+        // launch screen. The layout keeps the greeting inside the insets.
+        child: CustomMultiChildLayout(
+          delegate: _StageLayout(
+            insets:
+                MediaQuery.viewPaddingOf(context) + const EdgeInsets.all(24),
+          ),
+          children: [
+            LayoutId(id: _StageSlot.mark, child: mark),
+            LayoutId(id: _StageSlot.greeting, child: greeting),
+          ],
         ),
       ),
     );
   }
 }
 
-/// Paints the whole boot mark: focus ring (circle, four ticks, centre dot —
-/// geometry identical to eatova_wordmark.dart) plus the "eat" and "va"
-/// lettering.
+enum _StageSlot { mark, greeting }
+
+/// Centres the mark on the full screen and hangs the greeting below it. Only
+/// when the greeting would cross the bottom inset (large text on a short
+/// screen) does the pair move up, never above the top inset.
+class _StageLayout extends MultiChildLayoutDelegate {
+  _StageLayout({required this.insets});
+
+  final EdgeInsets insets;
+
+  static const double _gap = 20;
+
+  @override
+  void performLayout(Size size) {
+    final markSize = layoutChild(
+      _StageSlot.mark,
+      BoxConstraints.tight(
+        Size(math.min(300, size.width), _LaunchMarkPainter.stageHeight),
+      ),
+    );
+    final greetingSize = layoutChild(
+      _StageSlot.greeting,
+      BoxConstraints(maxWidth: math.max(0, size.width - 48)),
+    );
+    var top = (size.height - markSize.height) / 2;
+    final bottom = top + markSize.height + _gap + greetingSize.height;
+    final limit = size.height - insets.bottom;
+    if (greetingSize.height > 0 && bottom > limit) {
+      top = math.max(math.min(insets.top, top), top - (bottom - limit));
+    }
+    positionChild(
+      _StageSlot.mark,
+      Offset((size.width - markSize.width) / 2, top),
+    );
+    positionChild(
+      _StageSlot.greeting,
+      Offset(
+        (size.width - greetingSize.width) / 2,
+        top + markSize.height + _gap,
+      ),
+    );
+  }
+
+  @override
+  bool shouldRelayout(_StageLayout oldDelegate) => oldDelegate.insets != insets;
+}
+
+/// Paints the boot mark: the focus ring (via [paintFocusRing]) and, during
+/// the lock-in, the "eat" and "va" lettering of the wordmark.
 ///
-/// [assemble] cross-fades the ring's two states: 0 = hunting (large, centred,
-/// dimmed track, orbiting comet, breathing dot), 1 = locked in (full track,
-/// opaque ticks, shrunk to wordmark size between the letters).
-class _BootMarkPainter extends CustomPainter {
-  const _BootMarkPainter({
+/// The ring's centre stays on the stage's vertical centre throughout, so the
+/// mark never drifts up or down; the lettering is set around it exactly as
+/// [EatovaWordmark] sets it.
+class _LaunchMarkPainter extends CustomPainter {
+  const _LaunchMarkPainter({
     required this.ring,
     required this.text,
-    required this.appear,
-    required this.draw,
-    required this.ticksIn,
-    required this.dotPop,
-    required this.cometIn,
-    required this.orbit,
-    required this.breath,
-    required this.hunt,
-    required this.assemble,
+    required this.intro,
+    required this.turn,
+    required this.lock,
   });
 
-  /// Font size of the assembled wordmark; larger than the auth screen's 26
-  /// because here the mark is the whole stage.
-  static const double _fontSize = 30;
+  static const double loaderBox = WelcomeScreen.launchMarkSize;
 
-  /// Edge length of the focus-ring box while hunting (before lock-in).
-  static const double _loaderBox = 76;
+  /// Font size of the finished wordmark.
+  static const double fontSize = 42;
+
+  static const double stageHeight = 96;
 
   final Color ring;
   final Color text;
 
-  /// 0..1 fade-in of the whole mark during the intro.
-  final double appear;
+  /// 0..1 reveal (fresh login only; 1 on a cold start).
+  final double intro;
 
-  /// 0..1 circle drawing (arc from 12 o'clock).
-  final double draw;
+  /// Quarter turns of the focus hunt.
+  final double turn;
 
-  /// 0..1 staggered appearance of the four ticks.
-  final double ticksIn;
+  /// 0..1 lock-in, linear; the painter applies the curves.
+  final double lock;
 
-  /// 0..1 dot pop (easeOutBack, may overshoot slightly).
-  final double dotPop;
+  TextPainter _letters(String s) => TextPainter(
+    text: TextSpan(
+      text: s,
+      style: AppType.display(
+        fontSize,
+        weight: FontWeight.w800,
+        letterSpacing: fontSize * -0.02,
+        height: 1.0,
+        color: text,
+      ),
+    ),
+    textDirection: TextDirection.ltr,
+  )..layout();
 
-  /// 0..1 comet fade-in once the circle is drawn.
-  final double cometIn;
-
-  /// Comet head position; 0..1 is one full orbit.
-  final double orbit;
-
-  /// 0..1 dot breathing phase (visible only while hunting).
-  final double breath;
-
-  /// 1 = hunting (dimmed track, comet, breathing), 0 = locked in.
-  final double hunt;
-
-  /// 0..1 lock-in: the ring shrinks into its wordmark slot and the letters
-  /// slide out. Arrives already eased.
-  final double assemble;
+  /// [lock] mapped into [begin]..[end] and eased with [curve].
+  double _phase(double begin, double end, Curve curve) =>
+      curve.transform(((lock - begin) / (end - begin)).clamp(0.0, 1.0));
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (appear <= 0.001) return;
+    if (intro <= 0) return;
     final center = size.center(Offset.zero);
+    // Lock-in choreography: the ring contracts first (so its ticks are clear
+    // of the letters before those show), glides into its slot a little
+    // longer, and the two words rise into place as it lands.
+    final shrink = _phase(0, 0.5, _kEnterCurve);
+    final glide = _phase(0, 0.8, _kLockCurve);
+    final riseEat = _phase(0.2, 1, _kEnterCurve);
+    final riseVa = _phase(0.26, 1, _kEnterCurve);
 
-    // Intro: the whole mark scales in slightly.
-    canvas.save();
-    final introScale = 0.92 + 0.08 * appear;
-    canvas.translate(center.dx, center.dy);
-    canvas.scale(introScale);
-    canvas.translate(-center.dx, -center.dy);
+    const inlineBox = fontSize * 0.82;
+    const pad = fontSize * 0.05;
+    final box = lerpDouble(loaderBox, inlineBox, shrink)!;
 
-    const inlineBox = _fontSize * 0.82;
-    final w = _loaderBox + (inlineBox - _loaderBox) * assemble;
-    const pad = _fontSize * 0.05;
-
-    // Only lay out the letters once they become visible.
-    final letterAlpha = (appear * assemble).clamp(0.0, 1.0);
     TextPainter? eat;
     TextPainter? va;
-    var totalW = w;
-    if (letterAlpha > 0.001) {
-      TextPainter layoutOf(String s) => TextPainter(
-            text: TextSpan(
-              text: s,
-              style: AppType.display(
-                _fontSize,
-                weight: FontWeight.w800,
-                letterSpacing: _fontSize * -0.02,
-                height: 1.0,
-                color: text.withValues(alpha: letterAlpha),
-              ),
-            ),
-            textDirection: TextDirection.ltr,
-          )..layout();
-      eat = layoutOf('eat');
-      va = layoutOf('va');
-      totalW = eat.width + pad * 2 + w + va.width;
+    var eatX = 0.0;
+    var vaX = 0.0;
+    var ringX = center.dx;
+    if (lock > 0) {
+      eat = _letters('eat');
+      va = _letters('va');
+      final total = eat.width + pad + inlineBox + pad + va.width;
+      eatX = center.dx - total / 2;
+      vaX = eatX + eat.width + pad + inlineBox + pad;
+      final slotX = eatX + eat.width + pad + inlineBox / 2;
+      ringX = lerpDouble(center.dx, slotX, glide)!;
     }
+    final ringCenter = Offset(ringX, center.dy);
 
-    // The ring's slot in the finished wordmark; centred while hunting. The
-    // vertical offset puts it on the lowercase midline, as in the wordmark.
-    final ringCenterFinal = Offset(
-      center.dx - totalW / 2 + (eat?.width ?? 0) + pad + w / 2,
-      center.dy + _fontSize * 0.09,
+    // Reveal: the ring settles in from slightly larger, the ticks pull in
+    // from outside like a lens finding focus, the dot arrives last.
+    final reveal = _kEnterCurve.transform(intro);
+    final dot = _kEnterCurve.transform(((intro - 0.35) / 0.65).clamp(0.0, 1.0));
+    canvas.save();
+    canvas.translate(ringCenter.dx, ringCenter.dy);
+    canvas.scale(1.06 - 0.06 * reveal);
+    canvas.translate(-ringCenter.dx, -ringCenter.dy);
+    paintFocusRing(
+      canvas,
+      ringCenter,
+      box,
+      ring.withValues(alpha: ring.a * reveal),
+      turn: turn,
+      tickReach: box * 0.28 * (1 - reveal),
+      dotScale: dot,
     );
-    final ringCenter = Offset.lerp(center, ringCenterFinal, assemble)!;
-
-    // Same geometry as _FocusRingPainter, relative to the animated box w.
-    final stroke = w * 0.105;
-    final tick = w * 0.115;
-    final gap = w * 0.075;
-    final ringRadius = w / 2 - tick - gap - stroke / 2;
-    final dotR = w * 0.10;
-    final rect = Rect.fromCircle(center: ringCenter, radius: ringRadius);
-
-    // Circle: dimmed track while hunting, full once locked in.
-    final trackAlpha = (0.30 + 0.70 * (1 - hunt)) * appear;
-    canvas.drawArc(
-      rect,
-      -math.pi / 2,
-      2 * math.pi * draw,
-      false,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = stroke
-        ..strokeCap = StrokeCap.round
-        ..color = ring.withValues(alpha: trackAlpha),
-    );
-
-    // Comet: dimmed tail, bright head with a soft glow. Runs only while
-    // hunting and only once the circle is complete.
-    final cometAlpha = hunt * cometIn * appear;
-    if (cometAlpha > 0.001) {
-      final head = -math.pi / 2 + 2 * math.pi * orbit;
-      const tailSweep = math.pi * 0.5;
-      const headSweep = math.pi * 0.16;
-      canvas.drawArc(
-        rect,
-        head - tailSweep,
-        tailSweep,
-        false,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = stroke
-          ..strokeCap = StrokeCap.round
-          ..color = ring.withValues(alpha: 0.30 * cometAlpha),
-      );
-      canvas.drawArc(
-        rect,
-        head - headSweep,
-        headSweep,
-        false,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = stroke + 2
-          ..strokeCap = StrokeCap.round
-          ..color = ring.withValues(alpha: 0.35 * cometAlpha)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
-      );
-      canvas.drawArc(
-        rect,
-        head - headSweep,
-        headSweep,
-        false,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = stroke
-          ..strokeCap = StrokeCap.round
-          ..color = ring.withValues(alpha: 0.95 * cometAlpha),
-      );
-    }
-
-    // Four ticks at 12/3/6/9, staggered in. Half dimmed while hunting, they
-    // snap to full opacity on lock-in — the "focus found" signal.
-    final tickPaint = Paint()
-      ..strokeWidth = stroke
-      ..strokeCap = StrokeCap.butt
-      ..color = ring.withValues(alpha: (0.55 + 0.45 * (1 - hunt)) * appear);
-    final inner = ringRadius + stroke / 2 + gap;
-    const dirs = [Offset(0, -1), Offset(1, 0), Offset(0, 1), Offset(-1, 0)];
-    for (var i = 0; i < dirs.length; i++) {
-      final local = ((ticksIn - i * 0.12) / 0.64).clamp(0.0, 1.0);
-      if (local <= 0) continue;
-      final d = dirs[i];
-      canvas.drawLine(
-        ringCenter + d * inner,
-        ringCenter + d * (inner + tick * local),
-        tickPaint,
-      );
-    }
-
-    // Centre dot: pops during the intro, breathes while hunting.
-    if (dotPop > 0) {
-      final r = dotR * dotPop * (1 + 0.10 * breath * hunt);
-      canvas.drawCircle(
-        ringCenter,
-        r,
-        Paint()..color = ring.withValues(alpha: appear),
-      );
-    }
-
-    // Letters slide out sideways from the ring during lock-in.
-    if (eat != null && va != null) {
-      final slide = 10 * (1 - assemble);
-      final eatX = ringCenter.dx - w / 2 - pad - eat.width + slide;
-      final vaX = ringCenter.dx + w / 2 + pad - slide;
-      final textY = center.dy - eat.height / 2;
-      eat.paint(canvas, Offset(eatX, textY));
-      va.paint(canvas, Offset(vaX, textY));
-    }
-
     canvas.restore();
+
+    if (eat == null || va == null) return;
+    // As in the wordmark: text box centred 0.09 em above the ring's centre.
+    final textY = center.dy - fontSize * 0.09 - eat.height / 2;
+    // Each word rises out of its own line, masked at the baseline so it
+    // appears to come up through a slot, never sliding across the ring.
+    final line = Rect.fromLTRB(
+      0,
+      textY - fontSize * 0.25,
+      size.width,
+      textY + eat.height,
+    );
+    void rise(TextPainter word, double x, double t) {
+      if (t <= 0) return;
+      final settled = t >= 1;
+      canvas.save();
+      if (!settled) canvas.clipRect(line);
+      final alpha = (t * 1.4).clamp(0.0, 1.0);
+      if (alpha < 1) {
+        canvas.saveLayer(line, Paint()..color = Color.fromRGBO(0, 0, 0, alpha));
+      }
+      word.paint(canvas, Offset(x, textY + fontSize * 0.62 * (1 - t)));
+      if (alpha < 1) canvas.restore();
+      canvas.restore();
+    }
+
+    rise(eat, eatX, riseEat);
+    rise(va, vaX, riseVa);
   }
 
   @override
-  bool shouldRepaint(covariant _BootMarkPainter old) =>
+  bool shouldRepaint(covariant _LaunchMarkPainter old) =>
       old.ring != ring ||
       old.text != text ||
-      old.appear != appear ||
-      old.draw != draw ||
-      old.ticksIn != ticksIn ||
-      old.dotPop != dotPop ||
-      old.cometIn != cometIn ||
-      old.orbit != orbit ||
-      old.breath != breath ||
-      old.hunt != hunt ||
-      old.assemble != assemble;
+      old.intro != intro ||
+      old.turn != turn ||
+      old.lock != lock;
 }
 
 class _WelcomeText extends StatelessWidget {
@@ -506,21 +470,15 @@ class _WelcomeText extends StatelessWidget {
             style: AppType.display(
               28,
               weight: FontWeight.w700,
-              letterSpacing: -0.4,
-              color: t.onForest,
+              letterSpacing: -0.5,
+              color: t.ink,
             ),
           ),
           const SizedBox(height: 6),
           Text(
             l10n.authWelcomeSignedIn,
             textAlign: TextAlign.center,
-            style: AppType.ui(
-              14,
-              weight: FontWeight.w500,
-              // Muted, but on the brand surface — not t.ink2, which is tuned
-              // for the mode background and would clash with forest.
-              color: t.onForest.withValues(alpha: 0.76),
-            ),
+            style: AppType.ui(15, weight: FontWeight.w500, color: t.inkMuted),
           ),
         ],
       ),

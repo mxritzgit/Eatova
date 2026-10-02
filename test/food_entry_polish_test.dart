@@ -10,7 +10,6 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/widgets/kcal/food_date_picker.dart';
 import 'package:eatova/src/widgets/kcal/manual_meal_sheet.dart';
-import 'package:eatova/src/widgets/kcal/meal_slot_picker.dart';
 import 'package:eatova/src/widgets/kcal/meal_suggestion_item.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
@@ -196,7 +195,9 @@ void main() {
           onAdd: (_) {},
         ),
       );
-      expect(find.text('150 kcal / 100 g'), findsOneWidget);
+      // The row shows the density as "150 kcal" over "per 100 g".
+      expect(find.text('150 kcal'), findsOneWidget);
+      expect(find.textContaining('100 g'), findsOneWidget);
       expect(find.text('300 kcal'), findsOneWidget);
     },
   );
@@ -244,9 +245,6 @@ void main() {
           await tester.enterText(_key('manual-meal-kcal100'), '120');
           await tester.enterText(_key('manual-meal-protein'), '10,5');
           await tester.enterText(_key('manual-meal-grams'), '250');
-          await tester.ensureVisible(_key('manual-slot-open'));
-          await tester.tap(_key('manual-slot-open'));
-          await tester.pumpAndSettle();
           await tester.ensureVisible(_key('manual-slot-dinner'));
           await tester.tap(_key('manual-slot-dinner'));
           await tester.pumpAndSettle();
@@ -368,7 +366,8 @@ void main() {
             scale: scale,
           );
           expect(find.text('The Dairy'), findsOneWidget);
-          expect(find.text('120 kcal / 100 g'), findsOneWidget);
+          expect(find.text('120 kcal'), findsOneWidget);
+          expect(find.textContaining('100 g'), findsOneWidget);
           await _capture(tester, 'product-$id');
           await tester.tap(_key('product-favorite'));
           await tester.pumpAndSettle();
@@ -399,20 +398,6 @@ void main() {
       }
     }
   }
-
-  testWidgets('manual picker dismissal preserves the current meal', (
-    tester,
-  ) async {
-    await _mount(tester, const ManualMealSheet(initialSlot: MealSlot.lunch));
-    await tester.tap(_key('manual-slot-open'));
-    await tester.pumpAndSettle();
-    await tester.tap(_key('manual-slot-close'));
-    await tester.pumpAndSettle();
-    expect(
-      tester.widget<MealSlotPicker>(find.byType(MealSlotPicker)).selected,
-      MealSlot.lunch,
-    );
-  });
 
   testWidgets(
     'calendar close cancels; date input rejects future and saves valid day',

@@ -78,26 +78,46 @@ Color _materialFarbe(WidgetTester tester, Finder von) => tester
 Color _textFarbe(WidgetTester tester, String label) =>
     tester.widget<Text>(find.text(label)).style!.color!;
 
-/// Painted capsule of one segment. The settings pill keys the GestureDetector
-/// AROUND the capsule, [SegmentedPill] has no keys and is found via its label
-/// INSIDE it — hence the two finders.
+/// Painted capsule of one [SegmentedPill] segment, found via its label
+/// inside it ([SegmentedPill] has no keys).
 Color _kapselFarbe(WidgetTester tester, Finder kapsel) {
   final box = tester.widget<AnimatedContainer>(kapsel.first);
   return (box.decoration! as BoxDecoration).color!;
 }
 
-Finder _kapselIn(Finder segment) =>
-    find.descendant(of: segment, matching: find.byType(AnimatedContainer));
-
 Finder _kapselUm(Finder label) =>
     find.ancestor(of: label, matching: find.byType(AnimatedContainer));
 
-/// The pill's own track: the first [DecoratedBox] of the subtree.
+/// Fill of one settings-pill segment: the [Material] right around the keyed
+/// [InkWell].
+Color _segmentFarbe(WidgetTester tester, String key) => tester
+    .widget<Material>(
+      find
+          .ancestor(
+            of: find.byKey(ValueKey<String>(key)),
+            matching: find.byType(Material),
+          )
+          .first,
+    )
+    .color!;
+
+/// Label colour of one settings-pill segment.
+Color _segmentLabel(WidgetTester tester, String key) => tester
+    .widget<Text>(
+      find.descendant(
+        of: find.byKey(ValueKey<String>(key)),
+        matching: find.byType(Text),
+      ),
+    )
+    .style!
+    .color!;
+
+/// The settings pill's recessed track: its outermost [Container].
 Color _spurFarbe(WidgetTester tester, Finder pille) {
-  final box = tester.widget<DecoratedBox>(
-    find.descendant(of: pille, matching: find.byType(DecoratedBox)).first,
+  final box = tester.widget<Container>(
+    find.descendant(of: pille, matching: find.byType(Container)).first,
   );
-  return (box.decoration as BoxDecoration).color!;
+  return (box.decoration! as BoxDecoration).color!;
 }
 
 const Map<String, Brightness> _modi = <String, Brightness>{
@@ -165,47 +185,57 @@ void main() {
       final t = _tokens(brightness);
 
       testWidgets('$name: Segment gegen die Spur >= 3:1', (tester) async {
+        // As the settings screen builds it: `expanded: true`, full row width.
         await pumpLocalized(
           tester,
           Align(
             alignment: Alignment.topLeft,
-            child: SettingsThemeModePill(
-              mode: ThemeMode.dark,
-              onChanged: (_) {},
+            child: SizedBox(
+              width: 335,
+              child: SettingsThemeModePill(
+                mode: ThemeMode.dark,
+                expanded: true,
+                onChanged: (_) {},
+              ),
             ),
           ),
           brightness: brightness,
         );
 
-        final pille = find.byType(SettingsThemeModePill);
-        final gewaehlt = _kapselFarbe(
-          tester,
-          _kapselIn(
-            find.byKey(const ValueKey<String>('settings-theme-mode-dark')),
-          ),
-        );
-        final ungewaehlt = _kapselFarbe(
-          tester,
-          _kapselIn(
-            find.byKey(const ValueKey<String>('settings-theme-mode-light')),
-          ),
-        );
+        const dunkel = 'settings-theme-mode-dark';
+        const hell = 'settings-theme-mode-light';
+        final gewaehlt = _segmentFarbe(tester, dunkel);
+        final ungewaehlt = _segmentFarbe(tester, hell);
+        final spur = _spurFarbe(tester, find.byType(SettingsThemeModePill));
 
-        // An unselected segment paints nothing: what the eye compares the
-        // selected capsule with is the pill's own translucent track.
+        // The selected segment is the app-wide selection fill; an unselected
+        // one paints nothing, so the eye compares the fill with the track.
+        expect(gewaehlt, t.selectedFill);
         expect(ungewaehlt, Colors.transparent);
-        final spur = _spurFarbe(tester, pille);
-        expect(spur.a, lessThan(1.0), reason: 'die Spur ist eine Toenung');
+        expect(spur, t.bg, reason: 'die Spur ist der vertiefte Seitengrund');
 
-        // The pill lives inside a SettingsGroup card (`surf`); measured
-        // against `bg` too, because the sheets put it on the page ground.
-        for (final grund in <(String, Color)>[('surf', t.surf), ('bg', t.bg)]) {
-          expect(
-            _kontrast(gewaehlt, _ueber(spur, grund.$2)),
-            greaterThanOrEqualTo(_zustand),
-            reason: '$name: Segment gegen die Spur ueber ${grund.$1}',
-          );
-        }
+        expect(
+          _kontrast(gewaehlt, spur),
+          greaterThanOrEqualTo(_zustand),
+          reason: '$name: Segment gegen die Spur',
+        );
+        final gewaehltesLabel = _segmentLabel(tester, dunkel);
+        final ungewaehltesLabel = _segmentLabel(tester, hell);
+        expect(
+          _kontrast(gewaehltesLabel, gewaehlt),
+          greaterThanOrEqualTo(_text),
+          reason: '$name: Text auf der gewaehlten Flaeche',
+        );
+        expect(
+          _kontrast(ungewaehltesLabel, spur),
+          greaterThanOrEqualTo(_text),
+          reason: '$name: Text auf der Spur',
+        );
+        expect(
+          _kontrast(gewaehltesLabel, ungewaehltesLabel),
+          greaterThanOrEqualTo(_zustand),
+          reason: '$name: die beiden Beschriftungen unterscheiden sich',
+        );
       });
     });
   });

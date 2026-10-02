@@ -203,7 +203,8 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('food-search')));
     await tester.pumpAndSettle();
-    expect(find.text('Favoriten'), findsOneWidget);
+    // Section labels render uppercase (design polish 2026-10-02).
+    expect(find.text('FAVORITEN'), findsOneWidget);
     expect(find.byKey(const ValueKey('favorite-pinned-0')), findsOneWidget);
   });
 }

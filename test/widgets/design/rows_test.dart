@@ -100,7 +100,7 @@ void main() {
       await tester.pumpWidget(
         designHarness(
           const SettingsGroup(
-            label: 'KONTO',
+            label: 'Konto',
             children: <Widget>[
               SettingsRow(title: 'E-Mail'),
               SettingsRow(title: 'Passwort'),
@@ -110,10 +110,18 @@ void main() {
         ),
       );
 
-      expect(find.text('KONTO'), findsOneWidget);
+      // Drawn in capitals like the tabs' eyebrows, read in its own case.
+      final label = tester.widget<Text>(find.text('KONTO'));
+      expect(label.semanticsLabel, 'Konto');
+      expect(find.text('Konto'), findsNothing);
       expect(find.text('E-Mail'), findsOneWidget);
       expect(find.text('Abmelden'), findsOneWidget);
-      expect(find.byType(Divider), findsNWidgets(2));
+      final trenner = tester.widgetList<Divider>(find.byType(Divider));
+      expect(trenner, hasLength(2));
+      for (final divider in trenner) {
+        expect(divider.indent, 18);
+        expect(divider.endIndent, 18);
+      }
     });
 
     testWidgets('labelColor und borderColor schlagen durch', (tester) async {
