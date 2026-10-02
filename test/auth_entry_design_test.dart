@@ -360,8 +360,8 @@ void main() {
       ),
       surfaceSize: const Size(568, 320),
       textScale: 2,
-      // With motion the greeting holds on screen; reduced motion would exit
-      // at once and leave nothing to measure.
+      // The animated path. Since 2026-10-03 the greeting holds on screen
+      // under reduced motion too, so either setting leaves it to measure.
       reducedMotion: false,
       scaffold: false,
       safeArea: false,

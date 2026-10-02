@@ -112,29 +112,6 @@ void main() {
       );
       handle.dispose();
     });
-
-    testWidgets('SegmentedPill meldet die gewaehlte Option', (tester) async {
-      final handle = tester.ensureSemantics();
-
-      await _harness(
-        tester,
-        SegmentedPill(
-          options: const <String>['Metrisch', 'Imperial'],
-          selected: 'Metrisch',
-          onChanged: (_) {},
-        ),
-      );
-
-      expect(
-        tester.getSemantics(find.text('Metrisch')),
-        isSemantics(isButton: true, isSelected: true),
-      );
-      expect(
-        tester.getSemantics(find.text('Imperial')),
-        isSemantics(isButton: true, isSelected: false),
-      );
-      handle.dispose();
-    });
   });
 
   group('PageHeader', () {

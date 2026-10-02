@@ -2389,3 +2389,62 @@ unchanged.
     - the old `AppToggle` look.
   - The analysis sheet and the recipe slot picker still use the old slot icons.
   - The two profile sheets keep their own grab handle.
+
+## Secret scan, design leftovers and calorie review, 2026-10-03
+
+- Device builds: the user installs a build on their own phone after every
+  merge. A merged client change is therefore on their device. A delivery note
+  no longer needs to list "device build pending". Specific device checks (cold
+  start, iPhone reinstall) are asked for separately.
+- Secret scan ([PR #124](https://github.com/mxritzgit/Eatova/pull/124),
+  `caca16c`):
+  - The `security` workflow on main was red after PR #123. gitleaks flagged a
+    widget-key comparison in a test as `generic-api-key`. That was the only
+    finding in the history.
+  - The PR check missed it. `gitleaks-action` lists a PR's commits without
+    paging and scans only the first 30. #123 had 45.
+  - CI now runs the pinned gitleaks 8.30.1 CLI (checksum checked):
+    - PRs: `base..head`;
+    - pushes: `before..after`;
+    - schedule: all refs.
+  - gitleaks exits 0 on a range git cannot resolve, so `rev-list` resolves
+    the range first.
+  - `.gitleaksignore` allowlists exactly that one historical finding by
+    fingerprint.
+  - A reviewed false positive goes there. Do not quote matched text in that
+    file: it is scanned too.
+- Design leftovers of 2026-10-02 (branch `design/redesign-leftovers`; its PR
+  records CI and merge). These supersede the "Open" list of the previous
+  section, except the device cold-start check.
+  - Slot marks: the analysis sheet and the recipe slot picker use
+    `SlotIconTile`. The old slot glyphs (`AppSymbol.breakfast…snack`,
+    `MealSlotStyle.symbol`, `diarySurface`) are removed.
+  - Toggle: `AppToggle` follows `SelectionTone`.
+    - ON: a solid `selectedFill` track with an `onSelected` knob.
+    - OFF: an ink2@35 % track with a solid ink2 knob.
+  - Sheet handle: `SheetHandle(onDismiss:)` carries the screen-reader dismiss
+    action. The weight and BMI profile sheets and the weight-adjust sheet use
+    it instead of private grabbers.
+  - Reminders: on the goals screen, the blocked-reminder note and its "Open
+    system settings" button form one group child, with no hairline between.
+  - Welcome: the 1 s greeting after a fresh login also holds under reduced
+    motion. `motionDelay` is removed.
+  - Removed as dead code:
+    - the compact `_SettingsChoicePill` branch and `expanded`;
+    - `SegmentedPill`;
+    - unused colour parameters;
+    - `MealKcalValue.unit`/`size`.
+  - Still open by choice: collapsed add-sheet rows reveal their add action
+    only when expanded. That is the accepted 2026-10-02 design.
+- Calorie model review (read-only, decisions pending with the user):
+  - Weight logs never update `profile.weightKg`, an int set at onboarding or
+    on the goals screen. Live-mode goals, the plan card ("current → target"),
+    the forecast, the step kcal and the Coach context therefore stay on that
+    weight.
+  - The weight and BMI cards already use the latest log, so the profile shows
+    two different "current" weights.
+  - Measured with the calculator (male, 182 cm, light, −0.5 kg/week), the
+    daily goal moves only from 2100 kcal at 84 kg to 2000 at 76 kg. The
+    visible error is the forecast and the plan card.
+  - The manual-mode misdetection named in `REVIEW-KCAL-2026-08-21.md` §4.1
+    is already fixed by the explicit `manualEnergy` flag (PR #54).

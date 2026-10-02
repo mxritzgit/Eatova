@@ -161,55 +161,6 @@ void main() {
     });
   });
 
-  group('SegmentedPill', () {
-    testWidgets('Tap meldet die getippte Option', (tester) async {
-      String? picked;
-      await tester.pumpWidget(
-        designHarness(
-          SegmentedPill(
-            options: const <String>['kg', 'lb'],
-            selected: 'kg',
-            onChanged: (v) => picked = v,
-          ),
-        ),
-      );
-
-      await tester.tap(find.text('lb'));
-      expect(picked, 'lb');
-    });
-
-    testWidgets('die aktive Option traegt die Akzentflaeche, die andere nicht',
-        (tester) async {
-      await tester.pumpWidget(
-        designHarness(
-          SegmentedPill(
-            options: const <String>['kg', 'lb'],
-            selected: 'kg',
-            onChanged: (_) {},
-          ),
-        ),
-      );
-
-      BoxDecoration decoFor(String option) {
-        final box = tester.widget<AnimatedContainer>(
-          find
-              .ancestor(
-                of: find.text(option),
-                matching: find.byType(AnimatedContainer),
-              )
-              .first,
-        );
-        return box.decoration! as BoxDecoration;
-      }
-
-      // Selection language: the accent fill (dark redesign 2026-09-28), not
-      // `forest` — the latter is itself a dark surface and vanishes in dark
-      // mode (review0829_selection_contrast_test).
-      expect(decoFor('kg').color, AppTokens.light.accentFill);
-      expect(decoFor('lb').color, Colors.transparent);
-    });
-  });
-
   group('FilterChipPill', () {
     testWidgets('Tap ruft onTap', (tester) async {
       var taps = 0;
@@ -752,11 +703,6 @@ void main() {
           SquareIconButton(icon: Icons.chevron_left_rounded, onTap: () {}),
           const IconTile(icon: Icons.bolt_rounded),
           AppToggle(value: true, onChanged: (_) {}),
-          SegmentedPill(
-            options: const <String>['kg', 'lb'],
-            selected: 'kg',
-            onChanged: (_) {},
-          ),
           const FilterChipPill(label: 'Alle', selected: true),
           const PrimaryActionButton(label: 'Essen eintragen'),
           AppNavBar(index: 0, onChanged: (_) {}, items: _navItems),
@@ -776,11 +722,6 @@ void main() {
           SquareIconButton(icon: Icons.chevron_left_rounded, onTap: () {}),
           const IconTile(icon: Icons.bolt_rounded),
           AppToggle(value: true, onChanged: (_) {}),
-          SegmentedPill(
-            options: const <String>['Metrisch', 'Imperial'],
-            selected: 'Metrisch',
-            onChanged: (_) {},
-          ),
           const FilterChipPill(label: 'Fruehstueck', selected: true),
           const PrimaryActionButton(
             label: 'Essen eintragen',

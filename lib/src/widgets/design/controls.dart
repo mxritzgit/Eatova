@@ -270,14 +270,20 @@ class AppToggle extends StatelessWidget {
                 width: 46,
                 height: 27,
                 padding: const EdgeInsets.all(3),
-                // OFF: track ink2@35 %, knob edge full ink2 — `tile`/`line`
-                // were under 1.4:1 everywhere. The track itself is only
-                // ~1.7:1 (L) / 1.8:1 (D) against the card: WCAG 1.4.11 asks
-                // 3:1 for the component BOUNDARY, and that is the knob's ink2
-                // ring — 3.3–3.5:1 against the track, 5.7+ against card and
-                // knob. A 3:1 track would need ink2@75 % and eat the knob.
+                // The app's selection language ([SelectionTone]), as in the
+                // settings segments: ON is a solid `selectedFill` track with
+                // an `onSelected` knob, OFF a quiet ink2@35 % track with a
+                // solid ink2 knob.
+                // The OFF track is only 1.7:1 (L) / 2.1:1 (D) against the
+                // card; WCAG 1.4.11 asks 3:1 for the component BOUNDARY, and
+                // that is the knob: 3.7:1 (L) / 4.1:1 (D) against the track,
+                // 6.2:1 / 8.5:1 against the card. A 3:1 track would need
+                // ink2@75 % and eat the knob. ON: track 6.4:1 / 8.7:1
+                // against the card, knob 6.4:1 / 8.6:1 against the track.
                 decoration: BoxDecoration(
-                  color: value ? t.forest : t.ink2.withValues(alpha: 0.35),
+                  color: value
+                      ? t.selectedFill
+                      : t.ink2.withValues(alpha: 0.35),
                   borderRadius: BorderRadius.circular(rPill),
                 ),
                 child: AnimatedAlign(
@@ -289,9 +295,8 @@ class AppToggle extends StatelessWidget {
                     width: 21,
                     height: 21,
                     decoration: BoxDecoration(
-                      color: value ? t.lime : t.surf,
+                      color: value ? t.onSelected : t.ink2,
                       shape: BoxShape.circle,
-                      border: value ? null : Border.all(color: t.ink2),
                     ),
                   ),
                 ),
@@ -299,79 +304,6 @@ class AppToggle extends StatelessWidget {
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// Two or three mutually exclusive short options (kg/lb, week/month).
-///
-/// NO CALLER IN `lib/` TODAY — grep finds this definition and three test
-/// suites, nothing else. It stays because it is the segmented control of the
-/// design library (DESIGN_REFACTOR §4 lists it beside [FilterChipPill]) and
-/// because the live implementation, `_SettingsChoicePill`, is a copy of its
-/// geometry: a fix that lands here and not there would drift them apart. Both
-/// therefore carry [SelectionTone]. Delete it together with the doc entry the
-/// day the settings pills move into this file.
-class SegmentedPill extends StatelessWidget {
-  const SegmentedPill({
-    super.key,
-    required this.options,
-    required this.selected,
-    required this.onChanged,
-  });
-
-  final List<String> options;
-  final String selected;
-  final ValueChanged<String> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final motion = motionDuration(context, const Duration(milliseconds: 160));
-    return Container(
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: t.tile,
-        borderRadius: BorderRadius.circular(rChip),
-      ),
-      // Wrap instead of Row: identical at normal font size, but wraps at
-      // textScaler 2.0 instead of overflowing.
-      child: Wrap(
-        spacing: 0,
-        runSpacing: 3,
-        children: <Widget>[
-          for (final option in options)
-            // Like [FilterChipPill]: a bare GestureDetector carries neither
-            // `isButton` nor the selection.
-            Semantics(
-              button: true,
-              selected: option == selected,
-              child: GestureDetector(
-                onTap: () => onChanged(option),
-                child: AnimatedContainer(
-                  duration: motion,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: option == selected
-                        ? t.selectedFill
-                        : Colors.transparent,
-                    // Concentric with the 3 px padded outer capsule.
-                    borderRadius: BorderRadius.circular(rChip - 3),
-                  ),
-                  child: Text(
-                    option,
-                    style: AppType.ui(
-                      11,
-                      weight: FontWeight.w600,
-                      color: option == selected ? t.onSelected : t.ink2,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-        ],
       ),
     );
   }

@@ -941,26 +941,34 @@ class _GoalsScreenState extends State<GoalsScreen> {
               ),
             ),
           ),
-          SettingsNote(
-            _reminderText,
-            key: const ValueKey('settings-reminder-note'),
-            tone: _reminder == ReminderState.blocked ? t.warning : t.ink2,
-            icon: _reminder == ReminderState.blocked
-                ? Icons.notifications_off_outlined
-                : Icons.info_outline_rounded,
-          ),
-          if (_reminder == ReminderState.blocked &&
-              widget.onOpenSystemSettings != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
-              child: SettingsSecondaryButton(
-                key: const ValueKey('settings-open-system-settings'),
-                label: l10n.goalsOpenSystemSettings,
-                icon: Icons.settings_outlined,
-                tone: t.warning,
-                onTap: widget.onOpenSystemSettings,
+          // Note and its repair button are ONE group child: the group draws
+          // a hairline between children, and none belongs between a
+          // problem and its fix.
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              SettingsNote(
+                _reminderText,
+                key: const ValueKey('settings-reminder-note'),
+                tone: _reminder == ReminderState.blocked ? t.warning : t.ink2,
+                icon: _reminder == ReminderState.blocked
+                    ? Icons.notifications_off_outlined
+                    : Icons.info_outline_rounded,
               ),
-            ),
+              if (_reminder == ReminderState.blocked &&
+                  widget.onOpenSystemSettings != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+                  child: SettingsSecondaryButton(
+                    key: const ValueKey('settings-open-system-settings'),
+                    label: l10n.goalsOpenSystemSettings,
+                    icon: Icons.settings_outlined,
+                    tone: t.warning,
+                    onTap: widget.onOpenSystemSettings,
+                  ),
+                ),
+            ],
+          ),
         ],
       ),
     ];

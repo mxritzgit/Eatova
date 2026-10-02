@@ -2,28 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../l10n/l10n.dart';
 import '../models/logged_meal.dart';
-import 'app_symbol.dart';
 import 'app_tokens.dart';
 
-/// Single source of truth for [MealSlot] UI style (accent color, icon,
-/// labels) — this switch used to be duplicated across half a dozen widgets
-/// and the icons started to diverge.
+/// Single source of truth for [MealSlot] UI style (accent color, tile tint
+/// and ink, labels) — this switch used to be duplicated across half a dozen
+/// widgets. The slot glyphs themselves live in `SlotIconTile`.
 extension MealSlotStyle on MealSlot {
-  /// Larger diary marks use the same slot colors on their soft surfaces.
-  Color diarySurface(AppTokens t) => switch (this) {
-    MealSlot.breakfast => t.carbsSurface,
-    MealSlot.lunch => t.proteinSurface,
-    MealSlot.dinner => t.fatSurface,
-    MealSlot.snack => t.brandSurface,
-  };
-
-  AppSymbol get symbol => switch (this) {
-    MealSlot.breakfast => AppSymbol.breakfast,
-    MealSlot.lunch => AppSymbol.lunch,
-    MealSlot.dinner => AppSymbol.dinner,
-    MealSlot.snack => AppSymbol.snack,
-  };
-
   /// The slot color from the theme tokens; works in both modes. Breakfast
   /// carries the carb tone, lunch protein, dinner fat. Snack gets its own
   /// fourth color rather than grey, which would read as "disabled".

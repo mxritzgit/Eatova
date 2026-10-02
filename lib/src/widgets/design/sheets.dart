@@ -394,36 +394,52 @@ class _SheetFieldState extends State<SheetField> {
 /// measured 1.15:1 on the sheet ground and read as no handle at all; this
 /// grey is 3.0:1 on the dark `bg`.
 ///
-/// Decoration only ([ExcludeSemantics]): Material's handle also carries a
-/// "dismiss" semantics action, and that goes away with `dragHandle: false`.
-/// A sheet without it must offer another close path a screen reader can
-/// reach (close button, the sheet action, or the barrier).
+/// Decoration only by default ([ExcludeSemantics]): Material's handle also
+/// carries a "dismiss" semantics action, and that goes away with
+/// `dragHandle: false`. A sheet without it must offer another close path a
+/// screen reader can reach (close button, the sheet action, or the barrier).
+/// A sheet with none of those passes [onDismiss], and the handle carries that
+/// action itself.
 class SheetHandle extends StatelessWidget {
   const SheetHandle({
     super.key,
     this.padding = const EdgeInsets.only(top: 10, bottom: 6),
+    this.onDismiss,
   });
 
   final EdgeInsets padding;
 
+  /// The screen-reader "dismiss" action, under Material's label
+  /// (`modalBarrierDismissLabel`). Pass a `maybePop`, so a discard guard
+  /// still asks. On Android the barrier offers no such action, so without
+  /// this a sheet with no close button would trap a screen-reader user.
+  final VoidCallback? onDismiss;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    // Decoration only; a screen reader gains nothing from "handle".
-    return ExcludeSemantics(
-      child: Padding(
-        padding: padding,
-        child: Center(
-          child: Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: t.inkDisabled,
-              borderRadius: BorderRadius.circular(rPill),
-            ),
+    final bar = Padding(
+      padding: padding,
+      child: Center(
+        child: Container(
+          width: 40,
+          height: 4,
+          decoration: BoxDecoration(
+            color: t.inkDisabled,
+            borderRadius: BorderRadius.circular(rPill),
           ),
         ),
       ),
+    );
+    final dismiss = onDismiss;
+    // Decoration only; a screen reader gains nothing from "handle".
+    if (dismiss == null) return ExcludeSemantics(child: bar);
+    return Semantics(
+      button: true,
+      label: MaterialLocalizations.of(context).modalBarrierDismissLabel,
+      onTap: dismiss,
+      excludeSemantics: true,
+      child: SizedBox(width: double.infinity, child: bar),
     );
   }
 }

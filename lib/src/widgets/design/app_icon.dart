@@ -78,14 +78,6 @@ class _AppIconPainter extends CustomPainter {
         drawing.training();
       case AppSymbol.coach:
         drawing.coach();
-      case AppSymbol.breakfast:
-        drawing.breakfast();
-      case AppSymbol.lunch:
-        drawing.lunch();
-      case AppSymbol.dinner:
-        drawing.dinner();
-      case AppSymbol.snack:
-        drawing.snack();
       case AppSymbol.steps:
         drawing.steps();
     }
@@ -254,117 +246,6 @@ class _SymbolDrawing {
         ..lineTo(17.2, 16.5)
         ..close(),
       p,
-    );
-  }
-
-  void breakfast() {
-    shape(
-      Path()
-        ..moveTo(3.5, 16.5)
-        ..cubicTo(2.6, 13, 3.7, 8.5, 7.4, 7)
-        ..cubicTo(8.4, 4.8, 15.6, 4.8, 16.6, 7)
-        ..cubicTo(20.3, 8.5, 21.4, 13, 20.5, 16.5)
-        ..lineTo(17.2, 18.5)
-        ..cubicTo(16.8, 13.5, 15.2, 11.5, 12, 11.5)
-        ..cubicTo(8.8, 11.5, 7.2, 13.5, 6.8, 18.5)
-        ..close(),
-    );
-    path(
-      Path()
-        ..moveTo(8.2, 6.2)
-        ..quadraticBezierTo(8, 9.3, 9, 12.2),
-    );
-    path(
-      Path()
-        ..moveTo(15.8, 6.2)
-        ..quadraticBezierTo(16, 9.3, 15, 12.2),
-    );
-    line(4.1, 10.5, 7.3, 13.5);
-    line(19.9, 10.5, 16.7, 13.5);
-  }
-
-  void bowl() {
-    shape(
-      Path()
-        ..moveTo(3.2, 11)
-        ..lineTo(20.8, 11)
-        ..quadraticBezierTo(19.8, 19, 12, 20)
-        ..quadraticBezierTo(4.2, 19, 3.2, 11)
-        ..close(),
-    );
-    line(8.5, 21, 15.5, 21);
-  }
-
-  void lunch() {
-    line(12, 2.5, 8, 8.5);
-    line(16.5, 3.5, 12, 9);
-    path(
-      Path()
-        ..moveTo(6, 11)
-        ..quadraticBezierTo(6.8, 7, 9.5, 8.3)
-        ..quadraticBezierTo(13, 5.5, 15, 8.3)
-        ..quadraticBezierTo(17.2, 7.6, 18.2, 11),
-    );
-    bowl();
-  }
-
-  void dinner() {
-    shape(
-      Path()
-        ..moveTo(3, 15)
-        ..quadraticBezierTo(12, 11.6, 21, 15)
-        ..quadraticBezierTo(18.5, 20, 12, 20)
-        ..quadraticBezierTo(5.5, 20, 3, 15)
-        ..close(),
-    );
-    path(
-      Path()
-        ..moveTo(3, 15)
-        ..quadraticBezierTo(12, 17.3, 21, 15),
-    );
-    shape(
-      Path()
-        ..moveTo(17, 2.8)
-        ..cubicTo(12, 2.5, 11, 8.4, 15, 10)
-        ..quadraticBezierTo(18.8, 11.5, 20.7, 7.3)
-        ..cubicTo(16.2, 9.1, 14.4, 5.6, 17, 2.8)
-        ..close(),
-    );
-    path(
-      Path()
-        ..moveTo(3.5, 4)
-        ..lineTo(3.5, 7)
-        ..quadraticBezierTo(3.5, 9, 5.5, 9)
-        ..quadraticBezierTo(7.5, 9, 7.5, 7)
-        ..lineTo(7.5, 4),
-    );
-    line(5.5, 4, 5.5, 11);
-  }
-
-  void snack() {
-    shape(
-      Path()
-        ..moveTo(9, 3)
-        ..cubicTo(3.8, 6, 2.8, 12.4, 5, 17)
-        ..cubicTo(10.9, 17.7, 14, 9.4, 9, 3)
-        ..close(),
-    );
-    path(
-      Path()
-        ..moveTo(6.1, 13.5)
-        ..quadraticBezierTo(6.7, 9.5, 8.5, 6.7),
-    );
-    shape(
-      Path()
-        ..moveTo(16, 9)
-        ..cubicTo(12.6, 10.7, 11.6, 15.6, 13.5, 20.5)
-        ..cubicTo(19.7, 21.5, 23, 16.1, 16, 9)
-        ..close(),
-    );
-    path(
-      Path()
-        ..moveTo(16, 12.5)
-        ..quadraticBezierTo(18, 15.5, 16.8, 18),
     );
   }
 

@@ -7,9 +7,10 @@
 // nothing. Project floor: 44 pt (AppToggle, pinned in
 // review0819_controls_toggle_target_test.dart).
 //
-// Since the 2026-10-02 polish the settings page renders the pills
-// `expanded: true`: a recessed track with full-width segments, each at least
-// 48 px tall, stacking one per line at large text. Tested here:
+// Since the 2026-10-02 polish the pills are a recessed track with full-width
+// segments, each at least 48 px tall, stacking one per line at large text
+// (the compact form above was removed as dead code on 2026-10-03). Tested
+// here:
 //   1. every segment of that shipped pill is a 48 px target, at 1.0 on a
 //      phone row and at 2.0 on a narrow one,
 //   2. a tap at the segment's top edge switches, and the semantics node
@@ -127,16 +128,14 @@ void main() {
         wert: const Locale('en'),
       ),
     ]) {
-      // As the settings screen builds them: `expanded: true`.
+      // As the settings screen builds them.
       Widget bauen(List<Object?> senke) => fall.wert is Locale
           ? SettingsLanguagePill(
               value: null,
-              expanded: true,
               onChanged: senke.add,
             )
           : SettingsThemeModePill(
               mode: ThemeMode.system,
-              expanded: true,
               onChanged: senke.add,
             );
 

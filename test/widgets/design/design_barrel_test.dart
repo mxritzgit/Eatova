@@ -25,11 +25,6 @@ void main() {
               SquareIconButton(icon: Icons.chevron_left_rounded, onTap: () {}),
               const IconTile(icon: Icons.bolt_rounded),
               AppToggle(value: true, onChanged: (_) {}),
-              SegmentedPill(
-                options: const <String>['kg', 'lb'],
-                selected: 'kg',
-                onChanged: (_) {},
-              ),
               const FilterChipPill(label: 'Alle', selected: false),
               const PrimaryActionButton(label: 'Weiter'),
               AppNavBar(

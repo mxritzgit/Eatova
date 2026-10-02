@@ -199,7 +199,15 @@ void main() {
     await captureDesignShot(tester, 'launch-reduced-00');
     ready.complete();
     await tester.pump();
+    await tester.pumpAndSettle();
+    // No lock-in or fade, but the greeting holds its 1 s reading pause
+    // (since 2026-10-03; before, it stood for one frame). The pause is a
+    // timer, not an animation: still nothing ticking.
+    expect(find.byKey(const ValueKey('welcome-text')), findsOneWidget);
+    expect(tester.binding.hasScheduledFrame, isFalse);
+    expect(completions(), 0);
     await captureDesignShot(tester, 'launch-reduced-01');
+    await tester.pump(const Duration(milliseconds: 1000));
     await tester.pumpAndSettle();
     expect(completions(), 1);
     expect(tester.takeException(), isNull);

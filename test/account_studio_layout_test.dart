@@ -78,7 +78,7 @@ void main() {
   setUpAll(loadAccountFonts);
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  testWidgets('expanded choices paint keyboard focus and activate with enter', (
+  testWidgets('settings choices paint keyboard focus and activate with enter', (
     tester,
   ) async {
     final capture = GlobalKey();
@@ -89,7 +89,6 @@ void main() {
         key: capture,
         child: SettingsThemeModePill(
           mode: ThemeMode.system,
-          expanded: true,
           onChanged: choices.add,
         ),
       ),

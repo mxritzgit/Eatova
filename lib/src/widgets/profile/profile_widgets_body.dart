@@ -248,8 +248,8 @@ class WeightCard extends StatelessWidget {
   ///
   /// No `showDragHandle: true` either: the theme sets it false globally, and
   /// the route's handle is a stack sibling NEXT TO the builder child, where no
-  /// sheet can reach it. Drawn inside the sheet instead, see
-  /// [_ProfileSheetGrabber].
+  /// sheet can reach it. Drawn inside the sheet instead: a [SheetHandle] with
+  /// the dismiss action.
   Future<void> _promptWeight(BuildContext context) async {
     await showModalBottomSheet<double>(
       showDragHandle: false,
@@ -428,42 +428,6 @@ class BmiCard extends StatelessWidget {
   }
 }
 
-/// Grab handle of the profile sheets — drawn in the sheet, not on the route.
-///
-/// The dismiss semantics must move along: the route handle offered a tap
-/// action to TalkBack/VoiceOver, neither sheet here has a close button, and on
-/// Android the barrier offers no dismiss semantics either — without this a
-/// screen-reader user would be stuck.
-class _ProfileSheetGrabber extends StatelessWidget {
-  const _ProfileSheetGrabber();
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Semantics(
-      button: true,
-      label: MaterialLocalizations.of(context).modalBarrierDismissLabel,
-      onTap: () => Navigator.of(context).maybePop(),
-      child: SizedBox(
-        width: double.infinity,
-        height: 26,
-        child: Center(
-          child: SizedBox(
-            width: 32,
-            height: 4,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: t.ink2.withValues(alpha: 0.5),
-                borderRadius: const BorderRadius.all(Radius.circular(rPill)),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _BmiInfoSheet extends StatelessWidget {
   const _BmiInfoSheet({required this.bmi});
 
@@ -496,7 +460,12 @@ class _BmiInfoSheet extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        const Center(child: _ProfileSheetGrabber()),
+        // Neither profile sheet has a close button: the handle carries the
+        // screen-reader dismiss action.
+        SheetHandle(
+          padding: const EdgeInsets.symmetric(vertical: 11),
+          onDismiss: () => Navigator.of(context).maybePop(),
+        ),
         Flexible(
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 4, 20, 28),
@@ -694,7 +663,10 @@ class _ProfileWeightInputSheetState extends State<_ProfileWeightInputSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            const Center(child: _ProfileSheetGrabber()),
+            SheetHandle(
+              padding: const EdgeInsets.symmetric(vertical: 11),
+              onDismiss: () => Navigator.of(context).maybePop(),
+            ),
             HeadingSemantics(
               level: 1,
               child: Text(

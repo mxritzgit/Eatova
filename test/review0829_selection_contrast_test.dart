@@ -78,16 +78,6 @@ Color _materialFarbe(WidgetTester tester, Finder von) => tester
 Color _textFarbe(WidgetTester tester, String label) =>
     tester.widget<Text>(find.text(label)).style!.color!;
 
-/// Painted capsule of one [SegmentedPill] segment, found via its label
-/// inside it ([SegmentedPill] has no keys).
-Color _kapselFarbe(WidgetTester tester, Finder kapsel) {
-  final box = tester.widget<AnimatedContainer>(kapsel.first);
-  return (box.decoration! as BoxDecoration).color!;
-}
-
-Finder _kapselUm(Finder label) =>
-    find.ancestor(of: label, matching: find.byType(AnimatedContainer));
-
 /// Fill of one settings-pill segment: the [Material] right around the keyed
 /// [InkWell].
 Color _segmentFarbe(WidgetTester tester, String key) => tester
@@ -185,7 +175,7 @@ void main() {
       final t = _tokens(brightness);
 
       testWidgets('$name: Segment gegen die Spur >= 3:1', (tester) async {
-        // As the settings screen builds it: `expanded: true`, full row width.
+        // As the settings screen builds it: full row width.
         await pumpLocalized(
           tester,
           Align(
@@ -194,7 +184,6 @@ void main() {
               width: 335,
               child: SettingsThemeModePill(
                 mode: ThemeMode.dark,
-                expanded: true,
                 onChanged: (_) {},
               ),
             ),
@@ -235,42 +224,6 @@ void main() {
           _kontrast(gewaehltesLabel, ungewaehltesLabel),
           greaterThanOrEqualTo(_zustand),
           reason: '$name: die beiden Beschriftungen unterscheiden sich',
-        );
-      });
-    });
-  });
-
-  group('SegmentedPill traegt dieselbe Sprache', () {
-    _modi.forEach((name, brightness) {
-      final t = _tokens(brightness);
-
-      testWidgets('$name: aktive Option gegen die Spur >= 3:1', (tester) async {
-        await pumpLocalized(
-          tester,
-          Align(
-            child: SegmentedPill(
-              options: const <String>['kg', 'lb'],
-              selected: 'kg',
-              onChanged: (_) {},
-            ),
-          ),
-          brightness: brightness,
-        );
-
-        final aktiv = _kapselFarbe(tester, _kapselUm(find.text('kg')));
-        expect(
-          _kapselFarbe(tester, _kapselUm(find.text('lb'))),
-          Colors.transparent,
-        );
-        expect(
-          _kontrast(aktiv, _ueber(t.tile, t.surf)),
-          greaterThanOrEqualTo(_zustand),
-          reason: '$name: aktive Option gegen die eigene Spur',
-        );
-        expect(
-          _kontrast(_textFarbe(tester, 'kg'), _textFarbe(tester, 'lb')),
-          greaterThanOrEqualTo(_zustand),
-          reason: '$name: aktive gegen inaktive Beschriftung',
         );
       });
     });
