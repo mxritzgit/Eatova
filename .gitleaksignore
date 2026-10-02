@@ -1,0 +1,9 @@
+# Reviewed gitleaks false positives, one exact finding per line
+# (commit:file:rule:line). Each entry only silences that one finding in that
+# one commit; the same text in any other commit is still reported.
+
+# generic-api-key on a loop variable named after widget keys, compared with a
+# widget-key string in a test (PR #123). History on protected main is not
+# rewritten; the variable was renamed afterwards. Do not quote matched text
+# here: this file is scanned too.
+4f56c91c599bb6254a2cb9dcbc5779c5b73d1371:test/meal_entry_design_test.dart:generic-api-key:239

@@ -92,9 +92,11 @@ Local runs omit `--run-attempt` and keep the plain `shard-N` directories.
 
 Step 3 is required whenever you touch `supabase/functions/`; it is cheap
 enough to run every time. CI additionally builds a debug APK and a release
-AAB (R8 + AOT, throwaway keystore), scans secrets across the full history
-(gitleaks) and dependencies (OSV), and replays all migrations against PostgreSQL
-to test real cross-user access and account-deletion reauthentication.
+AAB (R8 + AOT, throwaway keystore), scans secrets with gitleaks (every commit
+of a PR or push, the full history weekly; a reviewed false positive goes into
+`.gitleaksignore` by fingerprint) and dependencies with OSV, and replays all
+migrations against PostgreSQL to test real cross-user access and
+account-deletion reauthentication.
 
 The line-coverage floor is **88%**, excluding `lib/src/l10n/generated/`.
 The Deno job also runs the Python operations readiness and loopback transport
