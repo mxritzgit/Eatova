@@ -230,9 +230,11 @@ void main() {
         );
 
         // Tapping the row's title really changes nothing.
-        await tester.tap(
-          find.descendant(of: zeile, matching: find.byType(Text)).first,
-        );
+        final titel =
+            find.descendant(of: zeile, matching: find.byType(Text)).first;
+        await tester.ensureVisible(titel);
+        await tester.pumpAndSettle();
+        await tester.tap(titel);
         await tester.pumpAndSettle();
       }
 
