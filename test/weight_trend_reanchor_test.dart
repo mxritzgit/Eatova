@@ -6,7 +6,11 @@
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/services/health_service.dart';
+import 'package:eatova/src/services/local_cache.dart';
+import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/kcal_calculator.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 
@@ -149,6 +153,85 @@ void main() {
       a.snacks.messages,
       contains('Neues Tagesziel: 2050 kcal – an deinen Gewichtstrend angepasst.'),
     );
+  });
+
+  test('no re-anchor before the server answered in this session', () async {
+    // Review finding: the weigh-in used to write a full profile row from the
+    // cached profile, which another device may have changed meanwhile.
+    final kv = InMemoryKeyValueStore();
+    final a = setup(kv: kv);
+    a.server.profileRow = serverProfileRow(_live());
+    await boot(a.store);
+    a.store.flushPendingWrites();
+    await settle();
+
+    final b = setup(kv: kv);
+    b.server.offline = true;
+    await boot(b.store);
+    expect(b.store.profile.weightKg, 84, reason: 'precondition: cached');
+
+    await b.store.logWeight(81.2);
+    await settle();
+
+    expect(b.store.profile.weightKg, 84);
+    expect(b.store.pendingOutbox.map((op) => op.kind), [
+      SyncOpKind.weightInsert,
+    ]);
+  });
+
+  test('stale weigh-ins do not re-anchor at boot', () async {
+    // The latest weigh-in is five weeks old; a weight typed on the goals
+    // screen since then must not be overridden.
+    final a = setup();
+    a.server.profileRow = serverProfileRow(_live());
+    final now = DateTime.now();
+    for (final (daysAgo, kg) in [(42, 80.6), (35, 80.4)]) {
+      final at = now.subtract(Duration(days: daysAgo));
+      a.server.weightRows['w$daysAgo'] = _weightRow(at, kg);
+    }
+
+    await boot(a.store);
+    await settle();
+
+    expect(a.store.weightLog.trendKg, isNotNull, reason: 'precondition');
+    expect(a.store.profile.weightKg, 84);
+    expect(a.snacks.messages.where((m) => m.startsWith('Neues Tagesziel')),
+        isEmpty);
+  });
+
+  test('before onboarding completes, a weigh-in leaves the profile', () async {
+    final store = HomeStore(
+      sync: null,
+      health: const NoopHealthService(),
+      notificationService: const NoopNotificationService(),
+      initialUserName: 'Test',
+      emitSnack: SnackCapture().call,
+    );
+    addTearDown(store.dispose);
+    store.profile = const UserProfile(weightKg: 84);
+    expect(store.profile.onboardingCompleted, isFalse, reason: 'precondition');
+
+    await store.logWeight(81.2);
+
+    expect(store.profile.weightKg, 84);
+  });
+
+  test('offline, the sync hint stays and the goal notice steps back', () async {
+    // Review finding: the goal notice replaced the once-per-session "saved
+    // here, syncs later" hint, which then never came back.
+    final a = setup();
+    a.server.profileRow = serverProfileRow(_live());
+    await boot(a.store);
+    a.server.offline = true;
+    a.snacks.messages.clear();
+
+    await a.store.logWeight(81.2);
+    await settle();
+
+    expect(a.store.profile.weightKg, 81, reason: 're-anchored all the same');
+    expect(a.snacks.messages, isNotEmpty, reason: 'the sync hint');
+    expect(a.snacks.messages.where((m) => m.startsWith('Neues Tagesziel')),
+        isEmpty);
   });
 
   test('a goals save in flight is not overwritten by the re-anchor', () async {

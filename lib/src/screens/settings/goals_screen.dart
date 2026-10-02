@@ -38,9 +38,10 @@ class GoalsScreen extends StatefulWidget {
 
   final UserProfile profile;
 
-  /// The weight trend ([WeightLog.trendKg]), null without weigh-ins. With it
-  /// the weight row is read-only: the plan follows the trend
-  /// (docs/WEIGHT-TREND.md), so a typed value would be smoothed straight back.
+  /// The plan weight ([WeightLog.planWeightKg]), null without a fresh,
+  /// in-range trend. With it the weight row is read-only: the plan follows the
+  /// trend (docs/WEIGHT-TREND.md), so a typed value would be smoothed straight
+  /// back.
   final double? weightTrendKg;
   final PersistValueChanged<SettingsResult>? onSave;
 
@@ -122,7 +123,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
       // calculation. Prefill the (hidden) energy fields from the live result,
       // so flipping to manual starts from the number on the hero, not from a
       // stale one.
-      final t = const KcalCalculator().calculate(p);
+      // From the same weight as the hero: the rounded trend when there is one.
+      final t = const KcalCalculator().calculate(
+        p.copyWith(weightKg: _trendWeightKg(p)),
+      );
       _kcal.text = t.kcal.toString();
       _protein.text = t.proteinG.toString();
       _carbs.text = t.carbsG.toString();

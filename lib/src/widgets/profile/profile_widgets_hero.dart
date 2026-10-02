@@ -252,8 +252,8 @@ class GoalPlanCard extends StatelessWidget {
   final UserProfile profile;
   final VoidCallback? onEdit;
 
-  /// The weight trend ([WeightLog.trendKg]) for the "current" pole; null
-  /// without weigh-ins, when the profile weight stands in.
+  /// The plan weight ([WeightLog.planWeightKg]) for the "current" pole; null
+  /// without a fresh, in-range trend, when the profile weight stands in.
   final double? currentWeightKg;
 
   @override

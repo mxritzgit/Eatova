@@ -16,9 +16,13 @@ class WeightCard extends StatelessWidget {
 
   double get _current => log.latest?.weightKg ?? profile.weightKg.toDouble();
 
-  /// What goals and progress use: the trend, which a single light or heavy
-  /// morning does not move (docs/WEIGHT-TREND.md).
-  double get _trend => log.trendKg ?? _current;
+  /// The trend the plan uses ([WeightLog.planWeightKg]): a single light or
+  /// heavy morning does not move it (docs/WEIGHT-TREND.md). Null when the
+  /// weigh-ins are stale or out of range.
+  double? get _planWeight => log.planWeightKg(clock.now());
+
+  /// What goal progress uses: the plan trend, else the latest weigh-in.
+  double get _trend => _planWeight ?? _current;
 
   @override
   Widget build(BuildContext context) {
@@ -94,10 +98,10 @@ class WeightCard extends StatelessWidget {
               ],
             ],
           ),
-          if (hatVerlauf) ...<Widget>[
+          if (hatVerlauf && _planWeight != null) ...<Widget>[
             const SizedBox(height: 4),
             Text(
-              l10n.profileWeightTrend(formatKgDe(_trend, l10n)),
+              l10n.profileWeightTrend(formatKgDe(_planWeight!, l10n)),
               key: const ValueKey('profile-weight-trend'),
               style: AppType.ui(12.5, weight: FontWeight.w600, color: t.ink2),
             ),
@@ -292,8 +296,12 @@ class BmiCard extends StatelessWidget {
   double get _bmi {
     final m = profile.heightCm / 100.0;
     if (m <= 0) return 0;
-    // The trend, like goals and plan: one current weight on the page.
-    final w = log.trendKg ?? profile.weightKg.toDouble();
+    // The plan trend, like goals and plan card: one current weight on the
+    // page. Without a usable trend, the latest weigh-in as before.
+    final w =
+        log.planWeightKg(clock.now()) ??
+        log.latest?.weightKg ??
+        profile.weightKg.toDouble();
     return w / (m * m);
   }
 

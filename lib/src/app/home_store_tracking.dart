@@ -346,6 +346,7 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     final op = SyncOp.weightInsert(id: uuidV4(), weightKg: kg, recordedAt: ts);
     final before = profile;
     final reanchored = _reanchoredProfile(before, weightLog.addEntry(entry));
+    final syncHintShown = _syncHintShown;
     // One local commit: the weigh-in and the profile it moves never diverge.
     await _commitSyncIntents(
       [op, if (reanchored != null) SyncOp.profileUpsert(reanchored)],
@@ -357,27 +358,35 @@ mixin _HomeStoreTrackingPart on _HomeStoreBase, _HomeStoreSyncPart {
     );
     HapticFeedback.lightImpact();
     if (writeToHealth) unawaited(health.writeWeight(kg, ts));
-    if (reanchored != null) _announceReanchor(before, reanchored);
+    // The once-per-session "saved here, syncs later" hint this commit may just
+    // have raised outranks the goal notice, which would replace it for good.
+    final raisedSyncHint = _syncHintShown && !syncHintShown;
+    if (reanchored != null && !raisedSyncHint) {
+      _announceReanchor(before, reanchored);
+    }
   }
 
   // --- Weight trend re-anchoring (docs/WEIGHT-TREND.md) ---------------------
 
-  /// [p] with its weight moved to the rounded [WeightLog.trendKg] of [log]
-  /// and, in live mode, its goals recomputed; null when nothing moves.
+  /// Whether the server answered both the profile and the weight-log load in
+  /// this session; the boot flags live in [HomeStore].
+  bool get _serverAnsweredProfileAndWeightLog;
+
+  /// [p] with its weight moved to the rounded [WeightLog.planWeightKg] of
+  /// [log] and, in live mode, its goals recomputed; null when nothing moves.
   ///
-  /// Skipped before onboarding completes, without weigh-ins, and outside the
-  /// profile's weight range — the profile then keeps its own weight.
+  /// Skipped before onboarding completes, before the server answered profile
+  /// AND weight log in this session (a full row from a cache could overwrite a
+  /// newer one), and without a fresh, in-range trend — the profile then keeps
+  /// its own weight.
   UserProfile? _reanchoredProfile(UserProfile p, WeightLog log) {
     if (!p.onboardingCompleted) return null;
-    if (sync != null && !_hydratedFromRealSource) return null;
-    final trend = log.trendKg;
-    if (trend == null) return null;
-    final kg = trend.round();
-    if (kg == p.weightKg ||
-        kg < ProfileLimits.weightKgMin ||
-        kg > ProfileLimits.weightKgMax) {
+    if (sync != null &&
+        !(_hydratedFromRealSource && _serverAnsweredProfileAndWeightLog)) {
       return null;
     }
+    final kg = log.planWeightKg(clock.now())?.round();
+    if (kg == null || kg == p.weightKg) return null;
     return const KcalCalculator().applyLiveGoals(p.copyWith(weightKg: kg));
   }
 

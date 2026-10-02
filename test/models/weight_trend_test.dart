@@ -1,8 +1,9 @@
 // WeightLog.trendKg — the smoothed current weight (docs/WEIGHT-TREND.md).
 //
-// A time-aware exponentially weighted moving average over per-day means:
-// 10 % per day, so a day Δ days after the previous one moves the trend by
-// 1 − 0.9^Δ; a day more than 5 % off the trend reseeds it.
+// A time-aware exponentially weighted moving average over the LAST weigh-in
+// of each local day: 10 % per day, so a day Δ days after the previous one
+// moves the trend by 1 − 0.9^Δ. A day more than 5 % off the trend is an
+// outlier: it counts only once the next weigh-in day confirms it.
 
 import 'dart:math' as math;
 
@@ -25,11 +26,8 @@ void main() {
     expect(_trend([_at(0, 81.2)]), 81.2);
   });
 
-  test('several weigh-ins on one local day count as their mean', () {
-    expect(
-      _trend([_at(0, 80, hour: 7), _at(0, 81, hour: 21)]),
-      closeTo(80.5, 1e-9),
-    );
+  test('the last weigh-in of a local day counts: a correction replaces it', () {
+    expect(_trend([_at(0, 80, hour: 7), _at(0, 81, hour: 21)]), 81);
   });
 
   test('the next day moves the trend by 10 %', () {
@@ -64,20 +62,90 @@ void main() {
     expect(_trend([late, early]), closeTo(80.1, 1e-9));
   });
 
-  group('reseed', () {
-    test('a day more than 5 % off the trend replaces it', () {
-      // 85 is 6.25 % above 80: a correction or a typo, not water.
-      expect(_trend([_at(0, 80), _at(1, 85)]), 85);
+  group('outliers (more than 5 % off the trend)', () {
+    test('a single outlier followed by a normal day is ignored', () {
+      // 61.2 is a typo of 81.2: the next weigh-in does not confirm it.
+      expect(
+        _trend([_at(0, 81.2), _at(1, 61.2), _at(2, 81.0)]),
+        closeTo(81.2 + (1 - math.pow(0.9, 2)) * (81.0 - 81.2), 1e-9),
+      );
+    });
+
+    test('a typo corrected the same day leaves no trace', () {
+      // Review case: 90 typed, 80 corrected minutes later. A day mean of 85
+      // used to reseed and then drag the trend for weeks.
+      final trend = _trend([
+        _at(0, 80),
+        _at(1, 90, hour: 7),
+        _at(1, 80, hour: 8),
+        _at(2, 81),
+      ]);
+      expect(trend, closeTo(80 + 0.1 * 0 + 0.1 * (81 - 80), 1e-9));
+    });
+
+    test('an outlier 5–10 % off does not get stuck', () {
+      // 85.5 is 6.9 % above 80; the next day is back at 80.5.
+      final trend = _trend([_at(0, 80), _at(1, 85.5), _at(2, 80.5)])!;
+      expect(trend, closeTo(80 + (1 - math.pow(0.9, 2)) * 0.5, 1e-9));
+    });
+
+    test('a jump confirmed by the next weigh-in day is adopted', () {
+      // A real correction (wrong onboarding weight, a long break): two days
+      // agree, so the trend moves to the confirming day.
+      expect(_trend([_at(0, 84), _at(1, 74.2), _at(2, 74.0)]), 74.0);
+    });
+
+    test('an unconfirmed outlier on the last day does not move the trend', () {
+      expect(_trend([_at(0, 80), _at(1, 80.4), _at(2, 90)]), closeTo(80.04, 1e-9));
     });
 
     test('just under 5 % is still smoothed', () {
       // 83.9 is 4.875 % above 80.
       expect(_trend([_at(0, 80), _at(1, 83.9)]), closeTo(80.39, 1e-9));
     });
+  });
 
-    test('a typo is undone by the next real weigh-in', () {
-      final trend = _trend([_at(0, 81.2), _at(1, 61.2), _at(2, 81.0)]);
-      expect(trend, 81.0);
+  test('a day gap across the spring DST change still counts two days', () {
+    // 28 → 30 March 2026 is 47 hours in Europe/Berlin; whole days count.
+    final trend = _trend([
+      WeightLogEntry(timestamp: DateTime(2026, 3, 28, 7), weightKg: 80),
+      WeightLogEntry(timestamp: DateTime(2026, 3, 30, 7), weightKg: 81),
+    ]);
+    expect(trend, closeTo(80 + (1 - math.pow(0.9, 2)), 1e-9));
+  });
+
+  group('planWeightKg: the trend the plan may use', () {
+    final now = DateTime(2026, 10, 3, 12);
+
+    test('a fresh trend inside the profile range', () {
+      final log = WeightLog.capped([_at(30, 81.6)]); // 2026-10-01
+      expect(log.planWeightKg(now), 81.6);
+    });
+
+    test('none when the latest weigh-in is older than 28 days', () {
+      // Weigh-ins stopped in August; a newer weight typed on the goals
+      // screen must not be overridden by them.
+      final log = WeightLog.capped([
+        WeightLogEntry(timestamp: DateTime(2026, 9, 4, 7), weightKg: 84),
+      ]);
+      expect(log.trendKg, 84);
+      expect(log.planWeightKg(now), isNull);
+      expect(
+        WeightLog.capped([
+          WeightLogEntry(timestamp: DateTime(2026, 9, 6, 7), weightKg: 84),
+        ]).planWeightKg(now),
+        84,
+      );
+    });
+
+    test('none when the rounded trend leaves the profile range 30–300', () {
+      final log = WeightLog.capped([_at(30, 25)]);
+      expect(log.trendKg, 25);
+      expect(log.planWeightKg(now), isNull);
+    });
+
+    test('none without weigh-ins', () {
+      expect(const WeightLog().planWeightKg(now), isNull);
     });
   });
 

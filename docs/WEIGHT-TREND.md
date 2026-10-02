@@ -22,35 +22,55 @@ therefore showed two different "current" weights.
 
 - **Trend** (`WeightLog.trendKg`): an exponentially weighted moving average
   over the weigh-ins, with these rules:
-  - Several weigh-ins on one local day count as one, their mean.
+  - Each local day counts once, with its **last** weigh-in. There is no
+    delete, so a later entry corrects an earlier one, for example a typo.
   - The smoothing is 10 % per day and time-aware: a day `Δ` days after the
-    previous one moves the trend by `1 − 0.9^Δ`. A weekly weigh-in therefore
-    counts about 52 %, and a weigh-in after a month almost fully.
-  - A day more than 5 % away from the trend reseeds it. That covers a
-    correction or a typo, which the next weigh-in fixes, instead of dragging
-    the trend for weeks. Normal daily swings (1–2 kg of water) stay smoothed.
-  - Without weigh-ins there is no trend, and the profile weight applies as
-    before.
+    last counted one moves the trend by `1 − 0.9^Δ`. A weekly weigh-in
+    therefore counts about 52 %, and a weigh-in after a month almost fully.
+  - A day more than 5 % off the trend is an **outlier** (a typo, a wrong
+    onboarding weight, a long break) and is held back:
+    - If the next weigh-in day lies within 5 % of it, the jump is real and
+      the trend moves to that day.
+    - Otherwise the outlier is dropped.
+    - An outlier on the last day does not move the plan yet.
+
+    Normal daily swings (1–2 kg of water) stay below 5 % and are smoothed.
+- **Plan weight** (`WeightLog.planWeightKg(now)`): the trend, but only while
+  the latest weigh-in is at most 28 days old and the rounded value fits
+  `ProfileLimits` (30–300 kg). Otherwise there is no plan weight and the
+  profile weight stays in charge. This also covers a user who stopped
+  weighing in and later typed a weight on the goals screen.
 - **Re-anchoring:** after a weigh-in (manual or Apple Health import) and after
-  the boot load, the store sets `profile.weightKg` to the rounded trend when
-  they differ. This needs a completed onboarding and a value within
-  `ProfileLimits`.
+  the boot load, the store sets `profile.weightKg` to the rounded plan weight
+  when they differ.
+  - It requires a completed onboarding.
+  - It requires that the server answered both the profile and the
+    weight-log load in this session. A full profile row is never written from
+    a cached profile or a cached log alone, because another device may have
+    changed it. A later boot catches up.
   - Live mode recomputes the goals in the same step (`applyLiveGoals`).
   - Manual mode keeps its own goals and only updates the weight.
-  - The weigh-in and the profile update are one local commit and travel as
-    one outbox batch.
+  - The weigh-in and the profile update are one atomic local commit. A
+    failed commit moves neither. Delivery then replays them as two ordered
+    outbox operations.
   - Before computing, the store waits until no other local mutation is
     pending, so a goals save in flight is never overwritten with a stale
     profile.
 - **Notice:** when the daily kcal goal changes in live mode, a short snack
-  names the new goal. This is typically 50 kcal every 3–4 kg.
-- **One current weight in the UI:**
-  - the plan card's "current" pole shows the trend;
-  - the weight card shows the latest weigh-in plus the trend;
-  - BMI uses the trend.
-- **Goals screen:** with weigh-ins, the weight row is read-only and shows the
-  trend, because a typed value would immediately be smoothed back. Without
-  weigh-ins it stays editable. Onboarding does not create a weigh-in.
+  names the new goal. This is typically 50 kcal every 3–4 kg. If the same
+  commit just raised the once-per-session "saved here, syncs later" hint,
+  the hint stays and the goal notice is skipped.
+- **One current weight in the UI** (the plan weight, with fallbacks):
+  - the plan card's "current" pole, gap and forecast;
+  - the weight card's trend line (shown only with a plan weight) and its goal
+    progress;
+  - BMI.
+
+  The weight card's big number stays the latest weigh-in.
+- **Goals screen:** with a plan weight, the weight row is read-only and shows
+  it, because a typed value would immediately be smoothed back. Its hidden
+  energy fields use the same weight. Without a plan weight the row stays
+  editable. Onboarding does not create a weigh-in.
 
 Measured effect (male, 182 cm, light, −0.5 kg/week): the daily goal goes from
 2100 kcal at 84 kg to 2000 at 76 kg. The visible correction is the forecast and

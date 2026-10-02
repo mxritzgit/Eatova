@@ -70,48 +70,80 @@ class WeightLog {
   /// distance, the classic weight-trend value.
   static const double trendAlphaPerDay = 0.1;
 
-  /// A day further than this share from the trend reseeds it: a correction or
-  /// a typo, not water. Normal daily swings stay well below 5 %.
-  static const double trendReseedShare = 0.05;
+  /// A day further than this share from the trend is an outlier (a typo, a
+  /// correction, a long break), not water: normal daily swings stay well
+  /// below 5 %. It counts only once the next weigh-in day confirms it.
+  static const double trendOutlierShare = 0.05;
 
-  /// The smoothed current weight that goals, forecast and BMI use
-  /// (docs/WEIGHT-TREND.md); null without weigh-ins.
+  /// Weigh-ins older than this no longer speak for the current weight: the
+  /// plan then falls back to the profile weight ([planWeightKg]).
+  static const Duration trendMaxAge = Duration(days: 28);
+
+  /// The smoothed current weight (docs/WEIGHT-TREND.md); null without
+  /// weigh-ins. Use [planWeightKg] for goals and forecast.
   ///
-  /// A time-aware exponentially weighted moving average over the mean of each
-  /// local calendar day: a day `Δ` days after the previous one moves the trend
-  /// by `1 − (1 − trendAlphaPerDay)^Δ`, so sparse weigh-ins count for more.
+  /// A time-aware exponentially weighted moving average over the LAST
+  /// weigh-in of each local calendar day (a later entry corrects an earlier
+  /// one; there is no delete): a day `Δ` days after the last counted one
+  /// moves the trend by `1 − (1 − trendAlphaPerDay)^Δ`.
+  ///
+  /// An outlier day ([trendOutlierShare]) is held back. If the next day lies
+  /// within the share of it, the jump is real and the trend moves to that
+  /// day; otherwise the outlier is dropped. An outlier on the last day does
+  /// not move the trend yet.
   double? get trendKg {
     if (entries.isEmpty) return null;
     final sorted = [...entries]
       ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
     final days = <(DateTime, double)>[];
-    DateTime? day;
-    var sum = 0.0;
-    var count = 0;
     for (final entry in sorted) {
       final local = entry.timestamp.toLocal();
       // UTC midnight of the local date: day gaps stay whole across DST.
       final date = DateTime.utc(local.year, local.month, local.day);
-      if (date != day) {
-        if (day != null) days.add((day, sum / count));
-        day = date;
-        sum = 0;
-        count = 0;
-      }
-      sum += entry.weightKg;
-      count++;
+      if (days.isNotEmpty && days.last.$1 == date) days.removeLast();
+      days.add((date, entry.weightKg));
     }
-    days.add((day!, sum / count));
 
-    var (previous, trend) = days.first;
+    bool far(double kg, double from) =>
+        (kg - from).abs() > from * trendOutlierShare;
+
+    var (counted, trend) = days.first;
+    double? held;
     for (final (date, kg) in days.skip(1)) {
-      if ((kg - trend).abs() > trend * trendReseedShare) {
-        trend = kg;
-      } else {
-        final gap = date.difference(previous).inDays;
-        trend += (1 - math.pow(1 - trendAlphaPerDay, gap)) * (kg - trend);
+      final outlier = held;
+      if (outlier != null) {
+        held = null;
+        if (!far(kg, outlier)) {
+          // Two days agree on the jump: adopt it.
+          trend = kg;
+          counted = date;
+          continue;
+        }
       }
-      previous = date;
+      if (far(kg, trend)) {
+        held = kg;
+        continue;
+      }
+      final gap = date.difference(counted).inDays;
+      trend += (1 - math.pow(1 - trendAlphaPerDay, gap)) * (kg - trend);
+      counted = date;
+    }
+    return trend;
+  }
+
+  /// The trend the plan may use at [now]: [trendKg] when the latest weigh-in
+  /// is at most [trendMaxAge] old and the rounded value fits the profile's
+  /// weight range; otherwise null, and the profile weight stays in charge.
+  double? planWeightKg(DateTime now) {
+    final last = latest;
+    if (last == null || now.difference(last.timestamp) > trendMaxAge) {
+      return null;
+    }
+    final trend = trendKg;
+    if (trend == null) return null;
+    final kg = trend.round();
+    if (kg < ProfileLimits.weightKgMin || kg > ProfileLimits.weightKgMax) {
+      return null;
     }
     return trend;
   }

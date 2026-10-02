@@ -19,7 +19,7 @@ import '../models/planned_meal.dart';
 import '../models/recipe_pick.dart';
 import '../models/macro_progress.dart';
 import '../models/meal_analysis_result.dart';
-import '../models/model_limits.dart' show ProfileLimits, isValidWeightLogKg;
+import '../models/model_limits.dart' show isValidWeightLogKg;
 import '../models/training_plan.dart';
 import '../models/training_plan_head.dart';
 import '../models/training_session.dart';
@@ -677,6 +677,16 @@ class HomeStore extends _HomeStoreBase
   /// An error or a timeout is not an answer.
   bool _serverProfileAnswered = false;
 
+  /// The server answered the weight-log load in this session. With
+  /// [_serverProfileAnswered] the gate for re-anchoring the profile on the
+  /// weight trend: a full profile row is never written from a cached profile
+  /// or a cached log alone (docs/WEIGHT-TREND.md).
+  bool _serverWeightLogAnswered = false;
+
+  @override
+  bool get _serverAnsweredProfileAndWeightLog =>
+      _serverProfileAnswered && _serverWeightLogAnswered;
+
   /// The boot load of `user_recipes` has ANSWERED — a list, possibly empty.
   /// An error, a timeout or a still-running load is not an answer.
   bool _serverRecipesAnswered = false;
@@ -1165,7 +1175,6 @@ class HomeStore extends _HomeStoreBase
       return;
     }
     var healSave = false;
-    var adoptedServerProfile = false;
     _mutate(() {
       _bootLoadInFlight = false;
       final loadedProfile = results[0] as UserProfile?;
@@ -1173,7 +1182,6 @@ class HomeStore extends _HomeStoreBase
       // saved) is newer than any snapshot the server can return.
       if (loadedProfile != null && vorher.profileVersion == _profileVersion) {
         profile = loadedProfile;
-        adoptedServerProfile = true;
         _hydratedFromRealSource = true;
         healSave =
             s.profile.lastLoadHealed && _serverGoalsLookStale(loadedProfile);
@@ -1223,6 +1231,7 @@ class HomeStore extends _HomeStoreBase
 
       final loadedWeightLog = results[3] as WeightLog?;
       if (loadedWeightLog != null) {
+        _serverWeightLogAnswered = true;
         weightLog = vorher.weightLogVersion == _weightLogVersion
             ? loadedWeightLog
             : WeightLog.capped(
@@ -1309,10 +1318,11 @@ class HomeStore extends _HomeStoreBase
       unawaited(_ensureArchiveDayLoaded(selectedFoodDate));
     }
     if (healSave) _queueHealedProfileSave();
-    // The profile follows the weight trend (docs/WEIGHT-TREND.md). Only on a
-    // row the server just answered: an automatic write from a cached profile
-    // could overwrite a newer one. Queued behind a heal save.
-    if (adoptedServerProfile) {
+    // The profile follows the weight trend (docs/WEIGHT-TREND.md), once the
+    // server answered both profile and weight log in this session: a full
+    // row written from a cached profile could overwrite a newer one.
+    // Queued behind a heal save.
+    if (_serverAnsweredProfileAndWeightLog) {
       unawaited(
         _reanchorToWeightTrend().catchError((Object error, StackTrace stack) {
           _reportSyncError('weight-reanchor', error, stack);

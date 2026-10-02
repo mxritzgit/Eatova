@@ -158,7 +158,7 @@ class ProfileScreen extends StatelessWidget {
                     GoalPlanCard(
                       profile: profile,
                       onEdit: onEditProfile,
-                      currentWeightKg: weightLog.trendKg,
+                      currentWeightKg: weightLog.planWeightKg(clock.now()),
                     ),
                     const SizedBox(height: 28),
                     SectionHeading(title: l10n.profileSectionBody),
