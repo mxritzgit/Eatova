@@ -65,8 +65,8 @@ Add keys in both `lib/l10n/app_de.arb` and `app_en.arb`, then run
 Keep semantic labels and test keys stable; localize user-facing text.
 
 Reuse theme tokens and the existing design components. Original pictograms use
-`AppSymbol`/`AppIcon`; meal-picker motifs come from `MealSlotStyle.symbol`, the
-diary rows use `SlotIconTile`. Inputs use soft borderless fills with visible
+`AppSymbol`/`AppIcon`; every meal-slot mark (diary rows, pickers, sheet
+headers) is a `SlotIconTile`. Inputs use soft borderless fills with visible
 focus indication. Review normal/enlarged text when changing layout. The app is
 dark-only for now (`kDarkOnly`); keep `AppTokens.light` working, because the
 switch is meant to be reversible. The [design index](README.md#design-contracts-and-previews)

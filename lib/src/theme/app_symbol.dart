@@ -5,9 +5,5 @@ enum AppSymbol {
   recipes,
   training,
   coach,
-  breakfast,
-  lunch,
-  dinner,
-  snack,
   steps,
 }

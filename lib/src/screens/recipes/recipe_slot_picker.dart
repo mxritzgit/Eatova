@@ -195,7 +195,6 @@ class _MealSlotButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final accent = slot.accentIn(context);
     return Semantics(
       button: true,
       enabled: onTap != null,
@@ -216,16 +215,7 @@ class _MealSlotButton extends StatelessWidget {
               ),
               child: Row(
                 children: [
-                  Container(
-                    width: 46,
-                    height: 46,
-                    decoration: BoxDecoration(
-                      color: slot.diarySurface(t),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: AppIcon(slot.symbol, size: 24, color: accent),
-                  ),
-
+                  SlotIconTile(slot: slot),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(

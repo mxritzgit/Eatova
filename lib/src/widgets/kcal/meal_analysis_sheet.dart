@@ -740,15 +740,7 @@ class _Header extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 4, 8, 12),
       child: Row(
         children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: slot.diarySurface(t),
-              borderRadius: BorderRadius.circular(rControl),
-            ),
-            child: AppIcon(slot.symbol, color: t.ink, size: 24),
-          ),
+          SlotIconTile(slot: slot),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
