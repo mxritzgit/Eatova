@@ -369,10 +369,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // stray tap against the label would silently change the theme, and on
       // the language row the whole app's language, with no hint that the row
       // was even a control (both rows deliberately carry `chevron: false`).
-      // The dead zone is closed at the other end instead: each segment owns a
-      // 44 px tall target (`_segmentSaum` in settings_controls.dart), so the
-      // pill fills the row's whole content height and a tap above or below a
-      // segment's capsule lands ON that segment.
+      // The dead zone is closed at the other end instead: the rows pass
+      // `expanded: true`, so each segment is a full-width pill of at least
+      // 48 px and a tap anywhere on it lands ON that segment.
       if (controller != null)
         SettingsStudioRow(
           // Three states, not a toggle (DESIGN_REFACTOR §2: default is

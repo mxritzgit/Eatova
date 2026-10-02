@@ -22,9 +22,9 @@ class EatovaWordmark extends StatelessWidget {
 
   /// Defaults to the brand surface pair from [AppTokens]: `onForest` for the
   /// text, `lime` for the ring — meant for `forest` surfaces in both modes.
-  /// The only current site, the auth screen, sits on the mode ground and
-  /// passes `ink`/`accent` itself (`onForest` would vanish on the light
-  /// ground). The welcome screen animates its own mark, drawn with the same
+  /// Every current site (the auth header, the code screen and the about
+  /// sheet) sits on the mode ground and passes `ink`/`accent` itself
+  /// (`onForest` would vanish on the light ground). The welcome screen animates its own mark, drawn with the same
   /// [paintFocusRing].
   final Color? textColor;
   final Color? ringColor;

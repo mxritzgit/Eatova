@@ -241,7 +241,7 @@ class SettingsNote extends StatelessWidget {
     // Signal-banner contract (hell_modus_audit_test): fill = tone at 10 %,
     // GLYPH in the full tone, TEXT in `ink`. The tinted fill eats the
     // headroom the tone still had on the bare ground — over `bg` (where these
-    // boxes actually sit) 12 px text measures warning 4.20:1, danger 4.48:1
+    // boxes actually sit) 13 px text measures warning 4.20:1, danger 4.48:1
     // and even the quiet ink2 4.48:1, all below AA. `ink` gives 12.9-14.7:1.
     // Unboxed notes keep the tone as text color: without a fill it carries
     // (warning 4.76:1 on bg, 5.38:1 on surf), and the tone IS the signal
