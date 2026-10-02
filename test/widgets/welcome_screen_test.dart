@@ -227,6 +227,36 @@ void main() {
     expect(fertig, 1);
   });
 
+  testWidgets('reduzierte Bewegung: die Begruessung bleibt lesbar stehen',
+      (tester) async {
+    pinPhoneViewport(tester);
+    var fertig = 0;
+    final ready = Completer<void>();
+    await pumpLocalized(
+      tester,
+      _welcome(
+        brightness: Brightness.dark,
+        profileReady: ready.future,
+        celebrateLogin: true,
+        onComplete: () => fertig++,
+      ),
+      reducedMotion: true,
+      scaffold: false,
+      safeArea: false,
+    );
+
+    ready.complete();
+    await tester.pump();
+    await _tick(tester, const Duration(milliseconds: 900));
+    // Reduced motion removes the lock-in and the fade, not the pause to
+    // read: before 2026-10-03 the greeting stood for a single frame.
+    expect(find.text(deL10n.onboardingWelcomeTitle('Mira')), findsOneWidget);
+    expect(fertig, 0, reason: 'die Halte-Pause laeuft noch');
+
+    await _tick(tester, const Duration(milliseconds: 200));
+    expect(fertig, 1, reason: 'danach geht es ohne Ausblenden weiter');
+  });
+
   testWidgets('Session-Restore mit fertigem Profil: hoechstens 700 ms bis '
       'onComplete', (tester) async {
     pinPhoneViewport(tester);

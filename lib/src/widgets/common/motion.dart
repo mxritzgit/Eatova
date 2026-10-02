@@ -14,10 +14,6 @@ bool reducedMotion(BuildContext context) =>
 Duration motionDuration(BuildContext context, Duration base) =>
     reducedMotion(context) ? Duration.zero : base;
 
-/// Like [motionDuration], but for a pause (e.g. a `Future.delayed` hold).
-Duration motionDelay(BuildContext context, Duration base) =>
-    motionDuration(context, base);
-
 /// [AnimatedSize] that steps aside under "reduce motion" instead of animating
 /// with `Duration.zero`.
 ///

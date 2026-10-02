@@ -130,7 +130,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
 
   Future<void> _onProfileReady(void _) async {
     if (!mounted) return;
-    // A11y: reduced motion collapses lock-in, hold and exit to instant.
+    // A11y: reduced motion collapses lock-in and exit to instant.
     _lockController.duration = motionDuration(
       context,
       Duration(milliseconds: widget.celebrateLogin ? 560 : 380),
@@ -139,10 +139,9 @@ class _WelcomeScreenState extends State<WelcomeScreen>
       context,
       Duration(milliseconds: widget.celebrateLogin ? 300 : 240),
     );
-    final holdDelay = motionDelay(
-      context,
-      Duration(milliseconds: widget.celebrateLogin ? 1000 : 0),
-    );
+    // The greeting's hold is a pause to read, not motion, so it stays under
+    // reduced motion; collapsed, a fresh login showed it for one frame.
+    final holdDelay = Duration(milliseconds: widget.celebrateLogin ? 1000 : 0);
     _turnAtLock = _loopController.isAnimating ? _huntTurn() : 0;
     _loopController.stop();
     // Never waits for a running reveal: it finishes inside the lock-in.
