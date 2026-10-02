@@ -64,40 +64,6 @@ Future<bool> _confirmDiscardChanges(BuildContext context, String text) async {
   return verwerfen ?? false;
 }
 
-/// The sheet's grab handle, drawn inside [_DiscardDragGuard] rather than on the
-/// route (see [showWeightAdjustmentSheet]). Its tap calls [onDismiss] →
-/// `maybePop` — without it a screen-reader user could not leave the sheet.
-class _SheetGrabber extends StatelessWidget {
-  const _SheetGrabber({required this.onDismiss});
-
-  final VoidCallback onDismiss;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: MaterialLocalizations.of(context).modalBarrierDismissLabel,
-      onTap: onDismiss,
-      child: SizedBox(
-        width: double.infinity,
-        height: 26,
-        child: Center(
-          child: SizedBox(
-            width: 32,
-            height: 4,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: context.t.ink2,
-                borderRadius: const BorderRadius.all(Radius.circular(rPill)),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// D5: intercepts the drag-down dismiss of a modal bottom sheet. A `PopScope`
 /// only sees the barrier tap; a drag goes `onClosing` → **`Navigator.pop`** and
 /// never asks. The lever is the gesture arena — a drag recogniser in the child
@@ -437,7 +403,10 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
             mainAxisSize: MainAxisSize.min,
             children: [
               // OUTSIDE the scroll area: a drag on a scrollable belongs to it.
-              _SheetGrabber(
+              // Drawn inside [_DiscardDragGuard] rather than on the route;
+              // its dismiss action goes through `maybePop` and the guard.
+              SheetHandle(
+                padding: const EdgeInsets.symmetric(vertical: 11),
                 onDismiss: () => Navigator.of(context).maybePop(),
               ),
               Flexible(
