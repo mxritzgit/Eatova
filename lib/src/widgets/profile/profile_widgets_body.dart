@@ -248,8 +248,8 @@ class WeightCard extends StatelessWidget {
   ///
   /// No `showDragHandle: true` either: the theme sets it false globally, and
   /// the route's handle is a stack sibling NEXT TO the builder child, where no
-  /// sheet can reach it. Drawn inside the sheet instead, see
-  /// [_ProfileSheetGrabber].
+  /// sheet can reach it. Drawn inside the sheet instead: a [SheetHandle] with
+  /// the dismiss action.
   Future<void> _promptWeight(BuildContext context) async {
     await showModalBottomSheet<double>(
       showDragHandle: false,

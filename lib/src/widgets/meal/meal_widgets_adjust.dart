@@ -3,7 +3,7 @@ part of 'meal_widgets.dart';
 /// Opens the component adjustment sheet.
 ///
 /// **D5, no `showDragHandle`:** the route's handle sits outside every guard, so
-/// dragging it bypassed the confirmation. [_SheetGrabber] draws it inside.
+/// dragging it bypassed the confirmation. A [SheetHandle] draws it inside.
 ///
 /// The return type is the component list, not `Object?` (P8-03b): the sheet
 /// only ever pops that list or nothing, and `mealPortionAdjustment` used to

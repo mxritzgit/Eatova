@@ -4,9 +4,9 @@ import '../l10n/l10n.dart';
 import '../models/logged_meal.dart';
 import 'app_tokens.dart';
 
-/// Single source of truth for [MealSlot] UI style (accent color, icon,
-/// labels) — this switch used to be duplicated across half a dozen widgets
-/// and the icons started to diverge.
+/// Single source of truth for [MealSlot] UI style (accent color, tile tint
+/// and ink, labels) — this switch used to be duplicated across half a dozen
+/// widgets. The slot glyphs themselves live in `SlotIconTile`.
 extension MealSlotStyle on MealSlot {
   /// The slot color from the theme tokens; works in both modes. Breakfast
   /// carries the carb tone, lunch protein, dinner fat. Snack gets its own
