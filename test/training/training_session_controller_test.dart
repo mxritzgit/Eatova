@@ -355,6 +355,38 @@ void main() {
       });
     });
 
+    test('+15 s fits only once 15 s of the rest passed; a no-op neither '
+        'moves the deadline nor notifies', () {
+      const plus = Duration(seconds: 15);
+      final wall = _Wall();
+      wall.run(() {
+        final session = _controller();
+        addTearDown(session.dispose);
+        expect(session.canAdjustRest(plus), isFalse, reason: 'no rest yet');
+        session.completeActiveSet();
+        final ends = session.phaseEndsAt!;
+        var notified = 0;
+        session.addListener(() => notified++);
+        expect(session.canAdjustRest(plus), isFalse);
+        expect(session.canAdjustRest(-plus), isTrue);
+        session.adjustRest(plus);
+        expect(session.phaseEndsAt, ends);
+        expect(notified, 0, reason: 'nothing changed, nothing to store');
+        wall.elapse(const Duration(seconds: 14));
+        expect(session.canAdjustRest(plus), isFalse, reason: '76 s + 15 s');
+        wall.elapse(const Duration(seconds: 1));
+        expect(session.canAdjustRest(plus), isTrue, reason: '75 s + 15 s');
+        session.adjustRest(plus);
+        expect(session.remaining, const Duration(seconds: 90));
+        expect(notified, 1);
+        session.pause();
+        notified = 0;
+        session.adjustRest(plus);
+        expect(notified, 0, reason: 'paused at the planned rest');
+        expect(session.remaining, const Duration(seconds: 90));
+      });
+    });
+
     test('catchUp: a timed set past its deadline completes at the deadline, '
         'its rest runs from there and the next timed set waits', () {
       final wall = _Wall();

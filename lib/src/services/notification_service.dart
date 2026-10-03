@@ -729,6 +729,9 @@ class LocalNotificationService
     return requestPermission();
   }
 
+  @override
+  Future<void> markAsked() => _markRestAlertsAsked();
+
   /// A failing read counts as asked: a quiet "Alerts off" hint beats an
   /// explainer before every workout.
   Future<bool> _restAlertsAsked() async {

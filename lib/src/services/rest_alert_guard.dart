@@ -1,6 +1,6 @@
 import 'package:app_settings/app_settings.dart';
 
-import '../../../services/rest_alerts.dart';
+import 'rest_alerts.dart';
 
 /// Rest alerts pinned to the account that opened the player: scheduling
 /// stops once [isCurrent] fails (sign-out, account switch); cancelling

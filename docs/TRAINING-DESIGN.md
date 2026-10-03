@@ -72,9 +72,11 @@ the existing dark studio look (spec
   resume. ✓ and a drag on the list close the keyboard; fields use Done. The
   rest bar is pinned at the bottom (mm:ss 36 pt, −15 s, +15 s, Skip) and
   expands to a full-screen rest view; ✓ on the next set ends a rest early.
+  +15 s is off while it would pass the planned rest (the cap of A4).
 - **Time keeps running (A4).** A running rest or timed set is a UTC deadline
   (`phase_ends_at`, local-only). Background, lock, covering pages and dialogs
-  never pause; only the menu's Pause and Save & leave do. On resume
+  never pause; only the menu's Pause, Save & leave and Finish do (a failed
+  completion stays paused until Retry resolves). On resume
   `catchUp` completes a timed set at its deadline and runs its rest from
   there; a rest that ended unseen leaves the next timed set waiting for ▶.
   After process death a running rest continues and a timed set whose
@@ -88,7 +90,8 @@ the existing dark studio look (spec
   opening the player first cancels whatever an earlier process planned.
   ✓/Skip/Undo/Pause/Finish/Discard/leaving and closing the route cancel it.
   The first workout shows one explainer before the system prompt
-  (`RestAlertPermissionGate`, asked again next workout after "Not now");
+  (`RestAlertPermissionGate`, once per device: after "Not now" only the
+  chip remains);
   with alerts off the rest bar shows a quiet "Alerts off" chip that opens
   the notification settings. A rest or interval that ends in the foreground
   vibrates once. The home page pins scheduling to the account that opened

@@ -880,6 +880,21 @@ void main() {
       expect(await service.state(), RestAlertPermission.denied);
     });
 
+    test('markAsked() setzt das Flag ohne Systemdialog', () async {
+      final gateway = _FakeGateway()..osAllows = false;
+      final service = _service(gateway);
+
+      await service.markAsked();
+
+      expect(gateway.permissionRequests, 0);
+      final prefs = await SharedPreferences.getInstance();
+      expect(
+        prefs.getBool(LocalNotificationService.restAlertsAskedKey),
+        isTrue,
+      );
+      expect(await service.state(), RestAlertPermission.denied);
+    });
+
     test('granted, sobald das System zustellt (auch ohne Flag)', () async {
       final service = _service(_FakeGateway()..osAllows = true);
       expect(await service.state(), RestAlertPermission.granted);

@@ -412,14 +412,24 @@ final class TrainingSessionController extends ChangeNotifier {
     _changed();
   }
 
+  /// Whether [adjustRest] by [delta] applies in full. The planned rest caps a
+  /// longer one (spec A4), so +15 s fits only once 15 s of it have passed.
+  bool canAdjustRest(Duration delta) =>
+      !_disposed &&
+      _phase == TrainingSessionPhase.rest &&
+      remaining + delta <= phaseDuration;
+
   /// −15 s / +15 s on the rest bar; within the planned rest, zero skips it.
+  /// Nothing changes (and nothing notifies) at the planned rest's cap.
   void adjustRest(Duration delta) {
     if (_disposed || _phase != TrainingSessionPhase.rest) return;
-    final next = _clamp(remaining + delta);
+    final current = remaining;
+    final next = _clamp(current + delta);
     if (next == Duration.zero) {
       continueAfterRest();
       return;
     }
+    if (next == current) return;
     if (_endsAt != null) {
       _endsAt = _now().add(next);
     } else {

@@ -10,6 +10,7 @@ import '../../models/training_history.dart';
 import '../../models/training_insights.dart';
 import '../../models/training_plan.dart';
 import '../../models/training_session.dart';
+import '../../services/rest_alert_guard.dart';
 import '../../services/rest_alerts.dart';
 import '../../services/screen_awake.dart';
 import '../../services/training_session_controller.dart';
@@ -17,7 +18,6 @@ import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
-import 'player/player_alerts.dart';
 import 'player/player_exercise_card.dart';
 import 'player/player_finish_sheet.dart';
 import 'player/player_header.dart';
@@ -33,6 +33,9 @@ const String trainingPlayerAwakeOwner = 'training-player';
 
 /// Debounce of durable writes after field edits (spec A7).
 const Duration _editDebounce = Duration(milliseconds: 600);
+
+/// One step of the rest bar's −15 s / +15 s.
+const Duration _restStep = Duration(seconds: 15);
 
 /// The list player (spec A1–A7, Option L). The caller provides account-pinned
 /// durable storage, rest alerts and the permission gate.
@@ -393,6 +396,8 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
     }
     final l = context.l10n;
     _dialogOpen = true;
+    // Shown once per device: "Not now" (or a dismissal) leaves the chip.
+    unawaited(_quiet(gate.markAsked()));
     final allow = await showEatovaDialog<bool>(
       context: context,
       builder: (context) => EatovaDialog(
@@ -490,6 +495,9 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
     if (intent != _SaveIntent.checkpoint) {
       _terminalIntent = intent;
       _leaving = true;
+      // Finish freezes the workout: no deadline may complete a set while
+      // the entry is written or awaits its retry (spec A1).
+      if (intent == _SaveIntent.complete) _session.pause();
       _syncAlert();
       _syncAwake();
     }
@@ -800,6 +808,8 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
     },
     copyLast: (last) {
       if (!_enabled) return;
+      // A focused field keeps its text; let it show the copied values.
+      FocusManager.instance.primaryFocus?.unfocus();
       final timed = _session.activeExercise?.isTimed ?? true;
       _session.setCurrentActual(
         reps: timed ? null : last.reps ?? _session.actualReps,
@@ -827,10 +837,10 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
       nextSet: active.setIndex + 1,
       alertsOff: _alertsOff,
       enabled: _enabled,
-      onShorter: () =>
-          _act(() => _session.adjustRest(const Duration(seconds: -15))),
-      onLonger: () =>
-          _act(() => _session.adjustRest(const Duration(seconds: 15))),
+      onShorter: () => _act(() => _session.adjustRest(-_restStep)),
+      onLonger: _session.canAdjustRest(_restStep)
+          ? () => _act(() => _session.adjustRest(_restStep))
+          : null,
       onSkip: () => _act(_session.continueAfterRest),
       onResume: () => _act(_session.start),
       onAlertSettings: () => unawaited(_quiet(widget.openAlertSettings())),

@@ -41,7 +41,7 @@ import '../screens/today/today_screen.dart';
 import '../screens/today/today_texts.dart' show greetingForHour;
 import '../screens/training/training_screen.dart';
 import '../screens/training/training_history_screen.dart';
-import '../screens/training/player/player_alerts.dart';
+import '../services/rest_alert_guard.dart';
 import '../screens/training/training_player_screen.dart';
 import '../screens/training/training_plan_editor.dart';
 import '../l10n/l10n.dart';

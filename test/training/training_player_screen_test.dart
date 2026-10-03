@@ -61,6 +61,40 @@ TrainingPlan _pair({int secondSets = 1}) => TrainingPlan(
   ),
 );
 
+/// A repetition set whose rest leads into a timed set.
+TrainingPlan _restIntoTimed() => TrainingPlan(
+  id: 'player_rest_timed',
+  proposal: CoachTrainingProposal(
+    title: 'Mixed',
+    workouts: [
+      TrainingWorkout(
+        title: 'Day C',
+        exercises: [
+          TrainingExercise(name: 'Squat', sets: 1, reps: 8, restSeconds: 10),
+          TrainingExercise(
+            name: 'Plank',
+            sets: 1,
+            durationSeconds: 20,
+            restSeconds: 0,
+          ),
+        ],
+      ),
+    ],
+  ),
+);
+
+/// Last time for [_strength]'s Squat: 60, 70 and 80 kg × 8.
+TrainingHistoryEntry _squatHistory(TrainingPlan plan) {
+  final previous = TrainingSessionController(plan: plan, autoTick: false);
+  for (final weight in [60.0, 70.0, 80.0]) {
+    previous.setCurrentActual(reps: 8, weightKg: weight);
+    previous.completeActiveSet();
+  }
+  final entry = previous.completion();
+  previous.dispose();
+  return entry;
+}
+
 final class _Alerts implements RestAlertScheduler {
   final log = <String>[];
   final scheduled = <({int id, DateTime at, String title, String body})>[];
@@ -85,9 +119,18 @@ final class _Gate implements RestAlertPermissionGate {
   RestAlertPermission value;
   final bool grant;
   int requests = 0;
+  int marks = 0;
 
   @override
   Future<RestAlertPermission> state() async => value;
+
+  @override
+  Future<void> markAsked() async {
+    marks++;
+    if (value == RestAlertPermission.notAsked) {
+      value = RestAlertPermission.denied;
+    }
+  }
 
   @override
   Future<bool> request() async {
@@ -301,14 +344,11 @@ void main() {
       tester,
     ) async {
       final plan = _strength();
-      final previous = TrainingSessionController(plan: plan, autoTick: false);
-      for (final weight in [60.0, 70.0, 80.0]) {
-        previous.setCurrentActual(reps: 8, weightKg: weight);
-        previous.completeActiveSet();
-      }
-      final entry = previous.completion();
-      previous.dispose();
-      final host = await _open(tester, plan: plan, history: [entry]);
+      final host = await _open(
+        tester,
+        plan: plan,
+        history: [_squatHistory(plan)],
+      );
       expect(
         tester
             .widget<TextField>(_key('training-set-weight-0-0'))
@@ -320,6 +360,30 @@ void main() {
       await _tap(tester, 'training-set-check-0-0');
       await _tap(tester, 'training-set-check-0-1');
       expect(host.writes.last!.actualSets.map((a) => a.weightKg), [60, 70]);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('copying Last time into a focused field shows what ✓ saves', (
+      tester,
+    ) async {
+      final plan = _strength();
+      final host = await _open(
+        tester,
+        plan: plan,
+        history: [_squatHistory(plan)],
+      );
+      String weight() => tester
+          .widget<TextField>(_key('training-set-weight-0-0'))
+          .controller!
+          .text;
+      await tester.showKeyboard(_key('training-set-weight-0-0'));
+      await tester.enterText(_key('training-set-weight-0-0'), '85');
+      await tester.pump();
+      expect(weight(), '85');
+      await _tap(tester, 'training-set-last-0-0');
+      expect(weight(), '60', reason: 'the copied weight is the one shown');
+      await _tap(tester, 'training-set-check-0-0');
+      expect(host.writes.last!.actualSets.single.weightKg, 60);
       await tester.pumpWidget(const SizedBox());
     });
 
@@ -453,6 +517,36 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
 
+    testWidgets('+15 s is off while it would pass the planned rest; a tap '
+        'there stores nothing', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final host = await _open(tester);
+      await _tap(tester, 'training-set-check-0-0');
+      final ends = host.writes.last!.phaseEndsAt!;
+      final writes = host.writes.length;
+      final plus = _key('training-timer-rest-plus');
+      bool enabled() => tester.widget<FilledButton>(plus).onPressed != null;
+      expect(enabled(), isFalse, reason: 'the full 60 s rest is left');
+      expect(
+        tester.getSemantics(plus),
+        isSemantics(isButton: true, hasEnabledState: true, isEnabled: false),
+      );
+      await _tap(tester, 'training-timer-rest-plus');
+      expect(host.writes, hasLength(writes), reason: 'no checkpoint');
+      await _elapse(tester, host, const Duration(seconds: 14));
+      expect(enabled(), isFalse, reason: '46 s + 15 s > 60 s');
+      await _elapse(tester, host, const Duration(seconds: 1));
+      expect(enabled(), isTrue, reason: '45 s + 15 s fits');
+      await _tap(tester, 'training-timer-rest-plus');
+      expect(
+        host.writes.last!.phaseEndsAt,
+        ends.add(const Duration(seconds: 15)),
+      );
+      expect(enabled(), isFalse);
+      semantics.dispose();
+      await tester.pumpWidget(const SizedBox());
+    });
+
     testWidgets('the rest bar expands to a full-screen rest view', (
       tester,
     ) async {
@@ -570,6 +664,29 @@ void main() {
       await tester.pumpAndSettle();
       expect(gate.requests, 1);
       expect(_key('training-timer-alerts-off'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('"Not now" is remembered: the next workout shows no '
+        'explainer, only the quiet chip', (tester) async {
+      final gate = _Gate(RestAlertPermission.notAsked);
+      await _open(tester, gate: gate);
+      await _tap(tester, 'training-set-check-0-0');
+      await tester.pumpAndSettle();
+      expect(find.text('Alert when the rest is over?'), findsOneWidget);
+      await tester.tap(_key('training-alerts-later'));
+      await tester.pumpAndSettle();
+      expect(_key('training-timer-alerts-off'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+
+      // The next workout on this device.
+      await _open(tester, gate: gate);
+      await _tap(tester, 'training-set-check-0-0');
+      await tester.pumpAndSettle();
+      expect(find.text('Alert when the rest is over?'), findsNothing);
+      expect(_key('training-timer-alerts-off'), findsOneWidget);
+      expect(gate.requests, 0, reason: 'no system prompt without consent');
+      expect(gate.marks, 1, reason: 'the device remembers the explainer');
       await tester.pumpWidget(const SizedBox());
     });
 
@@ -1062,6 +1179,40 @@ void main() {
         }
       });
     }
+
+    testWidgets('a failed Finish pauses the workout: no rest or timed set '
+        'runs on until Retry resolves', (tester) async {
+      var completions = 0;
+      final host = await _open(
+        tester,
+        plan: _restIntoTimed(),
+        complete: (_) async {
+          if (completions++ == 0) throw StateError('completion failed');
+        },
+      );
+      await _tap(tester, 'training-set-check-0-0');
+      await _tap(tester, 'training-timer-finish');
+      await tester.pumpAndSettle();
+      await _tap(tester, 'training-finish-save');
+      await tester.pumpAndSettle();
+      expect(_key('training-timer-retry'), findsOneWidget);
+      // Long past the rest and the timed set it would chain into.
+      for (var i = 0; i < 4; i++) {
+        await _elapse(tester, host, const Duration(seconds: 10));
+      }
+      expect(find.text('1/2 sets'), findsOneWidget);
+      expect(
+        tester.widget<Text>(_key('training-timer-rest-time')).data,
+        '00:10',
+        reason: 'the rest froze at Finish',
+      );
+      expect(host.alerts.log.last, 'cancel');
+      await _tap(tester, 'training-timer-retry');
+      await tester.pumpAndSettle();
+      expect(find.text('Open fixture'), findsOneWidget);
+      expect(completions, 2);
+      expect(host.completed.single.snapshot.completedSets, hasLength(1));
+    });
 
     testWidgets('the background cannot hide a failed clear or replace its '
         'retry intent', (tester) async {

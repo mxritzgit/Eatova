@@ -109,6 +109,10 @@ abstract class RestAlertPermissionGate {
   /// Marks this device as asked, then shows the system dialog. True if
   /// granted. Call only after the in-context explainer.
   Future<bool> request();
+
+  /// Marks this device as asked without a system dialog: the explainer was
+  /// shown, so it never returns ("Not now" leaves the quiet hint).
+  Future<void> markAsked();
 }
 
 /// Taps on this app's notifications, as their payloads.

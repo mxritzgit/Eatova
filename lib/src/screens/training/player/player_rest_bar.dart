@@ -28,7 +28,9 @@ final class PlayerRestState {
   final bool alertsOff;
   final bool enabled;
   final VoidCallback onShorter;
-  final VoidCallback onLonger;
+
+  /// Null while +15 s would pass the planned rest (the button is off).
+  final VoidCallback? onLonger;
   final VoidCallback onSkip;
   final VoidCallback onResume;
   final VoidCallback onAlertSettings;
@@ -202,10 +204,11 @@ class PlayerRestControls extends StatelessWidget {
       String id,
       String text,
       String? label,
-      VoidCallback action, {
+      VoidCallback? action, {
       bool primary = false,
       IconData? icon,
     }) {
+      final onPressed = rest.enabled ? action : null;
       final style = primary
           ? FilledButton.styleFrom(
               backgroundColor: t.accentFill,
@@ -228,7 +231,7 @@ class PlayerRestControls extends StatelessWidget {
       );
       final widget = FilledButton(
         key: ValueKey('training-timer-$id'),
-        onPressed: rest.enabled ? action : null,
+        onPressed: onPressed,
         style: style,
         child: child,
       );
@@ -238,8 +241,8 @@ class PlayerRestControls extends StatelessWidget {
               label: label,
               excludeSemantics: true,
               button: true,
-              enabled: rest.enabled,
-              onTap: rest.enabled ? action : null,
+              enabled: onPressed != null,
+              onTap: onPressed,
               child: widget,
             );
     }
