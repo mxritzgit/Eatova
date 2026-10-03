@@ -87,7 +87,7 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     // cancels on every session end it sees; this covers one it did not.
     if (!enabled) {
       try {
-        await notificationService.cancelAll();
+        await _cancelStaleSchedules();
       } catch (e, st) {
         unawaited(CrashReporter.capture(e, st,
             context: 'notifications-cold-start-cancel'));
@@ -161,7 +161,25 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
     _setReminderState(ReminderState.blocked);
     await cache.writeNotificationsEnabled(false);
     if (!_notificationRequestIsCurrent(revision)) return;
-    await notificationService.cancelAll();
+    await _cancelReminderNudges();
+  }
+
+  /// Reminder paths cancel the nudges only, so a running rest alert survives
+  /// an opt-out (spec A5). A service without the seam schedules nothing else.
+  Future<void> _cancelReminderNudges() {
+    final Object service = notificationService;
+    if (service is NotificationScopedCancel) return service.cancelNudges();
+    return notificationService.cancelAll();
+  }
+
+  /// Cold-start backstop: everything an earlier session left goes, but not
+  /// a rest alert the player already resumed during this boot.
+  Future<void> _cancelStaleSchedules() {
+    final Object service = notificationService;
+    if (service is NotificationScopedCancel) {
+      return service.cancelStaleSchedules();
+    }
+    return notificationService.cancelAll();
   }
 
   /// Whether the OS currently delivers — three-valued, null means "not
@@ -197,7 +215,7 @@ mixin _HomeStoreProfilePart on _HomeStoreBase, _HomeStoreSyncPart {
       _setReminderState(ReminderState.off);
       await cache?.writeNotificationsEnabled(false);
       if (!_notificationRequestIsCurrent(revision)) return;
-      await notificationService.cancelAll();
+      await _cancelReminderNudges();
       return;
     }
 

@@ -1522,6 +1522,12 @@
   },
   "notifStreakStartTitle": "Streak starten",
   "notifStreakStartBody": "Ein Log genügt, um deine Serie zu starten.",
+  "trainingRestAlertTitle": "Pause vorbei",
+  "trainingRestAlertBody": "Zeit für den nächsten Satz.",
+  "trainingIntervalAlertTitle": "Zeit um",
+  "trainingIntervalAlertBody": "Jetzt Pause.",
+  "trainingRestChannelName": "Trainings-Timer",
+  "trainingRestChannelDescription": "Meldet, wenn eine Pause oder ein Zeitintervall endet.",
 
   "authCodeRateLimited": "Zu viele Anfragen in kurzer Zeit. Der Versand ist vorübergehend gesperrt — bitte warte etwa eine Minute, bevor du es erneut versuchst.",
   "authCodeRateLimitedSeconds": "Zu viele Anfragen in kurzer Zeit. Der Versand ist noch {sekunden} s gesperrt.",

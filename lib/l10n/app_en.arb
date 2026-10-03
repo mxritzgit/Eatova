@@ -1477,6 +1477,12 @@
   },
   "notifStreakStartTitle": "Start a streak",
   "notifStreakStartBody": "One log is enough to start your streak.",
+  "trainingRestAlertTitle": "Rest over",
+  "trainingRestAlertBody": "Time for your next set.",
+  "trainingIntervalAlertTitle": "Time's up",
+  "trainingIntervalAlertBody": "Rest starts now.",
+  "trainingRestChannelName": "Workout timer",
+  "trainingRestChannelDescription": "Alerts when a rest or a timed interval ends.",
 
   "authCodeRateLimited": "Too many requests in a short time. Sending is paused for now — please wait about a minute before trying again.",
   "authCodeRateLimitedSeconds": "Too many requests in a short time. Sending stays blocked for another {sekunden} s.",

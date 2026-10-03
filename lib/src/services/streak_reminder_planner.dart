@@ -34,8 +34,10 @@ const List<int> streakReminderDayOffsets = <int>[
 
 /// ID base: ID = base + (calendar day mod [streakReminderHorizonDays]), i.e.
 /// 700..727. Deterministic per day, and since the horizon spans no more days,
-/// two specs of one run cannot collide, so a re-schedule overwrites.
-const int _streakReminderIdBase = 700;
+/// two specs of one run cannot collide, so a re-schedule overwrites. Must
+/// stay inside the nudge range reminder paths cancel ([reminderNudgeIdCount]
+/// ids from [reminderNudgeIdFirst]).
+const int _streakReminderIdBase = reminderNudgeIdFirst;
 
 /// Fixed reference point of the ID arithmetic: arbitrary but immutable.
 final DateTime _idEpoch = DateTime(2000, 1, 1);
