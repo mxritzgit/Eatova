@@ -236,6 +236,10 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   bool get trainingHistoryLoadFailed =>
       _trainingHistoryLoadFailed || _trainingHistoryDeletionReadFailed;
 
+  /// History IDs this device knows as deleted (receipts are permanent).
+  Set<String> get trainingHistoryDeletedIds =>
+      Set.unmodifiable(_trainingHistoryDeletedIds);
+
   List<TrainingPlan> _trainingPlansState = const <TrainingPlan>[];
   bool _trainingPlansKnown = false;
   bool _trainingPlansAuthoritative = false;
@@ -751,6 +755,18 @@ class HomeStore extends _HomeStoreBase
 
   bool get trainingHistoryLoading => bootLoadInFlight;
   Future<void> retryTrainingHistory() => retryBoot();
+
+  /// True while [trainingHistory] and [trainingHistoryDeletedIds] are a
+  /// statement, not a guess: loaded, no load running or failed, deletion
+  /// receipts readable and pending writes hydrated. Only then may a consumer
+  /// conclude from a MISSING ID that it was never added (Coach `/log` cards).
+  bool get trainingHistoryAuthoritative =>
+      _trainingHistoryKnown &&
+      !trainingHistoryLoading &&
+      !trainingHistoryLoadFailed &&
+      _trainingHistoryDeletionsHydrated &&
+      !_outboxHydrationFailed;
+
   bool get trainingPlansLoading => bootLoadInFlight;
   bool trainingPlansLoadFailed = false;
   Future<void> retryTrainingPlans() => retryBoot();

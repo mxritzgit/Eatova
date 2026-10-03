@@ -1210,11 +1210,14 @@ class _EatovaHomePageState extends State<EatovaHomePage>
 
               if (sourceRetired()) return;
               try {
-                await ownerStore.saveTrainingSession(
+                final stored = await ownerStore.saveTrainingSession(
                   value,
                   generation: sessionGeneration,
                   sourcePlanId: sourcePlanId,
                 );
+                if (!stored) {
+                  throw StateError('Training checkpoint not stored');
+                }
               } catch (_) {
                 // Source invalidation may have overtaken an awaited write.
                 // The obsolete route can close without touching new recovery.

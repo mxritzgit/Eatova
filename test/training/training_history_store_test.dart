@@ -6,6 +6,8 @@ import 'dart:typed_data';
 import 'package:clock/clock.dart';
 import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/models/training_history.dart';
+import 'package:eatova/src/models/training_log.dart';
+import 'package:eatova/src/models/training_plan.dart';
 import 'package:eatova/src/models/training_session.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
@@ -15,7 +17,9 @@ import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/secure_cache_store.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
+import 'package:eatova/src/services/training_history_sync.dart';
 import 'package:eatova/src/services/training_session_controller.dart';
+import 'package:eatova/src/services/uuid.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -331,6 +335,60 @@ Future<void> _seedRecovery(
   await env.cache.writeTrainingPlans([snapshot.plan]);
   await env.cache.writeTrainingSession(snapshot);
 }
+
+/// A free log (spec B), built for a frozen 2026-09-10 evening.
+TrainingHistoryEntry _log([String? id]) => buildLoggedWorkout(
+  historyId: id ?? uuidV4(),
+  draft: LoggedWorkoutDraft(
+    title: 'Garage session',
+    performedOn: DateTime(2026, 9, 10),
+    exercises: const [
+      LoggedExercise(
+        name: 'Bench press',
+        timed: false,
+        sets: [LoggedSet(reps: 8, weightKg: 60)],
+      ),
+    ],
+  ),
+  now: DateTime(2026, 9, 10, 18),
+  fallbackTitle: 'Workout',
+);
+
+/// Workout 1 of [timerPlan] logged as done without the player.
+TrainingHistoryEntry _planAttached() => buildPlanAttachedLog(
+  historyId: uuidV4(),
+  plan: timerPlan(),
+  workoutIndex: 1,
+  sets: const [
+    [PlanAttachedSet(done: true, reps: 8)],
+  ],
+  performedOn: DateTime(2026, 9, 10),
+  now: DateTime(2026, 9, 10, 18),
+);
+
+/// [timerPlan] with its workout 1 changed, which retires a session of it.
+TrainingPlan _editedPlan() {
+  final plan = timerPlan();
+  return plan.copyWith(
+    proposal: plan.proposal.copyWith(
+      workouts: [
+        plan.workouts[0],
+        plan.workouts[1].copyWith(title: 'Mobility, edited'),
+      ],
+    ),
+  );
+}
+
+Iterable<SyncOp> _historyInserts(List<SyncOp>? ops) => (ops ?? const <SyncOp>[])
+    .where((op) => op.kind == SyncOpKind.trainingHistoryInsert);
+
+int _historyInsertRequests(_Server server) => server.requests
+    .where(
+      (r) =>
+          r.url.path.endsWith('/rpc/apply_sync_operation') &&
+          (jsonDecode(r.body) as Map)['p_kind'] == 'trainingHistoryInsert',
+    )
+    .length;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -1046,10 +1104,11 @@ void main() {
       );
       await env.store.deleteTrainingPlan(entry.snapshot.plan.id);
       expect(env.store.trainingHistory.single.toRow(), entry.toRow());
-      await expectLater(
-        env.store.saveTrainingSession(entry.snapshot, generation: 0),
-        throwsStateError,
+      expect(
+        await env.store.saveTrainingSession(entry.snapshot, generation: 0),
+        isFalse,
       );
+      expect(await env.cache.readTrainingSession(), isNull);
       expect(env.store.trainingHistory.length, 1);
       final duplicate = await env.store.completeTrainingSession(
         entry,
@@ -1167,6 +1226,390 @@ void main() {
       expect((await env.cache.readTrainingSession())?.sessionId, entry.id);
       expect(env.store.trainingHistory.length, kOutboxMaxOps);
       expect((await env.cache.readOutbox())!.length, kOutboxMaxOps);
+    },
+  );
+
+  test(
+    'a log keeps an unrelated paused checkpoint and its source across restart',
+    () async {
+      final raw = InMemoryKeyValueStore();
+      final server = _Server()..seedPlan = true;
+      final env = _Harness(server, storage: raw);
+      await env.boot();
+      expect(env.store.trainingHistoryAuthoritative, isTrue);
+      final paused = _unfinished();
+      expect(
+        await env.store.saveTrainingSession(
+          paused,
+          generation: env.generation,
+          sourcePlanId: paused.plan.id,
+        ),
+        isTrue,
+      );
+      final generation = env.store.trainingSessionGeneration;
+      final log = _log();
+      expect(await env.store.logCompletedWorkout(log), SyncDelivery.delivered);
+      expect(env.store.trainingHistory.single.toRow(), log.toRow());
+      expect(_historyInsertRequests(server), 1);
+      expect(server.rows.values.single['id'], log.id);
+      expect(env.store.trainingSession?.toJson(), paused.toJson());
+      expect(env.store.trainingSessionGeneration, generation);
+      expect(
+        env.store.isTrainingSessionRetired(
+          generation: env.generation,
+          sourcePlanId: paused.plan.id,
+        ),
+        isFalse,
+      );
+      expect(
+        (await env.cache.readTrainingSession())?.toJson(),
+        paused.toJson(),
+      );
+      await env.settle();
+      env.dispose();
+
+      server.offline = true;
+      final reboot = _Harness(server, storage: raw);
+      await h.bootUntilIdle(reboot.store);
+      expect(reboot.store.trainingSession?.toJson(), paused.toJson());
+      expect(reboot.store.trainingHistory.single.id, log.id);
+    },
+  );
+
+  test(
+    'an offline log is durable across restart, replays once and re-confirming writes nothing',
+    () async {
+      final raw = InMemoryKeyValueStore();
+      final storage = EncryptedKeyValueStore(
+        raw,
+        AesGcmCacheCipher(Uint8List(32)),
+      );
+      final server = _Server()
+        ..offline = true
+        ..seedPlan = true;
+      final first = _Harness(server, storage: storage);
+      await first.boot();
+      final log = _log();
+      expect(
+        await first.store.logCompletedWorkout(log),
+        SyncDelivery.queuedOffline,
+      );
+      expect(
+        await first.store.logCompletedWorkout(log),
+        SyncDelivery.queuedRetry,
+      );
+      expect(_historyInserts(first.store.pendingOutbox), hasLength(1));
+      expect(first.store.trainingHistory.single.toRow(), log.toRow());
+      await first.settle();
+      first.dispose();
+
+      final reboot = _Harness(server, storage: storage);
+      await reboot.boot();
+      expect(reboot.store.trainingHistory.single.toRow(), log.toRow());
+      expect(_historyInserts(await reboot.cache.readOutbox()), hasLength(1));
+      server.offline = false;
+      await reboot.store.syncPendingWrites();
+      await reboot.settle();
+      expect(server.rows.length, 1);
+      final attempts = _historyInsertRequests(server);
+      expect(
+        await reboot.store.logCompletedWorkout(log),
+        SyncDelivery.delivered,
+      );
+      expect(_historyInserts(await reboot.cache.readOutbox()), isEmpty);
+      expect(_historyInsertRequests(server), attempts);
+      expect(server.rows.length, 1);
+    },
+  );
+
+  test(
+    'a deleted log ID throws TrainingCompletionDeleted and is never written again',
+    () async {
+      final server = _Server();
+      final env = _Harness(server, storage: InMemoryKeyValueStore());
+      await env.boot();
+      final log = _log();
+      await env.store.logCompletedWorkout(log);
+      await env.store.deleteTrainingHistory(log.id);
+      expect(env.store.trainingHistoryDeletedIds, {log.id});
+      expect(
+        () => env.store.trainingHistoryDeletedIds.add(uuidV4()),
+        throwsUnsupportedError,
+      );
+      final requests = _historyInsertRequests(server);
+      await expectLater(
+        env.store.logCompletedWorkout(log),
+        throwsA(isA<TrainingCompletionDeleted>()),
+      );
+      expect(_historyInsertRequests(server), requests);
+      expect(env.store.trainingHistory, isEmpty);
+      expect(_historyInserts(await env.cache.readOutbox()), isEmpty);
+      expect(server.rows, isEmpty);
+
+      // Another device's tombstone answers the insert after the commit.
+      final remote = _log();
+      server.deleted.add('A:${remote.id}');
+      await expectLater(
+        env.store.logCompletedWorkout(remote),
+        throwsA(isA<TrainingCompletionDeleted>()),
+      );
+      expect(env.store.trainingHistoryDeletedIds, {log.id, remote.id});
+      expect(env.store.trainingHistory, isEmpty);
+      expect(await env.cache.readTrainingHistory(), isEmpty);
+      expect(_historyInserts(await env.cache.readOutbox()), isEmpty);
+      expect(server.rows, isEmpty);
+    },
+  );
+
+  test('a log at the history cap throws without writing', () async {
+    final raw = InMemoryKeyValueStore();
+    final cache = LocalCache(raw, 'A');
+    await cache.writeProfile(const UserProfile(onboardingCompleted: true));
+    await cache.writeTrainingHistory([
+      for (var i = 0; i < TrainingHistorySync.limit; i++) _log(),
+    ]);
+    final env = _Harness(_Server()..offline = true, storage: raw);
+    await h.bootUntilIdle(env.store, frist: const Duration(seconds: 20));
+    expect(env.store.trainingHistory, hasLength(TrainingHistorySync.limit));
+    await expectLater(env.store.logCompletedWorkout(_log()), throwsStateError);
+    expect(env.store.trainingHistory, hasLength(TrainingHistorySync.limit));
+    expect(_historyInserts(await env.cache.readOutbox()), isEmpty);
+    expect(
+      await env.cache.readTrainingHistory(),
+      hasLength(TrainingHistorySync.limit),
+    );
+  });
+
+  test(
+    'unreadable receipts keep the history unauthoritative and fail a log closed',
+    () async {
+      final server = _Server();
+      final env = _Harness(server, storage: InMemoryKeyValueStore());
+      await env.cache.writeProfile(
+        const UserProfile(onboardingCompleted: true),
+      );
+      env.cache.failDeletionRead = true;
+      await h.bootUntilIdle(env.store);
+      expect(env.store.trainingHistoryAuthoritative, isFalse);
+      await expectLater(
+        env.store.logCompletedWorkout(_log()),
+        throwsStateError,
+      );
+      expect(env.store.trainingHistory, isEmpty);
+      expect(_historyInserts(await env.cache.readOutbox()), isEmpty);
+      expect(server.rows, isEmpty);
+
+      env.cache.failDeletionRead = false;
+      await env.store.retryTrainingHistory();
+      expect(env.store.trainingHistoryAuthoritative, isTrue);
+    },
+  );
+
+  test('an account switch during a log throws and writes nothing', () async {
+    final server = _Server();
+    final env = _Harness(server, storage: InMemoryKeyValueStore());
+    await env.cache.writeProfile(const UserProfile(onboardingCompleted: true));
+    env.cache.failDeletionRead = true;
+    await h.bootUntilIdle(env.store);
+    env.cache.failDeletionRead = false;
+    final gate = Completer<void>();
+    env.cache.holdDeletionRead = gate;
+    final logging = env.store.logCompletedWorkout(_log());
+    await h.settle();
+    await signInSyncFixture(env.client, 'B');
+    final rejected = expectLater(logging, throwsStateError);
+    gate.complete();
+    await rejected;
+    expect(env.store.trainingHistory, isEmpty);
+    expect(_historyInserts(await env.cache.readOutbox()), isEmpty);
+    expect(await env.cache.readTrainingHistory() ?? const [], isEmpty);
+    expect(server.rows, isEmpty);
+  });
+
+  test(
+    'a plan-attached log waits for a session or recovery and keeps the source',
+    () async {
+      final env = _Harness(
+        _Server()..seedPlan = true,
+        storage: InMemoryKeyValueStore(),
+      );
+      await env.boot();
+      final paused = _unfinished();
+      await env.store.saveTrainingSession(paused);
+      final attached = _planAttached();
+      await expectLater(
+        env.store.logCompletedWorkout(attached, planAttached: true),
+        throwsA(isA<TrainingLogBlockedBySession>()),
+      );
+      expect(env.store.trainingHistory, isEmpty);
+      expect(_historyInserts(await env.cache.readOutbox()), isEmpty);
+      expect(env.store.trainingSession?.toJson(), paused.toJson());
+
+      // A free log never waits for the session.
+      final free = _log();
+      expect(await env.store.logCompletedWorkout(free), SyncDelivery.delivered);
+      expect(env.store.trainingSession?.toJson(), paused.toJson());
+
+      await env.store.saveTrainingSession(null);
+      final skippedOnly = TrainingHistoryEntry(
+        snapshot: TrainingSessionSnapshot(
+          plan: timerPlan(),
+          startedAt: DateTime.utc(2026, 9, 10, 12),
+          workoutIndex: 1,
+          exerciseIndex: 0,
+          setIndex: 0,
+          phase: TrainingSessionPhase.review,
+          remainingMilliseconds: 0,
+          skippedSets: const [
+            TrainingSetReference(exerciseIndex: 0, setIndex: 0),
+          ],
+        ),
+        finishedAt: DateTime.utc(2026, 9, 10, 12),
+      );
+      await expectLater(
+        env.store.logCompletedWorkout(skippedOnly, planAttached: true),
+        throwsFormatException,
+      );
+      final generation = env.store.trainingSessionGeneration;
+      expect(
+        await env.store.logCompletedWorkout(attached, planAttached: true),
+        SyncDelivery.delivered,
+      );
+      expect(env.store.trainingHistory.map((e) => e.id).toSet(), {
+        free.id,
+        attached.id,
+      });
+      expect(env.store.trainingSessionGeneration, generation);
+      expect(
+        env.store.isTrainingSessionRetired(
+          generation: generation,
+          sourcePlanId: attached.snapshot.plan.id,
+        ),
+        isFalse,
+      );
+    },
+  );
+
+  test('a plan-attached log waits for a recovered checkpoint', () async {
+    final env = _Harness(
+      _Server()..failLoads = true,
+      storage: InMemoryKeyValueStore(),
+    );
+    final recovery = _unfinished();
+    await _seedRecovery(env, recovery);
+    await h.bootUntilIdle(env.store);
+    await env.store.prepareTrainingSessionRecovery();
+    await expectLater(
+      env.store.logCompletedWorkout(_planAttached(), planAttached: true),
+      throwsA(isA<TrainingLogBlockedBySession>()),
+    );
+    expect(env.store.trainingHistory, isEmpty);
+    expect(
+      (await env.cache.readTrainingSession())?.toJson(),
+      recovery.toJson(),
+    );
+  });
+
+  for (final change in ['edited', 'deleted']) {
+    test(
+      'finishing after the source plan was $change saves the frozen copy; the stale route still cannot write a checkpoint',
+      () async {
+        final server = _Server();
+        final env = _Harness(server, storage: InMemoryKeyValueStore());
+        await env.boot();
+        final routeGeneration = env.generation;
+        final entry = _entry();
+        final sourcePlanId = entry.snapshot.plan.id;
+        expect(
+          await env.store.saveTrainingSession(
+            entry.snapshot,
+            generation: routeGeneration,
+            sourcePlanId: sourcePlanId,
+          ),
+          isTrue,
+        );
+        if (change == 'edited') {
+          await env.store.saveTrainingPlan(_editedPlan());
+        } else {
+          await env.store.deleteTrainingPlan(sourcePlanId);
+        }
+        expect(
+          env.store.isTrainingSessionRetired(
+            generation: routeGeneration,
+            sourcePlanId: sourcePlanId,
+          ),
+          isTrue,
+        );
+        expect(
+          await env.store.saveTrainingSession(
+            entry.snapshot,
+            generation: routeGeneration,
+            sourcePlanId: sourcePlanId,
+          ),
+          isFalse,
+        );
+        expect(await env.cache.readTrainingSession(), isNull);
+        expect(
+          await env.store.completeTrainingSession(
+            entry,
+            generation: routeGeneration,
+          ),
+          SyncDelivery.delivered,
+        );
+        expect(env.store.trainingHistory.single.toRow(), entry.toRow());
+        expect(server.rows.values.single['session'], entry.toRow()['session']);
+      },
+    );
+  }
+
+  test(
+    'completion keeps an unrelated session; a protected recovery still blocks it',
+    () async {
+      final raw = InMemoryKeyValueStore();
+      final server = _Server()..seedPlan = true;
+      final env = _Harness(server, storage: raw);
+      await env.boot();
+      final paused = _unfinished();
+      expect(await env.store.saveTrainingSession(paused), isTrue);
+      final finished = _entry();
+      expect(
+        await env.store.completeTrainingSession(
+          finished,
+          generation: env.generation,
+        ),
+        SyncDelivery.delivered,
+      );
+      expect(env.store.trainingHistory.single.id, finished.id);
+      expect(env.store.trainingSession?.toJson(), paused.toJson());
+      expect(
+        (await env.cache.readTrainingSession())?.toJson(),
+        paused.toJson(),
+      );
+      expect(
+        env.store.isTrainingSessionRetired(
+          generation: env.generation,
+          sourcePlanId: paused.plan.id,
+        ),
+        isFalse,
+      );
+      await env.settle();
+      env.dispose();
+
+      final reboot = _Harness(server, storage: raw);
+      await h.bootUntilIdle(reboot.store);
+      expect(
+        (await reboot.store.prepareTrainingSessionRecovery())?.toJson(),
+        paused.toJson(),
+      );
+      await expectLater(
+        reboot.store.completeTrainingSession(
+          _entry(),
+          generation: reboot.store.trainingSessionGeneration,
+        ),
+        throwsStateError,
+      );
+      expect(reboot.store.trainingHistory.single.id, finished.id);
+      expect(reboot.store.trainingSession?.toJson(), paused.toJson());
     },
   );
 }
