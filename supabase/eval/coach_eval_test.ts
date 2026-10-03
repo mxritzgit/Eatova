@@ -185,7 +185,8 @@ function idealExtraction(id: string): string {
   }
   const { schema_version: _version, exercises, ...workout } = idealResult(id).workout_log as unknown as Json;
   const pounds = id === "E4";
-  return JSON.stringify({ status: "ok", refuse_reason: null, workout: { ...workout,
+  // D4 rides on the extraction's own flag: the classifier may call E22 fitness.
+  return JSON.stringify({ status: "ok", refuse_reason: null, health_mention: id === "E22", workout: { ...workout,
     exercises: (exercises as Json[]).map((exercise) => ({
       name: exercise.name, kind: exercise.kind, duration_seconds: exercise.duration_seconds, weight_unit: pounds ? "lb" : "kg",
       sets: (exercise.sets as Json[]).map((set) => ({ reps: set.reps, weight: pounds ? 225 : set.weight_kg })),
@@ -257,7 +258,7 @@ Deno.test("eval exercises the complete log batch through the actual handler offl
     if (testCase.mode === "log") clocks.add(Date.now());
     const reason = IDEAL_REFUSALS[testCase.id];
     const content = body.max_tokens === 256
-      ? JSON.stringify({ category: reason && !reason.startsWith("log_") ? reason : testCase.id === "E22" ? "medical_risk" : "fitness", confidence: "high" })
+      ? JSON.stringify({ category: reason && !reason.startsWith("log_") ? reason : "fitness", confidence: "high" })
       : messages[0].content.includes("You extract workout logs") ? idealExtraction(testCase.id)
       : "Great session. Save it with /log today squats 3x10 80 kg so it lands in your history.";
     return Promise.resolve(Response.json({ model: EVAL_MODEL, choices: [{ finish_reason: "stop", message: { content } }] }));

@@ -409,6 +409,26 @@ Deno.test("log handler: a medical mention is logged with the fixed safety line l
   }
 });
 
+Deno.test("log handler: pain the classifier calls fitness still ends with the safety line; the flag is never stored (D4)", async () => {
+  for (const locale of ["en", "de"] as const) {
+    for (const mention of [true, false]) {
+      const extraction = JSON.stringify({ ...JSON.parse(EXTRACTION), health_mention: mention });
+      const stub = stubNetwork({ category: "fitness", extraction });
+      try {
+        const res = await handleRequest(request({ locale, message: "squats 3x5 100 kg, knee hurt on the last set" }));
+        equal(res.status, 200, `${locale}/${mention}: status`);
+        const body = await res.json();
+        equal(body.workout_log, LOG, "proposal without the flag");
+        equal(String(body.reply).endsWith(WORKOUT_LOG_SAFETY_LINE[locale]), mention, `${locale}/${mention}: ${body.reply}`);
+        const row = stub.assistantRows()[0].body;
+        equal(row.workout_log, LOG, "stored log without the flag");
+        equal(row.content, body.reply, "stored summary");
+        assert(!JSON.stringify([body, row]).includes("health_mention"), "server-only flag");
+      } finally { stub.restore(); }
+    }
+  }
+});
+
 Deno.test("log handler: model refusals use fixed localized texts and keep the slot", async () => {
   for (const locale of ["en", "de"] as const) {
     for (const reason of ["not_a_workout", "not_completed", "too_large", "unsafe"] as const) {

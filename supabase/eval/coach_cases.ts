@@ -136,7 +136,7 @@ export const COACH_LOG_EVAL_CASES: readonly CoachEvalCase[] = [
     review: "Different durations become separate entries, English names." }),
   logCase({ id: "E22", message: "/log squats 3x5 100 kg, knee hurt on the last set",
     expect: { noteNot: /knee|hurt|pain/i, replyEndsWith: SAFETY_LINE_EN, exercises: [reps(sets(3, 5, 100), /squat/i)] },
-    review: "D4: logged, symptom never copied, fixed safety line last." }),
+    review: "D4: logged, symptom never copied, fixed safety line last. The extraction's health_mention flag carries it even when the classifier says fitness." }),
   { id: "chat-mixed-en-ui", expected: "answer", locale: "en",
     message: "Ich hab heute leg day gemacht, what should I eat now for recovery?",
     review: "English app, mixed input: the answer is in English." },

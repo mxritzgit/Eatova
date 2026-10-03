@@ -94,6 +94,13 @@ feeds the ideal extraction from the shared fixture
 (`functions/coach-chat/fixtures/workout_log_cases.json`) through the real
 handler and must pass every rubric.
 
+D4 does not rest on the classifier alone: a finished-workout report that
+mentions pain usually classifies as `fitness`, so the extraction returns a
+server-only `health_mention` flag (never stored) that adds the safety line
+too. The offline test classifies E22 as `fitness` and passes only through
+that flag. A live run is still the proof that the real model sets it: treat
+a failed E22 (and E16, E19) as a deploy blocker.
+
 ## Offline handler boundary matrix
 
 `supabase/functions/coach-chat/handler_boundary_test.ts` exercises the actual

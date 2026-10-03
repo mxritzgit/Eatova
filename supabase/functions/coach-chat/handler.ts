@@ -1666,7 +1666,11 @@ async function handleWorkoutLogMode(params: {
     return await refuse(workoutLogRefusalText(extraction.reason, locale), `log_${extraction.reason}`);
   }
 
-  const summary = workoutLogSummary(extraction.log, locale, { medicalRisk: params.medicalRisk });
+  // D4 needs either signal: a finished-workout report that mentions pain
+  // usually classifies as fitness, so the extraction flags it too.
+  const summary = workoutLogSummary(extraction.log, locale, {
+    medicalRisk: params.medicalRisk || extraction.healthMention,
+  });
   const [assistantMessageId] = await Promise.all([
     storeWorkoutLogMessage(serviceKey, supabaseUrl, {
       user_id: userId, session_id: sessionId, content: summary, workout_log: extraction.log,
@@ -2786,7 +2790,8 @@ async function handleCoachRequest(req: Request): Promise<Response> {
     ? message + "\n" + trainingContextMessage(trainingContext).content : message;
   const isStructuredMode = isRecipeMode || isPlanMode || isLogMode || trainingContext !== undefined;
   // D4: a log that mentions pain is extracted, and its summary ends with a
-  // fixed safety line instead of a medical refusal.
+  // fixed safety line instead of a medical refusal. This verdict is one
+  // signal; the extraction's health_mention flag is the other.
   let medicalRisk = false;
   if (shouldRunClassifier(classificationInput)) {
     const activeRefusalCategories = isRecipeMode

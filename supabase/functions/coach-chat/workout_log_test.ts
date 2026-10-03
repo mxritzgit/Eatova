@@ -102,7 +102,7 @@ Deno.test("dates: calendar format only, and the client day within one day of the
 Deno.test("transform: a kg extraction becomes the stored log with schema_version and without units", () => {
   // The first 18 valid logs are the eval shapes E1-E22 relative to LOCAL_DATE.
   FIXTURE.valid.slice(0, 18).forEach((log, index) => {
-    equal(transformExtraction(extraction(log), LOCAL_DATE), { kind: "log", log }, `valid #${index}`);
+    equal(transformExtraction(extraction(log), LOCAL_DATE), { kind: "log", log, healthMention: false }, `valid #${index}`);
   });
 });
 
@@ -175,13 +175,13 @@ Deno.test("transform: an exercise without any weight needs no weight_unit", () =
   const bodyweight = (raw: Row): Row => ((raw.workout as Row).exercises as Row[])[1];
   const nullUnit = extraction(log);
   bodyweight(nullUnit).weight_unit = null;
-  equal(transformExtraction(nullUnit, LOCAL_DATE), { kind: "log", log }, "null unit, no weights");
+  equal(transformExtraction(nullUnit, LOCAL_DATE), { kind: "log", log, healthMention: false }, "null unit, no weights");
   const missingUnit = extraction(log);
   delete bodyweight(missingUnit).weight_unit;
-  equal(transformExtraction(missingUnit, LOCAL_DATE), { kind: "log", log }, "missing unit, no weights");
+  equal(transformExtraction(missingUnit, LOCAL_DATE), { kind: "log", log, healthMention: false }, "missing unit, no weights");
   const timed = extraction(FIXTURE.valid[5]);
   for (const exercise of (timed.workout as Row).exercises as Row[]) exercise.weight_unit = null;
-  equal(transformExtraction(timed, LOCAL_DATE), { kind: "log", log: FIXTURE.valid[5] }, "timed without units");
+  equal(transformExtraction(timed, LOCAL_DATE), { kind: "log", log: FIXTURE.valid[5], healthMention: false }, "timed without units");
 
   const weighted = (raw: Row): Row => ((raw.workout as Row).exercises as Row[])[0];
   const nullWithWeight = extraction(log);
@@ -205,6 +205,29 @@ Deno.test("transform: a refusal that omits workout counts as workout null", () =
     "refusal with a foreign key instead of workout");
   equal(transformExtraction({ status: "refuse", workout: null }, LOCAL_DATE), null, "refusal without reason");
   equal(transformExtraction({ status: "ok", refuse_reason: null }, LOCAL_DATE), null, "ok without workout");
+});
+
+Deno.test("transform: health_mention is a server-only D4 flag, never part of the log", () => {
+  const log = FIXTURE.valid[0];
+  const withFlag = (value: unknown): Row => ({ ...extraction(log), health_mention: value });
+  const flagged = transformExtraction(withFlag(true), LOCAL_DATE);
+  equal(flagged, { kind: "log", log, healthMention: true }, "pain mentioned");
+  assert(flagged?.kind === "log" && !JSON.stringify(flagged.log).includes("health"), "never in the stored log");
+  for (const [label, raw] of [["false", withFlag(false)], ["null", withFlag(null)], ["absent", extraction(log)]] as [string, Row][]) {
+    equal(transformExtraction(raw, LOCAL_DATE), { kind: "log", log, healthMention: false }, label);
+  }
+  for (const value of ["pain", 1, {}]) {
+    equal(transformExtraction(withFlag(value), LOCAL_DATE), null, `not a boolean: ${JSON.stringify(value)}`);
+  }
+  const nested = extraction(log);
+  (nested.workout as Row).health_mention = true;
+  equal(transformExtraction(nested, LOCAL_DATE), null, "only on the envelope");
+  for (const raw of [
+    { status: "refuse", refuse_reason: "unsafe", health_mention: true, workout: null },
+    { status: "refuse", refuse_reason: "unsafe", health_mention: true },
+  ]) {
+    equal(transformExtraction(raw, LOCAL_DATE), { kind: "refusal", reason: "unsafe" }, "a refusal ignores the flag");
+  }
 });
 
 Deno.test("decode: one JSON object, one optional fence, bounded size", () => {
@@ -263,8 +286,9 @@ Deno.test("prompt: language, the 8-day calendar, all 19 rules and the extraction
   assert(!en.includes("2026-09-25"), "exactly eight days");
   for (let rule = 1; rule <= 19; rule++) assert(en.includes(`\n${rule}. `), `rule ${rule}`);
   assert(!en.includes("\n20. "), "no extra rule");
-  for (const key of ["status", "refuse_reason", "not_a_workout", "not_completed", "too_large", "unsafe", "weight_unit", "other_days_omitted", "duration_seconds"]) {
+  for (const key of ["status", "refuse_reason", "health_mention", "not_a_workout", "not_completed", "too_large", "unsafe", "weight_unit", "other_days_omitted", "duration_seconds"]) {
     assert(en.includes(key), key);
   }
+  assert(/\n16\. [^\n]*health_mention true[^\n]*pain/.test(en), "rule 16 flags pain without copying it");
   assert(/never invent/i.test(en) && /data/i.test(en), "data-only, no invention");
 });

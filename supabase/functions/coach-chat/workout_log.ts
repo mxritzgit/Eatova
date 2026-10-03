@@ -54,15 +54,19 @@ export interface CoachWorkoutLog {
 export const LOG_REFUSAL_REASONS = ["not_a_workout", "not_completed", "too_large", "unsafe"] as const;
 export type LogRefusalReason = (typeof LOG_REFUSAL_REASONS)[number];
 
+/**
+ * healthMention: the model saw pain or an injury (D4). Server-only: it picks
+ * the summary's safety line and is never part of the stored log.
+ */
 export type WorkoutLogExtraction =
-  | { kind: "log"; log: CoachWorkoutLog }
+  | { kind: "log"; log: CoachWorkoutLog; healthMention: boolean }
   | { kind: "refusal"; reason: LogRefusalReason };
 
 const LOG_KEYS = ["schema_version", "title", "performed_on", "duration_minutes", "other_days_omitted", "note", "exercises"];
 const EXERCISE_KEYS = ["name", "kind", "duration_seconds", "sets"];
 const SET_KEYS = ["reps", "weight_kg"];
-const ENVELOPE_KEYS = ["status", "refuse_reason", "workout"];
-const REFUSAL_ENVELOPE_KEYS = ["status", "refuse_reason"];
+const ENVELOPE_KEYS = ["status", "refuse_reason", "health_mention", "workout"];
+const HEALTH_KEY = "health_mention";
 const WORKOUT_KEYS = ["title", "performed_on", "duration_minutes", "other_days_omitted", "note", "exercises"];
 const EXTRACTED_EXERCISE_KEYS = ["name", "kind", "duration_seconds", "weight_unit", "sets"];
 const UNITLESS_EXERCISE_KEYS = ["name", "kind", "duration_seconds", "sets"];
@@ -167,15 +171,18 @@ function withinLogWindow(performedOn: string, localDate: string): boolean {
  * Model extraction -> stored log. Converts lb to kg rounded to 0.01, drops the
  * unit, nulls a date outside [local_date - 30, local_date] and validates the
  * result strictly. Keys without data are lenient: weight_unit may be null or
- * absent when an exercise has no weight, and a refusal may omit workout.
+ * absent when an exercise has no weight, a refusal may omit workout, and an
+ * omitted or null health_mention means no mention.
  * null means an invalid draft (502 + refund upstream).
  */
 export function transformExtraction(raw: unknown, localDate: string): WorkoutLogExtraction | null {
-  // A refusal carries no data, so an omitted workout reads as workout: null.
-  const envelope = objectWithKeys(raw, REFUSAL_ENVELOPE_KEYS) && raw.status === "refuse"
-    ? { ...raw, workout: null }
-    : raw;
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const envelope: Record<string, unknown> = { ...raw };
+  if (!Object.hasOwn(envelope, HEALTH_KEY)) envelope[HEALTH_KEY] = null;
+  if (envelope.status === "refuse" && !Object.hasOwn(envelope, "workout")) envelope.workout = null;
   if (!objectWithKeys(envelope, ENVELOPE_KEYS)) return null;
+  const healthMention = envelope[HEALTH_KEY];
+  if (healthMention !== null && typeof healthMention !== "boolean") return null;
   if (envelope.status === "refuse") {
     return envelope.workout === null && (LOG_REFUSAL_REASONS as readonly unknown[]).includes(envelope.refuse_reason)
       ? { kind: "refusal", reason: envelope.refuse_reason as LogRefusalReason }
@@ -214,7 +221,7 @@ export function transformExtraction(raw: unknown, localDate: string): WorkoutLog
     note: workout.note,
     exercises,
   });
-  return log === null ? null : { kind: "log", log };
+  return log === null ? null : { kind: "log", log, healthMention: healthMention === true };
 }
 
 /** Raw model content -> extraction; a single fenced object is tolerated. */
@@ -223,7 +230,8 @@ export function decodeWorkoutLogExtraction(raw: string, localDate: string): Work
 }
 
 // D4: a log that mentions pain is still logged, the symptom is never copied,
-// and this fixed line closes the summary.
+// and this fixed line closes the summary. The app finds it in the stored
+// content by its ARB copy (coachWorkoutLogSafetyLine): change both together.
 export const WORKOUT_LOG_SAFETY_LINE: Record<WorkoutLogLocale, string> = {
   de: "Wenn Schmerzen anhalten, lass das bitte ärztlich oder physiotherapeutisch abklären.",
   en: "If pain persists, please see a doctor or physiotherapist.",
@@ -300,7 +308,7 @@ Calendar of the user's local days (the only source for dates):
 ${workoutLogCalendar(localDate)}
 
 Output ONLY one JSON object with exactly these keys at every level, including every nullable field:
-{"status":"ok"|"refuse","refuse_reason":null|"not_a_workout"|"not_completed"|"too_large"|"unsafe","workout":null|{"title":string,"performed_on":"YYYY-MM-DD"|null,"duration_minutes":int|null,"other_days_omitted":boolean,"note":string,"exercises":[{"name":string,"kind":"reps"|"timed","duration_seconds":int|null,"weight_unit":"kg"|"lb","sets":[{"reps":int|null,"weight":number|null}]}]}}
+{"status":"ok"|"refuse","refuse_reason":null|"not_a_workout"|"not_completed"|"too_large"|"unsafe","health_mention":boolean,"workout":null|{"title":string,"performed_on":"YYYY-MM-DD"|null,"duration_minutes":int|null,"other_days_omitted":boolean,"note":string,"exercises":[{"name":string,"kind":"reps"|"timed","duration_seconds":int|null,"weight_unit":"kg"|"lb","sets":[{"reps":int|null,"weight":number|null}]}]}}
 With status "ok", workout is an object and refuse_reason is null. With status "refuse", refuse_reason is set and workout is null.
 
 Rules:
@@ -319,7 +327,7 @@ Rules:
 13. Title: short, in ${language}. Use the user's own label (Leg day / Beintag) or a neutral "Workout"/"Training".
 14. duration_minutes only when the total time is stated or the log is one continuous timed activity.
 15. Only the user's own training; ignore other people's numbers.
-16. Never copy symptoms, pain, injuries, medication or body-image statements into text. Doping, self-harm, eating disorder, compensatory or punishment exercise give refuse "unsafe".
+16. Never copy symptoms, pain, injuries, medication or body-image statements into text. Set health_mention true whenever the user mentions pain, an injury or another physical complaint ("knee hurt", "Schulter tut weh"), otherwise false; gym slang about exhaustion ("dead after leg day") is false. Doping, self-harm, eating disorder, compensatory or punishment exercise give refuse "unsafe".
 17. Not a workout report (a question, a plan request, food) gives refuse "not_a_workout".
 18. Mixed German/English input is normal. All text fields are in ${language}.
 19. Numbers are JSON numbers, integers except weight (max 2 decimals). Never claim anything was saved.
