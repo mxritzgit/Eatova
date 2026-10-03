@@ -16,7 +16,9 @@ import '../models/chat_session.dart';
 import '../models/coach_recipe_proposal.dart';
 import '../models/coach_training_proposal.dart';
 import '../models/coach_training_context.dart';
+import '../models/coach_workout_log.dart';
 import 'crash_reporter.dart';
+import 'local_day.dart';
 import 'sync_error_messages.dart';
 import 'user_rpc.dart';
 
@@ -27,10 +29,11 @@ import 'user_rpc.dart';
 /// public.chat_messages (RLS scopes it to the user), invokes the function,
 /// reads the counter via get_chat_quota_today, and manages sessions by RPC.
 class CoachChatService {
-  /// [chatFrist], [rezeptFrist], [planFrist] and [fristPuffer] are test seams
-  /// alone and default to the constants below. The real deadlines are minutes
-  /// long, so no test can sit one out; the timing cases run the same ledger at
-  /// a fraction of its scale, with their numbers still DERIVED from
+  /// [chatFrist], [rezeptFrist], [planFrist], [logFrist] and [fristPuffer]
+  /// are test seams alone and default to the constants below. The real
+  /// deadlines are minutes long, so no test can sit one out; the timing cases
+  /// run the same ledger at a fraction of its scale, with their numbers still
+  /// DERIVED from
   /// [chatDeadline] / [recipeDeadline] so a changed constant changes the case.
   CoachChatService(
     this._client,
@@ -38,10 +41,12 @@ class CoachChatService {
     Duration? chatFrist,
     Duration? rezeptFrist,
     Duration? planFrist,
+    Duration? logFrist,
     Duration? fristPuffer,
   })  : _chatFrist = chatFrist ?? chatDeadline,
         _rezeptFrist = rezeptFrist ?? recipeDeadline,
         _planFrist = planFrist ?? planDeadline,
+        _logFrist = logFrist ?? workoutLogDeadline,
         _fristPuffer = fristPuffer ?? _deadlineGrace;
 
   final SupabaseClient _client;
@@ -49,6 +54,7 @@ class CoachChatService {
   final Duration _chatFrist;
   final Duration _rezeptFrist;
   final Duration _planFrist;
+  final Duration _logFrist;
   final Duration _fristPuffer;
 
   // -------------------------------------------------------------------------
@@ -98,6 +104,11 @@ class CoachChatService {
   /// Classification and draft generation without the recipe's 60-second image
   /// request. Keep response headroom for the larger structured plan payload.
   static const Duration planDeadline = Duration(seconds: 105);
+
+  /// Deadline for /log: the same two provider calls as a plan (15 s classify
+  /// plus the 45 s answer budget for the extraction) and a small JSON answer,
+  /// so the plan ledger covers it.
+  static const Duration workoutLogDeadline = planDeadline;
 
   /// Grace the outer `timeout` gets on top of the abort signal. The signal is
   /// the clean exit (it tears the socket down); the timeout is the guarantee,
@@ -448,7 +459,8 @@ class CoachChatService {
           .from('chat_messages')
           // Proposals survive reload; neither query nor parser saves a plan.
           .select(
-            'id, role, content, refusal, created_at, recipe, training_plan',
+            'id, role, content, refusal, created_at, recipe, training_plan, '
+            'workout_log',
           )
           .eq('user_id', _userId)
           .eq('session_id', sessionId)
@@ -895,10 +907,88 @@ class CoachChatService {
     required String sessionId,
     required String locale,
     CoachTrainingContext? trainingContext,
-  }) async {
+  }) {
     final discussion = trainingContext?.intent == CoachTrainingIntent.discuss;
+    return _fencedRequest(
+      deadline: _planFrist,
+      locale: locale,
+      body: {
+        'message': wish,
+        'mode': discussion ? 'chat' : 'plan',
+        'locale': _requestLocale(locale),
+        'session_id': sessionId,
+        if (trainingContext != null)
+          'training_context': trainingContext.toJson(),
+      },
+      tags: const _RequestTags(
+        http: 'coach.plan.http',
+        relay: 'coach.plan.relay',
+        unknown: 'coach.plan.unbekannt',
+      ),
+      parse: (payload) =>
+          _planFromPayload(payload, sessionId, discussion: discussion),
+      afterDeadline: (startedAt, authorization, verifyIdentity) =>
+          _planAfterDeadline(
+            sessionId, wish, startedAt, authorization, verifyIdentity,
+            discussion: discussion,
+          ),
+    );
+  }
+
+  /// /log: turns a finished workout into a validated draft (spec C1/C2). One
+  /// daily Coach slot. No training data is written here: the history row
+  /// comes only from the review sheet's explicit Add. `local_date` is the
+  /// device's calendar day, against which the server resolves "today" and
+  /// "yesterday".
+  Future<CoachWorkoutLogReply> requestWorkoutLog(
+    String wish, {
+    required String sessionId,
+    required String locale,
+  }) => _fencedRequest(
+    deadline: _logFrist,
+    locale: locale,
+    body: {
+      'message': wish,
+      'mode': 'log',
+      'local_date': localDayKey(clock.now()),
+      'locale': _requestLocale(locale),
+      'session_id': sessionId,
+    },
+    tags: const _RequestTags(
+      http: 'coach.workoutLog.http',
+      relay: 'coach.workoutLog.relay',
+      unknown: 'coach.workoutLog.unbekannt',
+    ),
+    parse: (payload) => _workoutLogFromPayload(payload, sessionId),
+    afterDeadline: (startedAt, authorization, verifyIdentity) =>
+        _workoutLogAfterDeadline(
+          sessionId, wish, startedAt, authorization, verifyIdentity,
+        ),
+    failureForStatus: _workoutLogFailure,
+  );
+
+  /// One buffered proposal request (/plan, /log), fenced to this account: the
+  /// bearer is captured before the call, the identity is re-checked after
+  /// every await (A -> B -> A included), the body may come as JSON or as an
+  /// SSE `done`, and a deadline asks the transcript before reporting a
+  /// timeout. [tags] name the diagnostics; [failureForStatus] maps non-2xx
+  /// statuses, by default like every other Coach request.
+  Future<T> _fencedRequest<T>({
+    required Duration deadline,
+    required String locale,
+    required Map<String, Object?> body,
+    required _RequestTags tags,
+    required T Function(Map<dynamic, dynamic> payload) parse,
+    required Future<T> Function(
+      DateTime startedAt,
+      String authorization,
+      void Function() verifyIdentity,
+    )
+    afterDeadline,
+    Exception Function(int status, dynamic details)? failureForStatus,
+  }) async {
     final startedAt = clock.now();
-    final identity = _PlanRequestIdentity(_client);
+    final identity = _RequestIdentity(_client);
     String? authorization;
     void verifyIdentity() {
       if (!identity.isCurrent) {
@@ -906,23 +996,16 @@ class CoachChatService {
       }
     }
     try {
-      authorization = await _planAuthorization();
+      authorization = await _capturedAuthorization();
       verifyIdentity();
-      final result = await _mitFrist(_planFrist, (abort) async {
+      final result = await _mitFrist(deadline, (abort) async {
         final res = await _client.functions.invoke(
           'coach-chat',
           headers: {
             'Authorization': authorization!,
             'Accept-Language': _requestLocale(locale),
           },
-          body: {
-            'message': wish,
-            'mode': discussion ? 'chat' : 'plan',
-            'locale': _requestLocale(locale),
-            'session_id': sessionId,
-            if (trainingContext != null)
-              'training_context': trainingContext.toJson(),
-          },
+          body: body,
           abortSignal: abort,
         );
         verifyIdentity();
@@ -935,13 +1018,9 @@ class CoachChatService {
           if (done == null) {
             throw CoachChatException(_unreachableMessage);
           }
-          return _planFromPayload(done, sessionId, discussion: discussion);
+          return parse(done);
         }
-        return _planFromPayload(
-          data is Map ? data : const <dynamic, dynamic>{},
-          sessionId,
-          discussion: discussion,
-        );
+        return parse(data is Map ? data : const <dynamic, dynamic>{});
       });
       verifyIdentity();
       return result;
@@ -957,31 +1036,25 @@ class CoachChatService {
       if (authorization == null) {
         throw CoachChatException(_l10n.coachErrorTimeout);
       }
-      return await _planAfterDeadline(
-        sessionId, wish, startedAt, authorization, verifyIdentity,
-        discussion: discussion,
-      );
+      return await afterDeadline(startedAt, authorization, verifyIdentity);
     } on RequestAbortedException catch (e, stack) {
       verifyIdentity();
       _logSendFailure(e, stack);
       if (authorization == null) {
         throw CoachChatException(_l10n.coachErrorTimeout);
       }
-      return await _planAfterDeadline(
-        sessionId, wish, startedAt, authorization, verifyIdentity,
-        discussion: discussion,
-      );
+      return await afterDeadline(startedAt, authorization, verifyIdentity);
     } on AuthException {
       throw CoachChatException(_l10n.coachErrorSessionExpired);
     } on FunctionsHttpException catch (e, stack) {
       verifyIdentity();
       _logSendFailure(e, stack);
-      if (_statusIstVorfall(e.status)) _melde('coach.plan.http', e, stack);
-      throw _failureForStatus(e.status, e.details);
+      if (_statusIstVorfall(e.status)) _melde(tags.http, e, stack);
+      throw (failureForStatus ?? _failureForStatus)(e.status, e.details);
     } on FunctionsRelayException catch (e, stack) {
       verifyIdentity();
       _logSendFailure(e, stack);
-      _melde('coach.plan.relay', e, stack);
+      _melde(tags.relay, e, stack);
       throw CoachChatException(_unreachableMessage);
     } on FunctionsFetchException catch (e, stack) {
       verifyIdentity();
@@ -994,7 +1067,7 @@ class CoachChatService {
     } catch (e, stack) {
       verifyIdentity();
       _logSendFailure(e, stack);
-      _melde('coach.plan.unbekannt', e, stack);
+      _melde(tags.unknown, e, stack);
       throw CoachChatException(_unreachableMessage);
     } finally {
       unawaited(identity.dispose());
@@ -1003,7 +1076,7 @@ class CoachChatService {
 
   /// Capture the bearer before the SDK can await a different account's token.
   /// Like userRpc, an anonymous call stays anonymous across a later login.
-  Future<String> _planAuthorization() async {
+  Future<String> _capturedAuthorization() async {
     var session = _client.auth.currentSession;
     if (session != null && session.user.id != _userId) {
       throw const AuthException('Session changed');
@@ -1037,17 +1110,13 @@ class CoachChatService {
         (!refusal && !discussion && proposal == null) ||
         (discussion && (rawPlan != null || payload['recipe'] != null)) ||
         (rawPlan != null && payload['recipe'] != null) ||
-        (returnedSession != null &&
-            (returnedSession is! String ||
-                !RegExp(r'^[A-Za-z0-9_-]{1,100}$')
-                    .hasMatch(returnedSession)))) {
+        !_validReturnedSession(returnedSession)) {
       final error = CoachChatException(_l10n.coachErrorEmptyReply);
       _melde('coach.plan.invalidResponse', error, StackTrace.current);
       throw error;
     }
     final dailyLimit = _planCount(payload['daily_limit'], minimum: 1);
     _tageslimitMerken(dailyLimit);
-    final messageId = payload['assistant_message_id'];
     return CoachPlanReply(
       reply: reply,
       refusal: refusal,
@@ -1060,12 +1129,87 @@ class CoachChatService {
       // ensureSession can select this account's default after remote deletion.
       // The request identity guard establishes the account, not ID equality.
       sessionId: returnedSession is String ? returnedSession : sessionId,
-      assistantMessageId:
-          messageId is String &&
-              RegExp(r'^[A-Za-z0-9_-]{1,94}$').hasMatch(messageId)
-          ? messageId
-          : null,
+      assistantMessageId: _assistantMessageId(payload),
     );
+  }
+
+  /// [_planFromPayload]'s twin for /log: a refusal never carries a draft, a
+  /// non-refusal needs a valid one, and no other proposal may ride along.
+  /// Violations are reported by a fixed tag only, never with workout text.
+  CoachWorkoutLogReply _workoutLogFromPayload(
+    Map<dynamic, dynamic> payload,
+    String sessionId,
+  ) {
+    final reply = payload['reply'] is String
+        ? (payload['reply'] as String).trim()
+        : '';
+    final refusal = payload['refusal'] == true;
+    final rawLog = payload['workout_log'];
+    final returnedSession = payload['session_id'];
+    final proposal = !refusal && rawLog is Map
+        ? CoachWorkoutLog.fromJson(rawLog)
+        : null;
+    if (reply.isEmpty ||
+        (payload['refusal'] != null && payload['refusal'] is! bool) ||
+        (!refusal && proposal == null) ||
+        payload['training_plan'] != null ||
+        payload['recipe'] != null ||
+        !_validReturnedSession(returnedSession)) {
+      final error = CoachChatException(_l10n.coachErrorEmptyReply);
+      _melde('coach.workoutLog.invalidResponse', error, StackTrace.current);
+      throw error;
+    }
+    // A prefilter refusal claims no slot and names neither count.
+    final dailyLimit = _planCount(payload['daily_limit'], minimum: 1);
+    _tageslimitMerken(dailyLimit);
+    return CoachWorkoutLogReply(
+      reply: reply,
+      refusal: refusal,
+      refusalReason: payload['refusal_reason'] is String
+          ? payload['refusal_reason'] as String
+          : null,
+      proposal: proposal,
+      remaining: _planCount(payload['remaining']),
+      dailyLimit: dailyLimit,
+      sessionId: returnedSession is String ? returnedSession : sessionId,
+      assistantMessageId: _assistantMessageId(payload),
+    );
+  }
+
+  /// The statuses with which a server answers a /log it cannot take: one that
+  /// predates log mode (a rolled-back function knows no `local_date` and
+  /// says `invalid_body`), or a request outside the contract. All of them
+  /// end before session and quota work; no retry can change them.
+  static const Set<String> _workoutLogUnsupported = {
+    'invalid_body',
+    'invalid_mode',
+    'invalid_local_date',
+    'log_mode_required',
+    'log_fields_not_supported',
+  };
+
+  Exception _workoutLogFailure(int status, dynamic details) {
+    final error = details is Map ? details['error'] : null;
+    if (status == 400 && _workoutLogUnsupported.contains(error)) {
+      return CoachChatException(_l10n.coachWorkoutLogUnavailable);
+    }
+    return _failureForStatus(status, details);
+  }
+
+  static final RegExp _returnedSessionPattern = RegExp(
+    r'^[A-Za-z0-9_-]{1,100}$',
+  );
+  static final RegExp _assistantMessageIdPattern = RegExp(
+    r'^[A-Za-z0-9_-]{1,94}$',
+  );
+
+  static bool _validReturnedSession(Object? value) =>
+      value == null ||
+      (value is String && _returnedSessionPattern.hasMatch(value));
+
+  static String? _assistantMessageId(Map<dynamic, dynamic> payload) {
+    final id = payload['assistant_message_id'];
+    return id is String && _assistantMessageIdPattern.hasMatch(id) ? id : null;
   }
 
   static int? _planCount(Object? value, {int minimum = 0}) {
@@ -1079,14 +1223,15 @@ class CoachChatService {
     return value.toInt();
   }
 
-  Future<CoachPlanReply> _planAfterDeadline(
+  /// The persisted answer to [wish] after a deadline, read with the bearer
+  /// captured for the request; null when the transcript cannot prove one.
+  Future<ChatMessage?> _answerAfterDeadline(
     String sessionId,
     String wish,
     DateTime startedAt,
     String authorization,
-    void Function() verifyIdentity, {
-    bool discussion = false,
-  }) async {
+    void Function() verifyIdentity,
+  ) async {
     verifyIdentity();
     final message = await _nachzuegler(
       sessionId: sessionId,
@@ -1097,6 +1242,20 @@ class CoachChatService {
       ),
     );
     verifyIdentity();
+    return message;
+  }
+
+  Future<CoachPlanReply> _planAfterDeadline(
+    String sessionId,
+    String wish,
+    DateTime startedAt,
+    String authorization,
+    void Function() verifyIdentity, {
+    bool discussion = false,
+  }) async {
+    final message = await _answerAfterDeadline(
+      sessionId, wish, startedAt, authorization, verifyIdentity,
+    );
     final proposal = message?.trainingPlanProposal;
     if (message == null ||
         (!discussion && proposal == null && !message.refusal) ||
@@ -1104,6 +1263,31 @@ class CoachChatService {
       throw CoachChatException(_l10n.coachErrorTimeout);
     }
     return CoachPlanReply(
+      reply: message.content,
+      refusal: message.refusal,
+      proposal: proposal,
+      sessionId: sessionId,
+      assistantMessageId: message.id.isEmpty ? null : message.id,
+    );
+  }
+
+  /// A row that is neither a refusal nor a log draft is no answer to /log,
+  /// so the timeout stands. Quota stays unknown, as for every straggler.
+  Future<CoachWorkoutLogReply> _workoutLogAfterDeadline(
+    String sessionId,
+    String wish,
+    DateTime startedAt,
+    String authorization,
+    void Function() verifyIdentity,
+  ) async {
+    final message = await _answerAfterDeadline(
+      sessionId, wish, startedAt, authorization, verifyIdentity,
+    );
+    final proposal = message?.workoutLogProposal;
+    if (message == null || (proposal == null && !message.refusal)) {
+      throw CoachChatException(_l10n.coachErrorTimeout);
+    }
+    return CoachWorkoutLogReply(
       reply: message.content,
       refusal: message.refusal,
       proposal: proposal,
@@ -1220,8 +1404,8 @@ class CoachChatService {
 
 /// Tracks account changes throughout one request, including A -> B -> A.
 /// Token refresh for the same account remains valid; a new login does not.
-class _PlanRequestIdentity {
-  _PlanRequestIdentity(this._client)
+class _RequestIdentity {
+  _RequestIdentity(this._client)
       : _initialSession = _client.auth.currentSession,
         _userId = _client.auth.currentUser?.id {
     _subscription = _client.auth.onAuthStateChange.listen((state) {
@@ -1250,6 +1434,20 @@ class _PlanRequestIdentity {
     _active = false;
     return _subscription.cancel();
   }
+}
+
+/// Diagnostic tags of one fenced request; source literals only, since they
+/// become Sentry `context` tags.
+class _RequestTags {
+  const _RequestTags({
+    required this.http,
+    required this.relay,
+    required this.unknown,
+  });
+
+  final String http;
+  final String relay;
+  final String unknown;
 }
 
 /// What one finished `coach-chat` SSE response amounted to.
@@ -1438,6 +1636,30 @@ class CoachPlanReply {
   final bool refusal;
   final String sessionId;
   final CoachTrainingProposal? proposal;
+  final String? refusalReason;
+  final int? remaining;
+  final int? dailyLimit;
+  final String? assistantMessageId;
+}
+
+/// Workout-log result. Refusals never carry an addable draft; a missing
+/// [assistantMessageId] means the server could not store the answer.
+class CoachWorkoutLogReply {
+  const CoachWorkoutLogReply({
+    required this.reply,
+    required this.refusal,
+    required this.sessionId,
+    this.proposal,
+    this.refusalReason,
+    this.remaining,
+    this.dailyLimit,
+    this.assistantMessageId,
+  });
+
+  final String reply;
+  final bool refusal;
+  final String sessionId;
+  final CoachWorkoutLog? proposal;
   final String? refusalReason;
   final int? remaining;
   final int? dailyLimit;

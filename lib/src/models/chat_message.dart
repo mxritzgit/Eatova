@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'coach_recipe_proposal.dart';
 import 'coach_training_proposal.dart';
+import 'coach_workout_log.dart';
 
 /// A single coach-chat message. Role is user|assistant; the system role stays
 /// server-side and is not modelled here.
@@ -15,6 +16,8 @@ class ChatMessage {
     this.imageBytes,
     this.recipeProposal,
     this.trainingPlanProposal,
+    this.workoutLogProposal,
+    this.workoutLogLocalId,
   });
 
   final String id;
@@ -36,29 +39,56 @@ class ChatMessage {
   /// A validated /plan draft. It becomes user data only after explicit saving.
   final CoachTrainingProposal? trainingPlanProposal;
 
+  /// A validated /log draft. It reaches the training history only through
+  /// the review sheet's explicit Add.
+  final CoachWorkoutLog? workoutLogProposal;
+
+  /// History id of a /log card whose answer has no server id (the server
+  /// could not store it). Allocated once when the answer arrives, so every
+  /// review of this card targets the same history row. null for stored
+  /// answers: their history id is derived from [id].
+  final String? workoutLogLocalId;
+
+  /// This message with [proposal] in place of [recipeProposal]; every other
+  /// field, the other proposals included, carries over.
+  ChatMessage withRecipeProposal(CoachRecipeProposal? proposal) => ChatMessage(
+    id: id,
+    role: role,
+    content: content,
+    createdAt: createdAt,
+    refusal: refusal,
+    imageBytes: imageBytes,
+    recipeProposal: proposal,
+    trainingPlanProposal: trainingPlanProposal,
+    workoutLogProposal: workoutLogProposal,
+    workoutLogLocalId: workoutLogLocalId,
+  );
+
   factory ChatMessage.fromRow(Map<String, dynamic> row) {
     final roleRaw = row['role']?.toString() ?? 'assistant';
     final rawRecipe = row['recipe'];
     final rawPlan = row['training_plan'];
-    final conflictingProposals = rawRecipe != null && rawPlan != null;
+    final rawLog = row['workout_log'];
+    // A proposal counts only as the row's single one: two set columns are a
+    // broken row, and neither becomes adoptable.
+    final proposalAllowed =
+        [rawRecipe, rawPlan, rawLog].where((raw) => raw != null).length <= 1 &&
+        row['role'] == 'assistant' &&
+        (row['refusal'] == null || row['refusal'] == false);
     return ChatMessage(
       id: row['id']?.toString() ?? '',
       role: roleRaw == 'user' ? ChatRole.user : ChatRole.assistant,
       content: row['content']?.toString() ?? '',
       createdAt: DateTime.parse(row['created_at'] as String).toLocal(),
       refusal: row['refusal'] == true,
-      recipeProposal: !conflictingProposals &&
-              row['role'] == 'assistant' &&
-              (row['refusal'] == null || row['refusal'] == false) &&
-              rawRecipe is Map
+      recipeProposal: proposalAllowed && rawRecipe is Map
           ? CoachRecipeProposal.fromJson(rawRecipe)
           : null,
-      trainingPlanProposal:
-          !conflictingProposals &&
-              row['role'] == 'assistant' &&
-              (row['refusal'] == null || row['refusal'] == false) &&
-              rawPlan is Map
+      trainingPlanProposal: proposalAllowed && rawPlan is Map
           ? CoachTrainingProposal.fromJson(rawPlan)
+          : null,
+      workoutLogProposal: proposalAllowed && rawLog is Map
+          ? CoachWorkoutLog.fromJson(rawLog)
           : null,
     );
   }

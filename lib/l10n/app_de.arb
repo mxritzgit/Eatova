@@ -1936,7 +1936,7 @@
   "coachPlanCommandDescription": "Erstellt einen Trainingsplan zum Prüfen und Übernehmen",
   "coachPlanEmptyHint": "Beschreibe nach /plan dein Ziel, deine Trainingstage und dein Equipment.",
   "coachPlanPhotoUnsupported": "Trainingspläne entstehen aus Text. Sende deinen /plan-Wunsch ohne Foto.",
-  "coachPlanUnknownCommandHint": "Unbekannter Befehl. Nutze /recipe für ein Rezept oder /plan für einen Trainingsplan.",
+  "coachPlanUnknownCommandHint": "Unbekannter Befehl. Nutze /recipe für ein Rezept, /plan für einen Trainingsplan oder /log für ein erledigtes Training.",
   "coachPlanCardEyebrow": "Trainingsplan · Entwurf",
   "coachPlanCardMoreExercises": "+{count} weitere",
   "@coachPlanCardMoreExercises": {
@@ -1960,6 +1960,53 @@
       }
     }
   },
+  "coachWorkoutLogCommandDescription": "Trägt ein erledigtes Training in deinen Verlauf ein",
+  "coachWorkoutLogTry": "Trag mein Training ein",
+  "coachWorkoutLogEmptyHint": "Beschreibe nach /log dein erledigtes Training – z. B. „/log heute 3 x 10 Kniebeugen mit 60 kg“.",
+  "coachWorkoutLogPhotoUnsupported": "Trainings werden aus Text eingetragen. Sende deine /log-Nachricht ohne Foto.",
+  "coachWorkoutLogUnavailable": "Trainings über den Coach eintragen geht in dieser Version noch nicht. Du kannst es im Training eintragen.",
+  "coachWorkoutLogCardEyebrow": "Training · Entwurf",
+  "coachWorkoutLogDayMissing": "Tag fehlt – du wählst ihn beim Hinzufügen",
+  "coachWorkoutLogOnlyDay": "Nur {day} wurde übernommen. Trag andere Tage einzeln ein.",
+  "@coachWorkoutLogOnlyDay": {
+    "placeholders": {
+      "day": {
+        "type": "String"
+      }
+    }
+  },
+  "coachWorkoutLogOnlyOneDay": "Nur ein Tag wurde übernommen. Trag andere Tage einzeln ein.",
+  "coachWorkoutLogSetsRepsMissing": "{sets, plural, =1{1 Satz} other{{sets} Sätze}}, Wdh. fehlen",
+  "@coachWorkoutLogSetsRepsMissing": {
+    "placeholders": {
+      "sets": {
+        "type": "int"
+      }
+    }
+  },
+  "coachWorkoutLogSetsTimeMissing": "{sets, plural, =1{1 Satz} other{{sets} Sätze}}, Dauer fehlt",
+  "@coachWorkoutLogSetsTimeMissing": {
+    "placeholders": {
+      "sets": {
+        "type": "int"
+      }
+    }
+  },
+  "coachWorkoutLogSetsMinutes": "{sets} × {minutes} Min.",
+  "@coachWorkoutLogSetsMinutes": {
+    "placeholders": {
+      "sets": {
+        "type": "int"
+      },
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "coachWorkoutLogAddButton": "Zum Verlauf hinzufügen",
+  "coachWorkoutLogAddedLabel": "Hinzugefügt",
+  "coachWorkoutLogOpenTraining": "Zum Training",
+  "coachWorkoutLogRemovedLabel": "Aus dem Verlauf entfernt",
   "trainingTimerBack": "Zurück zum Plan",
   "trainingTimerPaused": "Pausiert",
   "trainingTimerRunning": "Läuft",

@@ -1887,7 +1887,7 @@
   "coachPlanCommandDescription": "Creates a training plan to review and save",
   "coachPlanEmptyHint": "After /plan, describe your goal, training days and equipment.",
   "coachPlanPhotoUnsupported": "Training plans use text. Send your /plan request without a photo.",
-  "coachPlanUnknownCommandHint": "Unknown command. Use /recipe for a recipe or /plan for a training plan.",
+  "coachPlanUnknownCommandHint": "Unknown command. Use /recipe for a recipe, /plan for a training plan or /log for a workout you did.",
   "coachPlanCardEyebrow": "Training plan · Draft",
   "coachPlanCardMoreExercises": "+{count} more",
   "@coachPlanCardMoreExercises": {
@@ -1911,6 +1911,53 @@
       }
     }
   },
+  "coachWorkoutLogCommandDescription": "Adds a workout you already did to your history",
+  "coachWorkoutLogTry": "Log a workout I did",
+  "coachWorkoutLogEmptyHint": "After /log, describe the workout you did — e.g. \"/log today 3 x 10 squats at 60 kg\".",
+  "coachWorkoutLogPhotoUnsupported": "Workouts are logged from text. Send your /log message without a photo.",
+  "coachWorkoutLogUnavailable": "Logging workouts with the Coach isn't available in this version yet. You can log it in Training.",
+  "coachWorkoutLogCardEyebrow": "Workout · Draft",
+  "coachWorkoutLogDayMissing": "Day not given — pick it when you add the workout",
+  "coachWorkoutLogOnlyDay": "Only {day} was taken. Log other days separately.",
+  "@coachWorkoutLogOnlyDay": {
+    "placeholders": {
+      "day": {
+        "type": "String"
+      }
+    }
+  },
+  "coachWorkoutLogOnlyOneDay": "Only one day was taken. Log other days separately.",
+  "coachWorkoutLogSetsRepsMissing": "{sets, plural, =1{1 set} other{{sets} sets}}, reps missing",
+  "@coachWorkoutLogSetsRepsMissing": {
+    "placeholders": {
+      "sets": {
+        "type": "int"
+      }
+    }
+  },
+  "coachWorkoutLogSetsTimeMissing": "{sets, plural, =1{1 set} other{{sets} sets}}, time missing",
+  "@coachWorkoutLogSetsTimeMissing": {
+    "placeholders": {
+      "sets": {
+        "type": "int"
+      }
+    }
+  },
+  "coachWorkoutLogSetsMinutes": "{sets} × {minutes} min",
+  "@coachWorkoutLogSetsMinutes": {
+    "placeholders": {
+      "sets": {
+        "type": "int"
+      },
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "coachWorkoutLogAddButton": "Add to history",
+  "coachWorkoutLogAddedLabel": "Added",
+  "coachWorkoutLogOpenTraining": "Open training",
+  "coachWorkoutLogRemovedLabel": "Removed from history",
   "trainingTimerBack": "Back to plan",
   "trainingTimerPaused": "Paused",
   "trainingTimerRunning": "Running",

@@ -320,6 +320,11 @@ void main() {
       'recipe': (svc) =>
           svc.requestRecipe('Pasta', sessionId: 's1', locale: 'en'),
       'plan': (svc) => svc.requestPlan('Kraft', sessionId: 's1', locale: 'en'),
+      'log': (svc) => svc.requestWorkoutLog(
+        'Kniebeugen 3x5',
+        sessionId: 's1',
+        locale: 'en',
+      ),
     };
     for (final MapEntry(key: name, value: aufruf) in aufrufe.entries) {
       test('$name: englische UI, deutsches rate_limited -> englischer '
