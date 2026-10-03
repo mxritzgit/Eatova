@@ -18,7 +18,8 @@ final class PlayerRestState {
     required this.onLonger,
     required this.onSkip,
     required this.onResume,
-    required this.onAlertSettings,
+    required this.alertsAsk,
+    required this.onAlertsOff,
   });
 
   final int seconds;
@@ -33,7 +34,11 @@ final class PlayerRestState {
   final VoidCallback? onLonger;
   final VoidCallback onSkip;
   final VoidCallback onResume;
-  final VoidCallback onAlertSettings;
+
+  /// The "Alerts off" chip asks the system (never requested on this device)
+  /// rather than opening the notification settings.
+  final bool alertsAsk;
+  final VoidCallback onAlertsOff;
 }
 
 /// The rest pinned under the list (spec A3): mm:ss ≥ 34 pt, −15 s, +15 s and
@@ -105,7 +110,7 @@ class PlayerRestBar extends StatelessWidget {
               const SizedBox(height: 6),
               Align(
                 alignment: AlignmentDirectional.centerStart,
-                child: _AlertsOffChip(onTap: rest.onAlertSettings),
+                child: _AlertsOffChip(rest: rest),
               ),
             ],
             const SizedBox(height: 8),
@@ -179,7 +184,7 @@ class PlayerRestView extends StatelessWidget {
             ),
             if (rest.alertsOff) ...[
               const SizedBox(height: 12),
-              Center(child: _AlertsOffChip(onTap: rest.onAlertSettings)),
+              Center(child: _AlertsOffChip(rest: rest)),
             ],
             const SizedBox(height: 32),
             PlayerRestControls(rest: rest),
@@ -307,9 +312,9 @@ class PlayerRestControls extends StatelessWidget {
 }
 
 class _AlertsOffChip extends StatelessWidget {
-  const _AlertsOffChip({required this.onTap});
+  const _AlertsOffChip({required this.rest});
 
-  final VoidCallback onTap;
+  final PlayerRestState rest;
 
   @override
   Widget build(BuildContext context) {
@@ -317,12 +322,14 @@ class _AlertsOffChip extends StatelessWidget {
     final t = context.t;
     return Semantics(
       button: true,
-      label: l.trainingTimerAlertsOffLabel,
+      label: rest.alertsAsk
+          ? l.trainingTimerAlertsOffAskLabel
+          : l.trainingTimerAlertsOffLabel,
       excludeSemantics: true,
-      onTap: onTap,
+      onTap: rest.onAlertsOff,
       child: InkWell(
         key: const ValueKey('training-timer-alerts-off'),
-        onTap: onTap,
+        onTap: rest.onAlertsOff,
         borderRadius: BorderRadius.circular(rPill),
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 48),

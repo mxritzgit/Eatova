@@ -2146,6 +2146,7 @@
   "trainingTimerRestCollapse": "Back to the sets",
   "trainingTimerAlertsOff": "Alerts off",
   "trainingTimerAlertsOffLabel": "Rest alerts are off. Open notification settings.",
+  "trainingTimerAlertsOffAskLabel": "Rest alerts are off. Turn on alerts.",
   "trainingTimerAlertsTitle": "Alert when the rest is over?",
   "trainingTimerAlertsBody": "Eatova can ring when a rest or a timed set ends, even with the phone locked. The alert shows no exercise and no weight.",
   "trainingTimerAlertsAllow": "Turn on alerts",

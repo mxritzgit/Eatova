@@ -2195,6 +2195,7 @@
   "trainingTimerRestCollapse": "Zurück zu den Sätzen",
   "trainingTimerAlertsOff": "Alarme aus",
   "trainingTimerAlertsOffLabel": "Pausen-Alarme sind aus. Benachrichtigungseinstellungen öffnen.",
+  "trainingTimerAlertsOffAskLabel": "Pausen-Alarme sind aus. Alarme einschalten.",
   "trainingTimerAlertsTitle": "Alarm, wenn die Pause vorbei ist?",
   "trainingTimerAlertsBody": "Eatova kann klingeln, wenn eine Pause oder ein Satz mit Timer endet, auch bei gesperrtem Handy. Der Alarm zeigt keine Übung und kein Gewicht.",
   "trainingTimerAlertsAllow": "Alarme einschalten",

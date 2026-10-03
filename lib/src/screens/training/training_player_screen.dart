@@ -102,8 +102,10 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
   bool _notStored = false;
   bool _saveFailed = false;
   bool _restExpanded = false;
-  bool _alertsOff = false;
+  // Granted until the gate says otherwise: no gate, no chip.
+  RestAlertPermission _alertPermission = RestAlertPermission.granted;
   bool _askedAlerts = false;
+  bool _alertsChipBusy = false;
   bool _awake = false;
   int _pendingWrites = 0;
   _SaveIntent _retryIntent = _SaveIntent.checkpoint;
@@ -332,12 +334,15 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
     unawaited(
       _quiet(
         gate.state().then((state) {
-          final off = state != RestAlertPermission.granted;
-          if (mounted && off != _alertsOff) setState(() => _alertsOff = off);
+          if (mounted && state != _alertPermission) {
+            setState(() => _alertPermission = state);
+          }
         }),
       ),
     );
   }
+
+  bool get _alertsOff => _alertPermission != RestAlertPermission.granted;
 
   void _syncAlert() {
     final ends = _session.phaseEndsAt;
@@ -380,24 +385,37 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
   }
 
   /// One in-context explainer before the system prompt, at the first phase
-  /// that would alert, only if this device never asked (spec A5).
+  /// that would alert, only if this device never asked (spec A5) and never
+  /// showed it ([RestAlertExplainerMemory]).
   Future<void> _explainAlerts() async {
     final gate = widget.alertPermission!;
+    final memory = switch (gate) {
+      final RestAlertExplainerMemory memory => memory,
+      _ => null,
+    };
     RestAlertPermission state;
+    bool shown;
     try {
       state = await gate.state();
+      shown =
+          state == RestAlertPermission.notAsked &&
+          (await memory?.explainerShown() ?? false);
     } catch (_) {
       return;
     }
     if (!mounted) return;
-    setState(() => _alertsOff = state != RestAlertPermission.granted);
-    if (state != RestAlertPermission.notAsked || _leaving || _dialogOpen) {
+    setState(() => _alertPermission = state);
+    if (state != RestAlertPermission.notAsked ||
+        shown ||
+        _leaving ||
+        _dialogOpen) {
       return;
     }
     final l = context.l10n;
     _dialogOpen = true;
-    // Shown once per device: "Not now" (or a dismissal) leaves the chip.
-    unawaited(_quiet(gate.markAsked()));
+    // Shown once per device: "Not now" (or a dismissal) leaves the chip,
+    // which can still ask the system.
+    if (memory != null) unawaited(_quiet(memory.markExplainerShown()));
     final allow = await showEatovaDialog<bool>(
       context: context,
       builder: (context) => EatovaDialog(
@@ -423,7 +441,11 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
     if (!mounted) return;
     _session.catchUp();
     _syncAwake();
-    if (allow != true) return;
+    if (allow == true) await _requestAlerts(gate);
+  }
+
+  /// The system prompt; once granted the running phase is planned again.
+  Future<void> _requestAlerts(RestAlertPermissionGate gate) async {
     bool granted;
     try {
       granted = await gate.request();
@@ -431,11 +453,47 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
       granted = false;
     }
     if (!mounted) return;
-    setState(() => _alertsOff = !granted);
+    setState(
+      () => _alertPermission = granted
+          ? RestAlertPermission.granted
+          : RestAlertPermission.denied,
+    );
     if (granted) {
       // Planned before the grant; plan again so the OS delivers it.
       _scheduledAlert = null;
       _syncAlert();
+    }
+  }
+
+  /// The "Alerts off" chip: the system prompt while this device never
+  /// requested it (iOS shows no notification switch in Settings before a
+  /// request), the notification settings after a real request or denial.
+  Future<void> _alertsOffTapped() async {
+    final gate = widget.alertPermission;
+    if (gate == null || _alertsChipBusy) return;
+    _alertsChipBusy = true;
+    try {
+      RestAlertPermission state;
+      try {
+        state = await gate.state();
+      } catch (_) {
+        state = RestAlertPermission.denied;
+      }
+      if (!mounted) return;
+      switch (state) {
+        case RestAlertPermission.notAsked:
+          await _requestAlerts(gate);
+        case RestAlertPermission.denied:
+          setState(() => _alertPermission = state);
+          await _quiet(widget.openAlertSettings());
+        case RestAlertPermission.granted:
+          // Turned on elsewhere meanwhile: no chip, and plan with the grant.
+          setState(() => _alertPermission = state);
+          _scheduledAlert = null;
+          _syncAlert();
+      }
+    } finally {
+      _alertsChipBusy = false;
     }
   }
 
@@ -843,7 +901,8 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
           : null,
       onSkip: () => _act(_session.continueAfterRest),
       onResume: () => _act(_session.start),
-      onAlertSettings: () => unawaited(_quiet(widget.openAlertSettings())),
+      alertsAsk: _alertPermission == RestAlertPermission.notAsked,
+      onAlertsOff: () => unawaited(_alertsOffTapped()),
     );
   }
 

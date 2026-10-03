@@ -114,29 +114,39 @@ final class _Alerts implements RestAlertScheduler {
   Future<void> cancelRestAlert(int id) async => log.add('cancel');
 }
 
-final class _Gate implements RestAlertPermissionGate {
-  _Gate(this.value, {this.grant = true});
+/// The original two-member gate, as other branches' fakes implement it: no
+/// memory of a shown explainer.
+class _PlainGate implements RestAlertPermissionGate {
+  _PlainGate(this.value, {this.grant = true});
   RestAlertPermission value;
   final bool grant;
   int requests = 0;
-  int marks = 0;
 
   @override
   Future<RestAlertPermission> state() async => value;
-
-  @override
-  Future<void> markAsked() async {
-    marks++;
-    if (value == RestAlertPermission.notAsked) {
-      value = RestAlertPermission.denied;
-    }
-  }
 
   @override
   Future<bool> request() async {
     requests++;
     value = grant ? RestAlertPermission.granted : RestAlertPermission.denied;
     return grant;
+  }
+}
+
+/// The device as [LocalNotificationService] keeps it: "explainer shown" and
+/// "system prompt requested" are separate facts.
+final class _Gate extends _PlainGate implements RestAlertExplainerMemory {
+  _Gate(super.value, {super.grant});
+  bool shown = false;
+  int marks = 0;
+
+  @override
+  Future<bool> explainerShown() async => shown;
+
+  @override
+  Future<void> markExplainerShown() async {
+    marks++;
+    shown = true;
   }
 }
 
@@ -156,6 +166,7 @@ final class _Host {
   final awake = _Awake();
   final clock = TimerTestClock();
   var taps = 0;
+  var settings = 0;
 }
 
 Future<_Host> _open(
@@ -203,7 +214,7 @@ Future<_Host> _open(
                   restAlerts: host.alerts,
                   alertPermission: gate,
                   screenAwake: host.awake,
-                  openAlertSettings: () async {},
+                  openAlertSettings: () async => host.settings++,
                   onPersist:
                       persist ??
                       (value) async {
@@ -687,18 +698,94 @@ void main() {
       expect(_key('training-timer-alerts-off'), findsOneWidget);
       expect(gate.requests, 0, reason: 'no system prompt without consent');
       expect(gate.marks, 1, reason: 'the device remembers the explainer');
+      expect(
+        gate.value,
+        RestAlertPermission.notAsked,
+        reason: '"Not now" is no system prompt: the chip may still ask',
+      );
       await tester.pumpWidget(const SizedBox());
     });
 
-    testWidgets('with alerts off the rest bar shows a quiet chip', (
-      tester,
-    ) async {
-      await _open(tester, gate: _Gate(RestAlertPermission.denied));
+    for (final grant in [true, false]) {
+      testWidgets('after "Not now" the chip asks the system once '
+          '(${grant ? 'allowed' : 'denied'}), then opens the settings', (
+        tester,
+      ) async {
+        final semantics = tester.ensureSemantics();
+        final gate = _Gate(RestAlertPermission.notAsked, grant: grant)
+          ..shown = true;
+        final host = await _open(tester, gate: gate);
+        await _tap(tester, 'training-set-check-0-0');
+        await tester.pumpAndSettle();
+        expect(find.text('Alert when the rest is over?'), findsNothing);
+        expect(
+          find.bySemanticsLabel('Rest alerts are off. Turn on alerts.'),
+          findsOneWidget,
+        );
+        final schedules = host.alerts.scheduled.length;
+
+        // iOS lists the notification switch only after a request: the
+        // first tap is the system prompt, not a dead end in Settings.
+        await _tap(tester, 'training-timer-alerts-off');
+        await tester.pumpAndSettle();
+        expect(gate.requests, 1);
+        expect(host.settings, 0);
+        if (grant) {
+          expect(_key('training-timer-alerts-off'), findsNothing);
+          expect(
+            host.alerts.scheduled,
+            hasLength(schedules + 1),
+            reason: 'the running rest is planned again once granted',
+          );
+        } else {
+          expect(
+            find.bySemanticsLabel(
+              'Rest alerts are off. Open notification settings.',
+            ),
+            findsOneWidget,
+          );
+          await _tap(tester, 'training-timer-alerts-off');
+          await tester.pumpAndSettle();
+          expect(host.settings, 1, reason: 'asked once: now the settings');
+          expect(gate.requests, 1);
+        }
+        await tester.pumpWidget(const SizedBox());
+        semantics.dispose();
+      });
+    }
+
+    testWidgets('with alerts off the rest bar shows a quiet chip; after a '
+        'denial it opens the notification settings', (tester) async {
+      final gate = _Gate(RestAlertPermission.denied);
+      final host = await _open(tester, gate: gate);
       await _tap(tester, 'training-set-check-0-0');
       await tester.pumpAndSettle();
       expect(find.text('Alert when the rest is over?'), findsNothing);
       expect(_key('training-timer-alerts-off'), findsOneWidget);
+      await _tap(tester, 'training-timer-alerts-off');
+      await tester.pumpAndSettle();
+      expect(host.settings, 1);
+      expect(gate.requests, 0, reason: 'the system asks only once anyway');
       await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('a gate without the explainer memory keeps the original '
+        'contract: the explainer returns until answered', (tester) async {
+      final gate = _PlainGate(RestAlertPermission.notAsked);
+      for (var workout = 0; workout < 2; workout++) {
+        await _open(tester, gate: gate);
+        await _tap(tester, 'training-set-check-0-0');
+        await tester.pumpAndSettle();
+        expect(
+          find.text('Alert when the rest is over?'),
+          findsOneWidget,
+          reason: 'workout $workout',
+        );
+        await tester.tap(_key('training-alerts-later'));
+        await tester.pumpAndSettle();
+        await tester.pumpWidget(const SizedBox());
+      }
+      expect(gate.requests, 0);
     });
 
     testWidgets('the display stays awake only for a timed set or the rest '

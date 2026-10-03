@@ -93,11 +93,12 @@ enum RestAlertPermission {
   /// The OS delivers this app's notifications.
   granted,
 
-  /// Not granted, and the workout explainer has never asked on this device.
+  /// Not granted, and this device never requested the system prompt
+  /// ([RestAlertPermissionGate.request]).
   notAsked,
 
-  /// Not granted although the explainer already asked (or the user said no
-  /// elsewhere); the player shows a quiet "Alerts off" hint instead.
+  /// Not granted although the system prompt was requested (or the user said
+  /// no elsewhere); only the notification settings can change it.
   denied,
 }
 
@@ -109,10 +110,22 @@ abstract class RestAlertPermissionGate {
   /// Marks this device as asked, then shows the system dialog. True if
   /// granted. Call only after the in-context explainer.
   Future<bool> request();
+}
 
-  /// Marks this device as asked without a system dialog: the explainer was
-  /// shown, so it never returns ("Not now" leaves the quiet hint).
-  Future<void> markAsked();
+/// Extra seam on a [RestAlertPermissionGate] (same pattern as
+/// [RestAlertSessionScope]): whether the workout explainer was shown.
+///
+/// Kept apart from [RestAlertPermission.notAsked] on purpose: "Not now" ends
+/// the explainer for good, yet leaves the system prompt unrequested, so the
+/// "Alerts off" chip can still ask (iOS lists an app's notification switch
+/// only once it has asked). Callers probe via `is`; without it the explainer
+/// returns at every workout until the user answers it.
+abstract class RestAlertExplainerMemory {
+  /// Silent read: whether this device already showed the explainer.
+  Future<bool> explainerShown();
+
+  /// Records that the explainer was shown; never a system dialog.
+  Future<void> markExplainerShown();
 }
 
 /// Taps on this app's notifications, as their payloads.

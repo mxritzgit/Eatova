@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
+import 'package:shared_preferences_platform_interface/types.dart';
 import 'package:timezone/timezone.dart' as tz;
 
 import 'package:eatova/src/app/auth_gate.dart';
@@ -27,6 +29,16 @@ import 'package:eatova/src/widgets/common/app_snack.dart';
 // cancelAll and silently removed a running rest alert. Only a session end and
 // the cold-start backstop may clear everything, and a session end closes rest
 // alerts until the gate opens the next account.
+
+/// A device whose preferences cannot be read.
+class _UnreadablePrefs extends InMemorySharedPreferencesStore {
+  _UnreadablePrefs() : super.empty();
+
+  @override
+  Future<Map<String, Object>> getAllWithParameters(
+    GetAllParameters parameters,
+  ) async => throw StateError('synthetic preferences read failure');
+}
 
 class _Scheduled {
   const _Scheduled(this.when, this.details, this.payload);
@@ -874,25 +886,61 @@ void main() {
       expect(gateway.permissionRequests, 1);
       final prefs = await SharedPreferences.getInstance();
       expect(
-        prefs.getBool(LocalNotificationService.restAlertsAskedKey),
+        prefs.getBool(LocalNotificationService.restAlertsRequestedKey),
         isTrue,
       );
       expect(await service.state(), RestAlertPermission.denied);
     });
 
-    test('markAsked() setzt das Flag ohne Systemdialog', () async {
+    test('markExplainerShown() merkt nur die Erklaerung: kein Systemdialog, '
+        'und die Systemfrage bleibt offen', () async {
       final gateway = _FakeGateway()..osAllows = false;
       final service = _service(gateway);
+      final RestAlertExplainerMemory memory = service;
+      expect(await memory.explainerShown(), isFalse);
 
-      await service.markAsked();
+      await memory.markExplainerShown();
 
       expect(gateway.permissionRequests, 0);
+      expect(await memory.explainerShown(), isTrue);
+      expect(
+        await service.state(),
+        RestAlertPermission.notAsked,
+        reason: 'iOS lists the switch only after a real request',
+      );
       final prefs = await SharedPreferences.getInstance();
       expect(
-        prefs.getBool(LocalNotificationService.restAlertsAskedKey),
-        isTrue,
+        prefs.getBool(LocalNotificationService.restAlertsRequestedKey),
+        isNull,
       );
-      expect(await service.state(), RestAlertPermission.denied);
+    });
+
+    test('ein Vorab-Flag rest_alerts_asked ist keine Systemfrage', () async {
+      // Pre-release builds set it when the explainer was merely shown.
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'eatova.v1.rest_alerts_asked': true,
+      });
+      final service = _service(_FakeGateway()..osAllows = false);
+      expect(await service.state(), RestAlertPermission.notAsked);
+    });
+
+    test('ein Lesefehler: die Erklaerung gilt als gezeigt, die Systemfrage '
+        'als offen', () async {
+      SharedPreferences.resetStatic();
+      SharedPreferencesStorePlatform.instance = _UnreadablePrefs();
+      addTearDown(() => SharedPreferences.setMockInitialValues({}));
+      final service = _service(_FakeGateway()..osAllows = false);
+
+      expect(
+        await service.explainerShown(),
+        isTrue,
+        reason: 'no explainer before every workout',
+      );
+      expect(
+        await service.state(),
+        RestAlertPermission.notAsked,
+        reason: 'the chip asks the system instead of a dead end in Settings',
+      );
     });
 
     test('granted, sobald das System zustellt (auch ohne Flag)', () async {

@@ -279,6 +279,7 @@ class LocalNotificationService
         RestAlertScheduler,
         RestAlertSessionScope,
         RestAlertPermissionGate,
+        RestAlertExplainerMemory,
         NotificationTapSource {
   /// [gateway], [platform] and [localTimezoneName] are test seams; production
   /// passes nothing and gets the real plugin, the detected platform and
@@ -328,8 +329,14 @@ class LocalNotificationService
   /// Separate channel, so workout alerts can be tuned apart from reminders.
   static const String _restChannelId = 'eatova_training';
 
-  /// Device flag: the workout explainer has asked for alert permission.
-  static const String restAlertsAskedKey = 'eatova.v1.rest_alerts_asked';
+  /// Device flag: [request] showed the system prompt. Not the pre-release
+  /// `eatova.v1.rest_alerts_asked`, which a merely shown explainer also set.
+  static const String restAlertsRequestedKey =
+      'eatova.v1.rest_alerts_requested';
+
+  /// Device flag: the workout explainer was shown ([markExplainerShown]).
+  static const String restAlertsExplainedKey =
+      'eatova.v1.rest_alerts_explained';
 
   final StreamController<String> _taps = StreamController<String>.broadcast();
   bool _launchPayloadRead = false;
@@ -715,39 +722,46 @@ class LocalNotificationService
 
   // --- Permission gate ------------------------------------------------------
 
+  /// A failing read counts as never requested: asking again is harmless (the
+  /// OS shows its prompt once), a Settings page without a switch is not.
   @override
   Future<RestAlertPermission> state() async {
     if (await hasPermission()) return RestAlertPermission.granted;
-    return await _restAlertsAsked()
+    return await _restAlertFlag(restAlertsRequestedKey, onError: false)
         ? RestAlertPermission.denied
         : RestAlertPermission.notAsked;
   }
 
   @override
   Future<bool> request() async {
-    await _markRestAlertsAsked();
+    await _markRestAlertFlag(restAlertsRequestedKey);
     return requestPermission();
   }
 
-  @override
-  Future<void> markAsked() => _markRestAlertsAsked();
-
-  /// A failing read counts as asked: a quiet "Alerts off" hint beats an
+  /// A failing read counts as shown: a quiet "Alerts off" chip beats an
   /// explainer before every workout.
-  Future<bool> _restAlertsAsked() async {
+  @override
+  Future<bool> explainerShown() =>
+      _restAlertFlag(restAlertsExplainedKey, onError: true);
+
+  @override
+  Future<void> markExplainerShown() =>
+      _markRestAlertFlag(restAlertsExplainedKey);
+
+  Future<bool> _restAlertFlag(String key, {required bool onError}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      return prefs.getBool(restAlertsAskedKey) ?? false;
+      return prefs.getBool(key) ?? false;
     } catch (e, st) {
       await CrashReporter.capture(e, st, context: 'rest-alert-flag');
-      return true;
+      return onError;
     }
   }
 
-  Future<void> _markRestAlertsAsked() async {
+  Future<void> _markRestAlertFlag(String key) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(restAlertsAskedKey, true);
+      await prefs.setBool(key, true);
     } catch (e, st) {
       await CrashReporter.capture(e, st, context: 'rest-alert-flag');
     }
