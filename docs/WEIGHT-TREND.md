@@ -98,11 +98,19 @@ changes without a tap. User decision of 2026-10-03: with confirmation.
 - The server has answered profile and weight log in this session (the same
   gate as the re-anchoring). A check never runs on cached data alone.
 - At least 7 days since the last answered check (`energy_checked_on`).
+- The window's step values have been refreshed from the health store once in
+  this session (full-day totals). A value pinned before its day ended would
+  understate the model.
 - Enough data in the **window**: the 21 local days that end yesterday (today
   is not complete yet).
   - At least 14 **logged days**. A day counts when its logged intake reaches
     50 % of the current daily goal, since emptier days are almost certainly
     incomplete.
+  - With a step source (a reading today or any step value in the window),
+    a day also needs a step value of its own. Step values are not synced:
+    on a new phone, or for days before the permission, a missing value
+    would model 0 steps and push the goal up for walking the budget already
+    credits.
   - At least 4 weigh-in days, the first and last at least 14 days apart.
 - A proposal that would change nothing is not shown. That covers a step that
   rounds to zero, an adjustment already at its cap, and a goal held by the
@@ -120,6 +128,12 @@ changes without a tap. User decision of 2026-10-03: with confirmation.
   walking in it, so the steps belong to the model.
 - **Difference** = observed − modelled.
   - Under 100 kcal there is no proposal.
+  - Below two standard errors of the weight slope (× 7700) there is no
+    proposal either. The noise behind that error is at least 0.5 kg per
+    weigh-in: with a few weigh-ins the residuals can be tiny by chance,
+    while water swings alone move a 3-week slope by more than 100
+    kcal/day. Daily weigh-ins need about 280 kcal of difference; sparse
+    ones need more.
   - Otherwise the step is the difference rounded to 50 and capped at ±150
     kcal.
   - The adjustment stays within ±500 kcal in total.
@@ -130,8 +144,10 @@ changes without a tap. User decision of 2026-10-03: with confirmation.
 
 ### Answering
 
-- **Adjust**: adds the step to the adjustment, records today as
-  `energy_checked_on`, recomputes the live goals and confirms with a notice.
+- **Adjust**: adds the step to the CURRENT adjustment (another device may
+  have moved it since), records today as `energy_checked_on`, recomputes the
+  live goals and confirms with a notice. If the same commit just raised the
+  once-per-session "syncs later" hint, the hint wins.
 - **Not now**: records today only. The next check comes at the earliest in 7
   days.
 - The goals screen shows a non-zero adjustment in live mode and can reset it

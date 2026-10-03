@@ -1387,6 +1387,9 @@ class HomeStore extends _HomeStoreBase
         }),
       );
     }
+    // The weekly energy check reads three weeks of step values; refresh them
+    // once per session before it may propose anything.
+    if (!conflict) unawaited(_backfillEnergyCheckWindow());
     // Re-read once: an old response cannot safely rebase over a newer commit.
     if (conflict && allowConflictRetry && !_disposed && !_trainingSessionEnded) {
       await _bootFromSupabase(allowConflictRetry: false);

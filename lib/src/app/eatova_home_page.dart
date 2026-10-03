@@ -721,8 +721,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.selectedFoodDate,
       _store.loggedMeals,
       _store.profile,
-      // The weekly energy check also reads the weight log.
+      // The weekly energy check also reads the weight log, and waits for its
+      // step backfill.
       _store.weightLog,
+      _store.energyCheckStepsReady,
       _store.stepsForFoodDate(_store.selectedFoodDate),
       // Map identity as fingerprint (G11): an upsert replaces the map.
       _store.dailyActivity,

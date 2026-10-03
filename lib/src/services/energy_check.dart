@@ -62,20 +62,35 @@ class EnergyCheck {
   /// Days between two answered checks.
   static const int recheckDays = 7;
   static const int minDifferenceKcal = 100;
+
+  /// The difference must also exceed this many standard errors of the
+  /// weight slope (× 7700): water swings alone move a 3-week slope by ±100
+  /// kcal/day and more, and must not propose anything.
+  static const double minDifferenceStandardErrors = 2;
+
+  /// Lower bound for the day-to-day weight noise behind that standard error:
+  /// with a few weigh-ins the fitted residuals can be tiny by chance, while
+  /// real daily swings are about half a kilo.
+  static const double weighInNoiseFloorKg = 0.5;
   static const int stepGranularityKcal = 50;
   static const int maxStepKcal = 150;
   static const int maxAdjustmentKcal = 500;
 
   /// The proposal for [today] (local midnight), or null when there is none.
   ///
-  /// [intakeKcal] and [burnedKcal] give the logged intake and the credited
-  /// step kcal of a local day.
+  /// [intakeKcal] gives the logged intake of a local day, [burnedKcal] its
+  /// credited step kcal, or null when the device holds no step value for it.
+  /// With a step source ([stepSourceToday] or any step value in the window),
+  /// only days WITH a step value count: a day without one (before the
+  /// permission, a new device — the values are not synced) would model 0
+  /// steps and push the goal up for walking the budget already credits.
   EnergyCheckProposal? evaluate({
     required UserProfile profile,
     required DateTime today,
     required int Function(DateTime day) intakeKcal,
-    required int Function(DateTime day) burnedKcal,
+    required int? Function(DateTime day) burnedKcal,
     required WeightLog weightLog,
+    bool stepSourceToday = false,
   }) {
     if (profile.manualEnergy || !profile.onboardingCompleted) return null;
     final checkedOn = profile.energyCheckedOn;
@@ -88,7 +103,12 @@ class EnergyCheck {
     final days = [for (var n = windowDays; n >= 1; n--) addDays(today, -n)];
 
     final threshold = targets.kcal * loggedDayShare;
-    final logged = [for (final day in days) if (intakeKcal(day) >= threshold) day];
+    final steps = stepSourceToday || days.any((day) => burnedKcal(day) != null);
+    final logged = [
+      for (final day in days)
+        if (intakeKcal(day) >= threshold && (!steps || burnedKcal(day) != null))
+          day,
+    ];
     if (logged.length < minLoggedDays) return null;
 
     final weighIns = _weighInDays(weightLog, days.first, days.last);
@@ -96,15 +116,19 @@ class EnergyCheck {
         daysBetween(weighIns.last.$1, weighIns.first.$1) < minWeighInSpanDays) {
       return null;
     }
-    final slopeKgPerDay = _slope(weighIns);
+    final (slopeKgPerDay, slopeError) = _slope(weighIns);
 
     double mean(Iterable<int> values) =>
         values.fold<int>(0, (sum, v) => sum + v) / logged.length;
     final observed =
         mean(logged.map(intakeKcal)) - slopeKgPerDay * kcalPerKgBodyMass;
-    final modelled = targets.maintenanceKcal + mean(logged.map(burnedKcal));
+    final modelled =
+        targets.maintenanceKcal + mean(logged.map((day) => burnedKcal(day) ?? 0));
     final difference = observed - modelled;
-    if (difference.abs() < minDifferenceKcal) return null;
+    final noise = minDifferenceStandardErrors * slopeError * kcalPerKgBodyMass;
+    if (difference.abs() < math.max(minDifferenceKcal.toDouble(), noise)) {
+      return null;
+    }
 
     final rounded =
         (difference / stepGranularityKcal).round() * stepGranularityKcal;
@@ -158,8 +182,8 @@ class EnergyCheck {
     ]..sort((a, b) => a.$1.compareTo(b.$1));
   }
 
-  /// Least-squares slope in kg per day.
-  static double _slope(List<(DateTime, double)> points) {
+  /// Least-squares slope in kg per day and its standard error.
+  static (double, double) _slope(List<(DateTime, double)> points) {
     final origin = points.first.$1;
     final xs = [for (final (day, _) in points) daysBetween(day, origin).toDouble()];
     final ys = [for (final (_, kg) in points) kg];
@@ -172,6 +196,14 @@ class EnergyCheck {
       sxy += (xs[i] - meanX) * (ys[i] - meanY);
       sxx += math.pow(xs[i] - meanX, 2);
     }
-    return sxx == 0 ? 0 : sxy / sxx;
+    if (sxx == 0) return (0.0, double.infinity);
+    final slope = sxy / sxx;
+    // Residual variance with n − 2 degrees of freedom (n >= 4 here).
+    var sse = 0.0;
+    for (var i = 0; i < n; i++) {
+      sse += math.pow(ys[i] - (meanY + slope * (xs[i] - meanX)), 2);
+    }
+    final noise = math.max(math.sqrt(sse / (n - 2)), weighInNoiseFloorKg);
+    return (slope, noise / math.sqrt(sxx));
   }
 }

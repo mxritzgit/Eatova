@@ -16,6 +16,12 @@ mixin _HomeStoreEnergyCheckPart
 
   Object? _energyCheckKey;
   EnergyCheckProposal? _energyCheckProposal;
+  bool _energyCheckStepsReady = false;
+
+  /// The window's step values were refreshed from the health store in this
+  /// session ([_backfillEnergyCheckWindow]); the Today shell selects it, so
+  /// the card appears once and with final numbers.
+  bool get energyCheckStepsReady => _energyCheckStepsReady;
 
   /// Today's weekly-check proposal, or null.
   ///
@@ -27,7 +33,8 @@ mixin _HomeStoreEnergyCheckPart
         !(_hydratedFromRealSource &&
             _serverAnsweredProfileAndWeightLog &&
             _serverMealsLoaded &&
-            !_bootMealsAtCapacity)) {
+            !_bootMealsAtCapacity &&
+            _energyCheckStepsReady)) {
       return null;
     }
     final today = startOfDay(clock.now());
@@ -39,9 +46,27 @@ mixin _HomeStoreEnergyCheckPart
       profile: profile,
       today: today,
       intakeKcal: consumedKcalForFoodDate,
-      burnedKcal: burnedKcalForFoodDate,
+      // Only what this device holds: step values are not synced, and a day
+      // without one must not count as zero steps.
+      burnedKcal: (day) => dailyActivity[localDayKey(day)]?.kcal,
+      stepSourceToday: stepsForFoodDate(clock.now()) != null,
       weightLog: weightLog,
     );
+  }
+
+  /// Refreshes the window's step values with full-day totals from the
+  /// health store, once per day and session ([_maybeBackfillDailyActivity]):
+  /// a value pinned before its day ended would understate the modelled
+  /// expenditure and push the goal up. Without a health source the reads
+  /// return nothing and change nothing.
+  Future<void> _backfillEnergyCheckWindow() async {
+    final today = startOfDay(clock.now());
+    for (var n = 1; n <= EnergyCheck.windowDays; n++) {
+      if (_disposed) return;
+      await _maybeBackfillDailyActivity(addDays(today, -n));
+    }
+    if (_disposed || _energyCheckStepsReady) return;
+    _mutate(() => _energyCheckStepsReady = true);
   }
 
   /// Applies [proposal]: its step on the maintenance offset, today as the
@@ -69,11 +94,16 @@ mixin _HomeStoreEnergyCheckPart
         energyCheckedOn: startOfDay(clock.now()),
       ),
     );
+    final syncHintShown = _syncHintShown;
     await _commitSyncIntents(
       [SyncOp.profileUpsert(next)],
       publish: () => profile = next,
     );
+    // The once-per-session "saved here, syncs later" hint this commit may
+    // just have raised outranks the confirmation (as for the re-anchor).
+    final raisedSyncHint = _syncHintShown && !syncHintShown;
     if (stepKcal != 0 &&
+        !raisedSyncHint &&
         !next.manualEnergy &&
         next.dailyKcalGoal != before.dailyKcalGoal &&
         !_disposed) {
