@@ -465,6 +465,7 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
       firstDate: first,
       today: today,
       lastDate: today,
+      contextLabel: context.l10n.navTraining,
       confirmLabel: context.l10n.trainingLogUseDay,
     );
     if (mounted && picked != null) _setDay(startOfDay(picked));

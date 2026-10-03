@@ -73,6 +73,7 @@ class _PlanEditorState extends State<_PlanEditor> {
           : _day,
       firstDate: first,
       today: today,
+      contextLabel: context.l10n.mealPlanTitle,
       lastDate: last,
       confirmLabel: context.l10n.mealPlanDateConfirm,
     );
