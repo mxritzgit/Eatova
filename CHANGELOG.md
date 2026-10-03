@@ -17,6 +17,27 @@ the complete current product.
 
 ### October 2026
 
+- **Training flow, Coach `/log` and dictation** (build 1.1.0+4):
+  - Workout player: a list of exercise cards with one tap per set, weights
+    carried forward or taken from Last time, undo and skip. Rests and timed
+    sets keep running while the phone is locked, end with one generic local
+    alert (a tap reopens the workout) and keep the screen awake only around
+    timed sets. A finish sheet saves the done sets or logs the rest as shown.
+  - Logging: "Log workout" adds a finished workout without a plan, "Log as
+    done" one of the plan's workouts; Today shows "In progress · Resume"
+    while a workout is saved.
+  - Coach `/log`: a described workout becomes a draft card (one of the daily
+    Coach requests); it enters the history only through the review sheet's
+    Add. New column `chat_messages.workout_log` (migration
+    `20261004090000`) and a `log` mode in `coach-chat`.
+  - Dictation (iOS): the transcript no longer collapses to the last few
+    words, appears while speaking, is added to the draft and switches between
+    German and English.
+  - Coach fixes: the plan brief no longer drops or wipes a draft, rate-limit
+    texts follow the app language, answers and errors reach screen readers,
+    and a photo survives typing during its compression.
+  See the [design](docs/superpowers/specs/2026-10-03-training-flow-and-coach-log-design.md)
+  and the [handoff](docs/PROJECT_HANDOFF.md#training-flow-coach-log-and-dictation-2026-10-03).
 - **Weekly energy check**: after three weeks with enough logged days and
   weigh-ins, Today proposes, at most once a week, to move the daily goal by up
   to 150 kcal. The basis is the expenditure the logged intake and the weight

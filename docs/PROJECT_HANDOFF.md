@@ -2548,3 +2548,79 @@ the new columns, so none was deployed.
   - Mutations (status decides, anonymous calls, rate limit as a plain
     retry, ignored mergeability) each fail the tests.
   - Usage: [DEVELOPMENT.md](DEVELOPMENT.md#checks-and-delivery).
+
+## Training flow, Coach /log and dictation, 2026-10-03
+
+Branch `feat/training-flow-coach-log`, one PR for server and app (the
+owner authorized deploy and merge in the chat); its description holds the
+review evidence and records CI, deploy and merge. Design:
+[spec](superpowers/specs/2026-10-03-training-flow-and-coach-log-design.md),
+[plan](superpowers/plans/2026-10-03-training-flow-coach-log.md). Player
+rules and what they supersede: [TRAINING-DESIGN.md](TRAINING-DESIGN.md#workout-player-list-2026-10-03).
+
+- Workout player: a list of exercise cards with one tap per set (✓; timed
+  sets ▶ with a 3 s lead). Weights carry forward within an exercise or come
+  from Last time; undo, skip and "complete as planned" sit on the row and
+  card menu. Rests and timed sets run on wall-clock deadlines, also while the
+  phone is locked, with one generic local alert per phase and keep-awake
+  only around timed sets. A finish sheet saves the done sets or logs the
+  rest as shown.
+- Logging: `HomeStore.logCompletedWorkout` adds a finished workout without
+  touching the active session; a plan-attached log is refused while a
+  workout is saved. Training offers "Log workout" and "Log as done"; the
+  shared log editor writes nothing before Add, and each opening carries one
+  history ID through every retry. Today shows "In progress · Resume" while a
+  checkpoint exists.
+- Coach `/log`: mode `log` in `coach-chat` (mode allowlist, `local_date`,
+  strict validator, refusal enum, refunds as for `/plan`, evals E1–E22) and
+  `chat_messages.workout_log` (migration `20261004090000`). The card's
+  "Add to history" opens the log editor prefilled; its Add is the only
+  write. The card reads Added or Removed from the live history.
+- Dictation (iOS): the plugin overwrote the transcript with every partial
+  result, and iOS restarts its hypothesis after a pause, so only the last
+  utterance survived; `stop()` also cancelled the final result. The fix is a
+  native accumulator (`SpeechTranscriptAccumulator.swift`, 15 XCTests written
+  first against the old overwrite strategy; Swift runs only in the PR's iOS
+  workflow, ruling R5), a graceful stop, live partials appended to the
+  draft and a DE/EN switch. Mixed German and English in one
+  recording stays out of reach of Apple's recognizer (decision D2: on-device
+  only).
+- Coach fixes: the plan brief no longer drops or wipes a draft and says why
+  it cannot open; 429 texts follow the app language (the client sends
+  `Accept-Language`); errors, "thinking" and answers reach screen readers; a
+  photo survives typing during compression; the plan card lists its first
+  exercises.
+- Shell wiring (the last step): the Training callbacks, the Coach's save
+  adapter and live history, and rest-alert taps (also the launch tap) are
+  connected in `eatova_home_page.dart`. One adapter writes for Training and
+  the Coach; it re-checks the owner store and flags plan-backed entries
+  itself (ruling R15). The local preview offers no logging.
+- Delivery order (ruling R23): CI green → apply migration `20261004090000`
+  → deploy `coach-chat` from the PR head → verify ACTIVE, boot and a smoke
+  request → merge → the owner installs build `1.1.0+4`. Reasons: the app's
+  Coach history select reads `workout_log`, so an app without the live
+  migration fails every Coach history load; the old function answers `/log`
+  with 400. A change to the PR after the deploy needs a redeploy. Rollback:
+  the old function is safe; a device rollback drops an in-progress workout
+  checkpoint with the new keys.
+- Verification for the wiring step (its worktree on Windows, Flutter
+  3.47.2, before the parallel minor-fix batch was integrated): strict
+  analysis clean; 6678 Flutter tests passed; line coverage of `lib/`
+  without generated l10n 96.76 % (computed as `tool/flutter_ci.py` does);
+  `deno check coach-chat/index.ts`. The wiring tests
+  (`test/flows/training_coach_wiring_flow_test.dart`) fail on the unwired
+  shell and on each mutated guard: owner checks, the R15 flag, the tap's
+  payload, owner and preview checks, the subscription cancel, the single
+  editor, and the Coach and Today selector inputs.
+- Open:
+  - On-device checks: a minute of dictation (Console, subsystem
+    `com.eatova.app`, category `speech`, never a transcript), rest alerts on
+    a locked phone and under an iOS Focus (no Time-Sensitive entitlement),
+    keep-awake during timed sets, the alert tap and a cold start from it.
+  - Website privacy text (separate repository `Desktop/EatovaTest21st`)
+    must mention `/log` and the rest alerts, as [PRIVACY.md](../PRIVACY.md)
+    now does.
+  - The iOS workflow now also requires the dictation XCTest suite
+    (`SpeechTranscriptAccumulatorTests`) besides the share tests; earlier
+    dated notes that count only the share XCTests describe their own
+    checkpoint.

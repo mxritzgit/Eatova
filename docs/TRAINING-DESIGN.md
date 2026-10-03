@@ -96,7 +96,11 @@ the existing dark studio look (spec
   with alerts off the rest bar shows a quiet "Alerts off" chip that opens
   the notification settings. A rest or interval that ends in the foreground
   vibrates once. The home page pins scheduling to the account that opened
-  the player (`GuardedRestAlertScheduler`).
+  the player (`GuardedRestAlertScheduler`). Tapping an alert, also the one
+  that launched the app, opens Training and, for the account that owns the
+  saved workout, resumes it once the tabs show. Today's workout row reads
+  "In progress · Resume" while a checkpoint exists and resumes it the same
+  way.
 - **Keep awake (A6).** Owner `training-player` holds the display only while a
   timed set, or the rest leading into one, runs with the player on top
   (ruling R16: owners never release each other's hold).
