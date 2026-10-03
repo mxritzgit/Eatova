@@ -522,7 +522,7 @@ class _MealAnalysisSheetState extends State<MealAnalysisSheet> {
     final body = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const _SheetHandle(),
+        const SheetHandle(),
         _Header(slot: widget.slot, onClose: () => Navigator.of(context).pop()),
         Flexible(
           child: SingleChildScrollView(
@@ -661,15 +661,16 @@ class _AnalysisErrorCard extends StatelessWidget {
               onTap: onRetry,
               height: 48,
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 8),
           ],
-          SizedBox(
-            width: double.infinity,
-            child: TextButton(
-              key: const ValueKey('analyse-manual-entry'),
-              onPressed: onManualEntry,
-              child: Text(l10n.foodAnalysisManualEntryButton),
-            ),
+          SoftPillButton(
+            key: const ValueKey('analyse-manual-entry'),
+            label: l10n.foodAnalysisManualEntryButton,
+            icon: Icons.edit_outlined,
+            onTap: onManualEntry,
+            // Without a retry it is the card's only way on.
+            tone: onRetry == null ? SoftPillTone.accent : SoftPillTone.neutral,
+            expand: true,
           ),
         ],
       ),
@@ -696,31 +697,14 @@ class _SlowHint extends StatelessWidget {
             style: AppType.ui(12.5, weight: FontWeight.w500, color: t.ink2),
           ),
         ),
-        TextButton(
+        const SizedBox(width: 12),
+        SoftPillButton(
           key: const ValueKey('analyse-cancel'),
-          onPressed: onCancel,
-          child: Text(l10n.commonCancel),
+          label: l10n.commonCancel,
+          onTap: onCancel,
+          tone: SoftPillTone.neutral,
         ),
       ],
-    );
-  }
-}
-
-class _SheetHandle extends StatelessWidget {
-  const _SheetHandle();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 10, bottom: 6),
-      child: Container(
-        width: 40,
-        height: 4,
-        decoration: BoxDecoration(
-          color: context.t.line,
-          borderRadius: BorderRadius.circular(rPill),
-        ),
-      ),
     );
   }
 }

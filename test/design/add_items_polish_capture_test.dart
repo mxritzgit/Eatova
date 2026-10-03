@@ -273,12 +273,12 @@ void main() {
   testWidgets('add sheet: saved, recent and existing rows', (tester) async {
     await withClock(Clock.fixed(_now), () async {
       final logged = await _openAddSheet(tester);
-      expect(_key('favorite-pinned-0'), findsOneWidget);
+      expect(_key('add-meal-favorites-all'), findsOneWidget);
       expect(_key('favorite-tile-0'), findsOneWidget);
       expect(_key('analyse-existing-meals'), findsOneWidget);
       await captureDesignShot(tester, 'add-items-sheet-top');
 
-      await _scrollTo(tester, _key('favorite-pinned-0'));
+      await _scrollTo(tester, _key('add-meal-favorites-all'));
       await captureDesignShot(tester, 'add-items-saved-recent');
 
       // A recent row, expanded, portion bumped twice.
@@ -316,19 +316,6 @@ void main() {
       // phone's 34 pt home indicator it is not reported off screen.
       expect(tester.takeException(), isNull);
 
-      // A pinned favourite, expanded.
-      await _scrollTo(tester, _key('favorite-pinned-0'));
-      await tester.tap(
-        find.descendant(
-          of: _key('favorite-pinned-0'),
-          matching: find.text('Overnight oats with berries'),
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(_key('favorite-pinned-add-0'), findsOneWidget);
-      await _scrollTo(tester, _key('favorite-pinned-0'));
-      await captureDesignShot(tester, 'add-items-saved-expanded');
-      expect(tester.takeException(), isNull);
     });
   });
 
@@ -356,7 +343,7 @@ void main() {
     await withClock(Clock.fixed(_now), () async {
       final errors = await collectOverflows(() async {
         await _openAddSheet(tester, locale: const Locale('de'));
-        await _scrollTo(tester, _key('favorite-pinned-0'));
+        await _scrollTo(tester, _key('add-meal-favorites-all'));
         await captureDesignShot(tester, 'add-items-saved-recent-de');
       });
       expect(errors, isEmpty, reason: describeOverflows(errors));
@@ -367,7 +354,7 @@ void main() {
     await withClock(Clock.fixed(_now), () async {
       final errors = await collectOverflows(() async {
         await _openAddSheet(tester, textScale: 2);
-        await _scrollTo(tester, _key('favorite-pinned-0'));
+        await _scrollTo(tester, _key('add-meal-favorites-all'));
         await captureDesignShot(tester, 'add-items-scale2-collapsed');
         await tester.ensureVisible(_key('favorite-tile-0'));
         await tester.pumpAndSettle();

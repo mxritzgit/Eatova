@@ -101,7 +101,7 @@ Future<void> _pumpHome(WidgetTester tester) async {
                   addedAt: DateTime(2026, 8, 20),
                   pinned: false,
                 ),
-                // Pinned -> "All (1)" opens the favorites sheet.
+                // Pinned -> the favorites row opens the favorites sheet.
                 FavoriteMeal(
                   id: FavoriteMeal.idFor(_skyr),
                   result: _skyr,

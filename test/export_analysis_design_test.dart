@@ -12,6 +12,7 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
 import 'package:eatova/src/services/data_export.dart';
+import 'package:eatova/src/widgets/design/design.dart' show PrimaryActionButton;
 import 'package:eatova/src/widgets/kcal/meal_analysis_sheet.dart';
 import 'package:eatova/src/widgets/shared/data_export_sheet.dart';
 
@@ -156,7 +157,7 @@ void main() {
             await tester.tap(add);
             await tester.pumpAndSettle();
             expect(added, 1);
-            expect(tester.widget<FilledButton>(add).onPressed, isNull);
+            expect(tester.widget<PrimaryActionButton>(add).onTap, isNull);
             final favorite = find.byKey(
               const ValueKey('analyse-favorite-button'),
             );

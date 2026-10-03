@@ -168,7 +168,7 @@ void main() {
       await _open(tester, products: products);
       await chooseMealSlot(tester, 'slot-select-dinner');
       await tester.pumpAndSettle();
-      await tester.ensureVisible(_key('favorite-pinned-2'));
+      await tester.ensureVisible(_key('add-meal-favorites-all'));
       await tester.pumpAndSettle();
       await tester.enterText(_input, 'Skyr');
       await tester.pump();
@@ -229,16 +229,14 @@ void main() {
             'analyse-gallery-button',
             'analyse-barcode-button',
             'manual-entry-button',
-            'favorite-pinned-0',
+            'add-meal-favorites-all',
           ]) {
             final action = _key(id);
             // A large-text card can exceed the keyboard's remaining viewport.
             // Its label must still be reachable and tappable while scrolling.
-            // The saved row's first Text is its decorative initial, so that
-            // row is checked by the meal's name.
-            final label = id == 'favorite-pinned-0'
-                ? find.descendant(of: action, matching: find.text('Skyr'))
-                : find.descendant(of: action, matching: find.byType(Text)).first;
+            final label = find
+                .descendant(of: action, matching: find.byType(Text))
+                .first;
             expect(label, findsOneWidget, reason: id);
             await tester.ensureVisible(label);
             await tester.pumpAndSettle();

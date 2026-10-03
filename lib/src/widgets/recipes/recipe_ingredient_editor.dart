@@ -7,6 +7,7 @@ import '../../services/open_food_facts_product_service.dart';
 import '../../theme/app_tokens.dart';
 import '../common/decimal_text.dart';
 import '../design/design.dart';
+import '../kcal/saved_meal_presentation.dart';
 
 /// Controlled list editor. Only confirmed, valid ingredient snapshots escape.
 class RecipeIngredientEditor extends StatelessWidget {
@@ -51,65 +52,276 @@ class RecipeIngredientEditor extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 12),
             child: Text(
               t.ingredientEmpty,
-              style: AppType.ui(14, color: context.t.ink2),
+              style: AppType.ui(14, color: context.t.ink2, height: 1.4),
             ),
           ),
-        for (var i = 0; i < ingredients.length; i++) ...[
+        // One soft card per ingredient, spaced instead of divided.
+        for (var i = 0; i < ingredients.length; i++)
           Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _IngredientRow(
+              ingredient: ingredients[i],
+              editKey: ValueKey('ingredient-edit-$i'),
+              removeKey: ValueKey('ingredient-remove-$i'),
+              onEdit: () => _edit(context, i),
+              onRemove: () => onChanged(
+                List.unmodifiable([...ingredients]..removeAt(i)),
+              ),
+            ),
+          ),
+        if (ingredients.isNotEmpty) const SizedBox(height: 4),
+        SoftPillButton(
+          key: const ValueKey('ingredient-add'),
+          label: t.ingredientAdd,
+          icon: Icons.add_rounded,
+          expand: true,
+          onTap: ingredients.length < RecipeIngredient.maxIngredients
+              ? () => _edit(context)
+              : null,
+        ),
+        if (ingredients.length >= RecipeIngredient.maxIngredients) ...[
+          const SizedBox(height: 8),
+          Text(t.ingredientLimit, style: AppType.ui(12, color: context.t.ink2)),
+        ],
+      ],
+    );
+  }
+}
+
+/// One weighed ingredient in the meal-row language: name, the weight as the
+/// muted line, its kcal share on the right, then edit and remove.
+class _IngredientRow extends StatelessWidget {
+  const _IngredientRow({
+    required this.ingredient,
+    required this.editKey,
+    required this.removeKey,
+    required this.onEdit,
+    required this.onRemove,
+  });
+
+  final RecipeIngredient ingredient;
+  final Key editKey, removeKey;
+  final VoidCallback onEdit, onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    final kcal100 = ingredient.per100g.caloriesKcal;
+    final kcal = kcal100 == null
+        ? null
+        : (kcal100 * ingredient.grams / 100).round();
+    // Large text: the kcal moves under the name so the name keeps its width.
+    final stacked = MediaQuery.textScalerOf(context).scale(14) > 21;
+    final value = kcal == null
+        ? null
+        : Text.rich(
+            TextSpan(
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        ingredients[i].displayName(t),
-                        style: AppType.ui(15, color: context.t.ink),
+                TextSpan(
+                  text: '$kcal',
+                  style: AppType.ui(15, weight: FontWeight.w700, color: t.ink)
+                      .copyWith(
+                        fontFeatures: const [FontFeature.tabularFigures()],
                       ),
-                      Text(
-                        '${_numberText(ingredients[i].grams, t)} g',
-                        style: AppType.ui(14, color: context.t.ink2),
-                      ),
-                      if (!ingredients[i].per100g.isComplete)
-                        Text(
-                          t.ingredientIncomplete,
-                          style: AppType.ui(12, color: context.t.warning),
-                        ),
-                    ],
-                  ),
                 ),
-                IconButton(
-                  key: ValueKey('ingredient-edit-$i'),
-                  tooltip: t.ingredientEdit,
-                  icon: const Icon(Icons.edit_outlined),
-                  onPressed: () => _edit(context, i),
-                ),
-                IconButton(
-                  key: ValueKey('ingredient-remove-$i'),
-                  tooltip: t.ingredientRemove,
-                  icon: const Icon(Icons.close),
-                  onPressed: () => onChanged(
-                    List.unmodifiable([...ingredients]..removeAt(i)),
-                  ),
+                TextSpan(
+                  text: ' kcal',
+                  style: AppType.ui(12, weight: FontWeight.w500, color: t.ink3),
                 ),
               ],
             ),
+          );
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+      decoration: BoxDecoration(
+        color: t.surf,
+        borderRadius: BorderRadius.circular(rTile),
+        border: Border.all(color: t.cardBorder),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  ingredient.displayName(l10n),
+                  style: AppType.ui(15, weight: FontWeight.w600, color: t.ink),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${_numberText(ingredient.grams, l10n)} g',
+                  style: AppType.ui(
+                    12.5,
+                    weight: FontWeight.w500,
+                    color: t.ink3,
+                  ),
+                ),
+                if (!ingredient.per100g.isComplete) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    l10n.ingredientIncomplete,
+                    style: AppType.ui(
+                      12,
+                      weight: FontWeight.w600,
+                      color: t.warning,
+                    ),
+                  ),
+                ],
+                if (stacked && value != null) ...[
+                  const SizedBox(height: 4),
+                  value,
+                ],
+              ],
+            ),
           ),
-          Divider(color: context.t.line),
+          if (!stacked && value != null) ...[
+            const SizedBox(width: 10),
+            value,
+          ],
+          const SizedBox(width: 6),
+          _RoundIconButton(
+            buttonKey: editKey,
+            tooltip: l10n.ingredientEdit,
+            icon: Icons.edit_rounded,
+            onPressed: onEdit,
+          ),
+          _RoundIconButton(
+            buttonKey: removeKey,
+            tooltip: l10n.ingredientRemove,
+            icon: Icons.close_rounded,
+            onPressed: onRemove,
+          ),
         ],
-        TextButton.icon(
-          key: const ValueKey('ingredient-add'),
-          onPressed: ingredients.length < RecipeIngredient.maxIngredients
-              ? () => _edit(context)
-              : null,
-          icon: const Icon(Icons.add),
-          label: Text(t.ingredientAdd),
+      ),
+    );
+  }
+}
+
+/// The round surf2 icon button of the sheets (close, edit, remove).
+class _RoundIconButton extends StatelessWidget {
+  const _RoundIconButton({
+    required this.buttonKey,
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final Key buttonKey;
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return IconButton(
+      key: buttonKey,
+      tooltip: tooltip,
+      onPressed: onPressed,
+      style: IconButton.styleFrom(backgroundColor: t.surf2),
+      icon: Icon(icon, size: 18, color: t.ink2),
+    );
+  }
+}
+
+/// A product hit in the meal-row language: packshot (or letter) tile, name,
+/// brand, and the kcal per 100 g on the right.
+class _ProductResultRow extends StatelessWidget {
+  const _ProductResultRow({
+    required this.product,
+    required this.onTap,
+    super.key,
+  });
+
+  final ProductSearchResult product;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    final (title, brand) = mealTitleAndBrand(product.result, l10n);
+    // The value [_IngredientSheetState._select] will carry over.
+    final per100 = product.ingredientNutritionPer100g;
+    final kcal = per100 != null
+        ? per100.caloriesKcal
+        : isLoggableKcalPer100G(product.kcalPer100G) ||
+              product.result.explicitZeroKcal
+        ? product.kcalPer100G
+        : null;
+    final stacked = MediaQuery.textScalerOf(context).scale(14) > 21;
+    final value = kcal == null
+        ? Text(
+            l10n.ingredientUnknown,
+            style: AppType.ui(12.5, weight: FontWeight.w600, color: t.ink3),
+          )
+        : Column(
+            crossAxisAlignment: stacked
+                ? CrossAxisAlignment.start
+                : CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              MealKcalValue(number: '${kcal.round()}'),
+              Text(
+                l10n.foodManualPer100GSuffix,
+                style: AppType.ui(11.5, color: t.ink3),
+              ),
+            ],
+          );
+    return Semantics(
+      button: true,
+      child: InkWell(
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 64),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 10, 14, 10),
+            child: Row(
+              children: [
+                MealItemTile(
+                  name: title,
+                  imageUrl: product.imageUrl,
+                  justAdded: false,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: stacked ? null : 2,
+                        overflow: stacked ? null : TextOverflow.ellipsis,
+                        style: AppType.ui(
+                          15,
+                          weight: FontWeight.w600,
+                          color: t.ink,
+                        ),
+                      ),
+                      if (brand != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          brand,
+                          style: AppType.ui(
+                            12.5,
+                            weight: FontWeight.w500,
+                            color: t.ink3,
+                          ),
+                        ),
+                      ],
+                      if (stacked) ...[const SizedBox(height: 4), value],
+                    ],
+                  ),
+                ),
+                if (!stacked) ...[const SizedBox(width: 10), value],
+              ],
+            ),
+          ),
         ),
-        if (ingredients.length >= RecipeIngredient.maxIngredients)
-          Text(t.ingredientLimit, style: AppType.ui(12, color: context.t.ink2)),
-      ],
+      ),
     );
   }
 }
@@ -331,48 +543,68 @@ class _IngredientSheetState extends State<_IngredientSheet> {
             PrimaryActionButton(
               key: const ValueKey('ingredient-search-submit'),
               label: t.ingredientSearch,
+              icon: Icons.search_rounded,
               onTap: _searching || _query.text.trim().length < 2
                   ? null
                   : _search,
             ),
-            TextButton(
+            const SizedBox(height: 10),
+            SoftPillButton(
               key: const ValueKey('ingredient-manual'),
-              onPressed: () => setState(() {
+              label: t.ingredientManual,
+              icon: Icons.edit_rounded,
+              expand: true,
+              onTap: () => setState(() {
                 _fill(null);
                 _form = true;
               }),
-              child: Text(t.ingredientManual),
             ),
             if (_searching) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: 20),
               Semantics(
                 liveRegion: true,
                 label: t.ingredientSearching,
-                child: const Center(child: CircularProgressIndicator()),
+                child: Center(
+                  child: CircularProgressIndicator(color: context.t.accent),
+                ),
               ),
             ],
-            if (_searchError)
+            if (_searchError) ...[
+              const SizedBox(height: 16),
               Text(
                 t.ingredientSearchError,
-                style: AppType.ui(14, color: context.t.danger),
+                style: AppType.ui(14, color: context.t.danger, height: 1.4),
               ),
-            if (_searched && !_searching && _results.isEmpty && !_searchError)
+            ],
+            if (_searched &&
+                !_searching &&
+                _results.isEmpty &&
+                !_searchError) ...[
+              const SizedBox(height: 16),
               Text(
                 t.ingredientNoResults,
-                style: AppType.ui(14, color: context.t.ink2),
+                style: AppType.ui(14, color: context.t.ink2, height: 1.4),
               ),
-            for (var i = 0; i < _results.length; i++)
-              ListTile(
-                key: ValueKey('ingredient-result-$i'),
-                contentPadding: EdgeInsets.zero,
-                title: Text(_results[i].result.resolvedMealName(t)),
-                subtitle: Text(_results[i].subtitle),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => _select(_results[i]),
+            ],
+            if (_results.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              SavedMealCollection(
+                children: [
+                  for (var i = 0; i < _results.length; i++)
+                    _ProductResultRow(
+                      key: ValueKey('ingredient-result-$i'),
+                      product: _results[i],
+                      onTap: () => _select(_results[i]),
+                    ),
+                ],
               ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text(t.commonCancel),
+            ],
+            const SizedBox(height: 16),
+            SoftPillButton(
+              label: t.commonCancel,
+              tone: SoftPillTone.neutral,
+              expand: true,
+              onTap: () => Navigator.of(context).pop(),
             ),
           ],
         ),
@@ -418,11 +650,14 @@ class _IngredientSheetState extends State<_IngredientSheet> {
         if (_draft != null && !_draft!.per100g.isComplete)
           Text(
             t.ingredientIncompleteHelp,
-            style: AppType.ui(13, color: context.t.ink2),
+            style: AppType.ui(13, color: context.t.ink2, height: 1.4),
           ),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(t.commonCancel),
+        const SizedBox(height: 12),
+        SoftPillButton(
+          label: t.commonCancel,
+          tone: SoftPillTone.neutral,
+          expand: true,
+          onTap: () => Navigator.of(context).pop(),
         ),
       ],
     );

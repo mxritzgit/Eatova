@@ -210,7 +210,7 @@ void main() {
       expect(materialOf().color, AppTokens.light.accentFill);
     });
 
-    testWidgets('folgt dem Design: 42 px Pille, 14/700, Akzent vs. Karte',
+    testWidgets('folgt dem Design: 44 px Pille, 14/700, Akzent vs. Karte',
         (tester) async {
       const t = AppTokens.dark;
       Future<void> pump({required bool selected}) => tester.pumpWidget(
@@ -242,7 +242,8 @@ void main() {
       TextStyle label() => tester.widget<Text>(find.text('Alle')).style!;
 
       await pump(selected: false);
-      expect(tester.getSize(find.byType(FilterChipPill)).height, 42);
+      // 44 px since 2026-10-03: the pill is its own tap target.
+      expect(tester.getSize(find.byType(FilterChipPill)).height, 44);
       expect(fill(), t.surf);
       expect(ring().border, Border.all(color: t.lineStrong));
       expect(ring().borderRadius, BorderRadius.circular(rPill));

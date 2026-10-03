@@ -11,6 +11,9 @@ String _recipeSummary(FitnessRecipe recipe, AppLocalizations l10n) {
   return '${_nutritionNumber(n.caloriesKcal, l10n)} kcal · ${_nutritionNumber(n.proteinG, l10n)} g ${l10n.todayMacroProtein}';
 }
 
+/// The per-portion result of a batch recipe: one calm card with the kcal as
+/// the figure and the macros as the app's coloured dots; warnings follow as
+/// tinted lines.
 class _CalculatedNutrition extends StatelessWidget {
   const _CalculatedNutrition({required this.calculation});
   final RecipeCalculation calculation;
@@ -20,46 +23,102 @@ class _CalculatedNutrition extends StatelessWidget {
     final l10n = context.l10n;
     final t = context.t;
     final n = calculation.nutrition;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          l10n.recipesPerPortion,
-          style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 16,
-          runSpacing: 8,
-          children: [
-            for (final pair in [
-              (l10n.foodAddItemCaloriesLabel, n.caloriesKcal, 'kcal'),
-              (l10n.todayMacroProtein, n.proteinG, 'g'),
-              (l10n.todayMacroCarbs, n.carbsG, 'g'),
-              (l10n.todayMacroFat, n.fatG, 'g'),
-            ])
-              Text(
-                '${pair.$1}: ${_nutritionNumber(pair.$2, l10n)} ${pair.$3}',
-                style: AppType.ui(14, color: t.ink, height: 1.4),
-              ),
-          ],
-        ),
-        if (!calculation.isComplete) ...[
-          const SizedBox(height: 8),
-          Text(
-            l10n.recipeEditIncompleteNutrition,
-            key: const ValueKey('recipe-nutrition-incomplete'),
-            style: AppType.ui(14, color: t.ink2, height: 1.4),
+    final macros = <(Color, String, double?)>[
+      (t.protein, l10n.todayMacroProtein, n.proteinG),
+      (t.carbs, l10n.todayMacroCarbs, n.carbsG),
+      (t.fat, l10n.todayMacroFat, n.fatG),
+    ];
+    Widget note(String text, Color color, IconData icon, {Key? key}) => Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Row(
+        key: key,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(icon, size: 16, color: color),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: AppType.ui(13, color: color, height: 1.4),
+            ),
           ),
         ],
-        if (!calculation.fitsStorageLimits) ...[
-          const SizedBox(height: 8),
+      ),
+    );
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      decoration: BoxDecoration(
+        color: t.surf,
+        borderRadius: BorderRadius.circular(rTile),
+        border: Border.all(color: t.cardBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           Text(
-            l10n.recipeEditNutritionTooLarge,
-            style: AppType.ui(14, color: t.danger, height: 1.4),
+            l10n.recipesPerPortion.toUpperCase(),
+            style: AppType.eyebrow(t.ink2, size: 11),
           ),
+          const SizedBox(height: 6),
+          Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: _nutritionNumber(n.caloriesKcal, l10n),
+                  style: AppType.display(26, color: t.ink, height: 1.1),
+                ),
+                TextSpan(
+                  text: ' kcal',
+                  style: AppType.ui(14, weight: FontWeight.w600, color: t.ink2),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 14,
+            runSpacing: 6,
+            children: [
+              for (final (color, label, value) in macros)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: color,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '$label ${_nutritionNumber(value, l10n)} g',
+                      style: AppType.ui(13, weight: FontWeight.w600, color: t.ink2),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+          if (!calculation.isComplete)
+            note(
+              l10n.recipeEditIncompleteNutrition,
+              t.ink2,
+              Icons.info_outline_rounded,
+              key: const ValueKey('recipe-nutrition-incomplete'),
+            ),
+          if (!calculation.fitsStorageLimits)
+            note(
+              l10n.recipeEditNutritionTooLarge,
+              t.danger,
+              Icons.error_outline_rounded,
+            ),
         ],
-      ],
+      ),
     );
   }
 }

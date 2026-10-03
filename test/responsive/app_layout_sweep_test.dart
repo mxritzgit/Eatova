@@ -254,10 +254,18 @@ Future<void> _tap(WidgetTester tester, String key, String step) async {
   expect(target, findsWidgets, reason: '$step: $key fehlt');
   await tester.ensureVisible(target.first);
   await _settle(tester);
+  // A target taller than the visible scroll area (320 px at 2x text leaves
+  // the add sheet ~80 px) has its centre off screen; a finger taps the part
+  // that shows, just below its top edge.
+  final rect = tester.getRect(target.first);
+  final screen = tester.view.physicalSize / tester.view.devicePixelRatio;
+  final point = rect.center.dy < screen.height
+      ? rect.center
+      : Offset(rect.center.dx, rect.top + 16);
   if (longPress) {
-    await tester.longPress(target.first);
+    await tester.longPressAt(point);
   } else {
-    await tester.tap(target.first);
+    await tester.tapAt(point);
   }
   await _settle(tester);
 }

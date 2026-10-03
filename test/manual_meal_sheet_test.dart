@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/meal_analysis_result.dart';
-import 'package:eatova/src/widgets/design/sheets.dart' show FieldCapsule;
+import 'package:eatova/src/widgets/design/design.dart'
+    show FieldCapsule, PrimaryActionButton;
 import 'package:eatova/src/widgets/kcal/manual_meal_sheet.dart';
 
 import 'support/harness.dart';
@@ -38,8 +39,8 @@ Future<_ResultHalter> _open(WidgetTester tester, {String? initialName}) async {
   return halter;
 }
 
-FilledButton _saveButton(WidgetTester tester) =>
-    tester.widget<FilledButton>(find.byKey(const ValueKey('manual-meal-save')));
+PrimaryActionButton _saveButton(WidgetTester tester) => tester
+    .widget<PrimaryActionButton>(find.byKey(const ValueKey('manual-meal-save')));
 
 void main() {
   testWidgets('Save sperrt, bis Name + kcal/100 g + Gramm gültig sind', (
@@ -47,7 +48,7 @@ void main() {
   ) async {
     await _open(tester);
     expect(
-      _saveButton(tester).onPressed,
+      _saveButton(tester).onTap,
       isNull,
       reason: 'leeres Formular (Gramm ist mit 100 vorbelegt) sperrt',
     );
@@ -62,7 +63,7 @@ void main() {
     );
     await tester.pump();
     expect(
-      _saveButton(tester).onPressed,
+      _saveButton(tester).onTap,
       isNull,
       reason: '2000 kcal/100 g ist physikalisch unmöglich',
     );
@@ -77,7 +78,7 @@ void main() {
       '265',
     );
     await tester.pump();
-    expect(_saveButton(tester).onPressed, isNotNull);
+    expect(_saveButton(tester).onTap, isNotNull);
   });
 
   testWidgets('liefert das gerechnete Ergebnis samt Vorschau zurück', (
@@ -137,7 +138,7 @@ void main() {
       '500',
     );
     await tester.pump();
-    expect(_saveButton(tester).onPressed, isNotNull);
+    expect(_saveButton(tester).onTap, isNotNull);
 
     await tester.ensureVisible(find.byKey(const ValueKey('manual-meal-save')));
     await tester.tap(find.byKey(const ValueKey('manual-meal-save')));

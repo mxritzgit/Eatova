@@ -6,6 +6,7 @@ import 'package:eatova/src/models/training_plan.dart';
 import 'package:eatova/src/screens/training/training_plan_editor.dart';
 import 'package:eatova/src/screens/training/training_screen.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
+import 'package:eatova/src/widgets/design/soft_actions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -66,11 +67,11 @@ void main() {
     await tester.tap(review);
     await tester.pump();
     expect(reviewed.map((plan) => plan.toJson()), [conflict.toJson()]);
-    expect(tester.widget<TextButton>(review).onPressed, isNull);
+    expect(tester.widget<SoftPillButton>(review).onTap, isNull);
     expect(find.byKey(const ValueKey('training-start')), findsOneWidget);
     gate.complete();
     await tester.pumpAndSettle();
-    expect(tester.widget<TextButton>(review).onPressed, isNotNull);
+    expect(tester.widget<SoftPillButton>(review).onTap, isNotNull);
   });
 
   for (final locale in [const Locale('de'), const Locale('en')]) {

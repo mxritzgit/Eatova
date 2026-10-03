@@ -20,9 +20,9 @@ import 'saved_meal_presentation.dart';
 // Favorites sheet (feature 2026-08-27): every pinned favorite, searchable,
 // stacked above the add-meal sheet.
 //
-// Own sheet instead of a longer inline section: the add-meal sheet shows only
-// the top `kInlineFavoritesCount` pinned so search and recents stay within
-// reach; its "All (N)" button opens this one. The slot is not choosable here
+// Own sheet instead of an inline section: the add-meal sheet shows one
+// "Favorites" row that opens this one (since 2026-10-03 no inline top 3), so
+// search and recents stay within reach. The slot is not choosable here
 // — the add-meal sheet's current slot is passed straight through to `onAdd`.
 // The heart is the only way to remove a row (no X), and removal is mirrored
 // locally while the parent store does the real toggle.

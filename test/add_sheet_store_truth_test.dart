@@ -397,11 +397,17 @@ void main() {
       store.unpinAndDrop(result);
     });
 
-    expect(find.byKey(const ValueKey('favorite-pinned-0')), findsOneWidget);
-
-    final herz = find.byKey(const ValueKey('favorite-pinned-0-fav'));
-    await tester.ensureVisible(herz);
-    await tester.tap(herz);
+    // Since 2026-10-03 the heart lives in the favorites menu.
+    final zeile = find.byKey(const ValueKey('add-meal-favorites-all'));
+    expect(zeile, findsOneWidget);
+    await tester.ensureVisible(zeile);
+    await tester.tap(zeile);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('favorites-sheet-fav-0')));
+    await tester.pumpAndSettle();
+    Navigator.of(
+      tester.element(find.byKey(const ValueKey('favorites-sheet'))),
+    ).pop();
     await tester.pumpAndSettle();
 
     expect(
@@ -410,6 +416,7 @@ void main() {
       reason: 'der Eintrag ist im Store weg, das Sheet zeigt ihn weiter',
     );
     expect(find.byKey(const ValueKey('favorite-tile-0')), findsNothing);
+    expect(zeile, findsNothing, reason: 'kein gepinnter Favorit mehr');
   });
 
   testWidgets(

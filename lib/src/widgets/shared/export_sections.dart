@@ -298,29 +298,32 @@ class _ExportSectionViewState extends State<ExportSectionView>
         if (_expanded) ...[
           Wrap(
             spacing: 8,
+            runSpacing: 8,
             children: [
-              TextButton.icon(
+              SoftPillButton(
                 key: ValueKey('export-copy-${section.key}'),
-                onPressed: () => widget.onCopy(
+                onTap: () => widget.onCopy(
                   section.report(
                     (key) => exportLabel(key, l10n),
                     value: (fields, path, value) =>
                         exportReadableValue(fields, path, value, l10n),
                   ),
                 ),
-                icon: const Icon(Icons.copy_outlined, size: 18),
-                label: Text(l10n.exportCopySection),
+                icon: Icons.copy_outlined,
+                label: l10n.exportCopySection,
               ),
-              TextButton.icon(
+              SoftPillButton(
                 key: ValueKey('export-csv-${section.key}'),
-                onPressed: section.count == 0
+                onTap: section.count == 0
                     ? null
                     : () => widget.onCopy(section.csv),
-                icon: const Icon(Icons.grid_on_outlined, size: 18),
-                label: Text(l10n.exportCopyCsv),
+                icon: Icons.grid_on_outlined,
+                label: l10n.exportCopyCsv,
+                tone: SoftPillTone.neutral,
               ),
             ],
           ),
+          const SizedBox(height: 10),
           if (section.count == 0)
             Padding(
               padding: const EdgeInsets.all(12),

@@ -190,7 +190,8 @@ void main() {
       // code no longer paints ANY selection would be worthless.
       const stellen = <String, int>{
         // Food now uses plain date navigation; its former chips no longer exist.
-        'lib/src/widgets/kcal/edit_meal_sheet.dart': 1, // Tages-Chips
+        // The edit sheet's day row is Today's strip since 2026-10-03.
+        'lib/src/screens/today/today_day_strip.dart': 1, // Tages-Streifen
         'lib/src/screens/onboarding_screen.dart': 2, // _TileCard + _RowCard
       };
       stellen.forEach((pfad, mindestens) {

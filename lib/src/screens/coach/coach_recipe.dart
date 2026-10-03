@@ -306,10 +306,12 @@ class _RecipeAddSheet extends StatelessWidget {
                 icon: Icons.bookmark_add_outlined,
                 onTap: () => Navigator.of(context).pop(true),
               ),
-              const SizedBox(height: 6),
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: Text(l10n.commonCancel),
+              const SizedBox(height: 10),
+              SoftPillButton(
+                label: l10n.commonCancel,
+                onTap: () => Navigator.of(context).pop(false),
+                tone: SoftPillTone.neutral,
+                expand: true,
               ),
             ],
           ),

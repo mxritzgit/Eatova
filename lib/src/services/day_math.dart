@@ -89,18 +89,3 @@ List<DateTime> dayStrip({required DateTime today, required int pastDays}) {
     growable: false,
   );
 }
-
-/// The same strip **descending**: [count] calendar days ending on [today],
-/// today first. A [count] of 0 or less returns an empty list.
-List<DateTime> recentDaysDescending({
-  required DateTime today,
-  required int count,
-}) {
-  if (count <= 0) return const <DateTime>[];
-  final anchor = startOfDay(today);
-  return List<DateTime>.generate(
-    count,
-    (index) => addDays(anchor, -index),
-    growable: false,
-  );
-}

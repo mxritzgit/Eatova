@@ -109,7 +109,9 @@ Finder _sucheingabe() =>
 /// Only rendered while `_searchActive` is false — the favorites zone marker.
 Finder _manuellZeile() => find.byKey(const ValueKey('manual-entry-button'));
 
-Finder _inlineFavorit() => find.byKey(const ValueKey('favorite-pinned-0'));
+/// The favorites row, part of the favorites zone.
+Finder _inlineFavorit() =>
+    find.byKey(const ValueKey('add-meal-favorites-all'));
 
 /// The sheet's build fingerprint (see the file header).
 Widget _rahmen(WidgetTester tester) =>

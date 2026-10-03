@@ -16,6 +16,7 @@ import '../services/meal_photo_temp_file.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/common/app_snack.dart';
 import '../widgets/design/sheets.dart';
+import '../widgets/design/soft_actions.dart';
 import '../widgets/kcal/meal_slot_picker.dart';
 
 /// In-app camera as an animated bottom panel. Pops a [MealCameraCapture], or
@@ -301,7 +302,7 @@ class _MealCameraSheetState extends State<MealCameraSheet>
 
     final body = Column(
       children: [
-        const _SheetHandle(),
+        const SheetHandle(padding: EdgeInsets.only(top: 10, bottom: 4)),
         _HeaderRow(onClose: () => Navigator.of(context).pop()),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -475,12 +476,13 @@ class _CameraFailedLayer extends StatelessWidget {
               ),
               if (denied) ...[
                 const SizedBox(height: 14),
-                // Theme-styled on purpose (F8-10): no colour copies here.
-                OutlinedButton.icon(
+                // Design-system pill on the sheet's `bg` (F8-10: no colour
+                // copies here).
+                SoftPillButton(
                   key: const ValueKey('meal-camera-open-settings'),
-                  onPressed: onOpenSettings,
-                  icon: const Icon(Icons.settings_outlined, size: 18),
-                  label: Text(l10n.foodOpenSettingsButton),
+                  onTap: onOpenSettings,
+                  icon: Icons.settings_outlined,
+                  label: l10n.foodOpenSettingsButton,
                 ),
               ],
             ],
@@ -519,25 +521,6 @@ class _EdgeScrim extends StatelessWidget {
   }
 }
 
-class _SheetHandle extends StatelessWidget {
-  const _SheetHandle();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 10, bottom: 4),
-      child: Container(
-        width: 40,
-        height: 4,
-        decoration: BoxDecoration(
-          color: context.t.line,
-          borderRadius: BorderRadius.circular(rPill),
-        ),
-      ),
-    );
-  }
-}
-
 class _HeaderRow extends StatelessWidget {
   const _HeaderRow({required this.onClose});
 
@@ -548,7 +531,8 @@ class _HeaderRow extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 2, 6, 2),
+      // The close circle's edge lines up with the slot picker (16 px).
+      padding: const EdgeInsets.fromLTRB(20, 2, 12, 2),
       child: Row(
         children: [
           Expanded(
@@ -561,7 +545,8 @@ class _HeaderRow extends StatelessWidget {
             key: const ValueKey('meal-camera-close'),
             onPressed: onClose,
             tooltip: l10n.commonClose,
-            icon: Icon(Icons.close_rounded, color: t.ink2),
+            style: IconButton.styleFrom(backgroundColor: t.surf2),
+            icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
           ),
         ],
       ),

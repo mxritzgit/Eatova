@@ -6,6 +6,7 @@ import '../../l10n/l10n.dart';
 import '../../models/coach_training_context.dart';
 import '../../models/training_plan.dart';
 import '../../theme/app_tokens.dart';
+import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
 import '../training/training_exercise_list.dart';
 
@@ -205,31 +206,8 @@ class _CoachTrainingBriefState extends State<_CoachTrainingBrief> {
               style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
             ),
             const SizedBox(height: 8),
-            Text(plan.title, style: AppType.display(20, color: t.ink)),
-            ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              title: Text(
-                l10n.coachBriefPreviewPlan,
-                style: AppType.ui(14, color: t.ink2),
-              ),
-              children: [
-                if (plan.description.isNotEmpty) Text(plan.description),
-                if (plan.goal.isNotEmpty) Text(plan.goal),
-                for (final workout in plan.workouts) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    workout.title,
-                    style: AppType.ui(
-                      16,
-                      weight: FontWeight.w600,
-                      color: t.ink,
-                    ),
-                  ),
-                  if (workout.description.isNotEmpty) Text(workout.description),
-                  TrainingExerciseList(exercises: workout.exercises),
-                ],
-              ],
-            ),
+            _PlanPreviewCard(plan: plan),
+            const SizedBox(height: 20),
             _choices(
               l10n.coachBriefIntent,
               CoachTrainingIntent.values.where(
@@ -346,11 +324,14 @@ class _CoachTrainingBriefState extends State<_CoachTrainingBrief> {
             runSpacing: 8,
             children: [
               for (final value in values)
-                ChoiceChip(
-                  label: Text(title(value)),
-                  selected: value == selected,
-                  onSelected: (_) => onSelect(value),
-                  materialTapTargetSize: MaterialTapTargetSize.padded,
+                // The app's selection chip, held to the 44 px touch floor.
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 44),
+                  child: FilterChipPill(
+                    label: title(value),
+                    selected: value == selected,
+                    onTap: () => onSelect(value),
+                  ),
                 ),
             ],
           ),
@@ -413,6 +394,152 @@ class _CoachTrainingBriefState extends State<_CoachTrainingBrief> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The plan sent along with the brief: a card whose header row names the plan
+/// and opens its workouts below.
+class _PlanPreviewCard extends StatefulWidget {
+  const _PlanPreviewCard({required this.plan});
+
+  final TrainingPlan plan;
+
+  @override
+  State<_PlanPreviewCard> createState() => _PlanPreviewCardState();
+}
+
+class _PlanPreviewCardState extends State<_PlanPreviewCard> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    final plan = widget.plan;
+    const motion = Duration(milliseconds: 180);
+    final header = Semantics(
+      button: true,
+      expanded: _open,
+      label: '${plan.title}, ${l10n.coachBriefPreviewPlan}',
+      child: InkWell(
+        key: const ValueKey('coach-brief-plan-preview'),
+        onTap: () => setState(() => _open = !_open),
+        child: ExcludeSemantics(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 56),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+              child: Row(
+                children: [
+                  // From 1.5x text the tile gives its width to the title.
+                  if (MediaQuery.textScalerOf(context).scale(16) <= 24) ...[
+                    IconTile.custom(
+                      color: t.accent,
+                      size: 40,
+                      child: const AppIcon(AppSymbol.training, size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          plan.title,
+                          style: AppType.ui(
+                            16,
+                            weight: FontWeight.w700,
+                            color: t.ink,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          l10n.coachBriefPreviewPlan,
+                          style: AppType.ui(13, color: t.ink2, height: 1.35),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  AnimatedRotation(
+                    turns: _open ? 0.5 : 0,
+                    duration: motionDuration(context, motion),
+                    curve: kMotionCurve,
+                    child: Icon(
+                      Icons.expand_more_rounded,
+                      size: 22,
+                      color: t.ink2,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    final body = Padding(
+      padding: const EdgeInsets.fromLTRB(14, 0, 14, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Divider(height: 1, thickness: 1, color: t.line),
+          const SizedBox(height: 12),
+          if (plan.description.isNotEmpty)
+            Text(
+              plan.description,
+              style: AppType.ui(14, color: t.ink2, height: 1.45),
+            ),
+          if (plan.goal.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              plan.goal,
+              style: AppType.ui(
+                14,
+                weight: FontWeight.w600,
+                color: t.accentText,
+              ),
+            ),
+          ],
+          for (final workout in plan.workouts) ...[
+            const SizedBox(height: 14),
+            Text(
+              workout.title,
+              style: AppType.ui(15, weight: FontWeight.w700, color: t.ink),
+            ),
+            if (workout.description.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  workout.description,
+                  style: AppType.ui(14, color: t.ink2, height: 1.45),
+                ),
+              ),
+            TrainingExerciseList(exercises: workout.exercises),
+          ],
+        ],
+      ),
+    );
+    return AppCard(
+      clip: true,
+      // Own ink layer: the card's fill would hide the sheet's ripples.
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            header,
+            maybeAnimatedSize(
+              context,
+              duration: motion,
+              curve: kMotionCurve,
+              alignment: Alignment.topCenter,
+              child: _open ? body : const SizedBox(width: double.infinity),
+            ),
+          ],
+        ),
       ),
     );
   }

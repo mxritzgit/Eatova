@@ -369,6 +369,8 @@ class _ItemBreakdownList extends StatelessWidget {
     final items = result.items;
     return Column(
       key: const ValueKey('analyse-item-breakdown'),
+      // Stretched: centred, each row shrank to the width of its own text.
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         for (var index = 0; index < items.length; index++) ...[
           _ItemBreakdownRow(
@@ -521,27 +523,19 @@ class MealResultActions extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        TextButton.icon(
+        SoftPillButton(
           key: const ValueKey('analyse-adjust-button'),
-          onPressed: onAdjust,
-          icon: const Icon(Icons.tune_rounded, size: 18),
-          label: Text(
-            l10n.foodAdjustPortionButton,
-            textAlign: TextAlign.center,
-          ),
+          onTap: onAdjust,
+          icon: Icons.tune_rounded,
+          label: l10n.foodAdjustPortionButton,
+          expand: true,
         ),
-        const SizedBox(height: 6),
-        FilledButton.icon(
+        const SizedBox(height: 10),
+        PrimaryActionButton(
           key: const ValueKey('analyse-add-daily-button'),
-          onPressed: added ? null : onAdd,
-          icon: Icon(added ? Icons.check_circle_rounded : Icons.add_rounded),
-          label: Text(
-            added ? l10n.foodAddedToDailyLabel : l10n.commonAdd,
-            textAlign: TextAlign.center,
-          ),
-          style: FilledButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          ),
+          onTap: added ? null : onAdd,
+          icon: added ? Icons.check_circle_rounded : Icons.add_rounded,
+          label: added ? l10n.foodAddedToDailyLabel : l10n.commonAdd,
         ),
       ],
     );

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/widgets/design/design.dart' show PrimaryActionButton;
 import 'package:eatova/src/widgets/kcal/manual_meal_sheet.dart';
 
 import 'support/harness.dart';
@@ -42,8 +43,8 @@ Future<_ResultHalter> _open(WidgetTester tester) async {
   return halter;
 }
 
-FilledButton _saveButton(WidgetTester tester) =>
-    tester.widget<FilledButton>(find.byKey(const ValueKey('manual-meal-save')));
+PrimaryActionButton _saveButton(WidgetTester tester) => tester
+    .widget<PrimaryActionButton>(find.byKey(const ValueKey('manual-meal-save')));
 
 Future<void> _tippe(WidgetTester tester, String key, String wert) =>
     tester.enterText(find.byKey(ValueKey(key)), wert);
@@ -120,7 +121,7 @@ void main() {
     await _tippe(tester, 'manual-meal-carbs', '1200,5');
     await tester.pump();
     expect(
-      _saveButton(tester).onPressed,
+      _saveButton(tester).onTap,
       isNull,
       reason: '1200,5 g/100 g liegt ueber der DB-Grenze',
     );
@@ -130,7 +131,7 @@ void main() {
     await _tippe(tester, 'manual-meal-carbs', '150');
     await tester.pump();
     expect(
-      _saveButton(tester).onPressed,
+      _saveButton(tester).onTap,
       isNull,
       reason: '150 g Kohlenhydrate in 100 g Lebensmittel gibt es nicht',
     );
@@ -140,18 +141,18 @@ void main() {
     // not silently bent into shape.
     await _tippe(tester, 'manual-meal-carbs', '3,,5');
     await tester.pump();
-    expect(_saveButton(tester).onPressed, isNull);
+    expect(_saveButton(tester).onTap, isNull);
     expect(find.text('0–100 g'), findsOneWidget);
 
     await _tippe(tester, 'manual-meal-carbs', '12,5');
     await tester.pump();
-    expect(_saveButton(tester).onPressed, isNotNull);
+    expect(_saveButton(tester).onTap, isNotNull);
     expect(find.text('0–100 g'), findsNothing);
 
     await _tippe(tester, 'manual-meal-carbs', '100');
     await tester.pump();
     expect(
-      _saveButton(tester).onPressed,
+      _saveButton(tester).onTap,
       isNotNull,
       reason: '100 g/100 g (reiner Zucker) ist die inklusive Grenze',
     );

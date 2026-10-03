@@ -5,8 +5,11 @@ import '../../models/recipe_import_result.dart';
 import '../../theme/app_tokens.dart';
 
 class RecipeImportNutrition extends StatelessWidget {
-  const RecipeImportNutrition({super.key, required this.candidate});
+  const RecipeImportNutrition({super.key, required this.candidate, this.action});
   final RecipeImportCandidate candidate;
+
+  /// Sits right under the tiles (the "correct nutrition" pill).
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +31,8 @@ class RecipeImportNutrition extends StatelessWidget {
         t.protein,
       ),
       (
-        l10n.recipesNutritionCarbsLabel,
+        // The full word: the short "C"/"KH" belongs to dense macro rows.
+        l10n.todayMacroCarbs,
         candidate.carbsG,
         'g',
         t.carbsSurface,
@@ -97,6 +101,10 @@ class RecipeImportNutrition extends StatelessWidget {
             );
           },
         ),
+        if (action != null) ...[
+          const SizedBox(height: 12),
+          Align(alignment: AlignmentDirectional.centerStart, child: action),
+        ],
         if (candidate.nutritionBasisUnclear || !candidate.hasNutrition) ...[
           const SizedBox(height: 12),
           Text(

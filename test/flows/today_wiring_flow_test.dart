@@ -27,6 +27,7 @@ import 'package:eatova/src/screens/today/today_macros.dart';
 import 'package:eatova/src/screens/today/today_progress.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/services/kcal_format.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 import 'package:eatova/src/widgets/kcal/meal_slot_picker.dart';
 
 import '../support/today_design_fixture.dart';
@@ -474,10 +475,10 @@ void main() {
 
       await _tap(tester, 'today-pick');
       expect(find.byType(MealPlanScreen), findsOneWidget);
-      final eat = tester.widget<ButtonStyleButton>(
+      final eat = tester.widget<SoftPillButton>(
         find.byKey(ValueKey('meal-plan-eat-${plan.id}')),
       );
-      expect(eat.onPressed, isNull, reason: 'nothing loggable to eat');
+      expect(eat.onTap, isNull, reason: 'nothing loggable to eat');
       expect(store.mealsForFoodDate(designNow), hasLength(before));
     });
   });

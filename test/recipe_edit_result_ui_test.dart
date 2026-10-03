@@ -4,6 +4,7 @@ import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/recipe_save_result.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
+import 'package:eatova/src/widgets/design/design.dart' show SoftPillButton;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -163,10 +164,10 @@ void main() {
       await tester.pump();
       expect(
         tester
-            .widget<TextButton>(
+            .widget<SoftPillButton>(
               find.byKey(const ValueKey('recipe-detail-edit')),
             )
-            .onPressed,
+            .onTap,
         isNull,
       );
       expect(
@@ -175,10 +176,10 @@ void main() {
       );
       expect(
         tester
-            .widget<TextButton>(
+            .widget<SoftPillButton>(
               find.byKey(const ValueKey('recipe-detail-history')),
             )
-            .onPressed,
+            .onTap,
         isNull,
       );
       handle.publish(
@@ -192,10 +193,10 @@ void main() {
       expect(find.textContaining('no longer available'), findsOneWidget);
       expect(
         tester
-            .widget<TextButton>(
+            .widget<SoftPillButton>(
               find.byKey(const ValueKey('recipe-detail-edit')),
             )
-            .onPressed,
+            .onTap,
         isNull,
       );
       final deletedHistory = find.byKey(

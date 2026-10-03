@@ -120,50 +120,6 @@ void main() {
     });
   });
 
-  group('inlineFavorites', () {
-    test('kInlineFavoritesCount ist 3', () {
-      expect(kInlineFavoritesCount, 3);
-    });
-
-    test('maximal 3, die neuesten gepinnten in Recency-Reihenfolge', () {
-      final all = [
-        _fav('Tag 3', addedAt: DateTime(2026, 8, 3)),
-        _fav('Tag 9', addedAt: DateTime(2026, 8, 9)),
-        _fav('Recent', pinned: false, addedAt: DateTime(2026, 8, 30)),
-        _fav('Tag 1', addedAt: DateTime(2026, 8, 1)),
-        _fav('Tag 7', addedAt: DateTime(2026, 8, 7)),
-        _fav('Tag 5', addedAt: DateTime(2026, 8, 5)),
-      ];
-
-      expect(_names(inlineFavorites(all)), ['Tag 9', 'Tag 7', 'Tag 5']);
-    });
-
-    test('bei weniger als 3 gepinnten kommen alle', () {
-      final all = [
-        _fav('B', addedAt: DateTime(2026, 8, 2)),
-        _fav('Recent', pinned: false, addedAt: DateTime(2026, 8, 30)),
-        _fav('A', addedAt: DateTime(2026, 8, 1)),
-      ];
-
-      expect(_names(inlineFavorites(all)), ['B', 'A']);
-    });
-
-    test('genau 3 gepinnte kommen alle', () {
-      final all = [
-        _fav('A', addedAt: DateTime(2026, 8, 1)),
-        _fav('B', addedAt: DateTime(2026, 8, 2)),
-        _fav('C', addedAt: DateTime(2026, 8, 3)),
-      ];
-
-      expect(_names(inlineFavorites(all)), ['C', 'B', 'A']);
-    });
-
-    test('ohne gepinnte leer', () {
-      expect(inlineFavorites(const []), isEmpty);
-      expect(inlineFavorites([_fav('Recent', pinned: false)]), isEmpty);
-    });
-  });
-
   group('filterFavoritesByQuery', () {
     final favoriten = [
       _fav('Haferdrink', brand: 'Alpro'),

@@ -15,6 +15,7 @@ import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/decimal_text.dart';
 import '../../widgets/design/design.dart';
+import '../../widgets/kcal/food_date_picker.dart';
 
 part 'training_log_fields.dart';
 
@@ -454,15 +455,18 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
     final today = startOfDay(clock.now());
     final first = addDays(today, -TrainingLogLimits.daysBack);
     final current = _day;
-    final picked = await showDatePicker(
-      context: context,
+    // The app's calendar sheet: past days only, back to the log window.
+    final picked = await showFoodDatePicker(
+      context,
       initialDate:
           current == null || current.isBefore(first) || current.isAfter(today)
           ? today
           : current,
       firstDate: first,
+      today: today,
       lastDate: today,
-      currentDate: today,
+      contextLabel: context.l10n.navTraining,
+      confirmLabel: context.l10n.trainingLogUseDay,
     );
     if (mounted && picked != null) _setDay(startOfDay(picked));
   }
@@ -739,7 +743,8 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
           key: const ValueKey('training-log-close'),
           onPressed: _busy ? null : _close,
           tooltip: l10n.trainingPageClose,
-          icon: const Icon(Icons.close_rounded),
+          style: IconButton.styleFrom(backgroundColor: context.t.surf2),
+          icon: Icon(Icons.close_rounded, color: context.t.ink2, size: 21),
         ),
       ],
     );
@@ -812,23 +817,23 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
     bottomGap: gap,
   );
 
+  /// The app's selection chip, held to the 44 px touch floor.
   Widget _chip({
     required String key,
     required String label,
     required bool selected,
     required VoidCallback onTap,
-  }) {
-    final t = context.t;
-    return ChoiceChip(
+    IconData? icon,
+  }) => ConstrainedBox(
+    constraints: const BoxConstraints(minHeight: 44),
+    child: FilterChipPill(
       key: ValueKey(key),
+      label: label,
+      icon: icon,
       selected: selected,
-      label: Text(label),
-      selectedColor: t.lime,
-      checkmarkColor: t.onLime,
-      labelStyle: AppType.ui(14, color: selected ? t.onLime : t.ink2),
-      onSelected: _busy ? null : (_) => onTap(),
-    );
-  }
+      onTap: _busy ? null : onTap,
+    ),
+  );
 
   Widget _dayChips(BuildContext context) {
     final l10n = context.l10n;
@@ -857,6 +862,7 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
           label: other
               ? DateFormat.MMMEd(l10n.localeName).format(day)
               : l10n.trainingLogOtherDay,
+          icon: Icons.calendar_today_rounded,
           selected: other,
           onTap: _pickDay,
         ),
@@ -966,11 +972,12 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
             runSpacing: 8,
             children: [
               for (var i = 0; i < suggestions.length; i++)
-                ActionChip(
+                SoftPillButton(
                   key: ValueKey('$prefix-suggestion-$i'),
-                  avatar: Icon(Icons.history_rounded, size: 16, color: t.ink2),
-                  label: Text(suggestions[i].name),
-                  onPressed: _busy
+                  icon: Icons.history_rounded,
+                  label: suggestions[i].name,
+                  tone: SoftPillTone.neutral,
+                  onTap: _busy
                       ? null
                       : () => _pickName(exercise, suggestions[i]),
                 ),
@@ -1028,9 +1035,9 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
         _freeSetRow(context, exercise, prefix, s),
       Align(
         alignment: AlignmentDirectional.centerStart,
-        child: TextButton.icon(
+        child: SoftPillButton(
           key: ValueKey('$prefix-add-set'),
-          onPressed: _busy || exercise.sets.length >= TrainingLimits.setsMax
+          onTap: _busy || exercise.sets.length >= TrainingLimits.setsMax
               ? null
               : () {
                   // "Add set" repeats the last set (spec B).
@@ -1043,9 +1050,8 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
                   );
                   _changed();
                 },
-          style: TextButton.styleFrom(minimumSize: const Size(0, 48)),
-          icon: const Icon(Icons.add_rounded, size: 20),
-          label: Text(l10n.trainingLogAddSet),
+          icon: Icons.add_rounded,
+          label: l10n.trainingLogAddSet,
         ),
       ),
     ]);

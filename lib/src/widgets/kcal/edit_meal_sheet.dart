@@ -4,8 +4,6 @@ import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
 import '../common/persistence_action.dart';
-import 'package:intl/date_symbol_data_local.dart';
-import 'package:intl/intl.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/logged_meal.dart';
@@ -13,11 +11,12 @@ import '../../models/meal_analysis_result.dart';
 import '../../services/day_math.dart';
 import '../../services/local_day.dart';
 import '../../theme/app_tokens.dart';
-import '../../theme/meal_slot_style.dart';
-import '../common/motion.dart';
+import '../../screens/today/today_day_strip.dart';
 import '../design/design.dart';
 import '../meal/meal_widgets.dart';
+import 'food_date_picker.dart';
 import 'meal_analysis_sheet.dart';
+import 'saved_meal_presentation.dart' show SavedMealNutrients;
 import 'slot_selector.dart';
 
 /// Store callback for the edit sheet: changes portion/components, slot and/or
@@ -206,12 +205,6 @@ class EditMealSheet extends StatefulWidget {
 }
 
 class _EditMealSheetState extends State<EditMealSheet> {
-  /// Days back from today in the chip picker; matches the 35-day boot window
-  /// of MealsSync.loadLoggedMeals. Older targets go through the calendar
-  /// entry: the row stays on the server and the food tab loads that day on
-  /// demand, so a moved meal is outside the boot window, not gone.
-  static const int _pickerDays = 35;
-
   late MealAnalysisResult _result;
   bool _resultChanged = false;
   late MealSlot _slot;
@@ -250,22 +243,22 @@ class _EditMealSheetState extends State<EditMealSheet> {
     });
   }
 
-  /// Calendar for targets beyond the chips, rendered in the active app
-  /// language. Same bounds as the food-tab calendar: two years back, nothing
-  /// in the future. Feeds the same _day state as the chips; saving still runs
-  /// only through updateLoggedMealDetails.
+  /// The app's calendar sheet for days beyond the strip. Same bounds as the
+  /// food-tab calendar: two years back, nothing in the future. Feeds the same
+  /// _day state as the strip; saving still runs only through
+  /// updateLoggedMealDetails.
   Future<void> _pickOtherDay() async {
     final today = DateUtils.dateOnly(clock.now());
     final firstDate = DateTime(today.year - 2, today.month, today.day);
     var initial = _day;
     if (initial.isBefore(firstDate)) initial = firstDate;
     if (initial.isAfter(today)) initial = today;
-    final picked = await showDatePicker(
-      context: context,
+    final picked = await showFoodDatePicker(
+      context,
       initialDate: initial,
       firstDate: firstDate,
-      lastDate: today,
-      helpText: context.l10n.foodDatePickerHelpText,
+      today: today,
+      confirmLabel: context.l10n.foodDatePickerHelpText,
     );
     if (!mounted || picked == null) return;
     setState(() => _day = DateUtils.dateOnly(picked));
@@ -353,19 +346,26 @@ class _EditMealSheetState extends State<EditMealSheet> {
     final t = context.t;
     final l10n = context.l10n;
     // No SheetScaffold: fixed header over a capped scroll area with two footer
-    // actions, and `edit-meal-save-button` must stay a FilledButton because
-    // tests read its `onPressed`.
+    // actions. Own shell (the discard guard needs PopScope and the drag
+    // guard), drawn like showEatovaSheet: bg ground with a 1 px lineStrong
+    // edge that lifts it off the scrim.
+    final today = startOfDay(clock.now());
     return Container(
       key: const ValueKey('edit-meal-sheet'),
       constraints: BoxConstraints(maxHeight: maxHeight),
-      decoration: BoxDecoration(
+      decoration: ShapeDecoration(
         color: t.bg,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(rSheet)),
+        shape: RoundedRectangleBorder(
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(rSheet),
+          ),
+          side: BorderSide(color: t.lineStrong),
+        ),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const _SheetHandle(),
+          SheetHandle(onDismiss: () => Navigator.of(context).maybePop()),
           _Header(
             slot: _slot,
             mealName: _result.resolvedMealName(context.l10n),
@@ -392,28 +392,12 @@ class _EditMealSheetState extends State<EditMealSheet> {
                       style: AppType.ui(13.5, color: t.ink2, height: 1.4),
                     )
                   else
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        key: const ValueKey('edit-meal-adjust-button'),
-                        onPressed: _adjustPortion,
-                        icon: const Icon(Icons.tune_rounded, size: 17),
-                        label: Text(
-                          l10n.foodAdjustPortionButton,
-                          style: AppType.ui(13.5, weight: FontWeight.w600),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: t.ink,
-                          side: BorderSide(color: t.line),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(rControl),
-                          ),
-                        ),
-                      ),
+                    SoftPillButton(
+                      key: const ValueKey('edit-meal-adjust-button'),
+                      onTap: _adjustPortion,
+                      icon: Icons.tune_rounded,
+                      label: l10n.foodAdjustPortionButton,
+                      expand: true,
                     ),
                   const SizedBox(height: 18),
                   _SectionLabel(l10n.foodSectionMeal),
@@ -427,43 +411,44 @@ class _EditMealSheetState extends State<EditMealSheet> {
                   const SizedBox(height: 18),
                   _SectionLabel(l10n.foodSectionDay),
                   const SizedBox(height: 8),
-                  _DayPicker(
-                    selected: _day,
-                    pastDays: _pickerDays,
-                    onSelected: (day) => setState(() => _day = day),
-                    onCalendarTap: _pickOtherDay,
+                  TodayDayStrip(
+                    key: const ValueKey('edit-meal-day-picker'),
+                    selectedDate: _day,
+                    today: today,
+                    // The calendar's bound: two years back.
+                    firstDate: DateTime(today.year - 2, today.month, today.day),
+                    onSelected: (day) =>
+                        setState(() => _day = startOfDay(day)),
                   ),
-                  const SizedBox(height: 20),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(
-                      key: const ValueKey('edit-meal-save-button'),
-                      onPressed: _dirty && !_saving ? _save : null,
-                      icon: const Icon(Icons.check_rounded, size: 17),
-                      // No styleFrom: fill, ink and shape come from the
-                      // app-wide filledButtonTheme (review F8-10).
-                      label: Text(
-                        l10n.commonSave,
-                        style: AppType.ui(14, weight: FontWeight.w600),
-                      ),
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: SoftPillButton(
+                      key: const ValueKey('edit-day-calendar'),
+                      onTap: _pickOtherDay,
+                      icon: Icons.calendar_month_rounded,
+                      label:
+                          '${l10n.foodOtherDateLine1} ${l10n.foodOtherDateLine2}',
+                      semanticLabel: l10n.foodOtherDateCalendarSemantics,
+                      tone: SoftPillTone.neutral,
                     ),
                   ),
+                  const SizedBox(height: 22),
+                  PrimaryActionButton(
+                    key: const ValueKey('edit-meal-save-button'),
+                    onTap: _dirty && !_saving ? _save : null,
+                    icon: Icons.check_rounded,
+                    label: l10n.commonSave,
+                  ),
                   if (widget.onRemoveMeal != null) ...[
-                    const SizedBox(height: 6),
-                    Center(
-                      child: TextButton.icon(
-                        key: const ValueKey('edit-meal-delete-button'),
-                        onPressed: _delete,
-                        style: TextButton.styleFrom(foregroundColor: t.danger),
-                        icon: const Icon(
-                          Icons.delete_outline_rounded,
-                          size: 16,
-                        ),
-                        label: Text(
-                          l10n.foodDeleteMealButton,
-                          style: AppType.ui(13, weight: FontWeight.w600),
-                        ),
-                      ),
+                    const SizedBox(height: 10),
+                    SoftPillButton(
+                      key: const ValueKey('edit-meal-delete-button'),
+                      onTap: _saving ? null : _delete,
+                      icon: Icons.delete_outline_rounded,
+                      label: l10n.foodDeleteMealButton,
+                      tone: SoftPillTone.danger,
+                      expand: true,
                     ),
                   ],
                 ],
@@ -471,25 +456,6 @@ class _EditMealSheetState extends State<EditMealSheet> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _SheetHandle extends StatelessWidget {
-  const _SheetHandle();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 10, bottom: 6),
-      child: Container(
-        width: 40,
-        height: 4,
-        decoration: BoxDecoration(
-          color: context.t.line,
-          borderRadius: BorderRadius.circular(rPill),
-        ),
       ),
     );
   }
@@ -510,27 +476,29 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
-    final color = slot.accentIn(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 8, 12),
+      padding: const EdgeInsets.fromLTRB(20, 4, 16, 14),
       child: Row(
         children: [
-          MealAvatar(letter: slot.initial(l10n), color: color, size: 36),
+          SlotIconTile(slot: slot, size: 40),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  l10n.foodEditMealTitle,
-                  style: AppType.display(18, color: t.ink),
+                HeadingSemantics(
+                  level: 1,
+                  child: Text(
+                    l10n.foodEditMealTitle,
+                    style: AppType.display(22, color: t.ink, height: 1.15),
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   mealName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
+                  style: AppType.ui(13, weight: FontWeight.w500, color: t.ink2),
                 ),
               ],
             ),
@@ -539,7 +507,8 @@ class _Header extends StatelessWidget {
             key: const ValueKey('edit-meal-sheet-close'),
             onPressed: onClose,
             tooltip: l10n.commonClose,
-            icon: Icon(Icons.close_rounded, color: t.ink2),
+            style: IconButton.styleFrom(backgroundColor: t.surf2),
+            icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
           ),
         ],
       ),
@@ -557,11 +526,7 @@ class _SummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return AppCard(
-      key: const ValueKey('edit-meal-summary'),
-      radius: rCard,
-      padding: const EdgeInsets.all(14),
-      child: Row(
+    final row = Row(
         children: [
           Icon(Icons.local_fire_department_outlined, color: t.accent, size: 18),
           const SizedBox(width: 10),
@@ -584,6 +549,21 @@ class _SummaryCard extends StatelessWidget {
             ),
           ),
         ],
+      );
+    return AppCard(
+      key: const ValueKey('edit-meal-summary'),
+      radius: rCard,
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          row,
+          // Empty (no "P 0 g") when no macro is known.
+          Padding(
+            padding: const EdgeInsets.only(left: 28, top: 8),
+            child: SavedMealNutrients(result: result),
+          ),
+        ],
       ),
     );
   }
@@ -599,256 +579,6 @@ class _SectionLabel extends StatelessWidget {
     return Text(
       text.toUpperCase(),
       style: AppType.eyebrow(context.t.ink2, size: 11),
-    );
-  }
-}
-
-/// One-time init of the `intl` date symbols — the same bool guard as in
-/// `meal_analysis_screen.dart`/`today_texts.dart`, which are file-private and
-/// therefore not reusable.
-bool _dateSymbolsReady = false;
-void _ensureDateSymbols() {
-  if (_dateSymbolsReady) return;
-  initializeDateFormatting();
-  _dateSymbolsReady = true;
-}
-
-/// A chip's date line, locale-aware via `intl`'s `Md` skeleton ("27.8." in
-/// `de`, "8/27" in `en`) — the same format the store's move snack uses.
-@visibleForTesting
-String editMealDayChipDate({
-  required DateTime date,
-  required AppLocalizations l10n,
-}) {
-  _ensureDateSymbols();
-  return DateFormat.Md(l10n.localeName).format(date);
-}
-
-/// The chip picker's days: [count] calendar days down from [today] (today
-/// first), plus [selected] if it falls outside that window.
-///
-/// Calendar arithmetic, not `Duration`: across a DST switch a 23-hour day
-/// makes `subtract(Duration(days: 1))` land on the previous day at 23:00, so
-/// one date became unreachable and a meal moved to it was stored a day early.
-///
-/// [count] is the NUMBER of days, not the offset to the oldest;
-/// [recentDaysDescending] takes the count directly and cannot miscount.
-@visibleForTesting
-List<DateTime> editMealPickerDays({
-  required DateTime today,
-  required int count,
-  DateTime? selected,
-}) {
-  final days = List<DateTime>.of(
-    recentDaysDescending(today: today, count: count),
-  );
-  if (selected != null && !days.any((d) => DateUtils.isSameDay(d, selected))) {
-    days.add(startOfDay(selected));
-  }
-  return days;
-}
-
-/// Label of a day chip.
-///
-/// [daysBetween] works on `(y, m, d)` triples in UTC, so DST cannot make
-/// yesterday read as "today" (a 23-hour gap gives `inDays == 0`).
-///
-/// Uses `intl`'s `EE` skeleton. German CLDR abbreviations carry a trailing
-/// period, stripped so `de` stays byte-identical.
-@visibleForTesting
-String editMealDayChipLabel({
-  required DateTime today,
-  required DateTime date,
-  required AppLocalizations l10n,
-}) {
-  final offset = daysBetween(today, date);
-  if (offset == 0) return l10n.todayDateToday;
-  if (offset == 1) return l10n.todayDateYesterday;
-  _ensureDateSymbols();
-  return DateFormat('EE', l10n.localeName).format(date).replaceAll('.', '');
-}
-
-/// Horizontal chip picker over the last [pastDays] days (today first). The
-/// last entry ([onCalendarTap]) opens showDatePicker for targets beyond the
-/// chips.
-class _DayPicker extends StatelessWidget {
-  const _DayPicker({
-    required this.selected,
-    required this.pastDays,
-    required this.onSelected,
-    required this.onCalendarTap,
-  });
-
-  final DateTime selected;
-  final int pastDays;
-  final ValueChanged<DateTime> onSelected;
-  final VoidCallback onCalendarTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final l10n = context.l10n;
-    final today = startOfDay(clock.now());
-    // Calendar arithmetic, not absolute time — see [editMealPickerDays].
-    final days = editMealPickerDays(
-      today: today,
-      count: pastDays,
-      selected: selected,
-    );
-
-    // A horizontal ListView gives children a tight cross axis, so this is also
-    // each chip's height. Fixed, the padding left 40 px for two scaling text
-    // lines and chips overflowed around 1.4x system text. Same technique as
-    // [MacroBar]: scale along, capped so the strip does not eat half the sheet
-    // at 2.0. At normal text size it stays exactly 58.
-    final scaler = MediaQuery.textScalerOf(context);
-    final hoehe = scaler.scale(58).clamp(58.0, 100.0);
-
-    return SizedBox(
-      key: const ValueKey('edit-meal-day-picker'),
-      height: hoehe,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        // +1 for the calendar entry at the end.
-        itemCount: days.length + 1,
-        separatorBuilder: (context, _) => const SizedBox(width: 6),
-        itemBuilder: (context, index) {
-          if (index == days.length) {
-            return _CalendarChip(onTap: onCalendarTap);
-          }
-          final date = days[index];
-          final isSelected = DateUtils.isSameDay(date, selected);
-          // Same a11y pattern as the food-tab date chips: button + state.
-          return Semantics(
-            button: true,
-            selected: isSelected,
-            child: InkWell(
-              key: ValueKey('edit-day-chip-$index'),
-              onTap: () => onSelected(date),
-              borderRadius: BorderRadius.circular(rControl),
-              child: AnimatedContainer(
-                duration: motionDuration(
-                  context,
-                  const Duration(milliseconds: 160),
-                ),
-                curve: Curves.easeOut,
-                width: 64,
-                padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
-                // [SelectionTone], byte for byte the food tab's date chip:
-                // `forest` is itself a dark surface in dark mode, so the
-                // picked day sat at 1.33:1 on `surf` and its number at 1.04:1
-                // against an unpicked one (P9-02c). Ring in the fill colour,
-                // so the geometry does not depend on the state.
-                decoration: BoxDecoration(
-                  color: isSelected ? t.selectedFill : t.surf,
-                  borderRadius: BorderRadius.circular(rControl),
-                  border: Border.all(
-                    color: isSelected ? t.selectedFill : t.line,
-                  ),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      editMealDayChipLabel(
-                        today: today,
-                        date: date,
-                        l10n: l10n,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppType.ui(
-                        10.5,
-                        weight: FontWeight.w700,
-                        // Opacity carries the hierarchy, not a second hue:
-                        // `lime` on the `ink` fill is 1.07:1 in dark mode.
-                        color: isSelected
-                            ? t.onSelected.withValues(alpha: 0.78)
-                            : t.ink2,
-                        letterSpacing: 0.1,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      // Locale-aware like the store's snack ("28.3." vs
-                      // "3/28"), not a hardcoded German pattern.
-                      editMealDayChipDate(date: date, l10n: l10n),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppType.display(
-                        11.5,
-                        weight: FontWeight.w700,
-                        color: isSelected ? t.onSelected : t.ink,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-/// Trailing entry of the day picker: same chip shape, opens the calendar for
-/// targets beyond the 35 days.
-class _CalendarChip extends StatelessWidget {
-  const _CalendarChip({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    // A11y: the two-line label reads chopped up, so announce one button with
-    // a clear action.
-    final l10n = context.l10n;
-    return Semantics(
-      button: true,
-      label: l10n.foodOtherDateCalendarSemantics,
-      child: InkWell(
-        key: const ValueKey('edit-day-calendar'),
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(rControl),
-        child: Container(
-          width: 72,
-          padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
-          decoration: BoxDecoration(
-            color: t.surf,
-            borderRadius: BorderRadius.circular(rControl),
-            border: Border.all(color: t.line),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                l10n.foodOtherDateLine1,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppType.ui(
-                  10.5,
-                  weight: FontWeight.w700,
-                  color: t.ink2,
-                  letterSpacing: 0.1,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                l10n.foodOtherDateLine2,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppType.display(
-                  11.5,
-                  weight: FontWeight.w700,
-                  color: t.ink,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

@@ -349,11 +349,6 @@ class _AddMealSheetState extends State<AddMealSheet> {
 
   String? _expandedItemKey;
   final Set<String> _justAddedKeys = <String>{};
-
-  /// Order of the inline favorites frozen while an add's check shows, so a
-  /// second tap on the same "+" adds the same food again instead of the
-  /// one that moved under the finger (an add bumps its row to the top).
-  List<String>? _heldPinnedOrder;
   final Map<String, Timer> _justAddedTimers = <String, Timer>{};
 
   // The slot is sheet state, not a fixed input: it defaults to the passed
@@ -1007,7 +1002,6 @@ class _AddMealSheetState extends State<AddMealSheet> {
     }
 
     if (!_savingItems.add(itemKey)) return;
-    _heldPinnedOrder ??= [for (final f in _pinned) f.id];
     final rowsTop = _belowAddedTop();
     final slot = _selectedSlot;
     final saved = await tryPersistChange(context, () async {
@@ -1032,10 +1026,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
     _justAddedTimers[itemKey] = Timer(_justAddedFadeDelay, () {
       _justAddedTimers.remove(itemKey);
       if (!mounted) return;
-      setState(() {
-        _justAddedKeys.remove(itemKey);
-        if (_justAddedKeys.isEmpty) _heldPinnedOrder = null;
-      });
+      setState(() => _justAddedKeys.remove(itemKey));
     });
   }
 
@@ -1320,60 +1311,24 @@ class _AddMealSheetState extends State<AddMealSheet> {
 
   List<FavoriteMeal> get _pinned => pinnedFavoritesByRecency(_favorites);
 
-  /// [_pinned], in [_heldPinnedOrder] while one is held; pins that arrived
-  /// meanwhile follow in recency order.
-  List<FavoriteMeal> get _pinnedForDisplay {
-    final pinned = _pinned;
-    final held = _heldPinnedOrder;
-    if (held == null) return pinned;
-    int place(FavoriteMeal f) {
-      final i = held.indexOf(f.id);
-      return i == -1 ? held.length : i;
-    }
-
-    final indexed = [for (var i = 0; i < pinned.length; i++) (i, pinned[i])];
-    indexed.sort((a, b) {
-      final byHold = place(a.$2).compareTo(place(b.$2));
-      return byHold != 0 ? byHold : a.$1.compareTo(b.$1);
-    });
-    return [for (final (_, f) in indexed) f];
-  }
   List<FavoriteMeal> get _recents =>
       _favorites.where((f) => !f.pinned).toList(growable: false);
 
-  /// Favorites section (feature 2026-08-27): only the top
-  /// [kInlineFavoritesCount] pinned by recency sit inline, the rest live in
-  /// the favorites sheet behind the "All (N)" button. A long pinned list used
-  /// to push search results and recents off screen; the button shows from the
-  /// first pinned favorite on so unpinning stays reachable.
+  /// Favorites and recents: one row opens the favorites menu (all pinned
+  /// favorites, search, sorting, one-tap add); the auto recents follow.
   Widget _buildFavorites() {
     if (_favorites.isEmpty) {
       return const _EmptyState();
     }
-    // One sort for both count and slice (inlineFavorites would sort again).
-    final pinned = _pinnedForDisplay;
-    final pinnedCount = pinned.length;
-    final inline = pinned.take(kInlineFavoritesCount).toList(growable: false);
+    // Owner decision 2026-10-03: no inline top 3 any more; one row leads to
+    // the favorites menu, which holds all of them.
+    final pinnedCount = _pinned.length;
     final recents = _recents;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (inline.isNotEmpty) ...[
-          _SectionLabel(
-            context.l10n.foodSectionFavorites,
-            trailing: _FavoritesAllButton(
-              count: pinnedCount,
-              onTap: _openFavoritesSheet,
-            ),
-          ),
-          const SizedBox(height: _kLabelGap),
-          SavedMealCollection(
-            dividerInset: kSavedMealDividerInset,
-            children: [
-              for (var i = 0; i < inline.length; i++)
-                _favoriteItem(inline[i], i, pinned: true),
-            ],
-          ),
+        if (pinnedCount > 0) ...[
+          _FavoritesEntryRow(count: pinnedCount, onTap: _openFavoritesSheet),
           if (recents.isNotEmpty) const SizedBox(height: _kSectionGap),
         ],
         if (recents.isNotEmpty) ...[
@@ -1382,7 +1337,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
           SavedMealCollection(
             children: [
               for (var i = 0; i < recents.length; i++)
-                _favoriteItem(recents[i], i, pinned: false),
+                _recentItem(recents[i], i),
             ],
           ),
         ],
@@ -1390,35 +1345,24 @@ class _AddMealSheetState extends State<AddMealSheet> {
     );
   }
 
-  Widget _favoriteItem(
-    FavoriteMeal favorite,
-    int index, {
-    required bool pinned,
-  }) {
+  Widget _recentItem(FavoriteMeal favorite, int index) {
     final key = 'favorite:${favorite.id}';
-    // Stable per-section keys: pinned -> favorite-pinned-*, recents keep the
-    // existing favorite-tile-* key (tests pin it).
-    final tileKey = pinned ? 'favorite-pinned-$index' : 'favorite-tile-$index';
-    final addKey = pinned
-        ? 'favorite-pinned-add-$index'
-        : 'favorite-tile-add-$index';
+    // Tests pin the favorite-tile-* keys.
+    final tileKey = 'favorite-tile-$index';
     return MealSuggestionItem(
       key: ValueKey(tileKey),
-      savedPresentation: pinned,
       result: favorite.result,
       expanded: _expandedItemKey == key,
       justAdded: _justAddedKeys.contains(key),
       onTap: () => _toggleExpanded(key),
       onAdd: (result) => _handleAdd(key, result),
       onRemove: () => _removeFavorite(favorite.id),
-      addButtonKey: ValueKey(addKey),
+      addButtonKey: ValueKey('favorite-tile-add-$index'),
       isFavorite: favorite.pinned,
       onToggleFavorite: widget.onToggleFavorite == null
           ? null
           : (result) => _handleToggleFavorite(result),
       favoriteButtonKey: ValueKey('$tileKey-fav'),
-      quickAddSlotLabel: pinned ? _selectedSlot.label(context.l10n) : null,
-      quickAddKey: pinned ? ValueKey('favorite-pinned-quick-$index') : null,
     );
   }
 
@@ -1494,7 +1438,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
   }
 
   /// Mirrors the store's "last used" bump (`_rememberRecent`) into the local
-  /// copy, so the inline top 3 follow "most recently used first" within this
+  /// copy, so the recents follow "most recently used first" within this
   /// sheet session too (review A, 2026-08-27).
   ///
   /// Like the store: the entry is REBUILT from the logged result and moves to
@@ -1812,8 +1756,10 @@ class _SectionLabel extends StatelessWidget {
 /// "All (N)" link on the favorites section head (feature 2026-08-27). Bare
 /// accent text plus chevron, no capsule: it sits beside an eyebrow label and
 /// must not compete with the rows. The 48 px minimum keeps the tap target.
-class _FavoritesAllButton extends StatelessWidget {
-  const _FavoritesAllButton({required this.count, required this.onTap});
+/// The way into the favorites menu (2026-10-03): a row in the entry-method
+/// style with a heart tile, "Favorites" and how many are saved.
+class _FavoritesEntryRow extends StatelessWidget {
+  const _FavoritesEntryRow({required this.count, required this.onTap});
 
   final int count;
   final VoidCallback onTap;
@@ -1821,40 +1767,74 @@ class _FavoritesAllButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final label = context.l10n.foodFavoritesAllButton(count);
+    final l10n = context.l10n;
+    final title = l10n.foodSectionFavorites;
+    final subtitle = l10n.foodFavoritesEntryCount(count);
     return Semantics(
+      container: true,
       button: true,
-      label: label,
+      label: '$title, $subtitle',
       // excludeSemantics drops InkWell's own tap action, so a screen reader
       // needs it re-declared here (review B, 2026-08-27).
       onTap: onTap,
       excludeSemantics: true,
-      child: InkWell(
-        key: const ValueKey('add-meal-favorites-all'),
-        borderRadius: BorderRadius.circular(rPill),
-        onTap: onTap,
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 48),
-          padding: const EdgeInsets.only(left: 12, right: 4),
-          alignment: Alignment.centerRight,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                label,
-                style: AppType.ui(
-                  13.5,
-                  weight: FontWeight.w700,
-                  color: t.accentText,
-                ),
+      child: PressScale(
+        scale: kPressScaleCard,
+        child: Material(
+          color: t.surf,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(rCard),
+            side: BorderSide(color: t.cardBorder),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            key: const ValueKey('add-meal-favorites-all'),
+            onTap: onTap,
+            child: Container(
+              constraints: const BoxConstraints(minHeight: 64),
+              // The geometry of the entry-method rows: 16 inset, 40 tile.
+              padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: t.accentTint,
+                      borderRadius: BorderRadius.circular(rChip),
+                    ),
+                    child: Icon(
+                      Icons.favorite_rounded,
+                      size: 20,
+                      color: t.accentText,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: AppType.ui(
+                            15,
+                            weight: FontWeight.w600,
+                            color: t.ink,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          style: AppType.ui(12.5, color: t.ink2, height: 1.3),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(Icons.chevron_right_rounded, size: 22, color: t.ink3),
+                ],
               ),
-              const SizedBox(width: 4),
-              FoodGlyphIcon(
-                FoodGlyph.chevronRight,
-                size: 16,
-                color: t.accentText,
-              ),
-            ],
+            ),
           ),
         ),
       ),

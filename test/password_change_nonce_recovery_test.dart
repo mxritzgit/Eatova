@@ -8,6 +8,7 @@ import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/widgets/design/sheets.dart';
+import 'package:eatova/src/widgets/design/soft_actions.dart';
 
 import 'support/harness.dart';
 
@@ -155,14 +156,14 @@ void main() {
               'SamePassword99',
             );
             final resend = find.byKey(const ValueKey('password-change-resend'));
-            expect(tester.widget<TextButton>(resend).onPressed, isNull);
+            expect(tester.widget<SoftPillButton>(resend).onTap, isNull);
             await advance(const Duration(seconds: 61));
             await tap(resend);
             if (throttle) {
               expect(repo.sends, 2);
-              expect(tester.widget<TextButton>(resend).onPressed, isNull);
+              expect(tester.widget<SoftPillButton>(resend).onTap, isNull);
               await advance(const Duration(seconds: 119));
-              expect(tester.widget<TextButton>(resend).onPressed, isNull);
+              expect(tester.widget<SoftPillButton>(resend).onTap, isNull);
               await advance(const Duration(seconds: 2));
               await tap(resend);
             }

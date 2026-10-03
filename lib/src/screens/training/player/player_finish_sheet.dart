@@ -75,16 +75,16 @@ class _FinishSheet extends StatelessWidget {
       String label,
       PlayerFinishChoice choice, {
       bool enabled = true,
-    }) => TextButton(
+    }) => SoftPillButton(
       key: ValueKey('training-finish-$id'),
-      onPressed: enabled ? () => choose(choice) : null,
-      style: TextButton.styleFrom(
-        foregroundColor: choice == PlayerFinishChoice.discard
-            ? t.danger
-            : t.ink,
-        minimumSize: const Size.fromHeight(48),
-      ),
-      child: Text(label, textAlign: TextAlign.center),
+      label: label,
+      onTap: enabled ? () => choose(choice) : null,
+      tone: switch (choice) {
+        PlayerFinishChoice.discard => SoftPillTone.danger,
+        PlayerFinishChoice.logRest => SoftPillTone.accent,
+        _ => SoftPillTone.neutral,
+      },
+      expand: true,
     );
 
     final nothing = completed == 0;
@@ -159,12 +159,14 @@ class _FinishSheet extends StatelessWidget {
               ],
             ],
             const SizedBox(height: 8),
-            if (nothing)
+            if (nothing) ...[
               secondary(
                 'discard',
                 l.trainingTimerDiscard,
                 PlayerFinishChoice.discard,
               ),
+              const SizedBox(height: 8),
+            ],
             secondary(
               'keep',
               l.trainingTimerKeepTraining,

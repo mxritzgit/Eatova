@@ -10,6 +10,7 @@ import 'package:eatova/src/models/training_plan_head.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
+import 'package:eatova/src/widgets/design/soft_actions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -425,10 +426,10 @@ void main() {
         tester,
         () =>
             tester
-                .widget<TextButton>(
+                .widget<SoftPillButton>(
                   find.byKey(const ValueKey('training-review-adoption')),
                 )
-                .onPressed !=
+                .onTap !=
             null,
       );
       expect(find.byKey(const ValueKey('training-editor-save')), findsNothing);
@@ -505,10 +506,10 @@ void main() {
         tester,
         () =>
             tester
-                .widget<TextButton>(
+                .widget<SoftPillButton>(
                   find.byKey(const ValueKey('training-review-adoption')),
                 )
-                .onPressed !=
+                .onTap !=
             null,
       );
       expect(find.byKey(const ValueKey('training-editor-save')), findsNothing);

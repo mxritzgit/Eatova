@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
@@ -11,6 +12,7 @@ import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
+import 'support/recipe_navigation.dart';
 
 // D5: sheets discard filled-in forms silently.
 //
@@ -101,8 +103,8 @@ Future<void> _dragSheetDown(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-FilledButton _saveButton(WidgetTester tester) =>
-    tester.widget<FilledButton>(find.byKey(const ValueKey('recipe-create-save')));
+PrimaryActionButton _saveButton(WidgetTester tester) =>
+    tester.widget(find.byKey(const ValueKey('recipe-create-save')));
 
 void main() {
   group('D5 — Verwerfen-Schutz', () {
@@ -309,10 +311,10 @@ void main() {
         (tester) async {
       final capture = _CreateCapture();
       await _openSheet(tester, capture);
-      expect(_saveButton(tester).onPressed, isNull);
+      expect(_saveButton(tester).onTap, isNull);
 
       await fuelleGueltig(tester);
-      expect(_saveButton(tester).onPressed, isNotNull);
+      expect(_saveButton(tester).onTap, isNotNull);
     });
 
     // Bounds and error texts derive from LoggedMealLimits. The sheet mirrors
@@ -333,7 +335,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(isValidMealCaloriesKcal(50000), isFalse);
-      expect(_saveButton(tester).onPressed, isNull);
+      expect(_saveButton(tester).onTap, isNull);
       expect(find.text('1–$kcalMax kcal'), findsOneWidget);
       expect(capture.created, isEmpty);
     });
@@ -346,13 +348,13 @@ void main() {
 
       await _tippe(tester, 'recipe-create-kcal', '$kcalMax');
       await tester.pumpAndSettle();
-      expect(_saveButton(tester).onPressed, isNotNull);
+      expect(_saveButton(tester).onTap, isNotNull);
       expect(find.text('1–$kcalMax kcal'), findsNothing);
 
       // Exactly one above flips it.
       await _tippe(tester, 'recipe-create-kcal', '${kcalMax + 1}');
       await tester.pumpAndSettle();
-      expect(_saveButton(tester).onPressed, isNull);
+      expect(_saveButton(tester).onTap, isNull);
     });
 
     testWidgetsRobust('0 Gramm wird abgelehnt (Division in adjustedToGrams)',
@@ -365,7 +367,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(isPlausiblePortionGrams(0), isFalse);
-      expect(_saveButton(tester).onPressed, isNull);
+      expect(_saveButton(tester).onTap, isNull);
       expect(find.text('1–$gramsMax g'), findsOneWidget);
     });
 
@@ -377,7 +379,7 @@ void main() {
       await _tippe(tester, 'recipe-create-grams', '${gramsMax + 1}');
       await tester.pumpAndSettle();
 
-      expect(_saveButton(tester).onPressed, isNull);
+      expect(_saveButton(tester).onTap, isNull);
       expect(find.text('1–$gramsMax g'), findsOneWidget);
     });
 
@@ -393,13 +395,13 @@ void main() {
       ]) {
         await _tippe(tester, key, '${macroMax + 1}');
         await tester.pumpAndSettle();
-        expect(_saveButton(tester).onPressed, isNull, reason: key);
+        expect(_saveButton(tester).onTap, isNull, reason: key);
         expect(find.text('0–$macroMax g'), findsOneWidget, reason: key);
 
         // Empty means "not stated" and is allowed.
         await _tippe(tester, key, '');
         await tester.pumpAndSettle();
-        expect(_saveButton(tester).onPressed, isNotNull, reason: key);
+        expect(_saveButton(tester).onTap, isNotNull, reason: key);
       }
     });
 
@@ -413,7 +415,7 @@ void main() {
       await _tippe(tester, 'recipe-create-kcal', '520');
       await tester.pumpAndSettle();
 
-      expect(_saveButton(tester).onPressed, isNotNull);
+      expect(_saveButton(tester).onTap, isNotNull);
       await tester.tap(find.byKey(const ValueKey('recipe-create-save')));
       await tester.pumpAndSettle();
 
@@ -441,7 +443,7 @@ void main() {
         await _tippe(tester, key, '${LoggedMealLimits.macroGMax.toInt()}');
       }
       await tester.pumpAndSettle();
-      expect(_saveButton(tester).onPressed, isNotNull);
+      expect(_saveButton(tester).onTap, isNotNull);
       await tester.tap(find.byKey(const ValueKey('recipe-create-save')));
       await tester.pumpAndSettle();
 
@@ -455,5 +457,115 @@ void main() {
       expect(isValidMealMacroG(rezept.carbsG), isTrue);
       expect(isValidMealMacroG(rezept.fatG), isTrue);
     });
+  });
+
+  testWidgetsRobust(
+      '„Aus Zutaten berechnen" ist eine Zeile, die ihren Schaltzustand ansagt',
+      (tester) async {
+    final semantics = tester.ensureSemantics();
+    await _openSheet(tester, _CreateCapture());
+    final zeile = find.byKey(const ValueKey('recipe-create-structured'));
+    await tester.ensureVisible(zeile);
+    await tester.pumpAndSettle();
+    expect(
+      tester.getSemantics(zeile),
+      isSemantics(
+        label: '${deL10n.recipeEditCalculateIngredients}\n'
+            '${deL10n.recipeEditCalculateHint}',
+        hasToggledState: true,
+        isToggled: false,
+        hasTapAction: true,
+      ),
+    );
+
+    await tester.tap(zeile);
+    await tester.pumpAndSettle();
+    expect(
+      tester.getSemantics(zeile),
+      isSemantics(hasToggledState: true, isToggled: true),
+    );
+    expect(find.byKey(const ValueKey('ingredient-add')), findsOneWidget);
+    semantics.dispose();
+  });
+
+  group('Live-Vorschau oben im Sheet', () {
+    final vorschau = find.byKey(const ValueKey('recipe-create-preview'));
+
+    String zeile(WidgetTester tester, String key) {
+      final text = tester.widget<Text>(
+        find.byKey(ValueKey('recipe-create-preview-$key')),
+      );
+      return text.data ?? text.textSpan!.toPlainText();
+    }
+
+    Finder inVorschau(String text) =>
+        find.descendant(of: vorschau, matching: find.text(text));
+
+    testWidgetsRobust('fuellt sich beim Tippen mit Name, kcal und Makros',
+        (tester) async {
+      final capture = _CreateCapture();
+      await _openSheet(tester, capture);
+      expect(zeile(tester, 'name'), deL10n.recipesPreviewNamePlaceholder);
+      expect(zeile(tester, 'kcal'), startsWith('– kcal'));
+      expect(inVorschau(deL10n.foodMacroProteinShort('–')), findsOneWidget);
+
+      await _tippe(tester, 'recipe-create-name', 'Protein-Bowl');
+      await _tippe(tester, 'recipe-create-kcal', '520');
+      await _tippe(tester, 'recipe-create-protein', '38');
+      await _tippe(tester, 'recipe-create-carbs', '54');
+      await _tippe(tester, 'recipe-create-fat', '14');
+
+      expect(zeile(tester, 'name'), 'Protein-Bowl');
+      expect(zeile(tester, 'kcal'), startsWith('520 kcal'));
+      expect(inVorschau(deL10n.foodMacroProteinShort('38 g')), findsOneWidget);
+      expect(inVorschau(deL10n.foodMacroCarbsShort('54 g')), findsOneWidget);
+      expect(inVorschau(deL10n.foodMacroFatShort('14 g')), findsOneWidget);
+    });
+
+    // The card sits ABOVE the fields: if it grew while typing, the field
+    // being edited would jump and lose the keyboard's scroll-into-view
+    // (creation_editors_test went red at 320 px / 2x when the name wrapped).
+    for (final (breite, skala) in const [(320.0, 2.0), (320.0, 1.0), (390.0, 1.0)]) {
+      testWidgetsRobust(
+          'behaelt ihre Hoehe beim Tippen ($breite px, ${skala}x)',
+          (tester) async {
+        await pumpLocalized(
+          tester,
+          RecipesScreen(
+            onAddMeal: (MealAnalysisResult _, MealSlot __) {},
+            onCreateRecipe: _CreateCapture().add,
+          ),
+          surfaceSize: Size(breite, 700),
+          textScale: skala,
+        );
+        await openRecipeCreateSheet(tester);
+        const makros = <String>[
+          'recipe-create-protein',
+          'recipe-create-carbs',
+          'recipe-create-fat',
+        ];
+        Future<double> hoeheMit(String name, String kcal, String makro) async {
+          await _tippe(tester, 'recipe-create-name', name);
+          await _tippe(tester, 'recipe-create-kcal', kcal);
+          for (final key in makros) {
+            await _tippe(tester, key, makro);
+          }
+          return tester.getSize(vorschau).height;
+        }
+
+        final leer = tester.getSize(vorschau).height;
+        // Shortest and longest content: one line of name either way.
+        final kurz = await hoeheMit('A', '1', '1');
+        final lang = await hoeheMit(
+          'Ofengemüse mit Feta, Kichererbsen und Joghurt-Dip',
+          '10000',
+          '1000',
+        );
+
+        expect(kurz, leer);
+        expect(lang, leer);
+        expect(tester.takeException(), isNull);
+      });
+    }
   });
 }

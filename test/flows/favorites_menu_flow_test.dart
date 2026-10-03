@@ -1,6 +1,6 @@
 // Favorites menu flows (feature 2026-08-27): the add sheet's "All (N)" button
 // opens the favorites sheet. Adding there logs into the slot chosen in the
-// add sheet, unpinning there flows back into the inline top 3 and the store,
+// add sheet, unpinning there flows back into the favorites row and the store,
 // and the local search narrows the list.
 
 import 'package:clock/clock.dart';
@@ -37,7 +37,7 @@ MealAnalysisResult _meal(
 }
 
 // Pinned in this order with fixed timestamps (oldest first), so the sheet and
-// the inline section list them newest first: Haferdrink, Skyr, Brot, Bananen.
+// lists them newest first: Haferdrink, Skyr, Brot, Bananen.
 final MealAnalysisResult _bananen =
     _meal('Bananen', brand: 'Chiquita', barcode: '4000000000001', kcal: 90);
 final MealAnalysisResult _brot =
@@ -109,15 +109,9 @@ Future<void> _dismissFavoritesMenu(WidgetTester tester) async {
   expect(find.byKey(const ValueKey('favorites-sheet')), findsNothing);
 }
 
-/// Text inside the favorites sheet only — the add sheet behind it still holds
-/// the same meal names in its inline tiles.
+/// Text inside the favorites sheet only, not the add sheet behind it.
 Finder _menuText(String text) => find.descendant(
       of: find.byKey(const ValueKey('favorites-sheet')),
-      matching: find.text(text),
-    );
-
-Finder _inlineText(int index, String text) => find.descendant(
-      of: find.byKey(ValueKey('favorite-pinned-$index')),
       matching: find.text(text),
     );
 
@@ -128,13 +122,13 @@ void main() {
     final store = await _bootWithFavorites(tester);
     final loggedBefore = store.loggedMeals.length;
 
-    // Inline: top 3 by recency plus the "All (4)" button, the 4th only in the
-    // sheet.
-    expect(_inlineText(0, 'Haferdrink'), findsOneWidget);
-    expect(_inlineText(1, 'Skyr Natur'), findsOneWidget);
-    expect(_inlineText(2, 'Vollkornbrot'), findsOneWidget);
-    expect(find.byKey(const ValueKey('favorite-pinned-3')), findsNothing);
-    expect(find.text('Alle (4)'), findsOneWidget);
+    // Since 2026-10-03: no inline favorites, one row with the count.
+    final zeile = find.byKey(const ValueKey('add-meal-favorites-all'));
+    expect(find.byKey(const ValueKey('favorite-pinned-0')), findsNothing);
+    expect(
+      find.descendant(of: zeile, matching: find.text('4 gespeichert')),
+      findsOneWidget,
+    );
 
     // Slot is chosen in the add sheet, not in the favorites sheet.
     await chooseMealSlot(tester, 'slot-select-lunch');
@@ -171,19 +165,21 @@ void main() {
     expect(logged.forcedSlot, MealSlot.lunch);
     expect(store.isFavorite(_haferdrink), isTrue);
 
-    // Back in the add sheet the inline section is unchanged: top 3 + "All (4)".
+    // Back in the add sheet the favorites row is unchanged.
     await _dismissFavoritesMenu(tester);
-    expect(_inlineText(0, 'Haferdrink'), findsOneWidget);
-    expect(_inlineText(1, 'Skyr Natur'), findsOneWidget);
-    expect(_inlineText(2, 'Vollkornbrot'), findsOneWidget);
-    expect(find.byKey(const ValueKey('favorite-pinned-3')), findsNothing);
-    expect(find.text('Alle (4)'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('add-meal-favorites-all')),
+        matching: find.text('4 gespeichert'),
+      ),
+      findsOneWidget,
+    );
 
     await tester.tap(find.byKey(const ValueKey('add-meal-sheet-close')));
     await tester.pumpAndSettle();
   });
 
-  testWidgetsRobust('Unpin in the favorites menu updates the inline section', (
+  testWidgetsRobust('Unpin in the favorites menu updates the favorites row', (
     WidgetTester tester,
   ) async {
     final store = await _bootWithFavorites(tester);
@@ -203,15 +199,15 @@ void main() {
     expect(store.isFavorite(_skyr), isTrue);
     expect(store.favorites.where((f) => f.pinned).length, 3);
 
-    // Inline: the next favorite moves up, the 4th becomes visible, counter
-    // reads "Alle (3)".
+    // The row counts one less.
     await _dismissFavoritesMenu(tester);
-    expect(_inlineText(0, 'Skyr Natur'), findsOneWidget);
-    expect(_inlineText(1, 'Vollkornbrot'), findsOneWidget);
-    expect(_inlineText(2, 'Bananen'), findsOneWidget);
-    expect(find.byKey(const ValueKey('favorite-pinned-3')), findsNothing);
-    expect(find.text('Alle (3)'), findsOneWidget);
-    expect(find.text('Alle (4)'), findsNothing);
+    final zeile = find.byKey(const ValueKey('add-meal-favorites-all'));
+    expect(find.byKey(const ValueKey('favorite-pinned-0')), findsNothing);
+    expect(
+      find.descendant(of: zeile, matching: find.text('3 gespeichert')),
+      findsOneWidget,
+    );
+    expect(find.text('4 gespeichert'), findsNothing);
 
     // Reopened from the store, the add sheet shows the same picture.
     await tester.tap(find.byKey(const ValueKey('add-meal-sheet-close')));
@@ -221,9 +217,13 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('food-search')));
     await tester.pumpAndSettle();
-    expect(_inlineText(0, 'Skyr Natur'), findsOneWidget);
-    expect(_inlineText(2, 'Bananen'), findsOneWidget);
-    expect(find.text('Alle (3)'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('add-meal-favorites-all')),
+        matching: find.text('3 gespeichert'),
+      ),
+      findsOneWidget,
+    );
 
     await tester.tap(find.byKey(const ValueKey('add-meal-sheet-close')));
     await tester.pumpAndSettle();

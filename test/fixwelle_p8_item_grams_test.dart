@@ -20,6 +20,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
+import 'package:eatova/src/widgets/design/design.dart' show PrimaryActionButton;
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
 
 import 'support/harness.dart';
@@ -138,10 +139,10 @@ Future<void> _tippe(WidgetTester tester, Finder finder) async {
 
 /// `true` if "Übernehmen" is tappable.
 bool _uebernehmenAktiv(WidgetTester tester) {
-  final button = tester.widget<FilledButton>(
+  final button = tester.widget<PrimaryActionButton>(
     find.byKey(const ValueKey('analyse-save-weight-button')),
   );
-  return button.onPressed != null;
+  return button.onTap != null;
 }
 
 /// `true` if der Sheet sich ohne Nachfrage schliessen laesst — genau

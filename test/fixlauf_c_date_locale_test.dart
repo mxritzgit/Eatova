@@ -112,18 +112,29 @@ Future<List<String>> _pumpFoodTab(WidgetTester tester, Locale locale) async {
 void main() {
   setUpAll(initializeDateFormatting);
 
-  group('Bearbeiten-Sheet, Tag-Chips', () {
-    testWidgets('englisch: „8/27" statt „27.8."', (tester) async {
+  // Since 2026-10-03 the edit sheet uses Today's 7-day strip: weekday
+  // initials in the app language over the day number (Thu, Aug 27).
+  group('Bearbeiten-Sheet, Tag-Streifen', () {
+    Finder imStreifen(String text) => find.descendant(
+      of: find.byKey(const ValueKey('edit-meal-day-picker')),
+      matching: find.text(text),
+    );
+
+    testWidgets('englisch: Wochentage „Th"/„Su"', (tester) async {
       final overflows = await _openEditSheet(tester, const Locale('en'));
-      expect(find.text('8/27'), findsOneWidget);
-      expect(find.text('27.8.'), findsNothing);
+      expect(imStreifen('Th'), findsOneWidget);
+      expect(imStreifen('Su'), findsOneWidget);
+      expect(imStreifen('Do'), findsNothing);
+      expect(imStreifen('27'), findsOneWidget);
       expect(overflows, isEmpty, reason: overflows.join('\n'));
     });
 
-    testWidgets('deutsch bleibt „27.8."', (tester) async {
+    testWidgets('deutsch: Wochentage „Do"/„So"', (tester) async {
       final overflows = await _openEditSheet(tester, const Locale('de'));
-      expect(find.text('27.8.'), findsOneWidget);
-      expect(find.text('8/27'), findsNothing);
+      expect(imStreifen('Do'), findsOneWidget);
+      expect(imStreifen('So'), findsOneWidget);
+      expect(imStreifen('Th'), findsNothing);
+      expect(imStreifen('27'), findsOneWidget);
       expect(overflows, isEmpty, reason: overflows.join('\n'));
     });
   });

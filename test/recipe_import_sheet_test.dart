@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/fitness_recipe.dart';
@@ -12,6 +13,7 @@ import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/recipe_import_service.dart';
 import 'package:eatova/src/services/recipe_save_result.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
 
@@ -74,6 +76,7 @@ Future<void> _open(
   double textScale = 1,
   Size size = const Size(390, 844),
   bool settle = true,
+  bool reducedMotion = true,
 }) async {
   await pumpLocalized(
     tester,
@@ -94,6 +97,7 @@ Future<void> _open(
     locale: locale,
     brightness: brightness,
     textScale: textScale,
+    reducedMotion: reducedMotion,
   );
   await tester.tap(find.text('Open import'));
   if (settle) {
@@ -180,14 +184,14 @@ void main() {
     expect(text('fat'), '20');
     expect(text('protein'), isEmpty);
     expect(text('carbs'), isEmpty);
-    expect(tester.widget<FilledButton>(find.byKey(const ValueKey('recipe-create-save'))).onPressed, isNull);
+    expect(tester.widget<PrimaryActionButton>(find.byKey(const ValueKey('recipe-create-save'))).onTap, isNull);
     await _tap(tester, 'recipe-edit-confirm-nutrition-basis');
-    expect(tester.widget<FilledButton>(find.byKey(const ValueKey('recipe-create-save'))).onPressed, isNull);
+    expect(tester.widget<PrimaryActionButton>(find.byKey(const ValueKey('recipe-create-save'))).onTap, isNull);
     await _tap(tester, 'recipe-edit-confirm-nutrition-basis');
     // Values below are an explicit user correction, never inferred by the app.
     await _enter(tester, 'recipe-create-protein', '47');
     await _enter(tester, 'recipe-create-carbs', '68');
-    expect(tester.widget<FilledButton>(find.byKey(const ValueKey('recipe-create-save'))).onPressed, isNull);
+    expect(tester.widget<PrimaryActionButton>(find.byKey(const ValueKey('recipe-create-save'))).onTap, isNull);
     await _tap(tester, 'recipe-edit-confirm-nutrition-basis');
     await _tap(tester, 'recipe-create-save');
     expect(saved, isEmpty);
@@ -463,10 +467,9 @@ void main() {
       await _tap(tester, 'recipe-import-save');
       expect(saved.map((recipe) => recipe.title), ['Tofu bowl']);
       expect(find.byKey(const ValueKey('recipe-import-sheet')), findsOneWidget);
-      final added = tester.widget<ListTile>(
+      final added = tester.widget<InkWell>(
         find.byKey(const ValueKey('recipe-import-candidate-vegan')),
       );
-      expect(added.enabled, isFalse);
       expect(added.onTap, isNull);
       await _tap(tester, 'recipe-import-candidate-pasta');
       final scroll = tester.widget<SingleChildScrollView>(
@@ -481,11 +484,11 @@ void main() {
       ]);
       expect(
         tester
-            .widget<ListTile>(
+            .widget<InkWell>(
               find.byKey(const ValueKey('recipe-import-candidate-bowl')),
             )
-            .enabled,
-        isTrue,
+            .onTap,
+        isNotNull,
       );
       expect(service.inputs, [_source]);
       await _tap(tester, 'recipe-import-done');
@@ -644,7 +647,10 @@ void main() {
           return SyncDelivery.delivered;
         },
       );
-      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('recipe-import-loading')),
+        findsOneWidget,
+      );
       current = false;
       completion.complete(_ready);
       await tester.pumpAndSettle();
@@ -654,6 +660,35 @@ void main() {
       expect(saves, 0);
     },
   );
+
+  for (final reduced in [true, false]) {
+    testWidgets(
+      'reading pulse ${reduced ? 'holds still under' : 'runs without'} '
+      'reduced motion',
+      (tester) async {
+        final completion = Completer<RecipeImportResult>();
+        await _open(
+          tester,
+          service: _Service((_) => completion.future),
+          save: (_) async => SyncDelivery.delivered,
+          settle: false,
+          reducedMotion: reduced,
+        );
+        await tester.pump(const Duration(seconds: 1));
+        expect(
+          find.byKey(const ValueKey('recipe-import-loading')),
+          findsOneWidget,
+        );
+        expect(
+          tester.binding.transientCallbackCount,
+          reduced ? 0 : greaterThan(0),
+        );
+        completion.complete(_ready);
+        await tester.pumpAndSettle();
+        expect(find.text('Chicken bowl'), findsOneWidget);
+      },
+    );
+  }
 
   testWidgets('session change before confirmation blocks the save callback', (
     tester,
@@ -691,9 +726,9 @@ void main() {
     await _tap(tester, 'recipe-import-save');
     expect(find.byKey(const ValueKey('recipe-import-sheet')), findsOneWidget);
     expect(find.textContaining('private backend details'), findsNothing);
-    expect(tester.widget<TextButton>(find.byKey(
+    expect(tester.widget<SoftPillButton>(find.byKey(
       const ValueKey('recipe-import-correct-nutrition'),
-    )).onPressed, isNull);
+    )).onTap, isNull);
     await _tap(tester, 'recipe-import-save');
     expect(attempts, hasLength(2));
     expect(attempts[0].slug, attempts[1].slug);
@@ -791,8 +826,10 @@ void main() {
     expect(find.byKey(const ValueKey('recipe-import-sheet')), findsOneWidget);
     expect(
       tester
-          .widget<TextButton>(find.byKey(const ValueKey('recipe-import-edit')))
-          .onPressed,
+          .widget<SoftPillButton>(
+            find.byKey(const ValueKey('recipe-import-edit')),
+          )
+          .onTap,
       isNull,
     );
     await _tap(tester, 'recipe-import-save');
@@ -868,6 +905,169 @@ void main() {
     expect(find.byKey(const ValueKey('recipe-import-sheet')), findsNothing);
   });
 
+  void mockClipboard(WidgetTester tester, Future<Object?> Function() read) {
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async => call.method == 'Clipboard.getData' ? read() : null,
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+  }
+
+  testWidgets('paste fills the empty input and only then hides itself', (
+    tester,
+  ) async {
+    mockClipboard(tester, () async => <String, Object?>{'text': _source});
+    final service = _Service((_) async => _ready);
+    await _open(
+      tester,
+      service: service,
+      initialText: '',
+      save: (_) async => SyncDelivery.delivered,
+    );
+    expect(service.inputs, isEmpty);
+    await _tap(tester, 'recipe-import-paste');
+    final field = tester.widget<TextField>(
+      find.byKey(const ValueKey('recipe-import-input')),
+    );
+    expect(field.controller!.text, _source);
+    expect(find.byKey(const ValueKey('recipe-import-paste')), findsNothing);
+    // Pasting alone never sends anything; the user still decides.
+    expect(service.inputs, isEmpty);
+    await _tap(tester, 'recipe-import-analyze');
+    expect(service.inputs, [_source]);
+  });
+
+  testWidgets('text typed while the clipboard is read is kept', (
+    tester,
+  ) async {
+    final reading = Completer<Object?>();
+    mockClipboard(tester, () => reading.future);
+    await _open(
+      tester,
+      service: _Service((_) async => _ready),
+      initialText: '',
+      save: (_) async => SyncDelivery.delivered,
+    );
+    await tester.tap(find.byKey(const ValueKey('recipe-import-paste')));
+    await tester.pump();
+    final field = tester.widget<TextField>(
+      find.byKey(const ValueKey('recipe-import-input')),
+    );
+    field.controller!.text = 'my own recipe';
+    reading.complete(<String, Object?>{'text': _source});
+    await tester.pumpAndSettle();
+    expect(field.controller!.text, 'my own recipe');
+  });
+
+  testWidgets('an unreadable clipboard leaves the input empty and quiet', (
+    tester,
+  ) async {
+    mockClipboard(
+      tester,
+      () async => throw PlatformException(code: 'unavailable'),
+    );
+    await _open(
+      tester,
+      service: _Service((_) async => _ready),
+      initialText: '',
+      save: (_) async => SyncDelivery.delivered,
+    );
+    await _tap(tester, 'recipe-import-paste');
+    expect(tester.takeException(), isNull);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('recipe-import-input')))
+          .controller!
+          .text,
+      isEmpty,
+    );
+    expect(find.byKey(const ValueKey('recipe-import-paste')), findsOneWidget);
+  });
+
+  testWidgets(
+    'preview lists ingredients and numbered steps without caption markers',
+    (tester) async {
+      const candidate = RecipeImportCandidate(
+        id: 'steps',
+        title: 'Overnight oats',
+        ingredients: '- 50 g oats\n• 150 g skyr',
+        preparation: '1. Mix oats and skyr.\n2) Add 1.5 dl milk.\n\nChill.',
+        caloriesKcal: 320,
+        proteinG: 24,
+        carbsG: 38,
+        fatG: 6,
+      );
+      await _open(
+        tester,
+        service: _Service(
+          (_) async => const RecipeImportResult(
+            status: RecipeImportStatus.ready,
+            candidates: [candidate],
+            sourceUrl: _source,
+          ),
+        ),
+        save: (_) async => SyncDelivery.delivered,
+      );
+      expect(find.text('50 g oats'), findsOneWidget);
+      expect(find.text('150 g skyr'), findsOneWidget);
+      expect(find.text('Mix oats and skyr.'), findsOneWidget);
+      expect(find.text('Add 1.5 dl milk.'), findsOneWidget);
+      expect(find.text('Chill.'), findsOneWidget);
+      for (final number in ['1', '2', '3']) {
+        expect(find.text(number), findsOneWidget, reason: 'step $number');
+      }
+      // The carbs tile names the macro; the bare "C" was unreadable.
+      expect(find.text('Carbs'), findsOneWidget);
+      expect(find.text('C'), findsNothing);
+    },
+  );
+
+  testWidgets('a single preparation paragraph stays one paragraph', (
+    tester,
+  ) async {
+    await _open(
+      tester,
+      service: _Service((_) async => _ready),
+      save: (_) async => SyncDelivery.delivered,
+    );
+    expect(find.text(_bowl.preparation), findsOneWidget);
+    expect(find.text('1'), findsNothing);
+  });
+
+  testWidgets('source pill names the host and reveals the full source', (
+    tester,
+  ) async {
+    await _open(
+      tester,
+      service: _Service((_) async => _multiple),
+      save: (_) async => SyncDelivery.delivered,
+    );
+    expect(find.text('tiktok.com'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('recipe-import-source-details')),
+      findsNothing,
+    );
+    await _tap(tester, 'recipe-import-source');
+    expect(
+      tester
+          .widget<SelectableText>(
+            find.byKey(const ValueKey('recipe-import-source-details')),
+          )
+          .data,
+      _source,
+    );
+    await _tap(tester, 'recipe-import-source');
+    expect(
+      find.byKey(const ValueKey('recipe-import-source-details')),
+      findsNothing,
+    );
+  });
+
   for (final brightness in Brightness.values) {
     testWidgets('selection and preview fit large text in ${brightness.name}', (
       tester,
@@ -933,10 +1133,10 @@ void main() {
       await _tap(tester, 'recipe-detail-edit');
       await _enter(tester, 'recipe-create-kcal', '450');
       await _enter(tester, 'recipe-create-grams', '300');
-      final save = tester.widget<FilledButton>(
+      final save = tester.widget<PrimaryActionButton>(
         find.byKey(const ValueKey('recipe-create-save')),
       );
-      expect(save.onPressed, isNull);
+      expect(save.onTap, isNull);
       await _enter(tester, 'recipe-create-protein', '30');
       await _enter(tester, 'recipe-create-carbs', '45');
       await _enter(tester, 'recipe-create-fat', '12');

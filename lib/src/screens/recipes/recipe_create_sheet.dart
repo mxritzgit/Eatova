@@ -169,7 +169,7 @@ Future<FitnessRecipe?> showRecipeNutritionDraftEditor({
 }) async {
   final result = await showModalBottomSheet<RezeptEntwurfErgebnis>(
     context: context, isScrollControlled: true, backgroundColor: Colors.transparent,
-    enableDrag: false,
+    barrierColor: context.t.scrim, enableDrag: false,
     builder: (_) => _CreateRecipeSheet(
       initialRecipe: recipe, photoInput: DeviceMealPhotoInput(),
       isSessionCurrent: isSessionCurrent, nutritionOnly: true,
@@ -492,6 +492,25 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
           batchServings: _batchServings!,
         );
 
+  /// The live card at the top: rebuilt with every keystroke through
+  /// [_onFeldChanged]. In ingredient mode the values come from the
+  /// calculation, exactly what [_save] would store.
+  Widget _buildPreview(BuildContext context) {
+    final known = _structured ? _calculation?.knownNutrition : null;
+    int? value(TextEditingController field, double? calculated) => _structured
+        ? calculated?.round()
+        : NumberInput.parse(field.text).wholeValue;
+    return _RecipePreviewCard(
+      bytes: _photoBytes,
+      existingRecipe: _photoRemoved ? null : widget.initialRecipe,
+      name: _name.text.trim(),
+      kcal: value(_kcal, known?.caloriesKcal),
+      protein: value(_protein, known?.proteinG),
+      carbs: value(_carbs, known?.carbsG),
+      fat: value(_fat, known?.fatG),
+    );
+  }
+
   /// Freeze the validated draft before IO and close only after persistence.
   Future<void> _save() async {
     if (!_isValid || _saving || _photoBusy) return;
@@ -687,30 +706,40 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
       // with eight text fields and the keyboard open, the fixed share pushed
       // the top edge under the status bar / Dynamic Island.
       constraints: BoxConstraints(maxHeight: sheetMaxHeightOf(context)),
-      decoration: BoxDecoration(
+      // The `showEatovaSheet` shell: a 1 px lineStrong edge lifts the sheet
+      // off the scrim; sides and bottom sit on the screen edge.
+      decoration: ShapeDecoration(
         color: t.bg,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(rSheet)),
+        shape: RoundedRectangleBorder(
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(rSheet),
+          ),
+          side: BorderSide(color: t.lineStrong),
+        ),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           const SheetHandle(),
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 12, 12),
+            padding: const EdgeInsets.fromLTRB(20, 4, 16, 12),
             child: Row(
               children: [
                 if (!compact &&
                     MediaQuery.textScalerOf(context).scale(14) <= 18) ...[
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: t.forest,
-                      borderRadius: BorderRadius.circular(rControl),
-                    ),
-                    child: Icon(
-                      Icons.menu_book_rounded,
-                      color: t.lime,
-                      size: 22,
+                  ExcludeSemantics(
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: t.accentTint,
+                        borderRadius: BorderRadius.circular(rChip),
+                      ),
+                      child: Icon(
+                        Icons.menu_book_rounded,
+                        color: t.accentText,
+                        size: 21,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -734,9 +763,11 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                     ),
                   ),
                 ),
+                const SizedBox(width: 8),
                 IconButton(
                   key: const ValueKey('recipe-create-close'),
                   tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
+                  style: IconButton.styleFrom(backgroundColor: t.surf2),
                   onPressed: _saving
                       ? null
                       : () {
@@ -746,7 +777,7 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                             Navigator.pop(context);
                           }
                         },
-                  icon: const Icon(Icons.close_rounded),
+                  icon: Icon(Icons.close_rounded, size: 21, color: t.ink2),
                 ),
               ],
             ),
@@ -773,7 +804,9 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                       style: AppType.ui(12, color: t.ink2, height: 1.4),
                     ),
                   ],
-                  const SizedBox(height: 22),
+                  const SizedBox(height: 16),
+                  _buildPreview(context),
+                  const SizedBox(height: 24),
                   _SheetGroup(
                     number: 1,
                     label: l10n.recipesGroupWhatIsIt,
@@ -843,28 +876,14 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                     onRemove: _removePhoto,
                   ),
                   const SizedBox(height: 24),
-                  Material(
-                    color: Colors.transparent,
-                    child: SwitchListTile.adaptive(
-                      key: const ValueKey('recipe-create-structured'),
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(
-                        l10n.recipeEditCalculateIngredients,
-                        style: AppType.ui(
-                          15,
-                          color: t.ink,
-                          weight: FontWeight.w600,
-                        ),
-                      ),
-                      subtitle: Text(
-                        l10n.recipeEditCalculateHint,
-                        style: AppType.ui(14, color: t.ink2, height: 1.4),
-                      ),
-                      value: _structured,
-                      onChanged: (value) => setState(() => _structured = value),
-                    ),
+                  _SheetToggleRow(
+                    rowKey: const ValueKey('recipe-create-structured'),
+                    title: l10n.recipeEditCalculateIngredients,
+                    subtitle: l10n.recipeEditCalculateHint,
+                    value: _structured,
+                    onChanged: (value) => setState(() => _structured = value),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
                   ],
                   if (widget.initialRecipe?.hasPendingNutrition ?? false) ...[
                     Text(
@@ -874,17 +893,15 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                     ),
                     const SizedBox(height: 16),
                   ],
-                  if (!_structured && (widget.initialRecipe?.hasUnclearNutritionBasis ?? false))
-                    Material(
-                      color: t.bg,
-                      child: CheckboxListTile(
-                        key: const ValueKey('recipe-edit-confirm-nutrition-basis'),
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(l10n.recipeImportConfirmBasis),
-                        value: _nutritionBasisConfirmed,
-                        onChanged: (value) => setState(() => _nutritionBasisConfirmed = value ?? false),
-                      ),
+                  if (!_structured && (widget.initialRecipe?.hasUnclearNutritionBasis ?? false)) ...[
+                    _SheetToggleRow(
+                      rowKey: const ValueKey('recipe-edit-confirm-nutrition-basis'),
+                      title: l10n.recipeImportConfirmBasis,
+                      value: _nutritionBasisConfirmed,
+                      onChanged: (value) => setState(() => _nutritionBasisConfirmed = value),
                     ),
+                    const SizedBox(height: 16),
+                  ],
                   if (_structured) ...[
                     RecipeIngredientEditor(
                       ingredients: _structuredIngredients,
@@ -1026,34 +1043,37 @@ class _CreateRecipeSheetState extends State<_CreateRecipeSheet> {
                     ),
                     const SizedBox(height: 8),
                   ],
-                  // Must stay a `FilledButton` with `onPressed: _isValid ? _save :
-                  // null` — recipe_create_sheet_test casts to it and reads
-                  // `onPressed == null` as the disabled signal. Colours and shape
-                  // come from the button theme (F8-10); only the stature is local,
-                  // as a MINIMUM so a 2x label never outgrows the button.
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(
-                      minWidth: double.infinity,
-                      minHeight: 52,
-                    ),
-                    child: FilledButton.icon(
-                      key: const ValueKey('recipe-create-save'),
-                      onPressed: _isValid && !_saving && !_photoBusy
-                          ? _save
-                          : null,
-                      icon: _saving
-                          ? const SizedBox.square(
-                              dimension: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.check_rounded, size: 18),
-                      label: Text(
-                        widget.nutritionOnly ? l10n.recipeNutritionApplyDraft : widget.initialRecipe != null
+                  // `onTap == null` is the disabled signal the tests read
+                  // (recipe_create_sheet_test casts to PrimaryActionButton).
+                  // While the photo or the recipe is written, a spinner sits
+                  // at the button's end instead of the check.
+                  Stack(
+                    alignment: Alignment.centerRight,
+                    children: [
+                      PrimaryActionButton(
+                        key: const ValueKey('recipe-create-save'),
+                        onTap: _isValid && !_saving && !_photoBusy
+                            ? _save
+                            : null,
+                        icon: _saving ? null : Icons.check_rounded,
+                        label: widget.nutritionOnly ? l10n.recipeNutritionApplyDraft : widget.initialRecipe != null
                             ? l10n.recipeEditSave
                             : l10n.recipesSaveButtonLabel,
-                        style: AppType.ui(14.5, weight: FontWeight.w700),
                       ),
-                    ),
+                      if (_saving)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 20),
+                          child: IgnorePointer(
+                            child: SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: t.onAccentFill.withValues(alpha: 0.8),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ],
               ),
@@ -1087,6 +1107,326 @@ class _SheetGroup extends StatelessWidget {
       child,
     ],
   );
+}
+
+/// Live preview of the recipe while the form fills: the photo (or a quiet
+/// dish tile), the name and the per-portion values in the nutrient colors.
+///
+/// A mirror of the fields below, so it stays out of the semantics tree: a
+/// screen reader reads the fields themselves, not the same values twice.
+///
+/// Its height must not depend on what is typed: the card sits above the
+/// fields, so a name wrapping onto a second line would shift the field being
+/// edited (and fight the keyboard's scroll-into-view). Every line is single
+/// with a forced strut; at large text the macros stack one per line.
+class _RecipePreviewCard extends StatelessWidget {
+  const _RecipePreviewCard({
+    required this.bytes,
+    required this.existingRecipe,
+    required this.name,
+    required this.kcal,
+    required this.protein,
+    required this.carbs,
+    required this.fat,
+  });
+
+  final Uint8List? bytes;
+  final FitnessRecipe? existingRecipe;
+  final String name;
+  final int? kcal, protein, carbs, fat;
+
+  static const double _tileSide = 72;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    // Large text: the copy takes the full width under the photo.
+    final stacked = MediaQuery.textScalerOf(context).scale(14) > 21;
+    final nameStyle = AppType.display(
+      19,
+      color: name.isEmpty ? t.ink3 : t.ink,
+      height: 1.2,
+    );
+    final kcalStyle = AppType.ui(
+      17,
+      weight: FontWeight.w700,
+      color: kcal == null ? t.ink3 : t.ink,
+      height: 1.3,
+    ).copyWith(fontFeatures: const [FontFeature.tabularFigures()]);
+    final entries = [
+      (t.protein, protein, l10n.foodMacroProteinShort),
+      (t.carbs, carbs, l10n.foodMacroCarbsShort),
+      (t.fat, fat, l10n.foodMacroFatShort),
+    ];
+    final macros = [
+      for (final (color, grams, label) in entries)
+        _PreviewMacro(
+          color: color,
+          text: label(grams == null ? '–' : '$grams g'),
+          known: grams != null,
+        ),
+    ];
+    // One line only if the widest possible values fit, so the layout never
+    // flips while a value is being typed.
+    final macroLegend = LayoutBuilder(
+      builder: (context, constraints) {
+        final style = _PreviewMacro.labelStyle(context, known: true);
+        var width = 12.0 * (entries.length - 1);
+        for (final (_, _, label) in entries) {
+          final painter = TextPainter(
+            text: TextSpan(text: label('$_macroMax g'), style: style),
+            textDirection: Directionality.of(context),
+            textScaler: MediaQuery.textScalerOf(context),
+            maxLines: 1,
+          )..layout();
+          width += _PreviewMacro.dotWidth + painter.width;
+          painter.dispose();
+        }
+        if (width > constraints.maxWidth) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final (i, macro) in macros.indexed) ...[
+                if (i > 0) const SizedBox(height: 4),
+                macro,
+              ],
+            ],
+          );
+        }
+        // Measured to fit, so this Wrap never breaks; it only bounds the
+        // labels' width.
+        return Wrap(spacing: 12, children: macros);
+      },
+    );
+    final copy = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          name.isEmpty ? l10n.recipesPreviewNamePlaceholder : name,
+          key: const ValueKey('recipe-create-preview-name'),
+          maxLines: 1,
+          softWrap: false,
+          overflow: TextOverflow.ellipsis,
+          style: nameStyle,
+          strutStyle: StrutStyle.fromTextStyle(
+            nameStyle,
+            forceStrutHeight: true,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text.rich(
+          TextSpan(
+            children: [
+              TextSpan(text: kcal == null ? '–' : '$kcal'),
+              TextSpan(
+                text: ' kcal · ${l10n.recipesPerPortion}',
+                style: AppType.ui(
+                  12.5,
+                  weight: FontWeight.w500,
+                  color: t.ink3,
+                ),
+              ),
+            ],
+          ),
+          key: const ValueKey('recipe-create-preview-kcal'),
+          maxLines: 1,
+          softWrap: false,
+          overflow: TextOverflow.ellipsis,
+          style: kcalStyle,
+          strutStyle: StrutStyle.fromTextStyle(
+            kcalStyle,
+            forceStrutHeight: true,
+          ),
+        ),
+        const SizedBox(height: 8),
+        macroLegend,
+      ],
+    );
+    return ExcludeSemantics(
+      child: Container(
+        key: const ValueKey('recipe-create-preview'),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: t.surfRaised,
+          borderRadius: BorderRadius.circular(rCard),
+          border: Border.all(color: t.cardBorder),
+        ),
+        child: stacked
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _photo(context),
+                  const SizedBox(height: 12),
+                  copy,
+                ],
+              )
+            : Row(
+                children: [
+                  _photo(context),
+                  const SizedBox(width: 14),
+                  Expanded(child: copy),
+                ],
+              ),
+      ),
+    );
+  }
+
+  Widget _photo(BuildContext context) {
+    final t = context.t;
+    final recipe = existingRecipe;
+    final Widget content;
+    if (bytes != null) {
+      content = Image.memory(
+        bytes!,
+        fit: BoxFit.cover,
+        cacheWidth: (_tileSide * MediaQuery.devicePixelRatioOf(context))
+            .round(),
+      );
+    } else if (recipe != null && recipe.imageAsset.isNotEmpty) {
+      content = RecipePhoto(recipe: recipe, placeholderRadius: rTile);
+    } else {
+      content = ColoredBox(
+        color: t.surf2,
+        child: Icon(Icons.restaurant_rounded, size: 28, color: t.ink3),
+      );
+    }
+    return SizedBox.square(
+      dimension: _tileSide,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(rTile),
+        child: content,
+      ),
+    );
+  }
+}
+
+/// One macro of the preview: the nutrient dot and "P 24 g" on one line.
+class _PreviewMacro extends StatelessWidget {
+  const _PreviewMacro({
+    required this.color,
+    required this.text,
+    required this.known,
+  });
+
+  final Color color;
+  final String text;
+  final bool known;
+
+  /// Dot plus gap in front of the label.
+  static const double dotWidth = 7 + 5;
+
+  static TextStyle labelStyle(BuildContext context, {required bool known}) =>
+      AppType.ui(
+        12.5,
+        weight: FontWeight.w600,
+        color: known ? context.t.ink2 : context.t.ink3,
+        height: 1.35,
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final style = labelStyle(context, known: known);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: dotWidth - 7),
+        Flexible(
+          child: Text(
+            text,
+            maxLines: 1,
+            softWrap: false,
+            overflow: TextOverflow.ellipsis,
+            style: style,
+            strutStyle: StrutStyle.fromTextStyle(
+              style,
+              forceStrutHeight: true,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// A switch as a soft card row: title, optional explanation and the app's
+/// [AppToggle]. The whole card toggles; [MergeSemantics] makes it one node
+/// that announces the title and the toggled state, like a SwitchListTile.
+class _SheetToggleRow extends StatelessWidget {
+  const _SheetToggleRow({
+    required this.rowKey,
+    required this.title,
+    required this.value,
+    required this.onChanged,
+    this.subtitle,
+  });
+
+  final Key rowKey;
+  final String title;
+  final String? subtitle;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return MergeSemantics(
+      child: Material(
+        color: t.surf,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(rTile),
+          side: BorderSide(color: t.cardBorder),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: rowKey,
+          onTap: () => onChanged(!value),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 64),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          title,
+                          style: AppType.ui(
+                            15,
+                            weight: FontWeight.w600,
+                            color: t.ink,
+                            height: 1.35,
+                          ),
+                        ),
+                        if (subtitle != null) ...[
+                          const SizedBox(height: 3),
+                          Text(
+                            subtitle!,
+                            style: AppType.ui(13, color: t.ink2, height: 1.4),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  AppToggle(value: value, onChanged: onChanged),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// Photo group: preview and explanation side by side, actions below.

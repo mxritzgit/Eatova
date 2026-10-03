@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/recipe_import_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -88,7 +89,7 @@ void main() {
             findsNothing,
           );
           final save = find.byKey(const ValueKey('recipe-create-save'));
-          expect(tester.widget<FilledButton>(save).onPressed, isNull);
+          expect(tester.widget<PrimaryActionButton>(save).onTap, isNull);
           if (scale == 1 &&
               const bool.fromEnvironment('CAPTURE_NUTRITION_REVIEW')) {
             final boundary = tester.renderObject<RenderRepaintBoundary>(
@@ -111,17 +112,17 @@ void main() {
             await tester.enterText(input, entry.value);
             await tester.pumpAndSettle();
           }
-          final checkbox = find.descendant(
+          final toggle = find.descendant(
             of: find.byKey(
               const ValueKey('recipe-edit-confirm-nutrition-basis'),
             ),
-            matching: find.byType(Checkbox),
+            matching: find.byType(AppToggle),
           );
-          await tester.ensureVisible(checkbox);
+          await tester.ensureVisible(toggle);
           await tester.pumpAndSettle();
-          await tester.tap(checkbox);
+          await tester.tap(toggle);
           await tester.pumpAndSettle();
-          expect(tester.widget<FilledButton>(save).onPressed, isNotNull);
+          expect(tester.widget<PrimaryActionButton>(save).onTap, isNotNull);
           await tester.ensureVisible(save);
           await tester.pumpAndSettle();
           await tester.tap(save);

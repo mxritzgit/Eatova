@@ -790,11 +790,13 @@ class _HealthMissingRow extends StatelessWidget {
                 l10n.healthConnectMissingHint,
                 style: AppType.ui(13, color: t.ink2, height: 1.35),
               ),
-              if (onReview != null)
-                TextButton(
-                  onPressed: onReview,
-                  child: Text(l10n.healthConnectReview),
+              if (onReview != null) ...<Widget>[
+                const SizedBox(height: 10),
+                SoftPillButton(
+                  label: l10n.healthConnectReview,
+                  onTap: onReview,
                 ),
+              ],
             ],
           ),
         ),

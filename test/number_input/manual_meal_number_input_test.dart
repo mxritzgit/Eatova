@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/widgets/design/design.dart' show PrimaryActionButton;
 import 'package:eatova/src/widgets/kcal/manual_meal_sheet.dart';
 
 import '../support/harness.dart';
@@ -51,8 +52,10 @@ String _inhalt(WidgetTester tester, String key) =>
 
 bool _speichernAktiv(WidgetTester tester) =>
     tester
-        .widget<FilledButton>(find.byKey(const ValueKey('manual-meal-save')))
-        .onPressed !=
+        .widget<PrimaryActionButton>(
+          find.byKey(const ValueKey('manual-meal-save')),
+        )
+        .onTap !=
     null;
 
 Future<void> _pflicht(WidgetTester tester) async {
