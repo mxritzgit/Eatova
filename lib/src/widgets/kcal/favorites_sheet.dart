@@ -35,6 +35,7 @@ Future<void> showFavoritesSheet(
   required FutureOr<String> Function(MealAnalysisResult result, MealSlot slot)
   onAdd,
   required PersistValueChanged<MealAnalysisResult> onUnpin,
+  Map<String, int> useCounts = const <String, int>{},
 }) {
   return showEatovaSheet<void>(
     context,
@@ -43,6 +44,7 @@ Future<void> showFavoritesSheet(
       slot: slot,
       onAdd: onAdd,
       onUnpin: onUnpin,
+      useCounts: useCounts,
     ),
   );
 }
@@ -54,6 +56,7 @@ class FavoritesSheet extends StatefulWidget {
     required this.slot,
     required this.onAdd,
     required this.onUnpin,
+    this.useCounts = const <String, int>{},
   });
 
   /// The full store list (pinned + auto-recents); only pinned rows are shown.
@@ -68,6 +71,9 @@ class FavoritesSheet extends StatefulWidget {
 
   /// The parent toggles the store; the row disappears here locally.
   final PersistValueChanged<MealAnalysisResult> onUnpin;
+
+  /// Logs per favorite id for the "Frequent" order ([favoriteUseCounts]).
+  final Map<String, int> useCounts;
 
   @override
   State<FavoritesSheet> createState() => _FavoritesSheetState();
@@ -86,6 +92,7 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
   final Set<String> _unpinnedIds = <String>{};
 
   String? _expandedItemKey;
+  FavoriteSort _sort = FavoriteSort.recent;
   final Set<String> _justAddedKeys = <String>{};
   final Map<String, Timer> _justAddedTimers = <String, Timer>{};
 
@@ -186,8 +193,17 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
     final t = context.t;
     final l10n = context.l10n;
     final pinned = _pinned;
-    final visible = filterFavoritesByQuery(pinned, _query);
+    final visible = filterFavoritesByQuery(
+      sortFavorites(
+        pinned,
+        _sort,
+        useCounts: widget.useCounts,
+        nameOf: (favorite) => mealTitleAndBrand(favorite.result, l10n).$1,
+      ),
+      _query,
+    );
     final bottomInset = MediaQuery.paddingOf(context).bottom;
+    final keyboardUp = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     // showEatovaSheet supplies handle, keyboard inset and the height cap; this
     // is only the inside: header, search, capped scroll area, no footer.
@@ -246,47 +262,56 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  // Ordering one row is no choice. In the scroll area, not
+                  // the fixed head, and gone while the keyboard is up: at
+                  // 2x text the list would have no room left for results.
+                  if (pinned.length > 1 && !keyboardUp)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 14),
+                      child: _SortChips(
+                        sort: _sort,
+                        onChanged: (sort) => setState(() {
+                          _sort = sort;
+                          _expandedItemKey = null;
+                        }),
+                      ),
+                    ),
                   // Where an add lands: the slot's own tile and name, as
-                  // on the Food tab, then the quiet subtitle.
+                  // on the Food tab.
                   Padding(
-                    padding: const EdgeInsets.only(bottom: 14),
+                    padding: const EdgeInsets.only(bottom: 12),
                     child: Row(
                       children: [
-                        SlotIconTile(slot: widget.slot, size: 36),
-                        const SizedBox(width: 12),
+                        SlotIconTile(slot: widget.slot, size: 28),
+                        const SizedBox(width: 10),
                         Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                l10n.foodFavoritesForSlot(
-                                  widget.slot.label(l10n),
-                                ),
-                                key: const ValueKey(
-                                  'favorites-sheet-slot-context',
-                                ),
-                                style: AppType.ui(
-                                  14,
-                                  weight: FontWeight.w700,
-                                  color: t.ink,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                l10n.foodFavoritesSheetSubtitle,
-                                style: AppType.ui(
-                                  12.5,
-                                  color: t.ink2,
-                                  height: 1.35,
-                                ),
-                              ),
-                            ],
+                          child: Text(
+                            l10n.foodFavoritesForSlot(widget.slot.label(l10n)),
+                            key: const ValueKey('favorites-sheet-slot-context'),
+                            style: AppType.ui(
+                              14,
+                              weight: FontWeight.w700,
+                              color: t.ink,
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                  _buildList(pinned, visible),
+                  // A new order fades in instead of rows jumping places.
+                  AnimatedSwitcher(
+                    duration: motionDuration(context, kMotionEnter),
+                    switchInCurve: kMotionCurve,
+                    switchOutCurve: kMotionCurve,
+                    layoutBuilder: (current, previous) => Stack(
+                      alignment: Alignment.topCenter,
+                      children: [...previous, ?current],
+                    ),
+                    child: KeyedSubtree(
+                      key: ValueKey(_sort),
+                      child: _buildList(pinned, visible),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -508,6 +533,62 @@ class _Hint extends StatelessWidget {
             child: Text(actionLabel),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// "Recent · Frequent · A–Z": the order of the list, one selection like every
+/// chip bar in the app.
+class _SortChips extends StatelessWidget {
+  const _SortChips({required this.sort, required this.onChanged});
+
+  final FavoriteSort sort;
+  final ValueChanged<FavoriteSort> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = context.l10n;
+    final chips = <(FavoriteSort, String, String)>[
+      (
+        FavoriteSort.recent,
+        l10n.foodFavoritesSortRecent,
+        'favorites-sheet-sort-recent',
+      ),
+      (
+        FavoriteSort.frequent,
+        l10n.foodFavoritesSortFrequent,
+        'favorites-sheet-sort-frequent',
+      ),
+      (
+        FavoriteSort.alphabetical,
+        l10n.foodFavoritesSortAlphabetical,
+        'favorites-sheet-sort-alphabetical',
+      ),
+    ];
+    // One line that scrolls sideways: at large text the chips keep their
+    // height instead of wrapping into a block.
+    return Semantics(
+      container: true,
+      label: l10n.foodFavoritesSortLabel,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        clipBehavior: Clip.none,
+        child: Row(
+          children: [
+            for (final (i, (value, label, key)) in chips.indexed) ...[
+              if (i > 0) const SizedBox(width: 8),
+              FilterChipPill(
+                key: ValueKey(key),
+                label: label,
+                selected: sort == value,
+                onTap: () {
+                  if (sort != value) onChanged(value);
+                },
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

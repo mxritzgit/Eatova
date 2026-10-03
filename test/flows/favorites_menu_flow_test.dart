@@ -270,4 +270,44 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('add-meal-sheet-close')));
     await tester.pumpAndSettle();
   });
+
+  // Lively list (2026-10-03): "Frequent" counts the store's logged meals,
+  // while "Recent" follows the last use.
+  testWidgetsRobust('Favorites menu sorts by how often a favorite was logged', (
+    WidgetTester tester,
+  ) async {
+    final store = await _bootWithFavorites(tester);
+    for (var i = 0; i < 3; i++) {
+      await store.addResultToDailyTotal(_bananen, slot: MealSlot.snack);
+    }
+    await store.addResultToDailyTotal(_brot, slot: MealSlot.snack);
+    await tester.pumpAndSettle();
+
+    await _openFavoritesMenu(tester);
+    String row(int i) => tester
+        .widgetList<Text>(
+          find.descendant(
+            of: find.byKey(ValueKey('favorites-sheet-item-$i')),
+            matching: find.byType(Text),
+          ),
+        )
+        .firstWhere((text) => text.data != null)
+        .data!;
+    expect([for (var i = 0; i < 4; i++) row(i)], [
+      'Vollkornbrot',
+      'Bananen',
+      'Haferdrink',
+      'Skyr Natur',
+    ]);
+
+    await tester.tap(find.byKey(const ValueKey('favorites-sheet-sort-frequent')));
+    await tester.pumpAndSettle();
+    expect([for (var i = 0; i < 4; i++) row(i)], [
+      'Bananen',
+      'Vollkornbrot',
+      'Haferdrink',
+      'Skyr Natur',
+    ]);
+    await _dismissFavoritesMenu(tester);
+  });
 }

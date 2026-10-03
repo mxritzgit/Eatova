@@ -1745,7 +1745,10 @@
       "count": { "type": "int" }
     }
   },
-  "foodFavoritesSheetSubtitle": "Your go-to meals, ready for another day.",
+  "foodFavoritesSortRecent": "Recent",
+  "foodFavoritesSortFrequent": "Frequent",
+  "foodFavoritesSortAlphabetical": "A–Z",
+  "foodFavoritesSortLabel": "Sort favorites",
   "foodFavoritesSearchHint": "Search favorites",
   "foodFavoritesEmptyHint": "No favorites yet. Tap the heart on a search or scan result and the meal shows up here.",
   "foodFavoritesNoMatchHint": "No favorite matches your search.",

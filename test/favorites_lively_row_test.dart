@@ -59,6 +59,7 @@ Future<void> _pumpSheet(
   WidgetTester tester, {
   required List<FavoriteMeal> favorites,
   FutureOr<String> Function(MealAnalysisResult, MealSlot)? onAdd,
+  Map<String, int> useCounts = const <String, int>{},
   Locale locale = const Locale('en'),
   double textScale = 1.0,
   Size size = const Size(390, 844),
@@ -70,6 +71,7 @@ Future<void> _pumpSheet(
       slot: MealSlot.lunch,
       onAdd: onAdd ?? (_, __) => 'id',
       onUnpin: (_) {},
+      useCounts: useCounts,
     ),
     locale: locale,
     textScale: textScale,
@@ -238,4 +240,102 @@ void main() {
       expect(_quick(0), findsOneWidget);
     });
   }
+
+  group('sorting', () {
+    MealAnalysisResult meal(String name) => MealAnalysisResult(
+      mealName: name,
+      caloriesKcal: 100,
+      estimatedGrams: 100,
+      kcalPer100G: 100,
+      protein: '-',
+      carbs: '-',
+      fat: '-',
+      confidence: 'manual',
+      portionNotes: '',
+    );
+    final favorites = [
+      _fav(meal('Skyr'), 3),
+      _fav(meal('Banane'), 2),
+      _fav(meal('Äpfel'), 1),
+    ];
+    List<String> order(WidgetTester tester) => [
+      for (var i = 0; i < 3; i++)
+        if (_row(i).evaluate().isNotEmpty)
+          tester
+              .widgetList<Text>(
+                find.descendant(of: _row(i), matching: find.byType(Text)),
+              )
+              .firstWhere((text) => text.data != null)
+              .data!,
+    ];
+
+    testWidgets('chips sort by recent, frequent and name', (tester) async {
+      await _pumpSheet(
+        tester,
+        favorites: favorites,
+        useCounts: const {'name:banane': 5, 'name:äpfel': 2},
+      );
+      expect(order(tester), ['Skyr', 'Banane', 'Äpfel']);
+
+      await tester.tap(
+        find.byKey(const ValueKey('favorites-sheet-sort-frequent')),
+      );
+      await tester.pumpAndSettle();
+      expect(order(tester), ['Banane', 'Äpfel', 'Skyr']);
+
+      await tester.tap(
+        find.byKey(const ValueKey('favorites-sheet-sort-alphabetical')),
+      );
+      await tester.pumpAndSettle();
+      expect(order(tester), ['Äpfel', 'Banane', 'Skyr']);
+
+      // The search filters within the chosen order.
+      await tester.enterText(
+        find.byKey(const ValueKey('favorites-sheet-search')),
+        'a',
+      );
+      await tester.pumpAndSettle();
+      expect(order(tester), ['Banane']);
+    });
+
+    testWidgets('the chosen chip is announced as selected', (tester) async {
+      final semantics = tester.ensureSemantics();
+      try {
+        await _pumpSheet(tester, favorites: favorites);
+        expect(
+          tester.getSemantics(
+            find.byKey(const ValueKey('favorites-sheet-sort-recent')),
+          ),
+          isSemantics(isButton: true, isSelected: true, label: 'Recent'),
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('favorites-sheet-sort-frequent')),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          tester.getSemantics(
+            find.byKey(const ValueKey('favorites-sheet-sort-frequent')),
+          ),
+          isSemantics(isSelected: true, label: 'Frequent'),
+        );
+      } finally {
+        semantics.dispose();
+      }
+    });
+
+    testWidgets('one favorite needs no sorting; the slot line stays', (
+      tester,
+    ) async {
+      await _pumpSheet(tester, favorites: [_fav(meal('Skyr'), 3)]);
+      expect(
+        find.byKey(const ValueKey('favorites-sheet-sort-recent')),
+        findsNothing,
+      );
+      expect(find.text('For Lunch'), findsOneWidget);
+      expect(
+        find.text('Your go-to meals, ready for another day.'),
+        findsNothing,
+      );
+    });
+  });
 }

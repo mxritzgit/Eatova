@@ -68,6 +68,7 @@ class FoodStoreScope extends InheritedWidget {
     required this.store,
     required this.mealsOfSelectedDay,
     required this.favorites,
+    this.favoriteUseCounts,
     required super.child,
   });
 
@@ -85,6 +86,10 @@ class FoodStoreScope extends InheritedWidget {
   /// Must return the store's own list instance while nothing changed: the
   /// sheet uses its identity as the O(1) "did anything move" fingerprint.
   final List<FavoriteMeal> Function() favorites;
+
+  /// Logs per favorite id for the favorites sheet's "Frequent" order
+  /// ([favoriteUseCounts]); asked when the sheet opens.
+  final Map<String, int> Function()? favoriteUseCounts;
 
   /// Deliberately without dependency registration (like [MealEditScope]): the
   /// lookup happens in the sheet opener, outside build.
@@ -148,6 +153,7 @@ Future<void> showAddMealSheet(
           onToggleFavorite: onToggleFavorite,
           onRemoveMeal: onRemoveMeal,
           onUpdateMealDetails: resolvedUpdateDetails,
+          favoriteUseCounts: live?.favoriteUseCounts,
         );
       }
 
@@ -243,6 +249,7 @@ class AddMealSheet extends StatefulWidget {
     this.foodDate,
     this.onRemoveMeal,
     this.onUpdateMealDetails,
+    this.favoriteUseCounts,
   });
 
   final MealSlot slot;
@@ -277,6 +284,10 @@ class AddMealSheet extends StatefulWidget {
   /// Details update for the edit sheet (portion/slot/day). Null -> already
   /// added rows are not tappable.
   final UpdateMealDetails? onUpdateMealDetails;
+
+  /// Logs per favorite id for the favorites sheet's "Frequent" order; null
+  /// (previews, standalone tests) orders "Frequent" by recency.
+  final Map<String, int> Function()? favoriteUseCounts;
 
   @override
   State<AddMealSheet> createState() => _AddMealSheetState();
@@ -1412,6 +1423,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       slot: _selectedSlot,
       onAdd: _logAndMirror,
       onUnpin: _unpinFavorite,
+      useCounts: widget.favoriteUseCounts?.call() ?? const <String, int>{},
     );
     if (!mounted) return;
     setState(() {});

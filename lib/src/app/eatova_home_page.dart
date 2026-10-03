@@ -15,6 +15,7 @@ import '../models/training_session.dart';
 import '../services/data_export.dart';
 import '../services/background_sync_scheduler.dart';
 import '../services/eatova_sync.dart';
+import '../services/favorites_view.dart' show favoriteUseCounts;
 import '../services/health_service.dart';
 import '../services/local_cache.dart';
 import '../services/local_hour_ticker.dart';
@@ -881,6 +882,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         mealsOfSelectedDay: () =>
             _store.mealsForFoodDate(_store.selectedFoodDate),
         favorites: () => _store.favorites,
+        favoriteUseCounts: () =>
+            favoriteUseCounts(_store.loggedMeals, now: clock.now()),
         child: MealEditScope(
           onUpdateMeal: _store.updateLoggedMealDetails,
           onRemoveMeal: _store.removeLoggedMeal,

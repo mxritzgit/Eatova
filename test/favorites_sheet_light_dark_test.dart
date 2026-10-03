@@ -90,7 +90,7 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.byKey(const ValueKey('favorites-sheet')), findsOneWidget);
       expect(find.text(c.l10n.foodFavoritesSheetTitle(2)), findsOneWidget);
-      expect(find.text(c.l10n.foodFavoritesSheetSubtitle), findsOneWidget);
+      expect(find.text(c.l10n.foodFavoritesSortRecent), findsOneWidget);
       expect(find.text('Haferdrink'), findsOneWidget);
       expect(find.text('Skyr'), findsOneWidget);
       expect(find.text(c.l10n.foodFavoritesSearchHint), findsOneWidget,

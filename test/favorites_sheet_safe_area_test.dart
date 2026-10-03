@@ -125,7 +125,10 @@ Future<List<Object>> _oeffneSheet(
 void _erwarteGedeckelt(WidgetTester tester) {
   final rest = tester
       .state<ScrollableState>(
-        find.descendant(of: find.byKey(_scroll), matching: find.byType(Scrollable)),
+        // The vertical list; the sort chips scroll sideways inside it.
+        find
+            .descendant(of: find.byKey(_scroll), matching: find.byType(Scrollable))
+            .first,
       )
       .position
       .maxScrollExtent;
