@@ -169,6 +169,44 @@ Deno.test("transform: refusals map to the reason enum; inconsistent envelopes ar
   equal(transformExtraction(tooManyReps, LOCAL_DATE), null, "validated after transform");
 });
 
+Deno.test("transform: an exercise without any weight needs no weight_unit", () => {
+  // valid[0]: Barbell carries 100 kg, the pull-ups are bodyweight only.
+  const log = FIXTURE.valid[0];
+  const bodyweight = (raw: Row): Row => ((raw.workout as Row).exercises as Row[])[1];
+  const nullUnit = extraction(log);
+  bodyweight(nullUnit).weight_unit = null;
+  equal(transformExtraction(nullUnit, LOCAL_DATE), { kind: "log", log }, "null unit, no weights");
+  const missingUnit = extraction(log);
+  delete bodyweight(missingUnit).weight_unit;
+  equal(transformExtraction(missingUnit, LOCAL_DATE), { kind: "log", log }, "missing unit, no weights");
+  const timed = extraction(FIXTURE.valid[5]);
+  for (const exercise of (timed.workout as Row).exercises as Row[]) exercise.weight_unit = null;
+  equal(transformExtraction(timed, LOCAL_DATE), { kind: "log", log: FIXTURE.valid[5] }, "timed without units");
+
+  const weighted = (raw: Row): Row => ((raw.workout as Row).exercises as Row[])[0];
+  const nullWithWeight = extraction(log);
+  weighted(nullWithWeight).weight_unit = null;
+  equal(transformExtraction(nullWithWeight, LOCAL_DATE), null, "a weight needs its unit");
+  const unknownUnit = extraction(log);
+  bodyweight(unknownUnit).weight_unit = "stone";
+  equal(transformExtraction(unknownUnit, LOCAL_DATE), null, "an unknown unit stays invalid");
+  const extraKey = extraction(log);
+  delete bodyweight(extraKey).weight_unit;
+  bodyweight(extraKey).unit = "kg";
+  equal(transformExtraction(extraKey, LOCAL_DATE), null, "a renamed key stays invalid");
+});
+
+Deno.test("transform: a refusal that omits workout counts as workout null", () => {
+  for (const reason of LOG_REFUSAL_REASONS) {
+    equal(transformExtraction({ status: "refuse", refuse_reason: reason }, LOCAL_DATE),
+      { kind: "refusal", reason }, `refusal without workout: ${reason}`);
+  }
+  equal(transformExtraction({ status: "refuse", refuse_reason: "unsafe", note: "x" }, LOCAL_DATE), null,
+    "refusal with a foreign key instead of workout");
+  equal(transformExtraction({ status: "refuse", workout: null }, LOCAL_DATE), null, "refusal without reason");
+  equal(transformExtraction({ status: "ok", refuse_reason: null }, LOCAL_DATE), null, "ok without workout");
+});
+
 Deno.test("decode: one JSON object, one optional fence, bounded size", () => {
   const raw = JSON.stringify(extraction(FIXTURE.valid[0]));
   equal(decodeWorkoutLogExtraction(raw, LOCAL_DATE)?.kind, "log", "plain");

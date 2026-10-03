@@ -62,8 +62,10 @@ const LOG_KEYS = ["schema_version", "title", "performed_on", "duration_minutes",
 const EXERCISE_KEYS = ["name", "kind", "duration_seconds", "sets"];
 const SET_KEYS = ["reps", "weight_kg"];
 const ENVELOPE_KEYS = ["status", "refuse_reason", "workout"];
+const REFUSAL_ENVELOPE_KEYS = ["status", "refuse_reason"];
 const WORKOUT_KEYS = ["title", "performed_on", "duration_minutes", "other_days_omitted", "note", "exercises"];
 const EXTRACTED_EXERCISE_KEYS = ["name", "kind", "duration_seconds", "weight_unit", "sets"];
+const UNITLESS_EXERCISE_KEYS = ["name", "kind", "duration_seconds", "sets"];
 const EXTRACTED_SET_KEYS = ["reps", "weight"];
 const KG_PER_LB = 0.45359237;
 const DAY_MS = 86_400_000;
@@ -164,30 +166,40 @@ function withinLogWindow(performedOn: string, localDate: string): boolean {
 /**
  * Model extraction -> stored log. Converts lb to kg rounded to 0.01, drops the
  * unit, nulls a date outside [local_date - 30, local_date] and validates the
- * result strictly. null means an invalid draft (502 + refund upstream).
+ * result strictly. Keys without data are lenient: weight_unit may be null or
+ * absent when an exercise has no weight, and a refusal may omit workout.
+ * null means an invalid draft (502 + refund upstream).
  */
 export function transformExtraction(raw: unknown, localDate: string): WorkoutLogExtraction | null {
-  if (!objectWithKeys(raw, ENVELOPE_KEYS)) return null;
-  if (raw.status === "refuse") {
-    return raw.workout === null && (LOG_REFUSAL_REASONS as readonly unknown[]).includes(raw.refuse_reason)
-      ? { kind: "refusal", reason: raw.refuse_reason as LogRefusalReason }
+  // A refusal carries no data, so an omitted workout reads as workout: null.
+  const envelope = objectWithKeys(raw, REFUSAL_ENVELOPE_KEYS) && raw.status === "refuse"
+    ? { ...raw, workout: null }
+    : raw;
+  if (!objectWithKeys(envelope, ENVELOPE_KEYS)) return null;
+  if (envelope.status === "refuse") {
+    return envelope.workout === null && (LOG_REFUSAL_REASONS as readonly unknown[]).includes(envelope.refuse_reason)
+      ? { kind: "refusal", reason: envelope.refuse_reason as LogRefusalReason }
       : null;
   }
-  const workout = raw.workout;
-  if (raw.status !== "ok" || raw.refuse_reason !== null || !objectWithKeys(workout, WORKOUT_KEYS) ||
+  const workout = envelope.workout;
+  if (envelope.status !== "ok" || envelope.refuse_reason !== null || !objectWithKeys(workout, WORKOUT_KEYS) ||
     !Array.isArray(workout.exercises) ||
     !(workout.performed_on === null || typeof workout.performed_on === "string")) return null;
 
   const exercises: unknown[] = [];
   for (const exercise of workout.exercises) {
-    if (!objectWithKeys(exercise, EXTRACTED_EXERCISE_KEYS) || !Array.isArray(exercise.sets) ||
-      (exercise.weight_unit !== "kg" && exercise.weight_unit !== "lb")) return null;
-    const factor = exercise.weight_unit === "lb" ? KG_PER_LB : 1;
+    if (!(objectWithKeys(exercise, EXTRACTED_EXERCISE_KEYS) ||
+      objectWithKeys(exercise, UNITLESS_EXERCISE_KEYS)) || !Array.isArray(exercise.sets)) return null;
+    const unit = exercise.weight_unit ?? null;
+    if (unit !== "kg" && unit !== "lb" && unit !== null) return null;
+    const factor = unit === "lb" ? KG_PER_LB : 1;
     const sets: unknown[] = [];
     for (const set of exercise.sets) {
       if (!objectWithKeys(set, EXTRACTED_SET_KEYS)) return null;
       const weight = set.weight;
       if (weight !== null && (typeof weight !== "number" || !Number.isFinite(weight))) return null;
+      // A unit is only needed to read a weight: bodyweight and timed work have none.
+      if (weight !== null && unit === null) return null;
       sets.push({ reps: set.reps, weight_kg: weight === null ? null : Math.round(weight * factor * 100) / 100 });
     }
     exercises.push({ name: exercise.name, kind: exercise.kind, duration_seconds: exercise.duration_seconds, sets });
