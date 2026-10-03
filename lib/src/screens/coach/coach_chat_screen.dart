@@ -2111,6 +2111,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
               identical(current.trainingPlanProposal, proposal),
         );
     HapticFeedback.selectionClick();
+    _endDictationForSheet();
     _inputFocus.unfocus();
     setState(() => _reviewingTrainingPlan = true);
     try {
@@ -2244,6 +2245,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     // Taken before the sheet: the navigator absorbs a second tap once the
     // route is pushed, but not a second accessibility action in that frame.
     setState(() => _addingRecipe = true);
+    _endDictationForSheet();
     try {
       final confirmed = await showEatovaSheet<bool>(
         context,
@@ -2511,9 +2513,10 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     _keepScreenAwake(false);
   }
 
-  /// A sheet over the composer (attach, brief) reads the draft as it stands:
-  /// the recording ends at once and keeps what it showed, so no partial
-  /// rewrites the field behind the sheet (R17 D2-M1).
+  /// Every sheet over the composer (attach, brief, reviews, sessions, info)
+  /// reads the draft as it stands: the recording ends at once and keeps what
+  /// it showed, so no partial rewrites the field behind the sheet and no mic
+  /// stays live without a visible stop (R17 D2-M1).
   void _endDictationForSheet() {
     if (_listening) setState(_cancelSpeechInput);
   }
@@ -2697,6 +2700,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
 
   void _openSessionsSheet() {
     HapticFeedback.selectionClick();
+    _endDictationForSheet();
     showEatovaSheet<void>(
       context,
       // StatefulBuilder so the sheet rebuilds right after a delete: it does
@@ -2727,6 +2731,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   /// (i), the empty-state hint and the quota hint.
   void _openCoachInfoSheet() {
     HapticFeedback.selectionClick();
+    _endDictationForSheet();
     final quota = _quota;
     showEatovaSheet<void>(
       context,

@@ -348,6 +348,7 @@ Future<ValueNotifier<int>> _mount(
   ImagePicker? picker,
   Set<String> recipeSlugs = const <String>{},
   Future<SyncDelivery> Function(FitnessRecipe recipe)? onCreateRecipe,
+  Future<SyncDelivery> Function(TrainingPlan plan)? onCreateTrainingPlan,
   ValueListenable<bool> tabVisible = const AlwaysStoppedAnimation<bool>(true),
   // The shell swaps the service in place on an account change.
   ValueListenable<_Coach>? account,
@@ -372,6 +373,7 @@ Future<ValueNotifier<int>> _mount(
               imagePicker: picker,
               userRecipeSlugs: recipeSlugs,
               onCreateRecipe: onCreateRecipe,
+              onCreateTrainingPlan: onCreateTrainingPlan,
               screenAwake: const NoopScreenAwake(),
               dictationLanguageStore: const PrefsDictationLanguageStore(),
             ),
@@ -1240,6 +1242,66 @@ void main() {
           inCard(deL10n.coachPlanCardMoreExercises(total - shown.length)),
           findsOneWidget,
         );
+      });
+    }
+  });
+
+  // Every sheet over the composer ends a running dictation first: a covered
+  // mic has no visible stop, and partials would rewrite the hidden field.
+  group('Diktat hinter Sheets', () {
+    for (final (sheet, opener, opened) in <(String, String, String)>[
+      ('Plan pruefen', 'coach-plan-review', 'training-editor-save'),
+      ('Rezept hinzufuegen', 'coach-recipe-add', 'coach-recipe-sheet'),
+      ('Gespraeche', 'coach-sessions-open', 'coach-sessions-new'),
+      ('Info', 'coach-info', 'coach-info-sheet'),
+    ]) {
+      testWidgets('$sheet beendet ein laufendes Diktat; kein spaeterer '
+          'Teiltext schreibt ins Feld', (tester) async {
+        await _ios(() async {
+          final native = _Native()..install();
+          final coach = _Coach.create()
+            ..history = {
+              's1': [
+                ChatMessage(
+                  id: 'server-plan-1',
+                  role: ChatRole.assistant,
+                  content: 'Dein Trainingsplan.',
+                  createdAt: _date,
+                  trainingPlanProposal: _plan([
+                    ['Kniebeuge'],
+                  ]),
+                ),
+                _recipeMessage(),
+              ],
+            };
+          await _mount(
+            tester,
+            coach,
+            onCreateRecipe: (_) async => SyncDelivery.delivered,
+            onCreateTrainingPlan: (_) async => SyncDelivery.delivered,
+          );
+          await tester.tap(find.byKey(const ValueKey('coach-mic')));
+          await _frames(tester);
+          native.partial('Was ist');
+          await tester.pump();
+
+          final open = find.byKey(ValueKey(opener));
+          await tester.ensureVisible(open);
+          await tester.pump();
+          await tester.tap(open);
+          await _frames(tester);
+          expect(find.byKey(ValueKey(opened)), findsOneWidget);
+          expect(
+            native.count('cancel'),
+            1,
+            reason: 'sofort, nicht mit Nachlauf',
+          );
+          expect(_text(tester), 'Was ist');
+
+          native.partial('Was ist das hier', token: native.tokens.single);
+          await _frames(tester);
+          expect(_text(tester), 'Was ist', reason: 'nichts hinter dem Sheet');
+        });
       });
     }
   });
