@@ -5,6 +5,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'package:eatova/src/models/favorite_meal.dart';
@@ -139,7 +140,11 @@ void main() {
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
 
-    _expectThemed(tester, find.byKey(const ValueKey('edit-meal-save-button')));
+    // Since 2026-10-03 the design system's primary action (token colors).
+    expect(
+      tester.widget(find.byKey(const ValueKey('edit-meal-save-button'))),
+      isA<PrimaryActionButton>(),
+    );
   });
 
   testWidgets('Speichern-Knopf des Manuell-Sheets nimmt das Theme',

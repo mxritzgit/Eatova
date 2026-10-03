@@ -13,6 +13,7 @@ Future<DateTime?> showFoodDatePicker(
   required DateTime today,
   DateTime? lastDate,
   String? confirmLabel,
+  String? contextLabel,
 }) => showEatovaSheet<DateTime>(
   context,
   FoodDatePicker(
@@ -21,6 +22,7 @@ Future<DateTime?> showFoodDatePicker(
     today: today,
     lastDate: lastDate,
     confirmLabel: confirmLabel,
+    contextLabel: contextLabel,
   ),
 );
 
@@ -33,6 +35,7 @@ class FoodDatePicker extends StatefulWidget {
     required this.today,
     this.lastDate,
     this.confirmLabel,
+    this.contextLabel,
   });
   final DateTime initialDate, firstDate, today;
 
@@ -41,6 +44,10 @@ class FoodDatePicker extends StatefulWidget {
 
   /// Label of the confirm button; null is "Open day".
   final String? confirmLabel;
+
+  /// The small line above the chosen date (what the day is for); null is
+  /// "Nutrition", the Food tab's diary.
+  final String? contextLabel;
 
   @override
   State<FoodDatePicker> createState() => _FoodDatePickerState();
@@ -161,7 +168,7 @@ class _FoodDatePickerState extends State<FoodDatePicker> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              l10n.foodTitle,
+                              widget.contextLabel ?? l10n.foodTitle,
                               style: AppType.ui(12, color: t.ink2),
                             ),
                             const SizedBox(height: 5),

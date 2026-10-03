@@ -38,6 +38,7 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
 import 'package:eatova/src/screens/onboarding_screen.dart';
+import 'package:eatova/src/screens/today/today_day_strip.dart';
 import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/design/controls.dart';
@@ -188,12 +189,11 @@ Future<void> _pumpFoodTab(
   );
 }
 
-/// Today, because the chip strip is `recentDaysDescending`: `edit-day-chip-0`
-/// is ALWAYS today, never the meal's day. A meal pinned to a fixed calendar day
-/// therefore stops being the SELECTED chip the day after this file is written,
-/// and the selection assertions below then compare two UNSELECTED chips —
-/// contrast 1.0 against a floor of 3.0. Pinned to 2026-08-29, this group was
-/// green on exactly one day and red from 2026-08-30 on.
+/// Today, because the edit sheet's strip ends on the real today: a meal pinned
+/// to a fixed calendar day would stop being the SELECTED day the day after
+/// this file is written, and the assertions below would compare two
+/// UNSELECTED days. Pinned to 2026-08-29, this group was green on exactly one
+/// day and red from 2026-08-30 on.
 final DateTime _heute = DateUtils.dateOnly(DateTime.now());
 
 LoggedMeal _mahlzeit() => LoggedMeal(
@@ -304,51 +304,58 @@ void main() {
   });
 
   // =========================================================================
-  // 3. _DayPicker — the same chips inside the edit-meal sheet
+  // 3. The edit-meal sheet's day strip (Today's 7-day strip since 2026-10-03)
   // =========================================================================
-  group('Bearbeiten-Sheet: die Tages-Chips tragen dieselbe Sprache', () {
+  group('Bearbeiten-Sheet: der Tages-Streifen traegt dieselbe Sprache', () {
     _modi.forEach((modus, brightness) {
       final t = _tokens(brightness);
 
-      testWidgets('$modus: Flaeche, Wochentag und Datumszahl', (tester) async {
+      testWidgets('$modus: Flaeche, Wochentag und Tageszahl', (tester) async {
         await _oeffneEditSheet(tester, brightness: brightness);
-        expect(find.byKey(const ValueKey('edit-meal-day-picker')),
-            findsOneWidget);
+        final streifen = find.byKey(const ValueKey('edit-meal-day-picker'));
+        expect(tester.widget(streifen), isA<TodayDayStrip>());
 
-        const gewaehlt = ValueKey<String>('edit-day-chip-0');
-        const ungewaehlt = ValueKey<String>('edit-day-chip-1');
+        Finder tag(DateTime d) =>
+            find.byKey(ValueKey<String>('today-day-${localDayKey(d)}'));
+        final gewaehlt = tag(_heute);
+        final ungewaehlt = tag(
+          DateTime(_heute.year, _heute.month, _heute.day - 1),
+        );
+        Color flaeche(Finder zelle) => (tester
+                    .widget<DecoratedBox>(
+                      find
+                          .ancestor(of: zelle, matching: find.byType(DecoratedBox))
+                          .first,
+                    )
+                    .decoration
+                as BoxDecoration)
+            .color!;
+        List<Color> farben(Finder zelle) => [
+          for (final text in tester.widgetList<Text>(
+            find.descendant(of: zelle, matching: find.byType(Text)),
+          ))
+            text.style!.color!,
+        ];
 
-        final flaeche = _fuellung(tester, gewaehlt);
-        final andere = _fuellung(tester, ungewaehlt);
-        final wochentag = _ueber(_textFarbe(tester, gewaehlt, 0), flaeche);
-        final datum = _textFarbe(tester, gewaehlt, 1);
+        final auswahl = flaeche(gewaehlt);
+        expect(auswahl, t.selectedFill, reason: '$modus: Fuellung');
+        expect(flaeche(ungewaehlt).a, 0, reason: 'offen auf dem Sheet');
+        final [wochentag, zahl] = farben(gewaehlt);
+        expect(zahl, t.onSelected);
 
         _erwarteAuswahlsprache(
           modus: modus,
           t: t,
-          was: 'Sheet-Tages-Chip',
-          gewaehlteFlaeche: flaeche,
-          ungewaehlteFlaeche: andere,
-          aufDerFlaeche: <Color>[wochentag, datum],
-          gegenueber: <Color>[
-            _textFarbe(tester, ungewaehlt, 0),
-            _textFarbe(tester, ungewaehlt, 1),
-          ],
+          was: 'Sheet-Tagesstreifen',
+          gewaehlteFlaeche: auswahl,
+          ungewaehlteFlaeche: t.bg,
+          aufDerFlaeche: <Color>[_ueber(wochentag, auswahl), zahl],
+          gegenueber: [for (final c in farben(ungewaehlt)) _ueber(c, t.bg)],
         );
-
-        expect(flaeche, t.selectedFill,
-            reason: '$modus: Fuellung ist selectedFill');
-        expect(andere, t.surf);
-        expect(datum, t.onSelected);
-        expect(_rand(tester, gewaehlt), t.selectedFill);
-        expect(_rand(tester, ungewaehlt), t.line);
       });
     });
   });
 
-  // =========================================================================
-  // 4. _TileCard / _RowCard — the onboarding cards
-  // =========================================================================
   group('Onboarding: gewaehlte Karten tragen SelectionTone', () {
     _modi.forEach((modus, brightness) {
       final t = _tokens(brightness);

@@ -2,6 +2,7 @@ import 'support/food_navigation.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 import 'package:eatova/main.dart';
 import 'package:eatova/src/models/logged_meal.dart';
@@ -93,6 +94,16 @@ Future<void> _openSheet(
   await tester.pumpAndSettle();
 }
 
+/// The Today strip's cell for the day [daysAgo] before today (real clock).
+Finder _tagVor(int daysAgo) {
+  final today = DateUtils.dateOnly(DateTime.now());
+  return find.byKey(
+    ValueKey<String>(
+      'today-day-${localDayKey(DateTime(today.year, today.month, today.day - daysAgo))}',
+    ),
+  );
+}
+
 void main() {
   testWidgetsRobust('Slot + Tag aendern ruft den Store einmal korrekt auf', (
     WidgetTester tester,
@@ -107,14 +118,14 @@ void main() {
 
     // Without a change, save is disabled.
     final saveButton = find.byKey(const ValueKey('edit-meal-save-button'));
-    expect(tester.widget<FilledButton>(saveButton).onPressed, isNull);
+    expect(tester.widget<PrimaryActionButton>(saveButton).onTap, isNull);
 
     await tester.tap(find.byKey(const ValueKey('edit-slot-select-lunch')));
     await tester.pumpAndSettle();
-    expect(tester.widget<FilledButton>(saveButton).onPressed, isNotNull);
+    expect(tester.widget<PrimaryActionButton>(saveButton).onTap, isNotNull);
 
-    // Day: chip index 1 = yesterday.
-    await tester.tap(find.byKey(const ValueKey('edit-day-chip-1')));
+    // Day: yesterday in the 7-day strip.
+    await tester.tap(_tagVor(1));
     await tester.pumpAndSettle();
 
     await tester.tap(saveButton);
@@ -171,27 +182,28 @@ void main() {
     final capture = _EditCapture();
     await _openSheet(tester, capture);
 
-    // Scroll to the calendar entry at the end of the horizontal chip picker.
-    await tester.drag(
-      find.byKey(const ValueKey('edit-meal-day-picker')),
-      const Offset(-3000, 0),
+    final kalender = find.byKey(const ValueKey('edit-day-calendar'));
+    await tester.ensureVisible(kalender);
+    await tester.pumpAndSettle();
+    await tester.tap(kalender);
+    await tester.pumpAndSettle();
+    // The app's own calendar sheet, titled and confirmed with "Tag wählen".
+    final blatt = find.byKey(const ValueKey('food-date-picker'));
+    expect(blatt, findsOneWidget);
+    expect(
+      find.descendant(of: blatt, matching: find.text('Tag wählen')),
+      findsNWidgets(2),
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('edit-day-calendar')));
-    await tester.pumpAndSettle();
-    expect(find.byType(DatePickerDialog), findsOneWidget);
-    expect(find.text('Tag wählen'), findsOneWidget);
 
     // Page to the previous month and pick the 15th: it exists in every month
     // and always lies in the past.
-    await tester.tap(find.byIcon(Icons.chevron_left));
+    await tester.tap(
+      find.descendant(of: blatt, matching: find.byIcon(Icons.chevron_left)),
+    );
     await tester.pumpAndSettle();
-    await tester.tap(find.descendant(
-      of: find.byType(DatePickerDialog),
-      matching: find.text('15'),
-    ));
+    await tester.tap(find.descendant(of: blatt, matching: find.text('15')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('OK'));
+    await tester.tap(find.byKey(const ValueKey('food-date-confirm')));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('edit-meal-save-button')));
@@ -271,9 +283,9 @@ void main() {
     // The change is still there: save stays enabled.
     expect(
       tester
-          .widget<FilledButton>(
+          .widget<PrimaryActionButton>(
               find.byKey(const ValueKey('edit-meal-save-button')))
-          .onPressed,
+          .onTap,
       isNotNull,
     );
   });
@@ -331,7 +343,7 @@ void main() {
     // From here on the guard is active.
     await tester.tap(find.byKey(const ValueKey('edit-slot-select-dinner')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('edit-day-chip-2')));
+    await tester.tap(_tagVor(2));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('edit-meal-save-button')));
     await tester.pumpAndSettle();
@@ -522,7 +534,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('edit-meal-sheet')), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('edit-day-chip-1')));
+    await tester.tap(_tagVor(1));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('edit-meal-save-button')));
     await tester.pumpAndSettle();
