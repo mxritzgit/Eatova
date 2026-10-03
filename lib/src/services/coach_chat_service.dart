@@ -912,7 +912,7 @@ class CoachChatService {
     return _fencedRequest(
       deadline: _planFrist,
       locale: locale,
-      body: {
+      body: () => {
         'message': wish,
         'mode': discussion ? 'chat' : 'plan',
         'locale': _requestLocale(locale),
@@ -920,11 +920,7 @@ class CoachChatService {
         if (trainingContext != null)
           'training_context': trainingContext.toJson(),
       },
-      tags: const _RequestTags(
-        http: 'coach.plan.http',
-        relay: 'coach.plan.relay',
-        unknown: 'coach.plan.unbekannt',
-      ),
+      tags: _planTags,
       parse: (payload) =>
           _planFromPayload(payload, sessionId, discussion: discussion),
       afterDeadline: (startedAt, authorization, verifyIdentity) =>
@@ -947,7 +943,7 @@ class CoachChatService {
   }) => _fencedRequest(
     deadline: _logFrist,
     locale: locale,
-    body: {
+    body: () => {
       'message': wish,
       'mode': 'log',
       'local_date': localDayKey(clock.now()),
@@ -967,6 +963,26 @@ class CoachChatService {
     failureForStatus: _workoutLogFailure,
   );
 
+  static const _planTags = _RequestTags(
+    http: 'coach.plan.http',
+    relay: 'coach.plan.relay',
+    unknown: 'coach.plan.unbekannt',
+  );
+
+  /// Test seam: the fence of [requestPlan] and [requestWorkoutLog] with a
+  /// caller-built [body], so a test can show that a body which fails to
+  /// build still ends as a mapped [CoachChatException].
+  @visibleForTesting
+  Future<void> debugFencedRequest(Map<String, Object?> Function() body) =>
+      _fencedRequest<void>(
+        deadline: _planFrist,
+        locale: _localeCode,
+        body: body,
+        tags: _planTags,
+        parse: (_) {},
+        afterDeadline: (_, _, _) async {},
+      );
+
   /// One buffered proposal request (/plan, /log), fenced to this account: the
   /// bearer is captured before the call, the identity is re-checked after
   /// every await (A -> B -> A included), the body may come as JSON or as an
@@ -976,7 +992,7 @@ class CoachChatService {
   Future<T> _fencedRequest<T>({
     required Duration deadline,
     required String locale,
-    required Map<String, Object?> body,
+    required Map<String, Object?> Function() body,
     required _RequestTags tags,
     required T Function(Map<dynamic, dynamic> payload) parse,
     required Future<T> Function(
@@ -996,6 +1012,9 @@ class CoachChatService {
       }
     }
     try {
+      // Built inside the fence: a body that fails to build (a training
+      // context, the local day) ends as a mapped error like any other.
+      final payload = body();
       authorization = await _capturedAuthorization();
       verifyIdentity();
       final result = await _mitFrist(deadline, (abort) async {
@@ -1005,7 +1024,7 @@ class CoachChatService {
             'Authorization': authorization!,
             'Accept-Language': _requestLocale(locale),
           },
-          body: body,
+          body: payload,
           abortSignal: abort,
         );
         verifyIdentity();
@@ -1191,7 +1210,7 @@ class CoachChatService {
   Exception _workoutLogFailure(int status, dynamic details) {
     final error = details is Map ? details['error'] : null;
     if (status == 400 && _workoutLogUnsupported.contains(error)) {
-      return CoachChatException(_l10n.coachWorkoutLogUnavailable);
+      return CoachRequestUnsupported(_l10n.coachWorkoutLogUnavailable);
     }
     return _failureForStatus(status, details);
   }
@@ -1671,6 +1690,12 @@ class CoachChatException implements Exception {
   final String message;
   @override
   String toString() => 'CoachChatException: $message';
+}
+
+/// A request this server cannot take (a `/log` on a function that predates
+/// it). Certain, so no retry is offered; nothing was charged.
+class CoachRequestUnsupported extends CoachChatException {
+  const CoachRequestUnsupported(super.message);
 }
 
 /// "Unknown": the server delivered no reliable state (offline, expired token,

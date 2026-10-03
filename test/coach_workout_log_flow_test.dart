@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart'
@@ -13,6 +14,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase/supabase.dart';
+import 'package:yet_another_json_isolate/yet_another_json_isolate.dart';
 
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/chat_message.dart';
@@ -84,6 +86,25 @@ ChatMessage _logRow({Map<String, Object?>? log}) => ChatMessage.fromRow({
   'workout_log': log ?? _logJson(),
 });
 
+/// JSON on the calling isolate: the SDK's default codec answers through a
+/// real isolate port, which a widget test's fake time cannot advance.
+class _InlineJson implements YAJsonIsolate {
+  @override
+  String? get debugName => null;
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<void> dispose() async {}
+
+  @override
+  Future<dynamic> decode(String json) async => jsonDecode(json);
+
+  @override
+  Future<String> encode(Object? json) async => jsonEncode(json);
+}
+
 class _LogCoach extends CoachChatService {
   _LogCoach(super.client, super.userId);
 
@@ -97,6 +118,28 @@ class _LogCoach extends CoachChatService {
     return _LogCoach(client, userId);
   }
 
+  /// The real request path against a server that cannot take `/log` (an
+  /// older or rolled-back function): every function call answers 400.
+  static _LogCoach oldServer(String error) {
+    final client = SupabaseClient(
+      'https://example.supabase.co',
+      'test-anon-key',
+      httpClient: MockClient(
+        (request) async => request.url.path.contains('/functions/')
+            ? http.Response(
+                jsonEncode({'error': error}),
+                400,
+                headers: {'content-type': 'application/json'},
+              )
+            : http.Response('[]', 200),
+      ),
+      isolate: _InlineJson(),
+    );
+    client.auth.stopAutoRefresh();
+    return _LogCoach(client, 'user-a').._passThrough = true;
+  }
+
+  bool _passThrough = false;
   final calls = <({String wish, String locale, String session})>[];
   int chats = 0;
   int plans = 0;
@@ -135,6 +178,13 @@ class _LogCoach extends CoachChatService {
     required String locale,
   }) async {
     calls.add((wish: wish, locale: locale, session: sessionId));
+    if (_passThrough) {
+      return super.requestWorkoutLog(
+        wish,
+        sessionId: sessionId,
+        locale: locale,
+      );
+    }
     return pending?.future ??
         CoachWorkoutLogReply(
           reply: 'Beintag erkannt.',
@@ -527,6 +577,30 @@ void main() {
     expect(_text(tester), '/log $_wish', reason: 'the draft stays');
   });
 
+  for (final code in ['invalid_mode', 'invalid_body']) {
+    _test('a server without /log ($code): the error, the draft back, '
+        'no Retry', (tester) async {
+      final coach = _LogCoach.oldServer(code);
+      final h = await _mount(tester, coach);
+      await _send(tester, '/log $_wish');
+      expect(coach.calls, hasLength(1));
+      expect(find.text(deL10n.coachWorkoutLogUnavailable), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('coach-unsent')),
+        findsNothing,
+        reason: 'a certain 400: a Retry could only loop',
+      );
+      expect(_text(tester), '/log $_wish', reason: 'the draft stays');
+      expect(
+        find.text('/log $_wish'),
+        findsOneWidget,
+        reason: 'in the composer only, not also as a sent-looking bubble',
+      );
+      expect(_card, findsNothing);
+      expect(h.saved, isEmpty);
+    });
+  }
+
   _test('an unknown command names /log in both languages', (tester) async {
     expect(deL10n.coachPlanUnknownCommandHint, contains('/log'));
     expect(enL10n.coachPlanUnknownCommandHint, contains('/log'));
@@ -754,6 +828,27 @@ void main() {
     h.update(authoritative: true);
     await _frames(tester);
     expect(_addEnabled(tester), isTrue);
+  });
+
+  _test('history turning non-authoritative under an open sheet: Add writes '
+      'nothing', (tester) async {
+    final coach = _LogCoach.create()..history = [_logRow()];
+    final h = await _mount(tester, coach);
+    await _tapAdd(tester);
+    expect(_editorSave, findsOneWidget);
+    // A reload or an account change on the way: the ids may be stale.
+    h.update(authoritative: false);
+    await _frames(tester);
+    await _confirm(tester);
+    expect(h.saved, isEmpty, reason: 'no onLogWorkout call');
+    expect(find.text(deL10n.trainingLogSaveError), findsOneWidget);
+    expect(_editorSave, findsOneWidget, reason: 'the sheet stays open');
+
+    // Known again: the same sheet's Add writes once.
+    h.update(authoritative: true);
+    await _frames(tester);
+    await _confirm(tester);
+    expect(h.saved.map((e) => e.id), [_historyId]);
   });
 
   _test('without a save hook the card has no Add', (tester) async {

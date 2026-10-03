@@ -1414,9 +1414,10 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     await versand;
   }
 
-  /// Restores a draft the retry had to clear. Only that: a failed question is
-  /// NOT put back here — the unsent marker is its single home, or the send
-  /// button would create a duplicate next to the retry.
+  /// Restores a draft a send had to clear. A failed question is NOT put back
+  /// here — the unsent marker is its single home, or the send button would
+  /// create a duplicate next to the retry. The one exception is a request
+  /// the server cannot take ([CoachRequestUnsupported]): it gets no marker.
   void _entwurfZurueck(String entwurf) {
     if (entwurf.isEmpty || _input.text.isNotEmpty) return;
     _input.text = entwurf;
@@ -1963,6 +1964,17 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         _error = error.message;
         _fehlgeschlagen = retry;
       });
+    } on CoachRequestUnsupported catch (error) {
+      if (!isCurrentConversation()) return;
+      // Certain and free (an older server): no Retry to loop on. The text
+      // goes back to the composer instead of a bubble that looks sent.
+      setState(() {
+        _error = error.message;
+        _messages = _messages
+            .where((message) => message.id != userMsg.id)
+            .toList(growable: false);
+      });
+      _entwurfZurueck(displayText);
     } on CoachChatException catch (error) {
       if (!isCurrentConversation()) return;
       setState(() {
@@ -2183,6 +2195,11 @@ class _CoachChatScreenState extends State<CoachChatScreen>
           }
           if (widget.trainingHistoryIds.contains(historyId)) {
             return TrainingLogSaveOutcome.saved;
+          }
+          // Ids and receipts that are not authoritative may be stale: no
+          // write until the history is known again.
+          if (!widget.trainingHistoryAuthoritative) {
+            throw StateError('Workout history is not known');
           }
           final outcome = await onLog(entry);
           if (!isCurrentDraft()) {

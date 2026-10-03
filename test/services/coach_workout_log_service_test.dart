@@ -329,7 +329,13 @@ void main() {
           service.l10n = l10n;
           await expectLater(
             _request(service, locale: english ? 'en' : 'de'),
-            _coachError(l10n.coachWorkoutLogUnavailable),
+            throwsA(
+              isA<CoachRequestUnsupported>().having(
+                (e) => e.message,
+                'message',
+                l10n.coachWorkoutLogUnavailable,
+              ),
+            ),
           );
           expect(calls, 1, reason: 'no retry loop');
           expect(service.serverDailyLimit, isNull);
@@ -341,7 +347,16 @@ void main() {
       final service = _service((_) async => _json({'error': 'empty_log'}, 400));
       await expectLater(
         _request(service),
-        _coachError(deL10n.coachErrorRequestFailed),
+        throwsA(
+          allOf(
+            isNot(isA<CoachRequestUnsupported>()),
+            isA<CoachChatException>().having(
+              (e) => e.message,
+              'message',
+              deL10n.coachErrorRequestFailed,
+            ),
+          ),
+        ),
       );
     });
 

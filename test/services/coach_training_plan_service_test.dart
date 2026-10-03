@@ -14,6 +14,7 @@ import 'package:eatova/src/models/chat_message.dart';
 import 'package:eatova/src/models/coach_training_context.dart';
 import 'package:eatova/src/models/coach_training_proposal.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
+import 'package:eatova/src/services/crash_reporter.dart';
 
 final _now = DateTime.utc(2026, 9, 8, 12);
 const _fallbackSessionId = '11111111-1111-4111-8111-111111111111';
@@ -563,6 +564,35 @@ void main() {
         'A',
       );
       await expectLater(_request(service), throwsA(isA<CoachChatException>()));
+    });
+
+    test('a body that fails to build (training context included) ends as the '
+        'mapped error, before any request', () async {
+      var calls = 0;
+      final reports = <String?>[];
+      CrashReporter.debugSentrySink = (error, stack, context) =>
+          reports.add(context);
+      addTearDown(() => CrashReporter.debugSentrySink = null);
+      final service = _service((_) async {
+        calls++;
+        return _json(_reply());
+      });
+
+      await expectLater(
+        service.debugFencedRequest(
+          () => throw StateError('training context failed to encode'),
+        ),
+        throwsA(
+          isA<CoachChatException>().having(
+            (e) => e.message,
+            'message',
+            deL10n.coachErrorUnreachable,
+          ),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(calls, 0);
+      expect(reports, ['coach.plan.unbekannt']);
     });
   });
 
