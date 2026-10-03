@@ -85,17 +85,13 @@ Future<void> _pumpSaved(
   Locale locale,
 ) => pumpLocalized(
   tester,
-  Column(
-    children: [
-      SavedMealHeader(
-        result: result,
-        expanded: false,
-        justAdded: false,
-        isFavorite: true,
-        onTap: () {},
-      ),
-      SavedMealNutrients(result: result),
-    ],
+  // The collapsed row carries its macro legend itself (lively list).
+  SavedMealHeader(
+    result: result,
+    expanded: false,
+    justAdded: false,
+    isFavorite: true,
+    onTap: () {},
   ),
   locale: locale,
   scrollable: true,

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/favorite_meal.dart';
+import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/favorites_view.dart';
 
@@ -273,6 +274,85 @@ void main() {
       expect(
         _names(filterFavoritesByQuery(sortiert, 'hafer')),
         ['Hafer C', 'Hafer A', 'Hafer B'],
+      );
+    });
+  });
+
+  // Sorting of the favorites sheet (lively list, 2026-10-03).
+  group('favoriteUseCounts', () {
+    final now = DateTime(2026, 10, 3, 19);
+    LoggedMeal log(String name, DateTime at) => LoggedMeal(
+      id: '$name-${at.toIso8601String()}',
+      result: _result(name),
+      loggedAt: at,
+    );
+
+    test('counts logs of the last 35 days by favorite id', () {
+      final counts = favoriteUseCounts([
+        log('Skyr', DateTime(2026, 10, 3, 8)),
+        log('Skyr', DateTime(2026, 9, 20, 8)),
+        log('skyr ', DateTime(2026, 8, 29, 8)), // the window's first day
+        log('Skyr', DateTime(2026, 8, 28, 23)), // one day too old
+        log('Hafer', DateTime(2026, 10, 1, 8)),
+      ], now: now);
+      expect(counts, {'name:skyr': 3, 'name:hafer': 1});
+    });
+
+    test('a barcode product counts under its barcode', () {
+      final bar = _result('Riegel');
+      const scanned = MealAnalysisResult(
+        mealName: 'Riegel · Marke',
+        caloriesKcal: 200,
+        estimatedGrams: 60,
+        kcalPer100G: 333,
+        protein: '-',
+        carbs: '-',
+        fat: '-',
+        confidence: 'database',
+        portionNotes: '',
+        barcode: '4000540000108',
+      );
+      final counts = favoriteUseCounts([
+        LoggedMeal(id: 'a', result: scanned, loggedAt: now),
+        LoggedMeal(id: 'b', result: bar, loggedAt: now),
+      ], now: now);
+      expect(counts['barcode:4000540000108'], 1);
+      expect(counts['name:riegel'], 1);
+    });
+  });
+
+  group('sortFavorites', () {
+    final byRecency = [
+      _fav('Zucchini', addedAt: DateTime(2026, 10, 3)),
+      _fav('Äpfel', addedAt: DateTime(2026, 10, 2)),
+      _fav('apfelmus', addedAt: DateTime(2026, 10, 1)),
+      _fav('Banane', addedAt: DateTime(2026, 9, 30)),
+    ];
+    String nameOf(FavoriteMeal f) => f.result.mealName;
+
+    test('recent keeps the recency order', () {
+      expect(
+        _names(sortFavorites(byRecency, FavoriteSort.recent, nameOf: nameOf)),
+        ['Zucchini', 'Äpfel', 'apfelmus', 'Banane'],
+      );
+    });
+
+    test('frequent orders by count, ties keep recency', () {
+      final sorted = sortFavorites(
+        byRecency,
+        FavoriteSort.frequent,
+        useCounts: {'name:banane': 4, 'name:apfelmus': 4, 'name:zucchini': 1},
+        nameOf: nameOf,
+      );
+      expect(_names(sorted), ['apfelmus', 'Banane', 'Zucchini', 'Äpfel']);
+    });
+
+    test('A–Z ignores case and umlauts', () {
+      expect(
+        _names(
+          sortFavorites(byRecency, FavoriteSort.alphabetical, nameOf: nameOf),
+        ),
+        ['Äpfel', 'apfelmus', 'Banane', 'Zucchini'],
       );
     });
   });

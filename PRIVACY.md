@@ -227,7 +227,12 @@ the device, before the photo is uploaded.
   straight to Open Food Facts instead.
 - **OpenFoodFacts** is queried for public product/nutrition data when you
   search or scan a barcode, and whenever our own index is not used. Your identity
-  is not sent with these queries.
+  is not sent with these queries. **Product photos** in search results,
+  favorites and recent meals load directly from the Open Food Facts image
+  servers (`images.openfoodfacts.org`, `static.openfoodfacts.org`), which see
+  your device's IP address and the photo requested, never your account. Meals
+  and favorites logged from such a product keep the photo's address in their
+  synced entries, so the photo shows on your other devices too.
 - **Sentry** (`ingest.de.sentry.io`, EU region — reports are sent to and stored
   in the EU) receives the crash diagnostics described above. The SDK is
   configured to send no personal data by default (`sendDefaultPii = false`), to

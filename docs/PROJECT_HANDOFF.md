@@ -2679,3 +2679,36 @@ one decimal rounded to 100 kg. The card now shows exact kilograms, grouped
 column instead of being cut off. `TrainingVolumeWeek.tonnes` is gone. The
 design scenario's weeks read 6,798 to 8,625 kg where the reference shot shows
 6.8 to 8.6.
+
+## Favorites keep their photo; lively favorites list, 2026-10-03
+
+Owner request: a product hearted from the search showed only its first
+letter in the favorites, and the favorites menu should be livelier. Design
+approved in chat ("lebendige Liste");
+[spec](superpowers/specs/2026-10-03-favorites-photos-and-lively-list-design.md),
+[plan](superpowers/plans/2026-10-03-favorites-photos-lively-list.md),
+[FAVORITES-DESIGN.md](FAVORITES-DESIGN.md#lively-list-and-product-photos-2026-10-03).
+
+- Cause: the search row knew the photo URL, but the heart passed on only the
+  `MealAnalysisResult`, which had no photo field.
+- `MealAnalysisResult.imageUrl` comes from the Open Food Facts product
+  (search hit and barcode scan) and travels in the existing meal payloads of
+  `favorite_meals` and `logged_meals`. No migration, no function deploy.
+  Only https addresses on `images.openfoodfacts.org` and
+  `static.openfoodfacts.org` are accepted, also when a synced payload is
+  read. A read-only scan of 10,200 index products found only
+  `https://images.openfoodfacts.org` addresses.
+- `FavoriteMeal.keepImage`: a rewrite never drops a stored photo, and an old
+  photo-less favorite takes the photo of a hit with the same barcode. Name-keyed
+  entries never trade photos.
+- Pinned rows: a 48 px photo tile, "Brand · 60 g · 212 kcal", macro dots, the
+  heart over a tinted one-tap "+" for the saved portion. After an add the inline
+  rows keep their order while the check shows, and the sheet scrolls by the
+  height the "already added" list grew, so a second tap adds the same food.
+- The favorites sheet sorts by Recent, Frequent (store logs of 35 days) and
+  A–Z. `PRIVACY.md` names the image servers.
+- A fresh reviewer found 1 medium and 4 low issues: the moving row, the fade
+  on fast chip changes, name-keyed photo transfer, and the privacy wording.
+  All are fixed with tests. The chips keep the app's 42 px `FilterChipPill`.
+- Open: the website privacy text (separate repository) should mention the
+  product photos; the device check is the owner's build.

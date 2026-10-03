@@ -16,13 +16,34 @@ class FavoriteMeal {
   /// only affects auto-recents; pinned favorites are kept forever.
   final bool pinned;
 
-  FavoriteMeal copyWith({bool? pinned, DateTime? addedAt}) {
+  FavoriteMeal copyWith({
+    bool? pinned,
+    DateTime? addedAt,
+    MealAnalysisResult? result,
+  }) {
     return FavoriteMeal(
       id: id,
-      result: result,
+      result: result ?? this.result,
       addedAt: addedAt ?? this.addedAt,
       pinned: pinned ?? this.pinned,
     );
+  }
+
+  /// [next] with the photo of [other] when [next] has none and both are the
+  /// same product (same barcode), else [next] itself (same instance). A
+  /// favorite never loses its product photo to a rewrite from a photo-less
+  /// result, and an old photo-less favorite picks one up from a search hit of
+  /// the same product. Name-keyed entries never trade photos: an AI scan
+  /// called "Banane" is not the packaged product of that name.
+  static MealAnalysisResult keepImage(
+    MealAnalysisResult next,
+    MealAnalysisResult? other,
+  ) {
+    final photo = other?.imageUrl;
+    if (next.imageUrl != null || photo == null) return next;
+    final code = next.barcode;
+    if (code == null || code.isEmpty || code != other?.barcode) return next;
+    return next.withImageUrl(photo);
   }
 
   static String idFor(MealAnalysisResult result) {

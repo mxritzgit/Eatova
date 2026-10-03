@@ -1745,7 +1745,10 @@
       "count": { "type": "int" }
     }
   },
-  "foodFavoritesSheetSubtitle": "Your go-to meals, ready for another day.",
+  "foodFavoritesSortRecent": "Recent",
+  "foodFavoritesSortFrequent": "Frequent",
+  "foodFavoritesSortAlphabetical": "A–Z",
+  "foodFavoritesSortLabel": "Sort favorites",
   "foodFavoritesSearchHint": "Search favorites",
   "foodFavoritesEmptyHint": "No favorites yet. Tap the heart on a search or scan result and the meal shows up here.",
   "foodFavoritesNoMatchHint": "No favorite matches your search.",
@@ -2562,6 +2565,31 @@
   "foodEntryEmptyHint": "Meals you log will appear here, ready to use again.",
   "foodFavoritePortionAction": "Adjust portion",
   "foodFavoriteAdded": "Added",
+  "foodFavoriteQuickAdd": "Add {name}, {kcal} kcal, to {slot}",
+  "@foodFavoriteQuickAdd": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "kcal": {
+        "type": "int"
+      },
+      "slot": {
+        "type": "String"
+      }
+    }
+  },
+  "foodFavoriteQuickAddUnknown": "Add {name} to {slot}",
+  "@foodFavoriteQuickAddUnknown": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "slot": {
+        "type": "String"
+      }
+    }
+  },
   "foodFavoritesForSlot": "For {slot}",
   "@foodFavoritesForSlot": {
     "placeholders": {

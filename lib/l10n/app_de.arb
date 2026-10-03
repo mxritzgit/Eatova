@@ -1794,7 +1794,10 @@
       "count": { "type": "int" }
     }
   },
-  "foodFavoritesSheetSubtitle": "Deine Mahlzeiten, bereit für die nächste Runde.",
+  "foodFavoritesSortRecent": "Zuletzt",
+  "foodFavoritesSortFrequent": "Häufig",
+  "foodFavoritesSortAlphabetical": "A–Z",
+  "foodFavoritesSortLabel": "Favoriten sortieren",
   "foodFavoritesSearchHint": "Favoriten durchsuchen",
   "foodFavoritesEmptyHint": "Noch keine Favoriten. Tippe bei einem Suchtreffer oder Scan-Ergebnis auf das Herz, dann landet die Mahlzeit hier.",
   "foodFavoritesNoMatchHint": "Kein Favorit passt zu deiner Suche.",
@@ -2627,6 +2630,31 @@
   "foodEntryEmptyHint": "Erfasste Mahlzeiten findest du hier zum Wiederverwenden.",
   "foodFavoritePortionAction": "Portion anpassen",
   "foodFavoriteAdded": "Hinzugefügt",
+  "foodFavoriteQuickAdd": "{name} mit {kcal} kcal zu {slot} hinzufügen",
+  "@foodFavoriteQuickAdd": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "kcal": {
+        "type": "int"
+      },
+      "slot": {
+        "type": "String"
+      }
+    }
+  },
+  "foodFavoriteQuickAddUnknown": "{name} zu {slot} hinzufügen",
+  "@foodFavoriteQuickAddUnknown": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "slot": {
+        "type": "String"
+      }
+    }
+  },
   "foodFavoritesForSlot": "Für {slot}",
   "@foodFavoritesForSlot": {
     "placeholders": {

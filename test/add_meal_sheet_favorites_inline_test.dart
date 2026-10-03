@@ -34,6 +34,27 @@ class _StummerProduktdienst implements ProductLookupService {
       const <ProductSearchResult>[];
 }
 
+class _FotoProduktdienst implements ProductLookupService {
+  @override
+  Future<MealAnalysisResult> lookupBarcode(String barcode) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<ProductSearchResult>> searchProducts(String query) async => [
+    ProductSearchResult.fromOpenFoodFacts(<String, dynamic>{
+      'code': '4000540000108',
+      'product_name': 'Proteinriegel',
+      'nutrition_data_per': '100g',
+      'serving_quantity': 60,
+      'nutriments': <String, dynamic>{'energy-kcal_100g': 353},
+      'image_front_small_url': _riegelFoto,
+    }),
+  ];
+}
+
+const _riegelFoto =
+    'https://images.openfoodfacts.org/images/products/400/054/000/0108/front_de.273.200.jpg';
+
 class _StummeFotoquelle implements MealPhotoInput {
   @override
   Future<MealPhotoSelection?> pick(ImageSource source) async => null;
@@ -79,6 +100,7 @@ Future<void> _pumpe(
   String Function(MealAnalysisResult, MealSlot)? onAdd,
   ValueChanged<MealAnalysisResult>? onToggleFavorite,
   Locale locale = const Locale('de'),
+  ProductLookupService? productService,
 }) async {
   pinPhoneViewport(tester);
   await pumpLocalized(
@@ -86,7 +108,7 @@ Future<void> _pumpe(
     AddMealSheet(
       slot: MealSlot.snack,
       analyzer: _StummerAnalyzer(),
-      productService: _StummerProduktdienst(),
+      productService: productService ?? _StummerProduktdienst(),
       photoInput: _StummeFotoquelle(),
       favorites: favoriten,
       onAdd: onAdd ?? (_, __) => 'id-1',
@@ -362,6 +384,152 @@ void main() {
       isSemantics(isButton: true, hasTapAction: true, label: 'Alle (5)'),
       reason: 'excludeSemantics verschluckt die Tap-Action des InkWell; '
           'Semantics(onTap:) muss sie neu deklarieren (Review B)',
+    );
+  });
+
+  // Lively list (2026-10-03): the inline "+" logs the saved portion into the
+  // meal chosen in this sheet, and recents show their product photo.
+  testWidgets('Ein-Tipp-Plus loggt die gespeicherte Portion in die gewählte '
+      'Mahlzeit', (tester) async {
+    final geloggt = <(MealAnalysisResult, MealSlot)>[];
+    await _pumpe(
+      tester,
+      favoriten: _fuenfGepinnt,
+      onAdd: (result, slot) {
+        geloggt.add((result, slot));
+        return 'id-${geloggt.length}';
+      },
+    );
+    await chooseMealSlot(tester, 'slot-select-lunch');
+    final plus = find.byKey(const ValueKey('favorite-pinned-quick-0'));
+    await tester.ensureVisible(plus);
+    await tester.pumpAndSettle();
+    await tester.tap(plus);
+    await tester.pumpAndSettle();
+
+    final skyr = _fuenfGepinnt.firstWhere((f) => f.result.mealName == 'Skyr');
+    expect(geloggt, hasLength(1));
+    expect(identical(geloggt.single.$1, skyr.result), isTrue);
+    expect(geloggt.single.$2, MealSlot.lunch);
+    await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('„Zuletzt gegessen" zeigt das Produktfoto', (tester) async {
+    const foto =
+        'https://images.openfoodfacts.org/images/products/400/054/000/0108/front_de.273.200.jpg';
+    final riegel = _mahlzeit('Proteinriegel').withImageUrl(foto);
+    await _pumpe(
+      tester,
+      favoriten: [
+        FavoriteMeal(
+          id: FavoriteMeal.idFor(riegel),
+          result: riegel,
+          addedAt: DateTime(2026, 8, 2),
+        ),
+      ],
+    );
+    final bild = find.descendant(
+      of: find.byKey(const ValueKey('favorite-tile-0')),
+      matching: find.byType(Image),
+    );
+    expect(bild, findsOneWidget);
+    final provider = tester.widget<Image>(bild).image as ResizeImage;
+    expect((provider.imageProvider as NetworkImage).url, foto);
+  });
+
+  testWidgets('ein zweiter Tipp auf dasselbe Plus trifft dieselbe Zeile', (
+    tester,
+  ) async {
+    // Review 2026-10-03: the add moves the row to the top (recency); without
+    // a hold the second tap landed on the neighbour that slid under it.
+    final geloggt = <String>[];
+    await _pumpe(
+      tester,
+      favoriten: _fuenfGepinnt,
+      onAdd: (result, slot) {
+        geloggt.add(result.mealName);
+        return 'id-${geloggt.length}';
+      },
+    );
+    expect(_nameInKachel(tester, _inlineKachel(1)), 'Reis');
+    final plus = find.byKey(const ValueKey('favorite-pinned-quick-1'));
+    await tester.ensureVisible(plus);
+    await tester.pumpAndSettle();
+    final vorher = tester.getCenter(plus);
+    await tester.tap(plus);
+    // A real second tap, 300 ms later: the first add has been saved.
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(_nameInKachel(tester, _inlineKachel(1)), 'Reis');
+    // The new "already added" row above did not push the "+" away.
+    expect((tester.getCenter(plus) - vorher).distance, lessThan(1));
+    await tester.tap(plus);
+    await tester.pump();
+    await tester.pump();
+    expect(geloggt, ['Reis', 'Reis']);
+
+    // Once the check is gone, the list follows recency again.
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(_nameInKachel(tester, _inlineKachel(0)), 'Reis');
+    await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('ein Herz auf einem Suchtreffer gibt dem alten Favoriten sein '
+      'Foto, auch ohne Store', (tester) async {
+    const alt = MealAnalysisResult(
+      mealName: 'Proteinriegel',
+      caloriesKcal: 212,
+      estimatedGrams: 60,
+      kcalPer100G: 353,
+      protein: '-',
+      carbs: '-',
+      fat: '-',
+      confidence: 'database',
+      portionNotes: '',
+      barcode: '4000540000108',
+    );
+    await _pumpe(
+      tester,
+      favoriten: [
+        FavoriteMeal(
+          id: FavoriteMeal.idFor(alt),
+          result: alt,
+          addedAt: DateTime(2026, 8, 2),
+          pinned: true,
+        ),
+      ],
+      onToggleFavorite: (_) {},
+      productService: _FotoProduktdienst(),
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('kcal-product-search-input')),
+      'Proteinriegel',
+    );
+    await tester.pump(const Duration(milliseconds: 1100));
+    await tester.pumpAndSettle();
+    // The hit is the pinned favorite: its heart unpins it.
+    await tester.tap(find.byKey(const ValueKey('kcal-product-suggestion-fav-0')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('kcal-product-search-input')),
+      '',
+    );
+    await tester.pumpAndSettle();
+
+    final bild = find.descendant(
+      of: find.byKey(const ValueKey('favorite-tile-0')),
+      matching: find.byType(Image),
+    );
+    expect(bild, findsOneWidget, reason: 'the recent now has the photo');
+    final provider = tester.widget<Image>(bild).image as ResizeImage;
+    expect((provider.imageProvider as NetworkImage).url, _riegelFoto);
+    // The stored portion stays the favorite's own.
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('favorite-tile-0')),
+        matching: find.textContaining('60 g'),
+      ),
+      findsOneWidget,
     );
   });
 }

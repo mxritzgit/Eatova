@@ -61,3 +61,23 @@ Flutter rendering and automated app-shell flows; physical-device presentation
 and native keyboard behavior remain device checks. Delivery follows the PR from
 `design/favorites-library`, based on main `9467a29`. A client build must be
 installed for the design to appear on a device; no backend rollout is needed.
+
+## Lively list and product photos, 2026-10-03
+
+Supersedes "no invented food photography" for real product photos: a
+favorite saved from a search hit or a barcode scan keeps the Open Food Facts
+photo it was found with. Spec:
+[favorites photos and lively list](superpowers/specs/2026-10-03-favorites-photos-and-lively-list-design.md).
+
+- Pinned rows (favorites sheet and the add sheet's inline top 3): a 48 px
+  photo tile (letter tile without a photo), the name, "Brand · 60 g ·
+  212 kcal" and the macro dots, with the heart over a tinted "+" that logs
+  the saved portion into the sheet's meal. An open row adds from its panel
+  only and shows the panel's live macros instead of the row's.
+- The sheet sorts by Recent (default), Frequent (logs of the last 35 days)
+  or A–Z in one chip line that scrolls with the list (not in the fixed
+  head, so 2x text with the keyboard up keeps rows in view). The slot
+  context is one compact row; the subtitle sentence is gone.
+- Recents show their photo; search hits are unchanged.
+- Photo addresses travel in the meal payload (`imageUrl`) and are accepted
+  only as https on the Open Food Facts image hosts. No schema change.
