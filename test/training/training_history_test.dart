@@ -98,7 +98,7 @@ void main() {
       expect(value.snapshot.completedSets.length, 1);
       expect(value.snapshot.skippedSets.length, 3);
       expect(value.snapshot.actualSets.single.weightKg, 0);
-      controller.previousSet();
+      controller.undoLastCompleted();
       expect(controller.actualSets, isEmpty);
       controller.dispose();
     });

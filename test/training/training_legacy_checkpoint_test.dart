@@ -252,7 +252,9 @@ void main() {
           _firstSquat.toJson(),
           _secondSquat.toJson(),
         ]);
-        expect(persisted['exercise_index'], 1);
+        // Rest now follows an exercise's last set too (spec §4).
+        expect(persisted['exercise_index'], 0);
+        expect(persisted['phase'], 'rest');
         expect(env.store.trainingSession!.toJson(), persisted);
       });
     },
@@ -411,7 +413,7 @@ void main() {
           final stale = TrainingSessionController.fromSnapshot(
             held,
             autoTick: false,
-          )..resetPhase();
+          )..adjustRest(const Duration(seconds: -15));
           addTearDown(stale.dispose);
           await expectLater(
             env.store.saveTrainingSession(stale.snapshot()),

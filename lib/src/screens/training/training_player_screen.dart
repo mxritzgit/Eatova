@@ -1,45 +1,38 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 
 import '../../l10n/l10n.dart';
+import '../../models/training_history.dart';
+import '../../models/training_insights.dart';
 import '../../models/training_plan.dart';
 import '../../models/training_session.dart';
-import '../../models/training_history.dart';
-import 'training_actual_fields.dart';
+import '../../services/rest_alerts.dart';
+import '../../services/screen_awake.dart';
 import '../../services/training_session_controller.dart';
 import '../../theme/app_tokens.dart';
-import '../../widgets/design/design.dart';
 import '../../widgets/common/app_snack.dart';
+import '../../widgets/common/motion.dart';
+import '../../widgets/design/design.dart';
+import 'player/player_alerts.dart';
+import 'player/player_exercise_card.dart';
+import 'player/player_finish_sheet.dart';
+import 'player/player_header.dart';
+import 'player/player_rest_bar.dart';
+import 'player/player_set_row.dart';
 
 enum _SaveIntent { checkpoint, leave, clear, complete }
 
-// The model and Postgres count code points; retain whole displayed characters.
-class _TrainingNoteFormatter extends TextInputFormatter {
-  @override
-  TextEditingValue formatEditUpdate(
-    TextEditingValue oldValue,
-    TextEditingValue newValue,
-  ) {
-    if (newValue.text.runes.length <= TrainingLimits.notesMaxLength) {
-      return newValue;
-    }
-    var length = 0;
-    final text = newValue.text.characters.takeWhile((character) {
-      length += character.runes.length;
-      return length <= TrainingLimits.notesMaxLength;
-    }).join();
-    return TextEditingValue(
-      text: text,
-      selection: TextSelection.collapsed(
-        offset: newValue.selection.extentOffset.clamp(0, text.length),
-      ),
-    );
-  }
-}
+/// Owner of the player's keep-awake hold ([ScreenAwake], ruling R16).
+const String trainingPlayerAwakeOwner = 'training-player';
 
-/// A self-contained player. The caller provides account-pinned durable storage.
+/// Debounce of durable writes after field edits (spec A7).
+const Duration _editDebounce = Duration(milliseconds: 600);
+
+/// The list player (spec A1–A7, Option L). The caller provides account-pinned
+/// durable storage, rest alerts and the permission gate.
 class TrainingPlayerScreen extends StatefulWidget {
   const TrainingPlayerScreen({
     super.key,
@@ -49,15 +42,28 @@ class TrainingPlayerScreen extends StatefulWidget {
     required this.onPersist,
     this.onComplete,
     this.history = const [],
+    this.restAlerts = const NoopRestAlertScheduler(),
+    this.alertPermission,
+    this.screenAwake = const MethodChannelScreenAwake(),
+    this.openAlertSettings = openNotificationSettings,
     this.monotonicNow,
   }) : assert((plan == null) != (initialSnapshot == null));
 
   final TrainingPlan? plan;
   final int workoutIndex;
   final TrainingSessionSnapshot? initialSnapshot;
-  final Future<void> Function(TrainingSessionSnapshot?) onPersist;
+
+  /// Stores the checkpoint (null clears it). True only once it is stored;
+  /// false when it was refused (the source plan changed). Failures throw.
+  final Future<bool> Function(TrainingSessionSnapshot?) onPersist;
   final Future<void> Function(TrainingHistoryEntry)? onComplete;
   final List<TrainingHistoryEntry> history;
+  final RestAlertScheduler restAlerts;
+
+  /// Null where notifications are unavailable: no explainer, no chip.
+  final RestAlertPermissionGate? alertPermission;
+  final ScreenAwake screenAwake;
+  final Future<void> Function() openAlertSettings;
   @visibleForTesting
   final Duration Function()? monotonicNow;
 
@@ -68,30 +74,43 @@ class TrainingPlayerScreen extends StatefulWidget {
 class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
     with WidgetsBindingObserver {
   late final TrainingSessionController _session;
+  late final List<List<TrainingSetActual>> _lastTime;
+  late final int _alertId;
   final ScrollController _scroll = ScrollController();
+  final TextEditingController _note = TextEditingController();
+  final Map<TrainingSetReference, GlobalKey> _rowKeys = {};
+  final Set<int> _expanded = {};
+  final Set<int> _notesOpen = {};
+  // Every (set, 'reps' | 'weight') field holding an invalid value.
+  final Set<(TrainingSetReference, String)> _invalid = {};
   Future<void> _writes = Future<void>.value();
-  Timer? _checkpointTimer;
+  Timer? _debounce;
   Animation<double>? _coverAnimation;
   ModalRoute<dynamic>? _route;
   bool _covered = false;
   bool _allowPop = false;
   bool _leaving = false;
   bool _dialogOpen = false;
+  bool _sheetOpen = false;
   bool _hasSaved = false;
+  bool _notStored = false;
   bool _saveFailed = false;
+  bool _restExpanded = false;
+  bool _alertsOff = false;
+  bool _askedAlerts = false;
+  bool _awake = false;
   int _pendingWrites = 0;
   _SaveIntent _retryIntent = _SaveIntent.checkpoint;
   _SaveIntent? _terminalIntent;
   TrainingHistoryEntry? _pendingCompletion;
-  bool _actualValid = true;
-  final Set<TrainingSetReference> _invalidActuals = {};
-  final TextEditingController _note = TextEditingController();
-  bool _wasRunning = false;
-  bool _hasStartedPhase = false;
-  String _phaseIdentity = '';
+  ({DateTime at, bool rest})? _scheduledAlert;
+  String _identity = '';
+  TrainingSetReference? _shownActive;
+  int _shownCompleted = 0;
+  int _shownPhaseEnds = 0;
+  TrainingSessionPhase _shownPhase = TrainingSessionPhase.exercise;
 
-  String get _currentPhaseIdentity =>
-      '${_session.exerciseIndex}:${_session.setIndex}:${_session.phase.name}';
+  bool get _enabled => !_leaving && _pendingCompletion == null;
 
   @override
   void initState() {
@@ -99,39 +118,66 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
     if ((widget.plan == null) == (widget.initialSnapshot == null)) {
       throw ArgumentError('Provide a training plan or recovery snapshot');
     }
-    _session = widget.initialSnapshot == null
+    final snapshot = widget.initialSnapshot;
+    final plan = snapshot?.plan ?? widget.plan!;
+    final index = snapshot?.workoutIndex ?? widget.workoutIndex;
+    final exercises = index >= 0 && index < plan.workouts.length
+        ? plan.workouts[index].exercises
+        : const <TrainingExercise>[];
+    // Spec A2: computed once per route, not per tick.
+    _lastTime = [
+      for (final exercise in exercises)
+        lastTrainingPerformanceFor(
+          widget.history,
+          planId: plan.id,
+          exercise: exercise,
+        ),
+    ];
+    final weighted = [
+      for (final exercise in exercises)
+        lastWeightedTrainingPerformanceFor(
+          widget.history,
+          planId: plan.id,
+          exercise: exercise,
+        ),
+    ];
+    double? lastWeight(int exercise, int set) =>
+        lastTimeWeightForSet(weighted[exercise], set);
+    _session = snapshot == null
         ? TrainingSessionController(
-            plan: widget.plan!,
-            workoutIndex: widget.workoutIndex,
+            plan: plan,
+            workoutIndex: index,
             monotonicNow: widget.monotonicNow,
-            canRun: _canRunSession,
+            canRun: _visible,
+            lastWeight: lastWeight,
           )
         : TrainingSessionController.fromSnapshot(
-            widget.initialSnapshot!,
+            snapshot,
             monotonicNow: widget.monotonicNow,
-            canRun: _canRunSession,
+            canRun: _visible,
+            lastWeight: lastWeight,
           );
-    _note.text = widget.initialSnapshot?.recoveryNote ?? '';
-    if (widget.initialSnapshot?.pendingCompletionAt != null) {
-      _pendingCompletion = TrainingHistoryEntry.fromRecovery(
-        widget.initialSnapshot!,
-      );
+    _alertId = restAlertIdForSession(_session.sessionId);
+    _note.text = snapshot?.recoveryNote ?? '';
+    if (snapshot?.pendingCompletionAt != null) {
+      _pendingCompletion = TrainingHistoryEntry.fromRecovery(snapshot!);
       _note.text = _pendingCompletion!.note;
       _saveFailed = true;
       _retryIntent = _SaveIntent.complete;
       _terminalIntent = _SaveIntent.complete;
     }
-    _phaseIdentity = _currentPhaseIdentity;
-    _hasStartedPhase = widget.initialSnapshot != null;
+    _remember();
     _session.addListener(_sessionChanged);
     WidgetsBinding.instance.addObserver(this);
-    _checkpointTimer = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (_session.isRunning && !_leaving && _pendingWrites == 0) {
-        unawaited(_persist());
-      }
-    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && !_leaving) unawaited(_persist());
+      if (!mounted) return;
+      _openAlerts();
+      if (!_leaving) unawaited(_persist());
+      _syncAwake();
+      _scrollToActive();
+      if (_session.phase == TrainingSessionPhase.review) {
+        unawaited(_openFinishSheet());
+      }
     });
   }
 
@@ -145,14 +191,14 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
       _coverAnimation = animation;
       animation?.addListener(_routeCoverageChanged);
     }
-    if (!_canRunSession() && _session.isRunning) _session.pause();
   }
 
-  bool _canRunSession() {
+  /// Shown and in front: the only state that may start the next timed set
+  /// on its own (spec A4) or keep the display awake (A6).
+  bool _visible() {
     final lifecycle = WidgetsBinding.instance.lifecycleState;
     return mounted &&
         !_leaving &&
-        _actualValid &&
         !_dialogOpen &&
         (_route?.isCurrent ?? true) &&
         (lifecycle == null || lifecycle == AppLifecycleState.resumed);
@@ -160,51 +206,251 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
 
   void _routeCoverageChanged() {
     final covered = (_coverAnimation?.value ?? 0) > 0;
-    if (covered && !_covered && !_leaving && !_dialogOpen) {
-      _session.pause();
-      unawaited(_persist());
-    }
-    _covered = covered;
-  }
-
-  void _sessionChanged() {
-    if (!mounted) return;
-    final phaseChanged = _phaseIdentity != _currentPhaseIdentity;
-    final interrupted = _wasRunning && !_session.isRunning && !_canRunSession();
-    _wasRunning = _session.isRunning;
-    if (phaseChanged) {
-      _phaseIdentity = _currentPhaseIdentity;
-      _hasStartedPhase = false;
-      _actualValid = true;
-    }
-    _invalidActuals.removeWhere(
-      (ref) =>
-          _session.phase != TrainingSessionPhase.review ||
-          !_session.completedSets.contains(ref),
-    );
-    _hasStartedPhase = _hasStartedPhase || _session.isRunning;
-    setState(() {});
-    if ((phaseChanged || interrupted) && !_leaving) {
-      unawaited(_persist());
+    if (covered != _covered) {
+      _covered = covered;
+      // A cover never pauses; it only flushes edits (spec A7).
+      if (covered && !_leaving) unawaited(_persist());
+      if (!covered) _session.catchUp();
+      _syncAwake();
     }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state != AppLifecycleState.resumed && !_leaving) {
-      _session.pause();
+    if (state == AppLifecycleState.resumed) {
+      // Time kept running in the background: apply what passed.
+      _session.catchUp();
+      _readAlertPermission();
+      _scrollToActive();
+    } else if (!_leaving) {
       unawaited(_persist());
+    }
+    _syncAwake();
+  }
+
+  String get _currentIdentity =>
+      '${_session.exerciseIndex}:${_session.setIndex}:${_session.phase.name}'
+      ':${_session.completedSetCount}:${_session.skippedSets.length}'
+      ':${_session.phaseEndsAt?.microsecondsSinceEpoch}';
+
+  void _remember() {
+    _identity = _currentIdentity;
+    _shownActive = _session.activeSet;
+    _shownCompleted = _session.completedSetCount;
+    _shownPhaseEnds = _session.phaseEnds;
+    _shownPhase = _session.phase;
+  }
+
+  void _sessionChanged() {
+    if (!mounted) return;
+    final structural = _identity != _currentIdentity;
+    if (structural) {
+      final previousActive = _shownActive;
+      final previousCompleted = _shownCompleted;
+      final previousPhase = _shownPhase;
+      final seenEnd =
+          _session.phaseEnds != _shownPhaseEnds && _session.lastPhaseEndSeen;
+      _remember();
+      _invalid.removeWhere(
+        (cell) =>
+            cell.$1 != _session.activeSet && !_session.isCompleted(cell.$1),
+      );
+      if (seenEnd) unawaited(HapticFeedback.vibrate());
+      _announce(previousCompleted, previousPhase);
+      if (_session.phase != TrainingSessionPhase.rest) _restExpanded = false;
+      if (_session.activeSet != previousActive) _scrollToActive();
+      if (!_leaving) unawaited(_persist());
+      if (_session.phase == TrainingSessionPhase.review &&
+          previousPhase != TrainingSessionPhase.review) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) unawaited(_openFinishSheet());
+        });
+      }
+    }
+    _syncAlert();
+    _syncAwake();
+    setState(() {});
+  }
+
+  /// Set done, rest start and rest over (spec A7), never per second.
+  void _announce(int previousCompleted, TrainingSessionPhase previousPhase) {
+    final l = context.l10n;
+    final parts = <String>[];
+    final last = _session.lastCompleted;
+    if (_session.completedSetCount > previousCompleted && last != null) {
+      parts.add(
+        l.trainingTimerAnnounceSetDone(
+          _session.workout.exercises[last.exerciseIndex].name,
+          last.setIndex + 1,
+        ),
+      );
+    }
+    final active = _session.activeSet;
+    if (_session.phase == TrainingSessionPhase.rest &&
+        previousPhase != TrainingSessionPhase.rest) {
+      parts.add(l.trainingTimerAnnounceRest(_session.displaySeconds));
+    } else if (previousPhase == TrainingSessionPhase.rest &&
+        _session.phase == TrainingSessionPhase.exercise &&
+        active != null) {
+      parts.add(
+        l.trainingTimerAnnounceRestOver(
+          _session.workout.exercises[active.exerciseIndex].name,
+          active.setIndex + 1,
+        ),
+      );
+    }
+    if (parts.isEmpty) return;
+    unawaited(
+      SemanticsService.sendAnnouncement(
+        View.of(context),
+        parts.join(' '),
+        Directionality.of(context),
+      ),
+    );
+  }
+
+  // --- Alerts (spec A5) -----------------------------------------------------
+
+  /// Opening or resuming: drop whatever an earlier process planned, then
+  /// schedule only what the current phase needs.
+  void _openAlerts() {
+    unawaited(_quiet(widget.restAlerts.cancelRestAlert(_alertId)));
+    _scheduledAlert = null;
+    _syncAlert();
+    _readAlertPermission();
+  }
+
+  void _readAlertPermission() {
+    final gate = widget.alertPermission;
+    if (gate == null) return;
+    unawaited(
+      _quiet(
+        gate.state().then((state) {
+          final off = state != RestAlertPermission.granted;
+          if (mounted && off != _alertsOff) setState(() => _alertsOff = off);
+        }),
+      ),
+    );
+  }
+
+  void _syncAlert() {
+    final ends = _session.phaseEndsAt;
+    final want = ends == null || _terminalIntent != null
+        ? null
+        : (at: ends, rest: _session.phase == TrainingSessionPhase.rest);
+    if (want == _scheduledAlert) return;
+    _scheduledAlert = want;
+    if (want == null) {
+      unawaited(_quiet(widget.restAlerts.cancelRestAlert(_alertId)));
+      return;
+    }
+    final l = context.l10n;
+    final exercise = _session.exercise;
+    final restFollows =
+        exercise.restSeconds > 0 &&
+        !(_session.exerciseIndex == _session.workout.exercises.length - 1 &&
+            _session.setIndex == exercise.sets - 1);
+    // D5: generic texts, no exercise names or weights on the lock screen.
+    unawaited(
+      _quiet(
+        widget.restAlerts.scheduleRestAlert(
+          id: _alertId,
+          at: want.at,
+          title: want.rest
+              ? l.trainingRestAlertTitle
+              : l.trainingIntervalAlertTitle,
+          body: want.rest
+              ? l.trainingRestAlertBody
+              : restFollows
+              ? l.trainingIntervalAlertBody
+              : l.trainingTimerAlertSetDoneBody,
+        ),
+      ),
+    );
+    if (!_askedAlerts && widget.alertPermission != null) {
+      _askedAlerts = true;
+      unawaited(_explainAlerts());
     }
   }
 
-  void _act(VoidCallback action) {
-    if (_leaving || _pendingCompletion != null) return;
-    // An explicit workout action abandons a failed exit attempt.
-    _terminalIntent = null;
-    _pendingCompletion = null;
-    action();
-    unawaited(_persist());
+  /// One in-context explainer before the system prompt, at the first phase
+  /// that would alert, only if this device never asked (spec A5).
+  Future<void> _explainAlerts() async {
+    final gate = widget.alertPermission!;
+    RestAlertPermission state;
+    try {
+      state = await gate.state();
+    } catch (_) {
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _alertsOff = state != RestAlertPermission.granted);
+    if (state != RestAlertPermission.notAsked || _leaving || _dialogOpen) {
+      return;
+    }
+    final l = context.l10n;
+    _dialogOpen = true;
+    final allow = await showEatovaDialog<bool>(
+      context: context,
+      builder: (context) => EatovaDialog(
+        title: l.trainingTimerAlertsTitle,
+        content: Text(l.trainingTimerAlertsBody),
+        icon: Icons.notifications_active_outlined,
+        actions: [
+          EatovaDialogAction(
+            buttonKey: const ValueKey('training-alerts-allow'),
+            label: l.trainingTimerAlertsAllow,
+            onPressed: () => Navigator.pop(context, true),
+          ),
+          EatovaDialogAction(
+            buttonKey: const ValueKey('training-alerts-later'),
+            label: l.trainingTimerAlertsLater,
+            onPressed: () => Navigator.pop(context, false),
+            secondary: true,
+          ),
+        ],
+      ),
+    );
+    _dialogOpen = false;
+    if (!mounted) return;
+    _session.catchUp();
+    _syncAwake();
+    if (allow != true) return;
+    bool granted;
+    try {
+      granted = await gate.request();
+    } catch (_) {
+      granted = false;
+    }
+    if (!mounted) return;
+    setState(() => _alertsOff = !granted);
+    if (granted) {
+      // Planned before the grant; plan again so the OS delivers it.
+      _scheduledAlert = null;
+      _syncAlert();
+    }
   }
+
+  // --- Keep awake (spec A6) -------------------------------------------------
+
+  void _syncAwake() {
+    final active = _session.activeExercise;
+    final want =
+        _visible() &&
+        _session.isRunning &&
+        active != null &&
+        active.isTimed &&
+        _terminalIntent == null;
+    if (want == _awake) return;
+    _awake = want;
+    unawaited(
+      _quiet(
+        widget.screenAwake.setKeepAwake(want, owner: trainingPlayerAwakeOwner),
+      ),
+    );
+  }
+
+  // --- Persistence (spec A7) ------------------------------------------------
 
   TrainingSessionSnapshot _recoverySnapshot() =>
       _pendingCompletion?.recoverySnapshot() ??
@@ -213,7 +459,18 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
         if (_note.text.isNotEmpty) 'recovery_note': _note.text,
       });
 
+  /// Field edits reach the controller at once; the durable write waits.
+  void _persistSoon() {
+    _debounce?.cancel();
+    _debounce = Timer(_editDebounce, () {
+      _debounce = null;
+      if (mounted && !_leaving) unawaited(_persist());
+    });
+  }
+
   Future<void> _persist([_SaveIntent intent = _SaveIntent.checkpoint]) {
+    _debounce?.cancel();
+    _debounce = null;
     if ((_leaving || _terminalIntent != null) &&
         intent == _SaveIntent.checkpoint) {
       return Future<void>.value();
@@ -230,12 +487,15 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
     if (intent != _SaveIntent.checkpoint) {
       _terminalIntent = intent;
       _leaving = true;
+      _syncAlert();
+      _syncAwake();
     }
     _pendingWrites++;
     if (mounted) setState(() {});
     final operation = _writes.then((_) async {
       try {
         if (validationError != null) throw validationError;
+        var stored = true;
         if (intent == _SaveIntent.complete) {
           final complete = widget.onComplete;
           if (complete == null) {
@@ -244,41 +504,31 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
           _pendingCompletion ??= _session.completion(note: _note.text);
           await complete(_pendingCompletion!);
         } else {
-          await persist(snapshot);
+          stored = await persist(snapshot);
         }
         if (!mounted) return;
-        _hasSaved = true;
         _saveFailed = false;
-        if (intent != _SaveIntent.checkpoint) {
-          setState(() => _allowPop = true);
-          // PopScope must rebuild before the programmatic pop.
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) Navigator.of(context).pop();
-          });
+        if (intent == _SaveIntent.checkpoint) {
+          _hasSaved = stored;
+          _notStored = !stored;
+          return;
         }
+        _close();
       } on TrainingCompletionDeleted {
         if (!mounted) return;
         showAppSnack(context, context.l10n.trainingHistoryAlreadyDeleted);
-        setState(() => _allowPop = true);
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) Navigator.of(context).pop();
-        });
+        _close();
       } on TrainingCompletionSourceRetired {
         if (!mounted) return;
         showAppSnack(context, context.l10n.trainingHistorySourceChanged);
-        setState(() => _allowPop = true);
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) Navigator.of(context).pop();
-        });
+        _close();
       } catch (_) {
         if (!mounted) return;
         // An older checkpoint cannot unlock or replace a newer terminal intent.
         if (intent == _SaveIntent.checkpoint && _terminalIntent != null) return;
-        _session.pause();
         _saveFailed = true;
         _retryIntent = intent;
         _leaving = false;
-        if (_scroll.hasClients) _scroll.jumpTo(0);
       } finally {
         _pendingWrites--;
         if (mounted) setState(() {});
@@ -288,10 +538,25 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
     return operation;
   }
 
-  Future<void> _exitDialog({bool discard = false, bool finish = false}) async {
-    if (_dialogOpen || _leaving) return;
-    _session.pause();
-    unawaited(_persist());
+  void _close() {
+    setState(() => _allowPop = true);
+    // PopScope must rebuild before the programmatic pop.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).pop();
+    });
+  }
+
+  /// An explicit workout action abandons a failed exit attempt.
+  void _act(VoidCallback action) {
+    if (!_enabled) return;
+    _terminalIntent = null;
+    action();
+  }
+
+  // --- Dialogs and the finish sheet -----------------------------------------
+
+  Future<bool> _confirm({required bool discard}) async {
+    if (_dialogOpen || _leaving) return false;
     _dialogOpen = true;
     final l = context.l10n;
     final confirmed = await showEatovaDialog<bool>(
@@ -299,42 +564,169 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
       builder: (context) => EatovaConfirmDialog(
         title: discard
             ? l.trainingTimerDiscardTitle
-            : finish
-            ? l.trainingTimerFinishTitle
             : l.trainingTimerLeaveTitle,
-        body: discard
-            ? l.trainingTimerDiscardBody
-            : finish
-            ? l.trainingTimerFinishBody(
-                _session.completedSetCount,
-                _session.totalSets,
-              )
-            : l.trainingTimerLeaveBody,
-        icon: discard
-            ? Icons.delete_outline_rounded
-            : finish
-            ? Icons.check_rounded
-            : Icons.pause_rounded,
+        body: discard ? l.trainingTimerDiscardBody : l.trainingTimerLeaveBody,
+        icon: discard ? Icons.delete_outline_rounded : Icons.pause_rounded,
         destructive: discard,
         cancelLabel: l.trainingTimerStay,
         onCancel: () => Navigator.pop(context, false),
         confirmKey: const ValueKey('training-timer-confirm-exit'),
         confirmLabel: discard
             ? l.trainingTimerDiscard
-            : finish
-            ? l.trainingTimerFinish
             : l.trainingTimerSaveLeave,
         onConfirm: () => Navigator.pop(context, true),
       ),
     );
     _dialogOpen = false;
-    if (!mounted || confirmed != true) return;
-    await _persist(
-      discard
-          ? _SaveIntent.clear
-          : finish
-          ? _SaveIntent.complete
-          : _SaveIntent.leave,
+    if (mounted) {
+      _session.catchUp();
+      _syncAwake();
+    }
+    return mounted && confirmed == true;
+  }
+
+  Future<void> _leave() async {
+    if (!await _confirm(discard: false)) return;
+    // Leaving is an explicit pause: no timer runs while the player is gone.
+    _session.pause();
+    await _persist(_SaveIntent.leave);
+  }
+
+  Future<void> _discard() async {
+    if (!await _confirm(discard: true)) return;
+    await _persist(_SaveIntent.clear);
+  }
+
+  Future<void> _openFinishSheet() async {
+    if (_sheetOpen || _dialogOpen || !_enabled || !mounted) return;
+    _sheetOpen = true;
+    FocusManager.instance.primaryFocus?.unfocus();
+    final choice = await showPlayerFinishSheet(
+      context,
+      completed: _session.completedSetCount,
+      skipped: _session.skippedSets.length,
+      open: _session.openSetCount,
+      total: _session.totalSets,
+      valuesValid: _completionValuesValid,
+      note: _note,
+      onNoteChanged: _persistSoon,
+    );
+    _sheetOpen = false;
+    if (!mounted || !_enabled) return;
+    switch (choice) {
+      case PlayerFinishChoice.save:
+        await _persist(_SaveIntent.complete);
+      case PlayerFinishChoice.logRest:
+        _act(_session.completeOpenSetsAsShown);
+        await _persist(_SaveIntent.complete);
+      case PlayerFinishChoice.discard:
+        await _discard();
+      case PlayerFinishChoice.keepTraining:
+        // Skipped to the end: keep training reopens those skips.
+        if (_session.phase == TrainingSessionPhase.review) {
+          _act(_session.reopenTrailingSkips);
+        }
+      case null:
+        break;
+    }
+  }
+
+  bool get _completionValuesValid =>
+      _invalid.every((cell) => !_session.isCompleted(cell.$1)) &&
+      _session.completedSets.every((reference) {
+        final actual = _session.actualFor(reference);
+        return actual != null &&
+            (_session.workout.exercises[reference.exerciseIndex].isTimed ||
+                actual.reps != null);
+      });
+
+  // --- List -----------------------------------------------------------------
+
+  GlobalKey _rowKey(TrainingSetReference reference) =>
+      _rowKeys.putIfAbsent(reference, GlobalKey.new);
+
+  /// The active row sits above the rest bar and the keyboard (spec A3).
+  void _scrollToActive() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final active = _session.activeSet;
+      final target = active == null ? null : _rowKeys[active]?.currentContext;
+      if (!mounted || target == null) return;
+      unawaited(
+        Scrollable.ensureVisible(
+          target,
+          alignment: 0.35,
+          duration: motionDuration(context, const Duration(milliseconds: 220)),
+          curve: Curves.easeOutCubic,
+        ),
+      );
+    });
+  }
+
+  PlayerActions get _actions => PlayerActions(
+    complete: () {
+      FocusManager.instance.primaryFocus?.unfocus();
+      _act(_session.completeActiveSet);
+    },
+    start: () {
+      FocusManager.instance.primaryFocus?.unfocus();
+      _act(_session.startActiveSet);
+    },
+    undo: () => _act(_session.undoLastCompleted),
+    skipSet: () => _act(_session.skipActiveSet),
+    skipExercise: () => _act(_session.nextExercise),
+    completeRemaining: () => _act(_session.completeRemainingAsPlanned),
+    editActive: (reps, weightKg) {
+      if (!_enabled) return;
+      _session.setCurrentActual(reps: reps, weightKg: weightKg);
+      setState(() {});
+      _persistSoon();
+    },
+    editCompleted: (reference, reps, weightKg) {
+      if (!_enabled) return;
+      _session.setCompletedActual(reference, reps: reps, weightKg: weightKg);
+      _persistSoon();
+    },
+    validity: (reference, cell, valid) => setState(
+      () => valid
+          ? _invalid.remove((reference, cell))
+          : _invalid.add((reference, cell)),
+    ),
+    copyLast: (last) {
+      if (!_enabled) return;
+      final timed = _session.activeExercise?.isTimed ?? true;
+      _session.setCurrentActual(
+        reps: timed ? null : last.reps ?? _session.actualReps,
+        weightKg: last.weightKg,
+      );
+      setState(() {});
+      _persistSoon();
+    },
+  );
+
+  bool get _activeValid {
+    final active = _session.activeSet;
+    return active == null || !_invalid.any((cell) => cell.$1 == active);
+  }
+
+  PlayerRestState? _restState() {
+    final active = _session.activeSet;
+    if (_session.phase != TrainingSessionPhase.rest || active == null) {
+      return null;
+    }
+    return PlayerRestState(
+      seconds: _session.displaySeconds,
+      running: _session.isRunning,
+      nextExercise: _session.workout.exercises[active.exerciseIndex].name,
+      nextSet: active.setIndex + 1,
+      alertsOff: _alertsOff,
+      enabled: _enabled,
+      onShorter: () =>
+          _act(() => _session.adjustRest(const Duration(seconds: -15))),
+      onLonger: () =>
+          _act(() => _session.adjustRest(const Duration(seconds: 15))),
+      onSkip: () => _act(_session.continueAfterRest),
+      onResume: () => _act(_session.start),
+      onAlertSettings: () => unawaited(_quiet(widget.openAlertSettings())),
     );
   }
 
@@ -342,21 +734,33 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _coverAnimation?.removeListener(_routeCoverageChanged);
-    _checkpointTimer?.cancel();
+    _debounce?.cancel();
     _session.removeListener(_sessionChanged);
-    _session.pause();
     // External route removal cannot await a save. Retain queue order and never
-    // enqueue behind a terminal clear. Root rejects writes after account changes.
+    // enqueue behind a terminal clear. Root rejects writes after account
+    // changes. A running rest keeps its deadline in this checkpoint.
     if (!_leaving && _terminalIntent == null) {
       try {
         final snapshot = _recoverySnapshot();
         final persist = widget.onPersist;
         _writes = _writes
             .then((_) => persist(snapshot))
-            .catchError((Object _) {});
+            .catchError((Object _) => false);
       } catch (_) {
         // Retain the last valid checkpoint if an external edit is invalid.
       }
+    }
+    // A player never leaves an alert behind (account switch, sign-out).
+    unawaited(_quiet(widget.restAlerts.cancelRestAlert(_alertId)));
+    if (_awake) {
+      unawaited(
+        _quiet(
+          widget.screenAwake.setKeepAwake(
+            false,
+            owner: trainingPlayerAwakeOwner,
+          ),
+        ),
+      );
     }
     _session.dispose();
     _scroll.dispose();
@@ -364,672 +768,180 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
     super.dispose();
   }
 
-  Widget _secondary(
-    String id,
-    String label,
-    IconData icon,
-    VoidCallback? action,
-  ) {
-    return OutlinedButton(
-      key: ValueKey('training-timer-$id'),
-      onPressed:
-          _leaving ||
-              action == null ||
-              (_pendingCompletion != null && id != 'retry')
-          ? null
-          : id == 'retry'
-          ? action
-          : () => _act(action),
-      style: OutlinedButton.styleFrom(
-        minimumSize: const Size(0, 48),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        foregroundColor: context.t.ink,
-        side: BorderSide(color: context.t.line),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 18),
-          const SizedBox(width: 8),
-          Flexible(child: Text(label, textAlign: TextAlign.center)),
-        ],
-      ),
-    );
-  }
-
-  Widget _controlPair(Widget first, Widget? second) => LayoutBuilder(
-    builder: (context, constraints) {
-      if (second == null) return first;
-      final stack =
-          constraints.maxWidth < 340 ||
-          MediaQuery.textScalerOf(context).scale(14) > 21;
-      if (stack) {
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [first, const SizedBox(height: 8), second],
-        );
-      }
-      return Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(child: first),
-          const SizedBox(width: 8),
-          Expanded(child: second),
-        ],
-      );
-    },
-  );
-
   @override
   Widget build(BuildContext context) {
     final l = context.l10n;
     final t = context.t;
-    final review = _session.phase == TrainingSessionPhase.review;
-    final rest = _session.phase == TrainingSessionPhase.rest;
-    final timed = rest || _session.exercise.isTimed;
-    final atZero = timed && _session.remaining == Duration.zero;
+    final rest = _restState();
     final running = _session.isRunning;
-    final status = review
-        ? l.trainingTimerReview
-        : atZero
-        ? l.trainingTimerTimeUp
-        : running
-        ? l.trainingTimerRunning
-        : l.trainingTimerPaused;
-    final primaryLabel = review
-        ? l.trainingTimerFinish
-        : rest && atZero
-        ? l.trainingTimerContinue
-        : !rest && ((timed && atZero) || (!timed && running))
-        ? l.trainingTimerCompleteSet
-        : running
-        ? l.trainingTimerPause
-        : _hasStartedPhase
-        ? l.trainingTimerResume
-        : l.trainingTimerStart;
-    final VoidCallback primaryAction = review
-        ? () => unawaited(_exitDialog(finish: true))
-        : rest && atZero
-        ? () => _act(_session.continueAfterRest)
-        : !rest && ((timed && atZero) || (!timed && running))
-        ? () => _act(_session.completeCurrentSet)
-        : running
-        ? () => _act(_session.pause)
-        : () => _act(_session.start);
-    final seconds = (_session.remaining.inMilliseconds / 1000).ceil();
-    final minutesPart = (seconds ~/ 60).toString().padLeft(2, '0');
-    final secondsPart = (seconds % 60).toString().padLeft(2, '0');
-    final nextIndex = _session.exerciseIndex + 1;
+    final canResume =
+        !running &&
+        _session.phase != TrainingSessionPhase.review &&
+        _session.remaining > Duration.zero &&
+        (_session.phase == TrainingSessionPhase.rest ||
+            (_session.exercise.isTimed &&
+                _session.remaining < _session.phaseDuration));
+    final list = SingleChildScrollView(
+      key: const ValueKey('training-player-list'),
+      controller: _scroll,
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var e = 0; e < _session.workout.exercises.length; e++) ...[
+            PlayerExerciseCard(
+              key: ValueKey('training-player-exercise-$e'),
+              session: _session,
+              exerciseIndex: e,
+              lastTime: e < _lastTime.length ? _lastTime[e] : const [],
+              actions: _actions,
+              expanded: _expanded.contains(e),
+              onToggleExpanded: () => setState(
+                () => _expanded.contains(e)
+                    ? _expanded.remove(e)
+                    : _expanded.add(e),
+              ),
+              notesOpen: _notesOpen.contains(e),
+              onToggleNotes: () => setState(
+                () => _notesOpen.contains(e)
+                    ? _notesOpen.remove(e)
+                    : _notesOpen.add(e),
+              ),
+              rowKey: _rowKey,
+              activeValid: _activeValid,
+              enabled: _enabled,
+            ),
+            const SizedBox(height: 12),
+          ],
+          if (!_completionValuesValid) ...[
+            Text(
+              l.trainingActualMissing,
+              style: AppType.ui(14, color: t.danger),
+            ),
+            const SizedBox(height: 8),
+          ],
+          Semantics(
+            liveRegion: true,
+            child: Text(
+              _saveFailed
+                  ? l.trainingTimerNotSaved
+                  : _notStored
+                  ? l.trainingTimerNotStored
+                  : _pendingWrites > 0
+                  ? l.trainingTimerSaving
+                  : _hasSaved
+                  ? l.trainingTimerSaved
+                  : l.trainingTimerNotSaved,
+              key: const ValueKey('training-timer-save-status'),
+              textAlign: TextAlign.center,
+              style: AppType.ui(13, color: _notStored ? t.warning : t.ink2),
+            ),
+          ),
+        ],
+      ),
+    );
 
     return PopScope(
       canPop: _allowPop,
       onPopInvokedWithResult: (didPop, result) {
-        if (!didPop) unawaited(_exitDialog());
+        if (didPop) return;
+        if (_restExpanded) {
+          setState(() => _restExpanded = false);
+        } else if (!_leaving) {
+          unawaited(_leave());
+        }
       },
       child: Scaffold(
         backgroundColor: t.bg,
         body: SafeArea(
           child: ReadableWidth(
-            child: SingleChildScrollView(
-              controller: _scroll,
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      IconButton(
-                        key: const ValueKey('training-timer-back'),
-                        tooltip: l.trainingTimerBack,
-                        onPressed: _leaving ? null : () => _exitDialog(),
-                        icon: const Icon(Icons.arrow_back_rounded),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _session.workout.title,
-                          style: AppType.ui(
-                            15,
-                            weight: FontWeight.w600,
-                            color: t.ink,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  if (_saveFailed) ...[
-                    Semantics(
-                      liveRegion: true,
-                      child: Text(
-                        l.trainingTimerSaveFailed,
-                        key: const ValueKey('training-timer-save-error'),
-                        style: AppType.ui(14, color: t.danger),
-                      ),
-                    ),
-                    _secondary(
-                      'retry',
-                      l.trainingTimerRetry,
-                      Icons.refresh_rounded,
-                      _pendingWrites > 0
-                          ? null
-                          : () {
-                              unawaited(_persist(_retryIntent));
-                            },
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-                  Text(
-                    l.trainingTimerProgress(
-                      _session.completedSetCount,
-                      _session.totalSets,
-                    ),
-                    key: const ValueKey('training-timer-progress-label'),
-                    style: AppType.ui(14, color: t.ink2),
-                  ),
-                  const SizedBox(height: 8),
-                  LinearProgressIndicator(
-                    value: _session.progress,
-                    minHeight: 4,
-                    borderRadius: BorderRadius.circular(rPill),
-                    color: t.accent,
-                    backgroundColor: t.tile,
-                    semanticsLabel: l.trainingTimerProgress(
-                      _session.completedSetCount,
-                      _session.totalSets,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Container(
-                    key: const ValueKey('training-timer-hero'),
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: t.forest,
-                      borderRadius: BorderRadius.circular(rHero),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        HeadingSemantics(
-                          level: 1,
-                          child: Text(
-                            review
-                                ? l.trainingTimerReview
-                                : rest
-                                ? l.trainingTimerRest
-                                : _session.exercise.name,
-                            style: AppType.display(
-                              22,
-                              color: t.onForest,
-                              height: 1.15,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          review
-                              ? l.trainingTimerSkipped(
-                                  _session.skippedSets.length,
-                                )
-                              : l.trainingTimerSet(
-                                  _session.setIndex + 1,
-                                  _session.exercise.sets,
-                                ),
-                          style: AppType.ui(14, color: t.onForest),
-                        ),
-                        const SizedBox(height: 24),
-                        if (review)
-                          Text(
-                            l.trainingTimerProgress(
-                              _session.completedSetCount,
-                              _session.totalSets,
-                            ),
-                            style: AppType.display(28, color: t.onForest),
-                          )
-                        else if (timed)
-                          Semantics(
-                            key: const ValueKey('training-timer-readout'),
-                            label: l.trainingTimerSecondsRemaining(seconds),
-                            child: ExcludeSemantics(
-                              child: LayoutBuilder(
-                                builder: (context, constraints) {
-                                  final largeText =
-                                      MediaQuery.textScalerOf(context).scale(64) >
-                                      90;
-                                  if (!largeText) {
-                                    return Text(
-                                      '$minutesPart:$secondsPart',
-                                      textAlign: TextAlign.center,
-                                      style: AppType.display(
-                                        64,
-                                        color: t.onForest,
-                                        height: 1,
-                                      ),
-                                    );
-                                  }
-                                  return Wrap(
-                                    alignment: WrapAlignment.center,
-                                    spacing: 24,
-                                    runSpacing: 16,
-                                    children: [
-                                      _timePart(
-                                        minutesPart,
-                                        l.trainingTimerMinutes,
-                                      ),
-                                      _timePart(
-                                        secondsPart,
-                                        l.trainingTimerSeconds,
-                                      ),
-                                    ],
-                                  );
-                                },
-                              ),
-                            ),
-                          )
-                        else ...[
-                          Text(
-                            '${_session.exercise.reps}',
-                            textAlign: TextAlign.center,
-                            style: AppType.display(
-                              64,
-                              color: t.onForest,
-                              height: 1,
-                            ),
-                          ),
-                          Text(
-                            l.trainingTimerRepetitions,
-                            textAlign: TextAlign.center,
-                            style: AppType.ui(15, color: t.onForest),
-                          ),
-                        ],
-                        const SizedBox(height: 24),
-                        Semantics(
-                          liveRegion: true,
-                          label: l.trainingTimerAnnouncement(
-                            review
-                                ? l.trainingTimerReview
-                                : _session.exercise.name,
-                            review
-                                ? l.trainingTimerProgress(
-                                    _session.completedSetCount,
-                                    _session.totalSets,
-                                  )
-                                : l.trainingTimerSet(
-                                    _session.setIndex + 1,
-                                    _session.exercise.sets,
-                                  ),
-                            rest ? '${l.trainingTimerRest}. $status' : status,
-                          ),
-                          child: ExcludeSemantics(
-                            child: Text(
-                              status,
-                              key: const ValueKey('training-timer-status'),
-                              textAlign: TextAlign.center,
-                              style: AppType.ui(
-                                15,
-                                weight: FontWeight.w600,
-                                color: t.onForest,
-                              ),
-                            ),
-                          ),
-                        ),
-                        if (!review && timed) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            atZero
-                                ? l.trainingTimerConfirmHint
-                                : l.trainingTimerAutomaticHint,
-                            textAlign: TextAlign.center,
-                            style: AppType.ui(14, color: t.onForest, height: 1.4),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  if (!review && !rest) ...[
-                    if (_lastPerformance.isNotEmpty) ...[
-                      SectionHeading(title: l.trainingHistoryLastTime),
-                      const SizedBox(height: 8),
-                      for (final actual in _lastPerformance)
-                        Text(
-                          l.trainingHistorySetValue(
-                            actual.reference.setIndex + 1,
-                            actual.reps == null
-                                ? l.trainingHistoryTimed
-                                : l.trainingHistoryRepsValue(actual.reps!),
-                            actual.weightKg == null
-                                ? l.trainingActualNoWeight
-                                : l.trainingHistoryWeightValue(
-                                    formatTrainingWeight(actual.weightKg!, l),
-                                  ),
-                          ),
-                          style: AppType.ui(14, color: t.ink2, height: 1.5),
-                        ),
-                      const SizedBox(height: 16),
-                    ],
-                    TrainingActualFields(
-                      key: ValueKey('actual-$_phaseIdentity'),
-                      timed: _session.exercise.isTimed,
-                      reps: _session.actualReps,
-                      weightKg: _session.actualWeightKg,
-                      enabled: !_leaving && _pendingCompletion == null,
-                      onValidityChanged: (valid) {
-                        _session.pause();
-                        setState(() => _actualValid = valid);
-                      },
-                      onChanged: (reps, weight) {
-                        _session.setCurrentActual(reps: reps, weightKg: weight);
-                        _pendingCompletion = null;
-                        unawaited(_persist());
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-                  if (review) ...[
-                    SectionHeading(title: l.trainingActualReview),
-                    const SizedBox(height: 12),
-                    for (final reference in _session.completedSets) ...[
-                      Text(
-                        '${_session.workout.exercises[reference.exerciseIndex].name} \u00b7 ${l.trainingTimerSet(reference.setIndex + 1, _session.workout.exercises[reference.exerciseIndex].sets)}',
-                        style: AppType.ui(
-                          15,
-                          color: t.ink,
-                          weight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      if (_session
-                              .workout
-                              .exercises[reference.exerciseIndex]
-                              .isTimed &&
-                          !_session.actualSets.any(
-                            (a) => a.reference == reference,
-                          ))
-                        TextButton(
-                          onPressed: _leaving
-                              ? null
-                              : () {
-                                  _session.setCompletedActual(reference);
-                                  unawaited(_persist());
-                                },
-                          child: Text(l.trainingActualConfirmLegacyTimed),
-                        ),
-                      TrainingActualFields(
-                        key: ValueKey(
-                          'review-${reference.exerciseIndex}-${reference.setIndex}',
-                        ),
-                        timed: _session
-                            .workout
-                            .exercises[reference.exerciseIndex]
-                            .isTimed,
-                        reps: _session.actualSets
-                            .where((a) => a.reference == reference)
-                            .firstOrNull
-                            ?.reps,
-                        weightKg: _session.actualSets
-                            .where((a) => a.reference == reference)
-                            .firstOrNull
-                            ?.weightKg,
-                        enabled: !_leaving && _pendingCompletion == null,
-                        onValidityChanged: (valid) => setState(() {
-                          if (valid) {
-                            _invalidActuals.remove(reference);
-                          } else {
-                            _invalidActuals.add(reference);
-                          }
-                        }),
-                        onChanged: (reps, weight) {
-                          _session.setCompletedActual(
-                            reference,
-                            reps: reps,
-                            weightKg: weight,
-                          );
-                          _pendingCompletion = null;
-                          unawaited(_persist());
-                        },
-                      ),
-                      const SizedBox(height: 20),
-                    ],
-                    if (!_completionValuesValid)
-                      Text(
-                        l.trainingActualMissing,
-                        style: AppType.ui(14, color: t.danger),
-                      ),
-                    Text(
-                      l.trainingHistoryNote,
-                      style: AppType.ui(13, color: t.ink2),
-                    ),
-                    const SizedBox(height: 8),
-                    SheetField(
-                      controller: _note,
-                      fieldKey: const ValueKey('training-history-note'),
-                      label: null,
-                      semanticLabel: l.trainingHistoryNote,
-                      hint: l.trainingActualOptional,
-                      maxLines: 3,
-                      inputFormatters: [_TrainingNoteFormatter()],
-                      enabled: !_leaving && _pendingCompletion == null,
-                      onChanged: (_) {
-                        _pendingCompletion = null;
-                        unawaited(_persist());
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                  ],
-                  PrimaryActionButton(
-                    key: const ValueKey('training-timer-primary'),
-                    label: primaryLabel,
-                    icon: review || atZero || (!timed && running)
-                        ? Icons.check_rounded
-                        : running
-                        ? Icons.pause_rounded
-                        : Icons.play_arrow_rounded,
-                    onTap:
-                        _leaving ||
-                            _pendingCompletion != null ||
-                            (!review && !_actualValid) ||
-                            (review && !_completionValuesValid)
-                        ? null
-                        : primaryAction,
-                  ),
-                  const SizedBox(height: 12),
-                  if (!review) ...[
-                    if (!timed)
-                      _secondary(
-                        'pause',
-                        l.trainingTimerPause,
-                        Icons.pause_rounded,
-                        running ? _session.pause : null,
-                      ),
-                    if (timed)
-                      _controlPair(
-                        _secondary(
-                          'rewind',
-                          l.trainingTimerRewind,
-                          Icons.replay_10_rounded,
-                          _session.rewind10Seconds,
-                        ),
-                        _secondary(
-                          'forward',
-                          l.trainingTimerForward,
-                          Icons.forward_10_rounded,
-                          _session.forward10Seconds,
-                        ),
-                      ),
-                    const SizedBox(height: 8),
-                    _secondary(
-                      'reset',
-                      l.trainingTimerReset,
-                      Icons.restart_alt_rounded,
-                      _session.resetPhase,
-                    ),
-                    if (rest) ...[
-                      const SizedBox(height: 8),
-                      _secondary(
-                        'skip-rest',
-                        l.trainingTimerSkipRest,
-                        Icons.skip_next_rounded,
-                        _session.continueAfterRest,
-                      ),
-                    ],
-                  ],
-                  const SizedBox(height: 24),
-                  HeadingSemantics(
-                    level: 2,
-                    child: Text(
-                      l.trainingTimerNavigate,
-                      style: AppType.ui(
-                        15,
-                        weight: FontWeight.w600,
-                        color: t.ink,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _controlPair(
-                    _secondary(
-                      'previous-set',
-                      l.trainingTimerPreviousSet,
-                      Icons.chevron_left_rounded,
-                      _session.canPreviousSet ? _session.previousSet : null,
-                    ),
-                    rest
-                        ? null
-                        : _secondary(
-                            'next-set',
-                            l.trainingTimerNextSet,
-                            Icons.chevron_right_rounded,
-                            review ? null : _session.nextSet,
-                          ),
-                  ),
-                  const SizedBox(height: 8),
-                  _controlPair(
-                    _secondary(
-                      'previous-exercise',
-                      l.trainingTimerPreviousExercise,
-                      Icons.skip_previous_rounded,
-                      _session.canPreviousExercise
-                          ? _session.previousExercise
+            child: Stack(
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    PlayerHeader(
+                      title: _session.workout.title,
+                      done: _session.completedSetCount,
+                      total: _session.totalSets,
+                      elapsed: () => _session.elapsed,
+                      enabled: _enabled,
+                      backEnabled: !_leaving,
+                      onBack: () => unawaited(_leave()),
+                      onFinish: () => unawaited(_openFinishSheet()),
+                      onDiscard: () => unawaited(_discard()),
+                      onPause: running ? () => _act(_session.pause) : null,
+                      onResume: canResume
+                          ? () => _act(
+                              _session.phase == TrainingSessionPhase.rest
+                                  ? _session.start
+                                  : _session.startActiveSet,
+                            )
                           : null,
                     ),
-                    _secondary(
-                      'next-exercise',
-                      l.trainingTimerNextExercise,
-                      Icons.skip_next_rounded,
-                      review ? null : _session.nextExercise,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    l.trainingTimerNavigationHint,
-                    style: AppType.ui(13, color: t.ink2, height: 1.4),
-                  ),
-                  if (!review && _session.exercise.notes.isNotEmpty) ...[
-                    const SizedBox(height: 24),
-                    HeadingSemantics(
-                      level: 2,
-                      child: Text(
-                        l.trainingTimerInstructions,
-                        style: AppType.ui(
-                          15,
-                          weight: FontWeight.w600,
-                          color: t.ink,
+                    if (_saveFailed)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Semantics(
+                                liveRegion: true,
+                                child: Text(
+                                  l.trainingTimerSaveFailed,
+                                  key: const ValueKey(
+                                    'training-timer-save-error',
+                                  ),
+                                  style: AppType.ui(14, color: t.danger),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            TextButton.icon(
+                              key: const ValueKey('training-timer-retry'),
+                              onPressed: _pendingWrites > 0
+                                  ? null
+                                  : () => unawaited(_persist(_retryIntent)),
+                              style: TextButton.styleFrom(
+                                minimumSize: const Size(0, 48),
+                              ),
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: Text(l.trainingTimerRetry),
+                            ),
+                          ],
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _session.exercise.notes,
-                      style: AppType.ui(15, color: t.ink, height: 1.5),
-                    ),
+                    Expanded(child: list),
+                    if (rest != null && !_restExpanded)
+                      ConstrainedBox(
+                        // Large text: the bar scrolls instead of eating the
+                        // list (the full view is one tap away).
+                        constraints: BoxConstraints(
+                          maxHeight: MediaQuery.sizeOf(context).height * 0.4,
+                        ),
+                        child: PlayerRestBar(
+                          rest: rest,
+                          onExpand: () => setState(() => _restExpanded = true),
+                        ),
+                      ),
                   ],
-                  if (!review &&
-                      nextIndex < _session.workout.exercises.length) ...[
-                    const SizedBox(height: 24),
-                    Divider(color: t.line),
-                    const SizedBox(height: 16),
-                    Text(
-                      l.trainingTimerUpNext,
-                      style: AppType.ui(13, color: t.ink2),
+                ),
+                if (rest != null && _restExpanded)
+                  Positioned.fill(
+                    child: PlayerRestView(
+                      rest: rest,
+                      onCollapse: () => setState(() => _restExpanded = false),
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      _session.workout.exercises[nextIndex].name,
-                      style: AppType.display(20, color: t.ink),
-                    ),
-                  ],
-                  const SizedBox(height: 24),
-                  if (!review)
-                    TextButton(
-                      key: const ValueKey('training-timer-finish'),
-                      onPressed:
-                          _leaving ||
-                              _pendingCompletion != null ||
-                              !_completionValuesValid
-                          ? null
-                          : () => _exitDialog(finish: true),
-                      child: Text(l.trainingTimerFinish),
-                    ),
-                  TextButton(
-                    key: const ValueKey('training-timer-discard'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: t.danger,
-                      minimumSize: const Size(0, 48),
-                    ),
-                    onPressed: _leaving || _pendingCompletion != null
-                        ? null
-                        : () => _exitDialog(discard: true),
-                    child: Text(l.trainingTimerDiscard),
                   ),
-                  const SizedBox(height: 12),
-                  Text(
-                    _saveFailed
-                        ? l.trainingTimerNotSaved
-                        : _pendingWrites > 0
-                        ? l.trainingTimerSaving
-                        : _hasSaved
-                        ? l.trainingTimerSaved
-                        : l.trainingTimerNotSaved,
-                    key: const ValueKey('training-timer-save-status'),
-                    textAlign: TextAlign.center,
-                    style: AppType.ui(13, color: t.ink2),
-                  ),
-                ],
-              ),
+              ],
             ),
           ),
         ),
       ),
     );
   }
-
-  bool get _completionValuesValid =>
-      _invalidActuals.isEmpty &&
-      _session.completedSets.every((ref) {
-        final actual = _session.actualSets
-            .where((a) => a.reference == ref)
-            .firstOrNull;
-        return actual != null &&
-            (_session.workout.exercises[ref.exerciseIndex].isTimed ||
-                actual.reps != null);
-      });
-
-  List<TrainingSetActual> get _lastPerformance => lastTrainingPerformance(
-    widget.history,
-    _session.plan.id,
-    _session.exercise.id!,
-    isTimed: _session.exercise.isTimed,
-  );
-
-  Widget _timePart(String value, String unit) => Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Text(
-        value,
-        style: AppType.display(64, color: context.t.onForest, height: 1),
-      ),
-      Text(unit, style: AppType.ui(14, color: context.t.onForest)),
-    ],
-  );
 }
+
+/// Alerts, the display flag and settings links never break the workout.
+Future<void> _quiet(Future<void> future) => future.catchError((Object _) {});

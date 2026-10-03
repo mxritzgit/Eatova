@@ -375,15 +375,17 @@ void main() {
           await store.saveTrainingSession(replacementSnapshot);
           const checkpointKey = 'eatova.v1.training_session.$kFixlaufUser';
           final savedBytes = storage.snapshot[checkpointKey];
-          await _tap(
-            tester,
-            exit == 'save'
-                ? 'training-timer-back'
-                : exit == 'discard'
-                ? 'training-timer-discard'
-                : 'training-timer-primary',
-          );
-          await _tap(tester, 'training-timer-confirm-exit');
+          if (exit == 'save') {
+            await _tap(tester, 'training-timer-back');
+            await _tap(tester, 'training-timer-confirm-exit');
+          } else if (exit == 'discard') {
+            await _tap(tester, 'training-timer-menu');
+            await _tap(tester, 'training-timer-discard');
+            await _tap(tester, 'training-timer-confirm-exit');
+          } else {
+            // The review checkpoint opens the finish sheet by itself.
+            await _tap(tester, 'training-finish-save');
+          }
           await pumpUntil(
             tester,
             () => find.byType(TrainingPlayerScreen).evaluate().isEmpty,
@@ -434,7 +436,12 @@ void main() {
       await _frames(tester);
       await _tap(tester, 'training-resume');
       cache.fail = true;
-      await _tap(tester, 'training-timer-forward');
+      // A changed value must reach storage; the write fails like the leave.
+      await tester.enterText(
+        find.byKey(const ValueKey('training-set-weight-0-0')),
+        '5',
+      );
+      await _frames(tester);
       await _tap(tester, 'training-timer-back');
       await _tap(tester, 'training-timer-confirm-exit');
       await pumpUntil(
@@ -543,21 +550,29 @@ void main() {
       await _tap(tester, 'training-start');
       expect(find.byType(TrainingPlayerScreen), findsOneWidget);
       expect(store.trainingSession?.plan.id, plan.id);
-      await _tap(tester, 'training-timer-forward');
-      expect(store.trainingSession?.remainingMilliseconds, 20000);
-      await _tap(tester, 'training-timer-rewind');
-      expect(store.trainingSession?.remainingMilliseconds, 30000);
+      await _tap(tester, 'training-set-check-0-0');
+      await pumpUntil(tester, () => store.trainingSession?.phaseEndsAt != null,
+          'the running interval is checkpointed with its deadline');
       await _tap(tester, 'training-timer-back');
       await _tap(tester, 'training-timer-confirm-exit');
       await pumpUntil(tester,
           () => find.byType(TrainingPlayerScreen).evaluate().isEmpty,
           'the paused checkpoint is durable before route exit');
       expect(find.byType(TrainingPlayerScreen), findsNothing);
-      expect((await cache.readTrainingSession())?.remainingMilliseconds, 30000);
+      final paused = await cache.readTrainingSession();
+      expect(paused?.remainingMilliseconds, 30000);
+      expect(paused?.phaseEndsAt, isNull, reason: 'leaving pauses');
       expect(find.byKey(const ValueKey('training-resume')), findsOneWidget);
 
       await _tap(tester, 'training-resume');
-      expect(find.text('Pausiert'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('training-timer-readout')),
+          matching: find.text('00:30'),
+        ),
+        findsOneWidget,
+      );
+      await _tap(tester, 'training-timer-menu');
       await _tap(tester, 'training-timer-discard');
       await _tap(tester, 'training-timer-confirm-exit');
       await pumpUntil(tester,

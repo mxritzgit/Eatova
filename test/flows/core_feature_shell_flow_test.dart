@@ -128,19 +128,18 @@ void main() {
         await settleFrames(tester);
         await _tap(tester, 'training-start');
         await tester.enterText(
-          find.byKey(const ValueKey('training-actual-reps')),
+          find.byKey(const ValueKey('training-set-reps-0-0')),
           '10',
         );
         await tester.enterText(
-          find.byKey(const ValueKey('training-actual-weight')),
+          find.byKey(const ValueKey('training-set-weight-0-0')),
           '12.5',
         );
         tester.testTextInput.hide();
         await settleFrames(tester);
-        await _tap(tester, 'training-timer-primary');
-        await _tap(tester, 'training-timer-primary');
-        await _tap(tester, 'training-timer-primary');
-        await _tap(tester, 'training-timer-confirm-exit');
+        // One ✓ per set; the finish sheet opens after the last one.
+        await _tap(tester, 'training-set-check-0-0');
+        await _tap(tester, 'training-finish-save');
         await pumpUntil(
           tester,
           () => find.byType(TrainingPlayerScreen).evaluate().isEmpty,
@@ -169,7 +168,18 @@ void main() {
           find.byType(TrainingPlayerScreen),
         );
         expect(player.history.single.id, entry.id);
-        expect(find.text('Last time'), findsOneWidget);
+        // Last time is shown per set and prefills the weight.
+        expect(find.text('10 × 12.5 kg'), findsOneWidget);
+        expect(
+          tester
+              .widget<TextField>(
+                find.byKey(const ValueKey('training-set-weight-0-0')),
+              )
+              .controller!
+              .text,
+          '12.5',
+        );
+        await _tap(tester, 'training-timer-menu');
         await _tap(tester, 'training-timer-discard');
         await _tap(tester, 'training-timer-confirm-exit');
         await pumpUntil(

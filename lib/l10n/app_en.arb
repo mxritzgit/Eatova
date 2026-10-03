@@ -1903,38 +1903,11 @@
   "trainingTimerBack": "Back to plan",
   "trainingTimerPaused": "Paused",
   "trainingTimerRunning": "Running",
-  "trainingTimerTimeUp": "Time is up",
-  "trainingTimerReview": "Your workout",
-  "trainingTimerRest": "Rest between sets",
   "trainingTimerPause": "Pause",
-  "trainingTimerCompleteSet": "Complete set",
-  "trainingTimerContinue": "Continue to next set",
-  "trainingTimerRewind": "Rewind 10 sec",
-  "trainingTimerForward": "Forward 10 sec",
-  "trainingTimerReset": "Reset phase",
   "trainingTimerSkipRest": "Skip rest",
-  "trainingTimerPreviousSet": "Previous set",
   "trainingTimerNextSet": "Skip set",
-  "trainingTimerPreviousExercise": "Previous exercise",
-  "trainingTimerNextExercise": "Next exercise",
-  "trainingTimerNavigate": "Sets & exercises",
-  "trainingTimerNavigationHint": "Skipping does not count as completion. Going back resets progress from that set onward.",
-  "trainingTimerInstructions": "Exercise notes",
-  "trainingTimerUpNext": "Up next",
   "trainingTimerFinish": "Finish workout",
   "trainingTimerDiscard": "Discard workout",
-  "trainingTimerFinishTitle": "Finish this workout?",
-  "trainingTimerFinishBody": "You completed {completed} of {total, plural, one{1 set} other{{total} sets}}. Uncompleted sets stay uncompleted. The recovery checkpoint will be removed.",
-  "@trainingTimerFinishBody": {
-    "placeholders": {
-      "completed": {
-        "type": "int"
-      },
-      "total": {
-        "type": "int"
-      }
-    }
-  },
   "trainingTimerDiscardTitle": "Discard this workout?",
   "trainingTimerDiscardBody": "This workout’s progress and recovery checkpoint will be removed. Your plan is kept.",
   "trainingTimerLeaveTitle": "Pause and leave?",
@@ -1944,28 +1917,12 @@
   "trainingTimerSaving": "Saving your place…",
   "trainingTimerSaved": "Recovery checkpoint saved",
   "trainingTimerNotSaved": "Your place is not saved yet",
-  "trainingTimerSaveFailed": "Your place could not be saved. The workout is paused. Please retry.",
+  "trainingTimerSaveFailed": "Your place could not be saved. Please retry.",
   "trainingTimerRetry": "Retry",
-  "trainingTimerConfirmHint": "The timer was paused or adjusted at zero. Confirm when you are ready to continue.",
-  "trainingTimerAutomaticHint": "Timed sets and rests continue automatically. You can pause at any time.",
-  "trainingTimerRepetitions": "repetitions",
-  "trainingTimerMinutes": "min",
-  "trainingTimerSeconds": "sec",
   "trainingTimerProgress": "{completed} of {total, plural, one{1 set} other{{total} sets}} completed",
   "@trainingTimerProgress": {
     "placeholders": {
       "completed": {
-        "type": "int"
-      },
-      "total": {
-        "type": "int"
-      }
-    }
-  },
-  "trainingTimerSet": "Set {current} of {total}",
-  "@trainingTimerSet": {
-    "placeholders": {
-      "current": {
         "type": "int"
       },
       "total": {
@@ -1989,19 +1946,193 @@
       }
     }
   },
-  "trainingTimerStart": "Start",
   "trainingTimerResume": "Resume",
-  "trainingTimerAnnouncement": "{exercise}. {sets}. {status}.",
-  "@trainingTimerAnnouncement": {
+  "trainingTimerFinishShort": "Finish",
+  "trainingTimerMenu": "Workout options",
+  "trainingTimerSetsDone": "{done}/{total} sets",
+  "@trainingTimerSetsDone": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerElapsedLabel": "Active for {minutes} min",
+  "@trainingTimerElapsedLabel": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerColumnSet": "Set",
+  "trainingTimerColumnLast": "Last",
+  "trainingTimerColumnWeight": "kg",
+  "trainingTimerColumnReps": "Reps",
+  "trainingTimerColumnTime": "Time",
+  "trainingTimerWeightField": "Set {set}, weight in kg",
+  "@trainingTimerWeightField": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerRepsField": "Set {set}, repetitions",
+  "@trainingTimerRepsField": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerCompleteSetLabel": "Complete set {set}",
+  "@trainingTimerCompleteSetLabel": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerUndoSetLabel": "Undo set {set}",
+  "@trainingTimerUndoSetLabel": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerStartSetLabel": "Start set {set}",
+  "@trainingTimerStartSetLabel": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerSetLocked": "Set {set}, not yet",
+  "@trainingTimerSetLocked": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerSetDoneLabel": "Set {set} done",
+  "@trainingTimerSetDoneLabel": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerSkippedSet": "Skipped",
+  "trainingTimerCopyLast": "Use last time: {value}",
+  "@trainingTimerCopyLast": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingTimerDoneEarly": "Done early",
+  "trainingTimerGetReady": "Get ready · {seconds}",
+  "@trainingTimerGetReady": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerTapToFinish": "Time is up. Tap ✓ to log the set.",
+  "trainingTimerExerciseOptions": "Options for {exercise}",
+  "@trainingTimerExerciseOptions": {
+    "placeholders": {
+      "exercise": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingTimerSkipExercise": "Skip exercise",
+  "trainingTimerCompleteRemaining": "{count, plural, one{Complete 1 remaining set as planned} other{Complete {count} remaining sets as planned}}",
+  "@trainingTimerCompleteRemaining": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerShowNotes": "Notes",
+  "trainingTimerShowSets": "Show sets",
+  "trainingTimerHideSets": "Hide sets",
+  "trainingTimerRestLabel": "Rest",
+  "trainingTimerRestNext": "Next: {exercise}, set {set}",
+  "@trainingTimerRestNext": {
     "placeholders": {
       "exercise": {
         "type": "String"
       },
-      "sets": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerRestShorter": "−15 s",
+  "trainingTimerRestLonger": "+15 s",
+  "trainingTimerRestShorterLabel": "15 seconds less rest",
+  "trainingTimerRestLongerLabel": "15 seconds more rest",
+  "trainingTimerRestExpand": "Show the rest timer full screen",
+  "trainingTimerRestCollapse": "Back to the sets",
+  "trainingTimerAlertsOff": "Alerts off",
+  "trainingTimerAlertsOffLabel": "Rest alerts are off. Open notification settings.",
+  "trainingTimerAlertsTitle": "Alert when the rest is over?",
+  "trainingTimerAlertsBody": "Eatova can ring when a rest or a timed set ends, even with the phone locked. The alert shows no exercise and no weight.",
+  "trainingTimerAlertsAllow": "Turn on alerts",
+  "trainingTimerAlertsLater": "Not now",
+  "trainingTimerAlertSetDoneBody": "Set complete.",
+  "trainingTimerSaveWorkout": "Save workout",
+  "trainingTimerSaveSets": "{count, plural, one{Save 1 set (skip the rest)} other{Save {count} sets (skip the rest)}}",
+  "@trainingTimerSaveSets": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerLogRest": "I did the rest — log as shown",
+  "trainingTimerKeepTraining": "Keep training",
+  "trainingTimerNothingDone": "No set is completed yet, so there is nothing to save.",
+  "trainingTimerNotStored": "Not stored: your plan changed. Finish still saves this workout.",
+  "trainingTimerAnnounceSetDone": "{exercise}, set {set} done.",
+  "@trainingTimerAnnounceSetDone": {
+    "placeholders": {
+      "exercise": {
         "type": "String"
       },
-      "status": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerAnnounceRest": "Rest, {seconds, plural, one{1 second} other{{seconds} seconds}}.",
+  "@trainingTimerAnnounceRest": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerAnnounceRestOver": "Rest over. Next: {exercise}, set {set}.",
+  "@trainingTimerAnnounceRestOver": {
+    "placeholders": {
+      "exercise": {
         "type": "String"
+      },
+      "set": {
+        "type": "int"
       }
     }
   },

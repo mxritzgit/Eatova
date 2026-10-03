@@ -1952,38 +1952,11 @@
   "trainingTimerBack": "Zurück zum Plan",
   "trainingTimerPaused": "Pausiert",
   "trainingTimerRunning": "Läuft",
-  "trainingTimerTimeUp": "Zeit abgelaufen",
-  "trainingTimerReview": "Dein Training",
-  "trainingTimerRest": "Satzpause",
   "trainingTimerPause": "Pause",
-  "trainingTimerCompleteSet": "Satz geschafft",
-  "trainingTimerContinue": "Zum nächsten Satz",
-  "trainingTimerRewind": "10 Sek. zurück",
-  "trainingTimerForward": "10 Sek. vor",
-  "trainingTimerReset": "Phase zurücksetzen",
   "trainingTimerSkipRest": "Pause überspringen",
-  "trainingTimerPreviousSet": "Vorheriger Satz",
   "trainingTimerNextSet": "Satz überspringen",
-  "trainingTimerPreviousExercise": "Vorherige Übung",
-  "trainingTimerNextExercise": "Nächste Übung",
-  "trainingTimerNavigate": "Sätze & Übungen",
-  "trainingTimerNavigationHint": "Überspringen zählt nicht als geschafft. Zurückgehen setzt den Fortschritt ab diesem Satz zurück.",
-  "trainingTimerInstructions": "Hinweise zur Übung",
-  "trainingTimerUpNext": "Nächste Übung",
   "trainingTimerFinish": "Training beenden",
   "trainingTimerDiscard": "Training verwerfen",
-  "trainingTimerFinishTitle": "Training beenden?",
-  "trainingTimerFinishBody": "Du hast {completed} von {total, plural, one{1 Satz} other{{total} Sätzen}} geschafft. Nicht absolvierte Sätze bleiben offen. Der gespeicherte Wiedereinstieg wird entfernt.",
-  "@trainingTimerFinishBody": {
-    "placeholders": {
-      "completed": {
-        "type": "int"
-      },
-      "total": {
-        "type": "int"
-      }
-    }
-  },
   "trainingTimerDiscardTitle": "Training verwerfen?",
   "trainingTimerDiscardBody": "Der Fortschritt dieses Trainings und der gespeicherte Wiedereinstieg werden entfernt. Dein Plan bleibt erhalten.",
   "trainingTimerLeaveTitle": "Pausieren und verlassen?",
@@ -1993,28 +1966,12 @@
   "trainingTimerSaving": "Stand wird gespeichert …",
   "trainingTimerSaved": "Wiedereinstieg gespeichert",
   "trainingTimerNotSaved": "Stand noch nicht gespeichert",
-  "trainingTimerSaveFailed": "Dein Stand konnte nicht gespeichert werden. Das Training ist pausiert. Bitte versuche es erneut.",
+  "trainingTimerSaveFailed": "Dein Stand konnte nicht gespeichert werden. Bitte versuche es erneut.",
   "trainingTimerRetry": "Erneut versuchen",
-  "trainingTimerConfirmHint": "Der Timer wurde bei null pausiert oder angepasst. Bestätige, wenn du bereit bist, fortzufahren.",
-  "trainingTimerAutomaticHint": "Sätze mit Timer und Satzpausen laufen automatisch weiter. Du kannst jederzeit pausieren.",
-  "trainingTimerRepetitions": "Wiederholungen",
-  "trainingTimerMinutes": "Min.",
-  "trainingTimerSeconds": "Sek.",
   "trainingTimerProgress": "{completed} von {total, plural, one{1 Satz} other{{total} Sätzen}} geschafft",
   "@trainingTimerProgress": {
     "placeholders": {
       "completed": {
-        "type": "int"
-      },
-      "total": {
-        "type": "int"
-      }
-    }
-  },
-  "trainingTimerSet": "Satz {current} von {total}",
-  "@trainingTimerSet": {
-    "placeholders": {
-      "current": {
         "type": "int"
       },
       "total": {
@@ -2038,19 +1995,193 @@
       }
     }
   },
-  "trainingTimerStart": "Starten",
   "trainingTimerResume": "Fortsetzen",
-  "trainingTimerAnnouncement": "{exercise}. {sets}. {status}.",
-  "@trainingTimerAnnouncement": {
+  "trainingTimerFinishShort": "Beenden",
+  "trainingTimerMenu": "Workout-Optionen",
+  "trainingTimerSetsDone": "{done}/{total} Sätze",
+  "@trainingTimerSetsDone": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerElapsedLabel": "Seit {minutes} Min. aktiv",
+  "@trainingTimerElapsedLabel": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerColumnSet": "Satz",
+  "trainingTimerColumnLast": "Zuletzt",
+  "trainingTimerColumnWeight": "kg",
+  "trainingTimerColumnReps": "Wdh.",
+  "trainingTimerColumnTime": "Zeit",
+  "trainingTimerWeightField": "Satz {set}, Gewicht in kg",
+  "@trainingTimerWeightField": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerRepsField": "Satz {set}, Wiederholungen",
+  "@trainingTimerRepsField": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerCompleteSetLabel": "Satz {set} abhaken",
+  "@trainingTimerCompleteSetLabel": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerUndoSetLabel": "Satz {set} zurücknehmen",
+  "@trainingTimerUndoSetLabel": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerStartSetLabel": "Satz {set} starten",
+  "@trainingTimerStartSetLabel": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerSetLocked": "Satz {set}, noch nicht dran",
+  "@trainingTimerSetLocked": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerSetDoneLabel": "Satz {set} geschafft",
+  "@trainingTimerSetDoneLabel": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerSkippedSet": "Übersprungen",
+  "trainingTimerCopyLast": "Letztes Mal übernehmen: {value}",
+  "@trainingTimerCopyLast": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingTimerDoneEarly": "Früher fertig",
+  "trainingTimerGetReady": "Bereit machen · {seconds}",
+  "@trainingTimerGetReady": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerTapToFinish": "Zeit um. Tippe ✓, um den Satz einzutragen.",
+  "trainingTimerExerciseOptions": "Optionen für {exercise}",
+  "@trainingTimerExerciseOptions": {
+    "placeholders": {
+      "exercise": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingTimerSkipExercise": "Übung überspringen",
+  "trainingTimerCompleteRemaining": "{count, plural, one{1 offenen Satz wie geplant abhaken} other{{count} offene Sätze wie geplant abhaken}}",
+  "@trainingTimerCompleteRemaining": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerShowNotes": "Hinweise",
+  "trainingTimerShowSets": "Sätze zeigen",
+  "trainingTimerHideSets": "Sätze ausblenden",
+  "trainingTimerRestLabel": "Pause",
+  "trainingTimerRestNext": "Als Nächstes: {exercise}, Satz {set}",
+  "@trainingTimerRestNext": {
     "placeholders": {
       "exercise": {
         "type": "String"
       },
-      "sets": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerRestShorter": "−15 s",
+  "trainingTimerRestLonger": "+15 s",
+  "trainingTimerRestShorterLabel": "15 Sekunden weniger Pause",
+  "trainingTimerRestLongerLabel": "15 Sekunden mehr Pause",
+  "trainingTimerRestExpand": "Pausentimer im Vollbild zeigen",
+  "trainingTimerRestCollapse": "Zurück zu den Sätzen",
+  "trainingTimerAlertsOff": "Alarme aus",
+  "trainingTimerAlertsOffLabel": "Pausen-Alarme sind aus. Benachrichtigungseinstellungen öffnen.",
+  "trainingTimerAlertsTitle": "Alarm, wenn die Pause vorbei ist?",
+  "trainingTimerAlertsBody": "Eatova kann klingeln, wenn eine Pause oder ein Satz mit Timer endet, auch bei gesperrtem Handy. Der Alarm zeigt keine Übung und kein Gewicht.",
+  "trainingTimerAlertsAllow": "Alarme einschalten",
+  "trainingTimerAlertsLater": "Jetzt nicht",
+  "trainingTimerAlertSetDoneBody": "Satz geschafft.",
+  "trainingTimerSaveWorkout": "Training speichern",
+  "trainingTimerSaveSets": "{count, plural, one{1 Satz speichern (Rest überspringen)} other{{count} Sätze speichern (Rest überspringen)}}",
+  "@trainingTimerSaveSets": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerLogRest": "Den Rest auch gemacht – wie angezeigt eintragen",
+  "trainingTimerKeepTraining": "Weiter trainieren",
+  "trainingTimerNothingDone": "Noch kein Satz geschafft, es gibt nichts zu speichern.",
+  "trainingTimerNotStored": "Nicht gesichert: Dein Plan hat sich geändert. Beenden speichert dieses Training trotzdem.",
+  "trainingTimerAnnounceSetDone": "{exercise}, Satz {set} geschafft.",
+  "@trainingTimerAnnounceSetDone": {
+    "placeholders": {
+      "exercise": {
         "type": "String"
       },
-      "status": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerAnnounceRest": "Pause, {seconds, plural, one{1 Sekunde} other{{seconds} Sekunden}}.",
+  "@trainingTimerAnnounceRest": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerAnnounceRestOver": "Pause vorbei. Als Nächstes: {exercise}, Satz {set}.",
+  "@trainingTimerAnnounceRestOver": {
+    "placeholders": {
+      "exercise": {
         "type": "String"
+      },
+      "set": {
+        "type": "int"
       }
     }
   },

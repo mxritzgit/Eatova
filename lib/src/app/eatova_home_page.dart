@@ -24,6 +24,7 @@ import '../services/notification_service.dart';
 import '../services/open_food_facts_product_service.dart';
 import '../services/recipe_import_inbox.dart';
 import '../services/recipe_import_service.dart';
+import '../services/rest_alerts.dart';
 import '../services/meal_scan_identity.dart';
 import '../services/sync_error_messages.dart';
 import '../services/sync_connectivity.dart';
@@ -40,6 +41,7 @@ import '../screens/today/today_screen.dart';
 import '../screens/today/today_texts.dart' show greetingForHour;
 import '../screens/training/training_screen.dart';
 import '../screens/training/training_history_screen.dart';
+import '../screens/training/player/player_alerts.dart';
 import '../screens/training/training_player_screen.dart';
 import '../screens/training/training_plan_editor.dart';
 import '../l10n/l10n.dart';
@@ -1180,6 +1182,16 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         }
         return;
       }
+      // Rest alerts and their permission (spec A5) come from the
+      // notification service when it carries them; scheduling is pinned to
+      // this account, cancelling always runs.
+      final notifications = widget.notificationService;
+      final restAlerts = GuardedRestAlertScheduler(
+        notifications is RestAlertScheduler
+            ? notifications as RestAlertScheduler
+            : const NoopRestAlertScheduler(),
+        () => _isStoreSessionCurrent(ownerStore),
+      );
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
           builder: (_) => TrainingPlayerScreen(
@@ -1187,6 +1199,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             workoutIndex: workoutIndex,
             initialSnapshot: snapshot,
             history: ownerStore.trainingHistory,
+            restAlerts: restAlerts,
+            alertPermission: notifications is RestAlertPermissionGate
+                ? notifications as RestAlertPermissionGate
+                : null,
             onComplete: (entry) async {
               if (!_isStoreSessionCurrent(ownerStore)) {
                 throw StateError('Training session ended');
@@ -1208,20 +1224,20 @@ class _EatovaHomePageState extends State<EatovaHomePage>
                 );
               }
 
-              if (sourceRetired()) return;
+              // A refused checkpoint is reported, never claimed as saved; the
+              // player shows "not stored" and Finish still saves the workout.
+              if (sourceRetired()) return false;
               try {
-                final stored = await ownerStore.saveTrainingSession(
+                return await ownerStore.saveTrainingSession(
                   value,
                   generation: sessionGeneration,
                   sourcePlanId: sourcePlanId,
                 );
-                if (!stored) {
-                  throw StateError('Training checkpoint not stored');
-                }
               } catch (_) {
                 // Source invalidation may have overtaken an awaited write.
                 // The obsolete route can close without touching new recovery.
                 if (!sourceRetired()) rethrow;
+                return false;
               }
             },
           ),

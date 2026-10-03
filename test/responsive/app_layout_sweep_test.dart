@@ -326,7 +326,7 @@ Future<List<String>> _walk(
         localizedApp(
           TrainingPlayerScreen(
             plan: _plan(),
-            onPersist: (_) async {},
+            onPersist: (_) async => true,
             onComplete: (_) async {},
           ),
           locale: locale,
@@ -341,7 +341,7 @@ Future<List<String>> _walk(
         'Trainingsplayer',
         'Training',
         const [],
-        _key('training-timer-hero'),
+        _key('training-player-list'),
         column: find
             .descendant(
               of: find.byType(TrainingPlayerScreen),

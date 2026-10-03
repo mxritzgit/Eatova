@@ -11,6 +11,10 @@ import 'package:flutter_test/flutter_test.dart';
 import '../support/harness.dart';
 import 'fixtures.dart';
 
+// The real player across pause, background and restart (spec A4,
+// 2026-10-03). Supersedes "background pauses; resume never auto-starts":
+// only the explicit Pause (menu) or Save & leave freezes time.
+
 TrainingPlan _plan() {
   final raw = trainingDraft();
   firstWorkout(raw)['exercises'] = (firstWorkout(raw)['exercises'] as List)
@@ -30,6 +34,12 @@ Future<void> _tap(WidgetTester tester, String key) async {
   await tester.ensureVisible(finder);
   await tester.pump();
   await tester.tap(finder);
+  await _frames(tester);
+}
+
+Future<void> _menu(WidgetTester tester, String item) async {
+  await _tap(tester, 'training-timer-menu');
+  await tester.tap(find.byKey(ValueKey(item)));
   await _frames(tester);
 }
 
@@ -63,146 +73,143 @@ String _readout(WidgetTester tester) => tester
     .data!;
 
 void main() {
-  testWidgets(
-    'real player pause, rewind, reset and background persist exact time',
-    (tester) async {
-      var time = Duration.zero;
-      final checkpoints = <TrainingSessionSnapshot?>[];
-      await _mount(
-        tester,
-        () => TrainingPlayerScreen(
-          plan: _plan(),
-          monotonicNow: () => time,
-          onPersist: (snapshot) async {
-            checkpoints.add(snapshot);
-          },
-        ),
-      );
-      expect(_readout(tester), '00:40');
-      await _tap(tester, 'training-timer-primary');
-      time += const Duration(seconds: 13);
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(_readout(tester), '00:27');
-      await _tap(tester, 'training-timer-primary');
-      expect(checkpoints.last!.remainingMilliseconds, 27000);
-      time += const Duration(minutes: 5);
-      await tester.pump(const Duration(seconds: 1));
-      expect(_readout(tester), '00:27');
-      await _tap(tester, 'training-timer-rewind');
-      expect(_readout(tester), '00:37');
-      await _tap(tester, 'training-timer-reset');
-      expect(_readout(tester), '00:40');
-      await _tap(tester, 'training-timer-primary');
-      time += const Duration(seconds: 7);
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-      await _frames(tester);
-      expect(checkpoints.last!.remainingMilliseconds, 33000);
-      time += const Duration(hours: 1);
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
-      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
-      await _frames(tester);
-      expect(_readout(tester), '00:33');
-      await tester.pumpWidget(const SizedBox.shrink());
-      await _frames(tester);
-    },
-  );
+  testWidgets('real player: menu pause freezes, background keeps the deadline '
+      'running', (tester) async {
+    var time = Duration.zero;
+    final checkpoints = <TrainingSessionSnapshot?>[];
+    await _mount(
+      tester,
+      () => TrainingPlayerScreen(
+        plan: _plan(),
+        monotonicNow: () => time,
+        onPersist: (snapshot) async {
+          checkpoints.add(snapshot);
+          return true;
+        },
+      ),
+    );
+    expect(_readout(tester), '00:40');
+    await _tap(tester, 'training-set-check-0-0');
+    time += const Duration(seconds: 16);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(_readout(tester), '00:27', reason: '3 s lead, then 13 s');
+    await _menu(tester, 'training-timer-pause');
+    expect(checkpoints.last!.remainingMilliseconds, 27000);
+    expect(checkpoints.last!.phaseEndsAt, isNull);
+    time += const Duration(minutes: 5);
+    await tester.pump(const Duration(seconds: 1));
+    expect(_readout(tester), '00:27');
+    await _menu(tester, 'training-timer-resume');
+    time += const Duration(seconds: 7);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await _frames(tester);
+    expect(checkpoints.last!.phaseEndsAt, isNotNull);
+    expect(checkpoints.last!.remainingMilliseconds, 20000);
+    time += const Duration(seconds: 10);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await _frames(tester);
+    expect(_readout(tester), '00:10');
+    await tester.pumpWidget(const SizedBox.shrink());
+    await _frames(tester);
+  });
 
-  testWidgets(
-    'system back waits for durable pause and restart requires deliberate resume',
-    (tester) async {
-      var time = Duration.zero;
-      TrainingSessionSnapshot? last;
-      Completer<void>? hold;
-      await _mount(
-        tester,
-        () => TrainingPlayerScreen(
-          plan: _plan(),
-          monotonicNow: () => time,
-          onPersist: (snapshot) async {
-            await hold?.future;
-            last = snapshot;
-          },
-        ),
-      );
-      await _tap(tester, 'training-timer-primary');
-      time += const Duration(milliseconds: 12500);
-      await tester.binding.handlePopRoute();
-      await _frames(tester);
-      expect(
-        find.byKey(const ValueKey('training-timer-confirm-exit')),
-        findsOneWidget,
-      );
-      hold = Completer<void>();
-      await _tap(tester, 'training-timer-confirm-exit');
-      expect(find.byType(TrainingPlayerScreen), findsOneWidget);
-      hold.complete();
-      await tester.pumpAndSettle();
-      expect(find.byType(TrainingPlayerScreen), findsNothing);
-      final reboot = TrainingSessionSnapshot.fromJson(
-        jsonDecode(jsonEncode(last!.toJson())) as Map<dynamic, dynamic>,
-      );
-      expect(reboot.remainingMilliseconds, 27500);
-      expect(reboot.toJson()['status'], 'paused');
-      time += const Duration(days: 1);
-      hold = null;
-      await _mount(
-        tester,
-        () => TrainingPlayerScreen(
-          initialSnapshot: reboot,
-          monotonicNow: () => time,
-          onPersist: (snapshot) async {
-            last = snapshot;
-          },
-        ),
-      );
-      expect(_readout(tester), '00:28');
-      time += const Duration(minutes: 5);
-      await tester.pump(const Duration(seconds: 1));
-      expect(_readout(tester), '00:28');
-      await _tap(tester, 'training-timer-primary');
-      time += const Duration(milliseconds: 1500);
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(_readout(tester), '00:26');
-      await tester.pumpWidget(const SizedBox.shrink());
-      await _frames(tester);
-    },
-  );
+  testWidgets('system back: Save & leave pauses durably; a restart resumes '
+      'only with ▶', (tester) async {
+    var time = Duration.zero;
+    TrainingSessionSnapshot? last;
+    Completer<void>? hold;
+    await _mount(
+      tester,
+      () => TrainingPlayerScreen(
+        plan: _plan(),
+        monotonicNow: () => time,
+        onPersist: (snapshot) async {
+          await hold?.future;
+          last = snapshot;
+          return true;
+        },
+      ),
+    );
+    await _tap(tester, 'training-set-check-0-0');
+    time += const Duration(milliseconds: 15500);
+    await tester.binding.handlePopRoute();
+    await _frames(tester);
+    expect(
+      find.byKey(const ValueKey('training-timer-confirm-exit')),
+      findsOneWidget,
+    );
+    hold = Completer<void>();
+    await _tap(tester, 'training-timer-confirm-exit');
+    expect(find.byType(TrainingPlayerScreen), findsOneWidget);
+    hold.complete();
+    await tester.pumpAndSettle();
+    expect(find.byType(TrainingPlayerScreen), findsNothing);
+    final reboot = TrainingSessionSnapshot.fromJson(
+      jsonDecode(jsonEncode(last!.toJson())) as Map<dynamic, dynamic>,
+    );
+    expect(reboot.remainingMilliseconds, 27500);
+    expect(reboot.phaseEndsAt, isNull);
+    expect(reboot.toJson()['status'], 'paused');
+    time += const Duration(days: 1);
+    hold = null;
+    await _mount(
+      tester,
+      () => TrainingPlayerScreen(
+        initialSnapshot: reboot,
+        monotonicNow: () => time,
+        onPersist: (snapshot) async {
+          last = snapshot;
+          return true;
+        },
+      ),
+    );
+    expect(_readout(tester), '00:28');
+    time += const Duration(minutes: 5);
+    await tester.pump(const Duration(seconds: 1));
+    expect(_readout(tester), '00:28');
+    await _tap(tester, 'training-set-check-0-0');
+    time += const Duration(milliseconds: 1500);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(_readout(tester), '00:26', reason: 'no lead-in when resuming');
+    await tester.pumpWidget(const SizedBox.shrink());
+    await _frames(tester);
+  });
 
-  testWidgets(
-    'failed discard keeps player open; retry clears recovery before exit',
-    (tester) async {
-      var failClear = true;
-      final stored = <TrainingSessionSnapshot?>[];
-      await _mount(
-        tester,
-        () => TrainingPlayerScreen(
-          plan: _plan(),
-          onPersist: (snapshot) async {
-            if (snapshot == null && failClear) {
-              throw StateError('CI disk failure');
-            }
-            stored.add(snapshot);
-          },
-        ),
-      );
-      await _tap(tester, 'training-timer-discard');
-      await _tap(tester, 'training-timer-confirm-exit');
-      expect(find.byType(TrainingPlayerScreen), findsOneWidget);
-      expect(
-        find.byKey(const ValueKey('training-timer-save-error')),
-        findsOneWidget,
-      );
-      expect(stored.last, isNotNull);
-      failClear = false;
-      await _tap(tester, 'training-timer-retry');
-      await tester.pumpAndSettle();
-      expect(find.byType(TrainingPlayerScreen), findsNothing);
-      expect(stored.last, isNull);
-      await tester.pump(const Duration(seconds: 6));
-      expect(stored.last, isNull);
-    },
-  );
+  testWidgets('failed discard keeps the player open; retry clears recovery '
+      'before exit', (tester) async {
+    var failClear = true;
+    final stored = <TrainingSessionSnapshot?>[];
+    await _mount(
+      tester,
+      () => TrainingPlayerScreen(
+        plan: _plan(),
+        onPersist: (snapshot) async {
+          if (snapshot == null && failClear) {
+            throw StateError('CI disk failure');
+          }
+          stored.add(snapshot);
+          return true;
+        },
+      ),
+    );
+    await _menu(tester, 'training-timer-discard');
+    await _tap(tester, 'training-timer-confirm-exit');
+    expect(find.byType(TrainingPlayerScreen), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('training-timer-save-error')),
+      findsOneWidget,
+    );
+    expect(stored.last, isNotNull);
+    failClear = false;
+    await _tap(tester, 'training-timer-retry');
+    await tester.pumpAndSettle();
+    expect(find.byType(TrainingPlayerScreen), findsNothing);
+    expect(stored.last, isNull);
+    await tester.pump(const Duration(seconds: 6));
+    expect(stored.last, isNull);
+  });
 }

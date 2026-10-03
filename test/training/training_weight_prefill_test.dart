@@ -83,8 +83,11 @@ void main() {
       _session(plan, 2, [null, null, null]),
     ];
     expect(
-      lastTrainingPerformanceFor(history, planId: plan.id, exercise: bench)
-          .map((s) => s.weightKg),
+      lastTrainingPerformanceFor(
+        history,
+        planId: plan.id,
+        exercise: bench,
+      ).map((s) => s.weightKg),
       [null, null, null],
       reason: 'the Last-time display still shows the newest session',
     );
@@ -111,7 +114,12 @@ void main() {
   });
 
   test('without any weighted session there is nothing to prefill', () {
-    expect(weights([_session(plan, 0, [null])]), isEmpty);
+    expect(
+      weights([
+        _session(plan, 0, [null]),
+      ]),
+      isEmpty,
+    );
     expect(weights(const []), isEmpty);
   });
 

@@ -196,7 +196,11 @@ void main() {
           repository.emit(_userA);
           await _frames(tester);
           expect(find.byType(TrainingPlayerScreen), findsOneWidget);
-          await latePersist(oldSnapshot);
+          expect(
+            await latePersist(oldSnapshot),
+            isTrue,
+            reason: 'the same account still stores its checkpoint',
+          );
           expect(
             tester.widget<CoachChatScreen>(
               find.byType(CoachChatScreen, skipOffstage: false),

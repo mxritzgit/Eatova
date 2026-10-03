@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:clock/clock.dart';
 import 'package:eatova/src/models/coach_training_proposal.dart';
 import 'package:eatova/src/models/training_plan.dart';
 import 'package:eatova/src/models/training_session.dart';
@@ -8,6 +9,11 @@ import 'package:eatova/src/services/training_session_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fixtures.dart';
+
+// Recovery on wall-clock deadlines (spec A4, 2026-10-03). Supersedes
+// "recovery always paused" and "a late callback gives every phase its full
+// duration": a running rest continues after a restart, a passed timed set
+// waits at zero, and only an explicit pause freezes time.
 
 TrainingPlan _plan() {
   final raw = trainingDraft();
@@ -17,7 +23,7 @@ TrainingPlan _plan() {
 }
 
 void main() {
-  test('pause, rewind, fast-forward and reset use elapsed time, not ticks', () {
+  test('pause and resume follow the wall clock, not ticks', () {
     var time = Duration.zero;
     final controller = TrainingSessionController(
       plan: _plan(),
@@ -29,57 +35,51 @@ void main() {
     expect(controller.remaining, const Duration(seconds: 40));
     controller.start();
     time += const Duration(milliseconds: 12345);
-    // One tick must account for the entire interval.
+    // One tick (or none) accounts for the entire interval.
     controller.tick();
     expect(controller.remaining, const Duration(milliseconds: 27655));
     controller.pause();
     time += const Duration(hours: 2);
     controller.tick();
     expect(controller.remaining, const Duration(milliseconds: 27655));
-    controller.rewind10Seconds();
-    expect(controller.remaining, const Duration(milliseconds: 37655));
-    controller.rewind10Seconds();
-    expect(controller.remaining, const Duration(seconds: 40));
-    controller.forward10Seconds();
-    expect(controller.remaining, const Duration(seconds: 30));
-    controller.start();
+    controller.startActiveSet();
+    expect(
+      controller.getReadyRemaining,
+      Duration.zero,
+      reason: 'resuming a started set has no lead-in',
+    );
     time += const Duration(seconds: 2);
-    controller.resetPhase();
-    expect(controller.remaining, const Duration(seconds: 40));
-    expect(controller.isRunning, isFalse);
+    expect(controller.remaining, const Duration(milliseconds: 25655));
     expect(controller.completedSetCount, 0);
   });
 
-  test(
-    'automatic rest and sets start with full duration after a late callback',
-    () {
-      var time = Duration.zero;
-      final controller = TrainingSessionController(
-        plan: _plan(),
-        monotonicNow: () => time,
-        autoTick: false,
-      );
-      addTearDown(controller.dispose);
-      controller.start();
-      time += const Duration(days: 1);
-      controller.tick();
-      expect(controller.exerciseIndex, 0);
-      expect(controller.setIndex, 0);
-      expect(controller.phase, TrainingSessionPhase.rest);
-      expect(controller.completedSetCount, 1);
-      expect(controller.remaining, const Duration(seconds: 15));
-      expect(controller.isRunning, isTrue);
-      time += const Duration(seconds: 16);
-      controller.tick();
-      expect(controller.phase, TrainingSessionPhase.exercise);
-      expect(controller.setIndex, 1);
-      expect(controller.remaining, const Duration(seconds: 40));
-      expect(controller.isRunning, isTrue);
-    },
-  );
+  test('a late callback completes at the deadline and runs the rest from '
+      'there', () {
+    var time = Duration.zero;
+    final controller = TrainingSessionController(
+      plan: _plan(),
+      monotonicNow: () => time,
+      autoTick: false,
+    );
+    addTearDown(controller.dispose);
+    controller.start();
+    final deadline = controller.phaseEndsAt!;
+    time += const Duration(seconds: 50);
+    controller.tick();
+    expect(controller.completedSetCount, 1);
+    expect(controller.actualSets.single.completedAt, deadline);
+    expect(controller.phase, TrainingSessionPhase.rest);
+    expect(controller.remaining, const Duration(seconds: 5));
+    time += const Duration(days: 1);
+    controller.tick();
+    expect(controller.phase, TrainingSessionPhase.exercise);
+    expect(controller.setIndex, 1);
+    expect(controller.remaining, const Duration(seconds: 40));
+    expect(controller.isRunning, isFalse, reason: 'an unseen rest end waits');
+  });
 
   test(
-    'reboot restores paused full snapshot without depending on the library',
+    'reboot restores a paused snapshot without depending on the library',
     () {
       var time = Duration.zero;
       final controller = TrainingSessionController(
@@ -87,7 +87,7 @@ void main() {
         monotonicNow: () => time,
         autoTick: false,
       );
-      controller.nextSet(); // skip first set
+      controller.skipActiveSet();
       controller.start();
       time += const Duration(milliseconds: 12750);
       controller.pause();
@@ -118,32 +118,52 @@ void main() {
     },
   );
 
-  test(
-    'previous exercise removes later progress; skip is never completion',
-    () {
+  test('a restart keeps a running rest and its deadline', () {
+    var now = DateTime.utc(2026, 10, 3, 18);
+    withClock(Clock(() => now), () {
       final controller = TrainingSessionController(
         plan: _plan(),
         autoTick: false,
+      )..start();
+      now = now.add(const Duration(seconds: 40));
+      controller.tick();
+      final serialized = jsonEncode(controller.snapshot().toJson());
+      controller.dispose();
+      now = now.add(const Duration(seconds: 6));
+      final restored = TrainingSessionController.fromSnapshot(
+        TrainingSessionSnapshot.fromJson(
+          jsonDecode(serialized) as Map<dynamic, dynamic>,
+        ),
+        autoTick: false,
       );
-      addTearDown(controller.dispose);
-      controller.nextExercise();
-      expect(controller.exerciseIndex, 1);
-      expect(controller.skippedSets, hasLength(2));
-      expect(controller.progress, 0);
-      controller.start();
-      controller.completeCurrentSet();
-      expect(controller.completedSetCount, 1);
-      controller.previousExercise();
-      expect(controller.exerciseIndex, 0);
-      expect(controller.setIndex, 0);
-      expect(controller.completedSets, isEmpty);
-      expect(controller.skippedSets, isEmpty);
-      expect(controller.isRunning, isFalse);
-      expect(controller.remaining, const Duration(seconds: 40));
-    },
-  );
+      addTearDown(restored.dispose);
+      expect(restored.phase, TrainingSessionPhase.rest);
+      expect(restored.isRunning, isTrue);
+      expect(restored.remaining, const Duration(seconds: 9));
+    });
+  });
 
-  test('every real navigation transition remains recoverable', () {
+  test('undo removes later progress; a skip is never a completion', () {
+    final controller = TrainingSessionController(
+      plan: _plan(),
+      autoTick: false,
+    );
+    addTearDown(controller.dispose);
+    controller.nextExercise();
+    expect(controller.exerciseIndex, 1);
+    expect(controller.skippedSets, hasLength(2));
+    expect(controller.progress, 0);
+    controller.completeActiveSet();
+    expect(controller.completedSetCount, 1);
+    controller.undoLastCompleted();
+    expect(controller.exerciseIndex, 1);
+    expect(controller.setIndex, 0);
+    expect(controller.completedSets, isEmpty);
+    expect(controller.skippedSets, hasLength(2));
+    expect(controller.isRunning, isFalse);
+  });
+
+  test('every real transition remains recoverable', () {
     var time = Duration.zero;
     final random = Random(20260908);
     final controller = TrainingSessionController(
@@ -156,15 +176,17 @@ void main() {
       controller.start,
       controller.pause,
       controller.tick,
-      controller.nextSet,
-      controller.nextExercise,
-      controller.previousSet,
-      controller.previousExercise,
+      controller.startActiveSet,
+      controller.completeActiveSet,
       controller.completeCurrentSet,
       controller.continueAfterRest,
-      controller.forward10Seconds,
-      controller.rewind10Seconds,
-      controller.resetPhase,
+      controller.skipActiveSet,
+      controller.nextExercise,
+      controller.undoLastCompleted,
+      controller.completeRemainingAsPlanned,
+      controller.reopenTrailingSkips,
+      () => controller.adjustRest(const Duration(seconds: -15)),
+      () => controller.adjustRest(const Duration(seconds: 15)),
     ];
     for (var step = 0; step < 500; step++) {
       time += Duration(milliseconds: random.nextInt(60000));

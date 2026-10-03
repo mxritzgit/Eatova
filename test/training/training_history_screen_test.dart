@@ -67,6 +67,14 @@ Future<void> _tap(WidgetTester tester, String key) async {
   await tester.pumpAndSettle();
 }
 
+/// Dismisses the finish sheet without a choice (state unchanged).
+Future<void> _closeSheet(WidgetTester tester) async {
+  Navigator.of(
+    tester.element(find.byKey(const ValueKey('training-finish-sheet'))),
+  ).pop();
+  await tester.pumpAndSettle();
+}
+
 TrainingHistoryEntry _entry() =>
     withClock(Clock.fixed(DateTime.utc(2026, 9, 10, 12)), () {
       final controller = TrainingSessionController(
@@ -140,27 +148,28 @@ void main() {
           plan: timerPlan(),
           workoutIndex: 1,
           history: [previous],
-          onPersist: (value) async => checkpoints.add(value),
+          onPersist: (value) async {
+            checkpoints.add(value);
+            return true;
+          },
           onComplete: (value) async {
             attempts.add(value);
             if (attempts.length == 1) throw StateError('fixture disk failure');
           },
         ),
       );
-      expect(find.text('Last time'), findsOneWidget);
-      final reps = find.byKey(const ValueKey('training-actual-reps'));
+      expect(find.text('6 × 15 kg'), findsOneWidget, reason: 'Last time');
+      final reps = find.byKey(const ValueKey('training-set-reps-0-0'));
       await tester.ensureVisible(reps);
       await tester.enterText(reps, '5');
-      final weight = find.byKey(const ValueKey('training-actual-weight'));
+      final weight = find.byKey(const ValueKey('training-set-weight-0-0'));
       await tester.ensureVisible(weight);
       await tester.enterText(weight, '17,5');
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();
-      await _tap(tester, 'training-timer-primary');
-      await _tap(tester, 'training-timer-primary');
+      await _tap(tester, 'training-set-check-0-0');
       await _saveImage(tester, 'completion-review');
-      await _tap(tester, 'training-timer-primary');
-      await _tap(tester, 'training-timer-confirm-exit');
+      await _tap(tester, 'training-finish-save');
       expect(attempts.single.snapshot.actualSets.single.reps, 5);
       expect(attempts.single.snapshot.actualSets.single.weightKg, 17.5);
       expect(checkpoints.where((s) => s == null), isEmpty);
@@ -173,7 +182,7 @@ void main() {
   );
 
   testWidgets(
-    'invalid review field retires when its set is rewound then skipped',
+    'an invalid completed value retires when its set is undone then skipped',
     (tester) async {
       final controller = TrainingSessionController(
         plan: timerPlan(),
@@ -184,36 +193,37 @@ void main() {
       controller.completeCurrentSet();
       final snapshot = controller.snapshot();
       controller.dispose();
-      TrainingHistoryEntry? saved;
       await _host(
         tester,
         TrainingPlayerScreen(
           initialSnapshot: snapshot,
-          onPersist: (_) async {},
-          onComplete: (value) async => saved = value,
+          onPersist: (_) async => true,
+          onComplete: (_) async {},
         ),
       );
-      final reps = find.byKey(const ValueKey('training-actual-reps'));
+      await _closeSheet(tester);
+      await _tap(tester, 'training-exercise-expand-0');
+      final reps = find.byKey(const ValueKey('training-set-reps-0-0'));
       await tester.ensureVisible(reps);
       await tester.enterText(reps, '');
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();
-      await _tap(tester, 'training-timer-previous-set');
-      await _tap(tester, 'training-timer-next-set');
-      expect(find.byKey(const ValueKey('training-actual-reps')), findsNothing);
+      expect(find.text(enL10n.trainingActualMissing), findsOneWidget);
+      await _tap(tester, 'training-set-check-0-0');
+      await _tap(tester, 'training-exercise-menu-0');
+      await tester.tap(find.byKey(const ValueKey('training-timer-skip-set')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('training-set-reps-0-0')), findsNothing);
+      expect(find.text(enL10n.trainingActualMissing), findsNothing);
       expect(
-        tester
-            .widget<PrimaryActionButton>(
-              find.byKey(const ValueKey('training-timer-primary')),
-            )
-            .onTap,
-        isNotNull,
+        find.byKey(const ValueKey('training-finish-sheet')),
+        findsOneWidget,
       );
-      await _tap(tester, 'training-timer-primary');
-      await _tap(tester, 'training-timer-confirm-exit');
-      expect(saved, isNotNull);
-      expect(saved!.snapshot.completedSets, isEmpty);
-      expect(saved!.snapshot.skippedSets, hasLength(1));
+      expect(
+        find.byKey(const ValueKey('training-finish-discard')),
+        findsOneWidget,
+        reason: 'no completed set: nothing to save',
+      );
     },
   );
 
@@ -224,7 +234,7 @@ void main() {
         tester,
         TrainingPlayerScreen(
           initialSnapshot: _entry().recoverySnapshot(),
-          onPersist: (_) async {},
+          onPersist: (_) async => true,
           onComplete: (_) async => throw const TrainingCompletionDeleted(),
         ),
       );
@@ -237,7 +247,7 @@ void main() {
     },
   );
 
-  testWidgets('ordinary review note remains in a saved recovery checkpoint', (
+  testWidgets('a finish note remains in a saved recovery checkpoint', (
     tester,
   ) async {
     TrainingSessionSnapshot? checkpoint;
@@ -246,14 +256,17 @@ void main() {
       tester,
       TrainingPlayerScreen(
         initialSnapshot: entry.snapshot,
-        onPersist: (value) async => checkpoint = value,
+        onPersist: (value) async {
+          checkpoint = value;
+          return true;
+        },
         onComplete: (_) async {},
       ),
     );
     final note = find.byKey(const ValueKey('training-history-note'));
     await tester.ensureVisible(note);
     await tester.enterText(note, 'Keep this note');
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 700));
     expect(checkpoint!.recoveryNote, 'Keep this note');
     final restored = TrainingSessionSnapshot.fromJson(checkpoint!.toJson());
     await tester.pumpWidget(const SizedBox.shrink());
@@ -262,7 +275,7 @@ void main() {
       tester,
       TrainingPlayerScreen(
         initialSnapshot: restored,
-        onPersist: (_) async {},
+        onPersist: (_) async => true,
         onComplete: (_) async {},
       ),
     );
@@ -278,18 +291,22 @@ void main() {
         tester,
         TrainingPlayerScreen(
           initialSnapshot: _entry().snapshot,
-          onPersist: (value) async => checkpoints.add(value),
+          onPersist: (value) async {
+            checkpoints.add(value);
+            return true;
+          },
           onComplete: (value) async => completed = value,
         ),
       );
       final note = find.byKey(const ValueKey('training-history-note'));
       await tester.ensureVisible(note);
       await tester.enterText(note, '👍🏽' * 300);
-      await tester.pumpAndSettle();
+      await tester.pump(const Duration(milliseconds: 700));
       final accepted = tester.widget<TextField>(note).controller!.text;
       expect(accepted, '👍🏽' * 250);
       expect(checkpoints.last!.recoveryNote, accepted);
       expect(tester.takeException(), isNull);
+      await _closeSheet(tester);
       await _tap(tester, 'training-timer-back');
       expect(
         find.byKey(const ValueKey('training-timer-confirm-exit')),
@@ -303,12 +320,11 @@ void main() {
         tester,
         TrainingPlayerScreen(
           initialSnapshot: restored,
-          onPersist: (_) async {},
+          onPersist: (_) async => true,
           onComplete: (value) async => completed = value,
         ),
       );
-      await _tap(tester, 'training-timer-primary');
-      await _tap(tester, 'training-timer-confirm-exit');
+      await _tap(tester, 'training-finish-save');
       expect(completed!.note, accepted);
       expect(completed!.id, restored.sessionId);
       expect(tester.takeException(), isNull);
@@ -324,13 +340,17 @@ void main() {
         tester,
         TrainingPlayerScreen(
           initialSnapshot: _entry().snapshot,
-          onPersist: (value) async => checkpoints.add(value),
+          onPersist: (value) async {
+            checkpoints.add(value);
+            return true;
+          },
           onComplete: (value) async => completed.add(value),
         ),
       );
       final note = find.byKey(const ValueKey('training-history-note'));
       await tester.ensureVisible(note);
       tester.widget<TextField>(note).controller!.text = '👍🏽' * 300;
+      await _closeSheet(tester);
       await _tap(tester, 'training-timer-back');
       expect(
         find.byKey(const ValueKey('training-timer-confirm-exit')),
@@ -345,7 +365,9 @@ void main() {
         ),
         isTrue,
       );
-      await _tap(tester, 'training-timer-discard');
+      await _tap(tester, 'training-timer-menu');
+      await tester.tap(find.byKey(const ValueKey('training-timer-discard')));
+      await tester.pumpAndSettle();
       await _tap(tester, 'training-timer-confirm-exit');
       expect(find.text('Open fixture'), findsOneWidget);
       expect(checkpoints.last, isNull);
@@ -361,7 +383,10 @@ void main() {
         tester,
         TrainingPlayerScreen(
           initialSnapshot: _entry().snapshot,
-          onPersist: (value) async => checkpoints.add(value),
+          onPersist: (value) async {
+            checkpoints.add(value);
+            return true;
+          },
           onComplete: (_) async {},
         ),
       );
@@ -385,17 +410,19 @@ void main() {
         tester,
         TrainingPlayerScreen(
           initialSnapshot: entry.recoverySnapshot(),
-          onPersist: (_) async {},
+          onPersist: (_) async => true,
           onComplete: (value) async => saved = value,
         ),
       );
+      expect(find.byKey(const ValueKey('training-finish-sheet')), findsNothing);
       expect(
         tester
-            .widget<TextButton>(
-              find.byKey(const ValueKey('training-timer-discard')),
+            .widget<PopupMenuButton<String>>(
+              find.byKey(const ValueKey('training-timer-menu')),
             )
-            .onPressed,
-        isNull,
+            .enabled,
+        isFalse,
+        reason: 'Discard waits until Retry resolves',
       );
       await _tap(tester, 'training-timer-retry');
       expect(saved!.toRow(), entry.toRow());
@@ -411,13 +438,17 @@ void main() {
         tester,
         TrainingPlayerScreen(
           plan: timerPlan(),
-          onPersist: (value) async => values.add(value),
+          workoutIndex: 1,
+          onPersist: (value) async {
+            values.add(value);
+            return true;
+          },
           onComplete: (_) async =>
               throw const TrainingCompletionSourceRetired(),
         ),
       );
-      await _tap(tester, 'training-timer-finish');
-      await _tap(tester, 'training-timer-confirm-exit');
+      await _tap(tester, 'training-set-check-0-0');
+      await _tap(tester, 'training-finish-save');
       expect(find.text('Open fixture'), findsOneWidget);
       expect(values.where((s) => s == null), isEmpty);
       expect(
