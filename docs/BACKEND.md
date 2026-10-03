@@ -11,7 +11,7 @@ and deployment are separate from editing this documentation.
 | Supabase Auth | Email/password, Google token exchange, OTP/account flows |
 | Postgres + RLS | Profiles, diary, favorites, weight, recipes, plans, shopping checks, workout history, chat and quota |
 | `analyze-meal` | Authenticated photo/context input to a structured nutrition estimate |
-| `coach-chat` | Authenticated chat/stream, recipe and training proposals; quotas, validation and guardrails |
+| `coach-chat` | Authenticated chat/stream, recipe, training-plan and workout-log proposals; quotas, validation and guardrails |
 | `search-key` | Authenticated product-index URL and limited search credentials |
 | Meilisearch / Open Food Facts | Public product data lookup; OFF fallback |
 
@@ -41,6 +41,7 @@ Sources: [store and sync](../lib/src/app/home_store_sync.dart),
 | `OPENROUTER_MODEL` | `google/gemini-3.8-flash` | Meal image analysis |
 | `COACH_MODEL_ANSWER` | `google/gemini-3.8-flash` | Chat, recipe text, training drafts |
 | `COACH_MODEL_CLASSIFIER` | `google/gemini-3.8-flash` | Coach safety/topic classifier |
+| `COACH_MODEL_LOG` | value of `COACH_MODEL_ANSWER` | Coach `/log` workout extraction |
 | `COACH_IMAGE_MODEL` | `google/gemini-3.1-flash-image` | Recipe picture generation |
 | `COACH_DAILY_LIMIT` | `5` | Daily per-user Coach quota |
 
@@ -69,6 +70,33 @@ drafting uses the explicit recipe wish; image generation uses the generated
 title/description. Training can receive an explicit brief and selected-plan
 snapshot. Proposals are returned/persisted as chat data, but user recipes and
 training plans are adopted only after confirmation in the client.
+
+Coach request modes are a closed set: absent (chat, plus the `/plan` text
+command), `chat`, `recipe`, `plan` and `log`. Any other `mode` is
+`400 invalid_mode`, and an explicit mode always wins over text commands.
+`log` turns a finished workout into a proposal: the request is
+`{message, mode: "log", local_date, locale, session_id}`, where `local_date`
+(`YYYY-MM-DD`, the user's calendar day) is required for `log`, rejected
+elsewhere and must lie within one day of the server's UTC day. `/log` text
+without the mode, a log with a photo, `user_context` or `training_context`, and
+an empty wish are `400` before session, quota or provider work. The flow is
+prefilter, one daily slot, classifier (refuses self-harm, eating-disorder and
+injection; a medical mention is logged with a fixed safety line at the end of
+the summary; unusable output refuses), then one extraction call (`temperature`
+0, JSON, low excluded reasoning, 4,096 tokens, 45 s) under the `coach_plan`
+provider-budget operation. The server converts pounds to kilograms rounded to
+0.01, nulls a `performed_on` outside `[local_date - 30, local_date]`, and
+validates the result strictly (schema v1 in
+[workout_log.ts](../supabase/functions/coach-chat/workout_log.ts), mirrored
+by `is_valid_coach_workout_log` on `chat_messages.workout_log`). The buffered
+response is `{reply, workout_log, remaining?, daily_limit, session_id,
+assistant_message_id?}`; refusals carry `refusal_reason` (`log_not_a_workout`,
+`log_not_completed`, `log_too_large`, `log_unsafe`, or the classifier
+category). Refusals keep the slot; an invalid or truncated draft, a provider
+outage or a failed user-row store refunds it once to the claim day. The
+function never writes training history: the app saves the workout only after
+the user confirms the card. Chat answers follow the app language when a message
+mixes languages and point reported workouts to `/log`.
 
 Quota is claimed atomically on the server. Failure/refund behavior depends on
 the outcome; it is not a promise that every unsuccessful request is free. A
