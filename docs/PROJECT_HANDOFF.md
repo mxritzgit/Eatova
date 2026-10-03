@@ -2712,3 +2712,57 @@ approved in chat ("lebendige Liste");
   All are fixed with tests. The chips keep the app's 42 px `FilterChipPill`.
 - Open: the website privacy text (separate repository) should mention the
   product photos; the device check is the owner's build.
+
+## Old sheets in the dark-redesign language, 2026-10-03
+
+Owner request: the edit-meal sheet (day choice, Save and Delete), the recipe
+import ("From your feed"), the "Your recipe" card in recipe creation, and
+every other leftover old-design card should follow the current design
+system. The add sheet should drop the inline top 3 favorites and keep only
+the entry into the favorites menu. Design A–E approved in chat.
+
+- Shared pieces: `SoftPillButton` (accent, neutral, danger; 48 px) and
+  `SourcePill` in `lib/src/widgets/design/soft_actions.dart`.
+  `showFoodDatePicker` takes `lastDate`, `confirmLabel` and `contextLabel`,
+  so the meal plan, the training log and the edit sheet open the same
+  calendar sheet.
+- Add sheet: one "Favorites · N saved" row opens the favorites sheet.
+  `kInlineFavoritesCount` and the inline "+" order hold are gone. The scroll
+  anchor after an add stays and is tested on recents. This supersedes the
+  inline top 3 of the favorites section above.
+- Edit sheet:
+  - The Today tab's `TodayDayStrip`, bounded by `firstDate` to the
+    calendar's two years.
+  - A calendar pill, the `PrimaryActionButton` Save, a danger pill Delete.
+  - The app sheet shell, and macro dots in the summary.
+  - Its own day picker and `recentDaysDescending` are gone.
+- Recipes:
+  - Import: a three-step strip, a Paste pill, a source pill, and icon cards
+    for portion, ingredients and steps.
+  - Create: a fixed-height live preview card and `AppToggle` rows.
+  - The batch per-portion result is a card.
+  - Recipe tiles read "Carbs" instead of "C".
+- Five worktree agents moved the remaining sheets onto the same chips,
+  pills, cards and `showEatovaSheet` shell, each with a capture suite under
+  `test/design/`. The sheets are meal widgets, manual entry, recipe detail,
+  meal plan, recipe history, training editors and history, data export, the
+  onboarding review and the scan fallbacks.
+- A fresh reviewer found six issues. All are fixed with tests in
+  `test/design/soft_controls_test.dart`, `test/recipe_import_sheet_test.dart`
+  and `test/edit_meal_sheet_test.dart`:
+  - an edit-sheet test that failed on the 15th of a month (it hit the
+    calendar header);
+  - 42 px chips;
+  - disabled chips announced as live buttons;
+  - strip paging past the calendar's first date;
+  - the source pill not saying whether it was open;
+  - a paste that overwrote text typed while the clipboard was read.
+- `FilterChipPill` is now 44 px app-wide. This supersedes the 42 px note in
+  the favorites section.
+- Left as is: the icon placement of `PrimaryActionButton` at 2x text, and the
+  manual sheet's "per 100 g" label.
+- App-only change, no backend step. Verification on Windows with Flutter
+  3.47.2: the analyzer is clean. In the full suite 6,830 tests passed and 2
+  failed, both expecting the old 42 px chip or a live chip without `onTap`.
+  Their expectations were updated, and their files then passed 103 of 103.
+  Local line coverage without the generated l10n is 96.8 %.
