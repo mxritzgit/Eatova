@@ -474,6 +474,30 @@ abstract final class MealResultRecipeNote {
   }
 }
 
+const Set<String> _productImageHosts = {
+  'images.openfoodfacts.org',
+  'static.openfoodfacts.org',
+};
+
+/// [raw] as a product photo address the app may load, else null: https on an
+/// Open Food Facts image host, no user info or port, at most 512 characters.
+/// Payloads sync between devices, so a stored address is checked again on
+/// read rather than trusted.
+String? sanitizeProductImageUrl(Object? raw) {
+  if (raw is! String) return null;
+  final text = raw.trim();
+  if (text.isEmpty || text.length > 512) return null;
+  final uri = Uri.tryParse(text);
+  if (uri == null ||
+      uri.scheme != 'https' ||
+      uri.userInfo.isNotEmpty ||
+      uri.hasPort ||
+      !_productImageHosts.contains(uri.host)) {
+    return null;
+  }
+  return text;
+}
+
 class MealAnalysisResult {
   const MealAnalysisResult({
     required this.mealName,
@@ -491,6 +515,7 @@ class MealAnalysisResult {
     this.barcode,
     this.brand,
     this.explicitZeroKcal = false,
+    this.imageUrl,
   });
 
   final String mealName;
@@ -526,6 +551,30 @@ class MealAnalysisResult {
   /// sentinel. Only with this marker do the UI log guards let a 0 through.
   /// Persisted in the payload; legacy rows read `false` and stay blocked.
   final bool explicitZeroKcal;
+
+  /// The product photo of an Open Food Facts product, already checked by
+  /// [sanitizeProductImageUrl]; null for scans, recipes and manual entries.
+  final String? imageUrl;
+
+  /// This result with another photo (null removes it).
+  MealAnalysisResult withImageUrl(String? url) => MealAnalysisResult(
+    mealName: mealName,
+    caloriesKcal: caloriesKcal,
+    estimatedGrams: estimatedGrams,
+    kcalPer100G: kcalPer100G,
+    protein: protein,
+    carbs: carbs,
+    fat: fat,
+    confidence: confidence,
+    portionNotes: portionNotes,
+    items: items,
+    isAdjusted: isAdjusted,
+    sourceLabel: sourceLabel,
+    barcode: barcode,
+    brand: brand,
+    explicitZeroKcal: explicitZeroKcal,
+    imageUrl: sanitizeProductImageUrl(url),
+  );
 
   /// Origin value in the language of [l10n]. Known raw values resolve via
   /// [MealResultSource]; unknown ones are shown unchanged (pass-through).
@@ -728,6 +777,7 @@ class MealAnalysisResult {
       barcode: barcode,
       brand: brand,
       explicitZeroKcal: explicitZeroKcal,
+      imageUrl: imageUrl,
     );
   }
 
@@ -785,6 +835,7 @@ class MealAnalysisResult {
       barcode: barcode,
       brand: brand,
       explicitZeroKcal: explicitZeroKcal,
+      imageUrl: imageUrl,
     );
   }
 
@@ -979,6 +1030,7 @@ class MealAnalysisResult {
       // `?? 0` parser fallback above never satisfies this, because the detector
       // reads the raw fields.
       explicitZeroKcal: kcalPer100G == 0 && offMeldetExplizitNullKcal(product),
+      imageUrl: _offImageUrl(product),
     );
   }
 
@@ -1284,6 +1336,20 @@ class MealAnalysisResult {
       if (value != null && value.isNotEmpty) {
         return value;
       }
+    }
+    return null;
+  }
+
+  /// The first usable photo of an OFF product, small front shot first.
+  static String? _offImageUrl(Map<String, dynamic> product) {
+    for (final key in const [
+      'image_front_small_url',
+      'image_front_url',
+      'image_small_url',
+      'image_url',
+    ]) {
+      final url = sanitizeProductImageUrl(product[key]);
+      if (url != null) return url;
     }
     return null;
   }

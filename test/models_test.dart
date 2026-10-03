@@ -363,12 +363,16 @@ void main() {
         'brands': 'Arla',
         'quantity': '450 g',
         'nutriments': <String, dynamic>{'energy-kcal_100g': 63},
-        'image_front_small_url': 'http://img/x.jpg',
+        'image_front_small_url':
+            'https://images.openfoodfacts.org/images/products/123/front.200.jpg',
       });
       expect(p.code, '123');
       expect(p.title, 'Skyr · Arla');
       expect(p.subtitle, 'Arla · 450 g · 63 kcal / 100 g');
-      expect(p.imageUrl, 'http://img/x.jpg');
+      expect(
+        p.imageUrl,
+        'https://images.openfoodfacts.org/images/products/123/front.200.jpg',
+      );
     });
 
     test('ohne Marke/Menge bleibt nur die kcal-Angabe', () {
@@ -386,10 +390,15 @@ void main() {
       final p = ProductSearchResult.fromOpenFoodFacts(<String, dynamic>{
         'code': '1',
         'product_name': 'P',
-        'image_front_small_url': 'http://small',
-        'image_url': 'http://full',
+        'image_front_small_url':
+            'https://images.openfoodfacts.org/images/products/1/front.200.jpg',
+        'image_url':
+            'https://images.openfoodfacts.org/images/products/1/front.400.jpg',
       });
-      expect(p.imageUrl, 'http://small');
+      expect(
+        p.imageUrl,
+        'https://images.openfoodfacts.org/images/products/1/front.200.jpg',
+      );
     });
   });
 }

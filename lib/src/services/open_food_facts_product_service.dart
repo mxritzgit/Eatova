@@ -28,7 +28,6 @@ class ProductSearchResult {
     required this.subtitle,
     required this.kcalPer100G,
     required this.result,
-    this.imageUrl,
     this.ingredientNutritionPer100g,
   });
 
@@ -37,7 +36,9 @@ class ProductSearchResult {
   final String subtitle;
   final double kcalPer100G;
   final MealAnalysisResult result;
-  final String? imageUrl;
+
+  /// The product photo; one source with the result a favorite stores.
+  String? get imageUrl => result.imageUrl;
 
   /// Original per-100 g precision, before the diary's portion rounding.
   final RecipeNutrition? ingredientNutritionPer100g;
@@ -61,12 +62,6 @@ class ProductSearchResult {
 
     final brand = result.brand?.trim();
     final quantity = _firstNonEmptyString(product, const ['quantity']);
-    final imageUrl = _firstNonEmptyString(product, const [
-      'image_front_small_url',
-      'image_front_url',
-      'image_small_url',
-      'image_url',
-    ]);
     final subtitleParts = <String>[
       if (brand != null && brand.isNotEmpty) brand,
       if (quantity != null && quantity.isNotEmpty) quantity,
@@ -79,7 +74,6 @@ class ProductSearchResult {
       subtitle: subtitleParts.join(' · '),
       kcalPer100G: result.kcalPer100G,
       result: result,
-      imageUrl: imageUrl,
       ingredientNutritionPer100g: RecipeNutrition(
         caloriesKcal:
             isLoggableKcalPer100G(result.kcalPer100G) || result.explicitZeroKcal

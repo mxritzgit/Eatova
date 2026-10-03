@@ -247,6 +247,9 @@ Map<String, dynamic> mealResultToJson(MealAnalysisResult r) {
     // otherwise the last-resort guard blocks the auto-recent favourite of the
     // same product. Only written when true, so old rows stay byte-identical.
     if (r.explicitZeroKcal) 'explicitZeroKcal': true,
+    // Written only when there is a photo, so rows without one stay
+    // byte-identical; older builds ignore the key.
+    if (r.imageUrl != null) 'imageUrl': r.imageUrl,
   };
 }
 
@@ -300,5 +303,7 @@ MealAnalysisResult mealResultFromJson(Map<String, dynamic> j) {
     brand: j['brand']?.toString(),
     // Missing key -> false: the 0 of an old row stays a sentinel.
     explicitZeroKcal: (j['explicitZeroKcal'] as bool?) ?? false,
+    // Synced from other devices: checked again, never trusted.
+    imageUrl: sanitizeProductImageUrl(j['imageUrl']),
   );
 }

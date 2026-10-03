@@ -136,6 +136,11 @@ void main() {
       expect(ergebnis.mealName, 'Nutella · Ferrero');
       expect(ergebnis.brand, 'Ferrero');
       expect(ergebnis.barcode, '3017624010701');
+      // A scanned product is favorited from this result: it carries its photo.
+      expect(
+        ergebnis.imageUrl,
+        'https://images.openfoodfacts.org/images/products/301/762/401/0701/front_de.579.200.jpg',
+      );
       expect(ergebnis.kcalPer100G, 539);
       // serving_quantity: 15 -> 539 * 15 / 100 = 80,85 -> 81
       expect(ergebnis.estimatedGrams, 15);
