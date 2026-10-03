@@ -510,6 +510,9 @@ Deno.test("log handler: an exhausted provider budget stops before extraction and
     equal((await res.json()).error, "ai_budget_exhausted", "budget error");
     equal(stub.extractionCalls().length, 0, "no unreserved paid call");
     equal(stub.ledger.get(CLAIM_DAY), 0, "question refunded");
+    // A budget stop is not a provider outage and keeps its own stable label.
+    assert(stub.logs.includes("workout log budget ai_budget_exhausted"), `budget label: ${stub.logs.join(" | ")}`);
+    assert(!stub.logs.some((line) => line.includes("provider unavailable")), "not logged as an outage");
   } finally { stub.restore(); }
 });
 

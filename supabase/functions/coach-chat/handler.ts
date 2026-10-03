@@ -1631,7 +1631,9 @@ async function handleWorkoutLogMode(params: {
     completion = await extractWorkoutLog(openRouterKey, params.budget, message, locale, params.localDate);
   } catch (e) {
     // Status class only: transport and JSON errors can quote private text.
-    console.error(isProviderTimeout(e) ? "workout log provider timeout" :
+    // A budget stop is no outage; its code is a fixed enum.
+    console.error(e instanceof ProviderBudgetError ? `workout log budget ${e.code}` :
+      isProviderTimeout(e) ? "workout log provider timeout" :
       e instanceof ProviderError ? `workout log provider status ${e.status}` : "workout log provider unavailable");
     if (!isClientFaultFailure(e)) await refund();
     await touchSession(serviceKey, supabaseUrl, sessionId);
