@@ -160,6 +160,33 @@ void main() {
     );
   }));
 
+  test('after the boot catch-up, the next weigh-in still re-anchors', () => withClock(Clock.fixed(_now), () async {
+    // Review finding: the catch-up commit made a parallel cache write (meal
+    // plans) conflict; the re-hydration then closed the gate for the session
+    // although it re-installed the very same rows.
+    final a = setup();
+    a.server.profileRow = serverProfileRow(_live());
+    for (final daysAgo in [3, 2, 1]) {
+      final at = _now.subtract(Duration(days: daysAgo));
+      a.server.weightRows['w$daysAgo'] = _weightRow(at, 80.52);
+    }
+    // The meal-plan read is on the wire while the catch-up commit lands.
+    a.server
+      ..serveMealPlans = true
+      ..holdMealPlanReads();
+    await boot(a.store);
+    await settle();
+    expect(a.store.profile.weightKg, 81, reason: 'precondition: caught up');
+    a.server.releaseMealPlanReads();
+    await settle();
+
+    // 80.52 + 0.1 * (80.0 - 80.52) = 80.468 -> 80.
+    await a.store.logWeight(80.0);
+    await settle();
+
+    expect(a.store.profile.weightKg, 80);
+  }));
+
   test('no re-anchor when the profile answered but the weight log did not', () => withClock(Clock.fixed(_now), () async {
     // The log in memory is then the CACHED one; acting on it could push a
     // stale trend over another device's newer weigh-ins.

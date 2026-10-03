@@ -161,13 +161,17 @@ void main() {
     testWidgets('klemmt bei falscher Richtung auf 0 statt negativ zu werden', (
       tester,
     ) async {
-      await _pumpCard(
-        tester,
-        log: _log([80.0, 83.0]),
-        profile: const UserProfile(weightKg: 80, targetWeightKg: 70),
-      );
+      // A current trend ABOVE the start (80 -> 80.3, smoothed): unclamped
+      // progress would read -3 %.
+      await withClock(Clock.fixed(DateTime(2026, 7, 3, 12)), () async {
+        await _pumpCard(
+          tester,
+          log: _log([80.0, 83.0]),
+          profile: const UserProfile(weightKg: 80, targetWeightKg: 70),
+        );
 
-      expect(find.text('0 %'), findsOneWidget);
+        expect(find.text('0 %'), findsOneWidget);
+      });
     });
 
     testWidgets(

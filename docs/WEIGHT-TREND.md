@@ -52,8 +52,8 @@ therefore showed two different "current" weights.
   - It requires that the server answered both the profile and the
     weight-log load in this session. A full profile row is never written from
     a cached profile or a cached log alone, because another device may have
-    changed it. A cache re-hydration clears the gate again. A later boot
-    catches up.
+    changed it. A cache re-hydration that brings back different rows clears
+    the gate again. A later boot catches up.
   - At boot it runs after the cache snapshot is written. That way its own
     commit cannot make the snapshot conflict.
   - Live mode recomputes the goals in the same step (`applyLiveGoals`).
