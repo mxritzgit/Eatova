@@ -129,7 +129,7 @@ mixin _HomeStoreMealsPart
       final old = favorites.where((f) => f.id == recentId).firstOrNull;
       final recent = FavoriteMeal(
         id: recentId,
-        result: result,
+        result: FavoriteMeal.keepImage(result, old?.result),
         addedAt: addedAt,
         pinned: old?.pinned ?? false,
       );
@@ -367,8 +367,12 @@ mixin _HomeStoreMealsPart
       _serializeFavoriteMutation(() async {
         final id = FavoriteMeal.idFor(result);
         final old = favorites.where((f) => f.id == id).firstOrNull;
+        // The stored portion stays; only a missing photo is taken over.
         final entry =
-            old?.copyWith(pinned: !old.pinned) ??
+            old?.copyWith(
+              pinned: !old.pinned,
+              result: FavoriteMeal.keepImage(old.result, result),
+            ) ??
             FavoriteMeal(
               id: id,
               result: result,

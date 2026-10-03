@@ -1380,7 +1380,10 @@ class _AddMealSheetState extends State<AddMealSheet> {
       } else {
         final current = _favorites[idx];
         final next = [..._favorites];
-        next[idx] = current.copyWith(pinned: pinned);
+        next[idx] = current.copyWith(
+          pinned: pinned,
+          result: FavoriteMeal.keepImage(current.result, result),
+        );
         _favorites = next;
       }
     });
@@ -1429,7 +1432,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
     if (idx == -1) return;
     final refreshed = FavoriteMeal(
       id: id,
-      result: result,
+      result: FavoriteMeal.keepImage(result, _favorites[idx].result),
       addedAt: clock.now(),
       pinned: _favorites[idx].pinned,
     );
