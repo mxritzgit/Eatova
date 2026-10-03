@@ -680,6 +680,24 @@
   "coachSpeechUnavailable": "Speech recognition is not available on this device right now.",
   "coachSpeechFailed": "Speech recognition failed.",
   "coachSpeechBusy": "Speech recognition is already running. Wait a moment and try again.",
+  "coachDictationLanguageDe": "DE",
+  "coachDictationLanguageEn": "EN",
+  "coachDictationLanguageGerman": "German",
+  "coachDictationLanguageEnglish": "English",
+  "coachDictationLanguageLabel": "Dictation language: {language}",
+  "@coachDictationLanguageLabel": {
+    "placeholders": {
+      "language": { "type": "String" }
+    }
+  },
+  "coachDictationLanguageSwitchHint": "Switches to {language} and restarts the dictation",
+  "@coachDictationLanguageSwitchHint": {
+    "placeholders": {
+      "language": { "type": "String" }
+    }
+  },
+  "coachDictationLimitHint": "Dictation ends after about a minute. Tap the mic to keep talking.",
+  "coachDictationLengthHint": "Dictation stopped: the message reached its maximum length.",
   "coachErrorNotLoggedIn": "Please log in first to use the coach.",
   "coachErrorNoSession": "Could not load a coach session.",
   "coachErrorHistoryUnavailable": "Your history could not be loaded. Check your connection and try again.",

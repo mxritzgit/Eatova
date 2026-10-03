@@ -28,10 +28,12 @@ import '../../models/coach_training_context.dart';
 import '../../models/fitness_recipe.dart';
 import '../../models/training_plan.dart';
 import '../../services/coach_chat_service.dart';
+import '../../services/dictation_language.dart';
 import '../../services/kcal_format.dart';
 import '../../services/meal_photo_compressor.dart';
 import '../../services/meal_photo_temp_file.dart';
 import '../../services/recipe_image_store.dart';
+import '../../services/screen_awake.dart';
 import '../../services/sync_error_messages.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
@@ -66,6 +68,8 @@ class CoachChatScreen extends StatefulWidget {
     this.userContext,
     this.imagePicker,
     this.speechInput = const CoachSpeechInput(),
+    this.screenAwake = const MethodChannelScreenAwake(),
+    this.dictationLanguageStore = const PrefsDictationLanguageStore(),
     this.onCreateRecipe,
     this.userRecipeSlugs = const <String>{},
     this.onCreateTrainingPlan,
@@ -115,6 +119,12 @@ class CoachChatScreen extends StatefulWidget {
 
   final ImagePicker? imagePicker;
   final CoachSpeechInput speechInput;
+
+  /// On while dictating (spec A6/D6).
+  final ScreenAwake screenAwake;
+
+  /// Per-device DE/EN choice for dictation.
+  final DictationLanguageStore dictationLanguageStore;
 
   @override
   State<CoachChatScreen> createState() => _CoachChatScreenState();
@@ -179,6 +189,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   int _sessionListRevision = 0;
   bool _loading = true;
   bool _listening = false;
+
+  /// Current recording; also its native token. Drawn from [_speechSeq].
   int _speechGeneration = 0;
   String? _error;
 
@@ -265,6 +277,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     WidgetsBinding.instance.addObserver(this);
     // ValueNotifier dedupes identical assignments, so no equality check here.
     _input.addListener(() => _draft.value = _input.text);
+    _loadDictationLanguage();
     // No service = not logged in; that branch needs a localized error text and
     // `context.l10n` is not allowed in initState — didChangeDependencies does
     // it once before the first frame.
@@ -284,6 +297,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     if (!identical(widget.service, oldWidget.service)) {
       _trainingAccountRevision++;
       _briefIsActive?.value = false;
+      _cancelSpeechInput(discard: true);
     }
     if (widget.planDraftRequest != oldWidget.planDraftRequest) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -866,6 +880,11 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     String? imageMimeType,
     CoachTrainingContext? trainingContext,
   }) async {
+    if (_dictationHoldsSend(
+      fromComposer: textOverride == null && imageBytes == null,
+    )) {
+      return;
+    }
     // Grabbed before the first `await`: safe context access.
     final l10n = context.l10n;
     final svc = widget.service;
@@ -1938,62 +1957,201 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     return l10n.coachErrorImageOpenFailed;
   }
 
-  /// A hidden or disposed screen must neither record nor accept late dictation.
-  void _cancelSpeechInput() {
-    _speechGeneration++;
+  // --- Dictation (spec Part D) ----------------------------------------------
+
+  /// Source of [_speechGeneration] for every screen instance: a token from a
+  /// disposed screen can never pass as one of its successor's.
+  static int _speechSeq = 0;
+
+  /// The draft a recording started from; dictated text is appended to it.
+  String _speechDraft = '';
+
+  /// Dictated text currently shown after [_speechDraft].
+  String _speechShown = '';
+
+  /// A graceful stop is draining the final result.
+  bool _speechStopping = false;
+
+  /// Draft plus dictation reached the input cap during this recording.
+  bool _speechCapReached = false;
+
+  /// Device preference; null until loaded or chosen (then the app language).
+  DictationLanguage? _dictationLanguage;
+  DictationLanguage _listeningLanguage = DictationLanguage.de;
+  bool _screenKeptAwake = false;
+
+  /// Reads the per-device choice in the background, only where the mic
+  /// exists (see the composer).
+  void _loadDictationLanguage() {
+    if (defaultTargetPlatform != TargetPlatform.iOS) return;
+    unawaited(
+      widget.dictationLanguageStore.load().then((stored) {
+        if (mounted && stored != null) _dictationLanguage ??= stored;
+      }),
+    );
+  }
+
+  void _keepScreenAwake(bool on) {
+    if (_screenKeptAwake == on) return;
+    _screenKeptAwake = on;
+    unawaited(widget.screenAwake.setKeepAwake(on));
+  }
+
+  void _setDraft(String text) {
+    _input.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+  }
+
+  /// One space between draft and dictation, none after a trailing space
+  /// (`/log `).
+  static String _withDictation(String draft, String dictated) {
+    if (dictated.isEmpty) return draft;
+    if (draft.isEmpty || RegExp(r'\s$').hasMatch(draft)) {
+      return '$draft$dictated';
+    }
+    return '$draft $dictated';
+  }
+
+  /// Immediate end for hide, background, dispose and account change: the mic
+  /// goes off at once and a late result is ignored. Hide and background keep
+  /// the text already shown; [discard] (account change) drops this
+  /// recording's text. Callers rebuild (setState, build phase or dispose).
+  void _cancelSpeechInput({bool discard = false}) {
+    _speechGeneration = ++_speechSeq;
     if (!_listening) return;
     _listening = false;
+    if (discard) _setDraft(_speechDraft);
+    unawaited(widget.speechInput.cancel());
+    _keepScreenAwake(false);
+  }
+
+  /// Graceful end (mic, send, input cap): the audio stops and the final
+  /// result still lands in the field; [_listening] stays on until it does.
+  void _stopSpeechGracefully() {
+    if (!_listening || _speechStopping) return;
+    _speechStopping = true;
     unawaited(widget.speechInput.stop());
   }
 
+  /// First call in [_send]: a send never interleaves with a recording. The
+  /// composer's send only finishes it, so the final text stays for review
+  /// and a second tap sends it (never unseen text). Other sends carry their
+  /// own visible text (prepared question, retry, brief, photo): the recording
+  /// ends at once and keeps what it showed.
+  bool _dictationHoldsSend({required bool fromComposer}) {
+    if (!_listening) return false;
+    if (fromComposer) {
+      _stopSpeechGracefully();
+      return true;
+    }
+    setState(_cancelSpeechInput);
+    return false;
+  }
+
   Future<void> _toggleSpeechInput() async {
-    if (!_canInteract) return;
-    HapticFeedback.selectionClick();
     if (_listening) {
-      final generation = _speechGeneration;
-      await widget.speechInput.stop();
-      if (mounted && generation == _speechGeneration) {
-        setState(() => _listening = false);
-      }
+      HapticFeedback.selectionClick();
+      _stopSpeechGracefully();
       return;
     }
+    // Typing by voice: allowed whenever typing is, even while an answer runs.
+    if (!_canType) return;
+    HapticFeedback.selectionClick();
+    _speechDraft = _input.text;
+    await _listen(
+      _dictationLanguage ??
+          DictationLanguage.forAppLanguage(context.l10n.localeName),
+    );
+  }
 
+  /// The pill: same draft, other language. Only this recording's text is
+  /// replaced; the choice is remembered per device.
+  void _switchDictationLanguage() {
+    if (!_listening || _speechStopping) return;
+    HapticFeedback.selectionClick();
+    final next = _listeningLanguage.other;
+    _dictationLanguage = next;
+    unawaited(widget.dictationLanguageStore.save(next));
+    _speechGeneration = ++_speechSeq;
+    _setDraft(_speechDraft);
+    // Channel order: the cancel reaches the plugin before the new listen.
+    unawaited(widget.speechInput.cancel());
+    unawaited(_listen(next));
+  }
+
+  /// Partials replace the shown dictation live, after the draft.
+  void _showDictation(int generation, String text) {
+    if (!mounted || generation != _speechGeneration || !_listening) return;
+    _speechShown = text.trim();
+    final draft = _withDictation(_speechDraft, _speechShown);
+    _setDraft(draft);
+    // Draft and dictation share the composer cap: stop there, never cut.
+    if (!_speechCapReached && _CoachInputLimit.overflow(draft) >= 0) {
+      _speechCapReached = true;
+      _stopSpeechGracefully();
+    }
+  }
+
+  /// One recording. Into the field only, never straight to the server: a
+  /// misheard sentence would cost a daily slot and seed the auto title. The
+  /// user reviews and presses send.
+  Future<void> _listen(DictationLanguage language) async {
     // Grabbed before the first `await`: safe context access.
     final l10n = context.l10n;
-    final generation = ++_speechGeneration;
+    final generation = _speechGeneration = ++_speechSeq;
     setState(() {
       _listening = true;
+      _listeningLanguage = language;
+      _speechShown = '';
+      _speechStopping = false;
+      _speechCapReached = false;
       _error = null;
     });
+    _keepScreenAwake(true);
+    var end = CoachSpeechEnd.stopped;
     try {
-      // Dictation locale follows the app language: 'en' -> 'en_US', anything
-      // else falls back to 'de_DE'.
-      final speechLocaleId = l10n.localeName == 'en' ? 'en_US' : 'de_DE';
-      final spokenText = await widget.speechInput.listen(
-        localeId: speechLocaleId,
+      final spoken = await widget.speechInput.listen(
+        localeId: language.localeId,
         l10n: l10n,
+        token: generation,
+        onPartial: (text) => _showDictation(generation, text),
+        onEnd: (value) => end = value,
       );
       if (!mounted || generation != _speechGeneration) return;
-      setState(() => _listening = false);
-      final text = spokenText?.trim() ?? '';
-      if (text.isEmpty) {
-        setState(() => _error = l10n.coachErrorSpeechEmpty);
-        return;
+      final text = spoken?.trim() ?? '';
+      // An empty final never takes back words already shown.
+      final dictated = text.isEmpty ? _speechShown : text;
+      final String? hint;
+      if (dictated.isEmpty) {
+        hint = l10n.coachErrorSpeechEmpty;
+      } else if (_speechCapReached || end == CoachSpeechEnd.length) {
+        hint = l10n.coachDictationLengthHint;
+      } else if (end == CoachSpeechEnd.limit) {
+        hint = l10n.coachDictationLimitHint;
+      } else {
+        hint = null;
       }
-      // Into the field only, never straight to the server: a misheard
-      // sentence would cost a daily slot and seed the auto title. The user
-      // reviews and presses send.
-      _input.text = text;
-      _input.selection = TextSelection.collapsed(offset: text.length);
-      _inputFocus.requestFocus();
+      _keepScreenAwake(false);
+      setState(() {
+        _listening = false;
+        if (dictated.isNotEmpty) {
+          _setDraft(_withDictation(_speechDraft, dictated));
+        }
+        if (hint != null) _error = hint;
+      });
+      if (dictated.isNotEmpty) _inputFocus.requestFocus();
     } on CoachSpeechException catch (e) {
       if (!mounted || generation != _speechGeneration) return;
+      _keepScreenAwake(false);
       setState(() {
         _listening = false;
         _error = e.message;
       });
     } catch (_) {
       if (!mounted || generation != _speechGeneration) return;
+      _keepScreenAwake(false);
       setState(() {
         _listening = false;
         _error = l10n.coachSpeechUnavailable;
@@ -2289,8 +2447,10 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                     remaining: _restFuerAnzeige,
                     draft: draft,
                     listening: _listening,
+                    dictationLanguage: _listeningLanguage,
                     onSubmit: () => _send(),
                     onMic: _toggleSpeechInput,
+                    onDictationLanguage: _switchDictationLanguage,
                     onAttach: _openAttachSheet,
                     onQuotaTap: _openCoachInfoSheet,
                   ),

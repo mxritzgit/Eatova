@@ -36,6 +36,9 @@ class _EndlosMikro extends CoachSpeechInput {
   Future<String?> listen({
     String localeId = 'de_DE',
     required AppLocalizations l10n,
+    int token = 0,
+    ValueChanged<String>? onPartial,
+    ValueChanged<CoachSpeechEnd>? onEnd,
   }) =>
       Completer<String?>().future;
 

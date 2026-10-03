@@ -141,20 +141,29 @@ class _Images extends RecipeImageStore {
 
 class _Speech extends CoachSpeechInput {
   final pending = <Completer<String?>>[];
+  final partials = <ValueChanged<String>?>[];
   int stops = 0;
+  int cancels = 0;
 
   @override
   Future<String?> listen({
     String localeId = 'de_DE',
     required AppLocalizations l10n,
+    int token = 0,
+    ValueChanged<String>? onPartial,
+    ValueChanged<CoachSpeechEnd>? onEnd,
   }) {
     final result = Completer<String?>();
     pending.add(result);
+    partials.add(onPartial);
     return result.future;
   }
 
   @override
   Future<void> stop() async => stops++;
+
+  @override
+  Future<void> cancel() async => cancels++;
 }
 
 Future<void> _frames(WidgetTester tester) async {
@@ -388,21 +397,51 @@ void main() {
     });
   }
 
-  for (final action in ['tab', 'dispose', 'paused']) {
-    testWidgets('Spracherkennung endet bei $action', (tester) async {
+  // Rewritten deliberately (spec section 8.8, 2026-10-03). This test used to
+  // lock "hide discards the dictation". Now every lifecycle path ends the
+  // recording at once (cancel, never the graceful stop that keeps the mic
+  // open), hide and background KEEP the text already shown, and only dispose
+  // and an account change discard it. A late result never lands either way.
+  for (final action in ['tab', 'paused', 'dispose', 'account']) {
+    final keeps = action == 'tab' || action == 'paused';
+    testWidgets('Spracherkennung endet bei $action sofort; '
+        '${keeps ? 'gezeigter Text bleibt' : 'Diktat wird verworfen'}', (
+      tester,
+    ) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
       try {
         final speech = _Speech();
         final visible = ValueNotifier(true);
         addTearDown(visible.dispose);
         await _mount(tester, _Coach.create(), speech: speech, visible: visible);
+        await tester.enterText(
+          find.byKey(const ValueKey('coach-input')),
+          'Entwurf',
+        );
+        await tester.pump();
         await tester.tap(find.byKey(const ValueKey('coach-mic')));
         await _frames(tester);
         expect(speech.pending, hasLength(1));
+        speech.partials.single!('schon gezeigt');
+        await tester.pump();
+        String feld() => tester
+            .widget<TextField>(find.byKey(const ValueKey('coach-input')))
+            .controller!
+            .text;
+        expect(feld(), 'Entwurf schon gezeigt');
+
         if (action == 'tab') {
           visible.value = false;
         } else if (action == 'dispose') {
           await tester.pumpWidget(const SizedBox());
+        } else if (action == 'account') {
+          // Same tree, another service instance: the screen's account edge.
+          await _mount(
+            tester,
+            _Coach.create(),
+            speech: speech,
+            visible: visible,
+          );
         } else {
           tester.binding.handleAppLifecycleStateChanged(
             AppLifecycleState.inactive,
@@ -415,18 +454,18 @@ void main() {
           );
         }
         await _frames(tester);
-        final stopCount = speech.stops;
-        speech.pending.first.complete('Veraltetes Diktat');
+        speech.pending.single.complete('Veraltetes Diktat');
         await _frames(tester);
-        expect(stopCount, 1);
+        expect(speech.cancels, 1);
+        expect(speech.stops, 0, reason: 'kein Nachlauf mit offenem Mikro');
         expect(tester.takeException(), isNull);
         if (action != 'dispose') {
           expect(
-            tester
-                .widget<TextField>(find.byKey(const ValueKey('coach-input')))
-                .controller!
-                .text,
-            isEmpty,
+            feld(),
+            keeps ? 'Entwurf schon gezeigt' : 'Entwurf',
+            reason: keeps
+                ? 'Tab und Hintergrund behalten, was schon zu sehen war'
+                : 'das Diktat gehoerte zum vorigen Konto',
           );
         }
         if (action == 'paused') {

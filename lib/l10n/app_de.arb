@@ -712,6 +712,28 @@
   "coachSpeechFailed": "Spracherkennung fehlgeschlagen.",
   "coachSpeechBusy": "Die Spracherkennung läuft bereits. Warte kurz und versuch es dann nochmal.",
   "@coachSpeechBusy": {"description": "The platform reports that a recognition session is still running."},
+  "coachDictationLanguageDe": "DE",
+  "@coachDictationLanguageDe": {"description": "Short label on the dictation language pill while German is recognised."},
+  "coachDictationLanguageEn": "EN",
+  "@coachDictationLanguageEn": {"description": "Short label on the dictation language pill while English is recognised."},
+  "coachDictationLanguageGerman": "Deutsch",
+  "coachDictationLanguageEnglish": "Englisch",
+  "coachDictationLanguageLabel": "Diktiersprache: {language}",
+  "@coachDictationLanguageLabel": {
+    "description": "Screen reader name of the dictation language pill.",
+    "placeholders": {
+      "language": { "type": "String" }
+    }
+  },
+  "coachDictationLanguageSwitchHint": "Wechselt zu {language} und beginnt das Diktat neu",
+  "@coachDictationLanguageSwitchHint": {
+    "description": "Screen reader hint: what tapping the language pill does.",
+    "placeholders": {
+      "language": { "type": "String" }
+    }
+  },
+  "coachDictationLimitHint": "Die Spracheingabe endet nach etwa einer Minute. Tippe aufs Mikro, um weiterzusprechen.",
+  "coachDictationLengthHint": "Spracheingabe beendet: Die Nachricht hat ihre maximale Länge erreicht.",
   "coachErrorNotLoggedIn": "Bitte erst einloggen, um den Coach zu nutzen.",
   "coachErrorNoSession": "Konnte keine Coach-Session laden.",
   "coachErrorHistoryUnavailable": "Dein Verlauf konnte nicht geladen werden. Prüf deine Verbindung und versuch es nochmal.",

@@ -73,8 +73,10 @@ class _Composer extends StatefulWidget {
     required this.remaining,
     required this.draft,
     required this.listening,
+    required this.dictationLanguage,
     required this.onSubmit,
     required this.onMic,
+    required this.onDictationLanguage,
     required this.onAttach,
     required this.onQuotaTap,
   });
@@ -90,8 +92,12 @@ class _Composer extends StatefulWidget {
   final int remaining;
   final String draft;
   final bool listening;
+
+  /// Language of the running dictation; the pill shows while [listening].
+  final DictationLanguage dictationLanguage;
   final VoidCallback onSubmit;
   final VoidCallback onMic;
+  final VoidCallback onDictationLanguage;
   final VoidCallback onAttach;
   final VoidCallback onQuotaTap;
 
@@ -186,6 +192,8 @@ class _ComposerState extends State<_Composer> {
                       controller: widget.controller,
                       focusNode: widget.focus,
                       enabled: widget.enabled,
+                      // Dictation streams into the field; typing would race it.
+                      readOnly: widget.listening,
                       maxLines: 5,
                       minLines: 1,
                       // No `maxLength`: it would hang Flutter's own counter
@@ -235,9 +243,16 @@ class _ComposerState extends State<_Composer> {
                   // runner only; elsewhere the button could merely fail.
                   // `defaultTargetPlatform` honours the test override.
                   if (defaultTargetPlatform == TargetPlatform.iOS) ...<Widget>[
+                    if (widget.listening)
+                      _DictationLanguagePill(
+                        language: widget.dictationLanguage,
+                        onTap: widget.onDictationLanguage,
+                      ),
                     const SizedBox(width: 2),
                     _MicButton(
-                      enabled: widget.canSend,
+                      // Dictating is typing by voice: allowed while an answer
+                      // is in flight, and stopping is never blocked.
+                      enabled: widget.enabled || widget.listening,
                       listening: widget.listening,
                       onTap: widget.onMic,
                     ),
@@ -247,8 +262,10 @@ class _ComposerState extends State<_Composer> {
                     active: hasText,
                     // `!overLimit`: sending would spend both rate-limit
                     // windows on a guaranteed 413 and clear the field on the
-                    // way.
-                    enabled: widget.canSend && hasText && !overLimit,
+                    // way. While listening a tap only finishes the dictation.
+                    enabled:
+                        widget.listening ||
+                        (widget.canSend && hasText && !overLimit),
                     onTap: widget.onSubmit,
                   ),
                 ],
@@ -518,6 +535,64 @@ class _MicButtonState extends State<_MicButton>
                   ),
                 Icon(Icons.mic_none_rounded, color: color, size: 20),
               ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// DE/EN switch next to the mic while listening (spec D5). Apple recognizes
+/// one language per session, so a German speaker with an English UI switches
+/// here; a tap restarts only the running dictation.
+class _DictationLanguagePill extends StatelessWidget {
+  const _DictationLanguagePill({required this.language, required this.onTap});
+
+  final DictationLanguage language;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l10n = context.l10n;
+    String name(DictationLanguage value) => value == DictationLanguage.de
+        ? l10n.coachDictationLanguageGerman
+        : l10n.coachDictationLanguageEnglish;
+    return Semantics(
+      key: const ValueKey('coach-dictation-language'),
+      button: true,
+      label: l10n.coachDictationLanguageLabel(name(language)),
+      hint: l10n.coachDictationLanguageSwitchHint(name(language.other)),
+      onTap: onTap,
+      excludeSemantics: true,
+      child: Material(
+        color: Colors.transparent,
+        shape: const StadiumBorder(),
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const StadiumBorder(),
+          // 44 px target around the small pill.
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: t.accentTint,
+                  borderRadius: BorderRadius.circular(rPill),
+                ),
+                child: Text(
+                  language == DictationLanguage.de
+                      ? l10n.coachDictationLanguageDe
+                      : l10n.coachDictationLanguageEn,
+                  style: AppType.ui(
+                    12.5,
+                    weight: FontWeight.w700,
+                    color: t.accentText,
+                  ),
+                ),
+              ),
             ),
           ),
         ),
