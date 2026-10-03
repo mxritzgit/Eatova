@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase/supabase.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/services/coach_chat_service.dart';
 
 // D2 — error mapping of CoachChatService.send().
@@ -193,10 +194,9 @@ void main() {
 
     test('reply-Feld mit Markup wird NICHT angezeigt, obwohl der Status es '
         'erlauben wuerde', () async {
-      // 413 und das rate-limited-429 sind die beiden Faelle, in denen ein
-      // server-formulierter Satz wirklich auf den Bildschirm darf. Genau
-      // deshalb muss die Pruefung dort greifen: kommt statt des Satzes ein
-      // JSON-Fragment oder eine Fehlerseite, ist der Rueckfalltext richtig.
+      // A 429 always shows the client's own text (C3), so a fragment in its
+      // reply can never reach the screen; the 413 cases below cover the
+      // filter itself.
       final svc = _service((req) async {
         return _json({
           'error': 'rate_limited',
@@ -308,5 +308,63 @@ void main() {
         expect(msg.trim(), isNotEmpty);
       });
     }
+  });
+
+  // Spec §9: the three pre-body 429 texts are localized from Accept-Language
+  // only, which the client never sent, so an English UI showed German. The
+  // client now names its language on every function call and shows its own
+  // 429 text, whatever language the server picked.
+  group('C3 · 429-Texte folgen der App-Sprache', () {
+    final aufrufe = <String, Future<Object?> Function(CoachChatService)>{
+      'send': (svc) => svc.send('Hi Coach', sessionId: 's1'),
+      'recipe': (svc) =>
+          svc.requestRecipe('Pasta', sessionId: 's1', locale: 'en'),
+      'plan': (svc) => svc.requestPlan('Kraft', sessionId: 's1', locale: 'en'),
+    };
+    for (final MapEntry(key: name, value: aufruf) in aufrufe.entries) {
+      test('$name: englische UI, deutsches rate_limited -> englischer '
+          'Eigentext und Accept-Language en', () async {
+        final sprachen = <String?>[];
+        final svc = _service((req) async {
+          sprachen.add(req.headers['Accept-Language']);
+          return _json({
+            'error': 'rate_limited',
+            'reply': 'Zu viele Coach-Anfragen. Bitte gleich nochmal versuchen.',
+          }, 429);
+        })..l10n = enL10n;
+
+        Object? failure;
+        try {
+          await aufruf(svc);
+        } catch (e) {
+          failure = e;
+        }
+
+        expect(failure, isA<CoachChatException>());
+        expect(_messageOf(failure!), enL10n.coachErrorTooManyRequests);
+        expect(sprachen, <String?>['en']);
+      });
+    }
+
+    test('deutsche UI: Accept-Language de, englisches Tageslimit -> '
+        'deutscher Eigentext mit dem Server-Limit', () async {
+      final sprachen = <String?>[];
+      final svc = _service((req) async {
+        sprachen.add(req.headers['Accept-Language']);
+        return _json({
+          'error': 'quota_exceeded',
+          'reply': 'Daily limit reached (7 coach questions per day).',
+          'remaining': 0,
+          'daily_limit': 7,
+        }, 429);
+      })..l10n = deL10n;
+
+      final failure = await _failureOf(svc);
+
+      expect(failure, isA<CoachQuotaExceeded>());
+      expect((failure as CoachQuotaExceeded).dailyLimit, 7);
+      expect(failure.message, deL10n.coachErrorDailyLimitReached(7));
+      expect(sprachen, <String?>['de']);
+    });
   });
 }

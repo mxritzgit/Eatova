@@ -264,8 +264,10 @@ class CoachChatService {
 
   /// Request locale for the edge function; same normalisation as
   /// [requestRecipe]. Anything but `en` falls back to `de` server-side anyway.
-  String get _localeCode =>
-      _l10n.localeName.toLowerCase().startsWith('en') ? 'en' : 'de';
+  String get _localeCode => _requestLocale(_l10n.localeName);
+
+  static String _requestLocale(String locale) =>
+      locale.toLowerCase().startsWith('en') ? 'en' : 'de';
 
   // -------------------------------------------------------------------------
   // Diagnostics
@@ -576,7 +578,12 @@ class CoachChatService {
           // response.stream`), so the JWT plus apikey headers, the abort
           // signal and the whole `on Functions*` mapping keep working exactly
           // as before and only the body reading changes.
-          headers: const {'Accept': 'text/event-stream'},
+          // Accept-Language: the only locale the function can read before the
+          // body, for its pre-body rate-limit replies.
+          headers: {
+            'Accept': 'text/event-stream',
+            'Accept-Language': _localeCode,
+          },
           body: {
             'message': message,
             'session_id': sessionId,
@@ -772,10 +779,11 @@ class CoachChatService {
         _rezeptFrist,
         (abbruch) => _client.functions.invoke(
           'coach-chat',
+          headers: {'Accept-Language': _requestLocale(locale)},
           body: {
             'message': wish,
             'mode': 'recipe',
-            'locale': locale.toLowerCase().startsWith('en') ? 'en' : 'de',
+            'locale': _requestLocale(locale),
             'session_id': sessionId,
           },
           abortSignal: abbruch,
@@ -903,11 +911,14 @@ class CoachChatService {
       final result = await _mitFrist(_planFrist, (abort) async {
         final res = await _client.functions.invoke(
           'coach-chat',
-          headers: {'Authorization': authorization!},
+          headers: {
+            'Authorization': authorization!,
+            'Accept-Language': _requestLocale(locale),
+          },
           body: {
             'message': wish,
             'mode': discussion ? 'chat' : 'plan',
-            'locale': locale.toLowerCase().startsWith('en') ? 'en' : 'de',
+            'locale': _requestLocale(locale),
             'session_id': sessionId,
             if (trainingContext != null)
               'training_context': trainingContext.toJson(),
@@ -1142,6 +1153,9 @@ class CoachChatService {
     }
 
     if (status == 429) {
+      // Own texts only: the function localizes these from Accept-Language,
+      // and a gateway or an older deployment may answer in the other
+      // language (spec §9).
       // Only quota_exceeded is the daily limit. `rate_limited` (burst brake)
       // carries no daily_limit and must not lock the composer for the day.
       if (map['error'] == 'quota_exceeded') {
@@ -1149,16 +1163,16 @@ class CoachChatService {
         // The 429 is the second place the server names its own limit.
         if (limit is num) _tageslimitMerken(limit.toInt());
         return CoachQuotaExceeded(
-          message: serverReply ?? _l10n.coachErrorQuotaFallback,
+          message: limit is num
+              ? _l10n.coachErrorDailyLimitReached(limit.toInt())
+              : _l10n.coachErrorQuotaFallback,
           // The function's 429 always carries daily_limit; if a gateway body
           // omits it, fall back to the shared display constant.
           dailyLimit:
               limit is num ? limit.toInt() : ChatQuotaSnapshot.standardTageslimit,
         );
       }
-      return CoachChatException(
-        serverReply ?? _l10n.coachErrorTooManyRequests,
-      );
+      return CoachChatException(_l10n.coachErrorTooManyRequests);
     }
 
     if (status == 413) {
