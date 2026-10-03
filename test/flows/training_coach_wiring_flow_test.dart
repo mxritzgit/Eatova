@@ -468,6 +468,29 @@ void main() {
       });
     });
 
+    testWidgets('an offline save stays "offline" for the snack text', (
+      tester,
+    ) async {
+      await withClock(Clock.fixed(_now), () async {
+        final server = _server();
+        final store = await _mount(tester, server: server);
+        store.setTab(4);
+        await _frames(tester);
+        server.offline = true;
+
+        // Review TUI-2: offline and retry were one outcome, so the editor
+        // said "will be retried" to a user without signal.
+        const id = '0b6f2a9e-1c3d-4e5f-8a7b-6c5d4e3f2a1b';
+        expect(
+          await _coach(tester).onLogWorkout!(_freeLog(id)),
+          TrainingLogSaveOutcome.queuedOffline,
+        );
+        expect([for (final e in store.trainingHistory) e.id], [id]);
+        server.offline = false;
+        await _leave(tester);
+      });
+    });
+
     testWidgets('the adapter flags a plan-backed entry itself: blocked while '
         'a workout is saved, a free log is not', (tester) async {
       await withClock(Clock.fixed(_now), () async {

@@ -415,6 +415,29 @@ void main() {
       });
     });
 
+    testWidgets('an offline Add says it syncs once back online', (
+      tester,
+    ) async {
+      await withClock(Clock.fixed(_now), () async {
+        final recorder = await _open(
+          tester,
+          outcomes: const [TrainingLogSaveOutcome.queuedOffline],
+        );
+        await _type(tester, 'training-log-exercise-0-name', 'Dips');
+        await _type(tester, 'training-log-exercise-0-set-0-reps', '12');
+        await _tap(tester, 'training-log-save');
+        expect(recorder.result, TrainingLogSaveOutcome.queuedOffline);
+        expect(
+          find.text(
+            "Workout added to your history — will sync once you're back "
+            'online.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.textContaining('retried automatically'), findsNothing);
+      });
+    });
+
     testWidgets('deleted closes with "Removed from history"', (tester) async {
       await withClock(Clock.fixed(_now), () async {
         final recorder = await _open(
@@ -874,15 +897,15 @@ void main() {
         await trainingLogSaveOutcome(() async => SyncDelivery.delivered),
         TrainingLogSaveOutcome.saved,
       );
-      for (final queued in [
-        SyncDelivery.queuedOffline,
-        SyncDelivery.queuedRetry,
-      ]) {
-        expect(
-          await trainingLogSaveOutcome(() async => queued),
-          TrainingLogSaveOutcome.queued,
-        );
-      }
+      // Review TUI-2: offline keeps its own outcome for the snack text.
+      expect(
+        await trainingLogSaveOutcome(() async => SyncDelivery.queuedOffline),
+        TrainingLogSaveOutcome.queuedOffline,
+      );
+      expect(
+        await trainingLogSaveOutcome(() async => SyncDelivery.queuedRetry),
+        TrainingLogSaveOutcome.queued,
+      );
       expect(
         await trainingLogSaveOutcome(
           () async => throw const TrainingCompletionDeleted(),

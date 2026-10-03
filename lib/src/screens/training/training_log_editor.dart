@@ -51,8 +51,16 @@ final class PlanAttachedLogRequest extends TrainingLogEditorRequest {
   final int workoutIndex;
 }
 
-/// What became of one Add.
-enum TrainingLogSaveOutcome { saved, queued, deleted, blocked, failed }
+/// What became of one Add. [queued] waits in the outbox for a retry,
+/// [queuedOffline] because the device had no network.
+enum TrainingLogSaveOutcome {
+  saved,
+  queued,
+  queuedOffline,
+  deleted,
+  blocked,
+  failed,
+}
 
 /// The [TrainingLogSaveOutcome] of a store write such as
 /// `HomeStore.logCompletedWorkout`.
@@ -60,9 +68,11 @@ Future<TrainingLogSaveOutcome> trainingLogSaveOutcome(
   Future<SyncDelivery> Function() write,
 ) async {
   try {
-    return await write() == SyncDelivery.delivered
-        ? TrainingLogSaveOutcome.saved
-        : TrainingLogSaveOutcome.queued;
+    return switch (await write()) {
+      SyncDelivery.delivered => TrainingLogSaveOutcome.saved,
+      SyncDelivery.queuedOffline => TrainingLogSaveOutcome.queuedOffline,
+      SyncDelivery.queuedRetry => TrainingLogSaveOutcome.queued,
+    };
   } on TrainingCompletionDeleted {
     return TrainingLogSaveOutcome.deleted;
   } on TrainingLogBlockedBySession {
@@ -74,7 +84,8 @@ Future<TrainingLogSaveOutcome> trainingLogSaveOutcome(
 
 /// Opens the log editor. Nothing is written before Add, which hands one
 /// entry with the request's ID to [onSave] at a time. Closes on saved,
-/// queued or deleted and returns that outcome; null when dismissed.
+/// queued (also offline) or deleted and returns that outcome; null when
+/// dismissed.
 /// [history] feeds name suggestions and "Last time" prefills.
 Future<TrainingLogSaveOutcome?> showTrainingLogEditor(
   BuildContext context, {
@@ -379,16 +390,18 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
     }
     if (!mounted) return;
     switch (outcome) {
-      case TrainingLogSaveOutcome.saved || TrainingLogSaveOutcome.queued:
+      case TrainingLogSaveOutcome.saved ||
+          TrainingLogSaveOutcome.queued ||
+          TrainingLogSaveOutcome.queuedOffline:
+        // Offline gets the "back online" text, like every other write.
+        final delivery = switch (outcome) {
+          TrainingLogSaveOutcome.saved => SyncDelivery.delivered,
+          TrainingLogSaveOutcome.queuedOffline => SyncDelivery.queuedOffline,
+          _ => SyncDelivery.queuedRetry,
+        };
         showAppSnack(
           context,
-          deliveryHint(
-            l10n.trainingLogSaved,
-            outcome == TrainingLogSaveOutcome.saved
-                ? SyncDelivery.delivered
-                : SyncDelivery.queuedRetry,
-            l10n,
-          ),
+          deliveryHint(l10n.trainingLogSaved, delivery, l10n),
         );
         Navigator.pop(context, outcome);
       case TrainingLogSaveOutcome.deleted:
