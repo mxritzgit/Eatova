@@ -17,6 +17,7 @@ import 'package:eatova/src/models/training_session.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
 import 'package:eatova/src/screens/training/training_log_editor.dart';
 import 'package:eatova/src/screens/training/training_player_screen.dart';
+import 'package:eatova/src/screens/training/training_screen.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/notification_service.dart';
@@ -285,6 +286,42 @@ void main() {
       });
     });
 
+    testWidgets('one editor at a time, and none after an account change', (
+      tester,
+    ) async {
+      await withClock(Clock.fixed(_now), () async {
+        final cache = LocalCache(InMemoryKeyValueStore(), kFixlaufUser);
+        final store = await _mount(
+          tester,
+          server: _server(plan: _plan()),
+          cache: cache,
+        );
+        store.setTab(3);
+        await _frames(tester);
+        // Two activations in one frame (a screen reader can deliver both).
+        final open = tester.widget<TrainingScreen>(find.byType(TrainingScreen));
+        open.onLogWorkout!();
+        open.onLogWorkout!();
+        await _frames(tester);
+        expect(find.byKey(const ValueKey('training-log-save')), findsOneWidget);
+        await _tap(tester, 'training-log-close');
+        expect(_editorOpen(), isFalse);
+
+        await _pumpHome(
+          tester,
+          sync: _sync(_server(), user: 'user-fixlauf-b'),
+          cache: cache,
+        );
+        await _frames(tester);
+        tester.widget<TrainingScreen>(find.byType(TrainingScreen))
+          ..onLogWorkout!()
+          ..onLogPlannedWorkout!(_plan(), 0);
+        await _frames(tester);
+        expect(_editorOpen(), isFalse, reason: 'not this account\'s store');
+        await _leave(tester);
+      });
+    });
+
     testWidgets('Log as done adds the shown workout attached to its plan', (
       tester,
     ) async {
@@ -331,16 +368,15 @@ void main() {
             tester,
             () =>
                 tester
-                    .widget<TextField>(find.byKey(const ValueKey('coach-input')))
+                    .widget<TextField>(
+                      find.byKey(const ValueKey('coach-input')),
+                    )
                     .controller!
                     .text ==
                 '/log ',
             'the composer holds /log',
           );
-          await tester.enterText(
-            find.byKey(const ValueKey('coach-input')),
-            '',
-          );
+          await tester.enterText(find.byKey(const ValueKey('coach-input')), '');
           await tester.pump();
         }
         expect(
@@ -603,11 +639,7 @@ void main() {
     testWidgets('leaving the shell ends the tap subscription', (tester) async {
       await withClock(Clock.fixed(_now), () async {
         final notifications = _TapNotifications();
-        await _mount(
-          tester,
-          server: _server(),
-          notifications: notifications,
-        );
+        await _mount(tester, server: _server(), notifications: notifications);
         expect(notifications.controller.hasListener, isTrue);
         await _leave(tester);
         expect(notifications.controller.hasListener, isFalse);
