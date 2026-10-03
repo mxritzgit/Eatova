@@ -33,6 +33,7 @@
 		EA2100010000000000000011 /* RecipeShareWake.swift in Runner Sources */ = {isa = PBXBuildFile; fileRef = EA2100020000000000000012 /* RecipeShareWake.swift */; };
 		EA2100010000000000000012 /* RecipeShareWake.swift in Extension Sources */ = {isa = PBXBuildFile; fileRef = EA2100020000000000000012 /* RecipeShareWake.swift */; };
 		EA2100010000000000000013 /* RecipeShareWakeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA2100020000000000000013 /* RecipeShareWakeTests.swift */; };
+		EA2100010000000000000014 /* SpeechTranscriptAccumulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA2100020000000000000014 /* SpeechTranscriptAccumulator.swift */; };
 		EA2100010000000000000015 /* SpeechTranscriptAccumulatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA2100020000000000000015 /* SpeechTranscriptAccumulatorTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -103,6 +104,7 @@
 		EA2100020000000000000011 /* RecipeShareHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeShareHandoffTests.swift; sourceTree = "<group>"; };
 		EA2100020000000000000012 /* RecipeShareWake.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeShareWake.swift; sourceTree = "<group>"; };
 		EA2100020000000000000013 /* RecipeShareWakeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecipeShareWakeTests.swift; sourceTree = "<group>"; };
+		EA2100020000000000000014 /* SpeechTranscriptAccumulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechTranscriptAccumulator.swift; sourceTree = "<group>"; };
 		EA2100020000000000000015 /* SpeechTranscriptAccumulatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechTranscriptAccumulatorTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -212,6 +214,7 @@
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */,
 				EA2100020000000000000002 /* RecipeSharePlugin.swift */,
+				EA2100020000000000000014 /* SpeechTranscriptAccumulator.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 			);
 			path = Runner;
@@ -483,6 +486,7 @@
 				EA2100010000000000000002 /* RecipeSharePlugin.swift in Sources */,
 				EA2100010000000000000008 /* RecipeShareHandoff.swift in Runner Sources */,
 				EA2100010000000000000011 /* RecipeShareWake.swift in Runner Sources */,
+				EA2100010000000000000014 /* SpeechTranscriptAccumulator.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

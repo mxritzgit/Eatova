@@ -81,7 +81,10 @@ class ResultVerificationTests(unittest.TestCase):
         # must fail like a missing share suite.
         suite = "SpeechTranscriptAccumulatorTests"
         self.assertIn(suite, REQUIRED_SUITES)
-        self.assertIn("testForumResetTraceKeepsBothUtterances", declared_required_cases()[suite])
+        declared = declared_required_cases()[suite]
+        self.assertIn("testForumResetTraceKeepsBothUtterances", declared)
+        # Keeps the old overwrite strategy as an explicit bug record.
+        self.assertIn("testOldOverwriteStrategyLosesEverythingBeforeThePause", declared)
         tree = result_tree()
         nodes = tree["testNodes"][0]["children"]
         tree["testNodes"][0]["children"] = [node for node in nodes if node["name"] != suite]

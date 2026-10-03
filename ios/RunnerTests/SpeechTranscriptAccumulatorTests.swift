@@ -24,6 +24,8 @@ protocol TranscriptStrategy {
   mutating func apply(text: String, firstSegmentStart: TimeInterval?, segmentCount: Int, utteranceEnded: Bool)
 }
 
+extension SpeechTranscriptAccumulator: TranscriptStrategy {}
+
 /// The plugin before this fix (AppDelegate.swift `lastTranscription =
 /// bestTranscription.formattedString`): every callback replaced the transcript.
 struct OverwriteAccumulator: TranscriptStrategy {
@@ -74,8 +76,8 @@ private func forumResetTrace(start: (TimeInterval, TimeInterval)?) -> (hypothese
 
 final class SpeechTranscriptAccumulatorTests: XCTestCase {
   /// The strategy under test.
-  private func subject() -> OverwriteAccumulator {
-    OverwriteAccumulator()
+  private func subject() -> SpeechTranscriptAccumulator {
+    SpeechTranscriptAccumulator()
   }
 
   private func assertTranscript(
@@ -85,6 +87,16 @@ final class SpeechTranscriptAccumulatorTests: XCTestCase {
     line: UInt = #line
   ) {
     XCTAssertEqual(transcript(subject(), after: hypotheses), expected, file: file, line: line)
+  }
+
+  func testOldOverwriteStrategyLosesEverythingBeforeThePause() {
+    // Documents the reported bug: about a minute of dictation, only the last
+    // words arrived.
+    let trace = forumResetTrace(start: (0.4, 33.8))
+    let old = transcript(OverwriteAccumulator(), after: trace.hypotheses)
+    XCTAssertNotEqual(old, trace.expected)
+    XCTAssertEqual(old, "Then squats three sets")
+    XCTAssertEqual(transcript(SpeechTranscriptAccumulator(), after: trace.hypotheses), trace.expected)
   }
 
   func testForumResetTraceKeepsBothUtterances() {
@@ -126,6 +138,22 @@ final class SpeechTranscriptAccumulatorTests: XCTestCase {
       Hypothesis("i did 20 reps", start: 0.5),
       Hypothesis("I did 20 reps.", start: 0.62),
       Hypothesis("I did 20 reps.", start: 0.62, ended: true),
+    ], equals: "I did 20 reps.")
+  }
+
+  func testSameWordsNeverDuplicateEvenWhenTimingShifts() {
+    assertTranscript([
+      Hypothesis("i did 20 reps", start: 0.5),
+      Hypothesis("I did 20 reps.", start: 1.9, ended: true),
+    ], equals: "I did 20 reps.")
+  }
+
+  func testUntimedPartialsThenATimedFinalStayOneUtterance() {
+    // Partials without timing report 0; the final carries real timestamps.
+    assertTranscript([
+      Hypothesis("I did twenty", start: 0),
+      Hypothesis("I did twenty reps", start: 0),
+      Hypothesis("I did 20 reps.", start: 2.4, ended: true),
     ], equals: "I did 20 reps.")
   }
 
@@ -176,8 +204,8 @@ final class SpeechTranscriptAccumulatorTests: XCTestCase {
       Hypothesis("I did", start: 0.5),
       Hypothesis("", start: nil, segments: 0),
       Hypothesis("   ", start: nil, segments: 0),
-      Hypothesis(".", start: 0.5, segments: 1),
       Hypothesis("I did 20", start: 0.5),
+      Hypothesis(".", start: 0.5, segments: 1),
     ], equals: "I did 20")
   }
 
