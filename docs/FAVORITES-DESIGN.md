@@ -69,7 +69,8 @@ favorite saved from a search hit or a barcode scan keeps the Open Food Facts
 photo it was found with. Spec:
 [favorites photos and lively list](superpowers/specs/2026-10-03-favorites-photos-and-lively-list-design.md).
 
-- Pinned rows (favorites sheet and the add sheet's inline top 3): a 48 px
+- Pinned rows in the favorites sheet (since 2026-10-03 the add sheet shows
+  only one "Favorites" row that opens it): a 48 px
   photo tile (letter tile without a photo), the name, "Brand · 60 g ·
   212 kcal" and the macro dots, with the heart over a tinted "+" that logs
   the saved portion into the sheet's meal. An open row adds from its panel

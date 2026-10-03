@@ -115,12 +115,17 @@ class SourcePill extends StatelessWidget {
     this.icon = Icons.link_rounded,
     this.onTap,
     this.semanticLabel,
+    this.expanded,
   });
 
   final String label;
   final IconData icon;
   final VoidCallback? onTap;
   final String? semanticLabel;
+
+  /// Whether the details this pill toggles are open; null when it toggles
+  /// nothing.
+  final bool? expanded;
 
   @override
   Widget build(BuildContext context) {
@@ -161,6 +166,7 @@ class SourcePill extends StatelessWidget {
     return Semantics(
       container: true,
       button: onTap != null,
+      expanded: expanded,
       label: semanticLabel ?? label,
       onTap: onTap,
       excludeSemantics: true,

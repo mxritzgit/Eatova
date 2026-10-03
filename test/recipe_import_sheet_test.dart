@@ -942,6 +942,28 @@ void main() {
     expect(service.inputs, [_source]);
   });
 
+  testWidgets('text typed while the clipboard is read is kept', (
+    tester,
+  ) async {
+    final reading = Completer<Object?>();
+    mockClipboard(tester, () => reading.future);
+    await _open(
+      tester,
+      service: _Service((_) async => _ready),
+      initialText: '',
+      save: (_) async => SyncDelivery.delivered,
+    );
+    await tester.tap(find.byKey(const ValueKey('recipe-import-paste')));
+    await tester.pump();
+    final field = tester.widget<TextField>(
+      find.byKey(const ValueKey('recipe-import-input')),
+    );
+    field.controller!.text = 'my own recipe';
+    reading.complete(<String, Object?>{'text': _source});
+    await tester.pumpAndSettle();
+    expect(field.controller!.text, 'my own recipe');
+  });
+
   testWidgets('an unreadable clipboard leaves the input empty and quiet', (
     tester,
   ) async {

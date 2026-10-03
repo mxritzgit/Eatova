@@ -333,7 +333,7 @@ enum FilterChipTone {
 /// ONE selection language for every chip in the app ([SelectionTone]):
 /// selected = accent fill with an on-accent label (and icon), outline in the
 /// fill color; unselected = `surf` with a 1 px `lineStrong` outline and an
-/// `inkMuted` label. Fully round; the [FilterChipSize.md] chip is 42 px tall
+/// `inkMuted` label. Fully round; the [FilterChipSize.md] chip is 44 px tall
 /// with a 14/700 label.
 class FilterChipPill extends StatelessWidget {
   const FilterChipPill({
@@ -377,8 +377,11 @@ class FilterChipPill extends StatelessWidget {
     // the semantics tree a screen reader cannot tell which filter is active.
     // With an explicit spoken name the visible label is excluded, otherwise
     // the node would read "name, label" twice over.
-    return Semantics(
+    // A null [onTap] is a disabled chip (e.g. while a sheet saves): said so
+    // and dimmed, not a live-looking button that does nothing.
+    final chip = Semantics(
       button: true,
+      enabled: onTap != null,
       selected: selected,
       label: semanticLabel,
       excludeSemantics: semanticLabel != null,
@@ -391,8 +394,9 @@ class FilterChipPill extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(rPill),
           child: Container(
-            // 42 px including the padding; the Row centres its content.
-            constraints: BoxConstraints(minHeight: small ? 0 : 42),
+            // 44 px including the padding (the tap-target floor); the Row
+            // centres its content.
+            constraints: BoxConstraints(minHeight: small ? 0 : 44),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(rPill),
               // The selected chip keeps a ring in its own fill colour instead
@@ -442,6 +446,7 @@ class FilterChipPill extends StatelessWidget {
       ),
       ),
     );
+    return onTap == null ? Opacity(opacity: 0.45, child: chip) : chip;
   }
 }
 

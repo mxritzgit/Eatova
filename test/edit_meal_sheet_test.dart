@@ -201,7 +201,14 @@ void main() {
       find.descendant(of: blatt, matching: find.byIcon(Icons.chevron_left)),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.descendant(of: blatt, matching: find.text('15')));
+    // Inside the calendar grid: the sheet's header also shows the chosen
+    // day's number, which is 15 on the 15th of a month.
+    await tester.tap(
+      find.descendant(
+        of: find.byType(CalendarDatePicker),
+        matching: find.text('15'),
+      ),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('food-date-confirm')));
     await tester.pumpAndSettle();

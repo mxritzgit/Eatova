@@ -1438,7 +1438,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
   }
 
   /// Mirrors the store's "last used" bump (`_rememberRecent`) into the local
-  /// copy, so the inline top 3 follow "most recently used first" within this
+  /// copy, so the recents follow "most recently used first" within this
   /// sheet session too (review A, 2026-08-27).
   ///
   /// Like the store: the entry is REBUILT from the logged result and moves to

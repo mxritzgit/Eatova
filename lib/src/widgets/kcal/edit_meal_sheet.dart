@@ -415,6 +415,8 @@ class _EditMealSheetState extends State<EditMealSheet> {
                     key: const ValueKey('edit-meal-day-picker'),
                     selectedDate: _day,
                     today: today,
+                    // The calendar's bound: two years back.
+                    firstDate: DateTime(today.year - 2, today.month, today.day),
                     onSelected: (day) =>
                         setState(() => _day = startOfDay(day)),
                   ),

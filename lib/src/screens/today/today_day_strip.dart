@@ -25,10 +25,16 @@ class TodayDayStrip extends StatefulWidget {
     required this.selectedDate,
     required this.today,
     this.onSelected,
+    this.firstDate,
   });
 
   final DateTime selectedDate, today;
   final ValueChanged<DateTime>? onSelected;
+
+  /// The earliest pickable day, or null for no bound (the Today tab). Paging
+  /// stops at its week and earlier days are disabled, so a sheet whose
+  /// calendar ends somewhere cannot reach past it by swiping.
+  final DateTime? firstDate;
 
   static const int days = 7;
 
@@ -54,8 +60,16 @@ class _TodayDayStripState extends State<TodayDayStrip> {
     if (moved || rolled) _page = _pageOf(widget.selectedDate);
   }
 
+  /// Whether [page] still shows a day on or after [TodayDayStrip.firstDate].
+  bool _reachable(int page) {
+    final first = widget.firstDate;
+    if (first == null) return true;
+    final last = addDays(startOfDay(widget.today), -page * TodayDayStrip.days);
+    return daysBetween(first, last) <= 0;
+  }
+
   void _show(int page) {
-    if (page < 0 || page == _page) return;
+    if (page < 0 || page == _page || !_reachable(page)) return;
     setState(() => _page = page);
   }
 
@@ -89,7 +103,10 @@ class _TodayDayStripState extends State<TodayDayStrip> {
               today: widget.today,
               selected:
                   daysBetween(addDays(first, i), widget.selectedDate) == 0,
-              onTap: widget.onSelected == null
+              onTap:
+                  widget.onSelected == null ||
+                      (widget.firstDate != null &&
+                          daysBetween(widget.firstDate!, addDays(first, i)) > 0)
                   ? null
                   : () => widget.onSelected!(addDays(first, i)),
             ),
@@ -102,8 +119,9 @@ class _TodayDayStripState extends State<TodayDayStrip> {
       explicitChildNodes: true,
       label: l10n.todayDayStripLabel,
       customSemanticsActions: <CustomSemanticsAction, VoidCallback>{
-        CustomSemanticsAction(label: l10n.todayDayStripEarlier): () =>
-            _show(_page + 1),
+        if (_reachable(_page + 1))
+          CustomSemanticsAction(label: l10n.todayDayStripEarlier): () =>
+              _show(_page + 1),
         if (_page > 0)
           CustomSemanticsAction(label: l10n.todayDayStripLater): () =>
               _show(_page - 1),

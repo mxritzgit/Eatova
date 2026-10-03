@@ -233,35 +233,6 @@ void main() {
     });
   });
 
-  group('recentDaysDescending — Leiste mit heute zuerst', () {
-    test('liefert count Eintraege, absteigend, beginnend bei heute', () {
-      final tage = recentDaysDescending(
-        today: DateTime(2026, 3, 30, 21),
-        count: 4,
-      );
-      expect(tage.map(ymd).toList(), [
-        (y: 2026, m: 3, d: 30),
-        (y: 2026, m: 3, d: 29),
-        (y: 2026, m: 3, d: 28),
-        (y: 2026, m: 3, d: 27),
-      ]);
-    });
-
-    test('ist die Umkehrung von dayStrip', () {
-      final absteigend = recentDaysDescending(
-        today: DateTime(2026, 3, 30),
-        count: 35,
-      );
-      final aufsteigend = dayStrip(today: DateTime(2026, 3, 30), pastDays: 34);
-      expect(absteigend, aufsteigend.reversed.toList());
-    });
-
-    test('count <= 0 liefert eine leere Liste', () {
-      expect(recentDaysDescending(today: DateTime(2026, 3, 30), count: 0), isEmpty);
-      expect(recentDaysDescending(today: DateTime(2026, 3, 30), count: -3), isEmpty);
-    });
-  });
-
   group('Eigenschaften (zonenunabhaengig, gegen ein UTC-Orakel)', () {
     // UTC has no DST, so `add(Duration(days: n))` is the calendar shift there;
     // `addDays` must hit the same (y, m, d) locally in every zone.

@@ -326,7 +326,8 @@ class _RecipeChip {
   }
 }
 
-/// Touch target of a chip; the pill itself stays at the design's 42 px.
+/// Touch target of a chip. [FilterChipPill] is 44 px on its own since
+/// 2026-10-03; the wrapper stays as the bar's floor.
 const double _kChipTarget = 44;
 
 /// The horizontal chip bar. Runs to the screen edge and scrolls; the design's

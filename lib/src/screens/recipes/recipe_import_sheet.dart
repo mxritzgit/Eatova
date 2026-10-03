@@ -202,7 +202,14 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
     } catch (_) {
       return;
     }
-    if (!mounted || _busy || pasted == null || pasted.trim().isEmpty) return;
+    // Text typed while the clipboard was read wins over the paste.
+    if (!mounted ||
+        _busy ||
+        _text.text.trim().isNotEmpty ||
+        pasted == null ||
+        pasted.trim().isEmpty) {
+      return;
+    }
     // Same cap as the field's maxLength, which only limits typed input.
     final text = pasted.characters.take(20000).toString();
     _text.value = TextEditingValue(
@@ -642,6 +649,7 @@ class _RecipeImportSheetState extends State<RecipeImportSheet> {
               ? l10n.recipeImportSourceLabel
               : '${l10n.recipeImportSourceLabel}: $host',
           onTap: () => setState(() => _sourceOpen = !_sourceOpen),
+          expanded: _sourceOpen,
         ),
         maybeAnimatedSize(
           context,

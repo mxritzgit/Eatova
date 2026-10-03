@@ -940,11 +940,12 @@ void main() {
       final handle = tester.ensureSemantics();
       await pumpLocalized(
         tester,
-        const Align(
+        Align(
           child: FilterChipPill(
             label: 'Alle',
             selected: true,
             semanticLabel: 'Alle Rezepte',
+            onTap: () {},
           ),
         ),
         padding: _rand,
@@ -956,7 +957,9 @@ void main() {
       // Without a spoken name the visible label still reaches the reader.
       await pumpLocalized(
         tester,
-        const Align(child: FilterChipPill(label: 'Alle', selected: false)),
+        Align(
+          child: FilterChipPill(label: 'Alle', selected: false, onTap: () {}),
+        ),
         padding: _rand,
       );
       expect(
