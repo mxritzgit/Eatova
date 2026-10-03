@@ -2448,3 +2448,36 @@ unchanged.
     visible error is the forecast and the plan card.
   - The manual-mode misdetection named in `REVIEW-KCAL-2026-08-21.md` §4.1
     is already fixed by the explicit `manualEnergy` flag (PR #54).
+
+### Weight trend, stage 1, 2026-10-03
+
+The user decided the calorie-model questions in the chat:
+- the current weight is a smoothed trend;
+- a changed daily goal gets a short notice;
+- stage 2 is an adaptive weekly check with confirmation.
+
+[WEIGHT-TREND.md](WEIGHT-TREND.md) holds the rules. The branch
+`feat/weight-trend` implements stage 1, and its PR records CI and merge.
+
+- The trend:
+  - takes the last weigh-in per local day, smoothed 10 %/day and time-aware;
+  - holds an outlier (more than 5 % off the trend) until the next day
+    confirms it;
+  - starts afresh after a break of more than 28 days;
+  - counts as the plan weight only while fresh and inside `ProfileLimits`.
+- The store re-anchors `profile.weightKg` (live goals recomputed) after a
+  weigh-in, a Health import and the boot.
+  - The weigh-in and the profile update are one local commit.
+  - It needs a server-answered profile AND weight log in this session.
+  - A cache re-hydration with different rows closes that gate.
+  - The boot re-anchor runs after the cache snapshot.
+- The UI shows one current weight: plan card, weight-card trend line and
+  progress, BMI. The goals screen shows the weight read-only when a plan
+  weight exists.
+- Three review rounds found 10 issues, all fixed with tests that fail on
+  the previous code: stale-cache writes, typo handling, stale weigh-ins,
+  the break, gate closing, and the sync hint versus the notice.
+- Verification: 6116 Flutter tests, 96.60 % coverage, strict analysis.
+- Stage 2 needs a profile column (migration, column grants,
+  `apply_sync_operation`, RLS tests). It is a separate PR, and its live
+  migration needs the user's approval.
