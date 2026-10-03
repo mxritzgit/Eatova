@@ -8,6 +8,7 @@
 //   * the weight sheet deliberately has NO discard prompt (D5) — this test
 //     stops anyone from helpfully adding one.
 
+import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -121,15 +122,40 @@ void main() {
 
   group('Ziel-Fortschritt', () {
     testWidgets('rechnet vom ersten Eintrag zum Wunschgewicht', (tester) async {
-      // Start 80, target 70, current 75 -> exactly half.
-      await _pumpCard(
-        tester,
-        log: _log([80.0, 75.0]),
-        profile: const UserProfile(weightKg: 80, targetWeightKg: 70),
-      );
+      // Start 80, target 70, plan weight 75 -> exactly half. The second
+      // weigh-in follows a break, so it starts the weight trend afresh at 75
+      // (docs/WEIGHT-TREND.md); the clock sits the day after it.
+      await withClock(Clock.fixed(DateTime(2026, 9, 1, 12)), () async {
+        await _pumpCard(
+          tester,
+          log: WeightLog(
+            entries: <WeightLogEntry>[
+              WeightLogEntry(timestamp: DateTime(2026, 7, 1), weightKg: 80),
+              WeightLogEntry(timestamp: DateTime(2026, 8, 31), weightKg: 75),
+            ],
+          ),
+          profile: const UserProfile(weightKg: 80, targetWeightKg: 70),
+        );
 
-      expect(find.text('Ziel 70 kg'), findsOneWidget);
-      expect(find.text('50 %'), findsOneWidget);
+        expect(find.text('Ziel 70 kg'), findsOneWidget);
+        expect(find.text('50 %'), findsOneWidget);
+      });
+    });
+
+    testWidgets('mit veralteten Wiegungen zaehlt das Profilgewicht', (
+      tester,
+    ) async {
+      // Weigh-ins from July, now September: no current trend. The profile
+      // weight (76, typed later) stands in, like on the plan card: 40 %.
+      await withClock(Clock.fixed(DateTime(2026, 9, 15, 12)), () async {
+        await _pumpCard(
+          tester,
+          log: _log([80.0, 79.5]),
+          profile: const UserProfile(weightKg: 76, targetWeightKg: 70),
+        );
+
+        expect(find.text('40 %'), findsOneWidget);
+      });
     });
 
     testWidgets('klemmt bei falscher Richtung auf 0 statt negativ zu werden', (

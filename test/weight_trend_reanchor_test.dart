@@ -4,10 +4,12 @@
 // rounded `WeightLog.trendKg`. Live mode recomputes its goals in the same
 // commit and names a changed kcal goal; manual mode only moves the weight.
 
+import 'package:clock/clock.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/models/user_profile.dart';
+import 'package:eatova/src/models/weight_log.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/notification_service.dart';
@@ -37,6 +39,10 @@ UserProfile _live({int weightKg = 84, bool manual = false, int? kcal}) {
 
 int _kcalAt(int weightKg) =>
     const KcalCalculator().calculate(_live(weightKg: weightKg)).kcal;
+
+/// Boot cases seed weigh-ins relative to this fixed "now": the trend only
+/// counts while its last counted day is at most 28 days old.
+final DateTime _now = DateTime(2026, 10, 3, 12);
 
 Map<String, dynamic> _weightRow(DateTime at, double kg) => <String, dynamic>{
   'recorded_at': at.toUtc().toIso8601String(),
@@ -133,12 +139,11 @@ void main() {
     expect(a.store.profile.dailyKcalGoal, 2050);
   });
 
-  test('the boot catches up with weigh-ins the profile has not seen', () async {
+  test('the boot catches up with weigh-ins the profile has not seen', () => withClock(Clock.fixed(_now), () async {
     final a = setup();
     a.server.profileRow = serverProfileRow(_live());
-    final now = DateTime.now();
     for (final (daysAgo, kg) in [(14, 81.6), (7, 81.2), (1, 81.0)]) {
-      final at = now.subtract(Duration(days: daysAgo));
+      final at = _now.subtract(Duration(days: daysAgo));
       a.server.weightRows['w$daysAgo'] = _weightRow(at, kg);
     }
 
@@ -153,7 +158,33 @@ void main() {
       a.snacks.messages,
       contains('Neues Tagesziel: 2050 kcal – an deinen Gewichtstrend angepasst.'),
     );
-  });
+  }));
+
+  test('no re-anchor when the profile answered but the weight log did not', () => withClock(Clock.fixed(_now), () async {
+    // The log in memory is then the CACHED one; acting on it could push a
+    // stale trend over another device's newer weigh-ins.
+    final kv = InMemoryKeyValueStore();
+    final cache = LocalCache(kv, 'user-outbox');
+    await cache.writeProfile(_live());
+    await cache.writeWeightLog(
+      WeightLog.capped([
+        for (final daysAgo in [3, 2, 1])
+          WeightLogEntry(
+            timestamp: _now.subtract(Duration(days: daysAgo)),
+            weightKg: 81.0,
+          ),
+      ]),
+    );
+    final a = setup(injizierterCache: cache);
+    a.server.profileRow = serverProfileRow(_live());
+    a.server.rejectWeightLogReads = true;
+
+    await boot(a.store);
+    await settle();
+
+    expect(a.store.weightLog.planWeightKg(_now), 81.0, reason: 'precondition');
+    expect(a.store.profile.weightKg, 84);
+  }));
 
   test('no re-anchor before the server answered in this session', () async {
     // Review finding: the weigh-in used to write a full profile row from the
@@ -179,14 +210,13 @@ void main() {
     ]);
   });
 
-  test('stale weigh-ins do not re-anchor at boot', () async {
+  test('stale weigh-ins do not re-anchor at boot', () => withClock(Clock.fixed(_now), () async {
     // The latest weigh-in is five weeks old; a weight typed on the goals
     // screen since then must not be overridden.
     final a = setup();
     a.server.profileRow = serverProfileRow(_live());
-    final now = DateTime.now();
     for (final (daysAgo, kg) in [(42, 80.6), (35, 80.4)]) {
-      final at = now.subtract(Duration(days: daysAgo));
+      final at = _now.subtract(Duration(days: daysAgo));
       a.server.weightRows['w$daysAgo'] = _weightRow(at, kg);
     }
 
@@ -197,7 +227,7 @@ void main() {
     expect(a.store.profile.weightKg, 84);
     expect(a.snacks.messages.where((m) => m.startsWith('Neues Tagesziel')),
         isEmpty);
-  });
+  }));
 
   test('before onboarding completes, a weigh-in leaves the profile', () async {
     final store = HomeStore(

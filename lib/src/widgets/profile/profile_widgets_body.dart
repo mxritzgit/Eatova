@@ -21,8 +21,9 @@ class WeightCard extends StatelessWidget {
   /// weigh-ins are stale or out of range.
   double? get _planWeight => log.planWeightKg(clock.now());
 
-  /// What goal progress uses: the plan trend, else the latest weigh-in.
-  double get _trend => _planWeight ?? _current;
+  /// What goal progress uses: the plan weight, else the profile weight, like
+  /// the plan card (stale weigh-ins must not undo a newer typed weight).
+  double get _progressWeight => _planWeight ?? profile.weightKg.toDouble();
 
   @override
   Widget build(BuildContext context) {
@@ -196,7 +197,10 @@ class WeightCard extends StatelessWidget {
 
     // Weight moving the wrong way clamps to 0 on purpose; a negative bar
     // helps nobody.
-    final fortschritt = ((start - _trend) / (start - ziel)).clamp(0.0, 1.0);
+    final fortschritt = ((start - _progressWeight) / (start - ziel)).clamp(
+      0.0,
+      1.0,
+    );
     final prozent = (fortschritt * 100).round();
 
     return <Widget>[
@@ -296,12 +300,9 @@ class BmiCard extends StatelessWidget {
   double get _bmi {
     final m = profile.heightCm / 100.0;
     if (m <= 0) return 0;
-    // The plan trend, like goals and plan card: one current weight on the
-    // page. Without a usable trend, the latest weigh-in as before.
-    final w =
-        log.planWeightKg(clock.now()) ??
-        log.latest?.weightKg ??
-        profile.weightKg.toDouble();
+    // The plan weight, else the profile weight — like goals and plan card:
+    // one current weight on the page.
+    final w = log.planWeightKg(clock.now()) ?? profile.weightKg.toDouble();
     return w / (m * m);
   }
 

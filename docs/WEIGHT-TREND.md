@@ -35,9 +35,14 @@ therefore showed two different "current" weights.
     - An outlier on the last day does not move the plan yet.
 
     Normal daily swings (1–2 kg of water) stay below 5 % and are smoothed.
+  - A day more than 28 days after the last counted one starts afresh. After
+    a break the new weight is no outlier.
+  - Known limit: the first day seeds the trend unchecked. A typo on the very
+    first weigh-in day drives the plan until two later days agree. The goal
+    notice makes it visible.
 - **Plan weight** (`WeightLog.planWeightKg(now)`): the trend, but only while
-  the latest weigh-in is at most 28 days old and the rounded value fits
-  `ProfileLimits` (30–300 kg). Otherwise there is no plan weight and the
+  its last **counted** day is at most 28 days old (a held outlier does not
+  refresh it) and the rounded value fits `ProfileLimits` (30–300 kg). Otherwise there is no plan weight and the
   profile weight stays in charge. This also covers a user who stopped
   weighing in and later typed a weight on the goals screen.
 - **Re-anchoring:** after a weigh-in (manual or Apple Health import) and after
@@ -47,7 +52,10 @@ therefore showed two different "current" weights.
   - It requires that the server answered both the profile and the
     weight-log load in this session. A full profile row is never written from
     a cached profile or a cached log alone, because another device may have
-    changed it. A later boot catches up.
+    changed it. A cache re-hydration clears the gate again. A later boot
+    catches up.
+  - At boot it runs after the cache snapshot is written. That way its own
+    commit cannot make the snapshot conflict.
   - Live mode recomputes the goals in the same step (`applyLiveGoals`).
   - Manual mode keeps its own goals and only updates the weight.
   - The weigh-in and the profile update are one atomic local commit. A
@@ -60,13 +68,14 @@ therefore showed two different "current" weights.
   names the new goal. This is typically 50 kcal every 3–4 kg. If the same
   commit just raised the once-per-session "saved here, syncs later" hint,
   the hint stays and the goal notice is skipped.
-- **One current weight in the UI** (the plan weight, with fallbacks):
+- **One current weight in the UI:** the plan weight, else the profile weight.
+  It drives:
   - the plan card's "current" pole, gap and forecast;
-  - the weight card's trend line (shown only with a plan weight) and its goal
-    progress;
+  - the weight card's goal progress;
   - BMI.
 
-  The weight card's big number stays the latest weigh-in.
+  The weight card's big number stays the latest weigh-in, and its trend line
+  appears only with a plan weight.
 - **Goals screen:** with a plan weight, the weight row is read-only and shows
   it, because a typed value would immediately be smoothed back. Its hidden
   energy fields use the same weight. Without a plan weight the row stays

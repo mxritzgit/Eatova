@@ -90,8 +90,31 @@ class WeightLog {
   /// An outlier day ([trendOutlierShare]) is held back. If the next day lies
   /// within the share of it, the jump is real and the trend moves to that
   /// day; otherwise the outlier is dropped. An outlier on the last day does
-  /// not move the trend yet.
-  double? get trendKg {
+  /// not move the trend yet. A day more than [trendMaxAge] after the last
+  /// counted one starts afresh: after a break, the new weight is no outlier.
+  double? get trendKg => _trend()?.kg;
+
+  /// The trend the plan may use at [now]: [trendKg] when its last COUNTED
+  /// day is at most [trendMaxAge] old (a held outlier does not refresh it)
+  /// and the rounded value fits the profile's weight range; otherwise null,
+  /// and the profile weight stays in charge.
+  double? planWeightKg(DateTime now) {
+    final trend = _trend();
+    if (trend == null) return null;
+    final local = now.toLocal();
+    final today = DateTime.utc(local.year, local.month, local.day);
+    if (today.difference(trend.counted).inDays > trendMaxAge.inDays) {
+      return null;
+    }
+    final kg = trend.kg.round();
+    if (kg < ProfileLimits.weightKgMin || kg > ProfileLimits.weightKgMax) {
+      return null;
+    }
+    return trend.kg;
+  }
+
+  /// The trend and its last counted day (UTC midnight of the local date).
+  ({double kg, DateTime counted})? _trend() {
     if (entries.isEmpty) return null;
     final sorted = [...entries]
       ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
@@ -110,6 +133,14 @@ class WeightLog {
     var (counted, trend) = days.first;
     double? held;
     for (final (date, kg) in days.skip(1)) {
+      final gap = date.difference(counted).inDays;
+      if (gap > trendMaxAge.inDays) {
+        // After a break the old trend says nothing: start afresh.
+        trend = kg;
+        counted = date;
+        held = null;
+        continue;
+      }
       final outlier = held;
       if (outlier != null) {
         held = null;
@@ -124,28 +155,10 @@ class WeightLog {
         held = kg;
         continue;
       }
-      final gap = date.difference(counted).inDays;
       trend += (1 - math.pow(1 - trendAlphaPerDay, gap)) * (kg - trend);
       counted = date;
     }
-    return trend;
-  }
-
-  /// The trend the plan may use at [now]: [trendKg] when the latest weigh-in
-  /// is at most [trendMaxAge] old and the rounded value fits the profile's
-  /// weight range; otherwise null, and the profile weight stays in charge.
-  double? planWeightKg(DateTime now) {
-    final last = latest;
-    if (last == null || now.difference(last.timestamp) > trendMaxAge) {
-      return null;
-    }
-    final trend = trendKg;
-    if (trend == null) return null;
-    final kg = trend.round();
-    if (kg < ProfileLimits.weightKgMin || kg > ProfileLimits.weightKgMax) {
-      return null;
-    }
-    return trend;
+    return (kg: trend, counted: counted);
   }
 
   WeightLog add(double kg) =>

@@ -99,6 +99,15 @@ void main() {
       expect(_trend([_at(0, 80), _at(1, 80.4), _at(2, 90)]), closeTo(80.04, 1e-9));
     });
 
+    test('after a break of more than 28 days the next day starts afresh', () {
+      // Review case: daily 80 kg until early September, then nothing for two
+      // months; the 75 kg of 31 October is a new start, not an outlier.
+      expect(
+        _trend([for (var d = 0; d < 10; d++) _at(d, 80), _at(60, 75)]),
+        75,
+      );
+    });
+
     test('just under 5 % is still smoothed', () {
       // 83.9 is 4.875 % above 80.
       expect(_trend([_at(0, 80), _at(1, 83.9)]), closeTo(80.39, 1e-9));
@@ -136,6 +145,28 @@ void main() {
         ]).planWeightKg(now),
         84,
       );
+    });
+
+    test('after a break, the first new weigh-in is the plan weight', () {
+      // The user typed 75 on the goals screen during the break; the first
+      // weigh-in back (75) must not revive the August trend of 80.
+      final log = WeightLog.capped([
+        for (var d = 1; d <= 10; d++)
+          WeightLogEntry(timestamp: DateTime(2026, 8, d, 7), weightKg: 80),
+        WeightLogEntry(timestamp: DateTime(2026, 10, 3, 7), weightKg: 75),
+      ]);
+      expect(log.planWeightKg(now), 75);
+    });
+
+    test('freshness counts from the last COUNTED day, not a held outlier', () {
+      // 3 Sept is the last counted day (30 days before now); 1 Oct is an
+      // unconfirmed outlier 28 days later. Neither makes a current weight.
+      final log = WeightLog.capped([
+        WeightLogEntry(timestamp: DateTime(2026, 9, 3, 7), weightKg: 80),
+        WeightLogEntry(timestamp: DateTime(2026, 10, 1, 7), weightKg: 85),
+      ]);
+      expect(log.trendKg, 80);
+      expect(log.planWeightKg(now), isNull);
     });
 
     test('none when the rounded trend leaves the profile range 30–300', () {

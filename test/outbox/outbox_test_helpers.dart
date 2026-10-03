@@ -103,6 +103,10 @@ class FakeServer {
   /// `userRecipesAuthoritative` has to tell apart (P3-04b).
   bool rejectRecipeReads = false;
 
+  /// ONLY the weight-log read fails (500) while the profile answers: the
+  /// half-answered boot the weight-trend re-anchor must not act on.
+  bool rejectWeightLogReads = false;
+
   /// ONLY the tracking-day booking fails (`trackingDay`, or a `mealInsert`
   /// with `track_day`) — the combination that lost the streak day.
   bool rejectTrackingDay = false;
@@ -368,6 +372,7 @@ class FakeServer {
       );
     }
     if (path.contains('/weight_log')) {
+      if (rejectWeightLogReads) return fail();
       // GET in the select shape of TrackingSync.loadWeightLog.
       return ok(
         weightRows.values
