@@ -71,6 +71,25 @@ begin
   perform public.apply_sync_operation(op,'profileUpsert','self',body);
   perform pg_temp.require((select weight_kg=73 from public.profiles where profiles.id=auth.uid()),'profile retry cannot rewind register');
 
+  -- Weekly energy check (20261003100000): both fields travel and persist; a
+  -- payload without them (an older build) keeps the stored values instead of
+  -- resetting them; the range check rejects nonsense.
+  perform public.apply_sync_operation(gen_random_uuid(),'profileUpsert','self',
+    jsonb_set(jsonb_set(body,'{row,energy_adjustment_kcal}','-150'),'{row,energy_checked_on}','"2026-10-03"'));
+  perform pg_temp.require((select energy_adjustment_kcal=-150 and energy_checked_on=date '2026-10-03'
+    from public.profiles where profiles.id=auth.uid()),'energy check fields persist');
+  perform public.apply_sync_operation(gen_random_uuid(),'profileUpsert','self',
+    jsonb_set((body #- '{row,energy_adjustment_kcal}') #- '{row,energy_checked_on}','{row,weight_kg}','74'));
+  perform pg_temp.require((select weight_kg=74 and energy_adjustment_kcal=-150 and energy_checked_on=date '2026-10-03'
+    from public.profiles where profiles.id=auth.uid()),'older payload keeps energy check fields');
+  begin
+    perform public.apply_sync_operation(gen_random_uuid(),'profileUpsert','self',
+      jsonb_set(body,'{row,energy_adjustment_kcal}','5000'));
+    raise exception 'energy adjustment range not enforced';
+  exception when others then
+    if sqlerrm not like '%EX_INVALID_SYNC_OPERATION%' then raise; end if;
+  end;
+
   body:=jsonb_build_object('row',jsonb_build_object('id',training_id,'plan',rlstest.training_plan(),'exercise_ids','[["squat","plank"]]'::jsonb));
   op:=gen_random_uuid();
   perform public.apply_sync_operation(op,'trainingPlanUpsert',training_id,body);
