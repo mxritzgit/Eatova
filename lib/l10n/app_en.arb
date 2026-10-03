@@ -2369,7 +2369,6 @@
   "trainingHistorySubtitle": "Your completed workouts.",
   "trainingHistoryEmpty": "Your workouts appear here. Start one from a plan or log a workout you already did.",
   "trainingHistoryLoadError": "History could not load. Saved workouts remain available. Try again.",
-  "trainingHistoryLastTime": "Last time",
   "trainingHistoryNote": "Workout note",
   "trainingHistoryDeleteTitle": "Delete workout?",
   "trainingHistoryDeleteBody": "This completion and its set values will be removed from your history. Your training plan stays saved.",
@@ -2458,14 +2457,6 @@
   "trainingLogYesterday": "Yesterday",
   "trainingLogOtherDay": "Other day",
   "trainingLogDuration": "Duration in minutes (optional)",
-  "trainingLogSetNumber": "Set {number}",
-  "@trainingLogSetNumber": {
-    "placeholders": {
-      "number": {
-        "type": "int"
-      }
-    }
-  },
   "trainingLogReps": "Reps",
   "trainingLogKg": "kg",
   "trainingLogRepsSemantics": "Set {number}, repetitions",

@@ -2419,7 +2419,6 @@
   "trainingHistorySubtitle": "Deine abgeschlossenen Trainings.",
   "trainingHistoryEmpty": "Hier erscheinen deine Trainings. Starte eines aus einem Plan oder trage ein bereits absolviertes nach.",
   "trainingHistoryLoadError": "Der Verlauf konnte nicht geladen werden. Gespeicherte Trainings bleiben verfügbar. Versuche es erneut.",
-  "trainingHistoryLastTime": "Letztes Mal",
   "trainingHistoryNote": "Notiz zum Training",
   "trainingHistoryDeleteTitle": "Training löschen?",
   "trainingHistoryDeleteBody": "Dieser Abschluss und seine Satzwerte werden aus deinem Verlauf entfernt. Dein Trainingsplan bleibt erhalten.",
@@ -2508,14 +2507,6 @@
   "trainingLogYesterday": "Gestern",
   "trainingLogOtherDay": "Anderer Tag",
   "trainingLogDuration": "Dauer in Minuten (optional)",
-  "trainingLogSetNumber": "Satz {number}",
-  "@trainingLogSetNumber": {
-    "placeholders": {
-      "number": {
-        "type": "int"
-      }
-    }
-  },
   "trainingLogReps": "Wdh.",
   "trainingLogKg": "kg",
   "trainingLogRepsSemantics": "Satz {number}, Wiederholungen",
