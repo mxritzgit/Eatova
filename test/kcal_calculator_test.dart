@@ -523,4 +523,41 @@ void main() {
       );
     });
   });
+
+  // Weekly energy check (docs/WEIGHT-TREND.md, stage 2): the confirmed offset
+  // shifts maintenance, so goal, forecast and pace follow; the floor holds.
+  group('energyAdjustmentKcal', () {
+    const base = UserProfile(
+      weightKg: 84,
+      heightCm: 182,
+      ageYears: 31,
+      sex: BiologicalSex.male,
+      activityLevel: ActivityLevel.light,
+      targetWeightKg: 76,
+      weightGoal: WeightGoal.lose05kg,
+      onboardingCompleted: true,
+    );
+    const calc = KcalCalculator();
+
+    test('shifts maintenance and the goal by the offset', () {
+      final plain = calc.calculate(base);
+      final lower = calc.calculate(base.copyWith(energyAdjustmentKcal: -150));
+      final higher = calc.calculate(base.copyWith(energyAdjustmentKcal: 100));
+      expect(plain.kcal, 2100, reason: 'precondition');
+      expect(lower.maintenanceKcal, plain.maintenanceKcal - 150);
+      expect(lower.kcal, 1950);
+      expect(higher.maintenanceKcal, plain.maintenanceKcal + 100);
+      expect(higher.kcal, 2200);
+    });
+
+    test('the sex-specific floor still holds', () {
+      final floored = calc.calculate(base.copyWith(energyAdjustmentKcal: -1000));
+      expect(floored.kcal, KcalCalculator.kcalFloorFor(BiologicalSex.male));
+    });
+
+    test('live goals heal to the adjusted calculation', () {
+      final adjusted = base.copyWith(energyAdjustmentKcal: -150);
+      expect(calc.applyLiveGoals(adjusted).dailyKcalGoal, 1950);
+    });
+  });
 }

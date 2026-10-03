@@ -245,6 +245,43 @@
       "kcal": { "type": "int" }
     }
   },
+  "commonEnergyCheckApplied": "Daily goal adjusted: {kcal} kcal.",
+  "@commonEnergyCheckApplied": {
+    "placeholders": {
+      "kcal": { "type": "int" }
+    }
+  },
+  "todayEnergyCheckTitle": "Weekly check",
+  "todayEnergyCheckBurnMore": "Your last three weeks suggest you burn about {observed} kcal a day – roughly {difference} kcal more than calculated.",
+  "@todayEnergyCheckBurnMore": {
+    "placeholders": {
+      "observed": { "type": "int" },
+      "difference": { "type": "int" }
+    }
+  },
+  "todayEnergyCheckBurnLess": "Your last three weeks suggest you burn about {observed} kcal a day – roughly {difference} kcal less than calculated.",
+  "@todayEnergyCheckBurnLess": {
+    "placeholders": {
+      "observed": { "type": "int" },
+      "difference": { "type": "int" }
+    }
+  },
+  "todayEnergyCheckQuestion": "Change your daily goal from {current} to {proposed} kcal?",
+  "@todayEnergyCheckQuestion": {
+    "placeholders": {
+      "current": { "type": "int" },
+      "proposed": { "type": "int" }
+    }
+  },
+  "todayEnergyCheckBasis": "Based on {days} logged days and {weighIns} weigh-ins",
+  "@todayEnergyCheckBasis": {
+    "placeholders": {
+      "days": { "type": "int" },
+      "weighIns": { "type": "int" }
+    }
+  },
+  "todayEnergyCheckAccept": "Adjust",
+  "todayEnergyCheckDismiss": "Not now",
   "foodRemoveFavoriteTooltip": "Remove from favorites",
   "foodAddFavoriteTooltip": "Save as favorite",
   "foodDecreaseAmountSemantics": "Decrease amount",
@@ -1039,6 +1076,9 @@
   "goalsGroupBody": "BODY",
   "goalsFieldWeight": "Weight",
   "goalsWeightFromTrend": "Trend of your weigh-ins. Log a new weigh-in in your profile.",
+  "goalsEnergyAdjustmentTitle": "Weekly check",
+  "goalsEnergyAdjustmentSubtitle": "Expenditure calibrated from your logs and weigh-ins",
+  "goalsEnergyAdjustmentReset": "Reset",
   "goalsFieldHeight": "Height",
   "goalsFieldAge": "Age",
   "goalsUnitAgeAbbrev": "yr",

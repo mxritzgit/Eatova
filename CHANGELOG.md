@@ -17,7 +17,13 @@ the complete current product.
 
 ### October 2026
 
-- **Weigh-ins re-anchor the plan**: the profile weight now follows a smoothed
+- **Weekly energy check**: after three weeks with enough logged days and
+  weigh-ins, Today proposes, at most once a week, to move the daily goal by up
+  to 150 kcal. The basis is the expenditure the logged intake and the weight
+  trend imply. Nothing changes without "Adjust". The goals screen shows the
+  calibration and can reset it. New profile columns `energy_adjustment_kcal`
+  and `energy_checked_on`. See [weight trend](docs/WEIGHT-TREND.md).
+- **Weigh-ins re-anchor the plan** (#126): the profile weight now follows a smoothed
   trend of the weigh-ins, with live goals recomputed and a short notice when the
   daily goal changes. The forecast, the plan card, BMI and step kcal move with
   it, and the goals screen shows the trend read-only once weigh-ins exist. See

@@ -107,6 +107,10 @@ class FakeServer {
   /// half-answered boot the weight-trend re-anchor must not act on.
   bool rejectWeightLogReads = false;
 
+  /// ONLY the logged_meals read fails (500): the half-answered boot the
+  /// weekly energy check must not act on.
+  bool rejectMealReads = false;
+
   /// Opt-in: answer `load_meal_plan` with an empty plan instead of the bare
   /// 201 the remaining writes get (which makes the load fail). With
   /// [holdMealPlanReads] the answer waits, so a local commit can land while
@@ -304,6 +308,7 @@ class FakeServer {
       }
     }
     if (path.contains('/logged_meals')) {
+      if (rejectMealReads && req.method == 'GET') return fail();
       // GET: select shape, WITH PostgREST-like filters. A fake returning every
       // row hid the 35-day hole in the re-display path.
       Iterable<Map<String, dynamic>> rows = mealRows.values;

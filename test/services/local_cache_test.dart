@@ -144,7 +144,7 @@ void main() {
           .allMatches(klassenRumpf)
           .map((m) => m.group(1)!)
           .toList();
-      expect(felder, hasLength(17),
+      expect(felder, hasLength(19),
           reason: 'Feldliste aus lib/src/models/user_profile.dart gelesen');
 
       // Field name -> cache key: camelCase -> snake_case, with `diet` the one
@@ -162,6 +162,28 @@ void main() {
               .toSet();
 
       expect(geschriebeneSchluessel, erwarteteSchluessel);
+    });
+
+    test('Wochen-Check-Felder ueberleben den Cache; Altbestand faellt auf 0/null',
+        () async {
+      final store = InMemoryKeyValueStore();
+      await _cache(store).writeProfile(
+        UserProfile(
+          energyAdjustmentKcal: -150,
+          energyCheckedOn: DateTime(2026, 10, 3),
+        ),
+      );
+      final back = (await _cache(store).readProfile())!;
+      expect(back.energyAdjustmentKcal, -150);
+      expect(back.energyCheckedOn, DateTime(2026, 10, 3));
+
+      // A blob from before the weekly check carries neither key.
+      final alt = InMemoryKeyValueStore({
+        'eatova.v1.profile.user-1': jsonEncode(_zahlenVollstaendig()),
+      });
+      final altProfil = (await _cache(alt).readProfile())!;
+      expect(altProfil.energyAdjustmentKcal, 0);
+      expect(altProfil.energyCheckedOn, isNull);
     });
 
     test('unbekannte diet_preference faellt auf none (kein Crash)', () async {

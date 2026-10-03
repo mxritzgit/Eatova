@@ -10,6 +10,7 @@ import '../models/planned_meal.dart';
 import '../models/training_plan.dart';
 import '../models/training_history.dart';
 import '../models/user_profile.dart';
+import 'local_day.dart';
 import 'meals_sync.dart' show mealResultFromJson, mealResultToJson;
 import 'uuid.dart';
 
@@ -847,6 +848,13 @@ Map<String, dynamic> userProfileToJson(UserProfile p) => <String, dynamic>{
   // or an offline goal edit would be healed back to the calculator on the
   // next load. Mirrors profiles.manual_energy.
   'manual_energy': p.manualEnergy,
+  // Weekly energy check (docs/WEIGHT-TREND.md): the confirmed offset and the
+  // day of the last answer. Mirror profiles.energy_adjustment_kcal and
+  // profiles.energy_checked_on; a missing key keeps the server value.
+  'energy_adjustment_kcal': p.energyAdjustmentKcal,
+  'energy_checked_on': p.energyCheckedOn == null
+      ? null
+      : localDayKey(p.energyCheckedOn!),
 };
 
 /// Sentinel finding 3 (2026-08-08): missing numeric fields used to be filled
@@ -915,6 +923,9 @@ UserProfile? userProfileFromJson(Map<String, dynamic> j) {
     // Missing (blob from an older build) counts as live, like the column
     // default — never reconstructed from the numbers.
     manualEnergy: j['manual_energy'] == true,
+    // Missing (older cache blob or payload): no offset, never checked.
+    energyAdjustmentKcal: _profileInt(j['energy_adjustment_kcal']) ?? 0,
+    energyCheckedOn: parseLocalDayKey(j['energy_checked_on']),
   );
 }
 

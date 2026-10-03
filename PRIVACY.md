@@ -31,8 +31,12 @@ You enter and the app stores the following, tied to your account:
   rights").
 - **Profile / body metrics:** name, email, weight, height, age, biological sex,
   activity level, goal weight, weight goal (lose/hold/gain), dietary preference,
-  and your daily targets (calories, macros and steps). Water and sleep goals
-  are no longer active profile controls.
+  and your daily targets (calories, macros and steps). When you answer the
+  weekly check, the profile also stores the day of that answer. If you
+  confirm its proposal, it stores the resulting calibration of your calorie
+  estimate as well (an offset in kcal per day). The check is computed on your
+  device from your logged meals, weigh-ins and step counts. Water and sleep
+  goals are no longer active profile controls.
 - **Nutrition log:** meals you log (name, calories, macros, portion, barcode/brand
   where applicable, and whether the values came from the AI scan, a barcode, the
   product search or your own manual entry), favorites, and your own recipes,
@@ -107,17 +111,18 @@ You enter and the app stores the following, tied to your account:
   With the same permission it also writes back to Apple Health: a body-weight
   entry when you record a weigh-in. It reads and writes only these categories
   and accesses no other Apple Health data. The step count is used on the device
-  for the day's display and the calories-burned estimate; it is not stored on
-  our servers.
+  for the day's display, the calories-burned estimate and the weekly check
+  (the last three weeks); it is not stored on our servers.
 - **Voice input (optional, iOS only):** if you use the coach's microphone button,
   audio is captured only while the microphone is active (tap to start, tap again
   to stop) and is converted to text by Apple's speech recognition. Only the resulting text is sent to the coach — the
   app neither stores the audio recording nor sends it to our servers.
 - **Health Connect (optional, Android only):** with permission, the app reads
   aggregated steps during foreground refreshes for the selected day's display
-  and activity estimate. It does not request Android weight access or write
-  health records. Step counts are not persisted to our servers. Availability,
-  permission and an empty source are handled as distinct states.
+  and activity estimate, and for the weekly check (the last three weeks). It
+  does not request Android weight access or write health records. Step counts
+  are not persisted to our servers. Availability, permission and an empty
+  source are handled as distinct states.
 
 In addition, and **not** tied to your account:
 

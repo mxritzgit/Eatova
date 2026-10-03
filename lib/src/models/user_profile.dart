@@ -328,6 +328,8 @@ class UserProfile {
     this.diet = DietPreference.none,
     this.onboardingCompleted = false,
     this.manualEnergy = false,
+    this.energyAdjustmentKcal = 0,
+    this.energyCheckedOn,
   });
 
   final int weightKg;
@@ -368,6 +370,15 @@ class UserProfile {
   /// change (review 2026-08-27, F7-01).
   final bool manualEnergy;
 
+  /// Offset on BMR × PAL in kcal/day from the weekly energy check
+  /// (docs/WEIGHT-TREND.md, stage 2), set only after the user confirms a
+  /// proposal. Mirrored to public.profiles.energy_adjustment_kcal.
+  final int energyAdjustmentKcal;
+
+  /// Local day (midnight) of the last answered weekly check, accepted or
+  /// dismissed; null = never. Mirrored to public.profiles.energy_checked_on.
+  final DateTime? energyCheckedOn;
+
   UserProfile copyWith({
     int? weightKg,
     int? heightCm,
@@ -386,6 +397,8 @@ class UserProfile {
     DietPreference? diet,
     bool? onboardingCompleted,
     bool? manualEnergy,
+    int? energyAdjustmentKcal,
+    DateTime? energyCheckedOn,
   }) {
     return UserProfile(
       weightKg: weightKg ?? this.weightKg,
@@ -406,6 +419,8 @@ class UserProfile {
       diet: diet ?? this.diet,
       onboardingCompleted: onboardingCompleted ?? this.onboardingCompleted,
       manualEnergy: manualEnergy ?? this.manualEnergy,
+      energyAdjustmentKcal: energyAdjustmentKcal ?? this.energyAdjustmentKcal,
+      energyCheckedOn: energyCheckedOn ?? this.energyCheckedOn,
     );
   }
 }

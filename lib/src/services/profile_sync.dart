@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/user_profile.dart';
 import 'kcal_calculator.dart';
+import 'local_day.dart';
 
 /// Maps a raw public.profiles.sex string to [BiologicalSex]; null/unknown
 /// falls back to [BiologicalSex.neutral]. Pure, so it needs no client.
@@ -90,7 +91,8 @@ class ProfileSync {
       'daily_sleep_goal_minutes, '
       'protein_goal_g, carbs_goal_g, fat_goal_g, weight_goal, '
       'diet_preference, '
-      'onboarding_completed, manual_energy';
+      'onboarding_completed, manual_energy, '
+      'energy_adjustment_kcal, energy_checked_on';
 
   Future<UserProfile?> load() async {
     lastLoadHealed = false;
@@ -139,6 +141,10 @@ class ProfileSync {
         // Missing (older row, pre-migration) counts as live — the default the
         // column carries too. Never reconstructed by comparing numbers.
         manualEnergy: row['manual_energy'] == true,
+        // NOT NULL default 0 server-side; lenient like the enums, since an
+        // unreadable offset is no measurement to protect.
+        energyAdjustmentKcal: _toInt(row['energy_adjustment_kcal']) ?? 0,
+        energyCheckedOn: parseLocalDayKey(row['energy_checked_on']),
       );
       final healed = const KcalCalculator().applyLiveGoals(loaded);
       if (!identical(healed, loaded)) {

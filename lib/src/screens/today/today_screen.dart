@@ -9,11 +9,13 @@ import '../../models/recipe_pick.dart';
 import '../../models/training_insights.dart';
 import '../../models/user_profile.dart';
 import '../../services/day_math.dart';
+import '../../services/energy_check.dart';
 import '../../services/meal_totals.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/lively.dart';
 import '../../widgets/design/design.dart';
 import 'today_day_strip.dart';
+import 'today_energy_check.dart';
 import 'today_glyphs.dart';
 import 'today_hero.dart';
 import 'today_macros.dart';
@@ -50,6 +52,9 @@ class TodayScreen extends StatelessWidget {
     this.onOpenPick,
     this.onOpenFoodLog,
     this.onOpenTraining,
+    this.energyCheck,
+    this.onAcceptEnergyCheck,
+    this.onDismissEnergyCheck,
   });
 
   final String userName;
@@ -104,6 +109,12 @@ class TodayScreen extends StatelessWidget {
   final VoidCallback? onOpenFoodLog;
   final VoidCallback? onOpenTraining;
 
+  /// The weekly energy check's proposal (docs/WEIGHT-TREND.md); shown on
+  /// today only, under the day's numbers it would change.
+  final EnergyCheckProposal? energyCheck;
+  final Future<void> Function()? onAcceptEnergyCheck;
+  final Future<void> Function()? onDismissEnergyCheck;
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -118,6 +129,7 @@ class TodayScreen extends StatelessWidget {
     final nextSlot = istHeute && !dayLoading ? accentSlot : null;
     final shownPick = istHeute && !dayLoading ? pick : null;
     final workout = istHeute ? nextWorkout : null;
+    final check = istHeute && !dayLoading ? energyCheck : null;
     final healthMissing = steps == null && healthConnect;
     final showActivity =
         !dayLoading &&
@@ -169,6 +181,16 @@ class TodayScreen extends StatelessWidget {
               TodayCalorieCard(summary: summary, isToday: istHeute),
               const SizedBox(height: 16),
               TodayMacros(summary: summary),
+              if (check != null &&
+                  onAcceptEnergyCheck != null &&
+                  onDismissEnergyCheck != null) ...<Widget>[
+                const SizedBox(height: 16),
+                TodayEnergyCheckCard(
+                  proposal: check,
+                  onAccept: onAcceptEnergyCheck!,
+                  onDismiss: onDismissEnergyCheck!,
+                ),
+              ],
               if (shownPick != null) ...<Widget>[
                 const SizedBox(height: 16),
                 TodayPickRow(
