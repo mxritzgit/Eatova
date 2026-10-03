@@ -93,6 +93,10 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
 
   String? _expandedItemKey;
   FavoriteSort _sort = FavoriteSort.recent;
+
+  /// Bumped per sort change: keys the faded-in list, unique even when the
+  /// same order comes back within the fade.
+  int _sortGeneration = 0;
   final Set<String> _justAddedKeys = <String>{};
   final Map<String, Timer> _justAddedTimers = <String, Timer>{};
 
@@ -271,6 +275,7 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
                         sort: _sort,
                         onChanged: (sort) => setState(() {
                           _sort = sort;
+                          _sortGeneration++;
                           _expandedItemKey = null;
                         }),
                       ),
@@ -298,16 +303,15 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
                     ),
                   ),
                   // A new order fades in instead of rows jumping places.
+                  // The old one leaves at once: no stale row stays visible
+                  // over the new one a tap would reach.
                   AnimatedSwitcher(
                     duration: motionDuration(context, kMotionEnter),
                     switchInCurve: kMotionCurve,
-                    switchOutCurve: kMotionCurve,
-                    layoutBuilder: (current, previous) => Stack(
-                      alignment: Alignment.topCenter,
-                      children: [...previous, ?current],
-                    ),
+                    layoutBuilder: (current, _) =>
+                        current ?? const SizedBox.shrink(),
                     child: KeyedSubtree(
-                      key: ValueKey(_sort),
+                      key: ValueKey(_sortGeneration),
                       child: _buildList(pinned, visible),
                     ),
                   ),

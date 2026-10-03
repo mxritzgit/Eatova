@@ -58,8 +58,13 @@ favorites of the add-meal sheet (`SavedMealHeader`).
 - Motion: the list cross-fades when the sort changes; "+" has the press
   scale. Both are off under reduced motion.
 - Accessibility: "+" is a button "Add Protein bar, 212 kcal, to Lunch"; the
-  chips are selectable buttons; every target is at least 44 px; 320 px and
-  2x text without overflow; de and en.
+  chips are selectable buttons; heart and "+" are 48 px targets, the chips
+  keep the app's shared 42 px `FilterChipPill` (as in Recipes and Trends);
+  320 px and 2x text without overflow; de and en.
+- Review follow-up: after an add, the inline rows keep their order while the
+  check shows, and the sheet scrolls by the height the "already added" list
+  grew, so a second tap on the same "+" adds the same food. Photos pass
+  between entries only with the same barcode.
 
 ## Verification
 

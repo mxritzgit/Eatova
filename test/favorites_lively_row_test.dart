@@ -201,7 +201,15 @@ void main() {
   ) async {
     final semantics = tester.ensureSemantics();
     try {
-      await _pumpSheet(tester, favorites: [_fav(_bar(), 3), _fav(_oats, 2)]);
+      final added = <String>[];
+      await _pumpSheet(
+        tester,
+        favorites: [_fav(_bar(), 3), _fav(_oats, 2)],
+        onAdd: (result, _) {
+          added.add(result.mealName);
+          return 'id';
+        },
+      );
       expect(
         tester.getSemantics(_quick(0)),
         isSemantics(
@@ -215,6 +223,8 @@ void main() {
         SemanticsAction.tap,
       );
       await tester.pump();
+      await tester.pump();
+      expect(added, ['Overnight Oats'], reason: 'the screen reader tap adds');
       for (final key in ['favorites-sheet-quick-0', 'favorites-sheet-fav-0']) {
         final size = tester.getSize(find.byKey(ValueKey(key)));
         expect(size.width, greaterThanOrEqualTo(44), reason: key);
@@ -224,6 +234,39 @@ void main() {
     } finally {
       semantics.dispose();
     }
+  });
+
+  testWidgets('"+" on a row without known kcal logs nothing and says why', (
+    tester,
+  ) async {
+    final added = <MealAnalysisResult>[];
+    const unknown = MealAnalysisResult(
+      mealName: 'Altes Müsli',
+      caloriesKcal: 0,
+      estimatedGrams: 80,
+      kcalPer100G: 0,
+      protein: '-',
+      carbs: '-',
+      fat: '-',
+      confidence: 'medium',
+      portionNotes: '',
+    );
+    await _pumpSheet(
+      tester,
+      favorites: [_fav(unknown, 3)],
+      onAdd: (result, _) {
+        added.add(result);
+        return 'id';
+      },
+    );
+    await tester.tap(_quick(0));
+    await tester.pump();
+    expect(added, isEmpty);
+    expect(
+      find.textContaining("This can't be logged without a calorie value."),
+      findsOneWidget,
+    );
+    await _expireTimers(tester);
   });
 
   for (final locale in ['de', 'en']) {
@@ -296,6 +339,34 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(order(tester), ['Banane']);
+    });
+
+    testWidgets('fast chip changes keep one list that takes the taps', (
+      tester,
+    ) async {
+      // Motion on: the fade is what a fast second change interrupts.
+      await pumpLocalized(
+        tester,
+        FavoritesSheet(
+          favorites: favorites,
+          slot: MealSlot.lunch,
+          onAdd: (_, __) => 'id',
+          onUnpin: (_) {},
+        ),
+        locale: const Locale('en'),
+        reducedMotion: false,
+        surfaceSize: const Size(390, 844),
+        safeArea: false,
+      );
+      await tester.pump();
+      for (final key in ['frequent', 'recent', 'frequent']) {
+        await tester.tap(find.byKey(ValueKey('favorites-sheet-sort-$key')));
+        await tester.pump(const Duration(milliseconds: 40));
+      }
+      expect(tester.takeException(), isNull);
+      expect(_row(0), findsOneWidget, reason: 'one list, never two');
+      await tester.pumpAndSettle();
+      expect(order(tester), ['Skyr', 'Banane', 'Äpfel']);
     });
 
     testWidgets('the chosen chip is announced as selected', (tester) async {

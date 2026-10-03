@@ -117,4 +117,40 @@ void main() {
       expect(identical(a.store.favorites.single.result, before), isTrue);
     },
   );
+
+  test('a photo never moves to another food of the same name', () async {
+    final a = setup();
+    await bootUntilIdle(a.store);
+    // A product without barcode is keyed by its name, like an AI scan.
+    const product = MealAnalysisResult(
+      mealName: 'Banane',
+      caloriesKcal: 105,
+      estimatedGrams: 118,
+      kcalPer100G: 89,
+      protein: '1 g',
+      carbs: '27 g',
+      fat: '0 g',
+      confidence: 'database',
+      portionNotes: '',
+      sourceLabel: 'open_food_facts',
+      imageUrl: _photo,
+    );
+    await a.store.toggleFavorite(product);
+    await a.store.addResultToDailyTotal(
+      const MealAnalysisResult(
+        mealName: 'Banane',
+        caloriesKcal: 120,
+        estimatedGrams: 130,
+        kcalPer100G: 92,
+        protein: '1 g',
+        carbs: '30 g',
+        fat: '0 g',
+        confidence: 'medium',
+        portionNotes: '',
+      ),
+    );
+    final favorite = a.store.favorites.single;
+    expect(favorite.result.caloriesKcal, 120);
+    expect(favorite.result.imageUrl, isNull);
+  });
 }

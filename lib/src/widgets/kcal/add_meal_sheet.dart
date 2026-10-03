@@ -303,6 +303,9 @@ class AddMealSheet extends StatefulWidget {
 class _AddMealSheetState extends State<AddMealSheet> {
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+
+  /// The block under the "already added" list: favorites or search hits.
+  final GlobalKey _belowAddedKey = GlobalKey(debugLabel: 'below-added');
   Timer? _productSearchDebounce;
   int _productSearchRequestId = 0;
   final Map<String, List<ProductSearchResult>> _productSearchCache =
@@ -346,6 +349,11 @@ class _AddMealSheetState extends State<AddMealSheet> {
 
   String? _expandedItemKey;
   final Set<String> _justAddedKeys = <String>{};
+
+  /// Order of the inline favorites frozen while an add's check shows, so a
+  /// second tap on the same "+" adds the same food again instead of the
+  /// one that moved under the finger (an add bumps its row to the top).
+  List<String>? _heldPinnedOrder;
   final Map<String, Timer> _justAddedTimers = <String, Timer>{};
 
   // The slot is sheet state, not a fixed input: it defaults to the passed
@@ -999,6 +1007,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
     }
 
     if (!_savingItems.add(itemKey)) return;
+    _heldPinnedOrder ??= [for (final f in _pinned) f.id];
+    final rowsTop = _belowAddedTop();
     final slot = _selectedSlot;
     final saved = await tryPersistChange(context, () async {
       await _logAndMirror(result, slot);
@@ -1017,11 +1027,15 @@ class _AddMealSheetState extends State<AddMealSheet> {
       _expandedItemKey = null;
       _justAddedKeys.add(itemKey);
     });
+    _keepRowsInPlace(rowsTop);
     _justAddedTimers.remove(itemKey)?.cancel();
     _justAddedTimers[itemKey] = Timer(_justAddedFadeDelay, () {
       _justAddedTimers.remove(itemKey);
       if (!mounted) return;
-      setState(() => _justAddedKeys.remove(itemKey));
+      setState(() {
+        _justAddedKeys.remove(itemKey);
+        if (_justAddedKeys.isEmpty) _heldPinnedOrder = null;
+      });
     });
   }
 
@@ -1133,18 +1147,20 @@ class _AddMealSheetState extends State<AddMealSheet> {
                   ),
                   const SizedBox(height: _kSectionGap),
                 ],
-                if (searchActive)
-                  _buildSearchResults()
-                else
-                  // Removing a favorite collapses the list smoothly
-                  // instead of jumping.
-                  maybeAnimatedSize(
-                    context,
-                    duration: const Duration(milliseconds: 220),
-                    curve: Curves.easeInOut,
-                    alignment: Alignment.topCenter,
-                    child: _buildFavorites(),
-                  ),
+                KeyedSubtree(
+                  key: _belowAddedKey,
+                  child: searchActive
+                      ? _buildSearchResults()
+                      // Removing a favorite collapses the list smoothly
+                      // instead of jumping.
+                      : maybeAnimatedSize(
+                          context,
+                          duration: const Duration(milliseconds: 220),
+                          curve: Curves.easeInOut,
+                          alignment: Alignment.topCenter,
+                          child: _buildFavorites(),
+                        ),
+                ),
               ],
             ),
           ),
@@ -1273,7 +1289,55 @@ class _AddMealSheetState extends State<AddMealSheet> {
 
   // Pinned favorites first (by recency, see favorites_view.dart), then auto
   // recents in store order — one list, split by the pinned flag.
+  /// Top of [_belowAddedKey] on screen, or null before the first layout.
+  double? _belowAddedTop() {
+    final box = _belowAddedKey.currentContext?.findRenderObject();
+    return box is RenderBox && box.attached
+        ? box.localToGlobal(Offset.zero).dy
+        : null;
+  }
+
+  /// Scroll anchoring for an add: the meal joins the "already added" list
+  /// above the rows, which would push the row under the finger down by one.
+  /// The sheet scrolls by the same amount, so a second tap on the same "+"
+  /// lands on the same food.
+  void _keepRowsInPlace(double? before) {
+    if (before == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final after = _belowAddedTop();
+      if (!mounted || after == null || !_scrollController.hasClients) return;
+      final delta = after - before;
+      if (delta.abs() < 0.5) return;
+      final position = _scrollController.position;
+      _scrollController.jumpTo(
+        (position.pixels + delta).clamp(
+          position.minScrollExtent,
+          position.maxScrollExtent,
+        ),
+      );
+    });
+  }
+
   List<FavoriteMeal> get _pinned => pinnedFavoritesByRecency(_favorites);
+
+  /// [_pinned], in [_heldPinnedOrder] while one is held; pins that arrived
+  /// meanwhile follow in recency order.
+  List<FavoriteMeal> get _pinnedForDisplay {
+    final pinned = _pinned;
+    final held = _heldPinnedOrder;
+    if (held == null) return pinned;
+    int place(FavoriteMeal f) {
+      final i = held.indexOf(f.id);
+      return i == -1 ? held.length : i;
+    }
+
+    final indexed = [for (var i = 0; i < pinned.length; i++) (i, pinned[i])];
+    indexed.sort((a, b) {
+      final byHold = place(a.$2).compareTo(place(b.$2));
+      return byHold != 0 ? byHold : a.$1.compareTo(b.$1);
+    });
+    return [for (final (_, f) in indexed) f];
+  }
   List<FavoriteMeal> get _recents =>
       _favorites.where((f) => !f.pinned).toList(growable: false);
 
@@ -1287,7 +1351,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
       return const _EmptyState();
     }
     // One sort for both count and slice (inlineFavorites would sort again).
-    final pinned = _pinned;
+    final pinned = _pinnedForDisplay;
     final pinnedCount = pinned.length;
     final inline = pinned.take(kInlineFavoritesCount).toList(growable: false);
     final recents = _recents;
