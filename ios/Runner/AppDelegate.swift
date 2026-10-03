@@ -36,6 +36,9 @@ import workmanager_apple
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "EatovaSecureScreenPlugin") {
       EatovaSecureScreenPlugin.register(with: registrar)
     }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "EatovaScreenPlugin") {
+      EatovaScreenPlugin.register(with: registrar)
+    }
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "RecipeSharePlugin") {
       RecipeSharePlugin.register(with: registrar)
     }
@@ -129,16 +132,49 @@ public final class EatovaSecureScreenPlugin: NSObject, FlutterPlugin {
 // EatovaSpeechPlugin: native voice-input bridge for the coach chat.
 //
 // Requests mic + speech permission, runs AVAudioEngine + SFSpeechRecognizer
-// and returns the transcript to Flutter.
+// and reports the transcript to Flutter (coach_speech.dart):
+// - listen {localeId, token} completes with {text, reason}. reason is stop
+//   (Dart asked), final (the task ended on its own), limit (it ended on its
+//   own after >= 55 s, Apple's server cap), length (the text reached the coach
+//   input cap) or cancel. Errors: permission_denied, unavailable, busy,
+//   recognition_failed.
+// - Native -> Dart partial {token, text}: the whole transcript so far, sent
+//   only when it changed.
+// - stop is graceful: the audio ends and the final result gets up to 1.5 s.
+//   cancel completes at once (lifecycle, dispose).
+// The transcript is never logged.
 // ---------------------------------------------------------------------------
 public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
+  /// Mirrors kCoachMaxInputChars (UTF-16 units) in coach_composer.dart.
+  private static let maxTranscriptUnits = 1000
+  private static let finalResultGrace: TimeInterval = 1.5
+  /// Apple's server path stops a task after about one minute.
+  private static let serverLimit: TimeInterval = 55
+  /// Gym vocabulary in both app languages; it only biases recognition.
+  private static let gymVocabulary = [
+    "Bankdrücken", "Kniebeugen", "Kreuzheben", "Schulterdrücken", "Klimmzüge",
+    "Liegestütze", "Rudern", "Latziehen", "Beinpresse", "Ausfallschritte",
+    "Wiederholungen", "Sätze", "Langhantel", "Kurzhantel", "Kilo",
+    "bench press", "squats", "deadlift", "overhead press", "pull-ups",
+    "push-ups", "rows", "lat pulldown", "leg press", "lunges",
+    "reps", "sets", "barbell", "dumbbell", "kg", "plank",
+  ]
+
   private let audioEngine = AVAudioEngine()
+  private var channel: FlutterMethodChannel?
+  private var recognizer: SFSpeechRecognizer?
   private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
   private var recognitionTask: SFSpeechRecognitionTask?
   private var pendingResult: FlutterResult?
-  private var lastTranscription = ""
   private var activeSessionID: UUID?
   private var tapInstalled = false
+  private var transcript = SpeechTranscriptAccumulator()
+  private var lastSentText = ""
+  private var dartToken = 0
+  /// Set while a graceful stop waits for the final result.
+  private var stopReason: String?
+  /// `systemUptime` when the audio engine started.
+  private var recordingStartedAt: TimeInterval?
 
   /// Diagnostic log for the recognition mode: only a bool + locale id,
   /// never audio, transcript or PII.
@@ -150,6 +186,7 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
       binaryMessenger: registrar.messenger()
     )
     let instance = EatovaSpeechPlugin()
+    instance.channel = channel
     registrar.addMethodCallDelegate(instance, channel: channel)
   }
 
@@ -158,9 +195,17 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
     case "listen":
       let args = call.arguments as? [String: Any]
       let localeId = args?["localeId"] as? String ?? "de_DE"
-      listen(localeId: localeId, result: result)
+      let token = args?["token"] as? Int ?? 0
+      listen(localeId: localeId, token: token, result: result)
     case "stop":
-      stop()
+      DispatchQueue.main.async {
+        self.beginGracefulStop(reason: "stop")
+      }
+      result(nil)
+    case "cancel":
+      DispatchQueue.main.async {
+        self.cancel()
+      }
       result(nil)
     case "available":
       // Same locale logic as "listen": caller may pass a language, default de_DE.
@@ -173,29 +218,53 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
     }
   }
 
-  private func listen(localeId: String, result: @escaping FlutterResult) {
+  private func listen(localeId: String, token: Int, result: @escaping FlutterResult) {
     DispatchQueue.main.async {
-      guard self.pendingResult == nil else {
-        result(FlutterError(
-          code: "busy",
-          message: "Spracherkennung laeuft bereits.",
-          details: nil
-        ))
-        return
+      if self.pendingResult != nil {
+        // Only a dictation that is draining its final result gives way; Dart
+        // drops the old result by its token.
+        guard let reason = self.stopReason else {
+          result(FlutterError(
+            code: "busy",
+            message: "Spracherkennung laeuft bereits.",
+            details: nil
+          ))
+          return
+        }
+        self.finish(text: self.transcript.text, reason: reason)
       }
       self.pendingResult = result
-      self.lastTranscription = ""
+      self.transcript = SpeechTranscriptAccumulator()
+      self.lastSentText = ""
+      self.dartToken = token
+      self.recordingStartedAt = nil
       let sessionID = UUID()
       self.activeSessionID = sessionID
       self.requestSpeechAuthorization(localeId: localeId, sessionID: sessionID)
     }
   }
 
-  private func stop() {
-    DispatchQueue.main.async {
-      guard self.pendingResult != nil else { return }
-      self.finish(success: self.lastTranscription)
+  /// Ends the audio and gives the recognizer up to 1.5 s for its final result.
+  private func beginGracefulStop(reason: String) {
+    guard let sessionID = activeSessionID, pendingResult != nil, stopReason == nil else { return }
+    guard let request = recognitionRequest else {
+      // Still asking for permission: there is no audio to drain.
+      finish(text: transcript.text, reason: reason)
+      return
     }
+    stopReason = reason
+    stopAudioInput()
+    request.endAudio()
+    DispatchQueue.main.asyncAfter(deadline: .now() + Self.finalResultGrace) {
+      guard self.isCurrentSession(sessionID) else { return }
+      self.finish(text: self.transcript.text, reason: reason)
+    }
+  }
+
+  /// Immediate end for lifecycle paths; returns what was recognised so far.
+  private func cancel() {
+    guard pendingResult != nil else { return }
+    finish(text: transcript.text, reason: "cancel")
   }
 
   private func isCurrentSession(_ sessionID: UUID) -> Bool {
@@ -252,6 +321,11 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
 
       let request = SFSpeechAudioBufferRecognitionRequest()
       request.shouldReportPartialResults = true
+      request.taskHint = .dictation
+      request.contextualStrings = Self.gymVocabulary
+      if #available(iOS 16.0, *) {
+        request.addsPunctuation = true
+      }
       // Privacy: with an on-device model for this exact locale the audio never
       // leaves the device; without one the default `false` keeps the previous
       // server-side path. Never fail hard here. `supportsOnDeviceRecognition`
@@ -265,6 +339,8 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
         usesOnDevice ? "on-device" : "server",
         localeId
       )
+      // Kept until finish, like Apple's SpokenWord sample.
+      self.recognizer = recognizer
       recognitionRequest = request
 
       let inputNode = audioEngine.inputNode
@@ -298,34 +374,67 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
 
       recognitionTask = recognizer.recognitionTask(with: request) { [weak self] speechResult, error in
         guard let self = self else { return }
+        // Only plain values cross to the main queue.
+        let best = speechResult?.bestTranscription
+        let text = best?.formattedString
+        let firstSegmentStart = best?.segments.first?.timestamp
+        let segmentCount = best?.segments.count ?? 0
+        let isFinal = speechResult?.isFinal ?? false
+        // Some iOS versions end an utterance at a pause with metadata, no isFinal.
+        let utteranceEnded = isFinal || speechResult?.speechRecognitionMetadata != nil
+        let errorMessage = error?.localizedDescription
         DispatchQueue.main.async {
           guard self.isCurrentSession(sessionID) else { return }
-          if let speechResult = speechResult {
-            self.lastTranscription = speechResult.bestTranscription.formattedString
-            if speechResult.isFinal {
-              self.finish(success: self.lastTranscription)
-              return
-            }
+          if let text = text {
+            self.transcript.apply(
+              text: text,
+              firstSegmentStart: firstSegmentStart,
+              segmentCount: segmentCount,
+              utteranceEnded: utteranceEnded
+            )
+            self.sendPartialIfChanged()
           }
-          if let error = error {
-            if self.lastTranscription.isEmpty {
-              self.finish(errorCode: "recognition_failed", message: error.localizedDescription)
-            } else {
-              self.finish(success: self.lastTranscription)
-            }
+          if isFinal || errorMessage != nil {
+            self.recognitionEnded(errorMessage: errorMessage)
+          } else if self.transcript.text.utf16.count >= Self.maxTranscriptUnits {
+            self.beginGracefulStop(reason: "length")
           }
         }
       }
 
       audioEngine.prepare()
       try audioEngine.start()
+      recordingStartedAt = ProcessInfo.processInfo.systemUptime
     } catch {
       finish(errorCode: "recognition_failed", message: error.localizedDescription)
     }
   }
 
-  private func finish(success text: String) {
-    finish(result: text)
+  /// The task delivered its final result or failed.
+  private func recognitionEnded(errorMessage: String?) {
+    if let reason = stopReason {
+      // Draining after stop: even a late error returns what was recognised.
+      finish(text: transcript.text, reason: reason)
+    } else if let message = errorMessage, transcript.text.isEmpty {
+      finish(errorCode: "recognition_failed", message: message)
+    } else {
+      let elapsed = recordingStartedAt.map { ProcessInfo.processInfo.systemUptime - $0 } ?? 0
+      finish(text: transcript.text, reason: elapsed >= Self.serverLimit ? "limit" : "final")
+    }
+  }
+
+  /// Main thread only. Sends the whole transcript so Dart can replace its preview.
+  private func sendPartialIfChanged() {
+    let text = transcript.text
+    guard text != lastSentText else { return }
+    lastSentText = text
+    let arguments: [String: Any] = ["token": dartToken, "text": text]
+    channel?.invokeMethod("partial", arguments: arguments)
+  }
+
+  private func finish(text: String, reason: String) {
+    let value: [String: Any] = ["text": text, "reason": reason]
+    finish(result: value)
   }
 
   private func finish(errorCode: String, message: String) {
@@ -339,11 +448,12 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
     // or complete a subsequent listen call.
     activeSessionID = nil
     pendingResult = nil
+    stopReason = nil
     cleanupAudio()
     result(value)
   }
 
-  private func cleanupAudio() {
+  private func stopAudioInput() {
     if audioEngine.isRunning {
       audioEngine.stop()
     }
@@ -351,10 +461,45 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
       audioEngine.inputNode.removeTap(onBus: 0)
       tapInstalled = false
     }
+  }
+
+  private func cleanupAudio() {
+    stopAudioInput()
     recognitionRequest?.endAudio()
     recognitionTask?.cancel()
     recognitionTask = nil
     recognitionRequest = nil
+    recognizer = nil
     try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// EatovaScreenPlugin: keeps the screen awake while Dart asks for it (rest
+// before a timed interval, dictation). Channel eatova/screen, method
+// setKeepAwake {on: Bool}; no permission involved.
+// ---------------------------------------------------------------------------
+public final class EatovaScreenPlugin: NSObject, FlutterPlugin {
+  public static func register(with registrar: FlutterPluginRegistrar) {
+    let channel = FlutterMethodChannel(
+      name: "eatova/screen",
+      binaryMessenger: registrar.messenger()
+    )
+    registrar.addMethodCallDelegate(EatovaScreenPlugin(), channel: channel)
+  }
+
+  public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    switch call.method {
+    case "setKeepAwake":
+      guard let on = (call.arguments as? [String: Any])?["on"] as? Bool else {
+        result(FlutterError(code: "invalid_args", message: "setKeepAwake expects {on: Bool}.", details: nil))
+        return
+      }
+      // Method calls arrive on the main thread, which UIApplication requires.
+      UIApplication.shared.isIdleTimerDisabled = on
+      result(nil)
+    default:
+      result(FlutterMethodNotImplemented)
+    }
   }
 }
