@@ -118,3 +118,19 @@ Postgres. Never point tests at the maintained live backend.
 Use a topic branch and PR. Main is protected by required checks; the workflow
 currently also runs full CI for documentation PRs. Code merge, backend rollout,
 store publication and device installation are separate outcomes.
+
+Wait for a PR's checks and merge it with
+[`scripts/operations/pr_gate.py`](../scripts/operations/pr_gate.py), not with
+ad-hoc polling. It reads the named GitHub credential from `GITHUB_TOKEN` and
+never prints it:
+
+```sh
+python3 scripts/operations/pr_gate.py wait 127              # 0 green, 1 red, 2 timeout
+python3 scripts/operations/pr_gate.py merge 127 --head <reviewed sha>
+```
+
+A check counts as finished by its conclusion. GitHub can leave a finished job
+at status `in_progress` for good (seen on PR #127); the tool names such a run
+as a status lag instead of waiting for it. `merge` squash-merges only the
+reviewed head with every check green and GitHub reporting it mergeable. The
+owner's approval to merge is still required.

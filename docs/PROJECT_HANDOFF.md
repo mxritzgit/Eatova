@@ -2521,3 +2521,30 @@ the new columns, so none was deployed.
   `rls_cross_user.sql`; an independent review (5 findings, all fixed with
   tests that fail on the previous code); strict analysis; 6184 Flutter
   tests, 96.61 % coverage.
+
+### Stuck check status and the PR gate, 2026-10-03
+
+- Symptom: the merge of PR #127 waited about 20 minutes on green CI.
+- Cause on GitHub's side: the `Secret scanning (gitleaks)` job finished in
+  8 s (conclusion `success`, `completed_at` set, every step completed), but
+  its status stayed `in_progress` for good. Its workflow run read
+  `completed/success`, and GitHub reported the PR as `clean`. There was no
+  incident on githubstatus.com. It was 1 of 694 jobs in the 60 latest runs,
+  and nothing in the job could cause it: no API calls, no `checks`
+  permission.
+- Cause on our side: the session's ad-hoc wait and merge scripts required
+  `status == completed` for every check, so they never returned. They also
+  polled without a token, and the 60 requests per hour for anonymous calls
+  ran out.
+- Fix: [`scripts/operations/pr_gate.py`](../scripts/operations/pr_gate.py)
+  (`wait`, `merge`) with offline tests in `test/operations/pr_gate_test.py`,
+  which CI runs.
+  - A check counts as finished by its conclusion; a lagging status is
+    named, not waited for.
+  - It fails fast on the first red check.
+  - It is authenticated, and backs off until the rate-limit reset.
+  - `merge` takes only the reviewed head, with every check green and GitHub
+    reporting it mergeable.
+  - Mutations (status decides, anonymous calls, rate limit as a plain
+    retry, ignored mergeability) each fail the tests.
+  - Usage: [DEVELOPMENT.md](DEVELOPMENT.md#checks-and-delivery).
