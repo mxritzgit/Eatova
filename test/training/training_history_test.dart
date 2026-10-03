@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:clock/clock.dart';
+import 'package:eatova/src/models/coach_training_proposal.dart';
 import 'package:eatova/src/models/training_history.dart';
 import 'package:eatova/src/models/training_plan.dart';
 import 'package:eatova/src/models/training_session.dart';
@@ -231,6 +232,234 @@ void main() {
       );
     });
   }
+
+  group('mirrors the server CHECK', () {
+    Map<String, dynamic> row() =>
+        jsonDecode(jsonEncode(entry().toRow())) as Map<String, dynamic>;
+    Map<String, dynamic> snapshotOf(Map<String, dynamic> row) =>
+        (row['session'] as Map)['snapshot'] as Map<String, dynamic>;
+
+    test('cached rows written by the player still decode', () {
+      final value = entry();
+      expect(
+        TrainingHistoryEntry.fromRow(
+          jsonDecode(jsonEncode(value.toRow())) as Map,
+        ).toRow(),
+        value.toRow(),
+      );
+      final recovered = TrainingHistoryEntry.fromRecovery(
+        TrainingSessionSnapshot.fromJson(value.recoverySnapshot().toJson()),
+      );
+      expect(recovered.toRow(), value.toRow());
+    });
+
+    final invalid = <String, void Function(Map<String, dynamic>)>{
+      'a draft repetition value': (r) => snapshotOf(r)['draft_reps'] = 6,
+      'a zero draft repetition value': (r) => snapshotOf(r)['draft_reps'] = 0,
+      'a draft weight': (r) => snapshotOf(r)['draft_weight_kg'] = 12.5,
+      'an uppercase session ID': (r) {
+        const upper = 'ABCDEF01-2345-4678-89AB-CDEF01234567';
+        r['id'] = upper;
+        snapshotOf(r)['session_id'] = upper;
+      },
+      'a phase deadline': (r) =>
+          snapshotOf(r)['phase_ends_at'] = '2026-09-10T12:01:00.000Z',
+    };
+    for (final change in invalid.entries) {
+      test('rejects ${change.key}', () {
+        final value = row();
+        change.value(value);
+        expect(
+          () => TrainingHistoryEntry.fromRow(value),
+          throwsFormatException,
+        );
+      });
+    }
+
+    test('the constructor rejects drafts and uppercase IDs directly', () {
+      final snapshot = entry().snapshot;
+      TrainingSessionSnapshot copy({
+        String? sessionId,
+        int? draftReps,
+        double? draftWeightKg,
+      }) => TrainingSessionSnapshot(
+        plan: snapshot.plan,
+        sessionId: sessionId ?? snapshot.sessionId,
+        startedAt: snapshot.startedAt,
+        actualSets: snapshot.actualSets,
+        draftReps: draftReps,
+        draftWeightKg: draftWeightKg,
+        workoutIndex: snapshot.workoutIndex,
+        exerciseIndex: snapshot.exerciseIndex,
+        setIndex: snapshot.setIndex,
+        phase: snapshot.phase,
+        remainingMilliseconds: 0,
+        completedSets: snapshot.completedSets,
+        skippedSets: snapshot.skippedSets,
+      );
+      final finishedAt = now.add(const Duration(minutes: 2));
+      expect(
+        TrainingHistoryEntry(snapshot: copy(), finishedAt: finishedAt).id,
+        snapshot.sessionId,
+      );
+      for (final invalid in [
+        copy(draftReps: 6),
+        copy(draftWeightKg: 0),
+        copy(sessionId: 'ABCDEF01-2345-4678-89AB-CDEF01234567'),
+      ]) {
+        expect(
+          () => TrainingHistoryEntry(snapshot: invalid, finishedAt: finishedAt),
+          throwsFormatException,
+        );
+      }
+    });
+  });
+
+  group('lastTrainingPerformanceByName', () {
+    TrainingHistoryEntry performed(
+      String planId,
+      List<TrainingExercise> exercises,
+      DateTime finishedAt, {
+      Set<int> skippedExercises = const {},
+    }) {
+      final plan = TrainingPlan(
+        id: planId,
+        proposal: CoachTrainingProposal(
+          title: 'Plan',
+          workouts: [TrainingWorkout(title: 'Day', exercises: exercises)],
+        ),
+      );
+      final completed = <TrainingSetReference>[];
+      final skipped = <TrainingSetReference>[];
+      final actuals = <TrainingSetActual>[];
+      for (var e = 0; e < exercises.length; e++) {
+        for (var s = 0; s < exercises[e].sets; s++) {
+          final ref = TrainingSetReference(exerciseIndex: e, setIndex: s);
+          if (skippedExercises.contains(e)) {
+            skipped.add(ref);
+            continue;
+          }
+          completed.add(ref);
+          actuals.add(
+            TrainingSetActual(
+              reference: ref,
+              completedAt: finishedAt,
+              reps: exercises[e].isTimed ? null : 10 + s,
+              weightKg: 40.0 + e,
+            ),
+          );
+        }
+      }
+      return TrainingHistoryEntry(
+        snapshot: TrainingSessionSnapshot(
+          plan: plan,
+          startedAt: finishedAt,
+          workoutIndex: 0,
+          exerciseIndex: exercises.length - 1,
+          setIndex: exercises.last.sets - 1,
+          phase: TrainingSessionPhase.review,
+          remainingMilliseconds: 0,
+          completedSets: completed,
+          skippedSets: skipped,
+          actualSets: actuals,
+        ),
+        finishedAt: finishedAt,
+      );
+    }
+
+    TrainingExercise reps(String name, {int sets = 2}) =>
+        TrainingExercise(name: name, sets: sets, reps: 8, restSeconds: 60);
+    TrainingExercise timed(String name) => TrainingExercise(
+      name: name,
+      sets: 1,
+      durationSeconds: 60,
+      restSeconds: 0,
+    );
+
+    final history = [
+      performed('older', [reps('Bench Press')], now),
+      performed('newer', [
+        reps('Rows'),
+        reps('  bench   PRESS ', sets: 3),
+      ], now.add(const Duration(days: 1))),
+      performed('current', [
+        reps('Bench press', sets: 1),
+      ], now.add(const Duration(days: 2))),
+      performed(
+        'skipped',
+        [reps('Bench press'), reps('Rows')],
+        now.add(const Duration(days: 3)),
+        skippedExercises: {0},
+      ),
+      performed('timed', [
+        timed('Bench press'),
+      ], now.add(const Duration(days: 4))),
+    ];
+
+    test('returns the newest other-plan performance with the same name', () {
+      final sets = lastTrainingPerformanceByName(
+        history,
+        excludePlanId: 'current',
+        exerciseName: 'bench press',
+        isTimed: false,
+      );
+      expect(sets.map((a) => a.reps), [10, 11, 12]);
+      expect(sets.map((a) => a.weightKg), everyElement(41.0));
+      expect(sets.map((a) => a.reference.exerciseIndex), everyElement(1));
+    });
+
+    test('falls back to older sessions and skips only the excluded plan', () {
+      expect(
+        lastTrainingPerformanceByName(
+          [
+            for (final entry in history)
+              if (entry.snapshot.plan.id != 'newer') entry,
+          ],
+          excludePlanId: 'current',
+          exerciseName: 'Bench press',
+          isTimed: false,
+        ).map((a) => a.reps),
+        [10, 11],
+      );
+      // Not excluded, the one-set session of 'current' is the newest.
+      expect(
+        lastTrainingPerformanceByName(
+          history,
+          excludePlanId: 'none',
+          exerciseName: 'Bench press',
+          isTimed: false,
+        ).map((a) => a.reps),
+        [10],
+      );
+    });
+
+    test('keeps timed and repetition work apart', () {
+      final sets = lastTrainingPerformanceByName(
+        history,
+        excludePlanId: 'current',
+        exerciseName: 'BENCH PRESS',
+        isTimed: true,
+      );
+      expect(sets.single.reps, isNull);
+      expect(sets.single.weightKg, 40);
+    });
+
+    test('unknown names return nothing', () {
+      expect(
+        lastTrainingPerformanceByName(
+          history,
+          excludePlanId: 'current',
+          exerciseName: 'Bench',
+          isTimed: false,
+        ),
+        isEmpty,
+      );
+    });
+  });
+
+  test('a plan-attached log blocked by a session is a typed exception', () {
+    expect(const TrainingLogBlockedBySession(), isA<Exception>());
+  });
 
   test(
     'reject duplicate identities, timestamp inversion, mismatched IDs and missing actuals',

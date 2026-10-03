@@ -472,4 +472,75 @@ void main() {
       expect(await _version(storage), version);
     });
   });
+
+  // R/G: a rest between exercises with a wall-clock deadline is the new
+  // checkpoint shape; a restart must restore it untouched, not drop it.
+  test(
+    'restart keeps a rest between exercises and its deadline byte-identical',
+    () async {
+      final wall = _Wall();
+      await withClock(Clock(() => wall.now), () async {
+        final reader = LocalCache(
+          InMemoryKeyValueStore({_plansKey: legacyPlanLibrarySlot}),
+          _user,
+        );
+        final plan = (await reader.readTrainingPlans())!.single;
+        reader.close();
+        final completedAt = _bootAt.subtract(const Duration(minutes: 1));
+        final json = TrainingSessionSnapshot(
+          plan: plan,
+          sessionId: '44f8625f-7f4b-4ffc-b6b0-ec94fcae1f39',
+          startedAt: _bootAt.subtract(const Duration(minutes: 20)),
+          workoutIndex: 0,
+          exerciseIndex: 0,
+          setIndex: 1,
+          phase: TrainingSessionPhase.exercise,
+          remainingMilliseconds: 0,
+          completedSets: const [_firstSquat],
+        ).toJson();
+        json
+          ..['phase'] = 'rest'
+          ..['remaining_milliseconds'] = 60000
+          ..['phase_ends_at'] = '2026-09-28T08:00:00.250125Z'
+          ..['completed_sets'] = [_firstSquat.toJson(), _secondSquat.toJson()]
+          ..['actual_sets'] = [
+            for (final set in [_firstSquat, _secondSquat])
+              TrainingSetActual(
+                reference: set,
+                completedAt: completedAt,
+                reps: 8,
+                weightKg: 60,
+              ).toJson(),
+          ];
+        final bytes = jsonEncode({'snapshot': json});
+        final storage = InMemoryKeyValueStore({
+          _plansKey: legacyPlanLibrarySlot,
+          _sessionKey: bytes,
+        });
+
+        wall.advance(const Duration(minutes: 3));
+        final env = await _bootLegacy(storage);
+
+        expect(env.store.trainingSession?.toJson(), json);
+        expect(storage.snapshot[_sessionKey], bytes);
+      });
+    },
+  );
+
+  test('a #70 checkpoint never carries a phase deadline', () {
+    expect(
+      () => TrainingSessionSnapshot.upgradeLegacyJson(
+        _legacyJson()..['phase_ends_at'] = '2026-09-28T08:00:42.000Z',
+        observedAt: _bootAt,
+      ),
+      throwsFormatException,
+    );
+    expect(
+      TrainingSessionSnapshot.upgradeLegacyJson(
+        _legacyJson(),
+        observedAt: _bootAt,
+      )!.containsKey('phase_ends_at'),
+      isFalse,
+    );
+  });
 }

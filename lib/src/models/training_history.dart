@@ -1,4 +1,5 @@
 import 'training_limits.dart';
+import 'training_log.dart';
 import 'training_session.dart';
 
 /// The player can leave an obsolete source without claiming a saved workout.
@@ -11,7 +12,15 @@ final class TrainingCompletionDeleted implements Exception {
   const TrainingCompletionDeleted();
 }
 
+/// A plan-attached log waits while a workout session or its recovery exists.
+final class TrainingLogBlockedBySession implements Exception {
+  const TrainingLogBlockedBySession();
+}
+
 /// An immutable completed workout, independent of the source plan's lifetime.
+///
+/// Mirrors the server CHECK `is_valid_training_history`: no local-only keys,
+/// no drafts and a lowercase session UUID (the row id's text form).
 final class TrainingHistoryEntry {
   TrainingHistoryEntry({
     required this.snapshot,
@@ -21,6 +30,10 @@ final class TrainingHistoryEntry {
        note = TrainingJson.text(note, TrainingLimits.notesMaxLength) {
     if (snapshot.recoveryNote != null ||
         snapshot.pendingCompletionAt != null ||
+        snapshot.phaseEndsAt != null ||
+        snapshot.draftReps != null ||
+        snapshot.draftWeightKg != null ||
+        snapshot.sessionId != snapshot.sessionId.toLowerCase() ||
         snapshot.phase != TrainingSessionPhase.review ||
         this.finishedAt.isBefore(snapshot.startedAt) ||
         snapshot.actualSets.length != snapshot.completedSets.length) {
@@ -121,10 +134,52 @@ List<TrainingSetActual> lastTrainingPerformance(
     newest = entry;
     newestIndex = index;
   }
-  if (newest == null) return const [];
+  return _performedSets(newest, newestIndex);
+}
+
+/// The cross-plan "Last time" fallback: the sets of the newest session outside
+/// [excludePlanId] that performed an exercise of the same kind whose
+/// [normalizeExerciseName] matches [exerciseName], ordered by set index; empty
+/// when there is none. Within a session the first such exercise with actual
+/// values wins; among equal finish times the one listed first wins.
+List<TrainingSetActual> lastTrainingPerformanceByName(
+  List<TrainingHistoryEntry> history, {
+  required String excludePlanId,
+  required String exerciseName,
+  required bool isTimed,
+}) {
+  final name = normalizeExerciseName(exerciseName);
+  TrainingHistoryEntry? newest;
+  var newestIndex = -1;
+  for (final entry in history) {
+    if (entry.snapshot.plan.id == excludePlanId) continue;
+    if (newest != null && !entry.finishedAt.isAfter(newest.finishedAt)) {
+      continue;
+    }
+    final exercises = entry.snapshot.workout.exercises;
+    for (var index = 0; index < exercises.length; index++) {
+      if (exercises[index].isTimed == isTimed &&
+          normalizeExerciseName(exercises[index].name) == name &&
+          entry.snapshot.actualSets.any(
+            (a) => a.reference.exerciseIndex == index,
+          )) {
+        newest = entry;
+        newestIndex = index;
+        break;
+      }
+    }
+  }
+  return _performedSets(newest, newestIndex);
+}
+
+List<TrainingSetActual> _performedSets(
+  TrainingHistoryEntry? entry,
+  int exerciseIndex,
+) {
+  if (entry == null) return const [];
   final sets =
-      newest.snapshot.actualSets
-          .where((a) => a.reference.exerciseIndex == newestIndex)
+      entry.snapshot.actualSets
+          .where((a) => a.reference.exerciseIndex == exerciseIndex)
           .toList()
         ..sort((a, b) => a.reference.setIndex.compareTo(b.reference.setIndex));
   return List.unmodifiable(sets);
