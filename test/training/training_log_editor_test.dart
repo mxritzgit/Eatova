@@ -12,6 +12,7 @@ import 'package:eatova/src/models/training_plan.dart';
 import 'package:eatova/src/screens/training/training_log_editor.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/widgets/design/design.dart';
+import 'package:eatova/src/widgets/kcal/food_date_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -240,23 +241,25 @@ void main() {
         await _tap(tester, 'training-log-day-yesterday');
         expect(
           tester
-              .widget<ChoiceChip>(_key('training-log-day-yesterday'))
+              .widget<FilterChipPill>(_key('training-log-day-yesterday'))
               .selected,
           isTrue,
         );
         await _tap(tester, 'training-log-day-pick');
-        final picker = tester.widget<DatePickerDialog>(
-          find.byType(DatePickerDialog),
+        final picker = tester.widget<FoodDatePicker>(
+          find.byType(FoodDatePicker),
         );
         expect(picker.firstDate, DateTime(2026, 9, 3));
         expect(picker.lastDate, DateTime(2026, 10, 3));
+        expect(picker.confirmLabel, 'Use this day');
         await tester.tap(
           find.descendant(
-            of: find.byType(DatePickerDialog),
+            of: find.byType(CalendarDatePicker),
             matching: find.text('1'),
           ),
         );
-        await tester.tap(find.text('OK'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('food-date-confirm')));
         await tester.pumpAndSettle();
         expect(find.text('Thu, Oct 1'), findsOneWidget);
         await _tap(tester, 'training-log-save');

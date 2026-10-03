@@ -9,6 +9,7 @@ import '../../services/uuid.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/decimal_text.dart';
+import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
 import 'training_exercise_list.dart';
 
@@ -411,11 +412,12 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
           style: AppType.ui(14, color: t.accent, weight: FontWeight.w600),
         ),
       ],
-      TextButton.icon(
+      const SizedBox(height: 14),
+      SoftPillButton(
         key: const ValueKey('training-editor-edit'),
-        onPressed: _busy ? null : _beginEditing,
-        icon: const Icon(Icons.edit_outlined),
-        label: Text(l10n.trainingPageEdit),
+        onTap: _busy ? null : _beginEditing,
+        icon: Icons.edit_outlined,
+        label: l10n.trainingPageEdit,
       ),
       for (var i = 0; i < draft.workouts.length; i++) ...[
         const SizedBox(height: 20),
@@ -605,119 +607,87 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
     return Padding(
       key: ObjectKey(exercise),
       padding: const EdgeInsets.only(bottom: 14),
-      child: Material(
-        color: context.t.surf,
-        borderRadius: BorderRadius.circular(rCard),
-        clipBehavior: Clip.antiAlias,
-        child: ExpansionTile(
-          initiallyExpanded: true,
-          iconColor: context.t.ink2,
-          collapsedIconColor: context.t.ink2,
-          tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-          leading: ExcludeSemantics(
-            child: Text(
-              (index + 1).toString().padLeft(2, '0'),
-              style: AppType.display(18, color: context.t.accent),
+      child: _ExerciseCard(
+        toggleKey: ValueKey('$prefix-toggle'),
+        number: index + 1,
+        title: exercise.name.controller.text.trim().isEmpty
+            ? l10n.trainingPageExerciseNumber(index + 1)
+            : exercise.name.controller.text,
+        children: [
+          if (exercises.length > 1)
+            _orderButtons(
+              keyPrefix: prefix,
+              removeLabel: l10n.trainingPageRemoveExercise,
+              index: index,
+              count: exercises.length,
+              move: (target) {
+                exercises.removeAt(index);
+                exercises.insert(target, exercise);
+                _changed();
+              },
+              remove: () {
+                exercises.removeAt(index);
+                exercise.dispose();
+                _changed();
+              },
             ),
+          _field(
+            exercise.name,
+            l10n.trainingPageExerciseName,
+            '$prefix-name',
+            hint: l10n.trainingPageExerciseNameHint,
           ),
-          shape: const Border(),
-          collapsedShape: const Border(),
-          title: Text(
-            exercise.name.controller.text.trim().isEmpty
-                ? l10n.trainingPageExerciseNumber(index + 1)
-                : exercise.name.controller.text,
-            style: AppType.ui(
-              15,
-              color: context.t.ink,
-              weight: FontWeight.w600,
-            ),
-          ),
-          children: [
-            if (exercises.length > 1)
-              _orderButtons(
-                keyPrefix: prefix,
-                removeLabel: l10n.trainingPageRemoveExercise,
-                index: index,
-                count: exercises.length,
-                move: (target) {
-                  exercises.removeAt(index);
-                  exercises.insert(target, exercise);
-                  _changed();
-                },
-                remove: () {
-                  exercises.removeAt(index);
-                  exercise.dispose();
-                  _changed();
-                },
-              ),
-            _field(
-              exercise.name,
-              l10n.trainingPageExerciseName,
-              '$prefix-name',
-              hint: l10n.trainingPageExerciseNameHint,
-            ),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final timed in [false, true])
-                    ChoiceChip(
-                      key: ValueKey('$prefix-${timed ? 'time' : 'reps'}'),
-                      selected: timed == exercise.timed,
-                      label: Text(
-                        timed
-                            ? l10n.trainingPageTimed
-                            : l10n.trainingPageRepetitions,
-                      ),
-                      selectedColor: context.t.lime,
-                      checkmarkColor: context.t.onLime,
-                      labelStyle: AppType.ui(
-                        14,
-                        color: timed == exercise.timed
-                            ? context.t.onLime
-                            : context.t.ink2,
-                      ),
-                      onSelected: _busy
-                          ? null
-                          : (_) {
-                              exercise.timed = timed;
-                              _changed();
-                            },
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            CreationFieldGrid(
-              children: [
-                _field(exercise.sets, l10n.trainingPageSets, '$prefix-sets'),
-                if (exercise.timed)
-                  _field(
-                    exercise.duration,
-                    l10n.trainingPageDuration,
-                    '$prefix-duration',
-                  )
-                else
-                  _field(
-                    exercise.reps,
-                    l10n.trainingPageReps,
-                    '$prefix-repetitions',
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final timed in [false, true])
+                // The app's selection chip, held to the 44 px touch floor.
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 44),
+                  child: FilterChipPill(
+                    key: ValueKey('$prefix-${timed ? 'time' : 'reps'}'),
+                    selected: timed == exercise.timed,
+                    label: timed
+                        ? l10n.trainingPageTimed
+                        : l10n.trainingPageRepetitions,
+                    onTap: _busy
+                        ? null
+                        : () {
+                            exercise.timed = timed;
+                            _changed();
+                          },
                   ),
-                _field(exercise.rest, l10n.trainingPageRest, '$prefix-rest'),
-              ],
-            ),
-            _field(
-              exercise.notes,
-              l10n.trainingPageExerciseNotes,
-              '$prefix-notes',
-              hint: l10n.trainingPageNotesHint,
-              lines: 2,
-            ),
-          ],
-        ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          CreationFieldGrid(
+            children: [
+              _field(exercise.sets, l10n.trainingPageSets, '$prefix-sets'),
+              if (exercise.timed)
+                _field(
+                  exercise.duration,
+                  l10n.trainingPageDuration,
+                  '$prefix-duration',
+                )
+              else
+                _field(
+                  exercise.reps,
+                  l10n.trainingPageReps,
+                  '$prefix-repetitions',
+                ),
+              _field(exercise.rest, l10n.trainingPageRest, '$prefix-rest'),
+            ],
+          ),
+          _field(
+            exercise.notes,
+            l10n.trainingPageExerciseNotes,
+            '$prefix-notes',
+            hint: l10n.trainingPageNotesHint,
+            lines: 2,
+          ),
+        ],
       ),
     );
   }
@@ -752,4 +722,108 @@ class _TrainingPlanEditorState extends State<_TrainingPlanEditor> {
       ),
     ],
   );
+}
+
+/// One exercise of the editor: a card whose header row (number, name and a
+/// chevron) folds its fields away. It starts open.
+class _ExerciseCard extends StatefulWidget {
+  const _ExerciseCard({
+    required this.toggleKey,
+    required this.number,
+    required this.title,
+    required this.children,
+  });
+
+  final Key toggleKey;
+  final int number;
+  final String title;
+  final List<Widget> children;
+
+  @override
+  State<_ExerciseCard> createState() => _ExerciseCardState();
+}
+
+class _ExerciseCardState extends State<_ExerciseCard> {
+  bool _open = true;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    const motion = Duration(milliseconds: 180);
+    final header = Semantics(
+      button: true,
+      expanded: _open,
+      label: widget.title,
+      child: InkWell(
+        key: widget.toggleKey,
+        onTap: () => setState(() => _open = !_open),
+        child: ExcludeSemantics(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 56),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
+              child: Row(
+                children: [
+                  Text(
+                    widget.number.toString().padLeft(2, '0'),
+                    style: AppType.display(18, color: t.accentText),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Text(
+                      widget.title,
+                      style: AppType.ui(
+                        15,
+                        color: t.ink,
+                        weight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  AnimatedRotation(
+                    turns: _open ? 0.5 : 0,
+                    duration: motionDuration(context, motion),
+                    curve: kMotionCurve,
+                    child: Icon(
+                      Icons.expand_more_rounded,
+                      size: 22,
+                      color: t.ink2,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    return AppCard(
+      clip: true,
+      // Own ink layer: the card's fill would hide the sheet's ripples.
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            header,
+            maybeAnimatedSize(
+              context,
+              duration: motion,
+              curve: kMotionCurve,
+              alignment: Alignment.topCenter,
+              child: _open
+                  ? Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: widget.children,
+                      ),
+                    )
+                  : const SizedBox(width: double.infinity),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

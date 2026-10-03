@@ -55,10 +55,14 @@ class TrainingHistoryScreen extends StatelessWidget {
                   l.trainingHistoryLoadError,
                   style: AppType.ui(14, color: t.ink2),
                 ),
-                TextButton.icon(
-                  onPressed: onRetry,
-                  icon: const Icon(Icons.refresh_rounded),
-                  label: Text(l.trainingPageRetry),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: SoftPillButton(
+                    onTap: onRetry,
+                    icon: Icons.refresh_rounded,
+                    label: l.trainingPageRetry,
+                  ),
                 ),
                 const SizedBox(height: 16),
               ],
@@ -67,19 +71,11 @@ class TrainingHistoryScreen extends StatelessWidget {
                   l.trainingHistoryEmpty,
                   style: AppType.ui(15, color: t.ink2, height: 1.5),
                 ),
+              // One card per workout, each its own list child: the history
+              // holds up to 500 entries and stays lazily built.
               for (final entry in entries) ...[
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  key: ValueKey('training-history-${entry.id}'),
-                  title: Text(
-                    entry.snapshot.workout.title,
-                    style: AppType.display(20, color: t.ink),
-                  ),
-                  subtitle: Text(
-                    '${_finished(context, entry)}${_logged(entry) ? ' · ${l.trainingHistoryLogged}' : ''}\n${l.trainingTimerProgress(entry.snapshot.completedSets.length, entry.snapshot.totalSets)}',
-                    style: AppType.ui(14, color: t.ink2, height: 1.5),
-                  ),
-                  trailing: Icon(Icons.chevron_right_rounded, color: t.ink2),
+                _HistoryRow(
+                  entry: entry,
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute<void>(
@@ -88,9 +84,105 @@ class TrainingHistoryScreen extends StatelessWidget {
                     ),
                   ),
                 ),
-                Divider(color: t.line),
+                const SizedBox(height: 10),
               ],
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One finished workout as a calm card in the Training tab's row language:
+/// tinted glyph tile, title, finish date (and the Logged tag), the set count
+/// and a chevron; the whole card opens it.
+class _HistoryRow extends StatelessWidget {
+  const _HistoryRow({required this.entry, required this.onTap});
+
+  final TrainingHistoryEntry entry;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final l = context.l10n;
+    final snapshot = entry.snapshot;
+    final title = snapshot.workout.title;
+    final finished = _finished(context, entry);
+    final meta = _logged(entry)
+        ? '$finished · ${l.trainingHistoryLogged}'
+        : finished;
+    final progress = l.trainingTimerProgress(
+      snapshot.completedSets.length,
+      snapshot.totalSets,
+    );
+    // The same stable hue per plan workout as the tab's "Recent" rows.
+    final (tint, ink) = switch (snapshot.workoutIndex % 3) {
+      0 => (t.accentTintStrong, t.accentText),
+      1 => (t.carbsSurface, t.carbsInk),
+      _ => (t.proteinSurface, t.proteinInk),
+    };
+    // From 1.5x text the tile gives its width to the text.
+    final large = MediaQuery.textScalerOf(context).scale(16) > 24;
+    final content = Row(
+      children: [
+        if (!large) ...[
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: tint,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Center(
+              child: AppIcon(AppSymbol.training, size: 22, color: ink),
+            ),
+          ),
+          const SizedBox(width: 12),
+        ],
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: AppType.ui(16, weight: FontWeight.w700, color: t.ink),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '$meta\n$progress',
+                style: AppType.ui(13, color: t.ink2, height: 1.45),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        Icon(Icons.chevron_right_rounded, size: 22, color: t.ink3),
+      ],
+    );
+    return Semantics(
+      container: true,
+      button: true,
+      label: [title, meta, progress].join(', '),
+      child: Material(
+        color: t.surf,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(rTile),
+          side: BorderSide(color: t.cardBorder),
+        ),
+        child: InkWell(
+          key: ValueKey('training-history-${entry.id}'),
+          onTap: onTap,
+          child: ExcludeSemantics(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 64),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+                child: content,
+              ),
+            ),
           ),
         ),
       ),
@@ -246,17 +338,19 @@ class _TrainingHistoryDetailState extends State<TrainingHistoryDetail> {
                 ),
                 const SizedBox(height: 24),
               ],
-              if (_error != null)
+              if (_error != null) ...[
                 Text(_error!, style: AppType.ui(14, color: t.danger)),
-              TextButton.icon(
+                const SizedBox(height: 12),
+              ],
+              SoftPillButton(
                 key: const ValueKey('training-history-delete'),
-                style: TextButton.styleFrom(
-                  foregroundColor: t.danger,
-                  minimumSize: const Size(0, 48),
-                ),
-                onPressed: _busy ? null : _delete,
-                icon: const Icon(Icons.delete_outline_rounded),
-                label: Text(_busy ? l.trainingTimerSaving : l.trainingHistoryDeleteAction),
+                tone: SoftPillTone.danger,
+                expand: true,
+                onTap: _busy ? null : _delete,
+                icon: Icons.delete_outline_rounded,
+                label: _busy
+                    ? l.trainingTimerSaving
+                    : l.trainingHistoryDeleteAction,
               ),
             ],
           ),

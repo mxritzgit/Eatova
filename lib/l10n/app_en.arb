@@ -2459,6 +2459,7 @@
   "trainingLogToday": "Today",
   "trainingLogYesterday": "Yesterday",
   "trainingLogOtherDay": "Other day",
+  "trainingLogUseDay": "Use this day",
   "trainingLogDuration": "Duration in minutes (optional)",
   "trainingLogReps": "Reps",
   "trainingLogKg": "kg",

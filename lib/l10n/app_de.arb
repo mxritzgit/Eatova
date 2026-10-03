@@ -2509,6 +2509,7 @@
   "trainingLogToday": "Heute",
   "trainingLogYesterday": "Gestern",
   "trainingLogOtherDay": "Anderer Tag",
+  "trainingLogUseDay": "Diesen Tag übernehmen",
   "trainingLogDuration": "Dauer in Minuten (optional)",
   "trainingLogReps": "Wdh.",
   "trainingLogKg": "kg",

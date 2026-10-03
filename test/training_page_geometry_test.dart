@@ -9,6 +9,7 @@ import 'package:eatova/src/screens/training/training_plan_editor.dart';
 import 'package:eatova/src/screens/training/training_screen.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
 
@@ -319,14 +320,23 @@ void main() {
   );
 
   testWidgets(
-    'selected exercise chips use readable checks on lime in dark mode',
+    'selected exercise chips use the readable selection label in dark mode',
     (tester) async {
       await _editor(tester, size: const Size(390, 844));
       await _edit(tester);
-      final chips = tester.widgetList<ChoiceChip>(find.byType(ChoiceChip));
-      expect(chips, isNotEmpty);
-      for (final chip in chips.where((chip) => chip.selected)) {
-        expect(chip.checkmarkColor, AppTokens.dark.onLime);
+      final chips = tester.widgetList<FilterChipPill>(
+        find.byType(FilterChipPill),
+      );
+      final selected = chips.where((chip) => chip.selected).toList();
+      expect(selected, isNotEmpty);
+      for (final chip in selected) {
+        final label = tester.widget<Text>(
+          find.descendant(
+            of: find.byWidget(chip),
+            matching: find.text(chip.label),
+          ),
+        );
+        expect(label.style?.color, AppTokens.dark.onSelected);
       }
     },
   );
