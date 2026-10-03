@@ -148,4 +148,34 @@ void main() {
       store.dispose();
     }, initialTime: DateTime(2026, 9, 20, 12));
   });
+
+  test('eine beim Boot quittierte Op laedt den Server-Stand nicht doppelt: '
+      'die Claim-Version ist kein Cache-Zustand', () async {
+    final server = FakeServer()..profileRow = serverProfileRow(testProfile());
+    final client = _client(server);
+    addTearDown(client.dispose);
+    await _signIn(client);
+    final kv = InMemoryKeyValueStore(_queuedMeal());
+    final store = _store(server, client, LocalCache(kv, _owner));
+    addTearDown(store.dispose);
+
+    await bootUntilIdle(store);
+
+    expect(server.mealRows.keys, contains(_mealId), reason: 'Vorbedingung');
+    expect(store.pendingOutbox, isEmpty, reason: 'Vorbedingung');
+    expect(
+      server.requests.where(
+        (r) => r.method == 'GET' && r.url.path.endsWith('/profiles'),
+      ),
+      hasLength(1),
+      reason:
+          'der Claim-Release nach dem Replay ist kein konkurrierender '
+          'Cache-Commit; er darf weder den Snapshot verwerfen noch den '
+          'Boot-Load wiederholen',
+    );
+    expect(
+      server.requests.where((r) => r.url.path.endsWith('/rpc/load_meal_plan')),
+      hasLength(1),
+    );
+  });
 }

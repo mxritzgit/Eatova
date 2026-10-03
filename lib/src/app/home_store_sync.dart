@@ -30,9 +30,13 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
 
   void _observeLocalCommit(LocalMutationReceipt receipt) {
     _adoptTrainingHeads(receipt);
+    // The claim lease changes on every acquire, renew and release. It fences
+    // delivery, not the cache state a later snapshot commit is based on.
+    final claimKey = syncClaimKey(sync?.userId ?? '');
     _cacheObservedVersions = {
       ..._cacheObservedVersions,
-      ...receipt.snapshot.versions,
+      for (final entry in receipt.snapshot.versions.entries)
+        if (entry.key != claimKey) entry.key: entry.value,
     };
     _localCommitGeneration++;
   }
