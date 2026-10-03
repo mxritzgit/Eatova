@@ -13,7 +13,8 @@ import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
-import 'package:flutter/semantics.dart' show SemanticsService;
+import 'package:flutter/semantics.dart'
+    show AccessibilityFocusBlockType, SemanticsService;
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -226,6 +227,11 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   ({TrainingPlan? selectedPlan, bool sessionRetried})? _queuedBrief;
   bool _queuedBriefScheduled = false;
 
+  /// Answers to speak through the live region in [build], where the platform
+  /// has no announcements; each one inserts a fresh node (see
+  /// [_announceAnswer]). 0 = no cue.
+  int _answerCue = 0;
+
   /// How many send jobs (chat or recipe) are in flight.
   ///
   /// Counts per USER, not per session, because the quota does too: a plain
@@ -342,6 +348,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _cancelSpeechInput();
       // Leaving the tab withdraws a waiting brief; it must not pop up later.
       _queuedBrief = null;
+      // The return re-creates the tab's semantics; a kept cue would announce
+      // an old answer as new.
+      _answerCue = 0;
     }
     _sichtbar = sichtbar;
     final svc = widget.service;
@@ -1192,9 +1201,15 @@ class _CoachChatScreenState extends State<CoachChatScreen>
 
   /// An answer lands without moving the screen-reader focus, so it is
   /// announced (spec §9). Android discourages announcements and reports
-  /// `supportsAnnounce: false`; the thinking row's live region remains.
+  /// `supportsAnnounce: false`; there a new polite live region speaks the
+  /// same text. Only a node that is new (or relabelled) speaks, hence one per
+  /// answer.
   void _announceAnswer() {
-    if (!mounted || !MediaQuery.supportsAnnounceOf(context)) return;
+    if (!mounted) return;
+    if (!MediaQuery.supportsAnnounceOf(context)) {
+      setState(() => _answerCue++);
+      return;
+    }
     unawaited(
       SemanticsService.sendAnnouncement(
         View.of(context),
@@ -2470,6 +2485,22 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                 conversation: Stack(
                   fit: StackFit.expand,
                   children: <Widget>[
+                    // The answer cue of [_announceAnswer]: a new key per
+                    // answer makes a new node. Behind everything, outside the
+                    // lazy list (an answer below the fold still speaks) and
+                    // never focusable, so it only talks.
+                    if (_answerCue > 0)
+                      Positioned.fill(
+                        key: ValueKey<String>('coach-answer-cue-$_answerCue'),
+                        child: Semantics(
+                          container: true,
+                          liveRegion: true,
+                          accessibilityFocusBlockType:
+                              AccessibilityFocusBlockType.blockNode,
+                          label: context.l10n.coachAnswerAnnouncement,
+                          child: const SizedBox.expand(),
+                        ),
+                      ),
                     AnimatedSwitcher(
                       duration: motionDuration(
                         context,

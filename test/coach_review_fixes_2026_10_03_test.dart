@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show debugDefaultTargetPlatformOverride;
+import 'package:flutter/foundation.dart'
+    show ValueListenable, debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart' show SemanticsAction;
 import 'package:flutter/services.dart';
@@ -106,8 +107,12 @@ class _Coach extends CoachChatService {
 
   final sent = <({String text, String? image})>[];
   final planCalls = <String>[];
+  final recipeCalls = <String>[];
   Completer<CoachChatReply>? hold;
   CoachChatException? sendFailure;
+
+  /// The session the server reports for a plan; null = the one asked for.
+  String? planSessionId;
 
   @override
   Future<List<ChatSession>> loadSessions() async => sessions;
@@ -170,7 +175,7 @@ class _Coach extends CoachChatService {
       proposal: _plan([
         ['Kniebeuge'],
       ]),
-      sessionId: sessionId,
+      sessionId: planSessionId ?? sessionId,
       assistantMessageId: 'server-plan-1',
       remaining: 4,
       dailyLimit: 5,
@@ -184,6 +189,23 @@ class _Coach extends CoachChatService {
     required String locale,
     required CoachTrainingContext trainingContext,
   }) => requestPlan(wish, sessionId: sessionId, locale: locale);
+
+  @override
+  Future<CoachRecipeReply> requestRecipe(
+    String wish, {
+    required String sessionId,
+    required String locale,
+  }) async {
+    recipeCalls.add(wish);
+    return CoachRecipeReply(
+      reply: 'Dein Rezept.',
+      refusal: false,
+      proposal: _recipe,
+      sessionId: sessionId,
+      remaining: 4,
+      dailyLimit: 5,
+    );
+  }
 }
 
 /// Serves an in-memory JPEG. [tor] holds the picker (the gallery is in the
@@ -315,6 +337,7 @@ Future<ValueNotifier<int>> _mount(
   ImagePicker? picker,
   Set<String> recipeSlugs = const <String>{},
   Future<SyncDelivery> Function(FitnessRecipe recipe)? onCreateRecipe,
+  ValueListenable<bool> tabVisible = const AlwaysStoppedAnimation<bool>(true),
 }) async {
   final planDraft = ValueNotifier<int>(planDraftRequest);
   addTearDown(planDraft.dispose);
@@ -322,15 +345,22 @@ Future<ValueNotifier<int>> _mount(
     tester,
     ValueListenableBuilder<int>(
       valueListenable: planDraft,
-      builder: (_, request, __) => CoachChatScreen(
-        service: coach,
-        userName: 'M',
-        planDraftRequest: request,
-        imagePicker: picker,
-        userRecipeSlugs: recipeSlugs,
-        onCreateRecipe: onCreateRecipe,
-        screenAwake: const NoopScreenAwake(),
-        dictationLanguageStore: const PrefsDictationLanguageStore(),
+      // The shell's tab signal (`TickerMode`, see eatova_home_page.dart).
+      builder: (_, request, __) => ValueListenableBuilder<bool>(
+        valueListenable: tabVisible,
+        builder: (_, visible, __) => TickerMode(
+          enabled: visible,
+          child: CoachChatScreen(
+            service: coach,
+            userName: 'M',
+            planDraftRequest: request,
+            imagePicker: picker,
+            userRecipeSlugs: recipeSlugs,
+            onCreateRecipe: onCreateRecipe,
+            screenAwake: const NoopScreenAwake(),
+            dictationLanguageStore: const PrefsDictationLanguageStore(),
+          ),
+        ),
       ),
     ),
     surfaceSize: const Size(402, 820),
@@ -381,6 +411,40 @@ Future<void> _awaitScrub(WidgetTester tester, bool Function() done) async {
     await tester.pump();
   }
   await _frames(tester);
+}
+
+// --- Answer announcements ---------------------------------------------------
+
+/// Each place where `_announceAnswer` runs on an arriving answer.
+enum _AnswerKind { chat, recipe, plan, remappedPlan }
+
+/// The live region that stands in for an announcement (Android).
+Finder get _answerCue => find.bySemanticsLabel(deL10n.coachAnswerAnnouncement);
+
+void _announcing(WidgetTester tester, bool supportsAnnounce) {
+  tester.platformDispatcher.accessibilityFeaturesTestValue =
+      FakeAccessibilityFeatures(supportsAnnounce: supportsAnnounce);
+  addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+}
+
+/// One request of [kind], made the way a user makes it.
+Future<void> _ask(
+  WidgetTester tester,
+  ValueNotifier<int> planDraft,
+  _AnswerKind kind,
+) async {
+  switch (kind) {
+    case _AnswerKind.chat:
+      await _sendText(tester, 'Frage');
+    case _AnswerKind.recipe:
+      await _sendText(tester, '/recipe Auflauf');
+    case _AnswerKind.plan || _AnswerKind.remappedPlan:
+      planDraft.value++;
+      await _frames(tester);
+      await tester.ensureVisible(_briefSubmit);
+      await tester.tap(_briefSubmit);
+      await _frames(tester);
+  }
 }
 
 void main() {
@@ -524,20 +588,88 @@ void main() {
       semantics.dispose();
     });
 
-    testWidgets('eine eingetroffene Antwort wird angesagt', (tester) async {
-      tester.platformDispatcher.accessibilityFeaturesTestValue =
-          const FakeAccessibilityFeatures(supportsAnnounce: true);
-      addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    // Every answer path, on both platform kinds: iOS announces, Android
+    // reports `supportsAnnounce: false` and gets a polite live region.
+    for (final announces in [true, false]) {
+      for (final kind in _AnswerKind.values) {
+        testWidgets('eine eingetroffene ${kind.name}-Antwort wird '
+            '${announces ? 'angesagt' : 'ueber eine Live-Region gemeldet'}', (
+          tester,
+        ) async {
+          final semantics = tester.ensureSemantics();
+          _announcing(tester, announces);
+          final coach = _Coach.create();
+          if (kind == _AnswerKind.remappedPlan) coach.planSessionId = 's2';
+          final planDraft = await _mount(tester, coach);
+          tester.takeAnnouncements();
+          expect(_answerCue, findsNothing);
+
+          await _ask(tester, planDraft, kind);
+          final List<Object> requests = switch (kind) {
+            _AnswerKind.chat => coach.sent,
+            _AnswerKind.recipe => coach.recipeCalls,
+            _AnswerKind.plan || _AnswerKind.remappedPlan => coach.planCalls,
+          };
+          expect(requests, hasLength(1));
+
+          final announced = tester.takeAnnouncements();
+          if (announces) {
+            expect(
+              announced,
+              contains(
+                isAccessibilityAnnouncement(deL10n.coachAnswerAnnouncement),
+              ),
+            );
+            expect(_answerCue, findsNothing, reason: 'nicht doppelt');
+          } else {
+            expect(announced, isEmpty);
+            final cue = tester.getSemantics(_answerCue);
+            expect(
+              cue,
+              isSemantics(
+                label: deL10n.coachAnswerAnnouncement,
+                isLiveRegion: true,
+              ),
+            );
+            final flags = cue.getSemanticsData().flagsCollection;
+            expect(
+              flags.isAccessibilityFocusBlocked,
+              isTrue,
+              reason: 'spricht nur, ist kein Halt beim Wischen',
+            );
+          }
+          semantics.dispose();
+        });
+      }
+    }
+
+    testWidgets('ohne Ansage meldet jede weitere Antwort eine frische '
+        'Live-Region, das Verlassen des Tabs raeumt sie ab', (tester) async {
+      final semantics = tester.ensureSemantics();
+      _announcing(tester, false);
+      final tab = ValueNotifier<bool>(true);
+      addTearDown(tab.dispose);
       final coach = _Coach.create();
-      await _mount(tester, coach);
-      tester.takeAnnouncements();
+      await _mount(tester, coach, tabVisible: tab);
 
       await _sendText(tester, 'Frage');
-
+      final first = tester.getSemantics(_answerCue).id;
+      await _sendText(tester, 'Noch eine Frage');
+      expect(_answerCue, findsOneWidget);
       expect(
-        tester.takeAnnouncements(),
-        contains(isAccessibilityAnnouncement(deL10n.coachAnswerAnnouncement)),
+        tester.getSemantics(_answerCue).id,
+        isNot(first),
+        reason: 'auf Android spricht nur ein neuer Knoten erneut',
       );
+
+      // A tab return rebuilds the semantics subtree; a stale cue would claim
+      // a new answer.
+      tab.value = false;
+      await _frames(tester);
+      tab.value = true;
+      await _frames(tester);
+      expect(_answerCue, findsNothing);
+      semantics.dispose();
     });
 
     testWidgets('"Hinzugefuegt" an der Rezeptkarte ist eine Live-Region', (
