@@ -8,7 +8,7 @@ import sys
 import unittest
 
 from ios_test_support import (
-    SHARE_SUITES, declared_share_cases, declared_test_methods, select_device, verify_results,
+    REQUIRED_SUITES, declared_required_cases, declared_test_methods, select_device, verify_results,
 )
 
 
@@ -27,13 +27,13 @@ def runtime(version):
 
 
 def result_tree():
-    cases = declared_share_cases()
+    cases = declared_required_cases()
     return {"testNodes": [{"nodeType": "Unit test bundle", "children": [
         {"nodeType": "Test Suite", "name": suite, "children": [
             {"nodeType": "Test Case", "name": f"{case}()",
              "nodeIdentifier": f"RunnerTests.{suite}/{case}()", "result": "Passed"}
             for case in sorted(cases[suite])
-        ]} for suite in SHARE_SUITES
+        ]} for suite in REQUIRED_SUITES
     ]}]}
 
 
@@ -73,8 +73,20 @@ class SimulatorSelectionTests(unittest.TestCase):
 class ResultVerificationTests(unittest.TestCase):
     def test_required_suites_have_executed_passed_tests(self):
         self.assertEqual(verify_results(result_tree()), {
-            suite: len(cases) for suite, cases in declared_share_cases().items()
+            suite: len(cases) for suite, cases in declared_required_cases().items()
         })
+
+    def test_dictation_accumulator_suite_is_required(self):
+        # The accumulator suite guards the dictation fix; a run without it
+        # must fail like a missing share suite.
+        suite = "SpeechTranscriptAccumulatorTests"
+        self.assertIn(suite, REQUIRED_SUITES)
+        self.assertIn("testForumResetTraceKeepsBothUtterances", declared_required_cases()[suite])
+        tree = result_tree()
+        nodes = tree["testNodes"][0]["children"]
+        tree["testNodes"][0]["children"] = [node for node in nodes if node["name"] != suite]
+        with self.assertRaisesRegex(ValueError, suite):
+            verify_results(tree)
 
     def test_one_passing_case_per_suite_does_not_prove_full_discovery(self):
         # The real Swift files declare more than one case in every suite.
@@ -91,7 +103,7 @@ class ResultVerificationTests(unittest.TestCase):
             suite["name"] = "RunnerTests." + suite["name"]
             del suite["children"][0]["nodeIdentifier"]
         self.assertEqual(verify_results({"testNodes": [{"nodeType": "Destination", "children": tree["testNodes"]}]}), {
-            suite: len(cases) for suite, cases in declared_share_cases().items()
+            suite: len(cases) for suite, cases in declared_required_cases().items()
         })
 
     def test_missing_empty_or_skipped_suite_fails_instead_of_false_green(self):

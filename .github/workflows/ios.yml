@@ -141,7 +141,8 @@ jobs:
 
       # The tests use temporary directories and injected callbacks, without
       # live credentials or an App Group container. The verifier compares
-      # every declared share XCTest with xcresult, so partial discovery fails.
+      # every declared share and dictation XCTest with xcresult, so partial
+      # discovery fails.
       # This does not run TikTok.
       - name: RunnerTests auf iPhone-Simulator
         id: simulator-tests
@@ -187,7 +188,7 @@ jobs:
           {
             echo "### iOS-Simulator-Tests: $SIMULATOR_TEST_OUTCOME"
             echo ""
-            echo "RunnerTests prueft Inbox, App-Uebergabe und Wake-Routing mit lokalen Testdaten."
+            echo "RunnerTests prueft Inbox, App-Uebergabe, Wake-Routing und den Diktat-Akkumulator mit lokalen Testdaten."
             echo "Ein TikTok-Share auf einem signierten iPhone ist damit nicht nachgewiesen."
             if [ -f build/ios-test-results/required-suite-counts.json ]; then
               echo '```json'

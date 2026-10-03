@@ -1,4 +1,4 @@
-"""Select a simulator and require every declared recipe-share XCTest in CI."""
+"""Select a simulator and require every declared recipe-share and dictation XCTest in CI."""
 
 import argparse
 import json
@@ -7,10 +7,11 @@ import re
 import sys
 
 
-SHARE_SUITES = (
+REQUIRED_SUITES = (
     "RecipeShareInboxTests",
     "RecipeShareHandoffTests",
     "RecipeShareWakeTests",
+    "SpeechTranscriptAccumulatorTests",
 )
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -95,12 +96,12 @@ def declared_test_methods(source: str, suite: str) -> set[str]:
     return set(methods)
 
 
-def declared_share_cases(root: Path = ROOT) -> dict[str, set[str]]:
+def declared_required_cases(root: Path = ROOT) -> dict[str, set[str]]:
     return {
         suite: declared_test_methods(
             (root / "ios" / "RunnerTests" / f"{suite}.swift").read_text(encoding="utf-8"),
             suite,
-        ) for suite in SHARE_SUITES
+        ) for suite in REQUIRED_SUITES
     }
 
 
@@ -140,9 +141,9 @@ def select_device(document: dict) -> str:
 def verify_results(
     document: dict, expected_cases: dict[str, set[str]] | None = None
 ) -> dict[str, int]:
-    """Require every declared share XCTest to appear once and pass."""
-    expected = expected_cases if expected_cases is not None else declared_share_cases()
-    seen = {suite: set() for suite in SHARE_SUITES}
+    """Require every declared XCTest of the required suites to appear once and pass."""
+    expected = expected_cases if expected_cases is not None else declared_required_cases()
+    seen = {suite: set() for suite in REQUIRED_SUITES}
 
     def walk(nodes: list, parent_suite: str | None = None) -> None:
         for node in nodes:
@@ -158,7 +159,7 @@ def verify_results(
                 identifiers = {part.rsplit(".", 1)[-1] for part in identifier.split("/")}
                 named_suites = [name for name in seen if name in identifiers]
                 if len(named_suites) > 1 or (named_suites and suite in seen and named_suites[0] != suite):
-                    raise ValueError("Ambiguous share XCTest suite")
+                    raise ValueError("Ambiguous required XCTest suite")
                 suite = named_suites[0] if named_suites else suite
                 if suite in seen:
                     names = set(re.findall(
@@ -183,10 +184,10 @@ def verify_results(
     walk(nodes)
     missing = [
         f"{suite}: {', '.join(sorted(expected[suite] - seen[suite]))}"
-        for suite in SHARE_SUITES if expected[suite] - seen[suite]
+        for suite in REQUIRED_SUITES if expected[suite] - seen[suite]
     ]
     if missing:
-        raise ValueError("Declared share XCTest cases missing from xcresult: " + "; ".join(missing))
+        raise ValueError("Declared required XCTest cases missing from xcresult: " + "; ".join(missing))
     return {suite: len(cases) for suite, cases in seen.items()}
 
 
