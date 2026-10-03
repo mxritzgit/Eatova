@@ -1,6 +1,7 @@
 # Weight trend and re-anchoring
 
-Status: stage 1 implemented on 2026-10-03; stage 2 planned. Background:
+Status: stage 1 merged on 2026-10-03 (PR #126); stage 2 implemented on
+2026-10-03. Background:
 [calorie review 2026-08-21](REVIEW-KCAL-2026-08-21.md) §4.1. The user made the
 decisions on 2026-10-03.
 
@@ -85,16 +86,64 @@ Measured effect (male, 182 cm, light, −0.5 kg/week): the daily goal goes from
 2100 kcal at 84 kg to 2000 at 76 kg. The visible correction is the forecast and
 the plan card.
 
-## Stage 2 (planned): adaptive weekly check
+## Stage 2: the weekly check
 
-The user wants the app to estimate actual expenditure from logged intake and
-the weight trend, MacroFactor style, and to adjust the goal, but only with a
-confirmation. The planned rules:
+The app estimates the user's actual daily expenditure from logged intake and the
+weight trend, MacroFactor style, and proposes to move the daily goal. Nothing
+changes without a tap. User decision of 2026-10-03: with confirmation.
 
-- It runs at the earliest after 2–3 weeks with enough logged days and
-  weigh-ins.
-- It proposes at most ±150 kcal per check and never goes below the
-  sex-specific floor.
-- It excludes manual mode.
+### When it appears
 
-This needs a persisted adjustment on the profile (migration) and its own PR.
+- Live mode with a completed onboarding. Manual goals are the user's own.
+- The server has answered profile and weight log in this session (the same
+  gate as the re-anchoring). A check never runs on cached data alone.
+- At least 7 days since the last answered check (`energy_checked_on`).
+- Enough data in the **window**: the 21 local days that end yesterday (today
+  is not complete yet).
+  - At least 14 **logged days**. A day counts when its logged intake reaches
+    50 % of the current daily goal, since emptier days are almost certainly
+    incomplete.
+  - At least 4 weigh-in days, the first and last at least 14 days apart.
+- A proposal that would change nothing is not shown. That covers a step that
+  rounds to zero, an adjustment already at its cap, and a goal held by the
+  floor or the ceiling.
+
+### The estimate
+
+- **Weight change**: a least-squares slope over the last weigh-in of each day
+  in the window. Days more than 5 % off the window median are dropped as
+  typos.
+- **Observed expenditure** = mean intake of the logged days − slope × 7700
+  kcal/kg.
+- **Modelled expenditure** = maintenance (BMR × PAL plus the current
+  adjustment) + mean step kcal of the logged days. The PAL ladder has no
+  walking in it, so the steps belong to the model.
+- **Difference** = observed − modelled.
+  - Under 100 kcal there is no proposal.
+  - Otherwise the step is the difference rounded to 50 and capped at ±150
+    kcal.
+  - The adjustment stays within ±500 kcal in total.
+- The adjustment (`energy_adjustment_kcal`) shifts maintenance. The calculator
+  adds it to BMR × PAL, so goal, macros, forecast and pace follow, while the
+  floor and ceiling stay as they are. Manual mode keeps its own goals and only
+  uses the adjusted maintenance for pace and forecast.
+
+### Answering
+
+- **Adjust**: adds the step to the adjustment, records today as
+  `energy_checked_on`, recomputes the live goals and confirms with a notice.
+- **Not now**: records today only. The next check comes at the earliest in 7
+  days.
+- The goals screen shows a non-zero adjustment in live mode and can reset it
+  to 0, which takes effect on save.
+
+### Storage and rollout
+
+- `profiles.energy_adjustment_kcal smallint not null default 0`, with a check
+  of ±1000.
+- `profiles.energy_checked_on date`, nullable.
+- Both are written only through `apply_sync_operation` (SECURITY DEFINER), with
+  no column grants. A profile save whose payload lacks the keys (an older
+  build) keeps the stored values instead of resetting them.
+- The live migration goes first and the client second. The client selects the
+  new columns on load.

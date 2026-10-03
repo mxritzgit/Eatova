@@ -31,8 +31,12 @@ You enter and the app stores the following, tied to your account:
   rights").
 - **Profile / body metrics:** name, email, weight, height, age, biological sex,
   activity level, goal weight, weight goal (lose/hold/gain), dietary preference,
-  and your daily targets (calories, macros and steps). Water and sleep goals
-  are no longer active profile controls.
+  and your daily targets (calories, macros and steps). If you confirm a
+  proposal of the weekly check, the profile also stores the resulting
+  calibration of your calorie estimate (an offset in kcal per day) and the day
+  of your last answer. The check is computed on your device from your logged
+  meals and weigh-ins. Water and sleep goals are no longer active profile
+  controls.
 - **Nutrition log:** meals you log (name, calories, macros, portion, barcode/brand
   where applicable, and whether the values came from the AI scan, a barcode, the
   product search or your own manual entry), favorites, and your own recipes,
