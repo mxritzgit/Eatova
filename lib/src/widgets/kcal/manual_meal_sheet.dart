@@ -9,7 +9,7 @@ import '../../models/number_input.dart';
 import '../../theme/app_tokens.dart';
 import '../common/decimal_text.dart';
 import '../common/persistence_action.dart';
-import '../design/sheets.dart';
+import '../design/design.dart';
 import 'meal_slot_picker.dart';
 
 /// Form for custom nutrition values: label values PER 100 g plus the portion
@@ -28,19 +28,18 @@ Future<MealAnalysisResult?> showManualMealSheet(
   String? contextLabel,
   PersistValueChanged<MealAnalysisResult>? onSave,
 }) {
-  return showModalBottomSheet<MealAnalysisResult>(
-    context: context,
-    isScrollControlled: true,
-    showDragHandle: false,
-    backgroundColor: Colors.transparent,
-    barrierColor: context.t.scrim,
-    builder: (sheetContext) => ManualMealSheet(
+  // No route handle: a pull on it would bypass the commit guard. The sheet
+  // draws a [SheetHandle] inside it.
+  return showEatovaSheet<MealAnalysisResult>(
+    context,
+    ManualMealSheet(
       initialName: initialName,
       initialSlot: initialSlot,
       onSlotChanged: onSlotChanged,
       contextLabel: contextLabel,
       onSave: onSave,
     ),
+    dragHandle: false,
   );
 }
 
@@ -256,23 +255,19 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
     final l10n = context.l10n;
     final mediaQuery = MediaQuery.of(context);
     final vorschau = _vorschauKcal;
-    return Padding(
-      padding: EdgeInsets.only(bottom: mediaQuery.viewInsets.bottom),
-      child: Container(
-        key: const ValueKey('manual-meal-sheet'),
-        // Safe-area and keyboard aware instead of a fixed 92 %: five input
-        // fields, so the keyboard is practically always open.
-        constraints: BoxConstraints(maxHeight: sheetMaxHeightOf(context)),
-        decoration: BoxDecoration(
-          color: t.bg,
-          borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(rSheet),
-          ),
-        ),
+    // showEatovaSheet supplies ground, edge, keyboard inset and the safe-area
+    // height cap (five input fields: the keyboard is practically always open).
+    return Column(
+      key: const ValueKey('manual-meal-sheet'),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Outside the scroll area, so a pull on it moves the sheet.
+        const SheetHandle(padding: EdgeInsets.only(top: 10, bottom: 12)),
+        Flexible(
         child: SingleChildScrollView(
           padding: EdgeInsets.fromLTRB(
             24,
-            10,
+            0,
             24,
             24 + mediaQuery.viewPadding.bottom,
           ),
@@ -280,17 +275,6 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Center(
-                child: Container(
-                  width: 42,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: t.line,
-                    borderRadius: BorderRadius.circular(rPill),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
               Row(
                 children: [
                   Expanded(
@@ -304,11 +288,13 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
                       ),
                     ),
                   ),
+                  const SizedBox(width: 8),
                   IconButton(
                     key: const ValueKey('manual-meal-close'),
                     tooltip: l10n.commonClose,
                     onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close_rounded),
+                    style: IconButton.styleFrom(backgroundColor: t.surf2),
+                    icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
                   ),
                 ],
               ),
@@ -494,26 +480,19 @@ class _ManualMealSheetState extends State<ManualMealSheet> {
                 ),
               ),
               const SizedBox(height: 14),
-              // FilledButton with onPressed == null as the lock signal — same
-              // testable pattern as recipe-create-save.
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  key: const ValueKey('manual-meal-save'),
-                  onPressed: _isValid && !_saving ? _save : null,
-                  icon: const Icon(Icons.check_rounded, size: 18),
-                  // No styleFrom: fill, ink, disabled tone and shape come from
-                  // the app-wide filledButtonTheme (review F8-10).
-                  label: Text(
-                    l10n.commonSave,
-                    style: AppType.ui(14.5, weight: FontWeight.w700),
-                  ),
-                ),
+              // onTap == null is the lock signal and the visible disabled
+              // state.
+              PrimaryActionButton(
+                key: const ValueKey('manual-meal-save'),
+                onTap: _isValid && !_saving ? _save : null,
+                icon: Icons.check_rounded,
+                label: l10n.commonSave,
               ),
             ],
           ),
         ),
-      ),
+        ),
+      ],
     );
   }
 }

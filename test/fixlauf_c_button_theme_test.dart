@@ -15,6 +15,7 @@ import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
+import 'package:eatova/src/widgets/design/design.dart' show PrimaryActionButton;
 import 'package:eatova/src/widgets/kcal/add_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/manual_meal_sheet.dart';
@@ -153,6 +154,12 @@ void main() {
     await pumpLocalized(tester, const ManualMealSheet());
     await tester.pumpAndSettle();
 
-    _expectThemed(tester, find.byKey(const ValueKey('manual-meal-save')));
+    // Since the 2026-10-03 redesign this is the design system's primary
+    // action: fill and ink come from the tokens, with no local override.
+    expect(
+      tester.widget(find.byKey(const ValueKey('manual-meal-save'))),
+      isA<PrimaryActionButton>()
+          .having((b) => b.destructive, 'destructive', isFalse),
+    );
   });
 }

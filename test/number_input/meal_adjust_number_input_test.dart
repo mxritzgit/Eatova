@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
+import 'package:eatova/src/widgets/design/design.dart' show PrimaryActionButton;
 import 'package:eatova/src/widgets/meal/meal_widgets.dart';
 
 import '../support/harness.dart';
@@ -72,8 +73,14 @@ Future<void> _tippe(WidgetTester tester, String key, String text) async {
 String _inhalt(WidgetTester tester, String key) =>
     tester.widget<TextField>(find.byKey(ValueKey(key))).controller!.text;
 
+/// Apply is the sheet's [PrimaryActionButton]; the dialog's save a
+/// [FilledButton].
 bool _aktiv(WidgetTester tester, String key) =>
-    tester.widget<FilledButton>(find.byKey(ValueKey(key))).onPressed != null;
+    switch (tester.widget(find.byKey(ValueKey(key)))) {
+      PrimaryActionButton(:final onTap) => onTap != null,
+      FilledButton(:final onPressed) => onPressed != null,
+      final other => throw StateError('$key ist kein Knopf: $other'),
+    };
 
 String? _hinweis(WidgetTester tester, String key) {
   final finder = find.byKey(ValueKey(key));

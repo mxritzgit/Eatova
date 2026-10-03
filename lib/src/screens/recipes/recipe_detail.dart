@@ -308,13 +308,15 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                     key: const ValueKey('recipe-edit-current-state'),
                     style: AppType.ui(14, color: t.ink2, height: 1.5),
                   ),
-                  if (_saveHandle?.value.resolving == true)
-                    TextButton.icon(
+                  if (_saveHandle?.value.resolving == true) ...[
+                    const SizedBox(height: 10),
+                    SoftPillButton(
                       key: const ValueKey('recipe-edit-refresh-result'),
-                      onPressed: () => _saveHandle?.refresh(),
-                      icon: const Icon(Icons.refresh_rounded),
-                      label: Text(l10n.commonBootUnansweredRetry),
+                      onTap: () => _saveHandle?.refresh(),
+                      icon: Icons.refresh_rounded,
+                      label: l10n.commonBootUnansweredRetry,
                     ),
+                  ],
                   const SizedBox(height: 16),
                 ],
                 Container(
@@ -391,33 +393,40 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
                     ],
                   ),
                 ],
-                if (widget.onEdit != null && recipe.userCreated) ...[
+                if ((widget.onEdit != null && recipe.userCreated) ||
+                    widget.onOpenHistory != null) ...[
                   const SizedBox(height: 14),
-                  TextButton.icon(
-                    key: const ValueKey('recipe-detail-edit'),
-                    onPressed: _canUseRecipe ? _edit : null,
-                    icon: const Icon(Icons.edit_outlined),
-                    label: Text(l10n.recipeEditTitle),
-                  ),
-                ],
-                if (widget.onOpenHistory != null) ...[
-                  const SizedBox(height: 8),
-                  TextButton.icon(
-                    key: const ValueKey('recipe-detail-history'),
-                    onPressed:
-                        _saveHandle?.value.resolving == true ||
-                            _historySlug == null
-                        ? null
-                        : () async {
-                            final restored = await widget.onOpenHistory!(
-                              _historySlug!,
-                            );
-                            if (restored && context.mounted) {
-                              Navigator.pop(context);
-                            }
-                          },
-                    icon: const Icon(Icons.history_rounded),
-                    label: Text(l10n.recipeHistoryTitle),
+                  // One row of soft pills; at large text they wrap.
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      if (widget.onEdit != null && recipe.userCreated)
+                        SoftPillButton(
+                          key: const ValueKey('recipe-detail-edit'),
+                          onTap: _canUseRecipe ? _edit : null,
+                          icon: Icons.edit_outlined,
+                          label: l10n.recipeEditTitle,
+                        ),
+                      if (widget.onOpenHistory != null)
+                        SoftPillButton(
+                          key: const ValueKey('recipe-detail-history'),
+                          tone: SoftPillTone.neutral,
+                          onTap:
+                              _saveHandle?.value.resolving == true ||
+                                  _historySlug == null
+                              ? null
+                              : () async {
+                                  final restored = await widget
+                                      .onOpenHistory!(_historySlug!);
+                                  if (restored && context.mounted) {
+                                    Navigator.pop(context);
+                                  }
+                                },
+                          icon: Icons.history_rounded,
+                          label: l10n.recipeHistoryTitle,
+                        ),
+                    ],
                   ),
                 ],
                 const SizedBox(height: 24),
@@ -488,12 +497,14 @@ class _AddToMealCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = context.t;
     final l = context.l10n;
+    // A calm card: the accent lives on the one primary action only.
     return Container(
       key: const ValueKey('recipe-add-card'),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: t.brandSurface,
-        borderRadius: BorderRadius.circular(rSheet),
+        color: t.surf,
+        borderRadius: BorderRadius.circular(rCard),
+        border: Border.all(color: t.cardBorder),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -505,30 +516,17 @@ class _AddToMealCard extends StatelessWidget {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 12),
-          FilledButton.icon(
+          PrimaryActionButton(
             key: const ValueKey('recipe-add-button'),
-            style: FilledButton.styleFrom(
-              backgroundColor: t.ink,
-              foregroundColor: t.bg,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-              minimumSize: const Size(48, 52),
-            ),
-            onPressed: onTap,
-            icon: Icon(
-              recipe.hasPendingNutrition
-                  ? Icons.fact_check_outlined
-                  : Icons.add_rounded,
-              size: 22,
-            ),
-            label: Text(
-              recipe.hasPendingNutrition
-                  ? recipe.hasMissingNutrition
-                      ? recipe.nutritionConflicts.isNotEmpty ? l.recipeNutritionCorrect : l.recipeNutritionComplete
-                      : l.recipeNutritionBasisCheck
-                  : l.recipesAddToTrackerTitle,
-              textAlign: TextAlign.center,
-              style: AppType.ui(15, weight: FontWeight.w700),
-            ),
+            onTap: onTap,
+            icon: recipe.hasPendingNutrition
+                ? Icons.fact_check_outlined
+                : Icons.add_rounded,
+            label: recipe.hasPendingNutrition
+                ? recipe.hasMissingNutrition
+                    ? recipe.nutritionConflicts.isNotEmpty ? l.recipeNutritionCorrect : l.recipeNutritionComplete
+                    : l.recipeNutritionBasisCheck
+                : l.recipesAddToTrackerTitle,
           ),
           const SizedBox(height: 10),
           Text(
@@ -761,11 +759,9 @@ class _RecipeInfoSection extends StatelessWidget {
                       lines[i],
                       style: AppType.ui(15, color: t.ink, height: 1.6),
                     ),
-                  if (i < lines.length - 1) ...[
-                    const SizedBox(height: 12),
-                    if (!numbered) Divider(height: 1, color: t.line),
-                    const SizedBox(height: 12),
-                  ],
+                  // Spacing, not hairlines, between lines.
+                  if (i < lines.length - 1)
+                    SizedBox(height: numbered ? 24 : 12),
                 ],
               ],
             ),

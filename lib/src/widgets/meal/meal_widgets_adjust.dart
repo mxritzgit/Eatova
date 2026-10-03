@@ -28,11 +28,12 @@ Future<List<MealComponent>?> showWeightAdjustmentSheet(
       ),
     );
   }
-  return showModalBottomSheet<List<MealComponent>>(
-    context: context,
-    backgroundColor: context.t.bg,
-    isScrollControlled: true,
-    builder: (context) => _MealItemAdjustmentSheet(result: result),
+  // The app shell (scrim, edge, keyboard inset, height cap); the sheet draws
+  // its own handle inside the guards.
+  return showEatovaSheet<List<MealComponent>>(
+    context,
+    _MealItemAdjustmentSheet(result: result),
+    dragHandle: false,
   );
 }
 
@@ -396,8 +397,10 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
         active: _dirty,
         onDismissAttempt: _askDiscard,
         child: Padding(
+          // showEatovaSheet already lifts the sheet above the keyboard; this
+          // keeps Apply clear of the home indicator.
           padding: EdgeInsets.only(
-            bottom: 24 + MediaQuery.viewInsetsOf(context).bottom,
+            bottom: 24 + MediaQuery.paddingOf(context).bottom,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -455,25 +458,11 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                           ),
                         const SizedBox(height: 10),
                       ],
-                      OutlinedButton.icon(
+                      SoftPillButton(
                         key: const ValueKey('analyse-item-add-button'),
-                        onPressed: _addItemDialog,
-                        icon: const Icon(Icons.add_rounded, size: 17),
-                        label: Text(
-                          l10n.foodAddItemTitle,
-                          style: AppType.ui(13.5, weight: FontWeight.w600),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: t.ink,
-                          side: BorderSide(color: t.line),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 10,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(rControl),
-                          ),
-                        ),
+                        onTap: _addItemDialog,
+                        icon: Icons.add_rounded,
+                        label: l10n.foodAddItemTitle,
                       ),
                       const SizedBox(height: 14),
                       AppCard(
@@ -536,23 +525,13 @@ class _MealItemAdjustmentSheetState extends State<_MealItemAdjustmentSheet> {
                         ),
                       ],
                       const SizedBox(height: 14),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          key: const ValueKey('analyse-save-weight-button'),
-                          onPressed: canSave
-                              ? () => Navigator.pop(context, adjustedItems)
-                              : null,
-                          icon: const Icon(Icons.check_rounded, size: 17),
-                          label: Text(
-                            l10n.foodApplyButton,
-                            style: AppType.ui(14, weight: FontWeight.w600),
-                          ),
-                          // Colours/shape from filledButtonTheme (F8-10).
-                          style: FilledButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                          ),
-                        ),
+                      PrimaryActionButton(
+                        key: const ValueKey('analyse-save-weight-button'),
+                        onTap: canSave
+                            ? () => Navigator.pop(context, adjustedItems)
+                            : null,
+                        icon: Icons.check_rounded,
+                        label: l10n.foodApplyButton,
                       ),
                     ],
                   ),
@@ -861,11 +840,18 @@ class _RemovedItemCard extends StatelessWidget {
     return AppCard(
       radius: rCard,
       color: t.surf2,
-      padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
+      padding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+      // A full-width Wrap, not a Row: at large text the pill drops below a
+      // long name instead of squeezing it.
+      child: SizedBox(
+        width: double.infinity,
+        child: Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: 8,
+          runSpacing: 6,
+          children: [
+            Text(
               name,
               style: AppType.ui(
                 13,
@@ -873,25 +859,13 @@ class _RemovedItemCard extends StatelessWidget {
                 color: t.ink2,
               ).copyWith(decoration: TextDecoration.lineThrough),
             ),
-          ),
-          TextButton.icon(
-            onPressed: onUndo,
-            style: TextButton.styleFrom(
-              foregroundColor: t.ink,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 4,
-              ),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            SoftPillButton(
+              onTap: onUndo,
+              icon: Icons.undo_rounded,
+              label: context.l10n.foodUndoRemoveButton,
             ),
-            icon: const Icon(Icons.undo_rounded, size: 14),
-            label: Text(
-              context.l10n.foodUndoRemoveButton,
-              style: AppType.ui(11, weight: FontWeight.w600),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1214,32 +1188,18 @@ class _AddItemDialogState extends State<_AddItemDialog> {
                 ),
               ),
             ],
-            const SizedBox(height: 4),
+            const SizedBox(height: 10),
             // Expandable instead of three more required fields.
             Align(
               alignment: Alignment.centerLeft,
-              child: TextButton.icon(
+              child: SoftPillButton(
                 key: const ValueKey('analyse-add-item-macros-toggle'),
-                onPressed: () => setState(() => _makrosOffen = !_makrosOffen),
-                style: TextButton.styleFrom(
-                  foregroundColor: t.ink,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 4,
-                  ),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                icon: Icon(
-                  _makrosOffen
-                      ? Icons.expand_less_rounded
-                      : Icons.expand_more_rounded,
-                  size: 16,
-                ),
-                label: Text(
-                  l10n.foodAddItemMacrosToggle,
-                  style: AppType.ui(12, weight: FontWeight.w600),
-                ),
+                onTap: () => setState(() => _makrosOffen = !_makrosOffen),
+                // Accent: a neutral capsule read as one more input field.
+                icon: _makrosOffen
+                    ? Icons.expand_less_rounded
+                    : Icons.expand_more_rounded,
+                label: l10n.foodAddItemMacrosToggle,
               ),
             ),
             if (_makrosOffen) ...[

@@ -11,6 +11,7 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/models/weight_log.dart';
 import 'package:eatova/src/screens/settings/goals_screen.dart';
 import 'package:eatova/src/screens/onboarding_screen.dart';
+import 'package:eatova/src/widgets/design/design.dart' show PrimaryActionButton;
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/diary_meal_card.dart';
 import 'package:eatova/src/widgets/kcal/favorites_sheet.dart';
@@ -250,7 +251,7 @@ void main() {
         'Saved draft',
       );
       expect(
-        tester.widget<FilledButton>(key('manual-meal-save')).onPressed,
+        tester.widget<PrimaryActionButton>(key('manual-meal-save')).onTap,
         isNotNull,
       );
       commit = Completer<void>();
