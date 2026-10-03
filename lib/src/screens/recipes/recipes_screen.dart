@@ -1067,14 +1067,16 @@ class _RecipesScreenState extends State<RecipesScreen> {
       await hook ?? SyncDelivery.delivered;
 
   Future<void> _openCreateSheet() async {
-    // Deliberately not `showEatovaSheet`: it forces `showDragHandle: true`,
-    // and a drag on the handle goes through `BottomSheet._handleDragEnd →
-    // Navigator.pop`, bypassing both `PopScope` and `_DiscardDragGuard` — a
-    // silent hole in the D5 discard guard.
+    // Deliberately not `showEatovaSheet`: a drag on Material's handle goes
+    // through `BottomSheet._handleDragEnd → Navigator.pop`, bypassing both
+    // `PopScope` and `_DiscardDragGuard` — a silent hole in the D5 discard
+    // guard. The sheet draws its own shell and handle; only the scrim is
+    // shared.
     final ergebnis = await showModalBottomSheet<RezeptEntwurfErgebnis>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      barrierColor: context.t.scrim,
       builder: (_) => _CreateRecipeSheet(
         photoInput: widget.photoInput ?? DeviceMealPhotoInput(),
         productService: widget.productService,

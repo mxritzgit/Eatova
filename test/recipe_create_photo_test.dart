@@ -292,6 +292,11 @@ void main() {
         findsOneWidget,
       );
 
+      // The live preview card on top pushes the third action below the fold.
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('recipe-create-photo-remove')),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(
         find.byKey(const ValueKey('recipe-create-photo-remove')),
       );

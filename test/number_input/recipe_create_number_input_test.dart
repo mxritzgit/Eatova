@@ -6,6 +6,7 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 import '../support/harness.dart';
 import 'number_input_cases.dart';
@@ -54,8 +55,10 @@ String _inhalt(WidgetTester tester, String key) =>
 
 bool _speichernAktiv(WidgetTester tester) =>
     tester
-        .widget<FilledButton>(find.byKey(const ValueKey('recipe-create-save')))
-        .onPressed !=
+        .widget<PrimaryActionButton>(
+          find.byKey(const ValueKey('recipe-create-save')),
+        )
+        .onTap !=
     null;
 
 void main() {

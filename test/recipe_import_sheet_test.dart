@@ -184,14 +184,14 @@ void main() {
     expect(text('fat'), '20');
     expect(text('protein'), isEmpty);
     expect(text('carbs'), isEmpty);
-    expect(tester.widget<FilledButton>(find.byKey(const ValueKey('recipe-create-save'))).onPressed, isNull);
+    expect(tester.widget<PrimaryActionButton>(find.byKey(const ValueKey('recipe-create-save'))).onTap, isNull);
     await _tap(tester, 'recipe-edit-confirm-nutrition-basis');
-    expect(tester.widget<FilledButton>(find.byKey(const ValueKey('recipe-create-save'))).onPressed, isNull);
+    expect(tester.widget<PrimaryActionButton>(find.byKey(const ValueKey('recipe-create-save'))).onTap, isNull);
     await _tap(tester, 'recipe-edit-confirm-nutrition-basis');
     // Values below are an explicit user correction, never inferred by the app.
     await _enter(tester, 'recipe-create-protein', '47');
     await _enter(tester, 'recipe-create-carbs', '68');
-    expect(tester.widget<FilledButton>(find.byKey(const ValueKey('recipe-create-save'))).onPressed, isNull);
+    expect(tester.widget<PrimaryActionButton>(find.byKey(const ValueKey('recipe-create-save'))).onTap, isNull);
     await _tap(tester, 'recipe-edit-confirm-nutrition-basis');
     await _tap(tester, 'recipe-create-save');
     expect(saved, isEmpty);
@@ -1111,10 +1111,10 @@ void main() {
       await _tap(tester, 'recipe-detail-edit');
       await _enter(tester, 'recipe-create-kcal', '450');
       await _enter(tester, 'recipe-create-grams', '300');
-      final save = tester.widget<FilledButton>(
+      final save = tester.widget<PrimaryActionButton>(
         find.byKey(const ValueKey('recipe-create-save')),
       );
-      expect(save.onPressed, isNull);
+      expect(save.onTap, isNull);
       await _enter(tester, 'recipe-create-protein', '30');
       await _enter(tester, 'recipe-create-carbs', '45');
       await _enter(tester, 'recipe-create-fat', '12');

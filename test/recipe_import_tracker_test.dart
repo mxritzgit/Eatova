@@ -8,6 +8,7 @@ import 'package:eatova/src/models/recipe_import_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/recipe_save_result.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -87,7 +88,7 @@ void main() {
       await tester.ensureVisible(field);
       await tester.enterText(field, pair.value);
     }
-    expect(tester.widget<FilledButton>(find.byKey(const ValueKey('recipe-create-save'))).onPressed, isNull);
+    expect(tester.widget<PrimaryActionButton>(find.byKey(const ValueKey('recipe-create-save'))).onTap, isNull);
     await tap(tester, 'recipe-edit-confirm-nutrition-basis');
     await tap(tester, 'recipe-create-save');
     expect(saved, hasLength(1));

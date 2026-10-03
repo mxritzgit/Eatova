@@ -4,6 +4,7 @@ import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/services/recipe_save_result.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -160,7 +161,7 @@ void main() {
     await tester.binding.handlePopRoute();
     await tester.pump(const Duration(milliseconds: 100));
     expect(field('save'), findsOneWidget);
-    expect(tester.widget<FilledButton>(field('save')).onPressed, isNull);
+    expect(tester.widget<PrimaryActionButton>(field('save')).onTap, isNull);
     expect(find.byKey(const ValueKey('discard-changes-dialog')), findsNothing);
     completion.complete(SyncDelivery.queuedRetry);
     await tester.pumpAndSettle();

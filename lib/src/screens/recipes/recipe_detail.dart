@@ -92,6 +92,7 @@ class _RecipeDetailScreenState extends State<RecipeDetailScreen>
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      barrierColor: context.t.scrim,
       builder: (_) => _CreateRecipeSheet(
         initialRecipe: editingRecipe,
         photoInput: widget.photoInput ?? DeviceMealPhotoInput(),

@@ -13,6 +13,7 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
 
@@ -66,8 +67,8 @@ Future<void> _tippe(WidgetTester tester, String feldKey, String text) async {
 String _inhalt(WidgetTester tester, String feldKey) =>
     tester.widget<TextField>(find.byKey(ValueKey(feldKey))).controller!.text;
 
-FilledButton _save(WidgetTester tester) =>
-    tester.widget<FilledButton>(find.byKey(const ValueKey('recipe-create-save')));
+PrimaryActionButton _save(WidgetTester tester) =>
+    tester.widget(find.byKey(const ValueKey('recipe-create-save')));
 
 void main() {
   testWidgets('160 ZWJ-Emoji im Titel passen durch maxLength, sind aber '
@@ -84,7 +85,7 @@ void main() {
             'maxLength zählt Grapheme, nicht Codepunkte.');
     expect(name.runes.length, greaterThan(300));
 
-    expect(_save(tester).onPressed, isNull);
+    expect(_save(tester).onTap, isNull);
     expect(find.text('Name ist zu lang – bitte kürzen.'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('recipe-create-save')),
@@ -101,7 +102,7 @@ void main() {
     await _tippe(tester, 'recipe-create-name', _familie * 42);
     await _tippe(tester, 'recipe-create-kcal', '520');
 
-    expect(_save(tester).onPressed, isNotNull);
+    expect(_save(tester).onTap, isNotNull);
     expect(find.text('Name ist zu lang – bitte kürzen.'), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('recipe-create-save')));
@@ -120,7 +121,7 @@ void main() {
     await _tippe(tester, 'recipe-create-ingredients', 'a' * 4001);
 
     expect(_inhalt(tester, 'recipe-create-ingredients').length, 4000);
-    expect(_save(tester).onPressed, isNotNull);
+    expect(_save(tester).onTap, isNotNull);
 
     await tester.tap(find.byKey(const ValueKey('recipe-create-save')));
     await tester.pumpAndSettle();
@@ -153,7 +154,7 @@ void main() {
 
     await _tippe(tester, 'recipe-create-name', 'Protein-Bowl');
     await _tippe(tester, 'recipe-create-kcal', '520');
-    expect(_save(tester).onPressed, isNotNull);
+    expect(_save(tester).onTap, isNotNull);
 
     // Ohne pump: der Button trägt noch das `_save` des letzten Frames.
     await tester.enterText(

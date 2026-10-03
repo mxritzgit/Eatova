@@ -554,6 +554,7 @@
   "recipesNameAndCaloriesSuffice": "Name and calories are enough.",
   "recipesGroupWhatIsIt": "Your dish",
   "recipesNameHint": "e.g. Protein Bowl",
+  "recipesPreviewNamePlaceholder": "Unnamed dish",
   "recipesPortionHint": "1 plate",
   "recipesGroupNutrition": "Nutrition",
   "recipesPerPortion": "per portion",

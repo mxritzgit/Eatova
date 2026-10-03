@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../models/number_input.dart';
 import '../../models/recipe_ingredient.dart';
-import '../../theme/app_tokens.dart';
 import '../common/decimal_text.dart';
+import '../design/controls.dart';
 import '../design/sheets.dart';
 
 /// Returns null while invalid so a parent cannot log the previous valid value.
@@ -81,26 +81,19 @@ class _RecipePortionSelectorState extends State<RecipePortionSelector> {
             runSpacing: 8,
             children: [
               for (final amount in [0.5, 1.0, 2.0])
-                ChoiceChip(
-                  label: Text(t.recipePortionPresetLabel(amount)),
-                  selected: value == amount,
-                  selectedColor: context.t.brandSurface,
-                  backgroundColor: context.t.surf,
-                  side: BorderSide.none,
-                  checkmarkColor: context.t.accent,
-                  labelStyle: AppType.ui(
-                    14,
-                    color: context.t.ink,
-                    weight: value == amount ? FontWeight.w700 : FontWeight.w500,
+                // The app's single-selection pill; 44 px keeps the touch
+                // floor (the md chip alone is 42).
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 44),
+                  child: FilterChipPill(
+                    key: ValueKey('recipe-portion-preset-$amount'),
+                    label: t.recipePortionPresetLabel(amount),
+                    selected: value == amount,
+                    onTap: () {
+                      _controller.text = formatDecimal(amount, t);
+                      _changed(_controller.text);
+                    },
                   ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 10,
-                  ),
-                  onSelected: (_) {
-                    _controller.text = formatDecimal(amount, t);
-                    _changed(_controller.text);
-                  },
                 ),
             ],
           ),

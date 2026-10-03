@@ -12,6 +12,7 @@ import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
 
@@ -158,7 +159,7 @@ void main() {
         await _enter(tester, field, family * graphemes);
         final text = tester.widget<TextField>(_field(field)).controller!.text;
         expect(text.runes.length, greaterThan(maxCodePoints));
-        expect(tester.widget<FilledButton>(_field('save')).onPressed, isNull);
+        expect(tester.widget<PrimaryActionButton>(_field('save')).onTap, isNull);
         expect(created, isEmpty);
 
         // Exactly the DB boundary is accepted, including multi-codepoint
@@ -170,7 +171,7 @@ void main() {
           family * groups + 'a' * (maxCodePoints - groups * 7),
         );
         expect(
-          tester.widget<FilledButton>(_field('save')).onPressed,
+          tester.widget<PrimaryActionButton>(_field('save')).onTap,
           isNotNull,
         );
         await tester.ensureVisible(_field('save'));

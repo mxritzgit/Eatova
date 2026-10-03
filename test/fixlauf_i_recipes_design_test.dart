@@ -16,6 +16,7 @@ import 'package:eatova/src/models/macro_progress.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
 import 'support/recipe_navigation.dart';
@@ -166,11 +167,11 @@ void main() {
         await tester.pumpAndSettle();
         await _openSheet(tester);
 
-        final save = tester.widget<FilledButton>(
+        final save = tester.widget<PrimaryActionButton>(
           find.byKey(const ValueKey('recipe-create-save')),
         );
-        expect(save.style, isNull,
-            reason: 'Primärfarbe und Form kommen aus dem Button-Theme.');
+        expect(save.destructive, isFalse,
+            reason: 'Primärfarbe und Form kommen aus PrimaryActionButton.');
         // Die Stature bleibt: mindestens 52 px hoch, volle Breite.
         final groesse =
             tester.getSize(find.byKey(const ValueKey('recipe-create-save')));
