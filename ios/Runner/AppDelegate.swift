@@ -173,8 +173,9 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
   private var dartToken = 0
   /// Set while a graceful stop waits for the final result.
   private var stopReason: String?
-  /// `systemUptime` when the audio engine started.
-  private var recordingStartedAt: TimeInterval?
+  /// Wall clock when the audio engine started. Not `systemUptime`: that is a
+  /// required-reason API (boot time) PrivacyInfo.xcprivacy does not declare.
+  private var recordingStartedAt: Date?
 
   /// Diagnostic log for the recognition mode: only a bool + locale id,
   /// never audio, transcript or PII.
@@ -404,7 +405,7 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
 
       audioEngine.prepare()
       try audioEngine.start()
-      recordingStartedAt = ProcessInfo.processInfo.systemUptime
+      recordingStartedAt = Date()
     } catch {
       finish(errorCode: "recognition_failed", message: error.localizedDescription)
     }
@@ -418,7 +419,7 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
     } else if let message = errorMessage, transcript.text.isEmpty {
       finish(errorCode: "recognition_failed", message: message)
     } else {
-      let elapsed = recordingStartedAt.map { ProcessInfo.processInfo.systemUptime - $0 } ?? 0
+      let elapsed = recordingStartedAt.map { Date().timeIntervalSince($0) } ?? 0
       finish(text: transcript.text, reason: elapsed >= Self.serverLimit ? "limit" : "final")
     }
   }
