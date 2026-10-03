@@ -12,6 +12,7 @@ import 'package:eatova/src/services/rest_alerts.dart';
 import 'package:eatova/src/services/screen_awake.dart';
 import 'package:eatova/src/services/training_session_controller.dart';
 import 'package:eatova/src/theme/app_theme.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -32,6 +33,28 @@ TrainingPlan _strength() => TrainingPlan(
         exercises: [
           for (final name in ['Squat', 'Bench', 'Row', 'Press'])
             TrainingExercise(name: name, sets: 3, reps: 8, restSeconds: 60),
+        ],
+      ),
+    ],
+  ),
+);
+
+/// Two exercises; the first one has a single set.
+TrainingPlan _pair({int secondSets = 1}) => TrainingPlan(
+  id: 'player_pair',
+  proposal: CoachTrainingProposal(
+    title: 'Pair',
+    workouts: [
+      TrainingWorkout(
+        title: 'Day B',
+        exercises: [
+          TrainingExercise(name: 'Squat', sets: 1, reps: 8, restSeconds: 60),
+          TrainingExercise(
+            name: 'Bench',
+            sets: secondSets,
+            reps: 8,
+            restSeconds: 60,
+          ),
         ],
       ),
     ],
@@ -725,6 +748,78 @@ void main() {
       await _exerciseMenu(tester, 0, 'training-timer-skip-set');
       expect(host.writes.last!.skippedSets, hasLength(1));
       await tester.pumpWidget(const SizedBox());
+    });
+  });
+
+  group('invalid values never outlive their field', () {
+    const missing =
+        'Enter the actual repetitions for completed sets before saving the '
+        'workout.';
+
+    bool saveEnabled(WidgetTester tester) =>
+        tester
+            .widget<PrimaryActionButton>(_key('training-finish-save'))
+            .onTap !=
+        null;
+
+    testWidgets('a card collapsing with a cleared value keeps Save enabled; '
+        're-expanded it edits again', (tester) async {
+      final host = await _open(tester, plan: _pair());
+      await _tap(tester, 'training-set-check-0-0');
+      // The finished card stays open through its rest: clear its reps.
+      await tester.enterText(_key('training-set-reps-0-0'), '');
+      await tester.pump();
+      expect(find.text(missing), findsOneWidget);
+      // The final set collapses card 1 and opens the finish sheet.
+      await _tap(tester, 'training-set-check-1-0');
+      await tester.pumpAndSettle();
+      expect(_key('training-set-reps-0-0'), findsNothing);
+      expect(find.text(missing), findsNothing);
+      expect(saveEnabled(tester), isTrue);
+      expect(
+        tester.widget<TextButton>(_key('training-finish-keep')).onPressed,
+        isNotNull,
+      );
+      await _tap(tester, 'training-finish-keep');
+      await tester.pumpAndSettle();
+      await _tap(tester, 'training-exercise-expand-0');
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<TextField>(_key('training-set-reps-0-0'))
+            .controller!
+            .text,
+        '8',
+      );
+      await tester.enterText(_key('training-set-reps-0-0'), '7');
+      await tester.pump();
+      await _tap(tester, 'training-timer-finish');
+      await tester.pumpAndSettle();
+      expect(saveEnabled(tester), isTrue);
+      await _tap(tester, 'training-finish-save');
+      await tester.pumpAndSettle();
+      expect(host.completed.single.snapshot.actualSets.first.reps, 7);
+    });
+
+    testWidgets('Hide sets drops the invalid value of the hidden rows', (
+      tester,
+    ) async {
+      final host = await _open(tester, plan: _pair(secondSets: 2));
+      await _tap(tester, 'training-set-check-0-0');
+      await _tap(tester, 'training-timer-skip-rest');
+      await _tap(tester, 'training-exercise-expand-0');
+      await tester.enterText(_key('training-set-reps-0-0'), '');
+      await tester.pump();
+      expect(find.text(missing), findsOneWidget);
+      await _tap(tester, 'training-exercise-expand-0');
+      await tester.pumpAndSettle();
+      expect(find.text(missing), findsNothing);
+      await _tap(tester, 'training-timer-finish');
+      await tester.pumpAndSettle();
+      expect(saveEnabled(tester), isTrue);
+      await _tap(tester, 'training-finish-save');
+      await tester.pumpAndSettle();
+      expect(host.completed.single.snapshot.actualSets.single.reps, 8);
     });
   });
 

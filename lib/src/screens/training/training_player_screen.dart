@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 
@@ -686,11 +687,22 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
       _session.setCompletedActual(reference, reps: reps, weightKg: weightKg);
       _persistSoon();
     },
-    validity: (reference, cell, valid) => setState(
-      () => valid
+    validity: (reference, cell, valid) {
+      final changed = valid
           ? _invalid.remove((reference, cell))
-          : _invalid.add((reference, cell)),
-    ),
+          : _invalid.add((reference, cell));
+      if (!changed || !mounted) return;
+      // An unmounting field reports while the tree is locked; the set is
+      // current at once (a finish sheet opening after this frame reads it).
+      if (WidgetsBinding.instance.schedulerPhase ==
+          SchedulerPhase.persistentCallbacks) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) setState(() {});
+        });
+      } else {
+        setState(() {});
+      }
+    },
     copyLast: (last) {
       if (!_enabled) return;
       final timed = _session.activeExercise?.isTimed ?? true;

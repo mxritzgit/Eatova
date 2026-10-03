@@ -142,6 +142,10 @@ class TrainingSetValueField extends StatefulWidget {
   final bool decimal;
   final String semanticLabel;
   final ValueChanged<num?> onChanged;
+
+  /// Called when validity flips, and with true when an invalid field
+  /// unmounts. That last call comes from dispose, while the tree is locked:
+  /// the caller must defer any rebuild.
   final ValueChanged<bool> onValidityChanged;
   final Key? fieldKey;
   final bool enabled;
@@ -207,6 +211,9 @@ class _TrainingSetValueFieldState extends State<TrainingSetValueField> {
 
   @override
   void dispose() {
+    // Invalid text never reached the caller and goes with the field, so its
+    // report must not outlive it.
+    if (!_valid) widget.onValidityChanged(true);
     _text.dispose();
     _focus.dispose();
     super.dispose();
