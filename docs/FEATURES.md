@@ -23,7 +23,7 @@ Dated reviews describe what was present at their own checkpoint.
 | Coach | Chat over SSE with full server-side approval before text is released; sessions, attached image, nutrition context and quota | [Coach service](../lib/src/services/coach_chat_service.dart) |
 | Coach recipes | `/recipe` proposal with recipe text and a generated picture; explicit confirmation saves the recipe | [Recipe flow](../lib/src/screens/coach/coach_recipe.dart) |
 | Coach training | `/plan` brief with goal/experience/equipment/frequency/duration/constraints; optional selected-plan discussion or adaptation; explicit adoption | [Training brief](../lib/src/screens/coach/coach_training_brief.dart) |
-| Profile | Body data, daily goals, weight chart, health connection and lifetime statistics | [Profile](../lib/src/screens/profile_screen.dart) |
+| Profile | Body data, daily goals, weight chart with trend, health connection and lifetime statistics; weigh-ins re-anchor the profile weight and live goals ([weight trend](WEIGHT-TREND.md)) | [Profile](../lib/src/screens/profile_screen.dart) |
 | Settings | Language (theme row hidden while dark-only), account changes, JSON export, sign-out and verified account deletion | [Settings](../lib/src/screens/settings/settings_screen.dart) |
 | Reminders | Local evening streak-at-risk notification, scheduled ahead; no server push channel | [Notifications](../lib/src/services/notification_service.dart) |
 

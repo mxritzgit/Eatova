@@ -677,6 +677,32 @@ class HomeStore extends _HomeStoreBase
   /// An error or a timeout is not an answer.
   bool _serverProfileAnswered = false;
 
+  /// The in-memory profile and weight log stem from a server answer this
+  /// session (an adopted row, a loaded log) — the gate for re-anchoring the
+  /// profile on the weight trend: a full profile row is never written from a
+  /// cached profile or a cached log alone (docs/WEIGHT-TREND.md). Unlike
+  /// [_serverProfileAnswered], a cache hydration that brings back different
+  /// rows clears them.
+  bool _serverProfileLoaded = false;
+  bool _serverWeightLogLoaded = false;
+
+  @override
+  bool get _serverAnsweredProfileAndWeightLog =>
+      _serverProfileLoaded && _serverWeightLogLoaded;
+
+  static bool _sameWeighIns(WeightLog a, WeightLog b) {
+    if (a.entries.length != b.entries.length) return false;
+    for (var i = 0; i < a.entries.length; i++) {
+      final x = a.entries[i];
+      final y = b.entries[i];
+      if (!x.timestamp.isAtSameMomentAs(y.timestamp) ||
+          x.weightKg != y.weightKg) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /// The boot load of `user_recipes` has ANSWERED — a list, possibly empty.
   /// An error, a timeout or a still-running load is not an answer.
   bool _serverRecipesAnswered = false;
@@ -1007,6 +1033,17 @@ class HomeStore extends _HomeStoreBase
       return;
     }
     _mutate(() {
+      // Cached state replaces memory: if it differs from what memory held,
+      // re-anchoring waits for the server again. The usual conflict re-installs
+      // the very rows the last local commit wrote, which keeps the gate open.
+      if (cachedProfile != null &&
+          jsonEncode(userProfileToJson(cachedProfile)) !=
+              jsonEncode(userProfileToJson(profile))) {
+        _serverProfileLoaded = false;
+      }
+      if (cachedWeightLog != null && !_sameWeighIns(cachedWeightLog, weightLog)) {
+        _serverWeightLogLoaded = false;
+      }
       if (cachedProfile != null) {
         profile = cachedProfile;
         _hydratedFromRealSource = true;
@@ -1172,6 +1209,9 @@ class HomeStore extends _HomeStoreBase
       // saved) is newer than any snapshot the server can return.
       if (loadedProfile != null && vorher.profileVersion == _profileVersion) {
         profile = loadedProfile;
+        // Only an adopted row opens the re-anchor gate: a version change in
+        // the window may also be a cache re-hydration, not a newer write.
+        _serverProfileLoaded = true;
         _hydratedFromRealSource = true;
         healSave =
             s.profile.lastLoadHealed && _serverGoalsLookStale(loadedProfile);
@@ -1221,6 +1261,7 @@ class HomeStore extends _HomeStoreBase
 
       final loadedWeightLog = results[3] as WeightLog?;
       if (loadedWeightLog != null) {
+        _serverWeightLogLoaded = true;
         weightLog = vorher.weightLogVersion == _weightLogVersion
             ? loadedWeightLog
             : WeightLog.capped(
@@ -1314,6 +1355,18 @@ class HomeStore extends _HomeStoreBase
     }
     final conflict = await _writeCacheSnapshot(cacheVersionsBeforeLoad);
     _completeProfileReady();
+    // The profile follows the weight trend (docs/WEIGHT-TREND.md), once the
+    // server answered both profile and weight log in this session: a full
+    // row written from a cached profile could overwrite a newer one. After
+    // the snapshot, so this commit cannot be what makes it conflict; a
+    // conflict re-hydrates the cache, which closes the gate until the re-read.
+    if (!conflict && _serverAnsweredProfileAndWeightLog) {
+      unawaited(
+        _reanchorToWeightTrend().catchError((Object error, StackTrace stack) {
+          _reportSyncError('weight-reanchor', error, stack);
+        }),
+      );
+    }
     // Re-read once: an old response cannot safely rebase over a newer commit.
     if (conflict && allowConflictRetry && !_disposed && !_trainingSessionEnded) {
       await _bootFromSupabase(allowConflictRetry: false);

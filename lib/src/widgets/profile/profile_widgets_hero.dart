@@ -242,41 +242,55 @@ class _IdentityPill extends StatelessWidget {
 /// Class name and constructor signature are API: `profile_hero_pace_test`
 /// builds the card directly and pins five sentences character-exactly.
 class GoalPlanCard extends StatelessWidget {
-  const GoalPlanCard({super.key, required this.profile, this.onEdit});
+  const GoalPlanCard({
+    super.key,
+    required this.profile,
+    this.onEdit,
+    this.currentWeightKg,
+  });
 
   final UserProfile profile;
   final VoidCallback? onEdit;
+
+  /// The plan weight ([WeightLog.planWeightKg]) for the "current" pole; null
+  /// without a fresh, in-range trend, when the profile weight stands in.
+  final double? currentWeightKg;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
     final l10n = context.l10n;
+    // The plan follows the weight trend (docs/WEIGHT-TREND.md). The store
+    // re-anchors the profile to it; deriving the card from the same weight
+    // keeps pole, gap and forecast consistent until it has.
+    final trendKg = currentWeightKg?.round();
+    final plan = trendKg == null ? profile : profile.copyWith(weightKg: trendKg);
     // The card draws the PLAN, so it reads the effective goal (P9-08d): a
     // direction the two weights no longer support is "hold" here — for every
     // stored row, from the first read on and without rewriting the intent the
     // user picked. Without it the card kept titling "80 → 90" as "Abnehmen".
-    final goal = profile.effectiveWeightGoal;
+    final goal = plan.effectiveWeightGoal;
     final isMaintain = goal == WeightGoal.maintain;
-    final gap = (profile.weightKg - profile.targetWeightKg).abs();
+    final gap = (plan.weightKg - plan.targetWeightKg).abs();
     // B2: with a concrete profile the card must show the EFFECTIVE result, not
     // the requested pace — the 1 % cap can turn a chosen −1 kg/week into
     // −0.75 kg/week. Compute targets once and pass them on, otherwise
     // calculate() runs twice and the card could mix two results.
-    final targets = const KcalCalculator().calculate(profile);
+    final targets = const KcalCalculator().calculate(plan);
     // Range linear…dynamic (Kcal review 2026-08-21), see
     // KcalCalculator.weeksToGoalRange.
-    final weeks = profile.manualEnergy
+    final weeks = plan.manualEnergy
         ? null
-        : const KcalCalculator().weeksToGoalRange(profile, targets: targets);
+        : const KcalCalculator().weeksToGoalRange(plan, targets: targets);
     // Ready-made sentence from KcalTargets, else null.
-    final paceWarning = isMaintain || profile.manualEnergy
+    final paceWarning = isMaintain || plan.manualEnergy
         ? null
         : targets.paceWarning(l10n);
     // Manual goals keep their own kcal: automatic pace and forecast no longer
     // describe this plan. Match the rate shown on the goals screen.
-    final pace = profile.manualEnergy
+    final pace = plan.manualEnergy
         ? paceLabelForWeeklyRateKg(
-            (profile.dailyKcalGoal - targets.maintenanceKcal) *
+            (plan.dailyKcalGoal - targets.maintenanceKcal) *
                 7 /
                 kcalPerKgBodyMass,
             l10n,
@@ -304,7 +318,7 @@ class GoalPlanCard extends StatelessWidget {
                 // weights are equal; the goal decides then.
                 icon: isMaintain
                     ? Icons.trending_flat_rounded
-                    : (profile.targetPointsUp ?? goal.isGain)
+                    : (plan.targetPointsUp ?? goal.isGain)
                         ? Icons.trending_up_rounded
                         : Icons.trending_down_rounded,
                 color: accent,
@@ -355,7 +369,9 @@ class GoalPlanCard extends StatelessWidget {
                 Expanded(
                   child: _WeightPole(
                     label: l10n.profileWeightPoleCurrent,
-                    value: '${profile.weightKg}',
+                    value: currentWeightKg == null
+                        ? '${plan.weightKg}'
+                        : formatKgDe(currentWeightKg!, l10n),
                     color: t.ink,
                     alignment: CrossAxisAlignment.start,
                   ),
@@ -369,7 +385,7 @@ class GoalPlanCard extends StatelessWidget {
                     label: isMaintain
                         ? l10n.profileWeightPoleHold
                         : l10n.profileWeightPoleTarget,
-                    value: '${profile.targetWeightKg}',
+                    value: '${plan.targetWeightKg}',
                     color: accentInk,
                     alignment: CrossAxisAlignment.end,
                   ),
@@ -402,7 +418,7 @@ class GoalPlanCard extends StatelessWidget {
           _PlanRow(
             icon: Icons.local_fire_department_rounded,
             label: l10n.profilePlanChipDailyGoal,
-            value: '${profile.dailyKcalGoal} kcal',
+            value: '${plan.dailyKcalGoal} kcal',
             valueColor: t.ink,
           ),
           if (!isMaintain && gap > 0) ...<Widget>[

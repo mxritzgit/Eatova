@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:clock/clock.dart';
 
 import 'model_limits.dart';
@@ -62,6 +64,101 @@ class WeightLog {
   double? get trendDelta {
     if (entries.length < 2) return null;
     return entries.last.weightKg - entries.first.weightKg;
+  }
+
+  /// Daily smoothing of [trendKg]: a weigh-in moves the trend by 10 % of its
+  /// distance, the classic weight-trend value.
+  static const double trendAlphaPerDay = 0.1;
+
+  /// A day further than this share from the trend is an outlier (a typo, a
+  /// correction, a long break), not water: normal daily swings stay well
+  /// below 5 %. It counts only once the next weigh-in day confirms it.
+  static const double trendOutlierShare = 0.05;
+
+  /// Weigh-ins older than this no longer speak for the current weight: the
+  /// plan then falls back to the profile weight ([planWeightKg]).
+  static const Duration trendMaxAge = Duration(days: 28);
+
+  /// The smoothed current weight (docs/WEIGHT-TREND.md); null without
+  /// weigh-ins. Use [planWeightKg] for goals and forecast.
+  ///
+  /// A time-aware exponentially weighted moving average over the LAST
+  /// weigh-in of each local calendar day (a later entry corrects an earlier
+  /// one; there is no delete): a day `Δ` days after the last counted one
+  /// moves the trend by `1 − (1 − trendAlphaPerDay)^Δ`.
+  ///
+  /// An outlier day ([trendOutlierShare]) is held back. If the next day lies
+  /// within the share of it, the jump is real and the trend moves to that
+  /// day; otherwise the outlier is dropped. An outlier on the last day does
+  /// not move the trend yet. A day more than [trendMaxAge] after the last
+  /// counted one starts afresh: after a break, the new weight is no outlier.
+  double? get trendKg => _trend()?.kg;
+
+  /// The trend the plan may use at [now]: [trendKg] when its last COUNTED
+  /// day is at most [trendMaxAge] old (a held outlier does not refresh it)
+  /// and the rounded value fits the profile's weight range; otherwise null,
+  /// and the profile weight stays in charge.
+  double? planWeightKg(DateTime now) {
+    final trend = _trend();
+    if (trend == null) return null;
+    final local = now.toLocal();
+    final today = DateTime.utc(local.year, local.month, local.day);
+    if (today.difference(trend.counted).inDays > trendMaxAge.inDays) {
+      return null;
+    }
+    final kg = trend.kg.round();
+    if (kg < ProfileLimits.weightKgMin || kg > ProfileLimits.weightKgMax) {
+      return null;
+    }
+    return trend.kg;
+  }
+
+  /// The trend and its last counted day (UTC midnight of the local date).
+  ({double kg, DateTime counted})? _trend() {
+    if (entries.isEmpty) return null;
+    final sorted = [...entries]
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    final days = <(DateTime, double)>[];
+    for (final entry in sorted) {
+      final local = entry.timestamp.toLocal();
+      // UTC midnight of the local date: day gaps stay whole across DST.
+      final date = DateTime.utc(local.year, local.month, local.day);
+      if (days.isNotEmpty && days.last.$1 == date) days.removeLast();
+      days.add((date, entry.weightKg));
+    }
+
+    bool far(double kg, double from) =>
+        (kg - from).abs() > from * trendOutlierShare;
+
+    var (counted, trend) = days.first;
+    double? held;
+    for (final (date, kg) in days.skip(1)) {
+      final gap = date.difference(counted).inDays;
+      if (gap > trendMaxAge.inDays) {
+        // After a break the old trend says nothing: start afresh.
+        trend = kg;
+        counted = date;
+        held = null;
+        continue;
+      }
+      final outlier = held;
+      if (outlier != null) {
+        held = null;
+        if (!far(kg, outlier)) {
+          // Two days agree on the jump: adopt it.
+          trend = kg;
+          counted = date;
+          continue;
+        }
+      }
+      if (far(kg, trend)) {
+        held = kg;
+        continue;
+      }
+      trend += (1 - math.pow(1 - trendAlphaPerDay, gap)) * (kg - trend);
+      counted = date;
+    }
+    return (kg: trend, counted: counted);
   }
 
   WeightLog add(double kg) =>

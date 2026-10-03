@@ -253,6 +253,10 @@ FAO-Band für Sitzende (1,40–1,69), konservativ gegenüber DLW-Messungen
    Erhaltungsbedarf in 100–200-kcal-Schritten nachziehen). Das ist die
    Maßnahme mit der größten Wirkung auf echten Abnehmerfolg, braucht aber eine
    Produktentscheidung (automatisch vs. Nachfrage, Umgang mit Manuell-Modus).
+   **Stand 2026-10-03:** Das Kippen in den Manuell-Modus ist seit PR #54
+   (`manualEnergy`) behoben. Stufe 1 (Profilgewicht folgt dem geglätteten
+   Gewichtstrend) ist umgesetzt, der Wochen-Check mit Nachfrage geplant, siehe
+   [WEIGHT-TREND.md](WEIGHT-TREND.md).
 2. **HealthKit-Distanz statt Schrittlängen-Formel**
    (`distanceWalkingRunning`, Fallback `walkingStepLength`) — tempo-adaptiv,
    an 64–95-Jährigen validiert. Braucht neue HealthKit-Berechtigungen und

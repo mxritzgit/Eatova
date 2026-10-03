@@ -103,6 +103,23 @@ class FakeServer {
   /// `userRecipesAuthoritative` has to tell apart (P3-04b).
   bool rejectRecipeReads = false;
 
+  /// ONLY the weight-log read fails (500) while the profile answers: the
+  /// half-answered boot the weight-trend re-anchor must not act on.
+  bool rejectWeightLogReads = false;
+
+  /// Opt-in: answer `load_meal_plan` with an empty plan instead of the bare
+  /// 201 the remaining writes get (which makes the load fail). With
+  /// [holdMealPlanReads] the answer waits, so a local commit can land while
+  /// the read is on the wire and the meal-plan cache write then conflicts.
+  bool serveMealPlans = false;
+  Completer<void>? _mealPlanReadGate;
+  void holdMealPlanReads() => _mealPlanReadGate ??= Completer<void>();
+  void releaseMealPlanReads() {
+    final gate = _mealPlanReadGate;
+    _mealPlanReadGate = null;
+    if (gate != null && !gate.isCompleted) gate.complete();
+  }
+
   /// ONLY the tracking-day booking fails (`trackingDay`, or a `mealInsert`
   /// with `track_day`) — the combination that lost the streak day.
   bool rejectTrackingDay = false;
@@ -367,7 +384,15 @@ class FakeServer {
             .toList(),
       );
     }
+    if (serveMealPlans && path.endsWith('/rpc/load_meal_plan')) {
+      await _mealPlanReadGate?.future;
+      return ok(const <String, dynamic>{
+        'plans': <Object?>[],
+        'checks': <Object?>[],
+      });
+    }
     if (path.contains('/weight_log')) {
+      if (rejectWeightLogReads) return fail();
       // GET in the select shape of TrackingSync.loadWeightLog.
       return ok(
         weightRows.values

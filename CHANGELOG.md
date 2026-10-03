@@ -8,11 +8,26 @@ Versions map to the `version` field in `pubspec.yaml` (build number after `+`).
 
 ## [Unreleased]
 
-Updated 2026-09-16; the dark redesign entry was added 2026-10-01. Changes between
+Updated 2026-09-16; the dark redesign entry was added 2026-10-01 and the October
+entries on 2026-10-03. Changes between
 those dates are recorded in the [handoff](docs/PROJECT_HANDOFF.md). These entries describe
 repository changes, not a newly published store version. Older entries below retain
 their implementation history; [the feature inventory](docs/FEATURES.md) describes
 the complete current product.
+
+### October 2026
+
+- **Weigh-ins re-anchor the plan**: the profile weight now follows a smoothed
+  trend of the weigh-ins, with live goals recomputed and a short notice when the
+  daily goal changes. The forecast, the plan card, BMI and step kcal move with
+  it, and the goals screen shows the trend read-only once weigh-ins exist. See
+  [weight trend](docs/WEIGHT-TREND.md).
+- **Design follow-ups** (#125): slot tiles in the analysis sheet and recipe
+  picker, the toggle in the selection language, one sheet handle with a
+  screen-reader dismiss, a readable welcome greeting under reduced motion, and
+  dead code removed.
+- **Secret scan** (#124): every commit of a PR is scanned; the action had
+  covered only the first 30.
 
 ### Latest changes (September 2026)
 

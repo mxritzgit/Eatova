@@ -16,6 +16,15 @@ class WeightCard extends StatelessWidget {
 
   double get _current => log.latest?.weightKg ?? profile.weightKg.toDouble();
 
+  /// The trend the plan uses ([WeightLog.planWeightKg]): a single light or
+  /// heavy morning does not move it (docs/WEIGHT-TREND.md). Null when the
+  /// weigh-ins are stale or out of range.
+  double? get _planWeight => log.planWeightKg(clock.now());
+
+  /// What goal progress uses: the plan weight, else the profile weight, like
+  /// the plan card (stale weigh-ins must not undo a newer typed weight).
+  double get _progressWeight => _planWeight ?? profile.weightKg.toDouble();
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
@@ -90,6 +99,14 @@ class WeightCard extends StatelessWidget {
               ],
             ],
           ),
+          if (hatVerlauf && _planWeight != null) ...<Widget>[
+            const SizedBox(height: 4),
+            Text(
+              l10n.profileWeightTrend(formatKgDe(_planWeight!, l10n)),
+              key: const ValueKey('profile-weight-trend'),
+              style: AppType.ui(12.5, weight: FontWeight.w600, color: t.ink2),
+            ),
+          ],
           const SizedBox(height: 16),
           // A11y: the chart is painted only -> announce the range.
           Semantics(
@@ -180,7 +197,10 @@ class WeightCard extends StatelessWidget {
 
     // Weight moving the wrong way clamps to 0 on purpose; a negative bar
     // helps nobody.
-    final fortschritt = ((start - _current) / (start - ziel)).clamp(0.0, 1.0);
+    final fortschritt = ((start - _progressWeight) / (start - ziel)).clamp(
+      0.0,
+      1.0,
+    );
     final prozent = (fortschritt * 100).round();
 
     return <Widget>[
@@ -280,7 +300,9 @@ class BmiCard extends StatelessWidget {
   double get _bmi {
     final m = profile.heightCm / 100.0;
     if (m <= 0) return 0;
-    final w = log.latest?.weightKg ?? profile.weightKg.toDouble();
+    // The plan weight, else the profile weight — like goals and plan card:
+    // one current weight on the page.
+    final w = log.planWeightKg(clock.now()) ?? profile.weightKg.toDouble();
     return w / (m * m);
   }
 

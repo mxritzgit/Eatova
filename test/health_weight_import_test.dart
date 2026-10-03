@@ -8,11 +8,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/services/eatova_sync.dart';
+import 'package:eatova/src/services/kcal_calculator.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
 
 import 'outbox/outbox_test_helpers.dart'
-    show FakeServer, bootUntilIdle, pumpUntil, testProfile;
+    show FakeServer, bootUntilIdle, pumpUntil, serverProfileRow, testProfile;
 
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/notification_service.dart';
@@ -125,8 +126,16 @@ Future<
     FakeServer server,
   })
 >
-_setupDurable(_WeightCommitStore kv) async {
+_setupDurable(_WeightCommitStore kv, {bool serverProfile = false}) async {
+  // With [serverProfile] the server answers the profile too, which the
+  // weight-trend re-anchor requires (docs/WEIGHT-TREND.md).
   final server = FakeServer();
+  // Live goals already computed, so the boot queues no heal save.
+  if (serverProfile) {
+    server.profileRow = serverProfileRow(
+      const KcalCalculator().applyLiveGoals(testProfile()),
+    );
+  }
   final client = SupabaseClient(
     'https://example.supabase.co',
     'test-anon-key',
@@ -322,7 +331,7 @@ void main() {
       'Health-Snack ${l10n.localeName}: Commitfehler sichtbar, unveraendert, wiederholbar',
       () => withClock(Clock.fixed(DateTime(2026, 9, 20, 12)), () async {
         final kv = _WeightCommitStore();
-        final s = await _setupDurable(kv);
+        final s = await _setupDurable(kv, serverProfile: true);
         s.store.setLocalizations(l10n);
         s.health.nextWeightKg = 82.4;
         await s.store.refreshHealthSteps();
@@ -338,6 +347,9 @@ void main() {
         expect(s.store.weightLog.entries, isEmpty);
         expect(s.store.lifetimeStats.weightLogs, 0);
         expect(s.store.pendingOutbox, isEmpty);
+        // The re-anchor shares the weigh-in's commit, so a failed commit
+        // must not move the profile either (docs/WEIGHT-TREND.md).
+        expect(s.store.profile.weightKg, 80);
         expect((await s.cache.readWeightLog())?.entries ?? [], isEmpty);
         expect(await s.cache.readOutbox(), isEmpty);
         expect(s.health.writeWeightCalls, 0);
@@ -356,7 +368,13 @@ void main() {
         await s.store.syncPendingWrites();
         expect(s.store.weightLog.latest?.weightKg, 82.4);
         expect(s.store.lifetimeStats.weightLogs, 1);
-        expect(s.store.pendingOutbox.single.kind, SyncOpKind.weightInsert);
+        // One commit: the weigh-in and the profile re-anchored to its trend
+        // (82.4 → 82 kg).
+        expect(s.store.pendingOutbox.map((op) => op.kind), [
+          SyncOpKind.weightInsert,
+          SyncOpKind.profileUpsert,
+        ]);
+        expect(s.store.profile.weightKg, 82);
         expect((await s.cache.readWeightLog())!.entries, hasLength(1));
         expect(s.health.writeWeightCalls, 0);
         final notices = s.snacks.messages.length;
