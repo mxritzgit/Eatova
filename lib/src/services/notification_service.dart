@@ -116,7 +116,8 @@ abstract class NotificationScopedCancel {
 
   /// Cold-start backstop: clears everything an earlier session or process
   /// left behind, but keeps the rest alert this process scheduled since the
-  /// last session end, which belongs to the session now running.
+  /// current account's session opened, which belongs to the session now
+  /// running.
   Future<void> cancelStaleSchedules();
 }
 
@@ -267,7 +268,8 @@ class _PluginGateway implements NotificationPluginGateway {
 ///
 /// It also carries the training rest alerts (spec A5): their own Android
 /// channel and reserved ids, ordered through the same FIFO as the reminders,
-/// and fenced at session end ([cancelAll]).
+/// closed at session end ([cancelAll]) until the auth gate opens the next
+/// account ([openRestAlerts]).
 class LocalNotificationService
     implements
         NotificationService,
@@ -275,6 +277,7 @@ class LocalNotificationService
         NotificationLocalizable,
         NotificationScopedCancel,
         RestAlertScheduler,
+        RestAlertSessionScope,
         RestAlertPermissionGate,
         NotificationTapSource {
   /// [gateway], [platform] and [localTimezoneName] are test seams; production
@@ -331,16 +334,25 @@ class LocalNotificationService
   final StreamController<String> _taps = StreamController<String>.broadcast();
   bool _launchPayloadRead = false;
 
-  // Session fence for rest alerts. Their ids derive from the training
-  // session id, so an id seen before a session end belongs to that session
-  // for good: a later request for it is a late continuation of the ended
-  // session (e.g. the signed-out player) and is refused.
-  final Set<int> _sessionRestAlertIds = <int>{};
-  final Set<int> _endedRestAlertIds = <int>{};
+  // Session fence for rest alerts (see [RestAlertSessionScope]). Open from
+  // process start (the gate closes at once without a session); closed from
+  // a session end until the gate opens the next account. Each end starts a
+  // new epoch: a request queued before it never reaches the plugin, and the
+  // backstop re-plans only the open session's alerts.
+  bool _restAlertsOpen = true;
+  String? _restAlertOwner;
+  int _restAlertEpoch = 0;
 
-  // Rest alerts handed to the OS since the last session end, so the
-  // cold-start backstop can keep them (see [cancelStaleSchedules]).
-  final Map<int, ({tz.TZDateTime when, String title, String body})>
+  // Ids seen in the open session, and the owner of each ended one. Ids
+  // derive from the training session id, so an ended id stays refused for
+  // other accounts; its own account may resume it after signing back in.
+  final Set<int> _sessionRestAlertIds = <int>{};
+  final Map<int, String?> _endedRestAlertOwners = <int, String?>{};
+
+  // Rest alerts handed to the OS, with the epoch of their request, so the
+  // cold-start backstop can keep the open session's (see
+  // [cancelStaleSchedules]).
+  final Map<int, ({tz.TZDateTime when, String title, String body, int epoch})>
       _liveRestAlerts = {};
 
   bool get _supported => _platform != NotificationPlatform.unsupported;
@@ -524,10 +536,9 @@ class LocalNotificationService
 
   @override
   Future<void> cancelAll() {
-    // Session end. Fenced synchronously, so a request issued after this call
+    // Session end. Closed synchronously, so a request issued after this call
     // is refused even while the cancel still waits in the queue.
-    _endedRestAlertIds.addAll(_sessionRestAlertIds);
-    _sessionRestAlertIds.clear();
+    _endRestAlertSession();
     return _enqueueMutation(_cancelAll);
   }
 
@@ -576,12 +587,17 @@ class LocalNotificationService
     try {
       await _gateway.cancelAll();
       // Boot can reach this backstop after the player already resumed a
-      // rest; that alert is this session's, so it is planned again.
+      // rest; that alert is this session's, so it is planned again. One
+      // requested before the latest session end is not.
       final kept = Map.of(_liveRestAlerts);
       _liveRestAlerts.clear();
       for (final MapEntry(key: id, value: alert) in kept.entries) {
-        if (!alert.when.isAfter(clock.now())) continue;
-        await _scheduleRestAlertNow(id, alert.when, alert.title, alert.body);
+        if (alert.epoch != _restAlertEpoch ||
+            !alert.when.isAfter(clock.now())) {
+          continue;
+        }
+        await _scheduleRestAlertNow(
+            id, alert.when, alert.title, alert.body, alert.epoch);
       }
     } catch (e, st) {
       await CrashReporter.capture(e, st, context: 'notification-cancel');
@@ -591,17 +607,43 @@ class LocalNotificationService
   // --- Rest alerts (spec A5) ------------------------------------------------
 
   @override
+  void openRestAlerts(String ownerId) {
+    if (_restAlertsOpen && _restAlertOwner == ownerId) return;
+    // Another owner without a session end in between: end that session too.
+    _endRestAlertSession();
+    _endedRestAlertOwners.removeWhere((_, owner) => owner == ownerId);
+    _restAlertOwner = ownerId;
+    _restAlertsOpen = true;
+  }
+
+  void _endRestAlertSession() {
+    if (!_restAlertsOpen) return;
+    for (final id in _sessionRestAlertIds) {
+      _endedRestAlertOwners[id] = _restAlertOwner;
+    }
+    _sessionRestAlertIds.clear();
+    _restAlertOwner = null;
+    _restAlertsOpen = false;
+    _restAlertEpoch++;
+  }
+
+  @override
   Future<void> scheduleRestAlert({
     required int id,
     required DateTime at,
     required String title,
     required String body,
   }) {
-    if (!isRestAlertId(id) || _endedRestAlertIds.contains(id)) {
+    if (!isRestAlertId(id)) return Future<void>.value();
+    if (!_restAlertsOpen || _endedRestAlertOwners.containsKey(id)) {
+      // Constant only: no id, no text (privacy rule of the facade).
+      CrashReporter.breadcrumb('notification-rest-refused');
       return Future<void>.value();
     }
     _sessionRestAlertIds.add(id);
-    return _enqueueMutation(() => _scheduleRestAlert(id, at, title, body));
+    final epoch = _restAlertEpoch;
+    return _enqueueMutation(
+        () => _scheduleRestAlert(id, at, title, body, epoch));
   }
 
   Future<void> _scheduleRestAlert(
@@ -609,14 +651,16 @@ class LocalNotificationService
     DateTime at,
     String title,
     String body,
+    int epoch,
   ) async {
     if (!_supported) return;
     await init();
-    if (!_initialized) return;
+    // The session ended while this request waited in the queue.
+    if (!_initialized || epoch != _restAlertEpoch) return;
     try {
       final when = tz.TZDateTime.from(at, tz.local);
       if (when.isAfter(clock.now())) {
-        await _scheduleRestAlertNow(id, when, title, body);
+        await _scheduleRestAlertNow(id, when, title, body, epoch);
       } else {
         // The plugin rejects past dates, and a deadline already reached needs
         // no alert: drop the one planned for the earlier deadline instead.
@@ -633,6 +677,7 @@ class LocalNotificationService
     tz.TZDateTime when,
     String title,
     String body,
+    int epoch,
   ) async {
     await _gateway.zonedSchedule(
       id: id,
@@ -642,13 +687,17 @@ class LocalNotificationService
       details: _restDetails(),
       payload: trainingRestNotificationPayload,
     );
-    _liveRestAlerts[id] = (when: when, title: title, body: body);
+    _liveRestAlerts[id] = (when: when, title: title, body: body, epoch: epoch);
   }
 
   @override
   Future<void> cancelRestAlert(int id) {
     if (!isRestAlertId(id)) return Future<void>.value();
-    if (!_endedRestAlertIds.contains(id)) _sessionRestAlertIds.add(id);
+    // Registers the id with the open session, so its end fences it. The
+    // cancel itself always runs, also after a session end.
+    if (_restAlertsOpen && !_endedRestAlertOwners.containsKey(id)) {
+      _sessionRestAlertIds.add(id);
+    }
     return _enqueueMutation(() => _cancelRestAlert(id));
   }
 

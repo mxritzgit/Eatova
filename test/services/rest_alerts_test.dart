@@ -7,22 +7,26 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/timezone.dart' as tz;
 
-import 'package:eatova/src/app/auth_gate.dart' show cancelDeviceSchedules;
+import 'package:eatova/src/app/auth_gate.dart';
 import 'package:eatova/src/app/home_store.dart';
+import 'package:eatova/src/auth/auth_repository.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/lifetime_stats.dart';
+import 'package:eatova/src/services/crash_reporter.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/notification_service.dart';
+import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:eatova/src/services/rest_alerts.dart';
 import 'package:eatova/src/services/streak_reminder_planner.dart';
+import 'package:eatova/src/theme/app_theme.dart';
 import 'package:eatova/src/widgets/common/app_snack.dart';
 
 // Spec A5: rest/interval alerts live next to the reminder nudges in the same
 // plugin. Before this change every reminder path (re-plan, opt-out) called
 // cancelAll and silently removed a running rest alert. Only a session end and
-// the cold-start backstop may clear everything, and a session end also fences
-// the ended session's later requests.
+// the cold-start backstop may clear everything, and a session end closes rest
+// alerts until the gate opens the next account.
 
 class _Scheduled {
   const _Scheduled(this.when, this.details, this.payload);
@@ -162,6 +166,45 @@ void _ignoreSnack(
   Duration? duration,
   SnackBarAction? action,
 }) {}
+
+class _ScriptedAuthRepository implements AuthRepository {
+  _ScriptedAuthRepository(this._user);
+
+  EatovaUser? _user;
+  final _controller = StreamController<EatovaUser?>.broadcast();
+
+  void emit(EatovaUser? user) {
+    _user = user;
+    _controller.add(user);
+  }
+
+  void dispose() => _controller.close();
+
+  @override
+  EatovaUser? get currentUser => _user;
+
+  @override
+  Stream<EatovaUser?> get authStateChanges => _controller.stream;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _NoPhotos extends RecipeImageStore {
+  @override
+  Future<void> setActiveUser(String? userId, {String? sessionId}) async {}
+}
+
+const _userA = EatovaUser(
+  id: 'user-a',
+  email: 'a@example.com',
+  sessionId: 's1',
+);
+const _userB = EatovaUser(
+  id: 'user-b',
+  email: 'b@example.com',
+  sessionId: 's2',
+);
 
 HomeStore _store(LocalCache cache, NotificationService service) {
   final store = HomeStore(
@@ -581,10 +624,231 @@ void main() {
         await _scheduleRest(service);
         await cancelDeviceSchedules(notifications: service);
 
+        service.openRestAlerts('user-b');
         await _scheduleRest(service, _otherRestId);
 
         expect(gateway.pending.keys, [_otherRestId]);
       }),
+    );
+
+    test(
+      'eine nie gesehene Id nach dem Sitzungsende wird abgelehnt (R/G)',
+      () => _frozen(() async {
+        final crumbs = <String>[];
+        CrashReporter.debugBreadcrumbSink = crumbs.add;
+        addTearDown(() => CrashReporter.debugBreadcrumbSink = null);
+        final gateway = _FakeGateway();
+        final service = _service(gateway)..openRestAlerts('user-a');
+        await cancelDeviceSchedules(notifications: service);
+        gateway.calls.clear();
+
+        // The player's first rest ever, after the session ended: the id was
+        // never registered, so only the closed session can refuse it.
+        await _scheduleRest(service);
+
+        expect(gateway.pending, isEmpty);
+        expect(gateway.calls, isEmpty);
+        expect(crumbs, [
+          'notification-rest-refused',
+        ], reason: 'a refused alert leaves a trail without ids or texts');
+      }),
+    );
+
+    test(
+      'der Backstop des naechsten Kontos plant keinen Alert neu, der nach '
+      'dem Sitzungsende kam (R/G)',
+      () => _frozen(() async {
+        final gateway = _FakeGateway();
+        final service = _service(gateway)..openRestAlerts('user-a');
+        final storeB = _store(
+          LocalCache(InMemoryKeyValueStore(), 'rest-backstop-next-account'),
+          service,
+        );
+
+        // A's player starts its first rest while the gate's cancel runs.
+        final end = cancelDeviceSchedules(notifications: service);
+        final late = _scheduleRest(service);
+        await Future.wait([end, late]);
+        // B signs in; B's boot reaches the cold-start backstop.
+        service.openRestAlerts('user-b');
+        await storeB.initNotificationsFromCache();
+
+        expect(gateway.pending, isEmpty);
+        expect(gateway.calls, isNot(contains('schedule $_restId')));
+      }),
+    );
+
+    test(
+      'eine vor dem Sitzungsende eingereihte Anfrage erreicht das Plugin nicht',
+      () => _frozen(() async {
+        final gateway = _FakeGateway()
+          ..hold = Completer<void>()
+          ..holdEntered = Completer<void>();
+        final service = _service(gateway)..openRestAlerts('user-a');
+        // A reminder re-plan blocks the queue; the rest request waits behind it.
+        final replan = service.scheduleAll(_nudges());
+        await gateway.holdEntered!.future;
+        // Only the first native call is held; later ones run straight through.
+        final release = gateway.hold!;
+        gateway
+          ..hold = null
+          ..holdEntered = null;
+        final queued = _scheduleRest(service);
+
+        final end = cancelDeviceSchedules(notifications: service);
+        release.complete();
+        await Future.wait([replan, queued, end]);
+
+        expect(
+          gateway.calls.where(
+            (c) => c.startsWith('schedule ') && c != 'schedule $_restId',
+          ),
+          hasLength(10),
+          reason: 'the held re-plan finished normally',
+        );
+        expect(gateway.pending, isEmpty);
+        expect(gateway.calls, isNot(contains('schedule $_restId')));
+      }),
+    );
+
+    test(
+      'dasselbe Konto setzt sein Training nach erneutem Login fort '
+      '(kein Dauer-Zaun)',
+      () => _frozen(() async {
+        final gateway = _FakeGateway();
+        final service = _service(gateway)..openRestAlerts('user-a');
+        await _scheduleRest(service);
+        await cancelDeviceSchedules(notifications: service);
+
+        // The purge was skipped (same account back quickly), so the
+        // checkpoint resumes under the same training session id.
+        service.openRestAlerts('user-a');
+        await _scheduleRest(service);
+
+        expect(gateway.pending.keys, [_restId]);
+      }),
+    );
+
+    test(
+      'ein anderes Konto bekommt die Id der beendeten Sitzung nicht',
+      () => _frozen(() async {
+        final gateway = _FakeGateway();
+        final service = _service(gateway)..openRestAlerts('user-a');
+        await _scheduleRest(service);
+        await cancelDeviceSchedules(notifications: service);
+
+        service.openRestAlerts('user-b');
+        // A late continuation of A's player under B's session.
+        await _scheduleRest(service);
+        await _scheduleRest(service, _otherRestId);
+
+        expect(gateway.pending.keys, [_otherRestId]);
+      }),
+    );
+
+    test(
+      'Kontowechsel ohne Cancel: der Backstop plant den Alert des alten '
+      'Kontos nicht neu',
+      () => _frozen(() async {
+        final gateway = _FakeGateway();
+        final service = _service(gateway)..openRestAlerts('user-a');
+        await _scheduleRest(service);
+
+        service.openRestAlerts('user-b');
+        await service.cancelStaleSchedules();
+
+        expect(gateway.pending, isEmpty);
+        await _scheduleRest(service);
+        expect(gateway.pending, isEmpty, reason: "A's id stays A's");
+      }),
+    );
+
+    test(
+      'cancelRestAlert wirkt auch nach dem Sitzungsende',
+      () => _frozen(() async {
+        final gateway = _FakeGateway();
+        final service = _service(gateway)..openRestAlerts('user-a');
+        await _scheduleRest(service);
+        final shown = gateway.pending[_restId]!;
+        await cancelDeviceSchedules(notifications: service);
+        // Still in the OS, e.g. a cancel the platform failed to apply.
+        gateway.pending[_restId] = shown;
+        gateway.calls.clear();
+
+        // The signed-out player's dispose.
+        await service.cancelRestAlert(_restId);
+
+        expect(gateway.calls, ['cancel $_restId']);
+        expect(gateway.pending, isEmpty);
+      }),
+    );
+
+    test(
+      'Restgrenze: nach dem Oeffnen fuer B ist eine nie gesehene Id nicht '
+      'zuzuordnen, der dispose-Cancel des alten Players raeumt sie',
+      () => _frozen(() async {
+        final gateway = _FakeGateway();
+        final service = _service(gateway)..openRestAlerts('user-a');
+        await cancelDeviceSchedules(notifications: service);
+        service.openRestAlerts('user-b');
+
+        // Documented residual (see RestAlertSessionScope): the service cannot
+        // tell an old player's first request from B's own once B is open.
+        await _scheduleRest(service);
+        expect(gateway.pending.keys, [_restId]);
+
+        await service.cancelRestAlert(_restId);
+        expect(gateway.pending, isEmpty);
+      }),
+    );
+  });
+
+  group('Sitzungsende ueber das Auth-Gate', () {
+    setUp(() => RecipeImageStore.instance = _NoPhotos());
+    tearDown(RecipeImageStore.resetInstance);
+
+    testWidgets(
+      'Session-Verlust, spaeter erster Rest von A, Login B: nichts von A '
+      'feuert in B\'s Sitzung (R/G)',
+      (tester) async {
+        final gateway = _FakeGateway();
+        final service = _service(gateway);
+        final repository = _ScriptedAuthRepository(_userA);
+        addTearDown(repository.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: buildEatovaTheme(Brightness.dark),
+            locale: const Locale('en'),
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            home: AuthGate(
+              authRepository: repository,
+              notificationService: service,
+              debugPurgeCache: (_) async {},
+              builder: (context, user, _) =>
+                  Scaffold(body: Text('home ${user.id}')),
+            ),
+          ),
+        );
+
+        repository.emit(null);
+        await tester.pumpAndSettle();
+        // A's player: its first rest ever, after the session loss.
+        await _scheduleRest(service);
+
+        repository.emit(_userB);
+        await tester.pumpAndSettle();
+        // B's boot reaches the cold-start backstop.
+        await service.cancelStaleSchedules();
+
+        expect(find.text('home user-b'), findsOneWidget);
+        expect(gateway.pending, isEmpty);
+        expect(gateway.calls, isNot(contains('schedule $_restId')));
+
+        // B's own workout still gets its alert.
+        await _scheduleRest(service, _otherRestId);
+        expect(gateway.pending.keys, [_otherRestId]);
+      },
     );
   });
 

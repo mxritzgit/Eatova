@@ -41,6 +41,9 @@ abstract class RestAlertScheduler {
   /// Schedules one alert at [at] under [id] (from [restAlertIdForSession]),
   /// replacing an earlier one with the same id. Texts must stay generic
   /// (D5: no exercise names or weights on the lock screen).
+  ///
+  /// Ignored from a session end until the next account's session opens
+  /// (see [RestAlertSessionScope]).
   Future<void> scheduleRestAlert({
     required int id,
     required DateTime at,
@@ -48,8 +51,25 @@ abstract class RestAlertScheduler {
     required String body,
   });
 
-  /// Cancels the pending or shown alert [id]; nothing else.
+  /// Cancels the pending or shown alert [id]; nothing else. Always runs,
+  /// also after a session end.
   Future<void> cancelRestAlert(int id);
+}
+
+/// Session scope of the rest alerts, probed via `is` by the auth gate.
+///
+/// A session end (`NotificationService.cancelAll`) closes rest alerts: every
+/// later [RestAlertScheduler.scheduleRestAlert] is ignored, whatever its id,
+/// until the gate opens the next signed-in account here. Ids seen in an
+/// ended session stay refused for every other account; the same account
+/// signing back in may resume its workout under the same id.
+///
+/// Residual: once the next account is open, a request for an id never seen
+/// before cannot be told apart from that account's own. A player therefore
+/// stops scheduling when its owner store ends and cancels its id on dispose.
+abstract class RestAlertSessionScope {
+  /// The signed-in account [ownerId] (its user id) now owns the device.
+  void openRestAlerts(String ownerId);
 }
 
 /// Default for platforms and tests without local notifications.

@@ -23,6 +23,7 @@ import 'package:eatova/src/services/background_sync_scheduler.dart';
 import 'package:eatova/src/services/crash_reporter.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/recipe_image_store.dart';
+import 'package:eatova/src/services/rest_alerts.dart';
 import 'package:eatova/src/theme/app_theme.dart';
 
 import 'support/harness.dart' show testWidgetsRobust;
@@ -66,6 +67,15 @@ class _RecordingNotifications extends NoopNotificationService {
   @override
   Future<void> scheduleAll(List<NotificationSpec> specs) async =>
       log.add('schedule');
+}
+
+/// Also records when the gate opens rest alerts for an account (spec A5).
+class _ScopedNotifications extends _RecordingNotifications
+    implements RestAlertSessionScope {
+  _ScopedNotifications(super.log);
+
+  @override
+  void openRestAlerts(String ownerId) => log.add('open $ownerId');
 }
 
 class _RecordingScheduler implements BackgroundSyncScheduler {
@@ -244,6 +254,105 @@ void main() {
     expect(find.byKey(const ValueKey('screen-auth')), findsOneWidget);
     expect(tester.takeException(), isNull);
     expect(reports, contains('auth-gate-notification-cancel'));
+  });
+
+  // Spec A5: a session end closes rest alerts in the service; only the gate
+  // knows when the next account's home takes over, so it reopens them, and
+  // always after the cancel of the ended session.
+  group('Rest-Alerts (Sitzungsfenster)', () {
+    testWidgets('Kaltstart mit Session oeffnet fuer dieses Konto',
+        (tester) async {
+      final log = <String>[];
+      final repository = _ScriptedAuthRepository(_a);
+      addTearDown(repository.dispose);
+
+      await _pumpGate(tester, repository, _ScopedNotifications(log));
+
+      expect(log, ['open user-a', 'schedule']);
+    });
+
+    testWidgets('Session-Verlust oeffnet nichts, erst der naechste Login',
+        (tester) async {
+      final log = <String>[];
+      final repository = _ScriptedAuthRepository(_a);
+      addTearDown(repository.dispose);
+      await _pumpGate(tester, repository, _ScopedNotifications(log));
+      log.clear();
+
+      repository.emit(null);
+      await tester.pumpAndSettle();
+      expect(log, ['cancel'],
+          reason: 'Ohne Besitzer bleiben Rest-Alerts zu.');
+
+      repository.emit(_b);
+      await tester.pumpAndSettle();
+      expect(log, ['cancel', 'open user-b', 'schedule']);
+    });
+
+    testWidgets('direkter Wechsel A -> B: erst der Cancel, dann oeffnet B',
+        (tester) async {
+      final log = <String>[];
+      final repository = _ScriptedAuthRepository(_a);
+      addTearDown(repository.dispose);
+      await _pumpGate(tester, repository, _ScopedNotifications(log));
+      log.clear();
+
+      repository.emit(_b);
+      await tester.pumpAndSettle();
+
+      expect(log, ['cancel', 'open user-b', 'schedule']);
+    });
+
+    testWidgets('Kaltstart ohne Session: zu, bis sich jemand anmeldet',
+        (tester) async {
+      final log = <String>[];
+      final repository = _ScriptedAuthRepository(null);
+      addTearDown(repository.dispose);
+      await _pumpGate(tester, repository, _ScopedNotifications(log));
+      expect(log, ['cancel']);
+
+      repository.emit(_a);
+      await tester.pumpAndSettle();
+
+      expect(log, ['cancel', 'open user-a', 'schedule']);
+    });
+
+    testWidgets('neue Session desselben Kontos oeffnet wieder, ein Refresh '
+        'nicht', (tester) async {
+      final log = <String>[];
+      final repository = _ScriptedAuthRepository(_a);
+      addTearDown(repository.dispose);
+      await _pumpGate(tester, repository, _ScopedNotifications(log));
+      log.clear();
+
+      repository.emit(_a);
+      await tester.pumpAndSettle();
+      expect(log, isEmpty);
+
+      repository.emit(const EatovaUser(
+          id: 'user-a', email: 'a@example.com', sessionId: 's3'));
+      await tester.pumpAndSettle();
+      expect(log, ['open user-a'],
+          reason: 'Nach einem gescheiterten Sign-Out (Cleanup schloss schon) '
+              'bekommt die neue Session ihre Rest-Alerts zurueck.');
+    });
+
+    testWidgets('Repository-Tausch mit anderem Konto: erst Cancel, dann B',
+        (tester) async {
+      final log = <String>[];
+      final notifications = _ScopedNotifications(log);
+      final first = _ScriptedAuthRepository(_a);
+      final second = _ScriptedAuthRepository(_b);
+      addTearDown(first.dispose);
+      addTearDown(second.dispose);
+      await _pumpGate(tester, first, notifications);
+      log.clear();
+
+      await _pumpGate(tester, second, notifications);
+
+      expect(log.take(2), ['cancel', 'open user-b']);
+      expect(find.text('home user-b'), findsOneWidget);
+    });
   });
 
   group('Hintergrund-Sync (Aufraeumen nach dem Sign-Out)', () {

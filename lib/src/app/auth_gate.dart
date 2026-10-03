@@ -11,6 +11,7 @@ import '../services/crash_reporter.dart';
 import '../services/local_cache.dart';
 import '../services/notification_service.dart';
 import '../services/recipe_image_store.dart';
+import '../services/rest_alerts.dart';
 import '../services/sync_execution_guard.dart';
 import '../widgets/common/app_snack.dart';
 
@@ -206,7 +207,11 @@ class _AuthGateState extends State<AuthGate> {
     unawaited(RecipeImageStore.instance.setActiveUser(initial?.id, sessionId: initial?.sessionId));
     // A cold start without a session: the session ended while the app was
     // not running, and what it scheduled with the OS is still there.
-    if (initial == null) _cancelDeviceSchedules();
+    if (initial == null) {
+      _cancelDeviceSchedules();
+    } else {
+      _openRestAlerts(initial.id);
+    }
     _subscription = widget.authRepository.authStateChanges
         .listen(_onAuthEvent, onError: _onAuthStreamError);
   }
@@ -254,6 +259,8 @@ class _AuthGateState extends State<AuthGate> {
           ? IntentionalSignOut.consume()
           : false;
       _popToRootRoute();
+      // A new home takes over; any session end above was cancelled first.
+      if (user != null) _openRestAlerts(user.id);
       // Only the gate knows "signed out" from "session lost", and
       // [IntentionalSignOut] draws that line. The snack runs through the
       // MaterialApp's ScaffoldMessenger and appears once AuthScreen is built.
@@ -299,6 +306,14 @@ class _AuthGateState extends State<AuthGate> {
     ));
   }
 
+  /// Spec A5: a session end closes rest alerts in the notification service;
+  /// only the gate knows when the next account's home takes over. Called
+  /// after that session end's cancel, never before.
+  void _openRestAlerts(String userId) {
+    final Object? service = widget.notificationService;
+    if (service is RestAlertSessionScope) service.openRestAlerts(userId);
+  }
+
   /// Pops everything above the root route. `maybeOf` hits the right navigator
   /// because MaterialApp builds `home` into its own navigator's default route;
   /// `isFirst` also covers unnamed routes, and dialogs pop with `null`.
@@ -317,6 +332,10 @@ class _AuthGateState extends State<AuthGate> {
         previous?.sessionId != _user?.sessionId;
     widget.onUserChanged?.call(_user);
     if (previous != null && previous.id != _user?.id) _purgePrevious(previous);
+    final replacementOwner = _user;
+    if (routeOwnerChanged && replacementOwner != null) {
+      _openRestAlerts(replacementOwner.id);
+    }
     // A repository swap is a potential identity change too.
     unawaited(RecipeImageStore.instance.setActiveUser(_user?.id, sessionId: _user?.sessionId));
     if (routeOwnerChanged) {
