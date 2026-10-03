@@ -48,8 +48,14 @@ void main() {
       expect(summary.textSpan!.toPlainText(), '0 of 3 done · Sep 28 – Oct 4');
       await captureDesignShot(tester, 'training-00');
 
-      // training-01: quick start, weekly volume, top of Recent.
+      // training-01: quick start, weekly volume, top of Recent. The card
+      // opens on the running week (nothing lifted yet); the design shows
+      // last week, which is one tap on its bar.
       expect(await scrollDesignTabBy(tester, 700), 700);
+      expect(find.text('tonnes this week'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('training-volume-week-4')));
+      await settleFrames(tester);
+      expect(find.text('tonnes last week'), findsOneWidget);
       expect(find.text('8.6'), findsWidgets);
       expect(find.text('↑ 9% vs. the week before'), findsOneWidget);
       await captureDesignShot(tester, 'training-01');
