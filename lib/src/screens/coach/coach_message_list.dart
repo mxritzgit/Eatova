@@ -348,6 +348,7 @@ class _MessageView extends StatelessWidget {
                       _WorkoutLogProposalCard(
                         proposal: message.workoutLogProposal!,
                         status: workoutLogStatus,
+                        safetyLine: _workoutLogSafetyLineIn(message.content),
                         canAdd: workoutLogAddable,
                         enabled: workoutLogAddEnabled,
                         onAdd: onAddWorkoutLog,

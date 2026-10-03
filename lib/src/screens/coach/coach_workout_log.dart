@@ -26,13 +26,26 @@ enum _WorkoutLogCardStatus {
 String? _workoutLogHistoryId(ChatMessage message) =>
     deriveCoachWorkoutLogId(message.id) ?? message.workoutLogLocalId;
 
+/// Whether a /log answer ends with the server's fixed D4 line (pain was
+/// mentioned). The content is its only trace on a reloaded row, and the
+/// answer's language need not be the app's.
+bool _workoutLogSafetyLineIn(String content) {
+  final text = content.trimRight();
+  return [
+    deL10n,
+    enL10n,
+  ].any((l10n) => text.endsWith(l10n.coachWorkoutLogSafetyLine));
+}
+
 /// "Workout · Draft", the title, the day, one line per exercise and, when the
 /// message named several days, which one was taken. Once added the card says
 /// so and offers the Training tab; a removed entry is never offered again.
+/// A log that mentioned pain keeps the fixed safety line (spec D4).
 class _WorkoutLogProposalCard extends StatelessWidget {
   const _WorkoutLogProposalCard({
     required this.proposal,
     required this.status,
+    required this.safetyLine,
     required this.canAdd,
     required this.enabled,
     this.onAdd,
@@ -41,6 +54,9 @@ class _WorkoutLogProposalCard extends StatelessWidget {
 
   final CoachWorkoutLog proposal;
   final _WorkoutLogCardStatus status;
+
+  /// The answer ended with the D4 line: the card shows it in the app language.
+  final bool safetyLine;
 
   /// A save hook exists; without one the card shows no Add at all.
   final bool canAdd;
@@ -125,6 +141,13 @@ class _WorkoutLogProposalCard extends StatelessWidget {
                 : l10n.coachWorkoutLogOnlyDay(
                     DateFormat.MMMEd(l10n.localeName).format(day),
                   ),
+            style: AppType.ui(13, color: t.ink2, height: 1.4),
+          ),
+        ],
+        if (safetyLine) ...<Widget>[
+          const SizedBox(height: 10),
+          Text(
+            l10n.coachWorkoutLogSafetyLine,
             style: AppType.ui(13, color: t.ink2, height: 1.4),
           ),
         ],

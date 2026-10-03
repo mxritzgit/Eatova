@@ -380,10 +380,29 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     }
   }
 
-  /// After the frame: the request arrives during a build.
+  /// After the frame: the request arrives during a build. The user asked from
+  /// Training and never saw the composer, so an unsent draft is kept: the
+  /// command goes in front of it, the cursor right after the command.
   void _prepareLogDraft() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _applyCommand(_CoachCommand.log.token);
+      if (!mounted) return;
+      final draft = _input.text;
+      final command = _CoachCommand.log.token;
+      // Empty or a bare command ("/re", "/recipe "): nothing worth keeping.
+      // A running dictation keeps its words through the command's own path.
+      if (_listening || RegExp(r'^(/\S*)?$').hasMatch(draft.trim())) {
+        _applyCommand(command);
+        return;
+      }
+      final isLog = _workoutLogWishFrom(draft) != null;
+      final text = isLog ? draft : '$command ${draft.trimLeft()}';
+      _input.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(
+          offset: isLog ? text.length : command.length + 1,
+        ),
+      );
+      _inputFocus.requestFocus();
     });
   }
 

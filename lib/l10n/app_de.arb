@@ -1965,6 +1965,7 @@
   "coachWorkoutLogEmptyHint": "Beschreibe nach /log dein erledigtes Training – z. B. „/log heute 3 x 10 Kniebeugen mit 60 kg“.",
   "coachWorkoutLogPhotoUnsupported": "Trainings werden aus Text eingetragen. Sende deine /log-Nachricht ohne Foto.",
   "coachWorkoutLogUnavailable": "Trainings über den Coach eintragen geht in dieser Version noch nicht. Du kannst es im Training eintragen.",
+  "coachWorkoutLogCheckDeviceDate": "Das Datum auf deinem Gerät scheint nicht zu stimmen, deshalb lässt sich das Training nicht datieren. Prüf Datum und Uhrzeit in den Einstellungen und sende es dann noch einmal.",
   "coachWorkoutLogCardEyebrow": "Training · Entwurf",
   "coachWorkoutLogDayMissing": "Tag fehlt – du wählst ihn beim Hinzufügen",
   "coachWorkoutLogOnlyDay": "Nur {day} wurde übernommen. Trag andere Tage einzeln ein.",
@@ -1976,6 +1977,7 @@
     }
   },
   "coachWorkoutLogOnlyOneDay": "Nur ein Tag wurde übernommen. Trag andere Tage einzeln ein.",
+  "coachWorkoutLogSafetyLine": "Wenn Schmerzen anhalten, lass das bitte ärztlich oder physiotherapeutisch abklären.",
   "coachWorkoutLogSetsRepsMissing": "{sets, plural, =1{1 Satz} other{{sets} Sätze}}, Wdh. fehlen",
   "@coachWorkoutLogSetsRepsMissing": {
     "placeholders": {

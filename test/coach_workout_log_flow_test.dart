@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart'
@@ -75,10 +76,13 @@ Map<String, Object?> _logJson({
   ],
 };
 
-ChatMessage _logRow({Map<String, Object?>? log}) => ChatMessage.fromRow({
+ChatMessage _logRow({
+  Map<String, Object?>? log,
+  String content = 'Beintag erkannt.',
+}) => ChatMessage.fromRow({
   'id': _assistantId,
   'role': 'assistant',
-  'content': 'Beintag erkannt.',
+  'content': content,
   'refusal': false,
   'created_at': '2026-10-03T08:00:00Z',
   'recipe': null,
@@ -118,9 +122,9 @@ class _LogCoach extends CoachChatService {
     return _LogCoach(client, userId);
   }
 
-  /// The real request path against a server that cannot take `/log` (an
-  /// older or rolled-back function): every function call answers 400.
-  static _LogCoach oldServer(String error) {
+  /// The real request path against a server that refuses every `/log` with
+  /// a 400 [error]: an older or rolled-back function, or a date it rejects.
+  static _LogCoach rejecting(String error) {
     final client = SupabaseClient(
       'https://example.supabase.co',
       'test-anon-key',
@@ -146,6 +150,7 @@ class _LogCoach extends CoachChatService {
   int recipes = 0;
   List<ChatMessage> history = const [];
   Map<String, Object?> log = _logJson();
+  String reply = 'Beintag erkannt.';
   String? assistantId = _assistantId;
   Completer<CoachWorkoutLogReply>? pending;
 
@@ -187,7 +192,7 @@ class _LogCoach extends CoachChatService {
     }
     return pending?.future ??
         CoachWorkoutLogReply(
-          reply: 'Beintag erkannt.',
+          reply: reply,
           refusal: false,
           proposal: CoachWorkoutLog.fromJson(log),
           sessionId: sessionId,
@@ -580,7 +585,7 @@ void main() {
   for (final code in ['invalid_mode', 'invalid_body']) {
     _test('a server without /log ($code): the error, the draft back, '
         'no Retry', (tester) async {
-      final coach = _LogCoach.oldServer(code);
+      final coach = _LogCoach.rejecting(code);
       final h = await _mount(tester, coach);
       await _send(tester, '/log $_wish');
       expect(coach.calls, hasLength(1));
@@ -600,6 +605,20 @@ void main() {
       expect(h.saved, isEmpty);
     });
   }
+
+  _test('a device date the server rejects names the device clock, not the '
+      'version; no Retry', (tester) async {
+    final coach = _LogCoach.rejecting('invalid_local_date');
+    final h = await _mount(tester, coach);
+    await _send(tester, '/log $_wish');
+    expect(coach.calls, hasLength(1));
+    expect(find.text(deL10n.coachWorkoutLogCheckDeviceDate), findsOneWidget);
+    expect(find.text(deL10n.coachWorkoutLogUnavailable), findsNothing);
+    expect(find.byKey(const ValueKey('coach-unsent')), findsNothing);
+    expect(_text(tester), '/log $_wish', reason: 'the draft stays');
+    expect(_card, findsNothing);
+    expect(h.saved, isEmpty);
+  });
 
   _test('an unknown command names /log in both languages', (tester) async {
     expect(deL10n.coachPlanUnknownCommandHint, contains('/log'));
@@ -716,6 +735,62 @@ void main() {
     await _tapAdd(tester);
     await _confirm(tester);
     expect(h.saved.single.id, _historyId);
+  });
+
+  // --- D4: pain mentioned ----------------------------------------------------
+
+  test('the card finds the server D4 line by its ARB copy', () {
+    final source = File(
+      'supabase/functions/coach-chat/workout_log.ts',
+    ).readAsStringSync();
+    expect(source, contains('de: "${deL10n.coachWorkoutLogSafetyLine}"'));
+    expect(source, contains('en: "${enL10n.coachWorkoutLogSafetyLine}"'));
+  });
+
+  for (final pain in [true, false]) {
+    _test('a live answer ${pain ? 'with' : 'without'} the D4 line '
+        '${pain ? 'shows it on the card' : 'shows no safety line'}', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      final line = deL10n.coachWorkoutLogSafetyLine;
+      final coach = _LogCoach.create()
+        ..reply = 'Training zum Eintragen: Beintag.${pain ? ' $line' : ''}';
+      await _mount(tester, coach);
+      await _send(tester, '/log $_wish, das Knie hat gezwickt');
+      expect(_card, findsOneWidget);
+      expect(
+        find.descendant(of: _card, matching: find.text(line)),
+        pain ? findsOneWidget : findsNothing,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp(RegExp.escape(line))),
+        pain ? findsOneWidget : findsNothing,
+        reason: 'screen readers get the line too',
+      );
+      semantics.dispose();
+    });
+  }
+
+  _test('a reloaded row keeps the D4 line, in the app language', (
+    tester,
+  ) async {
+    final coach = _LogCoach.create()
+      ..history = [
+        _logRow(
+          content:
+              'Training zum Eintragen: Beintag. '
+              '${deL10n.coachWorkoutLogSafetyLine}',
+        ),
+      ];
+    await _mount(tester, coach, locale: const Locale('en'));
+    expect(
+      find.descendant(
+        of: _card,
+        matching: find.text(enL10n.coachWorkoutLogSafetyLine),
+      ),
+      findsOneWidget,
+    );
   });
 
   // --- Review and confirmation ------------------------------------------------
@@ -957,24 +1032,53 @@ void main() {
     expect(coach.calls, isEmpty);
   });
 
-  _test('a log draft request prefills /log and focuses the composer', (
-    tester,
-  ) async {
-    final coach = _LogCoach.create();
-    final h = await _mount(tester, coach);
-    h.requestLogDraft();
-    await _frames(tester);
-    expect(_text(tester), '/log ');
-    expect(tester.widget<TextField>(_input).focusNode!.hasFocus, isTrue);
-    expect(coach.calls, isEmpty);
-  });
+  // Training's "Tell the Coach instead" reaches a composer the user cannot
+  // see: an unsent draft is kept behind the command, never replaced.
+  for (final (draft, prepared, cursor) in <(String, String, int)>[
+    ('', '/log ', 5),
+    ('/recipe ', '/log ', 5),
+    ('/re', '/log ', 5),
+    (
+      'was esse ich nach dem Beintag?',
+      '/log was esse ich nach dem Beintag?',
+      5,
+    ),
+    ('/log Kniebeugen 3x5', '/log Kniebeugen 3x5', 19),
+  ]) {
+    _test('a log draft request over "$draft" prepares "$prepared" and focuses '
+        'the composer', (tester) async {
+      final coach = _LogCoach.create();
+      final h = await _mount(tester, coach);
+      if (draft.isNotEmpty) {
+        await tester.enterText(_input, draft);
+        await tester.pump();
+        FocusManager.instance.primaryFocus?.unfocus();
+        await tester.pump();
+      }
+      h.requestLogDraft();
+      await _frames(tester);
+      final field = tester.widget<TextField>(_input);
+      expect(_text(tester), prepared);
+      expect(
+        field.controller!.selection,
+        TextSelection.collapsed(offset: cursor),
+      );
+      expect(field.focusNode!.hasFocus, isTrue);
+      expect(coach.calls, isEmpty);
+    });
+  }
 
   for (final locale in [const Locale('de'), const Locale('en')]) {
     _test('card states and menu reflow at 320px with 2x text '
         '(${locale.languageCode})', (tester) async {
       final l10n = locale.languageCode == 'en' ? enL10n : deL10n;
       final coach = _LogCoach.create()
-        ..history = [_logRow(log: _logJson(omitted: true))];
+        ..history = [
+          _logRow(
+            log: _logJson(omitted: true),
+            content: 'Beintag. ${l10n.coachWorkoutLogSafetyLine}',
+          ),
+        ];
       final errors = await collectOverflows(() async {
         final h = await _mount(
           tester,
@@ -995,6 +1099,7 @@ void main() {
         h.update(ids: const {}, deleted: {_historyId});
         await _frames(tester);
         expect(find.text(l10n.coachWorkoutLogRemovedLabel), findsOneWidget);
+        expect(find.text(l10n.coachWorkoutLogSafetyLine), findsOneWidget);
 
         await tester.enterText(_input, '/');
         await _frames(tester);

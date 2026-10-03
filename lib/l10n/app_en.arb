@@ -1916,6 +1916,7 @@
   "coachWorkoutLogEmptyHint": "After /log, describe the workout you did — e.g. \"/log today 3 x 10 squats at 60 kg\".",
   "coachWorkoutLogPhotoUnsupported": "Workouts are logged from text. Send your /log message without a photo.",
   "coachWorkoutLogUnavailable": "Logging workouts with the Coach isn't available in this version yet. You can log it in Training.",
+  "coachWorkoutLogCheckDeviceDate": "Your device's date looks off, so the workout can't be dated. Check the date and time in your device settings, then send it again.",
   "coachWorkoutLogCardEyebrow": "Workout · Draft",
   "coachWorkoutLogDayMissing": "Day not given — pick it when you add the workout",
   "coachWorkoutLogOnlyDay": "Only {day} was taken. Log other days separately.",
@@ -1927,6 +1928,7 @@
     }
   },
   "coachWorkoutLogOnlyOneDay": "Only one day was taken. Log other days separately.",
+  "coachWorkoutLogSafetyLine": "If pain persists, please see a doctor or physiotherapist.",
   "coachWorkoutLogSetsRepsMissing": "{sets, plural, =1{1 set} other{{sets} sets}}, reps missing",
   "@coachWorkoutLogSetsRepsMissing": {
     "placeholders": {

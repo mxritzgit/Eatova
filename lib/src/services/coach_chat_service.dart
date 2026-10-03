@@ -1202,13 +1202,17 @@ class CoachChatService {
   static const Set<String> _workoutLogUnsupported = {
     'invalid_body',
     'invalid_mode',
-    'invalid_local_date',
     'log_mode_required',
     'log_fields_not_supported',
   };
 
   Exception _workoutLogFailure(int status, dynamic details) {
     final error = details is Map ? details['error'] : null;
+    // The device's day is more than a day off the server's: a wrong clock,
+    // not an old version. No retry helps until the date is fixed.
+    if (status == 400 && error == 'invalid_local_date') {
+      return CoachRequestUnsupported(_l10n.coachWorkoutLogCheckDeviceDate);
+    }
     if (status == 400 && _workoutLogUnsupported.contains(error)) {
       return CoachRequestUnsupported(_l10n.coachWorkoutLogUnavailable);
     }
