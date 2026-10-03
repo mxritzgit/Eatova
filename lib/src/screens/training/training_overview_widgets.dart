@@ -1074,10 +1074,13 @@ class _RecentRow extends StatelessWidget {
       l10n.localeName,
     ).format(summary.finishedAt.toLocal());
     final minutes = (summary.duration.inSeconds / 60).round();
-    // A log without a stated duration has none to show ("0 min" would lie).
+    // No duration, nothing to show ("0 min" would lie). Only a free log says
+    // Logged: a played workout can end without a duration too.
     final meta = trainingEntryHasDuration(summary.entry)
         ? '$date · ${l10n.trainingDurationMinutes(minutes)}'
-        : '$date · ${l10n.trainingHistoryLogged}';
+        : isLoggedTrainingEntry(summary.entry)
+        ? '$date · ${l10n.trainingHistoryLogged}'
+        : date;
     final records = summary.personalRecords;
     final badge = records > 0 ? l10n.trainingRecentPrs(records) : null;
     // A stable hue per workout of the plan; it encodes no workout type.

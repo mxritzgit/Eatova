@@ -21,6 +21,7 @@ import 'package:eatova/src/screens/training/training_plan_editor.dart';
 import 'package:eatova/src/screens/training/training_plan_picker.dart';
 import 'package:eatova/src/screens/training/training_screen.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
+import 'package:eatova/src/services/training_session_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -1150,6 +1151,36 @@ void main() {
         ),
       );
       expect(find.text('Sun, Sep 27 · Logged'), findsOneWidget);
+      expect(find.text('Sun, Sep 27 · 0 min'), findsNothing);
+    });
+
+    testWidgets('Recent never tags a played workout as "Logged"', (
+      tester,
+    ) async {
+      // Review TUI-1: ✓ on set 1, Finish 10 min later finishes at that set,
+      // so the played workout has no duration either.
+      final at = DateTime(2026, 9, 27, 18);
+      final controller = withClock(
+        Clock.fixed(at),
+        () => TrainingSessionController(plan: plan, autoTick: false),
+      );
+      withClock(Clock.fixed(at), controller.completeCurrentSet);
+      final played = withClock(
+        Clock.fixed(at.add(const Duration(minutes: 10))),
+        controller.completion,
+      );
+      controller.dispose();
+      expect(trainingEntryHasDuration(played), isFalse);
+      await _pumpScreen(
+        tester,
+        _screen(
+          plans: [plan],
+          history: [played],
+          recent: recentTrainingWorkouts([played]),
+        ),
+      );
+      expect(find.text('Sun, Sep 27'), findsOneWidget);
+      expect(find.text('Sun, Sep 27 · Logged'), findsNothing);
       expect(find.text('Sun, Sep 27 · 0 min'), findsNothing);
     });
 

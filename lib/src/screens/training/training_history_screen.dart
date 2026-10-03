@@ -110,9 +110,9 @@ String _finished(BuildContext context, TrainingHistoryEntry entry) =>
         context.l10n.localeName,
       ).format(entry.finishedAt.toLocal());
 
-/// Logged after the fact: a free log, or any entry without a duration.
-bool _logged(TrainingHistoryEntry entry) =>
-    isLoggedTrainingEntry(entry) || !trainingEntryHasDuration(entry);
+/// Only a free log is tagged "Logged": a played workout can also end without
+/// a duration (saved > 5 min after its only set finishes at that set).
+bool _logged(TrainingHistoryEntry entry) => isLoggedTrainingEntry(entry);
 
 class TrainingHistoryDetail extends StatefulWidget {
   const TrainingHistoryDetail({

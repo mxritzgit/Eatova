@@ -668,6 +668,42 @@ void main() {
       expect(find.textContaining('training plan stays saved'), findsOneWidget);
     });
 
+    testWidgets('a played workout without a duration is not tagged Logged', (
+      tester,
+    ) async {
+      // Review TUI-1: ✓ at 18:00, Finish at 18:10 finishes at that set
+      // (spec A7), so start equals finish as in a log without a duration.
+      final at = DateTime(2026, 10, 3, 18);
+      final controller = withClock(
+        Clock.fixed(at),
+        () => TrainingSessionController(plan: timerPlan(), autoTick: false),
+      );
+      withClock(Clock.fixed(at), () {
+        controller.nextExercise();
+        controller.setCurrentActual(reps: 8, weightKg: 20);
+        controller.completeCurrentSet();
+      });
+      final entry = withClock(
+        Clock.fixed(at.add(const Duration(minutes: 10))),
+        controller.completion,
+      );
+      controller.dispose();
+      expect(isLoggedTrainingEntry(entry), isFalse);
+      expect(trainingEntryHasDuration(entry), isFalse);
+      await _host(
+        tester,
+        TrainingHistoryScreen(
+          entries: [entry],
+          onDelete: (_) async => SyncDelivery.delivered,
+        ),
+      );
+      expect(find.text('Oct 3, 2026\n1 of 4 sets completed'), findsOneWidget);
+      await _tap(tester, 'training-history-${entry.id}');
+      expect(find.text('Logged'), findsNothing);
+      expect(find.text('Strength & focus'), findsOneWidget);
+      expect(find.text('Finished: Oct 3, 2026'), findsOneWidget);
+    });
+
     testWidgets('the empty history explains both ways in', (tester) async {
       await _host(
         tester,
