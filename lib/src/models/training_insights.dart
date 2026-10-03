@@ -9,6 +9,7 @@ library;
 import '../services/day_math.dart';
 import '../services/local_day.dart';
 import 'training_history.dart';
+import 'training_log.dart' show normalizeExerciseName;
 import 'training_plan.dart';
 import 'training_session.dart';
 
@@ -104,6 +105,45 @@ List<TrainingSetActual> lastTrainingPerformanceFor(
     exerciseName: exercise.name,
     isTimed: exercise.isTimed,
   );
+}
+
+/// The player's weight-prefill source (spec A2): [lastTrainingPerformanceFor]
+/// over only the sessions in which [exercise] carried a weight, so a session
+/// logged without weights never blanks the prefill.
+List<TrainingSetActual> lastWeightedTrainingPerformanceFor(
+  List<TrainingHistoryEntry> history, {
+  required String planId,
+  required TrainingExercise exercise,
+}) {
+  final name = normalizeExerciseName(exercise.name);
+  bool weighted(TrainingHistoryEntry entry) {
+    final ownPlan = entry.snapshot.plan.id == planId;
+    final exercises = entry.snapshot.workout.exercises;
+    return entry.snapshot.actualSets.any((actual) {
+      if (actual.weightKg == null) return false;
+      final candidate = exercises[actual.reference.exerciseIndex];
+      return candidate.isTimed == exercise.isTimed &&
+          (ownPlan
+              ? exercise.id != null && candidate.id == exercise.id
+              : normalizeExerciseName(candidate.name) == name);
+    });
+  }
+
+  return lastTrainingPerformanceFor(
+    history.where(weighted).toList(),
+    planId: planId,
+    exercise: exercise,
+  );
+}
+
+/// Last time's weight for set [setIndex]: that set's, else the last set's
+/// (spec A2); null without [sets].
+double? lastTimeWeightForSet(List<TrainingSetActual> sets, int setIndex) {
+  if (sets.isEmpty) return null;
+  for (final set in sets) {
+    if (set.reference.setIndex == setIndex) return set.weightKg;
+  }
+  return sets.last.weightKg;
 }
 
 /// The selected plan's workout for today. The Today activity card shows
