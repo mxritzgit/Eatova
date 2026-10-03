@@ -743,7 +743,8 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
           key: const ValueKey('training-log-close'),
           onPressed: _busy ? null : _close,
           tooltip: l10n.trainingPageClose,
-          icon: const Icon(Icons.close_rounded),
+          style: IconButton.styleFrom(backgroundColor: context.t.surf2),
+          icon: Icon(Icons.close_rounded, color: context.t.ink2, size: 21),
         ),
       ],
     );
