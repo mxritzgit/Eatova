@@ -309,16 +309,28 @@ void main() {
       },
     );
 
-    for (final code in [
-      'invalid_mode',
-      'invalid_local_date',
-      'log_mode_required',
-      'log_fields_not_supported',
+    String unavailable(AppLocalizations l10n) =>
+        l10n.coachWorkoutLogUnavailable;
+    for (final (code, label, message) in [
+      ('invalid_mode', 'not available in this version yet', unavailable),
+      // The device's day is more than a day off the server's: a wrong
+      // clock, not an old version.
+      (
+        'invalid_local_date',
+        'check the device date',
+        (AppLocalizations l10n) => l10n.coachWorkoutLogCheckDeviceDate,
+      ),
+      ('log_mode_required', 'not available in this version yet', unavailable),
+      (
+        'log_fields_not_supported',
+        'not available in this version yet',
+        unavailable,
+      ),
       // A rolled-back function knows no `local_date` field at all.
-      'invalid_body',
+      ('invalid_body', 'not available in this version yet', unavailable),
     ]) {
       for (final english in [false, true]) {
-        test('400 $code is "not available in this version yet" '
+        test('400 $code is "$label" '
             '(${english ? 'en' : 'de'}), once, without quota', () async {
           var calls = 0;
           final service = _service((_) async {
@@ -333,7 +345,7 @@ void main() {
               isA<CoachRequestUnsupported>().having(
                 (e) => e.message,
                 'message',
-                l10n.coachWorkoutLogUnavailable,
+                message(l10n),
               ),
             ),
           );
