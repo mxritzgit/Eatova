@@ -1052,6 +1052,47 @@ void main() {
       expect(started, [(plan, 0)]);
     });
 
+    testWidgets('a stale store copy with fewer workouts follows the selected '
+        "plan's rotation", (tester) async {
+      // The store's copy predates the saved plan's third workout.
+      final stale = TrainingPlan(
+        id: plan.id,
+        proposal: CoachTrainingProposal(
+          title: plan.title,
+          workouts: plan.workouts.take(2).toList(),
+        ),
+      );
+      final next = TrainingNextWorkout(
+        plan: stale,
+        workoutIndex: 1,
+        completedToday: true,
+        exercises: [
+          for (final exercise in stale.workouts[1].exercises)
+            TrainingExercisePreview(exercise: exercise),
+        ],
+      );
+      expect(next.upNextWorkoutIndex, 0, reason: 'wrapped by the stale copy');
+      final started = <(TrainingPlan, int)>[];
+      await _pumpScreen(
+        tester,
+        _screen(
+          plans: [plan],
+          next: next,
+          start: (p, i) => started.add((p, i)),
+        ),
+      );
+      expect(find.text('Done today: Upper Body Pull'), findsOneWidget);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('training-card-title')))
+            .data,
+        'Lower Body',
+        reason: 'the saved plan has a third workout after Pull',
+      );
+      await _tapScreen(tester, 'training-start');
+      expect(started, [(plan, 2)]);
+    });
+
     testWidgets('a picked workout finds Last time by name in a free log', (
       tester,
     ) async {
@@ -1131,6 +1172,14 @@ void main() {
         _screen(plans: const [], logWorkout: () {}, coachLog: () => opened++),
       );
       expect(find.text('Tell the Coach instead'), findsOneWidget);
+      // Both links keep the 48 px target at the default text size too.
+      for (final key in ['training-empty-log', 'training-empty-log-coach']) {
+        expect(
+          tester.getSize(find.byKey(ValueKey(key))).height,
+          greaterThanOrEqualTo(48),
+          reason: key,
+        );
+      }
       await _tapScreen(tester, 'training-empty-log-coach');
       expect(opened, 1);
 
@@ -1156,7 +1205,7 @@ void main() {
           await tester.pumpAndSettle();
           final rect = tester.getRect(target);
           expect(rect.right, lessThanOrEqualTo(320), reason: key);
-          expect(rect.height, greaterThanOrEqualTo(44), reason: key);
+          expect(rect.height, greaterThanOrEqualTo(48), reason: key);
           expect(target.hitTestable(), findsOneWidget, reason: key);
         }
         expect(tester.takeException(), isNull);

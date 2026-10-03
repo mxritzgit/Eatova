@@ -159,13 +159,17 @@ class _TrainingScreenState extends State<TrainingScreen> {
   }
 
   /// The rotation's workout to start: [next] itself, or once that one is done
-  /// today the one after it ([TrainingNextWorkout.upNextWorkoutIndex]). A
-  /// stale store copy may count more workouts than [plan]: past its end the
-  /// rotation wraps to the first workout.
+  /// today the one after it. The successor is counted in [plan], not in the
+  /// store's copy ([TrainingNextWorkout.upNextWorkoutIndex]), which may be
+  /// stale with more or fewer workouts; an index outside [plan] falls back to
+  /// the first workout.
   TrainingNextWorkout _upNext(TrainingPlan plan, TrainingNextWorkout next) {
     if (!next.completedToday) return next;
-    final index = next.upNextWorkoutIndex;
-    return _withLastTime(plan, index < plan.workouts.length ? index : 0);
+    final index = next.workoutIndex + 1;
+    return _withLastTime(
+      plan,
+      index > 0 && index < plan.workouts.length ? index : 0,
+    );
   }
 
   /// The saved session, if the card must show it (see [activeSession]).
