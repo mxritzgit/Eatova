@@ -769,6 +769,22 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
 
+    testWidgets('alerts turned on elsewhere meanwhile: the chip goes and the '
+        'rest is planned with the grant', (tester) async {
+      final gate = _Gate(RestAlertPermission.denied);
+      final host = await _open(tester, gate: gate);
+      await _tap(tester, 'training-set-check-0-0');
+      await tester.pumpAndSettle();
+      final schedules = host.alerts.scheduled.length;
+      gate.value = RestAlertPermission.granted;
+      await _tap(tester, 'training-timer-alerts-off');
+      await tester.pumpAndSettle();
+      expect(_key('training-timer-alerts-off'), findsNothing);
+      expect(host.alerts.scheduled, hasLength(schedules + 1));
+      expect((host.settings, gate.requests), (0, 0));
+      await tester.pumpWidget(const SizedBox());
+    });
+
     testWidgets('a gate without the explainer memory keeps the original '
         'contract: the explainer returns until answered', (tester) async {
       final gate = _PlainGate(RestAlertPermission.notAsked);
