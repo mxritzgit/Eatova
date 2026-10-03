@@ -160,7 +160,7 @@ Shared fixture `supabase/functions/coach-chat/fixtures/workout_log_cases.json`
 sealed class TrainingLogEditorRequest { const TrainingLogEditorRequest({required this.historyId}); final String historyId; }
 final class FreeLogRequest extends TrainingLogEditorRequest { const FreeLogRequest({required super.historyId, this.initial, this.fromCoach = false}); final LoggedWorkoutDraft? initial; final bool fromCoach; }
 final class PlanAttachedLogRequest extends TrainingLogEditorRequest { const PlanAttachedLogRequest({required super.historyId, required this.plan, required this.workoutIndex}); final TrainingPlan plan; final int workoutIndex; }
-enum TrainingLogSaveOutcome { saved, queued, deleted, blocked, failed }
+enum TrainingLogSaveOutcome { saved, queued, queuedOffline, deleted, blocked, failed }
 Future<TrainingLogSaveOutcome?> showTrainingLogEditor(BuildContext context, {
   required TrainingLogEditorRequest request,
   required Future<TrainingLogSaveOutcome> Function(TrainingHistoryEntry entry) onSave,
@@ -336,5 +336,5 @@ integration branch.
 ## Self-review notes
 
 - Spec coverage: A1–A7 → A1/A2/D1(screen iOS)/M1/B1; B → M2/B1/L1/I1; C → S1/M2/C2; D → D1/D2; E → C3/S1; Delivery → W1. Spec §11 items have no task by design.
-- Type consistency checked against the contracts block; `TrainingLogSaveOutcome` is produced by L1 and consumed by C2/W1; `logCompletedWorkout` by B1 → W1 adapters map exceptions to outcomes (`TrainingCompletionDeleted` → `deleted`, `TrainingLogBlockedBySession` → `blocked`, other → `failed`, `SyncDelivery.delivered` → `saved`, queued → `queued`).
+- Type consistency checked against the contracts block; `TrainingLogSaveOutcome` is produced by L1 and consumed by C2/W1; `logCompletedWorkout` by B1 → W1 adapters map exceptions to outcomes (`TrainingCompletionDeleted` → `deleted`, `TrainingLogBlockedBySession` → `blocked`, other → `failed`, `SyncDelivery.delivered` → `saved`, `queuedRetry` → `queued`, `queuedOffline` → `queuedOffline`).
 - Review Focus items 1–5 each have a test step (A1 step 2, M1/B1 step 1, C2 step 1, D1/D2 step 1, S1 step 5 + C3).

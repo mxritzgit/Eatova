@@ -55,7 +55,9 @@ the existing dark studio look (spec
 `services/training_session_controller.dart`.
 
 - **One tap per set.** ✓ completes a repetition set; a timed set has ▶ (3 s
-  get-ready), counts down, completes at zero and offers "Done early". The
+  get-ready), counts down, completes at zero and offers "Done early". After ▶
+  the same button turns into ✓ but stays disabled during the 3 s get-ready
+  (as does Done early), so a double tap never logs a set that did not run. The
   ledger stays a sequential prefix: only the active set's ✓ is enabled, the
   others show a visibly disabled ✓ (supersets are out of scope). Tapping the
   most recent completed ✓ undoes it (its rest and alert end, its values
@@ -76,7 +78,11 @@ the existing dark studio look (spec
   resume. ✓ and a drag on the list close the keyboard; fields use Done. The
   rest bar is pinned at the bottom (mm:ss 36 pt, −15 s, +15 s, Skip) and
   expands to a full-screen rest view; ✓ on the next set ends a rest early.
-  +15 s is off while it would pass the planned rest (the cap of A4).
+  +15 s is off while it would pass the planned rest (the cap of A4). The bar
+  never takes the active row's space: it is capped at 40 % of the screen
+  height, and while the body leaves no room for its controls (the keyboard
+  shrinks it as the next weight is typed) the bar waits and comes back when the
+  keyboard closes; the rest itself keeps running.
 - **Time keeps running (A4).** A running rest or timed set is a UTC deadline
   (`phase_ends_at`, local-only). Background, lock, covering pages and dialogs
   never pause; only the menu's Pause, Save & leave and Finish do (a failed
@@ -90,29 +96,44 @@ the existing dark studio look (spec
   the first ✓ or ▶; a save more than 5 minutes after the last set finishes
   at that set.
 - **Alerts (A5).** One local notification per running phase under
-  `restAlertIdForSession`, scheduled at phase start with generic texts;
-  opening the player first cancels whatever an earlier process planned.
-  ✓/Skip/Undo/Pause/Finish/Discard/leaving and closing the route cancel it.
-  The first workout shows one explainer before the system prompt
-  (`RestAlertPermissionGate`, once per device: after "Not now" only the
-  chip remains);
-  with alerts off the rest bar shows a quiet "Alerts off" chip that asks
-  for permission if this device never asked (also after "Not now"),
-  otherwise opens the notification settings. A rest or interval that ends
-  in the foreground vibrates once. The home page pins scheduling to the
-  account that opened the player (`GuardedRestAlertScheduler`). Tapping an
-  alert, also the one that launched the app, opens Training and, for the
-  account that owns the saved workout, resumes it once the tabs show.
-  Today's workout row reads
-  "In progress · Resume" while a checkpoint exists and resumes it the same
-  way.
+  `restAlertIdForSession`, scheduled at phase start for its deadline with
+  generic texts (no exercise, no weight). After a running timed set that a
+  rest follows, a second reserved id
+  (`restAlertFollowUpIdForSession`) plans the follow-up "Rest over" alert at
+  ▶ for interval end plus rest: the app applies that rest only once it sees
+  the interval end, so a lock during the interval still alerts. Nothing is
+  scheduled while notifications are off (iOS rejects the request); turning
+  them on in the system settings plans the running phase on the next resume.
+  Opening the player first cancels whatever an earlier process planned under
+  either id; ✓/Skip/Undo/Pause/Finish/Discard/leaving and closing the route
+  cancel both. A rest or interval that ends in the foreground vibrates once.
+  On Android a phase end seen in the foreground also posts an immediate cue
+  (`RestAlertCue`, id `restAlertCueIdForSession`) on the training channel:
+  its sound, no heads-up, removed after 5 s. The scheduled Android alert is
+  inexact and may arrive late, and the player cancels it at the deadline
+  anyway; iOS delivers on time and posts no cue. The first workout shows one
+  explainer before the system prompt (`RestAlertPermissionGate`, once per
+  device: after "Not now" only the chip remains). With alerts off the rest bar
+  shows a quiet "Alerts off" chip: if the system was never asked (also after
+  "Not now"; iOS lists no notification switch before a request) it asks for
+  permission, otherwise it opens the notification settings. The home page pins
+  scheduling to the account that opened the player
+  (`GuardedRestAlertScheduler`). Tapping an alert, also the one that launched
+  the app, opens Training and, for the account that owns the saved workout,
+  resumes it once the tabs show. Today's workout row reads "In progress ·
+  Resume" while a checkpoint exists and resumes it the same way.
 - **Keep awake (A6).** Owner `training-player` holds the display only while a
   timed set, or the rest leading into one, runs with the player on top
   (ruling R16: owners never release each other's hold).
-- **Finishing (A7).** Finish opens a sheet (it also opens itself after the
-  last set): summary, note and an honest primary. With open sets: "Save N
-  sets (skip the rest)", "I did the rest — log as shown", "Keep training";
-  with no completed set only Discard and Keep training. A refused checkpoint
+- **Finishing (A7).** Finish opens a "Finish workout" sheet (it also opens
+  itself after the last set): a summary ("2 of 6 sets completed · 1 set
+  skipped · 3 open"), an optional note and an honest primary. With every set
+  done or skipped the primary is "Save workout"; with open sets it reads
+  "Save N sets, skip the remaining ones" and "I did the remaining sets — log
+  as shown" sits below it, then "Keep training". Missing repetitions on a
+  completed set disable both saves until entered. With no completed set the
+  sheet says "No set is completed yet, so there is nothing to save." and
+  offers only "Discard workout" and "Keep training". A refused checkpoint
   (`onPersist` → false, the plan changed) shows "not stored" and Finish still
   saves the frozen plan copy. Leaving then never promises a saved place: back
   asks "Leave without saving?" with Finish (when a set is done), Leave
@@ -135,7 +156,7 @@ the existing dark studio look (spec
 |---|---|
 | Background/covered routes pause; nothing resumes (TRAINING-DESIGN-2026-09-08.md "Workout player", handoff) | Rest and timed intervals run on wall-clock deadlines; only an explicit pause or process death stops them |
 | Pause/resume is the dominant control; Next/Previous visible | ✓ per set is dominant; pause, skip and undo live on the row / exercise menu |
-| No notifications | One rest/interval alert per phase, generic text |
+| No notifications | One rest/interval alert per phase plus a follow-up "Rest over" after a timed interval, generic text |
 | Recovery always paused | Recovery continues a still-running rest; a timed interval whose deadline passed during process death waits at zero for ✓ |
 | No rest after an exercise's last set | Rest after every completed set except the workout's final set |
 | Rep sets need Start | ✓ completes a rep set directly |
