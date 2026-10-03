@@ -124,7 +124,7 @@ the existing dark studio look (spec
   Resume" while a checkpoint exists and resumes it the same way.
 - **Keep awake (A6).** Owner `training-player` holds the display only while a
   timed set, or the rest leading into one, runs with the player on top
-  (ruling R16: owners never release each other's hold).
+  (owners never release each other's hold).
 - **Finishing (A7).** Finish opens a "Finish workout" sheet (it also opens
   itself after the last set): a summary ("2 of 6 sets completed · 1 set
   skipped · 3 open"), an optional note and an honest primary. With every set

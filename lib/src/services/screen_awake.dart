@@ -8,8 +8,8 @@ import 'package:flutter/services.dart';
 /// `isIdleTimerDisabled` on iOS (AppDelegate). No package, no permission.
 abstract class ScreenAwake {
   /// Holds ([on]) or releases the display for [owner]. The display stays on
-  /// while any owner holds it (ruling R16: the workout player and the Coach
-  /// dictation never release each other's hold).
+  /// while any owner holds it, so the workout player and the Coach dictation
+  /// never release each other's hold.
   Future<void> setKeepAwake(bool on, {String owner = 'default'});
 }
 

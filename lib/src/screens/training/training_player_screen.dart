@@ -29,7 +29,7 @@ enum _SaveIntent { checkpoint, leave, clear, complete }
 
 enum _UnstoredChoice { finish, leave, stay }
 
-/// Owner of the player's keep-awake hold ([ScreenAwake], ruling R16).
+/// Owner of the player's keep-awake hold ([ScreenAwake]).
 const String trainingPlayerAwakeOwner = 'training-player';
 
 /// Debounce of durable writes after field edits (spec A7).

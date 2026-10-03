@@ -2551,9 +2551,9 @@ the new columns, so none was deployed.
 
 ## Training flow, Coach /log and dictation, 2026-10-03
 
-Branch `feat/training-flow-coach-log`, one PR for server and app (ruling
-R23); its description holds the review evidence and records CI, deploy
-and merge. Design:
+Branch `feat/training-flow-coach-log`, one PR for server and app
+([#129](https://github.com/mxritzgit/Eatova/pull/129)); its description
+holds the review evidence and the decisions taken. Design:
 [spec](superpowers/specs/2026-10-03-training-flow-and-coach-log-design.md),
 [plan](superpowers/plans/2026-10-03-training-flow-coach-log.md). Player
 rules and what they supersede: [TRAINING-DESIGN.md](TRAINING-DESIGN.md#workout-player-list-2026-10-03).
@@ -2581,7 +2581,7 @@ rules and what they supersede: [TRAINING-DESIGN.md](TRAINING-DESIGN.md#workout-p
   utterance survived; `stop()` also cancelled the final result. The fix is a
   native accumulator (`SpeechTranscriptAccumulator.swift`, 15 XCTests written
   first against the old overwrite strategy; Swift runs only in the PR's iOS
-  workflow, ruling R5), a graceful stop, live partials appended to the
+  workflow), a graceful stop, live partials appended to the
   draft and a DE/EN switch. Mixed German and English in one
   recording stays out of reach of Apple's recognizer (decision D2: no audio
   goes to Eatova's servers or an AI model; Apple may use its servers where
@@ -2595,8 +2595,8 @@ rules and what they supersede: [TRAINING-DESIGN.md](TRAINING-DESIGN.md#workout-p
   adapter and live history, and rest-alert taps (also the launch tap) are
   connected in `eatova_home_page.dart`. One adapter writes for Training and
   the Coach; it re-checks the owner store and flags plan-backed entries
-  itself (ruling R15). The local preview offers no logging.
-- Delivery order (ruling R23): CI green → apply migration `20261004090000`
+  itself. The local preview offers no logging.
+- Delivery order: CI green → apply migration `20261004090000`
   → deploy `coach-chat` from the PR head → verify ACTIVE, boot and a smoke
   request → merge → the owner installs build `1.1.0+4`. Reasons: the app's
   Coach history select reads `workout_log`, so an app without the live
@@ -2625,3 +2625,30 @@ rules and what they supersede: [TRAINING-DESIGN.md](TRAINING-DESIGN.md#workout-p
     (`SpeechTranscriptAccumulatorTests`) besides the share tests; earlier
     dated notes that count only the share XCTests describe their own
     checkpoint.
+  - The paid real-model `/log` evaluation
+    (`coach_eval.ts --live --log --budget-usd=2.60`) has not run; it needs
+    an explicitly approved provider budget (`supabase/eval/README.md`).
+    Offline, E16, E19 and E22 pass; whether the real model sets the pain flag
+    and resists the injection case is unverified.
+
+### Rollout, 2026-10-03
+
+The owner authorised merge, migration and function deploy for after the
+work. Final head `36f9844`: 6736 Flutter tests, 96.78 % line coverage of
+`lib/` without generated l10n, 922 Deno tests (`deno test --allow-env` as in
+CI), and all 17 PR checks green, including the iOS build with the new
+XCTests.
+
+1. Migration `20261004090000_chat_message_workout_log` applied live and
+   registered in one Management API transaction (53 registered). Read back:
+   `chat_messages.workout_log jsonb`, the CHECK as in the repository,
+   `is_valid_coach_workout_log` immutable, invoker, `search_path=pg_catalog`,
+   EXECUTE only for `authenticated` and `service_role`, a valid and an
+   invalid sample judged correctly, no rows with a log yet.
+2. `coach-chat` deployed from `36f9844`: version 52, `ACTIVE`,
+   `verify_jwt=true`. Boot checks: CORS preflight 204, no auth 401, the
+   public anon JWT reached the handler's own 401. No authenticated
+   end-to-end request was made.
+3. #129 squash-merged as `46f956e`. Main CI on `46f956e`: 16 of 16 green,
+   including RLS against PostgreSQL and both live migration drift checks.
+4. Device build `1.1.0+4` is the owner's step.
