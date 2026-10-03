@@ -372,7 +372,17 @@ async function authenticateUser(request: Request, deadline: Deadline): Promise<A
     return authFailureOutcome(gate);
   }
 
-  const user = await response.json() as Partial<AuthUser>;
+  let user: Partial<AuthUser>;
+  try {
+    user = await response.json() as Partial<AuthUser>;
+  } catch (error) {
+    // The step signal covers the body too, and GoTrue sends its headers first:
+    // a stalled body is the same outage as stalled headers (analyze-meal P6-07).
+    if (isTimeout(error)) {
+      throw new HttpError(503, 'auth_unavailable', 'Anmeldung gerade nicht prüfbar.');
+    }
+    throw error;
+  }
   if (typeof user.id !== 'string' || !hasExpectedUserTokenContext(token, user.id)) {
     throw new HttpError(401, 'invalid_user_token', 'Bitte erneut anmelden.');
   }
@@ -460,7 +470,14 @@ async function consumeRateLimits(gates: RateLimitGate[], deadline: Deadline): Pr
     throw rateLimitUnavailable();
   }
 
-  const data = await response.json() as unknown;
+  let data: unknown;
+  try {
+    data = await response.json();
+  } catch (error) {
+    // E1/E6: a stalled or non-JSON 200 body is a limiter outage as well.
+    console.error(`consume_edge_rate_limits (${scopes}) ${isTimeout(error) ? 'timeout' : 'body unreadable'}`);
+    throw rateLimitUnavailable();
+  }
   // E6: a broken response shape (RPC signature change, proxy body) must be an
   // outage, not an invented 429. An array LONGER than the input is just as
   // unreadable as a non-array — the RPC only ever shortens.
