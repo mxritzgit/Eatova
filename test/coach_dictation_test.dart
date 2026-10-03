@@ -109,7 +109,8 @@ class _Awake implements ScreenAwake {
   final calls = <bool>[];
 
   @override
-  Future<void> setKeepAwake(bool on) async => calls.add(on);
+  Future<void> setKeepAwake(bool on, {String owner = 'default'}) async =>
+      calls.add(on);
 }
 
 class _Coach extends CoachChatService {

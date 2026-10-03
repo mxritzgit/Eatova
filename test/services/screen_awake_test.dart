@@ -14,6 +14,7 @@ void main() {
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
+  setUp(MethodChannelScreenAwake.debugReset);
   tearDown(() => messenger.setMockMethodCallHandler(_channel, null));
 
   test('sendet setKeepAwake {on: true} und {on: false}', () async {
@@ -29,6 +30,45 @@ void main() {
     expect(calls.map((c) => c.method), ['setKeepAwake', 'setKeepAwake']);
     expect(calls.first.arguments, {'on': true});
     expect(calls.last.arguments, {'on': false});
+  });
+
+  // Ruling R16: the display flag is process-wide; the player and the Coach
+  // dictation hold it as separate owners.
+  test('ein Diktat-Ende löscht das Wachhalten des Players nicht', () async {
+    final calls = <Object?>[];
+    messenger.setMockMethodCallHandler(_channel, (call) async {
+      calls.add(call.arguments);
+      return null;
+    });
+    const awake = MethodChannelScreenAwake();
+
+    await awake.setKeepAwake(true, owner: 'training-player');
+    await awake.setKeepAwake(true);
+    await awake.setKeepAwake(false);
+    expect(calls, [
+      {'on': true},
+    ], reason: 'the player still holds the display');
+
+    await awake.setKeepAwake(false, owner: 'training-player');
+    expect(calls, [
+      {'on': true},
+      {'on': false},
+    ]);
+  });
+
+  test('derselbe Halter zweimal schaltet nur einmal', () async {
+    final calls = <Object?>[];
+    messenger.setMockMethodCallHandler(_channel, (call) async {
+      calls.add(call.arguments);
+      return null;
+    });
+    const awake = MethodChannelScreenAwake();
+    await awake.setKeepAwake(true, owner: 'training-player');
+    await awake.setKeepAwake(true, owner: 'training-player');
+    await awake.setKeepAwake(false, owner: 'other');
+    expect(calls, [
+      {'on': true},
+    ]);
   });
 
   test('ohne native Gegenstelle: kein Wurf', () async {
