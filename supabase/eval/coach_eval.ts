@@ -172,6 +172,7 @@ export function expectationFailures(testCase: CoachEvalCase, result: Json): stri
   const reply = typeof result.reply === "string" ? result.reply : "";
   if (expect.reply && !expect.reply.test(reply)) failures.push("reply");
   if (expect.replyEndsWith !== undefined && !reply.endsWith(expect.replyEndsWith)) failures.push("reply ending");
+  if (expect.replyNotEndsWith !== undefined && reply.endsWith(expect.replyNotEndsWith)) failures.push("reply ending forbidden");
   if (result.refusal === true) {
     if (!(expect.refusalReasons ?? []).includes(String(result.refusal_reason))) failures.push(`refusal ${String(result.refusal_reason)}`);
     return failures;

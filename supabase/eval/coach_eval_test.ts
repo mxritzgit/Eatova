@@ -218,6 +218,9 @@ Deno.test("eval log expectations report wrong numbers, dates, canaries and a mis
   const silent = { ...idealResult("E22"), reply: workoutLogSummary(idealResult("E22").workout_log as unknown as CoachWorkoutLog, "en") };
   equal(expectationFailures(logCase("E22"), silent), ["reply ending"], "no safety line");
   assert(WORKOUT_LOG_SAFETY_LINE.en === "If pain persists, please see a doctor or physiotherapist.", "case copy of the safety line");
+  const slang = idealResult("E16");
+  const flagged = workoutLogSummary(slang.workout_log as unknown as CoachWorkoutLog, "en", { medicalRisk: true });
+  equal(expectationFailures(logCase("E16"), { ...slang, reply: flagged }), ["reply ending forbidden"], "safety line on gym slang");
   equal(expectationFailures(logCase("E14"), idealResult("E1")), ["no refusal"], "planned training logged");
   equal(expectationFailures(logCase("E17"), { refusal: true, refusal_reason: "log_unsafe", reply: "No." }), ["reply", "refusal log_unsafe"], "classifier missed the crisis");
 });

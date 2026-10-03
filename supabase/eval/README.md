@@ -86,10 +86,11 @@ deno run --allow-env --allow-net=openrouter.ai --no-remote --no-npm \
 
 Besides `technicalPass` (the response kind), every case with an `expect`
 rubric reports `expectationPass` and `expectationFailures`: date, other days,
-duration, title and note patterns, injection canaries, the D4 safety line and
-the exact sets after the server transform (for example 225 lb stored as
-102.06 kg). Names and notes vary between runs, so they are matched loosely;
-read the replies against each case's `review` text as well. The offline test
+duration, title and note patterns, injection canaries, the D4 safety line (and
+its absence on gym slang such as E16) and the exact sets after the server
+transform (for example 225 lb stored as 102.06 kg). Names and notes vary
+between runs, so they are matched loosely; read the replies against each
+case's `review` text as well. The offline test
 feeds the ideal extraction from the shared fixture
 (`functions/coach-chat/fixtures/workout_log_cases.json`) through the real
 handler and must pass every rubric.
