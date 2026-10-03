@@ -1026,6 +1026,46 @@ void main() {
       );
     });
 
+    testWidgets('das erledigte Training bleibt stehen, auch wenn das '
+        'naechste schon feststeht', (tester) async {
+      // Only the Training card moves on to upNextWorkoutIndex.
+      final done = _workout(completedToday: true);
+      final legs = TrainingWorkout(
+        title: 'Beine',
+        exercises: <TrainingExercise>[
+          TrainingExercise(
+            id: 'squat',
+            name: 'Kniebeuge',
+            sets: 3,
+            reps: 5,
+            restSeconds: 120,
+          ),
+        ],
+      );
+      final workout = TrainingNextWorkout(
+        plan: TrainingPlan(
+          id: done.plan.id,
+          proposal: done.plan.proposal.copyWith(
+            workouts: <TrainingWorkout>[done.workout, legs],
+          ),
+        ),
+        workoutIndex: 0,
+        completedToday: true,
+        exercises: done.exercises,
+      );
+      expect(workout.upNextWorkoutIndex, 1);
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pump(tester, _today(nextWorkout: workout));
+      });
+      await _scrollTo(tester, find.byKey(const ValueKey('today-workout-row')));
+      expect(_textOf(tester, 'today-workout-title'), 'Oberkörper Drücken');
+      expect(
+        _textOf(tester, 'today-workout-sub'),
+        'Heute erledigt · ≈ 50 Min.',
+      );
+      expect(find.text('Beine', skipOffstage: false), findsNothing);
+    });
+
     testWidgets('ohne Schritte, Hinweis und Training keine Karte', (
       tester,
     ) async {

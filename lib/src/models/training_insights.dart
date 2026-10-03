@@ -48,7 +48,7 @@ int _newestFirst(TrainingHistoryEntry a, TrainingHistoryEntry b) {
 /// The best set of [sets]: heaviest weight, then most reps; the earlier set
 /// wins a tie. Bodyweight sets (no weight) rank by reps. Null for no sets.
 ///
-/// Feeds "Last time 75 kg × 8" together with [lastTrainingPerformance].
+/// Feeds "Last time 75 kg × 8" together with [lastTrainingPerformanceFor].
 TrainingSetActual? topTrainingSet(Iterable<TrainingSetActual> sets) {
   TrainingSetActual? best;
   for (final set in sets) {
@@ -73,12 +73,42 @@ final class TrainingExercisePreview {
   /// The prescription: `sets`, then `reps` or `durationSeconds`.
   final TrainingExercise exercise;
 
-  /// [topTrainingSet] of the most recent session of this exercise in this
-  /// plan; null when it was never performed.
+  /// [topTrainingSet] of [lastTrainingPerformanceFor]; null when this
+  /// exercise was never performed, neither in this plan nor by name.
   final TrainingSetActual? lastTopSet;
 }
 
-/// The workout the Today activity card and the Training hero show.
+/// "Last time" for [exercise] of the plan [planId] (spec A2): the newest
+/// session of this plan that performed it ([lastTrainingPerformance]);
+/// without one, the newest same-named exercise of the same kind in another
+/// plan or a log ([lastTrainingPerformanceByName]). Records stay plan-scoped
+/// ([personalRecordCounts]).
+List<TrainingSetActual> lastTrainingPerformanceFor(
+  List<TrainingHistoryEntry> history, {
+  required String planId,
+  required TrainingExercise exercise,
+}) {
+  final id = exercise.id;
+  if (id != null) {
+    final own = lastTrainingPerformance(
+      history,
+      planId,
+      id,
+      isTimed: exercise.isTimed,
+    );
+    if (own.isNotEmpty) return own;
+  }
+  return lastTrainingPerformanceByName(
+    history,
+    excludePlanId: planId,
+    exerciseName: exercise.name,
+    isTimed: exercise.isTimed,
+  );
+}
+
+/// The selected plan's workout for today. The Today activity card shows
+/// [workout] (the one done today once [completedToday]); the Training card
+/// offers [upNextWorkoutIndex].
 final class TrainingNextWorkout {
   const TrainingNextWorkout({
     required this.plan,
@@ -89,7 +119,8 @@ final class TrainingNextWorkout {
 
   final TrainingPlan plan;
 
-  /// Index into `plan.workouts`, e.g. for `onStartWorkout(plan, index)`.
+  /// Index of [workout] into `plan.workouts`. A new start uses
+  /// [upNextWorkoutIndex], which differs once [completedToday].
   final int workoutIndex;
 
   /// True when today's workout is already done: [workout] is then the one
@@ -98,6 +129,12 @@ final class TrainingNextWorkout {
 
   /// One entry per exercise of [workout], in execution order.
   final List<TrainingExercisePreview> exercises;
+
+  /// The workout to start next: the rotation's successor of [workoutIndex]
+  /// once that one is [completedToday] (wrapping around), else
+  /// [workoutIndex] itself.
+  int get upNextWorkoutIndex =>
+      completedToday ? (workoutIndex + 1) % plan.workouts.length : workoutIndex;
 
   TrainingWorkout get workout => plan.workouts[workoutIndex];
   String get title => workout.title;
@@ -122,6 +159,8 @@ final class TrainingNextWorkout {
 /// A session maps to the current plan by exercise identity (exercise ids
 /// survive plan edits and reorders), falling back to its stored workout
 /// index; an unmappable session restarts the rotation at the first workout.
+/// Other plans and free logs (`log_` plan ids) never move the rotation; they
+/// only feed "Last time" by name ([lastTrainingPerformanceFor]).
 TrainingNextWorkout? nextTrainingWorkout({
   required TrainingPlan? plan,
   required List<TrainingHistoryEntry> history,
@@ -153,16 +192,13 @@ TrainingNextWorkout? nextTrainingWorkout({
       for (final exercise in workout.exercises)
         TrainingExercisePreview(
           exercise: exercise,
-          lastTopSet: exercise.id == null
-              ? null
-              : topTrainingSet(
-                  lastTrainingPerformance(
-                    history,
-                    plan.id,
-                    exercise.id!,
-                    isTimed: exercise.isTimed,
-                  ),
-                ),
+          lastTopSet: topTrainingSet(
+            lastTrainingPerformanceFor(
+              history,
+              planId: plan.id,
+              exercise: exercise,
+            ),
+          ),
         ),
     ]),
   );
@@ -384,8 +420,9 @@ double estimatedOneRepMaxKg(double weightKg, int reps) =>
 /// A tie is no record, and the first time an exercise is performed sets the
 /// baseline without a record. Only sets with weight > 0 and reps > 0 count
 /// (bodyweight, timed and failed sets are skipped). "Same exercise" is the
-/// plan-scoped identity (plan id + exercise id) that "Last time" uses too
-/// ([lastTrainingPerformance]); a copied plan starts fresh records.
+/// plan-scoped identity (plan id + exercise id) of [lastTrainingPerformance],
+/// without the by-name fallback of "Last time"; a copied plan or a free log
+/// starts fresh records.
 Map<String, int> personalRecordCounts(List<TrainingHistoryEntry> history) {
   final ordered = [...history]..sort((a, b) => _newestFirst(b, a));
   final bestEstimate = <String, double>{};

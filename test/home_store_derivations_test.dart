@@ -323,6 +323,8 @@ void main() {
       final next = store.nextTrainingWorkoutForToday()!;
       expect(next.workoutIndex, 0);
       expect(next.completedToday, isTrue);
+      // Today keeps the finished Push; the Training card offers Pull.
+      expect(next.upNextWorkoutIndex, 1);
       expect(next.exercises.single.lastTopSet!.weightKg, 75);
       expect(store.currentTrainingWeek().days.first.done, isTrue);
       expect(store.weeklyTrainingVolume().currentWeek.volumeKg, 600);
