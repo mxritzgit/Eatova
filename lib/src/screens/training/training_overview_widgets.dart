@@ -755,9 +755,15 @@ class TrainingQuickGrid extends StatelessWidget {
   }
 }
 
+/// Training volume in kg, exact: grouped ("1,980"), with up to two decimals
+/// only when the total has any (weights carry two). Tonnes with one decimal
+/// hid up to 50 kg: 1,980 kg read "2.0".
+NumberFormat _volumeFormat(double kg, String locale) =>
+    NumberFormat((kg * 100).round() % 100 == 0 ? '#,##0' : '#,##0.##', locale);
+
 /// "Weekly volume": bars for five full weeks plus the current one, with the
-/// tonnes of the selected week and its change against the week before. The
-/// running week is selected until a bar is tapped.
+/// kilograms of the selected week and its change against the week before.
+/// The running week is selected until a bar is tapped.
 class TrainingVolumeCard extends StatefulWidget {
   const TrainingVolumeCard({super.key, required this.trend});
 
@@ -784,7 +790,7 @@ class _TrainingVolumeCardState extends State<TrainingVolumeCard> {
     final t = context.t;
     final l10n = context.l10n;
     final locale = l10n.localeName;
-    final tonnes = NumberFormat('0.0', locale);
+    String kg(double value) => _volumeFormat(value, locale).format(value);
     final weeks = widget.trend.weeks;
     final highest = weeks.fold<double>(
       0,
@@ -845,13 +851,14 @@ class _TrainingVolumeCardState extends State<TrainingVolumeCard> {
     final spoken = [
       for (final week in weeks)
         week.isCurrent
-            ? l10n.trainingVolumeCurrentSemantics(tonnes.format(week.tonnes))
+            ? l10n.trainingVolumeCurrentSemantics(kg(week.volumeKg))
             : l10n.trainingVolumeWeekSemantics(
                 dates.format(week.start),
-                tonnes.format(week.tonnes),
+                kg(week.volumeKg),
               ),
     ];
-    // The value label sits in the 124 px chart; it may grow, not overflow.
+    // The value label sits in the 124 px chart: it grows with the text scale
+    // up to 1.3x and shrinks to fit its column rather than being cut off.
     final chartScaler = MediaQuery.textScalerOf(
       context,
     ).clamp(maxScaleFactor: 1.3);
@@ -867,8 +874,8 @@ class _TrainingVolumeCardState extends State<TrainingVolumeCard> {
             spacing: 4,
             children: [
               CountingText(
-                value: selected.tonnes,
-                format: tonnes.format,
+                value: selected.volumeKg,
+                format: _volumeFormat(selected.volumeKg, locale).format,
                 textKey: const ValueKey('training-volume-value'),
                 style: AppType.display(
                   30,
@@ -922,16 +929,22 @@ class _TrainingVolumeCardState extends State<TrainingVolumeCard> {
                                 mainAxisAlignment: MainAxisAlignment.end,
                                 children: [
                                   if (i == highlight) ...[
-                                    Text(
-                                      tonnes.format(weeks[i].tonnes),
-                                      maxLines: 1,
-                                      softWrap: false,
-                                      textScaler: chartScaler,
-                                      style: AppType.ui(
-                                        12,
-                                        weight: FontWeight.w800,
-                                        color: t.ink,
-                                        height: kTrainingLine,
+                                    FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      child: Text(
+                                        kg(weeks[i].volumeKg),
+                                        key: const ValueKey(
+                                          'training-volume-bar-label',
+                                        ),
+                                        maxLines: 1,
+                                        softWrap: false,
+                                        textScaler: chartScaler,
+                                        style: AppType.ui(
+                                          12,
+                                          weight: FontWeight.w800,
+                                          color: t.ink,
+                                          height: kTrainingLine,
+                                        ),
                                       ),
                                     ),
                                     const SizedBox(height: 6),

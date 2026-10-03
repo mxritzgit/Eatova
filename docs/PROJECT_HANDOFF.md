@@ -2669,3 +2669,13 @@ rollover and falls back to the running week once it leaves the chart.
 `test/training/training_volume_card_test.dart`. They fail on the old card,
 and on five mutations (every bar selected, no tap handler, a lost
 selection, the share shown as a drop, a share for an empty week).
+
+Follow-up the same day: the owner's workout (3 × 12 × 25 kg and
+3 × 3 × 120 kg, read back read-only from `training_history`) is 1,980 kg,
+and the card said "2.0 tonnes". The sum was right; the display in tonnes with
+one decimal rounded to 100 kg. The card now shows exact kilograms, grouped
+("1,980 kg this week"), with up to two decimals only when the total has any
+(weights carry two). The figure above the selected bar shrinks to fit its
+column instead of being cut off. `TrainingVolumeWeek.tonnes` is gone. The
+design scenario's weeks read 6,798 to 8,625 kg where the reference shot shows
+6.8 to 8.6.

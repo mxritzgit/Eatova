@@ -2875,9 +2875,9 @@
   "trainingQuickWorkouts": "Einheiten",
   "trainingQuickCoach": "Coach fragen",
   "trainingVolumeTitle": "Wochenvolumen",
-  "trainingVolumeLastWeek": "Tonnen letzte Woche",
-  "trainingVolumeThisWeek": "Tonnen diese Woche",
-  "trainingVolumeWeekOf": "Tonnen in der Woche ab {date}",
+  "trainingVolumeLastWeek": "kg letzte Woche",
+  "trainingVolumeThisWeek": "kg diese Woche",
+  "trainingVolumeWeekOf": "kg in der Woche ab {date}",
   "@trainingVolumeWeekOf": {
     "placeholders": {
       "date": {
@@ -2912,21 +2912,21 @@
   "trainingVolumeSame": "Wie in der Vorwoche",
   "trainingVolumeNow": "Jetzt",
   "trainingVolumeEmpty": "Trag beim Training Gewichte ein, dann siehst du hier dein Wochenvolumen.",
-  "trainingVolumeWeekSemantics": "Woche ab {date}: {tonnes} Tonnen",
+  "trainingVolumeWeekSemantics": "Woche ab {date}: {kg} kg",
   "@trainingVolumeWeekSemantics": {
     "placeholders": {
       "date": {
         "type": "String"
       },
-      "tonnes": {
+      "kg": {
         "type": "String"
       }
     }
   },
-  "trainingVolumeCurrentSemantics": "Diese Woche bisher: {tonnes} Tonnen",
+  "trainingVolumeCurrentSemantics": "Diese Woche bisher: {kg} kg",
   "@trainingVolumeCurrentSemantics": {
     "placeholders": {
-      "tonnes": {
+      "kg": {
         "type": "String"
       }
     }
