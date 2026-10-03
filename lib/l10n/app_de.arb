@@ -2347,7 +2347,7 @@
   "healthConnectReview": "Verbindung prüfen",
   "trainingHistoryTitle": "Trainingsverlauf",
   "trainingHistorySubtitle": "Deine abgeschlossenen Trainings.",
-  "trainingHistoryEmpty": "Hier erscheinen deine bestätigten Trainingsabschlüsse. Starte ein Training und speichere es am Ende.",
+  "trainingHistoryEmpty": "Hier erscheinen deine Trainings. Starte eines aus einem Plan oder trage ein bereits absolviertes nach.",
   "trainingHistoryLoadError": "Der Verlauf konnte nicht geladen werden. Gespeicherte Trainings bleiben verfügbar. Versuche es erneut.",
   "trainingHistoryLastTime": "Letztes Mal",
   "trainingHistoryNote": "Notiz zum Training",
@@ -2421,6 +2421,87 @@
   "trainingActualConfirmLegacyTimed": "Abgeschlossenes Intervall bestätigen",
   "trainingHistoryDeleteAction": "Training löschen",
   "trainingHistoryAlreadyDeleted": "Dieses Training wurde auf einem anderen Gerät gelöscht.",
+  "trainingHistoryLogged": "Nachgetragen",
+  "trainingHistoryDeleteLogBody": "Dieses nachgetragene Training und seine Satzwerte werden aus deinem Verlauf entfernt.",
+  "trainingHistoryRootLoadError": "Dein Trainingsverlauf konnte nicht geladen werden. Diese Übersicht ist womöglich unvollständig.",
+  "trainingLogTitle": "Training nachtragen",
+  "trainingLogQuick": "Nachtragen",
+  "trainingLogAsDone": "Als erledigt eintragen",
+  "trainingLogTellCoach": "Lieber dem Coach erzählen",
+  "trainingLogReviewTitle": "Training prüfen",
+  "trainingLogReviewBody": "Prüfe die Werte. Gespeichert wird erst, wenn du das Training zum Verlauf hinzufügst.",
+  "trainingLogPlannedBody": "Nimm den Haken bei ausgelassenen Sätzen raus und passe die Werte an.",
+  "trainingLogDefaultTitle": "Training",
+  "trainingLogName": "Name des Trainings (optional)",
+  "trainingLogDay": "Tag",
+  "trainingLogToday": "Heute",
+  "trainingLogYesterday": "Gestern",
+  "trainingLogOtherDay": "Anderer Tag",
+  "trainingLogDuration": "Dauer in Minuten (optional)",
+  "trainingLogSetNumber": "Satz {number}",
+  "@trainingLogSetNumber": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLogReps": "Wdh.",
+  "trainingLogKg": "kg",
+  "trainingLogRepsSemantics": "Satz {number}, Wiederholungen",
+  "@trainingLogRepsSemantics": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLogWeightSemantics": "Satz {number}, Gewicht in Kilogramm, optional",
+  "@trainingLogWeightSemantics": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLogSetDone": "Satz {number} erledigt",
+  "@trainingLogSetDone": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLogAddSet": "Satz hinzufügen",
+  "trainingLogRemoveSet": "Satz {number} entfernen",
+  "@trainingLogRemoveSet": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLogDurationPerSet": "Dauer pro Satz",
+  "trainingLogMinutes": "Minuten",
+  "trainingLogSeconds": "Sekunden",
+  "trainingLogSave": "Zum Verlauf hinzufügen",
+  "trainingLogSaved": "Training zum Verlauf hinzugefügt",
+  "trainingLogDeleted": "Aus dem Verlauf entfernt. Dieses Training lässt sich nicht erneut hinzufügen.",
+  "trainingLogBlocked": "Ein Training läuft noch. Beende oder verwirf es zuerst und trage dieses dann nach.",
+  "trainingLogSaveError": "Das Training konnte nicht hinzugefügt werden. Versuche es erneut.",
+  "trainingLogProblemEmpty": "Gib jeder Übung einen Namen und mindestens einen Satz.",
+  "trainingLogProblemNoSetDone": "Hake mindestens einen Satz ab, den du gemacht hast.",
+  "trainingLogProblemDate": "Wähle einen Tag aus den letzten {days} Tagen.",
+  "@trainingLogProblemDate": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLogProblemReps": "Trag die Wiederholungen für jeden Satz ein.",
+  "trainingLogProblemDuration": "Trag für jede Zeitübung eine Dauer ein.",
+  "trainingLogProblemRange": "Ein Wert liegt außerhalb des erlaubten Bereichs.",
   "todayMacroProgressValue": "{value} von {goal} Gramm",
   "todayAddMeal": "Mahlzeit erfassen",
   "todayDayStripLabel": "Tag wählen",
@@ -2656,7 +2737,6 @@
   "trainingAdoptionDiscardAction": "Entwurf verwerfen",
   "trainingAdoptionDiscardBody": "Nur dein abgelehnter Entwurf wird von diesem Gerät entfernt. Der aktuelle Plan auf dem Server bleibt erhalten.",
   "trainingNextWorkout": "Nächstes Training",
-  "trainingDoneToday": "Heute erledigt",
   "trainingInProgress": "Begonnen",
   "trainingMinutesEstimate": "≈ {minutes} Min.",
   "@trainingMinutesEstimate": {
@@ -2720,6 +2800,14 @@
   "trainingWeekDayToday": "heute",
   "trainingWeekDayDone": "Training erledigt",
   "trainingWeekDayOpen": "kein Training",
+  "trainingDoneTodayLine": "Heute erledigt: {title}",
+  "@trainingDoneTodayLine": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "trainingQuickStartTitle": "Schnellstart",
   "trainingQuickChooseWorkout": "Einheit wählen",
   "trainingQuickWorkouts": "Einheiten",

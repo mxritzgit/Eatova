@@ -2297,7 +2297,7 @@
   "healthConnectReview": "Review connection",
   "trainingHistoryTitle": "Workout history",
   "trainingHistorySubtitle": "Your completed workouts.",
-  "trainingHistoryEmpty": "Your confirmed workouts appear here. Start a workout and save it when you finish.",
+  "trainingHistoryEmpty": "Your workouts appear here. Start one from a plan or log a workout you already did.",
   "trainingHistoryLoadError": "History could not load. Saved workouts remain available. Try again.",
   "trainingHistoryLastTime": "Last time",
   "trainingHistoryNote": "Workout note",
@@ -2371,6 +2371,87 @@
   "trainingActualConfirmLegacyTimed": "Confirm completed interval",
   "trainingHistoryDeleteAction": "Delete workout",
   "trainingHistoryAlreadyDeleted": "This workout was deleted on another device.",
+  "trainingHistoryLogged": "Logged",
+  "trainingHistoryDeleteLogBody": "This logged workout and its set values will be removed from your history.",
+  "trainingHistoryRootLoadError": "Your workout history could not be loaded, so this overview may be incomplete.",
+  "trainingLogTitle": "Log workout",
+  "trainingLogQuick": "Log workout",
+  "trainingLogAsDone": "Log as done",
+  "trainingLogTellCoach": "Tell the Coach instead",
+  "trainingLogReviewTitle": "Review workout",
+  "trainingLogReviewBody": "Check the values. Nothing is saved until you add the workout to your history.",
+  "trainingLogPlannedBody": "Untick the sets you skipped and adjust the values.",
+  "trainingLogDefaultTitle": "Workout",
+  "trainingLogName": "Workout name (optional)",
+  "trainingLogDay": "Day",
+  "trainingLogToday": "Today",
+  "trainingLogYesterday": "Yesterday",
+  "trainingLogOtherDay": "Other day",
+  "trainingLogDuration": "Duration in minutes (optional)",
+  "trainingLogSetNumber": "Set {number}",
+  "@trainingLogSetNumber": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLogReps": "Reps",
+  "trainingLogKg": "kg",
+  "trainingLogRepsSemantics": "Set {number}, repetitions",
+  "@trainingLogRepsSemantics": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLogWeightSemantics": "Set {number}, weight in kilograms, optional",
+  "@trainingLogWeightSemantics": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLogSetDone": "Set {number} done",
+  "@trainingLogSetDone": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLogAddSet": "Add set",
+  "trainingLogRemoveSet": "Remove set {number}",
+  "@trainingLogRemoveSet": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLogDurationPerSet": "Duration per set",
+  "trainingLogMinutes": "Minutes",
+  "trainingLogSeconds": "Seconds",
+  "trainingLogSave": "Add to history",
+  "trainingLogSaved": "Workout added to your history",
+  "trainingLogDeleted": "Removed from history. This workout can't be added again.",
+  "trainingLogBlocked": "A workout is in progress. Finish or discard it first, then log this one.",
+  "trainingLogSaveError": "The workout could not be added. Try again.",
+  "trainingLogProblemEmpty": "Give every exercise a name and at least one set.",
+  "trainingLogProblemNoSetDone": "Tick at least one set you did.",
+  "trainingLogProblemDate": "Pick a day within the last {days} days.",
+  "@trainingLogProblemDate": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLogProblemReps": "Enter the reps for every set.",
+  "trainingLogProblemDuration": "Enter a duration for every timed exercise.",
+  "trainingLogProblemRange": "A value is outside the allowed range.",
   "todayMacroProgressValue": "{value} of {goal} grams",
   "todayAddMeal": "Log a meal",
   "todayDayStripLabel": "Pick a day",
@@ -2591,7 +2672,6 @@
   "trainingAdoptionDiscardAction": "Discard draft",
   "trainingAdoptionDiscardBody": "Only your rejected draft will be removed from this device. The current plan on the server will be kept.",
   "trainingNextWorkout": "Next workout",
-  "trainingDoneToday": "Done today",
   "trainingInProgress": "In progress",
   "trainingMinutesEstimate": "≈ {minutes} min",
   "@trainingMinutesEstimate": {
@@ -2655,6 +2735,14 @@
   "trainingWeekDayToday": "today",
   "trainingWeekDayDone": "workout done",
   "trainingWeekDayOpen": "no workout",
+  "trainingDoneTodayLine": "Done today: {title}",
+  "@trainingDoneTodayLine": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "trainingQuickStartTitle": "Quick start",
   "trainingQuickChooseWorkout": "Choose workout",
   "trainingQuickWorkouts": "Workouts",

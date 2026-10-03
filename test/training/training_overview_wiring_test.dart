@@ -11,6 +11,7 @@ import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/models/coach_training_proposal.dart';
 import 'package:eatova/src/models/training_history.dart';
 import 'package:eatova/src/models/training_insights.dart';
+import 'package:eatova/src/models/training_log.dart';
 import 'package:eatova/src/models/training_plan.dart';
 import 'package:eatova/src/models/training_session.dart';
 import 'package:eatova/src/screens/coach/coach_chat_screen.dart';
@@ -100,6 +101,12 @@ TrainingScreen _screen({
   bool active = false,
   Future<SyncDelivery> Function(String)? delete,
   VoidCallback? coach,
+  VoidCallback? logWorkout,
+  void Function(TrainingPlan, int)? logPlanned,
+  VoidCallback? coachLog,
+  bool historyLoadFailed = false,
+  VoidCallback? retryHistory,
+  List<TrainingWorkoutSummary> recent = const [],
 }) => TrainingScreen(
   plans: plans,
   onCreatePlan: (_) async => SyncDelivery.delivered,
@@ -113,7 +120,49 @@ TrainingScreen _screen({
   onResumeWorkout: resume,
   nextWorkout: next,
   history: history,
+  recentWorkouts: recent,
+  onLogWorkout: logWorkout,
+  onLogPlannedWorkout: logPlanned,
+  onOpenCoachLog: coachLog,
+  historyLoadFailed: historyLoadFailed,
+  onRetryHistory: retryHistory,
 );
+
+/// A free log of [plan]'s first Pull exercise name, with no duration.
+TrainingHistoryEntry _pulldownLog({required DateTime performedOn}) =>
+    buildLoggedWorkout(
+      historyId: '00000000-0000-4000-8000-0000000f0001',
+      draft: LoggedWorkoutDraft(
+        title: 'Back day',
+        performedOn: performedOn,
+        exercises: const [
+          LoggedExercise(
+            name: 'lat  Pulldown',
+            timed: false,
+            sets: [LoggedSet(reps: 10, weightKg: 55)],
+          ),
+        ],
+      ),
+      now: kTrainingDesignNow,
+      fallbackTitle: 'Workout',
+    );
+
+Future<void> _pumpScreen(WidgetTester tester, TrainingScreen screen) =>
+    pumpLocalized(
+      tester,
+      screen,
+      locale: const Locale('en'),
+      surfaceSize: const Size(390, 844),
+      settle: true,
+    );
+
+Future<void> _tapScreen(WidgetTester tester, String key) async {
+  final target = find.byKey(ValueKey(key));
+  await tester.ensureVisible(target);
+  await tester.pumpAndSettle();
+  await tester.tap(target);
+  await tester.pumpAndSettle();
+}
 
 void main() {
   group('shell', () {
@@ -214,9 +263,15 @@ void main() {
           findsOneWidget,
         );
         semantics.dispose();
-        // Today's workout is done: the card says so instead of "next".
-        expect(find.text('DONE TODAY'), findsOneWidget);
-        expect(find.text('NEXT WORKOUT'), findsNothing);
+        // Today's workout is done: the card says so and offers the next.
+        expect(find.text('Done today: Upper Body Push'), findsOneWidget);
+        expect(find.text('NEXT WORKOUT'), findsOneWidget);
+        expect(
+          tester
+              .widget<Text>(find.byKey(const ValueKey('training-card-title')))
+              .data,
+          'Upper Body Pull',
+        );
         // The current week's bar grows with today's load.
         final volume = store.weeklyTrainingVolume();
         expect(volume.currentWeek.volumeKg, greaterThan(0));
@@ -251,12 +306,13 @@ void main() {
         );
         await _openTraining(tester);
         await _finishPushToday(tester, store);
-        expect(find.text('DONE TODAY'), findsOneWidget);
+        expect(find.text('Done today: Upper Body Push'), findsOneWidget);
 
         now = DateTime(2026, 9, 29, 7);
         store.maybeRollOverToToday();
         await settleFrames(tester);
         expect(find.text('NEXT WORKOUT'), findsOneWidget);
+        expect(find.text('Done today: Upper Body Push'), findsNothing);
         expect(
           tester
               .widget<Text>(find.byKey(const ValueKey('training-card-title')))
@@ -344,13 +400,11 @@ void main() {
           );
           await _tap(tester, 'training-library-close');
 
-          await _tap(tester, 'training-quick-create');
+          // The header + is the one create action; the tile became Log.
           expect(
-            find.byKey(const ValueKey('training-editor-title')),
-            findsOneWidget,
+            find.byKey(const ValueKey('training-quick-create')),
+            findsNothing,
           );
-          expect(_editorTitle(tester), isEmpty, reason: 'a new, empty plan');
-          await _tap(tester, 'training-editor-close');
           expect(store.trainingPlans, hasLength(1), reason: 'nothing written');
           expect(server.trainingRows.keys, [kTrainingDesignPlanId]);
 
@@ -550,7 +604,7 @@ void main() {
           'training-plan-title',
           'training-start',
           'training-plan-menu',
-          'training-quick-create',
+          'training-quick-log',
           'training-volume',
           'training-recent',
         ]) {
@@ -815,6 +869,205 @@ void main() {
       expect(find.byKey(const ValueKey('training-open-plans')), findsOneWidget);
     });
 
+    testWidgets('Log workout replaces the duplicate create tile', (
+      tester,
+    ) async {
+      var logs = 0;
+      await _pumpScreen(
+        tester,
+        _screen(plans: [plan], logWorkout: () => logs++),
+      );
+      expect(find.byKey(const ValueKey('training-quick-create')), findsNothing);
+      expect(
+        find.byKey(const ValueKey('training-create')),
+        findsOneWidget,
+        reason: 'the header + still creates a plan',
+      );
+      final semantics = tester.ensureSemantics();
+      expect(find.bySemanticsLabel('Log workout'), findsOneWidget);
+      semantics.dispose();
+      await _tapScreen(tester, 'training-quick-log');
+      expect(logs, 1);
+    });
+
+    testWidgets('without log callbacks nothing offers logging', (tester) async {
+      await _pumpScreen(
+        tester,
+        _screen(
+          plans: [plan],
+          next: nextTrainingWorkout(
+            plan: plan,
+            history: history,
+            now: kTrainingDesignNow,
+          ),
+          history: history,
+        ),
+      );
+      for (final key in [
+        'training-quick-log',
+        'training-log-done',
+        'training-log-coach',
+        'training-history-retry',
+      ]) {
+        expect(find.byKey(ValueKey(key)), findsNothing, reason: key);
+      }
+    });
+
+    testWidgets('Log as done passes the shown workout; a session hides it', (
+      tester,
+    ) async {
+      final logged = <(TrainingPlan, int)>[];
+      final next = nextTrainingWorkout(
+        plan: plan,
+        history: history,
+        now: kTrainingDesignNow,
+      )!;
+      await _pumpScreen(
+        tester,
+        _screen(
+          plans: [plan],
+          next: next,
+          history: history,
+          logPlanned: (p, i) => logged.add((p, i)),
+        ),
+      );
+      expect(find.text('Log as done'), findsOneWidget);
+      await _tapScreen(tester, 'training-log-done');
+      expect(logged, [(plan, next.upNextWorkoutIndex)]);
+
+      await _tapScreen(tester, 'training-quick-workouts');
+      await tester.tap(find.byKey(const ValueKey('training-workout-2')));
+      await tester.pumpAndSettle();
+      await _tapScreen(tester, 'training-log-done');
+      expect(logged.last, (plan, 2), reason: 'the hand-picked workout');
+
+      await _pumpScreen(
+        tester,
+        _screen(
+          plans: [plan],
+          next: next,
+          history: history,
+          active: true,
+          logPlanned: (p, i) => logged.add((p, i)),
+        ),
+      );
+      expect(find.byKey(const ValueKey('training-log-done')), findsNothing);
+      expect(find.byKey(const ValueKey('training-resume')), findsOneWidget);
+    });
+
+    testWidgets('after a workout today: "Done today" and Start offers the '
+        'next one', (tester) async {
+      final today = trainingDesignEntry(
+        plan,
+        0,
+        finishedAt: DateTime(2026, 9, 28, 18),
+        minutes: 50,
+        topKg: _push,
+      );
+      final done = [...history, today];
+      final next = nextTrainingWorkout(
+        plan: plan,
+        history: done,
+        now: kTrainingDesignNow,
+      )!;
+      expect((next.completedToday, next.upNextWorkoutIndex), (true, 1));
+      final started = <(TrainingPlan, int)>[];
+      final logged = <(TrainingPlan, int)>[];
+      await _pumpScreen(
+        tester,
+        _screen(
+          plans: [plan],
+          next: next,
+          history: done,
+          start: (p, i) => started.add((p, i)),
+          logPlanned: (p, i) => logged.add((p, i)),
+        ),
+      );
+      expect(find.text('Done today: Upper Body Push'), findsOneWidget);
+      expect(find.text('NEXT WORKOUT'), findsOneWidget);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('training-card-title')))
+            .data,
+        'Upper Body Pull',
+      );
+      expect(find.text('Last time 60 kg × 8'), findsOneWidget);
+      await _tapScreen(tester, 'training-start');
+      await _tapScreen(tester, 'training-log-done');
+      expect(started, [(plan, 1)]);
+      expect(logged, [(plan, 1)]);
+    });
+
+    testWidgets('a picked workout finds Last time by name in a free log', (
+      tester,
+    ) async {
+      final log = _pulldownLog(performedOn: DateTime(2026, 9, 26));
+      await _pumpScreen(tester, _screen(plans: [plan], history: [log]));
+      await _tapScreen(tester, 'training-quick-workouts');
+      await tester.tap(find.byKey(const ValueKey('training-workout-1')));
+      await tester.pumpAndSettle();
+      expect(find.text('Upper Body Pull'), findsOneWidget);
+      expect(find.text('Last time 55 kg × 10'), findsOneWidget);
+    });
+
+    testWidgets('a history load failure is said, with retry', (tester) async {
+      var retries = 0;
+      await _pumpScreen(
+        tester,
+        _screen(
+          plans: [plan],
+          historyLoadFailed: true,
+          retryHistory: () => retries++,
+        ),
+      );
+      expect(
+        find.text(
+          'Your workout history could not be loaded, so this overview may '
+          'be incomplete.',
+        ),
+        findsOneWidget,
+      );
+      await _tapScreen(tester, 'training-history-retry');
+      expect(retries, 1);
+    });
+
+    testWidgets('"Tell the Coach instead" opens the Coach log', (tester) async {
+      var opened = 0;
+      await _pumpScreen(
+        tester,
+        _screen(plans: [plan], logWorkout: () {}, coachLog: () => opened++),
+      );
+      expect(find.text('Tell the Coach instead'), findsOneWidget);
+      await _tapScreen(tester, 'training-log-coach');
+      expect(opened, 1);
+    });
+
+    testWidgets('Recent shows a log without duration as "Logged"', (
+      tester,
+    ) async {
+      final log = _pulldownLog(performedOn: DateTime(2026, 9, 27));
+      await _pumpScreen(
+        tester,
+        _screen(
+          plans: [plan],
+          history: [log],
+          recent: recentTrainingWorkouts([log]),
+        ),
+      );
+      expect(find.text('Sun, Sep 27 · Logged'), findsOneWidget);
+      expect(find.text('Sun, Sep 27 · 0 min'), findsNothing);
+    });
+
+    testWidgets('no plan: the empty card offers Log workout', (tester) async {
+      var logs = 0;
+      await _pumpScreen(
+        tester,
+        _screen(plans: const [], logWorkout: () => logs++),
+      );
+      await _tapScreen(tester, 'training-empty-log');
+      expect(logs, 1);
+    });
+
     for (final (size, scale) in [
       (const Size(390, 844), 1.3),
       (const Size(320, 568), 1.0),
@@ -849,6 +1102,11 @@ void main() {
               ),
               recentWorkouts: recentTrainingWorkouts(history),
               history: history,
+              onLogWorkout: () {},
+              onLogPlannedWorkout: (_, _) {},
+              onOpenCoachLog: () {},
+              historyLoadFailed: true,
+              onRetryHistory: () {},
             ),
             locale: Locale(locale),
             textScale: scale,

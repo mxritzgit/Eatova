@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../../l10n/l10n.dart';
 import '../../models/training_history.dart';
+import '../../models/training_log.dart';
 import '../../models/training_session.dart';
 import '../../services/sync_error_messages.dart';
 import '../../theme/app_tokens.dart';
@@ -75,7 +76,7 @@ class TrainingHistoryScreen extends StatelessWidget {
                     style: AppType.display(20, color: t.ink),
                   ),
                   subtitle: Text(
-                    '${_date(context, entry.finishedAt)}\n${l.trainingTimerProgress(entry.snapshot.completedSets.length, entry.snapshot.totalSets)}',
+                    '${_finished(context, entry)}${_logged(entry) ? ' · ${l.trainingHistoryLogged}' : ''}\n${l.trainingTimerProgress(entry.snapshot.completedSets.length, entry.snapshot.totalSets)}',
                     style: AppType.ui(14, color: t.ink2, height: 1.5),
                   ),
                   trailing: Icon(Icons.chevron_right_rounded, color: t.ink2),
@@ -99,6 +100,19 @@ class TrainingHistoryScreen extends StatelessWidget {
 
 String _date(BuildContext context, DateTime date) =>
     DateFormat.yMMMd(context.l10n.localeName).add_Hm().format(date.toLocal());
+
+/// The finish date; its time only when the entry has a duration (a log
+/// without one carries a synthetic time of day).
+String _finished(BuildContext context, TrainingHistoryEntry entry) =>
+    trainingEntryHasDuration(entry)
+    ? _date(context, entry.finishedAt)
+    : DateFormat.yMMMd(
+        context.l10n.localeName,
+      ).format(entry.finishedAt.toLocal());
+
+/// Logged after the fact: a free log, or any entry without a duration.
+bool _logged(TrainingHistoryEntry entry) =>
+    isLoggedTrainingEntry(entry) || !trainingEntryHasDuration(entry);
 
 class TrainingHistoryDetail extends StatefulWidget {
   const TrainingHistoryDetail({
@@ -125,7 +139,10 @@ class _TrainingHistoryDetailState extends State<TrainingHistoryDetail> {
       context: context,
       builder: (dialogContext) => EatovaConfirmDialog(
         title: l.trainingHistoryDeleteTitle,
-        body: l.trainingHistoryDeleteBody,
+        // A free log has no plan that could "stay saved".
+        body: isLoggedTrainingEntry(widget.entry)
+            ? l.trainingHistoryDeleteLogBody
+            : l.trainingHistoryDeleteBody,
         icon: Icons.delete_outline_rounded,
         destructive: true,
         cancelLabel: l.trainingPageCancel,
@@ -174,17 +191,23 @@ class _TrainingHistoryDetailState extends State<TrainingHistoryDetail> {
               ),
               const SizedBox(height: 12),
               Text(
-                snapshot.plan.title,
+                [
+                  // A free log's plan only repeats the workout title.
+                  if (!isLoggedTrainingEntry(entry)) snapshot.plan.title,
+                  if (_logged(entry)) l.trainingHistoryLogged,
+                ].join(' · '),
                 style: AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
               ),
               const SizedBox(height: 16),
+              if (trainingEntryHasDuration(entry)) ...[
+                Text(
+                  l.trainingHistoryStarted(_date(context, snapshot.startedAt)),
+                  style: AppType.ui(14, color: t.ink2),
+                ),
+                const SizedBox(height: 6),
+              ],
               Text(
-                l.trainingHistoryStarted(_date(context, snapshot.startedAt)),
-                style: AppType.ui(14, color: t.ink2),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                l.trainingHistoryFinished(_date(context, entry.finishedAt)),
+                l.trainingHistoryFinished(_finished(context, entry)),
                 style: AppType.ui(14, color: t.ink2),
               ),
               const SizedBox(height: 16),

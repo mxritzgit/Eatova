@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:clock/clock.dart';
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/training_history.dart';
+import 'package:eatova/src/models/training_log.dart';
 import 'package:eatova/src/models/training_session.dart';
 import 'package:eatova/src/screens/training/training_history_screen.dart';
 import 'package:eatova/src/screens/training/training_player_screen.dart';
@@ -564,4 +565,124 @@ void main() {
       expect(find.text('Open fixture'), findsOneWidget);
     },
   );
+
+  group('logged workouts', () {
+    final now = DateTime(2026, 10, 3, 18, 30);
+    const id = '3f2b8c1e-4d5a-4b6c-8d7e-9f0a1b2c3d4e';
+    TrainingHistoryEntry log({int? minutes}) => buildLoggedWorkout(
+      historyId: id,
+      draft: LoggedWorkoutDraft(
+        title: 'Back day',
+        performedOn: DateTime(2026, 10, 1),
+        durationMinutes: minutes,
+        exercises: const [
+          LoggedExercise(
+            name: 'Row',
+            timed: false,
+            sets: [LoggedSet(reps: 10, weightKg: 60)],
+          ),
+        ],
+      ),
+      now: now,
+      fallbackTitle: 'Workout',
+    );
+
+    testWidgets('a log without duration says Logged, no "Recorded from"', (
+      tester,
+    ) async {
+      final entry = log();
+      expect(trainingEntryHasDuration(entry), isFalse);
+      await _host(
+        tester,
+        TrainingHistoryScreen(
+          entries: [entry],
+          onDelete: (_) async => SyncDelivery.delivered,
+        ),
+      );
+      expect(
+        find.text('Oct 1, 2026 · Logged\n1 of 1 set completed'),
+        findsOneWidget,
+      );
+      await _tap(tester, 'training-history-$id');
+      expect(find.textContaining('Recorded from'), findsNothing);
+      expect(find.text('Finished: Oct 1, 2026'), findsOneWidget);
+      expect(find.text('Logged'), findsOneWidget);
+      await _tap(tester, 'training-history-delete');
+      expect(
+        find.text(
+          'This logged workout and its set values will be removed from your '
+          'history.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('training plan stays saved'), findsNothing);
+    });
+
+    testWidgets('a log with a duration keeps "Recorded from"', (tester) async {
+      final entry = log(minutes: 45);
+      await _host(
+        tester,
+        TrainingHistoryDetail(
+          entry: entry,
+          onDelete: (_) async => SyncDelivery.delivered,
+        ),
+      );
+      expect(find.text('Logged'), findsOneWidget);
+      expect(find.text('Recorded from: Oct 1, 2026 17:45'), findsOneWidget);
+      expect(find.text('Finished: Oct 1, 2026 18:30'), findsOneWidget);
+    });
+
+    testWidgets('a plan workout with a duration keeps its plan line and copy', (
+      tester,
+    ) async {
+      final plan = timerPlan();
+      final entry = buildPlanAttachedLog(
+        historyId: id,
+        plan: plan,
+        workoutIndex: 1,
+        sets: [
+          for (final exercise in plan.workouts[1].exercises)
+            [
+              for (var s = 0; s < exercise.sets; s++)
+                PlanAttachedSet(
+                  done: true,
+                  reps: exercise.isTimed ? null : 8,
+                  weightKg: 20,
+                ),
+            ],
+        ],
+        performedOn: DateTime(2026, 10, 1),
+        durationMinutes: 40,
+        now: now,
+      );
+      await _host(
+        tester,
+        TrainingHistoryDetail(
+          entry: entry,
+          onDelete: (_) async => SyncDelivery.delivered,
+        ),
+      );
+      expect(find.text('Logged'), findsNothing);
+      expect(find.textContaining('Recorded from'), findsOneWidget);
+      await _tap(tester, 'training-history-delete');
+      expect(find.textContaining('training plan stays saved'), findsOneWidget);
+    });
+
+    testWidgets('the empty history explains both ways in', (tester) async {
+      await _host(
+        tester,
+        TrainingHistoryScreen(
+          entries: const [],
+          onDelete: (_) async => SyncDelivery.delivered,
+        ),
+      );
+      expect(
+        find.text(
+          'Your workouts appear here. Start one from a plan or log a workout '
+          'you already did.',
+        ),
+        findsOneWidget,
+      );
+    });
+  });
 }
