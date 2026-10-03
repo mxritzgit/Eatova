@@ -1,13 +1,8 @@
 import '../models/favorite_meal.dart';
 import '../models/logged_meal.dart';
 
-/// Pure view logic for the favorites sheet and the inline favorites section
-/// of the add-meal sheet (feature 2026-08-27). No state, no I/O — the store
+/// Pure view logic for the favorites sheet (feature 2026-08-27). No state, no I/O — the store
 /// keeps owning the list, these helpers only order and cut it.
-
-/// How many pinned favorites the add-meal sheet shows inline before the
-/// "All (N)" button takes over.
-const int kInlineFavoritesCount = 3;
 
 /// Pinned favorites only, most recently used first.
 ///
@@ -26,10 +21,6 @@ List<FavoriteMeal> pinnedFavoritesByRecency(List<FavoriteMeal> all) {
   });
   return indexed.map((e) => e.$2).toList(growable: false);
 }
-
-/// The inline slice of [pinnedFavoritesByRecency].
-List<FavoriteMeal> inlineFavorites(List<FavoriteMeal> all) =>
-    pinnedFavoritesByRecency(all).take(kInlineFavoritesCount).toList();
 
 /// Local name/brand filter for the favorites sheet's search field.
 ///

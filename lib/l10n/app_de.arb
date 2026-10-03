@@ -1782,8 +1782,8 @@
   "exportNothingLoaded": "Es konnte kein einziger Abschnitt geladen werden. Bist du online?",
   "searchRateLimited": "Zu viele Suchanfragen — versuch es gleich noch einmal.",
   "commonFavoriteRemoved": "Favorit entfernt",
-  "foodFavoritesAllButton": "Alle ({count})",
-  "@foodFavoritesAllButton": {
+  "foodFavoritesEntryCount": "{count, plural, =1{1 gespeichert} other{{count} gespeichert}}",
+  "@foodFavoritesEntryCount": {
     "placeholders": {
       "count": { "type": "int" }
     }

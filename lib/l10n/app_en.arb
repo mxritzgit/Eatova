@@ -1733,8 +1733,8 @@
   "exportNothingLoaded": "Not a single section could be loaded. Are you online?",
   "searchRateLimited": "Too many searches — try again in a moment.",
   "commonFavoriteRemoved": "Favorite removed",
-  "foodFavoritesAllButton": "All ({count})",
-  "@foodFavoritesAllButton": {
+  "foodFavoritesEntryCount": "{count, plural, =1{1 saved} other{{count} saved}}",
+  "@foodFavoritesEntryCount": {
     "placeholders": {
       "count": { "type": "int" }
     }

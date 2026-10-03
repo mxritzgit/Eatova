@@ -124,9 +124,6 @@ Future<void> _pumpe(
   );
 }
 
-Finder _inlineKachel(int index) =>
-    find.byKey(ValueKey('favorite-pinned-$index'));
-
 Finder _alleKnopf() => find.byKey(const ValueKey('add-meal-favorites-all'));
 
 Finder _favoritenSheet() => find.byKey(const ValueKey('favorites-sheet'));
@@ -154,49 +151,48 @@ Future<void> _schliesseFavoritenSheet(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('5 gepinnte Favoriten: nur die 3 neuesten stehen inline',
+  // Since 2026-10-03 the add sheet shows no inline top 3: one "Favorites"
+  // row with the count opens the favorites menu.
+  testWidgets('gepinnte Favoriten stehen nicht inline, eine Zeile führt hin',
       (tester) async {
     await _pumpe(tester, favoriten: _fuenfGepinnt);
 
-    expect(_inlineKachel(0), findsOneWidget);
-    expect(_inlineKachel(1), findsOneWidget);
-    expect(_inlineKachel(2), findsOneWidget);
-    expect(_inlineKachel(3), findsNothing);
-    expect(_inlineKachel(4), findsNothing);
-
-    // Newest first, regardless of the incoming list order.
-    expect(_nameInKachel(tester, _inlineKachel(0)), 'Skyr');
-    expect(_nameInKachel(tester, _inlineKachel(1)), 'Reis');
-    expect(_nameInKachel(tester, _inlineKachel(2)), 'Lachs');
-    expect(find.text('Banane'), findsNothing);
-    expect(find.text('Haferbrei'), findsNothing);
-  });
-
-  testWidgets('der Alle-Knopf zählt ALLE gepinnten, nicht nur die inline',
-      (tester) async {
-    await _pumpe(tester, favoriten: _fuenfGepinnt);
-
+    expect(find.byKey(const ValueKey('favorite-pinned-0')), findsNothing);
+    for (final name in ['Skyr', 'Reis', 'Lachs', 'Banane', 'Haferbrei']) {
+      expect(find.text(name), findsNothing, reason: name);
+    }
     expect(_alleKnopf(), findsOneWidget);
     expect(
-      find.descendant(of: _alleKnopf(), matching: find.text('Alle (5)')),
+      find.descendant(of: _alleKnopf(), matching: find.text('Favoriten')),
       findsOneWidget,
     );
   });
 
-  testWidgets('englisch heißt der Knopf „All (5)"', (tester) async {
+  testWidgets('die Favoriten-Zeile zählt alle gepinnten', (tester) async {
+    await _pumpe(tester, favoriten: _fuenfGepinnt);
+    expect(
+      find.descendant(of: _alleKnopf(), matching: find.text('5 gespeichert')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('englisch heißt sie „Favorites · 5 saved"', (tester) async {
     await _pumpe(
       tester,
       favoriten: _fuenfGepinnt,
       locale: const Locale('en'),
     );
-
     expect(
-      find.descendant(of: _alleKnopf(), matching: find.text('All (5)')),
+      find.descendant(of: _alleKnopf(), matching: find.text('Favorites')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: _alleKnopf(), matching: find.text('5 saved')),
       findsOneWidget,
     );
   });
 
-  testWidgets('ohne gepinnte Favoriten gibt es keinen Knopf, Recents bleiben',
+  testWidgets('ohne gepinnte Favoriten gibt es keine Zeile, Recents bleiben',
       (tester) async {
     await _pumpe(tester, favoriten: <FavoriteMeal>[
       _favorit('Apfel', tag: 5, gepinnt: false),
@@ -204,8 +200,6 @@ void main() {
     ]);
 
     expect(_alleKnopf(), findsNothing);
-    expect(find.text('FAVORITEN'), findsNothing);
-    expect(_inlineKachel(0), findsNothing);
     // Recents keep their keys and their incoming order.
     expect(find.byKey(const ValueKey('favorite-tile-0')), findsOneWidget);
     expect(find.byKey(const ValueKey('favorite-tile-1')), findsOneWidget);
@@ -215,29 +209,28 @@ void main() {
     );
   });
 
-  testWidgets('schon bei einem gepinnten Favoriten ist der Knopf da',
+  testWidgets('schon bei einem gepinnten Favoriten ist die Zeile da',
       (tester) async {
     await _pumpe(tester, favoriten: <FavoriteMeal>[
       _favorit('Skyr', tag: 20),
       _favorit('Apfel', tag: 5, gepinnt: false),
     ]);
 
-    expect(_inlineKachel(0), findsOneWidget);
-    expect(_inlineKachel(1), findsNothing);
     expect(
-      find.descendant(of: _alleKnopf(), matching: find.text('Alle (1)')),
+      find.descendant(of: _alleKnopf(), matching: find.text('1 gespeichert')),
       findsOneWidget,
     );
+    expect(find.text('Skyr'), findsNothing, reason: 'not inline');
   });
 
-  testWidgets('der Knopf ist mindestens 44 pt hoch (Tap-Ziel)',
+  testWidgets('die Zeile ist mindestens 44 pt hoch (Tap-Ziel)',
       (tester) async {
     await _pumpe(tester, favoriten: _fuenfGepinnt);
 
     expect(tester.getSize(_alleKnopf()).height, greaterThanOrEqualTo(44));
   });
 
-  testWidgets('Tap auf den Knopf öffnet das Favoriten-Sheet mit allen 5',
+  testWidgets('Tap auf die Zeile öffnet das Favoriten-Sheet mit allen 5',
       (tester) async {
     await _pumpe(tester, favoriten: _fuenfGepinnt);
 
@@ -253,8 +246,8 @@ void main() {
   });
 
   testWidgets(
-      'Entpinnen im Favoriten-Sheet: danach fehlt der Favorit inline, der '
-      'Zähler sinkt, onToggleFavorite wurde genau einmal gerufen',
+      'Entpinnen im Favoriten-Sheet: der Zähler sinkt, der Favorit wird zum '
+      'Recent, onToggleFavorite wurde genau einmal gerufen',
       (tester) async {
     final getoggelt = <MealAnalysisResult>[];
     await _pumpe(
@@ -271,14 +264,8 @@ void main() {
 
     expect(getoggelt, hasLength(1));
     expect(getoggelt.single.mealName, 'Skyr');
-
-    // Top 3 moved up by one: Reis, Lachs, Haferbrei.
-    expect(_nameInKachel(tester, _inlineKachel(0)), 'Reis');
-    expect(_nameInKachel(tester, _inlineKachel(1)), 'Lachs');
-    expect(_nameInKachel(tester, _inlineKachel(2)), 'Haferbrei');
-    expect(_inlineKachel(3), findsNothing);
     expect(
-      find.descendant(of: _alleKnopf(), matching: find.text('Alle (4)')),
+      find.descendant(of: _alleKnopf(), matching: find.text('4 gespeichert')),
       findsOneWidget,
     );
     // The unpinned one is now an auto-recent, not gone.
@@ -298,9 +285,8 @@ void main() {
     await tester.pump();
     await _schliesseFavoritenSheet(tester);
 
-    expect(_nameInKachel(tester, _inlineKachel(0)), 'Reis');
     expect(
-      find.descendant(of: _alleKnopf(), matching: find.text('Alle (4)')),
+      find.descendant(of: _alleKnopf(), matching: find.text('4 gespeichert')),
       findsOneWidget,
     );
   });
@@ -337,20 +323,18 @@ void main() {
     await _schliesseFavoritenSheet(tester);
     // Nothing changed in the add sheet's favorites after a plain add.
     expect(
-      find.descendant(of: _alleKnopf(), matching: find.text('Alle (5)')),
+      find.descendant(of: _alleKnopf(), matching: find.text('5 gespeichert')),
       findsOneWidget,
     );
   });
 
   testWidgets(
-      'Hinzufügen im Favoriten-Sheet macht den Favoriten inline zum neuesten',
-      (tester) async {
+      'Hinzufügen im Favoriten-Sheet macht den Favoriten beim nächsten Öffnen '
+      'zum neuesten', (tester) async {
     await _pumpe(tester, favoriten: _fuenfGepinnt);
-    // Recency before: Skyr, Reis, Lachs | Haferbrei, Banane.
-    expect(_nameInKachel(tester, _inlineKachel(0)), 'Skyr');
 
     await _oeffneFavoritenSheet(tester);
-    // Item 3 in the sheet = Haferbrei (4th by recency, not inline yet).
+    // Item 3 in the sheet = Haferbrei (4th by recency).
     await tester.tap(find.byKey(const ValueKey('favorites-sheet-item-3')));
     await tester.pumpAndSettle();
     final knopf = find.byKey(const ValueKey('favorites-sheet-add-3'));
@@ -359,20 +343,20 @@ void main() {
     await tester.pump();
     await _schliesseFavoritenSheet(tester);
 
-    // Review A (2026-08-27): "most recently used first" must hold within the
-    // session, not only after reopening the add sheet.
-    expect(_nameInKachel(tester, _inlineKachel(0)), 'Haferbrei');
-    expect(_nameInKachel(tester, _inlineKachel(1)), 'Skyr');
-    expect(_nameInKachel(tester, _inlineKachel(2)), 'Reis');
-    expect(_inlineKachel(3), findsNothing);
+    // Review A (2026-08-27): "most recently used first" holds within the
+    // session.
+    await _oeffneFavoritenSheet(tester);
     expect(
-      find.descendant(of: _alleKnopf(), matching: find.text('Alle (5)')),
-      findsOneWidget,
+      _nameInKachel(
+        tester,
+        find.byKey(const ValueKey('favorites-sheet-item-0')),
+      ),
+      'Haferbrei',
     );
   });
 
-  testWidgets('„Alle (N)" ist fuer den Screenreader ein Button MIT Tap-Action',
-      (tester) async {
+  testWidgets('die Favoriten-Zeile ist fuer den Screenreader ein Button MIT '
+      'Tap-Action', (tester) async {
     final handle = tester.ensureSemantics();
     await _pumpe(tester, favoriten: _fuenfGepinnt);
     // Read first, dispose, then assert: a red expectation must not also leak
@@ -381,16 +365,18 @@ void main() {
     handle.dispose();
     expect(
       knoten,
-      isSemantics(isButton: true, hasTapAction: true, label: 'Alle (5)'),
+      isSemantics(
+        isButton: true,
+        hasTapAction: true,
+        label: 'Favoriten, 5 gespeichert',
+      ),
       reason: 'excludeSemantics verschluckt die Tap-Action des InkWell; '
           'Semantics(onTap:) muss sie neu deklarieren (Review B)',
     );
   });
 
-  // Lively list (2026-10-03): the inline "+" logs the saved portion into the
-  // meal chosen in this sheet, and recents show their product photo.
-  testWidgets('Ein-Tipp-Plus loggt die gespeicherte Portion in die gewählte '
-      'Mahlzeit', (tester) async {
+  testWidgets('Ein-Tipp-Plus im Favoriten-Menü loggt in die im Add-Sheet '
+      'gewählte Mahlzeit', (tester) async {
     final geloggt = <(MealAnalysisResult, MealSlot)>[];
     await _pumpe(
       tester,
@@ -401,10 +387,8 @@ void main() {
       },
     );
     await chooseMealSlot(tester, 'slot-select-lunch');
-    final plus = find.byKey(const ValueKey('favorite-pinned-quick-0'));
-    await tester.ensureVisible(plus);
-    await tester.pumpAndSettle();
-    await tester.tap(plus);
+    await _oeffneFavoritenSheet(tester);
+    await tester.tap(find.byKey(const ValueKey('favorites-sheet-quick-0')));
     await tester.pumpAndSettle();
 
     final skyr = _fuenfGepinnt.firstWhere((f) => f.result.mealName == 'Skyr');
@@ -437,40 +421,33 @@ void main() {
     expect((provider.imageProvider as NetworkImage).url, foto);
   });
 
-  testWidgets('ein zweiter Tipp auf dasselbe Plus trifft dieselbe Zeile', (
+  testWidgets('ein Hinzufügen schiebt die Zeilen darunter nicht weg', (
     tester,
   ) async {
-    // Review 2026-10-03: the add moves the row to the top (recency); without
-    // a hold the second tap landed on the neighbour that slid under it.
-    final geloggt = <String>[];
+    // The meal joins the "already added" list above; the sheet scrolls by
+    // that height so the rows below stay under the finger (review 2026-10-03).
     await _pumpe(
       tester,
-      favoriten: _fuenfGepinnt,
-      onAdd: (result, slot) {
-        geloggt.add(result.mealName);
-        return 'id-${geloggt.length}';
-      },
+      favoriten: [
+        _favorit('Skyr', tag: 20),
+        for (var i = 0; i < 5; i++)
+          _favorit('Recent $i', tag: 10 - i, gepinnt: false),
+      ],
     );
-    expect(_nameInKachel(tester, _inlineKachel(1)), 'Reis');
-    final plus = find.byKey(const ValueKey('favorite-pinned-quick-1'));
-    await tester.ensureVisible(plus);
+    final zeile = find.byKey(const ValueKey('favorite-tile-2'));
+    await tester.ensureVisible(zeile);
     await tester.pumpAndSettle();
-    final vorher = tester.getCenter(plus);
-    await tester.tap(plus);
-    // A real second tap, 300 ms later: the first add has been saved.
+    await tester.tap(zeile);
+    await tester.pumpAndSettle();
+    final knopf = find.byKey(const ValueKey('favorite-tile-add-2'));
+    await tester.ensureVisible(knopf);
+    await tester.pumpAndSettle();
+    final vorher = tester.getTopLeft(_alleKnopf());
+    await tester.tap(knopf);
     await tester.pump(const Duration(milliseconds: 300));
-    expect(_nameInKachel(tester, _inlineKachel(1)), 'Reis');
-    // The new "already added" row above did not push the "+" away.
-    expect((tester.getCenter(plus) - vorher).distance, lessThan(1));
-    await tester.tap(plus);
-    await tester.pump();
-    await tester.pump();
-    expect(geloggt, ['Reis', 'Reis']);
-
-    // Once the check is gone, the list follows recency again.
-    await tester.pump(const Duration(seconds: 3));
-    await tester.pumpAndSettle();
-    expect(_nameInKachel(tester, _inlineKachel(0)), 'Reis');
+    // The logged meal now also shows in the "already added" list above.
+    expect(find.text('Recent 2'), findsNWidgets(2));
+    expect((tester.getTopLeft(_alleKnopf()) - vorher).distance, lessThan(1));
     await tester.pump(const Duration(seconds: 5));
   });
 

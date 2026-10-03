@@ -208,7 +208,6 @@ void main() {
             findsOneWidget);
         expect(find.byKey(const ValueKey('add-meal-favorites-all')),
             findsOneWidget);
-        expect(find.byKey(const ValueKey('favorite-pinned-0')), findsOneWidget);
         await _shot(tester, 'add-sheet-capsule');
         await scrollDesignTabBy(tester, 600, scrollable: _sheetScroll());
         expect(find.byKey(const ValueKey('favorite-tile-4')), findsOneWidget);
