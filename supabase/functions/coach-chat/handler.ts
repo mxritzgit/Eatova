@@ -1806,9 +1806,9 @@ const LIMIT_TEXTS: Record<string, Record<CoachLocale, string>> = {
 
 // Locale for messages produced BEFORE the body is read: the body locale is
 // off-limits there, because these gates exist to stop a surplus request from
-// costing 6.25 MB of body. Accept-Language is the only early hint.
-// LIMIT: the Flutter client does not set it, so these three stay German for
-// it — but the daily limit fires long before them and is body-localised.
+// costing 6.25 MB of body. Accept-Language is the only early hint; the
+// Flutter client sends its app language with every Coach request, so these
+// three follow it. A client without the header gets German.
 function localeFromHeaders(req: Request): CoachLocale {
   const header = (req.headers.get("accept-language") ?? "").trim().toLowerCase();
   return header.startsWith("en") ? "en" : "de";
