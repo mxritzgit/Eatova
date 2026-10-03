@@ -626,6 +626,8 @@
   "coachMicLabelListening": "Stop voice input",
   "coachMicLabelIdle": "Voice input",
   "coachSendLabel": "Send",
+  "coachThinkingLabel": "The coach is thinking…",
+  "coachAnswerAnnouncement": "The coach replied.",
   "coachAttachCamera": "Take photo",
   "coachAttachGallery": "From gallery",
   "coachInfoIntro": "An AI answers here, not a real person. The answers are an estimate and don't replace medical advice.",
@@ -698,10 +700,13 @@
   },
   "coachDictationLimitHint": "Dictation ends after about a minute. Tap the mic to keep talking.",
   "coachDictationLengthHint": "Dictation stopped: the message reached its maximum length.",
+  "coachDictationSendLabel": "Finish voice input",
+  "coachDictationSendHint": "Keeps the text in the field to review. Tap again to send it.",
   "coachErrorNotLoggedIn": "Please log in first to use the coach.",
   "coachErrorNoSession": "Could not load a coach session.",
   "coachErrorHistoryUnavailable": "Your history could not be loaded. Check your connection and try again.",
   "coachErrorDeleteFailed": "The conversation could not be deleted. Check your connection and try again.",
+  "coachErrorNewSessionFailed": "The new conversation could not be created. Check your connection and try again.",
   "coachSessionSwitchedNotice": "This conversation no longer exists. Your question and the answer are now in another conversation — it is open.",
   "coachImageDefaultCaption": "Analyze this image in a fitness context.",
   "coachErrorDailyLimitReached": "Daily limit reached ({limit} coach questions per day). More tomorrow.",
@@ -1884,6 +1889,12 @@
   "coachPlanPhotoUnsupported": "Training plans use text. Send your /plan request without a photo.",
   "coachPlanUnknownCommandHint": "Unknown command. Use /recipe for a recipe or /plan for a training plan.",
   "coachPlanCardEyebrow": "Training plan · Draft",
+  "coachPlanCardMoreExercises": "+{count} more",
+  "@coachPlanCardMoreExercises": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
   "coachPlanReviewButton": "Review plan",
   "coachPlanAdoptButton": "Save training plan",
   "coachPlanAddedLabel": "Saved",

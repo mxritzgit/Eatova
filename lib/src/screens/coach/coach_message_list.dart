@@ -87,10 +87,17 @@ class _Conversation extends StatelessWidget {
                   valueListenable: preview,
                   builder: (context, text, _) {
                     if (text.isEmpty) {
-                      return const _Entrance(
-                        key: ValueKey('coach-thinking-entrance'),
+                      // The dots say nothing to a screen reader; the live
+                      // region announces that an answer is on its way.
+                      return _Entrance(
+                        key: const ValueKey('coach-thinking-entrance'),
                         animate: true,
-                        child: _ThinkingRow(),
+                        child: Semantics(
+                          container: true,
+                          liveRegion: true,
+                          label: context.l10n.coachThinkingLabel,
+                          child: const _ThinkingRow(),
+                        ),
                       );
                     }
                     return _Entrance(
@@ -441,26 +448,32 @@ class _ErrorBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return Container(
-      margin: const EdgeInsets.fromLTRB(0, 8, 0, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-      decoration: BoxDecoration(
-        color: t.warning.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(rCard),
-        border: Border.all(color: t.warning.withValues(alpha: 0.35)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Icon(Icons.error_outline_rounded, size: 16, color: t.warning),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              text,
-              style: AppType.ui(12.5, color: t.ink, height: 1.45),
+    // Live region: a failed send, the quota or a speech error appears without
+    // focus moving, so a screen reader would otherwise stay silent.
+    return Semantics(
+      container: true,
+      liveRegion: true,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(0, 8, 0, 0),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        decoration: BoxDecoration(
+          color: t.warning.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(rCard),
+          border: Border.all(color: t.warning.withValues(alpha: 0.35)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Icon(Icons.error_outline_rounded, size: 16, color: t.warning),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                text,
+                style: AppType.ui(12.5, color: t.ink, height: 1.45),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

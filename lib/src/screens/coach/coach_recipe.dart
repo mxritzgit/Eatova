@@ -91,16 +91,26 @@ class _RecipeProposalCard extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         if (added)
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Icon(Icons.check_rounded, size: 16, color: t.accent),
-              const SizedBox(width: 6),
-              Text(
-                l10n.coachRecipeAddedLabel,
-                style: AppType.ui(13, weight: FontWeight.w600, color: t.accent),
-              ),
-            ],
+          // Live region like the plan card's: the button turns into this
+          // state after the sheet closes, without focus moving to it.
+          Semantics(
+            container: true,
+            liveRegion: true,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(Icons.check_rounded, size: 16, color: t.accent),
+                const SizedBox(width: 6),
+                Text(
+                  l10n.coachRecipeAddedLabel,
+                  style: AppType.ui(
+                    13,
+                    weight: FontWeight.w600,
+                    color: t.accent,
+                  ),
+                ),
+              ],
+            ),
           )
         else
           PrimaryActionButton(

@@ -266,6 +266,7 @@ class _ComposerState extends State<_Composer> {
                     enabled:
                         widget.listening ||
                         (widget.canSend && hasText && !overLimit),
+                    finishesDictation: widget.listening,
                     onTap: widget.onSubmit,
                   ),
                 ],
@@ -608,11 +609,16 @@ class _SendButton extends StatelessWidget {
   const _SendButton({
     required this.active,
     required this.enabled,
+    required this.finishesDictation,
     required this.onTap,
   });
 
   final bool active;
   final bool enabled;
+
+  /// While listening a tap ends the dictation and sends nothing; the name
+  /// says so instead of "Send" (R17 D2-M3).
+  final bool finishesDictation;
   final VoidCallback onTap;
 
   @override
@@ -622,10 +628,14 @@ class _SendButton extends StatelessWidget {
     // A bare GestureDetector carries no semantics at all, so the button was
     // neither named nor recognisable as a button. `enabled` is part of it so
     // the locked state is announced instead of sounding like a dead button.
+    final l10n = context.l10n;
     return Semantics(
       button: true,
       enabled: enabled,
-      label: context.l10n.coachSendLabel,
+      label: finishesDictation
+          ? l10n.coachDictationSendLabel
+          : l10n.coachSendLabel,
+      hint: finishesDictation ? l10n.coachDictationSendHint : null,
       child: GestureDetector(
         key: const ValueKey('coach-send'),
         onTap: enabled ? onTap : null,

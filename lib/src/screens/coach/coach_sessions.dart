@@ -189,12 +189,14 @@ class _SessionTile extends StatelessWidget {
                   ],
                 ),
               ),
+              // Default density: compact shrank the target to 40 dp, below
+              // the 48 dp minimum for a destructive action.
               IconButton(
                 tooltip: l10n.commonDelete,
                 onPressed: onDelete,
                 icon: Icon(Icons.delete_outline_rounded,
                     size: 18, color: t.ink2),
-                visualDensity: VisualDensity.compact,
+                constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
               ),
             ],
           ),

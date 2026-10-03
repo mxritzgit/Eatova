@@ -657,6 +657,8 @@
   "coachMicLabelListening": "Spracheingabe beenden",
   "coachMicLabelIdle": "Spracheingabe",
   "coachSendLabel": "Senden",
+  "coachThinkingLabel": "Der Coach denkt nach…",
+  "coachAnswerAnnouncement": "Der Coach hat geantwortet.",
   "coachAttachCamera": "Foto aufnehmen",
   "coachAttachGallery": "Aus der Galerie",
   "coachInfoIntro": "Hier antwortet eine KI, keine echte Person. Die Antworten sind eine Schätzung und ersetzen keinen ärztlichen Rat.",
@@ -734,10 +736,13 @@
   },
   "coachDictationLimitHint": "Die Spracheingabe endet nach etwa einer Minute. Tippe aufs Mikro, um weiterzusprechen.",
   "coachDictationLengthHint": "Spracheingabe beendet: Die Nachricht hat ihre maximale Länge erreicht.",
+  "coachDictationSendLabel": "Spracheingabe abschließen",
+  "coachDictationSendHint": "Der Text bleibt zum Prüfen im Feld. Erneut tippen sendet ihn.",
   "coachErrorNotLoggedIn": "Bitte erst einloggen, um den Coach zu nutzen.",
   "coachErrorNoSession": "Konnte keine Coach-Session laden.",
   "coachErrorHistoryUnavailable": "Dein Verlauf konnte nicht geladen werden. Prüf deine Verbindung und versuch es nochmal.",
   "coachErrorDeleteFailed": "Die Unterhaltung konnte nicht gelöscht werden. Prüf deine Verbindung und versuch es nochmal.",
+  "coachErrorNewSessionFailed": "Die neue Unterhaltung konnte nicht angelegt werden. Prüf deine Verbindung und versuch es nochmal.",
   "coachSessionSwitchedNotice": "Diese Unterhaltung gibt es nicht mehr. Deine Frage und die Antwort stehen jetzt in einer anderen Unterhaltung — sie ist geöffnet.",
   "coachImageDefaultCaption": "Analysiere dieses Bild im Fitness-Kontext.",
   "coachErrorDailyLimitReached": "Tageslimit erreicht ({limit} Coach-Fragen pro Tag). Morgen geht's weiter.",
@@ -1933,6 +1938,12 @@
   "coachPlanPhotoUnsupported": "Trainingspläne entstehen aus Text. Sende deinen /plan-Wunsch ohne Foto.",
   "coachPlanUnknownCommandHint": "Unbekannter Befehl. Nutze /recipe für ein Rezept oder /plan für einen Trainingsplan.",
   "coachPlanCardEyebrow": "Trainingsplan · Entwurf",
+  "coachPlanCardMoreExercises": "+{count} weitere",
+  "@coachPlanCardMoreExercises": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
   "coachPlanReviewButton": "Plan prüfen",
   "coachPlanAdoptButton": "Trainingsplan übernehmen",
   "coachPlanAddedLabel": "Übernommen",

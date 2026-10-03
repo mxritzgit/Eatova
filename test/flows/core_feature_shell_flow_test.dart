@@ -80,8 +80,10 @@ void main() {
     'discuss plan opens its saved snapshot without booking a request',
     (tester) async {
       await withClock(Clock.fixed(_now), () async {
+        // The brief opens only for a chat that can send (spec §9).
         final server = FixlaufServer()
-          ..profileRow = serverProfileRow(completedProfile);
+          ..profileRow = serverProfileRow(completedProfile)
+          ..coachSessionId = 'coach-session';
         final store = await pumpSignedIn(tester, server);
         final plan = _plan();
         await store.saveTrainingPlan(plan);

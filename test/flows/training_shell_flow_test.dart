@@ -529,7 +529,16 @@ void main() {
       (tester) async {
     await withClock(Clock.fixed(_now), () async {
       final cache = LocalCache(InMemoryKeyValueStore(), kFixlaufUser);
-      final store = await _mount(tester, cache);
+      // The brief opens only for a chat that can send (spec §9).
+      final store = await _mount(
+        tester,
+        cache,
+        connected: true,
+        serverOverride: FixlaufServer()
+          ..profileRow = serverProfileRow(completedProfile)
+          ..coachSessionId = 'coach-session',
+      );
+      await pumpUntil(tester, () => !store.bootLoadInFlight, 'boot load');
       expect(find.byType(CoachChatScreen, skipOffstage: false), findsNothing);
 
       for (var visit = 0; visit < 2; visit++) {
@@ -537,6 +546,15 @@ void main() {
         await _frames(tester);
         await _tap(tester, 'training-empty-coach');
         expect(store.selectedTab, 4);
+        // The brief waits for the chat to load (spec §9).
+        await pumpUntil(
+          tester,
+          () => find
+              .byKey(const ValueKey('coach-brief-scroll'))
+              .evaluate()
+              .isNotEmpty,
+          'the brief opens once the chat has loaded',
+        );
         final input = tester.widget<TextField>(
           find.byKey(const ValueKey('coach-input')),
         );

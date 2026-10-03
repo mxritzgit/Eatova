@@ -59,6 +59,10 @@ class FixlaufServer {
   /// No request is ever answered.
   bool silent = false;
 
+  /// Set: the coach RPCs answer with this one session and an open quota, so
+  /// the Coach tab can send. Null leaves the coach without a session.
+  String? coachSessionId;
+
   /// GET requests are captured and answered only on [releaseReads].
   bool holdReads = false;
 
@@ -168,6 +172,18 @@ class FixlaufServer {
       request: req,
     );
 
+    final coachSession = coachSessionId;
+    if (coachSession != null) {
+      if (path.endsWith('/rpc/ensure_default_chat_session')) {
+        return ok(coachSession);
+      }
+      if (path.endsWith('/rpc/list_chat_sessions')) return ok(const <dynamic>[]);
+      if (path.endsWith('/rpc/get_chat_quota_today')) {
+        return ok([
+          {'used': 0, 'remaining': 5, 'daily_limit': 5},
+        ]);
+      }
+    }
     if (path.endsWith('/rpc/load_training_plan_head')) {
       final params = jsonDecode(req.body) as Map<String, dynamic>;
       return ok(
