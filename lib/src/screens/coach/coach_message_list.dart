@@ -17,6 +17,10 @@ class _Conversation extends StatelessWidget {
     required this.planAddedFor,
     required this.planReviewEnabled,
     required this.onReviewPlan,
+    required this.workoutLogStatusFor,
+    required this.workoutLogAddable,
+    required this.workoutLogAddEnabled,
+    required this.onAddWorkoutLog,
     required this.onScroll,
     required this.onMetricsChanged,
     required this.entersFor,
@@ -55,6 +59,15 @@ class _Conversation extends StatelessWidget {
   final bool Function(ChatMessage message) planAddedFor;
   final bool planReviewEnabled;
   final ValueChanged<ChatMessage> onReviewPlan;
+
+  /// A /log card's state, derived from the live training history.
+  final _WorkoutLogCardStatus Function(ChatMessage message)
+  workoutLogStatusFor;
+
+  /// A save hook exists; without one /log cards show no Add.
+  final bool workoutLogAddable;
+  final bool workoutLogAddEnabled;
+  final ValueChanged<ChatMessage> onAddWorkoutLog;
   final VoidCallback? onOpenTraining;
 
   @override
@@ -129,6 +142,12 @@ class _Conversation extends StatelessWidget {
                   planAdded: planAddedFor(message),
                   planReviewEnabled: planReviewEnabled,
                   onReviewPlan: () => onReviewPlan(message),
+                  workoutLogStatus: message.workoutLogProposal == null
+                      ? _WorkoutLogCardStatus.waiting
+                      : workoutLogStatusFor(message),
+                  workoutLogAddable: workoutLogAddable,
+                  workoutLogAddEnabled: workoutLogAddEnabled,
+                  onAddWorkoutLog: () => onAddWorkoutLog(message),
                   onOpenTraining: onOpenTraining,
                 ),
               );
@@ -217,6 +236,10 @@ class _MessageView extends StatelessWidget {
     this.planAdded = false,
     this.planReviewEnabled = false,
     this.onReviewPlan,
+    this.workoutLogStatus = _WorkoutLogCardStatus.waiting,
+    this.workoutLogAddable = false,
+    this.workoutLogAddEnabled = false,
+    this.onAddWorkoutLog,
     this.onOpenTraining,
   });
   final ChatMessage message;
@@ -226,6 +249,10 @@ class _MessageView extends StatelessWidget {
   final bool planAdded;
   final bool planReviewEnabled;
   final VoidCallback? onReviewPlan;
+  final _WorkoutLogCardStatus workoutLogStatus;
+  final bool workoutLogAddable;
+  final bool workoutLogAddEnabled;
+  final VoidCallback? onAddWorkoutLog;
   final VoidCallback? onOpenTraining;
 
   @override
@@ -313,9 +340,20 @@ class _MessageView extends StatelessWidget {
                       ),
                       const SizedBox(height: 10),
                     ],
-                    // /rezept proposal: the card replaces the bubble text,
-                    // which would only say the same thing twice.
-                    if (message.trainingPlanProposal != null &&
+                    // A proposal card replaces the bubble text, which would
+                    // only say the same thing twice.
+                    if (message.workoutLogProposal != null &&
+                        !fromUser &&
+                        !message.refusal)
+                      _WorkoutLogProposalCard(
+                        proposal: message.workoutLogProposal!,
+                        status: workoutLogStatus,
+                        canAdd: workoutLogAddable,
+                        enabled: workoutLogAddEnabled,
+                        onAdd: onAddWorkoutLog,
+                        onOpenTraining: onOpenTraining,
+                      )
+                    else if (message.trainingPlanProposal != null &&
                         !fromUser &&
                         !message.refusal)
                       _TrainingPlanProposalCard(

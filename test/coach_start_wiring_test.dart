@@ -358,6 +358,7 @@ void main() {
         'coach-log-secondary',
         'coach-try-recipe',
         'coach-try-plan',
+        'coach-try-log',
       ]) {
         expect(
           tester.getSemantics(find.byKey(ValueKey(key))),
@@ -789,6 +790,7 @@ void main() {
         'coach-log-secondary',
         'coach-try-recipe',
         'coach-try-plan',
+        'coach-try-log',
       ];
       for (final key in controls) {
         expect(
