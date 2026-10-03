@@ -2627,6 +2627,31 @@
   "foodEntryEmptyHint": "Erfasste Mahlzeiten findest du hier zum Wiederverwenden.",
   "foodFavoritePortionAction": "Portion anpassen",
   "foodFavoriteAdded": "Hinzugefügt",
+  "foodFavoriteQuickAdd": "{name} mit {kcal} kcal zu {slot} hinzufügen",
+  "@foodFavoriteQuickAdd": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "kcal": {
+        "type": "int"
+      },
+      "slot": {
+        "type": "String"
+      }
+    }
+  },
+  "foodFavoriteQuickAddUnknown": "{name} zu {slot} hinzufügen",
+  "@foodFavoriteQuickAddUnknown": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "slot": {
+        "type": "String"
+      }
+    }
+  },
   "foodFavoritesForSlot": "Für {slot}",
   "@foodFavoritesForSlot": {
     "placeholders": {

@@ -1247,7 +1247,6 @@ class _AddMealSheetState extends State<AddMealSheet> {
       key: ValueKey('kcal-product-suggestion-$index'),
       productPresentation: true,
       result: suggestion.result,
-      imageUrl: suggestion.imageUrl,
       expanded: _expandedItemKey == key,
       justAdded: _justAddedKeys.contains(key),
       onTap: () => _toggleExpanded(key),
@@ -1294,6 +1293,7 @@ class _AddMealSheetState extends State<AddMealSheet> {
           ),
           const SizedBox(height: _kLabelGap),
           SavedMealCollection(
+            dividerInset: kSavedMealDividerInset,
             children: [
               for (var i = 0; i < inline.length; i++)
                 _favoriteItem(inline[i], i, pinned: true),
@@ -1342,6 +1342,8 @@ class _AddMealSheetState extends State<AddMealSheet> {
           ? null
           : (result) => _handleToggleFavorite(result),
       favoriteButtonKey: ValueKey('$tileKey-fav'),
+      quickAddSlotLabel: pinned ? _selectedSlot.label(context.l10n) : null,
+      quickAddKey: pinned ? ValueKey('favorite-pinned-quick-$index') : null,
     );
   }
 

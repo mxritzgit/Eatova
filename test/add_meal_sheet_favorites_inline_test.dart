@@ -364,4 +364,54 @@ void main() {
           'Semantics(onTap:) muss sie neu deklarieren (Review B)',
     );
   });
+
+  // Lively list (2026-10-03): the inline "+" logs the saved portion into the
+  // meal chosen in this sheet, and recents show their product photo.
+  testWidgets('Ein-Tipp-Plus loggt die gespeicherte Portion in die gewählte '
+      'Mahlzeit', (tester) async {
+    final geloggt = <(MealAnalysisResult, MealSlot)>[];
+    await _pumpe(
+      tester,
+      favoriten: _fuenfGepinnt,
+      onAdd: (result, slot) {
+        geloggt.add((result, slot));
+        return 'id-${geloggt.length}';
+      },
+    );
+    await chooseMealSlot(tester, 'slot-select-lunch');
+    final plus = find.byKey(const ValueKey('favorite-pinned-quick-0'));
+    await tester.ensureVisible(plus);
+    await tester.pumpAndSettle();
+    await tester.tap(plus);
+    await tester.pumpAndSettle();
+
+    final skyr = _fuenfGepinnt.firstWhere((f) => f.result.mealName == 'Skyr');
+    expect(geloggt, hasLength(1));
+    expect(identical(geloggt.single.$1, skyr.result), isTrue);
+    expect(geloggt.single.$2, MealSlot.lunch);
+    await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('„Zuletzt gegessen" zeigt das Produktfoto', (tester) async {
+    const foto =
+        'https://images.openfoodfacts.org/images/products/400/054/000/0108/front_de.273.200.jpg';
+    final riegel = _mahlzeit('Proteinriegel').withImageUrl(foto);
+    await _pumpe(
+      tester,
+      favoriten: [
+        FavoriteMeal(
+          id: FavoriteMeal.idFor(riegel),
+          result: riegel,
+          addedAt: DateTime(2026, 8, 2),
+        ),
+      ],
+    );
+    final bild = find.descendant(
+      of: find.byKey(const ValueKey('favorite-tile-0')),
+      matching: find.byType(Image),
+    );
+    expect(bild, findsOneWidget);
+    final provider = tester.widget<Image>(bild).image as ResizeImage;
+    expect((provider.imageProvider as NetworkImage).url, foto);
+  });
 }

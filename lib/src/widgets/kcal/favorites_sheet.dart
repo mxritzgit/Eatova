@@ -329,6 +329,7 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
       );
     }
     return SavedMealCollection(
+      dividerInset: kSavedMealDividerInset,
       children: [for (var i = 0; i < visible.length; i++) _item(visible[i], i)],
     );
   }
@@ -347,6 +348,8 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
       isFavorite: true,
       onToggleFavorite: (_) => _handleUnpin(favorite),
       favoriteButtonKey: ValueKey('favorites-sheet-fav-$index'),
+      quickAddSlotLabel: widget.slot.label(context.l10n),
+      quickAddKey: ValueKey('favorites-sheet-quick-$index'),
     );
   }
 }

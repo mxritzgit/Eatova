@@ -2562,6 +2562,31 @@
   "foodEntryEmptyHint": "Meals you log will appear here, ready to use again.",
   "foodFavoritePortionAction": "Adjust portion",
   "foodFavoriteAdded": "Added",
+  "foodFavoriteQuickAdd": "Add {name}, {kcal} kcal, to {slot}",
+  "@foodFavoriteQuickAdd": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "kcal": {
+        "type": "int"
+      },
+      "slot": {
+        "type": "String"
+      }
+    }
+  },
+  "foodFavoriteQuickAddUnknown": "Add {name} to {slot}",
+  "@foodFavoriteQuickAddUnknown": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "slot": {
+        "type": "String"
+      }
+    }
+  },
   "foodFavoritesForSlot": "For {slot}",
   "@foodFavoritesForSlot": {
     "placeholders": {

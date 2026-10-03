@@ -27,7 +27,6 @@ class MealSuggestionItem extends StatefulWidget {
     required this.expanded,
     required this.onTap,
     required this.onAdd,
-    this.imageUrl,
     this.justAdded = false,
     this.onRemove,
     this.addButtonKey,
@@ -36,13 +35,14 @@ class MealSuggestionItem extends StatefulWidget {
     this.favoriteButtonKey,
     this.savedPresentation = false,
     this.productPresentation = false,
+    this.quickAddSlotLabel,
+    this.quickAddKey,
   });
 
   final MealAnalysisResult result;
   final bool expanded;
   final VoidCallback onTap;
   final ValueChanged<MealAnalysisResult> onAdd;
-  final String? imageUrl;
 
   final bool justAdded;
   final VoidCallback? onRemove;
@@ -59,6 +59,10 @@ class MealSuggestionItem extends StatefulWidget {
   /// Saved meals show the reusable portion instead of a product density.
   final bool savedPresentation;
   final bool productPresentation;
+
+  /// The meal a saved favorite's one-tap "+" adds to; null hides the "+".
+  final String? quickAddSlotLabel;
+  final Key? quickAddKey;
 
   @override
   State<MealSuggestionItem> createState() => _MealSuggestionItemState();
@@ -198,11 +202,15 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
         isFavorite: widget.isFavorite,
         onToggleFavorite: toggleFavorite,
         favoriteButtonKey: widget.favoriteButtonKey,
+        // The row adds exactly what it shows: the saved portion.
+        onQuickAdd: widget.expanded ? null : () => widget.onAdd(widget.result),
+        quickAddSlotLabel: widget.quickAddSlotLabel,
+        quickAddKey: widget.quickAddKey,
       );
     } else if (widget.productPresentation) {
       header = ProductSearchHeader(
         result: widget.result,
-        imageUrl: widget.imageUrl,
+        imageUrl: widget.result.imageUrl,
         expanded: widget.expanded,
         justAdded: widget.justAdded,
         onTap: widget.onTap,
@@ -213,7 +221,7 @@ class _MealSuggestionItemState extends State<MealSuggestionItem> {
     } else {
       header = _RecentHeader(
         result: widget.result,
-        imageUrl: widget.imageUrl,
+        imageUrl: widget.result.imageUrl,
         expanded: widget.expanded,
         justAdded: widget.justAdded,
         onTap: widget.onTap,

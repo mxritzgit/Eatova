@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../l10n/l10n.dart';
 import '../../models/meal_analysis_result.dart';
 import '../../theme/app_tokens.dart';
+import '../common/lively.dart';
 import '../common/motion.dart';
 import '../design/text_scale.dart';
 import 'diary_meal_card.dart' show diaryAmountLabel;
@@ -20,11 +21,24 @@ const double kMealRowDividerInset = 6 + 10 + kMealRowTileSize + 12;
 /// Side of the leading tile.
 const double kMealRowTileSize = 40;
 
+/// Side of a saved favorite's tile: large enough to recognize a packshot.
+const double kSavedMealTileSize = 48;
+
+/// [kMealRowDividerInset] for rows with a [kSavedMealTileSize] tile.
+const double kSavedMealDividerInset = 6 + 10 + kSavedMealTileSize + 12;
+
 /// One shared surface makes saved meals read as a collection, not search hits.
 class SavedMealCollection extends StatelessWidget {
-  const SavedMealCollection({super.key, required this.children});
+  const SavedMealCollection({
+    super.key,
+    required this.children,
+    this.dividerInset = kMealRowDividerInset,
+  });
 
   final List<Widget> children;
+
+  /// Where the hairline starts: under the text of the rows' tile size.
+  final double dividerInset;
 
   @override
   Widget build(BuildContext context) {
@@ -47,7 +61,7 @@ class SavedMealCollection extends StatelessWidget {
                 Divider(
                   height: 1,
                   thickness: 1,
-                  indent: kMealRowDividerInset,
+                  indent: dividerInset,
                   endIndent: 14,
                   color: t.line,
                 ),
@@ -206,16 +220,20 @@ class MealItemTile extends StatelessWidget {
     required this.name,
     required this.justAdded,
     this.imageUrl,
+    this.size = kMealRowTileSize,
   });
 
   final String name;
   final bool justAdded;
   final String? imageUrl;
 
+  /// Side at 1x text; it grows with the text scale by up to 12.
+  final double size;
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final side = scaledWidth(context, kMealRowTileSize, max: 52);
+    final side = scaledWidth(context, size, max: size + 12);
     final radius = BorderRadius.circular(rChip);
     final letter = name.trim().isEmpty
         ? '·'
@@ -286,7 +304,9 @@ class MealItemTile extends StatelessWidget {
   }
 }
 
-/// Header row of a saved (pinned) favorite: name, saved portion, kcal, heart.
+/// Header row of a saved (pinned) favorite (lively list, 2026-10-03): the
+/// product photo, the name, "Brand · 60 g · 212 kcal" and the macro dots,
+/// with the heart over a one-tap "+" for the saved portion.
 class SavedMealHeader extends StatelessWidget {
   const SavedMealHeader({
     super.key,
@@ -297,6 +317,9 @@ class SavedMealHeader extends StatelessWidget {
     required this.isFavorite,
     this.onToggleFavorite,
     this.favoriteButtonKey,
+    this.onQuickAdd,
+    this.quickAddSlotLabel,
+    this.quickAddKey,
   });
 
   final MealAnalysisResult result;
@@ -305,26 +328,140 @@ class SavedMealHeader extends StatelessWidget {
   final VoidCallback? onToggleFavorite;
   final Key? favoriteButtonKey;
 
+  /// Logs the saved portion; null hides the "+" (an open row adds from its
+  /// panel instead).
+  final VoidCallback? onQuickAdd;
+
+  /// The meal an add lands in, for the "+" label ("… to Lunch").
+  final String? quickAddSlotLabel;
+  final Key? quickAddKey;
+
   @override
   Widget build(BuildContext context) {
+    final t = context.t;
     final l10n = context.l10n;
     final (title, brand) = mealTitleAndBrand(result, l10n);
     final portion = mealAmountLabel(result, l10n);
+    final kcalKnown = result.caloriesKcal > 0 || result.explicitZeroKcal;
+    final muted = AppType.ui(12.5, weight: FontWeight.w500, color: t.ink3);
+    final summary = Text.rich(
+      TextSpan(
+        children: [
+          TextSpan(text: brand == null ? '$portion · ' : '$brand · $portion · '),
+          if (kcalKnown) ...[
+            TextSpan(
+              text: '${result.caloriesKcal}',
+              style: AppType.ui(13, weight: FontWeight.w700, color: t.ink)
+                  .copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
+            ),
+            const TextSpan(text: ' kcal'),
+          ] else
+            TextSpan(text: l10n.ingredientUnknown),
+        ],
+      ),
+      style: muted,
+    );
+    final slot = quickAddSlotLabel;
+    final quickAdd = onQuickAdd;
     return MealItemRow(
-      leading: MealItemTile(name: title, justAdded: justAdded),
+      leading: MealItemTile(
+        name: title,
+        imageUrl: result.imageUrl,
+        justAdded: justAdded,
+        size: kSavedMealTileSize,
+      ),
       title: title,
-      secondary: Text(brand == null ? portion : '$brand · $portion'),
-      value: mealKcalOrUnknown(context, result),
+      secondary: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          summary,
+          // An open row shows the live macros of its panel instead.
+          if (!expanded) ...[
+            const SizedBox(height: 4),
+            SavedMealNutrients(result: result),
+          ],
+        ],
+      ),
       onTap: onTap,
       expanded: expanded,
       actions: [
-        if (onToggleFavorite != null)
-          MealFavoriteButton(
-            key: favoriteButtonKey,
-            isFavorite: isFavorite,
-            onPressed: onToggleFavorite!,
-          ),
+        Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (onToggleFavorite != null)
+              MealFavoriteButton(
+                key: favoriteButtonKey,
+                isFavorite: isFavorite,
+                onPressed: onToggleFavorite!,
+              ),
+            if (quickAdd != null && slot != null)
+              MealQuickAddButton(
+                key: quickAddKey,
+                onPressed: quickAdd,
+                semanticLabel: kcalKnown
+                    ? l10n.foodFavoriteQuickAdd(title, result.caloriesKcal, slot)
+                    : l10n.foodFavoriteQuickAddUnknown(title, slot),
+              ),
+          ],
+        ),
       ],
+    );
+  }
+}
+
+/// The round tinted "+" of a saved favorite: logs its saved portion at once.
+/// A 36 px disc in a 48 px target, with the press dip.
+class MealQuickAddButton extends StatelessWidget {
+  const MealQuickAddButton({
+    super.key,
+    required this.onPressed,
+    required this.semanticLabel,
+  });
+
+  final VoidCallback onPressed;
+  final String semanticLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return Semantics(
+      container: true,
+      button: true,
+      label: semanticLabel,
+      onTap: onPressed,
+      excludeSemantics: true,
+      // The whole 48 px square takes the tap; the disc is drawn with Ink so
+      // the ripple shows on top of it.
+      child: SizedBox.square(
+        dimension: 48,
+        child: PressScale(
+          child: Material(
+            type: MaterialType.transparency,
+            child: InkWell(
+              onTap: onPressed,
+              customBorder: const CircleBorder(),
+              child: Center(
+                child: Ink(
+                  width: 36,
+                  height: 36,
+                  // Tinted, not filled: the open panel's filled "+" stays the
+                  // primary add, a list of rows does not shout.
+                  decoration: ShapeDecoration(
+                    color: t.accentTint,
+                    shape: const CircleBorder(),
+                  ),
+                  child: Icon(
+                    Icons.add_rounded,
+                    size: 22,
+                    color: t.accentText,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
