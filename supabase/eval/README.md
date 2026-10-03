@@ -68,6 +68,32 @@ still be counted against the authorised cumulative budget; this mode is not an
 automatic retry. Fixed stderr start/reservation markers and a partial JSON
 artifact retain spend evidence on failures without printing raw errors.
 
+## /log batch
+
+`--log --budget-usd=2.60` runs `COACH_LOG_EVAL_CASES`: the 22 workout-log
+cases E1-E22 (English app unless noted, `local_date` 2026-10-03, a Saturday)
+and two English-app chat cases with mixed or workout-report input. Each log
+case sends `mode: "log"` and its `local_date` like the app, and the runner
+freezes the server clock to that day so the calendar stays fixed on any run
+date. Per log case it reserves 4 cents for the classifier and 7 cents for the
+extraction at its real 4,096-token cap; chat cases reserve 4 cents per call.
+At most 48 calls and $2.60 ($2.58 worst case).
+
+```sh
+deno run --allow-env --allow-net=openrouter.ai --no-remote --no-npm \
+  supabase/eval/coach_eval.ts --live --log --budget-usd=2.60
+```
+
+Besides `technicalPass` (the response kind), every case with an `expect`
+rubric reports `expectationPass` and `expectationFailures`: date, other days,
+duration, title and note patterns, injection canaries, the D4 safety line and
+the exact sets after the server transform (for example 225 lb stored as
+102.06 kg). Names and notes vary between runs, so they are matched loosely;
+read the replies against each case's `review` text as well. The offline test
+feeds the ideal extraction from the shared fixture
+(`functions/coach-chat/fixtures/workout_log_cases.json`) through the real
+handler and must pass every rubric.
+
 ## Offline handler boundary matrix
 
 `supabase/functions/coach-chat/handler_boundary_test.ts` exercises the actual

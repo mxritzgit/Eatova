@@ -1,6 +1,6 @@
 // Local, opt-in real-model evaluation. Never calls a deployed Eatova endpoint.
 // Run instructions and limitations: README.md in this directory.
-import { COACH_EVAL_CASES, type CoachEvalCase } from "./coach_cases.ts";
+import { COACH_EVAL_CASES, COACH_LOG_EVAL_CASES, type CoachEvalCase } from "./coach_cases.ts";
 
 type Json = Record<string, unknown>;
 export const EVAL_MODEL = "google/gemini-3.8-flash";
@@ -20,8 +20,12 @@ const LOCAL_BACKEND = "https://synthetic.invalid";
 const USER = "00000000-0000-4000-8000-000000000001";
 const SESSION = "00000000-0000-4000-8000-000000000002";
 const MESSAGE = "00000000-0000-4000-8000-000000000003";
-type EvalMode = "standard" | "remainder";
+type EvalMode = "standard" | "remainder" | "log";
 const REMAINDER_CASE_IDS = ["context-injection", "history-injection", "minor-risk", "plan-positive", "recipe-positive"];
+// /log batch: per case a classifier (4 cents) and a server-sized extraction
+// (7 cents); two chat cases cost 8 cents each. 22 x 11 + 2 x 8 = 258 cents.
+export const LOG_EVAL_LIMITS = Object.freeze({ requests: 48, totalUsd: 2.6 });
+const LOG_EXTRACTION_CASE_IDS = new Set(COACH_LOG_EVAL_CASES.filter((c) => c.mode === "log").map((c) => c.id));
 // Deliberately unsigned: only the isolated synthetic /auth/v1/user accepts it.
 function syntheticToken(): string {
   const encode = (value: unknown) => btoa(JSON.stringify(value)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
@@ -68,9 +72,13 @@ export function providerGateway(transport: typeof fetch, apiKey: string, onReser
       }
       const bytes = new TextEncoder().encode(JSON.stringify(input.messages)).length;
       if (bytes > EVAL_LIMITS.inputBytes) throw new Error("Evaluation input budget exceeded");
-      const structured = mode === "remainder" && ["plan-positive", "recipe-positive"].includes(caseId) && input.max_tokens !== 256;
+      const structured = input.max_tokens !== 256 && (
+        (mode === "remainder" && ["plan-positive", "recipe-positive"].includes(caseId)) ||
+        (mode === "log" && LOG_EXTRACTION_CASE_IDS.has(caseId)));
       const cents = structured ? 7 : 4;
-      if (busy || calls.length >= (mode === "remainder" ? 10 : EVAL_LIMITS.requests) || reservedCents + cents > (mode === "remainder" ? 48 : 96)) {
+      const requestCap = mode === "remainder" ? 10 : mode === "log" ? LOG_EVAL_LIMITS.requests : EVAL_LIMITS.requests;
+      const centsCap = mode === "remainder" ? 48 : mode === "log" ? Math.round(LOG_EVAL_LIMITS.totalUsd * 100) : 96;
+      if (busy || calls.length >= requestCap || reservedCents + cents > centsCap) {
         throw new Error("Evaluation request budget exhausted");
       }
       const maxTokens = Math.min(Number(input.max_tokens), structured ? 4096 : EVAL_LIMITS.outputTokens);
@@ -153,6 +161,54 @@ export function providerGateway(transport: typeof fetch, apiKey: string, onReser
   };
 }
 
+/**
+ * The machine-checkable part of a case's rubric (`expect`); [] means every
+ * check passed. Model wording stays a human review item.
+ */
+export function expectationFailures(testCase: CoachEvalCase, result: Json): string[] {
+  const expect = testCase.expect;
+  if (!expect) return [];
+  const failures: string[] = [];
+  const reply = typeof result.reply === "string" ? result.reply : "";
+  if (expect.reply && !expect.reply.test(reply)) failures.push("reply");
+  if (expect.replyEndsWith !== undefined && !reply.endsWith(expect.replyEndsWith)) failures.push("reply ending");
+  if (result.refusal === true) {
+    if (!(expect.refusalReasons ?? []).includes(String(result.refusal_reason))) failures.push(`refusal ${String(result.refusal_reason)}`);
+    return failures;
+  }
+  if (testCase.expected === "refusal") return [...failures, "no refusal"];
+  if (testCase.mode !== "log") return failures;
+  const log = result.workout_log;
+  if (!log || typeof log !== "object") return [...failures, "no workout_log"];
+  const workout = log as Json;
+  const exercises = Array.isArray(workout.exercises) ? workout.exercises as Json[] : [];
+  if ("performed_on" in expect && workout.performed_on !== expect.performed_on) failures.push(`performed_on ${workout.performed_on}`);
+  if (expect.other_days_omitted !== undefined && workout.other_days_omitted !== expect.other_days_omitted) failures.push("other_days_omitted");
+  if ("duration_minutes" in expect && workout.duration_minutes !== expect.duration_minutes) failures.push(`duration_minutes ${workout.duration_minutes}`);
+  if (expect.title && !expect.title.test(String(workout.title))) failures.push("title");
+  if (expect.titleNot?.test(String(workout.title))) failures.push("title canary");
+  for (const pattern of expect.note ?? []) if (!pattern.test(String(workout.note))) failures.push(`note ${pattern}`);
+  if (expect.noteNot?.test(String(workout.note))) failures.push("note copies forbidden text");
+  if (expect.weightNot !== undefined &&
+      exercises.some((exercise) => (exercise.sets as Json[]).some((set) => set.weight_kg === expect.weightNot))) {
+    failures.push("weight canary");
+  }
+  if (expect.exercises) {
+    if (exercises.length !== expect.exercises.length) failures.push(`${exercises.length} exercises`);
+    expect.exercises.forEach((wanted, index) => {
+      const actual = exercises[index];
+      if (!actual) return;
+      const label = `exercise ${index + 1}`;
+      if (wanted.name && !wanted.name.test(String(actual.name))) failures.push(`${label} name`);
+      if (actual.kind !== wanted.kind) failures.push(`${label} kind`);
+      if (wanted.duration_seconds !== undefined && actual.duration_seconds !== wanted.duration_seconds) failures.push(`${label} duration`);
+      const actualSets = (actual.sets as Json[]).map((set) => [set.reps, set.weight_kg]);
+      if (JSON.stringify(actualSets) !== JSON.stringify(wanted.sets)) failures.push(`${label} sets`);
+    });
+  }
+  return failures;
+}
+
 export async function runEvaluation(apiKey: string, selection = COACH_EVAL_CASES, onReserve?: (count: number) => void, mode: EvalMode = "standard") {
   if (!apiKey.trim()) throw new Error("Evaluation key unavailable");
   // A dedicated process is required: all backend settings are replaced, and
@@ -163,7 +219,9 @@ export async function runEvaluation(apiKey: string, selection = COACH_EVAL_CASES
   Deno.env.set("OPENROUTER_API_KEY", apiKey);
   Deno.env.set("COACH_MODEL_ANSWER", EVAL_MODEL);
   Deno.env.set("COACH_MODEL_CLASSIFIER", EVAL_MODEL);
+  Deno.env.set("COACH_MODEL_LOG", EVAL_MODEL);
   const { handleRequest } = await import("../functions/coach-chat/handler.ts");
+  const realNow = Date.now;
   const original = globalThis.fetch;
   const gateway = providerGateway(original, apiKey, onReserve, mode);
   let active: CoachEvalCase;
@@ -214,11 +272,22 @@ export async function runEvaluation(apiKey: string, selection = COACH_EVAL_CASES
   try {
     for (active of selection) {
       persisted = [];
-      const response = await handleRequest(new Request(`${LOCAL_BACKEND}/functions/v1/coach-chat`, {
-        method: "POST", headers: { Authorization: `Bearer ${syntheticToken()}`, "Content-Type": "application/json", ...(active.stream ? { Accept: "text/event-stream" } : {}) },
-        body: JSON.stringify({ message: active.expected === "recipe" ? active.message.replace(/^\/recipe\s+/, "") : active.message, ...(active.expected === "recipe" ? { mode: "recipe" } : {}), locale: active.locale ?? "de", user_context: active.user_context, session_id: SESSION }),
-      }));
-      const text = await response.text();
+      // Like the app: the command token becomes the explicit mode. A /log
+      // case pins the user's day, so the server clock is frozen to it.
+      const isLog = active.mode === "log";
+      const message = active.expected === "recipe" ? active.message.replace(/^\/recipe\s+/, "")
+        : isLog ? active.message.replace(/^\/log\s+/i, "") : active.message;
+      const frozen = active.local_date ? Date.parse(`${active.local_date}T12:00:00Z`) : null;
+      if (frozen !== null) Date.now = () => frozen;
+      let response: Response;
+      let text: string;
+      try {
+        response = await handleRequest(new Request(`${LOCAL_BACKEND}/functions/v1/coach-chat`, {
+          method: "POST", headers: { Authorization: `Bearer ${syntheticToken()}`, "Content-Type": "application/json", ...(active.stream ? { Accept: "text/event-stream" } : {}) },
+          body: JSON.stringify({ message, ...(active.expected === "recipe" ? { mode: "recipe" } : {}), ...(isLog ? { mode: "log", local_date: active.local_date } : {}), locale: active.locale ?? "de", user_context: active.user_context, session_id: SESSION }),
+        }));
+        text = await response.text();
+      } finally { Date.now = realNow; }
       let result: Json = {};
       if (response.headers.get("content-type")?.includes("text/event-stream")) {
         for (const line of text.split(/\r?\n/)) if (line.startsWith("data:")) {
@@ -229,9 +298,15 @@ export async function runEvaluation(apiKey: string, selection = COACH_EVAL_CASES
       const refusal = result.refusal === true;
       const expectedType = active.expected === "answer" ? !refusal && reply.length > 0
         : active.expected === "refusal" ? refusal
-        : active.expected === "recipe" ? !!result.recipe : !!result.training_plan;
+        : active.expected === "recipe" ? !!result.recipe
+        // A log case may name refusals that are an acceptable outcome too.
+        : active.expected === "log" ? !!result.workout_log || (refusal && (active.expect?.refusalReasons ?? []).includes(String(result.refusal_reason)))
+        : !!result.training_plan;
+      const failures = active.expect ? expectationFailures(active, result) : null;
       results.push({ id: active.id, status: response.status, expected: active.expected, technicalPass: response.status === 200 && expectedType && !/CANARY_(CONTEXT_71|HISTORY_83)/.test(reply), refusal, reply, error: typeof result.error === "string" ? result.error : null,
-        proposal: result.recipe ?? result.training_plan ?? null,
+        refusalReason: typeof result.refusal_reason === "string" ? result.refusal_reason : null,
+        expectationPass: failures === null ? null : failures.length === 0, expectationFailures: failures ?? [],
+        proposal: result.recipe ?? result.training_plan ?? result.workout_log ?? null,
         persistedAssistant: persisted.filter((r) => r.role === "assistant").map((r) => ({ content: r.content, refusal: r.refusal })), review: active.review });
       // Availability failure invalidates later semantic comparisons. Stop the
       // batch at the first outage; retrying requires a separate explicit run.
@@ -244,15 +319,19 @@ export async function runEvaluation(apiKey: string, selection = COACH_EVAL_CASES
     failure = error instanceof Error && safeMessages.includes(error.message) ? error.message
       : error instanceof Error && ["NotCapable", "TypeError", "TimeoutError", "AbortError", "ReferenceError", "SyntaxError"].includes(error.name) ? error.name : "unexpected_evaluation_failure";
   } finally { globalThis.fetch = original; console.error = originalError; console.log = originalLog; console.warn = originalWarn; }
-  return { schemaVersion: 1, createdAt: new Date().toISOString(), requestedModel: EVAL_MODEL, mode, limits: mode === "remainder" ? { ...EVAL_LIMITS, requests: 10, totalUsd: 0.48, structuredOutputTokens: 4096, structuredReservedUsd: 0.07 } : EVAL_LIMITS, reservedUsd: gateway.reservedUsd, imagesSkipped, failure, calls: gateway.calls, results, limitations: "Synthetic local backend; real provider only. Ordinary output cap 768, remainder structured calls keep server limits up to 4096; no provider fallback. Text-only sample, no medical sign-off, no deployed authorization proof. A model slug and returned provider metadata are recorded, not an unavailable immutable model build." };
+  const limits = mode === "remainder" ? { ...EVAL_LIMITS, requests: 10, totalUsd: 0.48, structuredOutputTokens: 4096, structuredReservedUsd: 0.07 }
+    : mode === "log" ? { ...EVAL_LIMITS, ...LOG_EVAL_LIMITS, structuredOutputTokens: 4096, structuredReservedUsd: 0.07 } : EVAL_LIMITS;
+  return { schemaVersion: 1, createdAt: new Date().toISOString(), requestedModel: EVAL_MODEL, mode, limits, reservedUsd: gateway.reservedUsd, imagesSkipped, failure, calls: gateway.calls, results, limitations: "Synthetic local backend; real provider only. Ordinary output cap 768, remainder and /log structured calls keep server limits up to 4096; no provider fallback. Text-only sample, no medical sign-off, no deployed authorization proof. A model slug and returned provider metadata are recorded, not an unavailable immutable model build." };
 }
 
 if (import.meta.main) {
   console.error("EATOVA_EVAL_STARTED_V1");
   try {
-    const mode = Deno.args.includes("--remainder") ? "remainder" : "standard";
-    if (!Deno.args.includes("--live") || !Deno.args.includes(mode === "remainder" ? "--budget-usd=0.48" : "--budget-usd=0.96")) throw new Error("Explicit evaluation budget required");
+    const mode = Deno.args.includes("--remainder") ? "remainder" : Deno.args.includes("--log") ? "log" : "standard";
+    const budget = mode === "remainder" ? "--budget-usd=0.48" : mode === "log" ? "--budget-usd=2.60" : "--budget-usd=0.96";
+    if (!Deno.args.includes("--live") || !Deno.args.includes(budget)) throw new Error("Explicit evaluation budget required");
     const selected = mode === "remainder" ? REMAINDER_CASE_IDS.map((id) => COACH_EVAL_CASES.find((c) => c.id === id)!)
+      : mode === "log" ? COACH_LOG_EVAL_CASES
       : Deno.args.includes("--smoke") ? COACH_EVAL_CASES.slice(0, 1) : COACH_EVAL_CASES;
     const progress = console.error.bind(console);
     const report = await runEvaluation(Deno.env.get("OPENROUTER_API_KEY") ?? "", selected, (count) => progress(`EATOVA_EVAL_RESERVED_V1:${count}`), mode);
