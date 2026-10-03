@@ -4,8 +4,14 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/lifetime_stats.dart';
+import 'package:eatova/src/models/training_history.dart';
+import 'package:eatova/src/models/training_log.dart';
+import 'package:eatova/src/models/training_session.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/local_cache.dart';
+import 'package:eatova/src/services/sync_outbox.dart';
+
+import '../training/training_timer_fixtures.dart';
 
 // DATA-3: LocalCache is the durable write-through JSON cache for the profile
 // and lifetime_stats. Driven here through InMemoryKeyValueStore (no
@@ -258,6 +264,54 @@ void main() {
 
     test('leerer Cache -> null', () async {
       expect(await _cache(InMemoryKeyValueStore()).readLifetimeStats(), isNull);
+    });
+  });
+
+  group('LocalCache training history insert', () {
+    TrainingHistoryEntry logged(String id) => buildLoggedWorkout(
+      historyId: id,
+      draft: LoggedWorkoutDraft(
+        title: 'Garage session',
+        performedOn: DateTime(2026, 9, 20),
+        exercises: const [
+          LoggedExercise(
+            name: 'Bench press',
+            timed: false,
+            sets: [LoggedSet(reps: 8, weightKg: 60)],
+          ),
+        ],
+      ),
+      now: DateTime(2026, 9, 20, 18),
+      fallbackTitle: 'Workout',
+    );
+
+    test('keeps an unrelated checkpoint and clears only its own', () async {
+      final cache = _cache(InMemoryKeyValueStore());
+      final paused = TrainingSessionSnapshot(
+        sessionId: '11111111-1111-4111-8111-111111111111',
+        startedAt: DateTime.utc(2026, 9, 20, 9),
+        plan: timerPlan(),
+        workoutIndex: 0,
+        exerciseIndex: 0,
+        setIndex: 0,
+        phase: TrainingSessionPhase.exercise,
+        remainingMilliseconds: 0,
+      );
+      await cache.writeTrainingSession(paused);
+      final foreign = logged('22222222-2222-4222-8222-222222222222');
+      await cache.commitSyncOperations([SyncOp.trainingHistoryInsert(foreign)]);
+      expect(
+        (await cache.readTrainingSession())?.toJson(),
+        paused.toJson(),
+        reason: 'a log with another ID must not wipe the paused workout',
+      );
+      expect((await cache.readTrainingHistory())!.single.id, foreign.id);
+
+      // The player's own recorded completion retires its checkpoint.
+      final own = logged('33333333-3333-4333-8333-333333333333');
+      await cache.writeTrainingSession(own.recoverySnapshot());
+      await cache.commitSyncOperations([SyncOp.trainingHistoryInsert(own)]);
+      expect(await cache.readTrainingSession(), isNull);
     });
   });
 

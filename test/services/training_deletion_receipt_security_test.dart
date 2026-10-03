@@ -8,6 +8,7 @@ import 'package:eatova/src/models/training_session.dart';
 import 'package:eatova/src/services/crash_reporter.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/secure_cache_store.dart';
+import 'package:eatova/src/services/sync_outbox.dart';
 import 'package:eatova/src/services/training_session_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -124,7 +125,7 @@ class _FailingRemovalStorage extends InMemoryKeyValueStore {
   }
 }
 
-TrainingHistoryEntry _entry() =>
+TrainingHistoryEntry _entry([String id = _first]) =>
     withClock(Clock.fixed(DateTime.utc(2026, 9, 10, 12)), () {
       final controller = TrainingSessionController(
         plan: timerPlan(),
@@ -138,7 +139,7 @@ TrainingHistoryEntry _entry() =>
       return TrainingHistoryEntry(
         snapshot: TrainingSessionSnapshot.fromJson({
           ...completed.snapshot.toJson(),
-          'session_id': _first,
+          'session_id': id,
         }),
         finishedAt: completed.finishedAt,
       );
@@ -278,6 +279,68 @@ void main() {
       },
     );
   }
+
+  test(
+    'a foreign history insert keeps the encrypted checkpoint and the receipt fence',
+    () async {
+      const third = '33333333-3333-4333-8333-333333333333';
+      final raw = InMemoryKeyValueStore();
+      final cache = _cache(raw);
+      final paused = TrainingSessionSnapshot(
+        sessionId: _second,
+        startedAt: DateTime.utc(2026, 9, 10, 11),
+        plan: timerPlan(),
+        workoutIndex: 1,
+        exerciseIndex: 0,
+        setIndex: 0,
+        phase: TrainingSessionPhase.exercise,
+        remainingMilliseconds: 0,
+      );
+      expect(await cache.writeTrainingSession(paused), isTrue);
+      expect(await cache.rememberTrainingHistoryDeletion(_first), isTrue);
+
+      await expectLater(
+        cache.commitSyncOperations([SyncOp.trainingHistoryInsert(_entry())]),
+        throwsStateError,
+        reason: 'a receipted ID is never written again',
+      );
+      final foreign = _entry(third);
+      await cache.commitSyncOperations([SyncOp.trainingHistoryInsert(foreign)]);
+
+      final cold = _cache(InMemoryKeyValueStore(raw.snapshot));
+      expect((await cold.readTrainingSession())?.toJson(), paused.toJson());
+      expect(await cold.readTrainingHistoryDeletions(), {_first});
+      expect((await cold.readTrainingHistory())!.single.id, third);
+    },
+  );
+
+  test(
+    'a history insert under an unreadable receipt fails closed and keeps the checkpoint',
+    () async {
+      final raw = InMemoryKeyValueStore();
+      final cache = _cache(raw);
+      final paused = _entry(_second).recoverySnapshot();
+      expect(await cache.writeTrainingSession(paused), isTrue);
+      expect(await cache.rememberTrainingHistoryDeletion(_first), isTrue);
+      final corrupted = _badTag(raw.snapshot[_receiptKey]!);
+      await raw.setString(_receiptKey, corrupted);
+      final outboxBefore = raw.snapshot['eatova.v1.outbox.$_owner'];
+
+      await expectLater(
+        cache.commitSyncOperations([
+          SyncOp.trainingHistoryInsert(
+            _entry('33333333-3333-4333-8333-333333333333'),
+          ),
+        ]),
+        throwsA(anything),
+        reason: 'unknown deletions are never treated as none',
+      );
+      expect(raw.snapshot[_receiptKey], corrupted);
+      expect(raw.snapshot['eatova.v1.outbox.$_owner'], outboxBefore);
+      expect((await cache.readTrainingSession())?.toJson(), paused.toJson());
+      expect(await cache.readTrainingHistory(), isNull);
+    },
+  );
 
   test(
     'decrypted but invalid receipt JSON remains occupied and sanitized',
