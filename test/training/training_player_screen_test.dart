@@ -1229,7 +1229,7 @@ void main() {
       expect(find.text(missing), findsNothing);
       expect(saveEnabled(tester), isTrue);
       expect(
-        tester.widget<TextButton>(_key('training-finish-keep')).onPressed,
+        tester.widget<SoftPillButton>(_key('training-finish-keep')).onTap,
         isNotNull,
       );
       await _tap(tester, 'training-finish-keep');

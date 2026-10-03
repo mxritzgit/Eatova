@@ -44,20 +44,18 @@ Future<void> showDataExportSheet(
   String fallbackSnapshot = '',
   ExportDateiTeiler? dateiTeilen,
 }) {
-  return showModalBottomSheet<void>(
-    context: context,
-    backgroundColor: context.t.bg,
-    // The theme sets `false` globally, but the handle belongs on the route
-    // here: this sheet is a DraggableScrollableSheet with no header of its
-    // own.
-    showDragHandle: true,
-    isScrollControlled: true,
-    useSafeArea: true,
-    builder: (_) => DataExportSheet(
-      snapshot: snapshot(),
-      fallbackSnapshot: fallbackSnapshot,
-      vollstaendig: vollstaendig,
-      dateiTeilen: dateiTeilen,
+  // Material's handle stays on: this is a DraggableScrollableSheet and the
+  // handle is its grip. The Builder defers [snapshot] to the sheet's first
+  // build, where the FutureBuilder subscribes.
+  return showEatovaSheet<void>(
+    context,
+    Builder(
+      builder: (_) => DataExportSheet(
+        snapshot: snapshot(),
+        fallbackSnapshot: fallbackSnapshot,
+        vollstaendig: vollstaendig,
+        dateiTeilen: dateiTeilen,
+      ),
     ),
   );
 }
@@ -278,24 +276,24 @@ class _DataExportSheetState extends State<DataExportSheet> {
                 const SizedBox(height: 18),
                 Wrap(
                   spacing: 8,
-                  runSpacing: 4,
+                  runSpacing: 8,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    ChoiceChip(
+                    FilterChipPill(
                       key: const ValueKey('export-format-text'),
-                      label: Text(l10n.exportReadable),
+                      label: l10n.exportReadable,
                       selected: !_jsonOutput,
-                      onSelected: (_) => setState(() => _jsonOutput = false),
+                      onTap: () => setState(() => _jsonOutput = false),
                     ),
-                    ChoiceChip(
+                    FilterChipPill(
                       key: const ValueKey('export-format-json'),
-                      label: Text(l10n.exportJson),
+                      label: l10n.exportJson,
                       selected: _jsonOutput,
-                      onSelected: (_) => setState(() => _jsonOutput = true),
+                      onTap: () => setState(() => _jsonOutput = true),
                     ),
                   ],
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
@@ -401,46 +399,15 @@ class _CopyButton extends StatelessWidget {
   final bool enabled;
   final Future<void> Function() onCopy;
 
+  // A null onTap is the pill's disabled state: dimmed AND announced as
+  // disabled, not a button that silently does nothing.
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    // `enabled` explicitly on the semantics: disabled means dimmed AND
-    // announced as disabled, not a button that silently does nothing.
-    return Semantics(
-      button: true,
-      enabled: enabled,
-      child: Opacity(
-        opacity: enabled ? 1 : 0.4,
-        child: Material(
-          key: const ValueKey('profile-export-copy'),
-          color: t.forest,
-          borderRadius: BorderRadius.circular(rChip),
-          child: InkWell(
-            onTap: enabled ? onCopy : null,
-            borderRadius: BorderRadius.circular(rChip),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Icon(Icons.copy_rounded, size: 14, color: t.onForest),
-                  const SizedBox(width: 6),
-                  Text(
-                    context.l10n.exportSheetCopyButton,
-                    style: AppType.ui(
-                      12,
-                      weight: FontWeight.w700,
-                      color: t.onForest,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => SoftPillButton(
+    key: const ValueKey('profile-export-copy'),
+    label: context.l10n.exportSheetCopyButton,
+    icon: Icons.copy_rounded,
+    onTap: enabled ? onCopy : null,
+  );
 }
 
 /// The path for the FULL data: a file instead of a text area. Sits below the
@@ -452,43 +419,13 @@ class _ShareFileButton extends StatelessWidget {
   final Future<void> Function() onShare;
 
   @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    return Semantics(
-      button: true,
-      enabled: enabled,
-      child: Opacity(
-        opacity: enabled ? 1 : 0.4,
-        child: Material(
-          key: const ValueKey('profile-export-share'),
-          color: t.tile,
-          borderRadius: BorderRadius.circular(rChip),
-          child: InkWell(
-            onTap: enabled ? onShare : null,
-            borderRadius: BorderRadius.circular(rChip),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Icon(Icons.ios_share_rounded, size: 15, color: t.ink),
-                  const SizedBox(width: 8),
-                  Text(
-                    context.l10n.exportShareFile,
-                    style: AppType.ui(
-                      12,
-                      weight: FontWeight.w700,
-                      color: t.ink,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => SoftPillButton(
+    key: const ValueKey('profile-export-share'),
+    label: context.l10n.exportShareFile,
+    icon: Icons.ios_share_rounded,
+    tone: SoftPillTone.neutral,
+    onTap: enabled ? onShare : null,
+  );
 }
 
 class _ExportHeader extends StatelessWidget {
@@ -509,10 +446,12 @@ class _ExportHeader extends StatelessWidget {
         style: AppType.display(largeText ? 22 : 26, color: context.t.ink),
       ),
     );
+    final t = context.t;
     final close = IconButton(
       tooltip: context.l10n.commonClose,
       onPressed: () => Navigator.of(context).pop(),
-      icon: const Icon(Icons.close_rounded),
+      style: IconButton.styleFrom(backgroundColor: t.surf2),
+      icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
     );
     return largeText
         ? Column(

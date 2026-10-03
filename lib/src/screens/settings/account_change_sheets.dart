@@ -429,15 +429,15 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
               enabled: !_busy,
               errorText: _wiederholungFehler,
             ),
-            TextButton(
+            SoftPillButton(
               key: const ValueKey<String>('password-change-resend'),
-              onPressed: _busy || _resendSeconds > 0 ? null : _codeAnfordern,
-              child: Text(
-                _resendSeconds > 0
-                    ? l10n.authCodeResendCountdown(_resendSeconds)
-                    : l10n.authCodeResendCta,
-              ),
+              onTap: _busy || _resendSeconds > 0 ? null : _codeAnfordern,
+              icon: _resendSeconds > 0 ? Icons.schedule_rounded : null,
+              label: _resendSeconds > 0
+                  ? l10n.authCodeResendCountdown(_resendSeconds)
+                  : l10n.authCodeResendCta,
             ),
+            const SizedBox(height: 14),
           ],
           Text(
             l10n.settingsPasswordChangeRecoveryHint,

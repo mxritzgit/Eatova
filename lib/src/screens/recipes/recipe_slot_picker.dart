@@ -158,24 +158,13 @@ class _MealSlotPickerSheetState extends State<_MealSlotPickerSheet> {
                   ),
                   if (i != slots.length - 1) const SizedBox(height: 9),
                 ],
-                const SizedBox(height: 10),
-                // Colours and shape come from the button theme; only the
-                // stature is local.
-                ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    minWidth: double.infinity,
-                    minHeight: 46,
-                  ),
-                  child: TextButton(
-                    key: const ValueKey('recipe-meal-picker-cancel'),
-                    onPressed: _saving
-                        ? null
-                        : () => Navigator.of(context).pop(),
-                    child: Text(
-                      l10n.commonCancel,
-                      style: AppType.ui(13.5, weight: FontWeight.w600),
-                    ),
-                  ),
+                const SizedBox(height: 12),
+                SoftPillButton(
+                  key: const ValueKey('recipe-meal-picker-cancel'),
+                  label: l10n.commonCancel,
+                  onTap: _saving ? null : () => Navigator.of(context).pop(),
+                  tone: SoftPillTone.neutral,
+                  expand: true,
                 ),
               ],
             ),

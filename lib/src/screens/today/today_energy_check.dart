@@ -99,14 +99,15 @@ class _TodayEnergyCheckCardState extends State<TodayEnergyCheckCard> {
               height: 46,
               onTap: _busy ? null : () => _answer(widget.onAccept),
             ),
-            const SizedBox(height: 2),
-            Center(
-              child: TextButton(
-                key: const ValueKey('today-energy-check-dismiss'),
-                onPressed: _busy ? null : () => _answer(widget.onDismiss),
-                child: Text(l10n.todayEnergyCheckDismiss),
-              ),
+            const SizedBox(height: 8),
+            SoftPillButton(
+              key: const ValueKey('today-energy-check-dismiss'),
+              label: l10n.todayEnergyCheckDismiss,
+              onTap: _busy ? null : () => _answer(widget.onDismiss),
+              tone: SoftPillTone.neutral,
+              expand: true,
             ),
+            const SizedBox(height: 10),
             Text(
               l10n.todayEnergyCheckBasis(p.loggedDays, p.weighInDays),
               textAlign: TextAlign.center,

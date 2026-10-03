@@ -266,7 +266,9 @@ class _BarcodeScannerSheetState extends State<BarcodeScannerSheet>
             clipBehavior: Clip.antiAlias,
             child: Column(
               children: [
-                const _SheetHandle(),
+                const SheetHandle(
+                  padding: EdgeInsets.only(top: 10, bottom: 4),
+                ),
                 _HeaderRow(onClose: _schliessen),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -511,8 +513,9 @@ class _ScannerFailedLayer extends StatelessWidget {
       key: const ValueKey('barcode-scanner-failed'),
       color: t.bg,
       child: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
+        // Scrolls instead of overflowing on a short preview or at 2x text.
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -531,19 +534,31 @@ class _ScannerFailedLayer extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 14),
-              // Theme-styled on purpose (F8-10): no colour copies here.
-              if (permissionDenied)
-                OutlinedButton.icon(
-                  key: const ValueKey('barcode-open-settings'),
-                  onPressed: onOpenSettings,
-                  icon: const Icon(Icons.settings_outlined, size: 18),
-                  label: Text(l10n.foodOpenSettingsButton),
-                ),
-              TextButton.icon(
-                key: const ValueKey('barcode-type-in'),
-                onPressed: onTypeBarcode,
-                icon: const Icon(Icons.keyboard_alt_outlined, size: 18),
-                label: Text(l10n.foodBarcodeTypeInButton),
+              // Design-system pills on the sheet's `bg` (F8-10: no colour
+              // copies). Typing is the only way out when the camera is dead,
+              // so it takes the accent unless Settings is the real fix.
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (permissionDenied)
+                    SoftPillButton(
+                      key: const ValueKey('barcode-open-settings'),
+                      onTap: onOpenSettings,
+                      icon: Icons.settings_outlined,
+                      label: l10n.foodOpenSettingsButton,
+                    ),
+                  SoftPillButton(
+                    key: const ValueKey('barcode-type-in'),
+                    onTap: onTypeBarcode,
+                    icon: Icons.keyboard_alt_outlined,
+                    label: l10n.foodBarcodeTypeInButton,
+                    tone: permissionDenied
+                        ? SoftPillTone.neutral
+                        : SoftPillTone.accent,
+                  ),
+                ],
               ),
             ],
           ),
@@ -630,14 +645,13 @@ class _ManualBarcodeLayerState extends State<_ManualBarcodeLayer> {
               onTap: _submit,
               height: 48,
             ),
-            const SizedBox(height: 4),
-            SizedBox(
-              width: double.infinity,
-              child: TextButton(
-                key: const ValueKey('barcode-manual-back'),
-                onPressed: widget.onBack,
-                child: Text(l10n.commonCancel),
-              ),
+            const SizedBox(height: 10),
+            SoftPillButton(
+              key: const ValueKey('barcode-manual-back'),
+              onTap: widget.onBack,
+              label: l10n.commonCancel,
+              tone: SoftPillTone.neutral,
+              expand: true,
             ),
           ],
         ),
@@ -677,25 +691,6 @@ class _EdgeScrim extends StatelessWidget {
   }
 }
 
-class _SheetHandle extends StatelessWidget {
-  const _SheetHandle();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 10, bottom: 4),
-      child: Container(
-        width: 40,
-        height: 4,
-        decoration: BoxDecoration(
-          color: context.t.line,
-          borderRadius: BorderRadius.circular(rPill),
-        ),
-      ),
-    );
-  }
-}
-
 class _HeaderRow extends StatelessWidget {
   const _HeaderRow({required this.onClose});
 
@@ -706,7 +701,8 @@ class _HeaderRow extends StatelessWidget {
     final t = context.t;
     final l10n = context.l10n;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 2, 6, 2),
+      // The close circle's edge lines up with the slot picker (14 px).
+      padding: const EdgeInsets.fromLTRB(20, 2, 10, 2),
       child: Row(
         children: [
           Expanded(
@@ -719,7 +715,8 @@ class _HeaderRow extends StatelessWidget {
             key: const ValueKey('barcode-close-button'),
             onPressed: onClose,
             tooltip: l10n.commonClose,
-            icon: Icon(Icons.close_rounded, color: t.ink2),
+            style: IconButton.styleFrom(backgroundColor: t.surf2),
+            icon: Icon(Icons.close_rounded, color: t.ink2, size: 21),
           ),
         ],
       ),
@@ -767,10 +764,13 @@ class _AnalyzerStalledLayer extends StatelessWidget {
                 fontSize: 12, height: 1.35, color: Colors.white70),
           ),
           const SizedBox(height: 14),
-          FilledButton(
+          // The accent pair the themed FilledButton carried, so the contrast
+          // on the dimmed preview is unchanged.
+          PrimaryActionButton(
             key: const ValueKey('barcode-analyzer-restart'),
-            onPressed: onRetry,
-            child: Text(l10n.foodRestartScannerButton),
+            onTap: onRetry,
+            label: l10n.foodRestartScannerButton,
+            height: 48,
           ),
         ],
       ),

@@ -167,16 +167,14 @@ class _WorkoutLogProposalCard extends StatelessWidget {
           liveRegion: true,
           child: onOpenTraining == null
               ? Icon(Icons.check_circle_rounded, color: t.accent, size: 22)
-              : TextButton.icon(
-                  key: const ValueKey('coach-workout-log-open-training'),
-                  onPressed: onOpenTraining,
-                  style: TextButton.styleFrom(
-                    minimumSize: const Size(0, 48),
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    alignment: Alignment.centerLeft,
+              : Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: SoftPillButton(
+                    key: const ValueKey('coach-workout-log-open-training'),
+                    onTap: onOpenTraining,
+                    icon: Icons.check_circle_outline_rounded,
+                    label: l10n.coachWorkoutLogOpenTraining,
                   ),
-                  icon: const Icon(Icons.check_circle_outline_rounded),
-                  label: Text(l10n.coachWorkoutLogOpenTraining),
                 ),
         );
       case _WorkoutLogCardStatus.removed:

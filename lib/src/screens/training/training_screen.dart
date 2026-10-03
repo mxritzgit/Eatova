@@ -531,21 +531,24 @@ class _TrainingScreenState extends State<TrainingScreen> {
                   l10n.trainingAdoptionReviewBody(conflict.title),
                   icon: Icons.sync_problem_rounded,
                   action: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
-                      TextButton(
+                      SoftPillButton(
                         key: const ValueKey('training-review-adoption'),
-                        onPressed: _reviewingAdoption || _deleting
+                        onTap: _reviewingAdoption || _deleting
                             ? null
                             : () => _reviewAdoption(conflict),
-                        child: Text(l10n.trainingAdoptionReviewAction),
+                        label: l10n.trainingAdoptionReviewAction,
                       ),
                       if (widget.onDiscardAdoption != null)
-                        TextButton(
+                        SoftPillButton(
                           key: const ValueKey('training-discard-adoption'),
-                          onPressed: _reviewingAdoption || _deleting
+                          onTap: _reviewingAdoption || _deleting
                               ? null
                               : () => _discardAdoption(conflict),
-                          child: Text(l10n.trainingAdoptionDiscardAction),
+                          label: l10n.trainingAdoptionDiscardAction,
+                          tone: SoftPillTone.danger,
                         ),
                     ],
                   ),
@@ -564,10 +567,10 @@ class _TrainingScreenState extends State<TrainingScreen> {
                 _notice(
                   context,
                   l10n.trainingPageLoadError,
-                  action: TextButton.icon(
-                    onPressed: widget.onRetry,
-                    icon: const Icon(Icons.refresh_rounded),
-                    label: Text(l10n.trainingPageRetry),
+                  action: SoftPillButton(
+                    onTap: widget.onRetry,
+                    icon: Icons.refresh_rounded,
+                    label: l10n.trainingPageRetry,
                   ),
                 ),
                 gap,
@@ -579,11 +582,11 @@ class _TrainingScreenState extends State<TrainingScreen> {
                   icon: Icons.cloud_off_rounded,
                   action: widget.onRetryHistory == null
                       ? null
-                      : TextButton.icon(
+                      : SoftPillButton(
                           key: const ValueKey('training-history-retry'),
-                          onPressed: widget.onRetryHistory,
-                          icon: const Icon(Icons.refresh_rounded),
-                          label: Text(l10n.trainingPageRetry),
+                          onTap: widget.onRetryHistory,
+                          icon: Icons.refresh_rounded,
+                          label: l10n.trainingPageRetry,
                         ),
                 ),
                 gap,
@@ -901,7 +904,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
             const SizedBox(height: 10),
           ],
           Text(text, style: AppType.ui(14, color: t.ink2, height: 1.45)),
-          ?action,
+          if (action != null) ...[const SizedBox(height: 12), action],
         ],
       ),
     );

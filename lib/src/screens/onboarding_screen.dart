@@ -1528,44 +1528,36 @@ class _SummaryStep extends StatelessWidget {
         ),
         const SizedBox(height: 28),
         _FieldHeading(title: l10n.onboardingReviewTitle),
-        for (final (step, label, value) in [
-          (
-            _Step.basics,
-            l10n.onboardingPhaseBasics,
-            '${profile.ageYears} ${l10n.onboardingUnitYears} \u00b7 ${switch (profile.sex) {
-              BiologicalSex.male => l10n.onboardingSexMale,
-              BiologicalSex.female => l10n.onboardingSexFemale,
-              BiologicalSex.neutral => l10n.onboardingSexNeutral,
-            }}',
-          ),
-          (
-            _Step.body,
-            l10n.onboardingPhaseBody,
-            '${profile.heightCm} ${l10n.commonUnitCm} \u00b7 ${profile.weightKg} ${l10n.commonUnitKg}',
-          ),
-          (
-            _Step.activity,
-            l10n.onboardingPhaseActivity,
-            profile.activityLevel.label(l10n),
-          ),
-          (
-            _Step.goal,
-            l10n.onboardingPhaseGoal,
-            '${profile.effectiveWeightGoal.label(l10n)} \u00b7 ${profile.targetWeightKg} ${l10n.commonUnitKg}',
-          ),
-          (_Step.diet, l10n.onboardingPhaseDiet, profile.diet.label(l10n)),
-        ])
-          ListTile(
-            key: ValueKey('onboarding-edit-${step.name}'),
-            contentPadding: EdgeInsets.zero,
-            title: Text(
-              label,
-              style: AppType.ui(14, weight: FontWeight.w600, color: t.ink),
+        _ReviewRows(
+          onEdit: onEdit,
+          rows: [
+            (
+              _Step.basics,
+              l10n.onboardingPhaseBasics,
+              '${profile.ageYears} ${l10n.onboardingUnitYears} \u00b7 ${switch (profile.sex) {
+                BiologicalSex.male => l10n.onboardingSexMale,
+                BiologicalSex.female => l10n.onboardingSexFemale,
+                BiologicalSex.neutral => l10n.onboardingSexNeutral,
+              }}',
             ),
-            subtitle: Text(value, style: AppType.ui(13, color: t.ink2)),
-            trailing: const Icon(Icons.edit_outlined, size: 20),
-            onTap: () => onEdit(step),
-          ),
+            (
+              _Step.body,
+              l10n.onboardingPhaseBody,
+              '${profile.heightCm} ${l10n.commonUnitCm} \u00b7 ${profile.weightKg} ${l10n.commonUnitKg}',
+            ),
+            (
+              _Step.activity,
+              l10n.onboardingPhaseActivity,
+              profile.activityLevel.label(l10n),
+            ),
+            (
+              _Step.goal,
+              l10n.onboardingPhaseGoal,
+              '${profile.effectiveWeightGoal.label(l10n)} \u00b7 ${profile.targetWeightKg} ${l10n.commonUnitKg}',
+            ),
+            (_Step.diet, l10n.onboardingPhaseDiet, profile.diet.label(l10n)),
+          ],
+        ),
         const SizedBox(height: 16),
         Text(
           l10n.onboardingSummaryFootnote,
@@ -1577,6 +1569,46 @@ class _SummaryStep extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// The summary's "review your details" list: one card of settings-style rows,
+/// each reopening its group.
+class _ReviewRows extends StatelessWidget {
+  const _ReviewRows({required this.rows, required this.onEdit});
+
+  final List<(_Step, String, String)> rows;
+  final ValueChanged<_Step> onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    return AppCard(
+      clip: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final (i, (step, label, value)) in rows.indexed) ...[
+            if (i > 0)
+              Divider(
+                height: 1,
+                thickness: 1,
+                indent: 18,
+                endIndent: 18,
+                color: t.line,
+              ),
+            SettingsRow(
+              key: ValueKey('onboarding-edit-${step.name}'),
+              title: label,
+              subtitle: value,
+              chevron: false,
+              trailing: Icon(Icons.edit_outlined, size: 19, color: t.ink3),
+              onTap: () => onEdit(step),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

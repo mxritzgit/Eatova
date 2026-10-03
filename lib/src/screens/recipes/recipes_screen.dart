@@ -1237,11 +1237,12 @@ class _RecipesScreenState extends State<RecipesScreen> {
             gutter(
               Align(
                 alignment: Alignment.centerLeft,
-                child: TextButton.icon(
+                child: SoftPillButton(
                   key: const ValueKey('recipe-history-open'),
-                  onPressed: () => _openHistory(),
-                  icon: const Icon(Icons.history_rounded),
-                  label: Text(l10n.recipeHistoryTitle),
+                  onTap: () => _openHistory(),
+                  icon: Icons.history_rounded,
+                  label: l10n.recipeHistoryTitle,
+                  tone: SoftPillTone.neutral,
                 ),
               ),
             ),

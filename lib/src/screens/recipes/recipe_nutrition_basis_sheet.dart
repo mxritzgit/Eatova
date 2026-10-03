@@ -153,11 +153,13 @@ class _RecipeNutritionBasisSheetState
                     : l10n.recipeNutritionBasisContinue,
                 onTap: _saving || confirmed == null ? null : _save,
               ),
-              const SizedBox(height: 8),
-              TextButton(
+              const SizedBox(height: 10),
+              SoftPillButton(
                 key: const ValueKey('recipe-nutrition-basis-cancel'),
-                onPressed: _saving ? null : () => Navigator.of(context).pop(),
-                child: Text(l10n.commonCancel),
+                label: l10n.commonCancel,
+                onTap: _saving ? null : () => Navigator.of(context).pop(),
+                tone: SoftPillTone.neutral,
+                expand: true,
               ),
             ],
           ),
