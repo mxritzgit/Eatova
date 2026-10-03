@@ -219,7 +219,12 @@ class EdgeFunctionMealAnalyzer implements MealAnalyzer {
   Future<MealAnalysisResult> analyze(MealAnalysisRequest request) async {
     final imageBytes = request.imageBytes;
     if (imageBytes == null || imageBytes.isEmpty) {
-      throw const FormatException('No image bytes available for analysis.');
+      // The fail-closed scrub could not read the picked photo. Named like the
+      // server's own code, so the sheet blames the photo, not the connection.
+      throw const MealAnalysisServerError(
+        statusCode: 400,
+        code: 'missing_image',
+      );
     }
     if (imageBytes.length > _maxImageBytes) {
       throw const MealImageTooLarge();
