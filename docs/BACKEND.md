@@ -88,15 +88,28 @@ provider-budget operation. The server converts pounds to kilograms rounded to
 0.01, nulls a `performed_on` outside `[local_date - 30, local_date]`, and
 validates the result strictly (schema v1 in
 [workout_log.ts](../supabase/functions/coach-chat/workout_log.ts), mirrored
-by `is_valid_coach_workout_log` on `chat_messages.workout_log`). The buffered
-response is `{reply, workout_log, remaining?, daily_limit, session_id,
-assistant_message_id?}`; refusals carry `refusal_reason` (`log_not_a_workout`,
-`log_not_completed`, `log_too_large`, `log_unsafe`, or the classifier
-category). Refusals keep the slot; an invalid or truncated draft, a provider
-outage or a failed user-row store refunds it once to the claim day. The
-function never writes training history: the app saves the workout only after
-the user confirms the card. Chat answers follow the app language when a message
-mixes languages and point reported workouts to `/log`.
+by `is_valid_coach_workout_log` on `chat_messages.workout_log`). The
+extraction's `weight_unit` is required only where a weight is given, and a
+model refusal may omit `workout`. The buffered response is `{reply,
+workout_log, remaining?, daily_limit, session_id, assistant_message_id?}`.
+
+A log refusal is HTTP 200 with `{reply, refusal: true, refusal_reason,
+session_id}` plus the quota fields of its stage:
+
+| Stage | `refusal_reason` | Quota fields |
+| --- | --- | --- |
+| Prefilter (layer 1) | `doping`, `eating_disorder`, `illegal_drugs`, `self_harm`, `off_topic_homework`, `prompt_injection` | none: no slot is claimed, so `remaining` and `daily_limit` are omitted |
+| Classifier (layer 2) | `self_harm`, `eating_disorder`, `injection`, `classifier_unusable` | `remaining?`, `daily_limit` |
+| Extraction | `model_refusal` (provider safety filter), `log_not_a_workout`, `log_not_completed`, `log_too_large`, `log_unsafe` | `remaining?`, `daily_limit` |
+
+The stored assistant row prefixes classifier categories with `classifier_`;
+`classifier_unusable` keeps its name. A message over 1,000 characters is
+`413 message_too_long` with `refusal_reason: "too_long"`, before any session
+or quota work. Classifier and extraction refusals keep the slot; an invalid or
+truncated draft, a provider outage or a failed user-row store refunds it once
+to the claim day. The function never writes training history: the app saves
+the workout only after the user confirms the card. Chat answers follow the app
+language when a message mixes languages and point reported workouts to `/log`.
 
 Quota is claimed atomically on the server. Failure/refund behavior depends on
 the outcome; it is not a promise that every unsuccessful request is free. A
