@@ -245,6 +245,43 @@
       "kcal": { "type": "int" }
     }
   },
+  "commonEnergyCheckApplied": "Tagesziel angepasst: {kcal} kcal.",
+  "@commonEnergyCheckApplied": {
+    "placeholders": {
+      "kcal": { "type": "int" }
+    }
+  },
+  "todayEnergyCheckTitle": "Wochen-Check",
+  "todayEnergyCheckBurnMore": "Laut deinen letzten drei Wochen verbrauchst du rund {observed} kcal am Tag – etwa {difference} kcal mehr als berechnet.",
+  "@todayEnergyCheckBurnMore": {
+    "placeholders": {
+      "observed": { "type": "int" },
+      "difference": { "type": "int" }
+    }
+  },
+  "todayEnergyCheckBurnLess": "Laut deinen letzten drei Wochen verbrauchst du rund {observed} kcal am Tag – etwa {difference} kcal weniger als berechnet.",
+  "@todayEnergyCheckBurnLess": {
+    "placeholders": {
+      "observed": { "type": "int" },
+      "difference": { "type": "int" }
+    }
+  },
+  "todayEnergyCheckQuestion": "Tagesziel von {current} auf {proposed} kcal anpassen?",
+  "@todayEnergyCheckQuestion": {
+    "placeholders": {
+      "current": { "type": "int" },
+      "proposed": { "type": "int" }
+    }
+  },
+  "todayEnergyCheckBasis": "Grundlage: {days} Tage mit Einträgen, {weighIns} Wiegungen",
+  "@todayEnergyCheckBasis": {
+    "placeholders": {
+      "days": { "type": "int" },
+      "weighIns": { "type": "int" }
+    }
+  },
+  "todayEnergyCheckAccept": "Anpassen",
+  "todayEnergyCheckDismiss": "Nicht jetzt",
   "foodRemoveFavoriteTooltip": "Aus Favoriten entfernen",
   "foodAddFavoriteTooltip": "Als Favorit speichern",
   "foodDecreaseAmountSemantics": "Menge verringern",
@@ -1072,6 +1109,9 @@
   "goalsGroupBody": "KÖRPER",
   "goalsFieldWeight": "Gewicht",
   "goalsWeightFromTrend": "Trend aus deinen Wiegungen – neue Wiegung im Profil eintragen.",
+  "goalsEnergyAdjustmentTitle": "Wochen-Check",
+  "goalsEnergyAdjustmentSubtitle": "Verbrauch aus deinen Einträgen und Wiegungen kalibriert",
+  "goalsEnergyAdjustmentReset": "Zurücksetzen",
   "goalsFieldHeight": "Größe",
   "goalsFieldAge": "Alter",
   "goalsUnitAgeAbbrev": "J.",

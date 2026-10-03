@@ -721,6 +721,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.selectedFoodDate,
       _store.loggedMeals,
       _store.profile,
+      // The weekly energy check also reads the weight log.
+      _store.weightLog,
       _store.stepsForFoodDate(_store.selectedFoodDate),
       // Map identity as fingerprint (G11): an upsert replaces the map.
       _store.dailyActivity,
@@ -774,6 +776,14 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         onOpenPick: (pick) => _openTodayPick(context, pick),
         onOpenFoodLog: () => _store.setTab(_tabFood),
         onOpenTraining: () => _store.setTab(_tabTraining),
+        energyCheck: today ? _store.energyCheckProposal : null,
+        onAcceptEnergyCheck: () {
+          final proposal = _store.energyCheckProposal;
+          return proposal == null
+              ? Future<void>.value()
+              : _store.acceptEnergyCheck(proposal);
+        },
+        onDismissEnergyCheck: _store.dismissEnergyCheck,
       );
     },
   );

@@ -77,6 +77,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
   late ActivityLevel _activity;
   late WeightGoal _goal;
 
+  /// The weekly check's maintenance offset (docs/WEIGHT-TREND.md); only the
+  /// reset below changes it here.
+  late int _energyAdjustment;
+
   /// True when the user overrode kcal/macros by hand. Comes from the persisted
   /// [UserProfile.manualEnergy] (F7-01) — never reconstructed by comparing
   /// stored and computed numbers, which flipped every profile to manual after
@@ -115,6 +119,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
     _sex = p.sex;
     _activity = p.activityLevel;
     _goal = p.weightGoal;
+    _energyAdjustment = p.energyAdjustmentKcal;
 
     _manualEnergy = p.manualEnergy;
     _manualStart = _manualEnergy;
@@ -376,6 +381,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
         p.targetWeightKg,
       ),
       weightGoal: _goal,
+      energyAdjustmentKcal: _energyAdjustment,
     );
   }
 
@@ -474,6 +480,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
       return true;
     }
     if (_manualEnergy != _manualStart) return true;
+    if (_energyAdjustment != p.energyAdjustmentKcal) return true;
     if (_reminder != _reminderStart) return true;
     return _textStart.entries.any((e) => e.key.text != e.value);
   }
@@ -874,9 +881,36 @@ class _GoalsScreenState extends State<GoalsScreen> {
               semanticLabel: l10n.goalsManualSemanticLabel,
             ),
           ),
-          if (!_manualEnergy)
-            SettingsNote(l10n.goalsAutoNote)
-          else ...<Widget>[
+          if (!_manualEnergy) ...<Widget>[
+            SettingsNote(l10n.goalsAutoNote),
+            // A confirmed weekly check shifts the live goals; shown so it is
+            // never a hidden number, and reversible on save.
+            // Row and its reset are ONE group child (no hairline between); a
+            // trailing button beside title, subtitle and value overflowed.
+            if (_energyAdjustment != 0)
+              Column(
+                key: const ValueKey('settings-energy-adjustment'),
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  SettingsRow(
+                    title: l10n.goalsEnergyAdjustmentTitle,
+                    subtitle: l10n.goalsEnergyAdjustmentSubtitle,
+                    value: '${_energyAdjustment > 0 ? '+' : '−'}'
+                        '${_energyAdjustment.abs()} ${l10n.commonKcalUnit}',
+                    chevron: false,
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                    child: SettingsSecondaryButton(
+                      key: const ValueKey('settings-energy-adjustment-reset'),
+                      label: l10n.goalsEnergyAdjustmentReset,
+                      icon: Icons.restart_alt_rounded,
+                      onTap: () => setState(() => _energyAdjustment = 0),
+                    ),
+                  ),
+                ],
+              ),
+          ] else ...<Widget>[
             SettingsNumberRow(
               label: l10n.goalsFieldKcalGoal,
               suffix: l10n.commonKcalUnit,
