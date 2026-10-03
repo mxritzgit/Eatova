@@ -49,9 +49,11 @@ const String trainingRestNotificationPayload = 'training-rest';
 
 /// Schedules and cancels the alert for the current rest or timed interval.
 abstract class RestAlertScheduler {
-  /// Schedules one alert at [at] under [id] (from [restAlertIdForSession]),
-  /// replacing an earlier one with the same id. Texts must stay generic
-  /// (D5: no exercise names or weights on the lock screen).
+  /// Schedules one alert at [at] under [id], replacing an earlier one with
+  /// the same id. The player uses [restAlertIdForSession] for the alert of
+  /// the current phase and [restAlertFollowUpIdForSession] for the rest that
+  /// follows a timed interval. Texts must stay generic (D5: no exercise names
+  /// or weights on the lock screen).
   ///
   /// Ignored from a session end until the next account's session opens
   /// (see [RestAlertSessionScope]).

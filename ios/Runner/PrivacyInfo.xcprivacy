@@ -36,7 +36,8 @@
 
 	<!--
 	  Required-Reason-APIs: keine.
-	  Beleg: Grep ueber ios/Runner nach UserDefaults/NSUserDefaults,
+	  Beleg: Grep ueber die Quelldateien in ios/Runner (ohne diese Datei) nach
+	  UserDefaults/NSUserDefaults,
 	  systemUptime/mach_absolute_time, statfs/statvfs/volumeAvailableCapacity,
 	  creationDate/modificationDate und activeInputModes => kein Treffer.
 	  Der Runner-Code besteht aus AppDelegate (Speech-Bridge + Notification-

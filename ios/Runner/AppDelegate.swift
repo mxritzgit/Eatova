@@ -173,8 +173,8 @@ public final class EatovaSpeechPlugin: NSObject, FlutterPlugin {
   private var dartToken = 0
   /// Set while a graceful stop waits for the final result.
   private var stopReason: String?
-  /// Wall clock when the audio engine started. Not `systemUptime`: that is a
-  /// required-reason API (boot time) PrivacyInfo.xcprivacy does not declare.
+  /// Wall clock when the audio engine started. Not the boot-time clock: that
+  /// is a required-reason API PrivacyInfo.xcprivacy does not declare.
   private var recordingStartedAt: Date?
 
   /// Diagnostic log for the recognition mode: only a bool + locale id,
