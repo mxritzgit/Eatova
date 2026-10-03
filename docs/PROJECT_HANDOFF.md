@@ -2551,9 +2551,9 @@ the new columns, so none was deployed.
 
 ## Training flow, Coach /log and dictation, 2026-10-03
 
-Branch `feat/training-flow-coach-log`, one PR for server and app (the
-owner authorized deploy and merge in the chat); its description holds the
-review evidence and records CI, deploy and merge. Design:
+Branch `feat/training-flow-coach-log`, one PR for server and app (ruling
+R23); its description holds the review evidence and records CI, deploy
+and merge. Design:
 [spec](superpowers/specs/2026-10-03-training-flow-and-coach-log-design.md),
 [plan](superpowers/plans/2026-10-03-training-flow-coach-log.md). Player
 rules and what they supersede: [TRAINING-DESIGN.md](TRAINING-DESIGN.md#workout-player-list-2026-10-03).
