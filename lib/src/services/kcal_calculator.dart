@@ -315,7 +315,10 @@ class KcalCalculator {
       ageYears: profile.ageYears,
       sex: profile.sex,
     );
-    final maintenance = bmr * profile.activityLevel.palFactor;
+    // The weekly energy check's confirmed offset (docs/WEIGHT-TREND.md): the
+    // estimate calibrated against logged intake and the weight trend.
+    final maintenance =
+        bmr * profile.activityLevel.palFactor + profile.energyAdjustmentKcal;
 
     // 1 % cap only when losing; gain steps stay as chosen.
     final maxDeficit = maxDeficitKcalPerDay(profile.weightKg);

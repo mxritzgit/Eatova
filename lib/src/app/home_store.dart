@@ -29,6 +29,7 @@ import '../models/user_profile.dart';
 import '../models/weight_log.dart';
 import '../services/crash_reporter.dart';
 import '../services/day_math.dart';
+import '../services/energy_check.dart';
 import '../services/durable_cache_store.dart' show LegacyStorageConflict;
 import '../services/eatova_sync.dart';
 import '../services/health_service.dart';
@@ -68,6 +69,7 @@ part 'home_store_tracking.dart';
 part 'home_store_training.dart';
 part 'home_store_training_history.dart';
 part 'home_store_derivations.dart';
+part 'home_store_energy_check.dart';
 
 /// Context-free snackbar request emitted by [HomeStore].
 ///
@@ -570,6 +572,7 @@ class HomeStore extends _HomeStoreBase
         _HomeStoreTrackingPart,
         _HomeStoreProfilePart,
         _HomeStoreMealsPart,
+        _HomeStoreEnergyCheckPart,
         _HomeStoreRecipeEditsPart,
         _HomeStoreTrainingPart,
         _HomeStoreMealPlanPart,
@@ -689,6 +692,19 @@ class HomeStore extends _HomeStoreBase
   @override
   bool get _serverAnsweredProfileAndWeightLog =>
       _serverProfileLoaded && _serverWeightLogLoaded;
+
+  /// The meal load answered in this session — the weekly check's third
+  /// source (docs/WEIGHT-TREND.md); same lifecycle as the two above.
+  @override
+  bool _serverMealsLoaded = false;
+
+  static bool _sameMealIds(List<LoggedMeal> a, List<LoggedMeal> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].id != b[i].id) return false;
+    }
+    return true;
+  }
 
   static bool _sameWeighIns(WeightLog a, WeightLog b) {
     if (a.entries.length != b.entries.length) return false;
@@ -1044,6 +1060,9 @@ class HomeStore extends _HomeStoreBase
       if (cachedWeightLog != null && !_sameWeighIns(cachedWeightLog, weightLog)) {
         _serverWeightLogLoaded = false;
       }
+      if (cachedMeals != null && !_sameMealIds(cachedMeals, loggedMeals)) {
+        _serverMealsLoaded = false;
+      }
       if (cachedProfile != null) {
         profile = cachedProfile;
         _hydratedFromRealSource = true;
@@ -1222,6 +1241,7 @@ class HomeStore extends _HomeStoreBase
 
       final loadedMeals = results[1] as List<LoggedMeal>?;
       if (loadedMeals != null) {
+        _serverMealsLoaded = true;
         _bootMealsAtCapacity = s.meals.lastLoggedMealsWindowAtCapacity;
         loggedMeals = vorher.loggedMealsVersion == _loggedMealsVersion
             ? loadedMeals
