@@ -35,10 +35,34 @@ const List<int> _statsRequestIdMask = <int>[
 String? deriveStatsRequestId(String sourceUuid) {
   final hex = sourceUuid.replaceAll('-', '').toLowerCase();
   if (!_istHex32(hex)) return null;
+  return _xorUuid(hex, _statsRequestIdMask);
+}
+
+/// XOR mask of the Coach workout-log history id: ASCII of 'eatova-workoutlg'
+/// (exactly 16 bytes). WIRE FORMAT — never change: a confirmed `/log` card
+/// must target the same history row on every device and every retry.
+const List<int> _coachWorkoutLogIdMask = <int>[
+  0x65, 0x61, 0x74, 0x6f, 0x76, 0x61, 0x2d, 0x77, // 'eatova-w'
+  0x6f, 0x72, 0x6b, 0x6f, 0x75, 0x74, 0x6c, 0x67, // 'orkoutlg'
+];
+
+/// The history id of a Coach `/log` card, derived from its server-assigned
+/// assistant message id: lowercase, and `null` unless [messageId] is
+/// UUID-shaped (a local-only message allocates its own id instead).
+String? deriveCoachWorkoutLogId(String messageId) {
+  if (!isUuidShape(messageId)) return null;
+  return _xorUuid(
+    messageId.replaceAll('-', '').toLowerCase(),
+    _coachWorkoutLogIdMask,
+  );
+}
+
+/// XORs 32 lowercase hex chars with a 16-byte mask; lowercase 8-4-4-4-12.
+String _xorUuid(String hex, List<int> mask) {
   final b = StringBuffer();
   for (var i = 0; i < 16; i++) {
-    final byte = int.parse(hex.substring(i * 2, i * 2 + 2), radix: 16) ^
-        _statsRequestIdMask[i];
+    final byte =
+        int.parse(hex.substring(i * 2, i * 2 + 2), radix: 16) ^ mask[i];
     b.write(byte.toRadixString(16).padLeft(2, '0'));
   }
   final h = b.toString();
