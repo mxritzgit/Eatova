@@ -390,18 +390,14 @@ final class TrainingVolumeTrend {
 
   TrainingVolumeWeek get currentWeek => weeks.last;
 
-  /// The newest complete week ("8.6 tonnes last week"), null if none.
-  TrainingVolumeWeek? get lastFullWeek =>
-      weeks.length < 2 ? null : weeks[weeks.length - 2];
-
-  /// Change of [lastFullWeek] against the week before it in percent ("↑ 9%"),
-  /// unrounded; null when that earlier week has no volume or is not charted.
-  double? get changePercent {
-    if (weeks.length < 3) return null;
-    final last = weeks[weeks.length - 2].volumeKg;
-    final before = weeks[weeks.length - 3].volumeKg;
+  /// Change of `weeks[index]` against the week before it in percent
+  /// ("↑ 9%"), unrounded; null when that earlier week has no volume or is not
+  /// charted.
+  double? changePercentAt(int index) {
+    if (index < 1 || index >= weeks.length) return null;
+    final before = weeks[index - 1].volumeKg;
     if (before <= 0) return null;
-    return (last - before) / before * 100;
+    return (weeks[index].volumeKg - before) / before * 100;
   }
 }
 

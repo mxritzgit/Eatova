@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
 import '../../l10n/l10n.dart';
@@ -754,12 +755,29 @@ class TrainingQuickGrid extends StatelessWidget {
   }
 }
 
-/// "Weekly volume": tonnes of the last full week, its change against the
-/// week before, and bars for five full weeks plus the current one.
-class TrainingVolumeCard extends StatelessWidget {
+/// "Weekly volume": bars for five full weeks plus the current one, with the
+/// tonnes of the selected week and its change against the week before. The
+/// running week is selected until a bar is tapped.
+class TrainingVolumeCard extends StatefulWidget {
   const TrainingVolumeCard({super.key, required this.trend});
 
   final TrainingVolumeTrend trend;
+
+  @override
+  State<TrainingVolumeCard> createState() => _TrainingVolumeCardState();
+}
+
+class _TrainingVolumeCardState extends State<TrainingVolumeCard> {
+  /// Start of the tapped week. Null, or a week that left the chart, selects
+  /// the running week; a date (not an index) survives the week rollover.
+  DateTime? _picked;
+
+  void _select(TrainingVolumeWeek week) {
+    final picked = week.isCurrent ? null : week.start;
+    if (picked == _picked) return;
+    HapticFeedback.selectionClick();
+    setState(() => _picked = picked);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -767,13 +785,11 @@ class TrainingVolumeCard extends StatelessWidget {
     final l10n = context.l10n;
     final locale = l10n.localeName;
     final tonnes = NumberFormat('0.0', locale);
-    final weeks = trend.weeks;
+    final weeks = widget.trend.weeks;
     final highest = weeks.fold<double>(
       0,
       (max, week) => math.max(max, week.volumeKg),
     );
-    final lastFull = trend.lastFullWeek;
-    final change = trend.changePercent?.round();
     final title = HeadingSemantics(
       level: 2,
       child: Text(
@@ -786,7 +802,7 @@ class TrainingVolumeCard extends StatelessWidget {
         ),
       ),
     );
-    if (highest <= 0 || lastFull == null) {
+    if (highest <= 0) {
       return AppCard(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
         child: Column(
@@ -804,7 +820,28 @@ class TrainingVolumeCard extends StatelessWidget {
       );
     }
     final dates = DateFormat.MMMd(locale);
-    final highlight = weeks.length - 2;
+    final picked = weeks.indexWhere((week) => week.start == _picked);
+    final highlight = picked < 0 ? weeks.length - 1 : picked;
+    final selected = weeks[highlight];
+    final caption = selected.isCurrent
+        ? l10n.trainingVolumeThisWeek
+        : highlight == weeks.length - 2
+        ? l10n.trainingVolumeLastWeek
+        : l10n.trainingVolumeWeekOf(dates.format(selected.start));
+    final change = widget.trend.changePercentAt(highlight);
+    // The running week is partial: it reports its share of last week instead
+    // of a drop that only means the week is not over.
+    final changeText = change == null
+        ? null
+        : selected.isCurrent
+        ? (selected.volumeKg > 0
+              ? l10n.trainingVolumeShareOfLastWeek((change + 100).round())
+              : null)
+        : switch (change.round()) {
+            > 0 && final up => l10n.trainingVolumeUp(up),
+            < 0 && final down => l10n.trainingVolumeDown(-down),
+            _ => l10n.trainingVolumeSame,
+          };
     final spoken = [
       for (final week in weeks)
         week.isCurrent
@@ -813,7 +850,7 @@ class TrainingVolumeCard extends StatelessWidget {
                 dates.format(week.start),
                 tonnes.format(week.tonnes),
               ),
-    ].join('. ');
+    ];
     // The value label sits in the 124 px chart; it may grow, not overflow.
     final chartScaler = MediaQuery.textScalerOf(
       context,
@@ -830,7 +867,7 @@ class TrainingVolumeCard extends StatelessWidget {
             spacing: 4,
             children: [
               CountingText(
-                value: lastFull.tonnes,
+                value: selected.tonnes,
                 format: tonnes.format,
                 textKey: const ValueKey('training-volume-value'),
                 style: AppType.display(
@@ -843,7 +880,8 @@ class TrainingVolumeCard extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(bottom: 4),
                 child: Text(
-                  l10n.trainingVolumeLastWeek,
+                  caption,
+                  key: const ValueKey('training-volume-caption'),
                   style: AppType.ui(
                     15,
                     weight: FontWeight.w600,
@@ -854,120 +892,140 @@ class TrainingVolumeCard extends StatelessWidget {
               ),
             ],
           ),
-          if (change != null) ...[
+          if (changeText != null) ...[
             const SizedBox(height: 2),
             Text(
-              change > 0
-                  ? l10n.trainingVolumeUp(change)
-                  : change < 0
-                  ? l10n.trainingVolumeDown(-change)
-                  : l10n.trainingVolumeSame,
+              changeText,
               key: const ValueKey('training-volume-change'),
               style: AppType.ui(13, color: t.ink3, height: kTrainingLine),
             ),
           ],
           const SizedBox(height: 16),
-          Semantics(
-            key: const ValueKey('training-volume-chart'),
-            container: true,
-            label: spoken,
-            child: ExcludeSemantics(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Container(
-                    height: 124,
-                    decoration: BoxDecoration(
-                      border: Border(bottom: BorderSide(color: t.lineStrong)),
+          Stack(
+            children: [
+              ExcludeSemantics(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Container(
+                      height: 124,
+                      decoration: BoxDecoration(
+                        border: Border(bottom: BorderSide(color: t.lineStrong)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          for (var i = 0; i < weeks.length; i++) ...[
+                            if (i > 0) const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.end,
+                                children: [
+                                  if (i == highlight) ...[
+                                    Text(
+                                      tonnes.format(weeks[i].tonnes),
+                                      maxLines: 1,
+                                      softWrap: false,
+                                      textScaler: chartScaler,
+                                      style: AppType.ui(
+                                        12,
+                                        weight: FontWeight.w800,
+                                        color: t.ink,
+                                        height: kTrainingLine,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                  ],
+                                  // Grows in on first display and moves to
+                                  // a new height when a workout lands.
+                                  TweenAnimationBuilder<double>(
+                                    tween: Tween<double>(
+                                      begin: 0,
+                                      end: math.max(
+                                        4,
+                                        96 * weeks[i].volumeKg / highest,
+                                      ),
+                                    ),
+                                    duration: motionDuration(
+                                      context,
+                                      kMotionValue,
+                                    ),
+                                    curve: kMotionCurve,
+                                    builder: (context, height, _) => Container(
+                                      key: ValueKey('training-volume-bar-$i'),
+                                      height: height,
+                                      decoration: BoxDecoration(
+                                        color: i == highlight
+                                            ? t.accentFill
+                                            : t.chartViolet,
+                                        borderRadius:
+                                            const BorderRadius.vertical(
+                                              top: Radius.circular(4),
+                                            ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
+                    const SizedBox(height: 8),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         for (var i = 0; i < weeks.length; i++) ...[
                           if (i > 0) const SizedBox(width: 10),
                           Expanded(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.end,
-                              children: [
-                                if (i == highlight) ...[
-                                  Text(
-                                    tonnes.format(weeks[i].tonnes),
-                                    maxLines: 1,
-                                    softWrap: false,
-                                    textScaler: chartScaler,
-                                    style: AppType.ui(
-                                      12,
-                                      weight: FontWeight.w800,
-                                      color: t.ink,
-                                      height: kTrainingLine,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                ],
-                                // Grows in on first display and moves to
-                                // a new height when a workout lands.
-                                TweenAnimationBuilder<double>(
-                                  tween: Tween<double>(
-                                    begin: 0,
-                                    end: math.max(
-                                      4,
-                                      96 * weeks[i].volumeKg / highest,
-                                    ),
-                                  ),
-                                  duration: motionDuration(
-                                    context,
-                                    kMotionValue,
-                                  ),
-                                  curve: kMotionCurve,
-                                  builder: (context, height, _) => Container(
-                                    key: ValueKey('training-volume-bar-$i'),
-                                    height: height,
-                                    decoration: BoxDecoration(
-                                      color: i == highlight
-                                          ? t.accentFill
-                                          : t.chartViolet,
-                                      borderRadius: const BorderRadius.vertical(
-                                        top: Radius.circular(4),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
+                            child: Text(
+                              weeks[i].isCurrent
+                                  ? l10n.trainingVolumeNow
+                                  : dates.format(weeks[i].start),
+                              textAlign: TextAlign.center,
+                              maxLines: 2,
+                              style: AppType.ui(
+                                11,
+                                weight: i == highlight
+                                    ? FontWeight.w800
+                                    : FontWeight.w600,
+                                color: i == highlight ? t.inkMuted : t.ink3,
+                                height: kTrainingLine,
+                              ),
                             ),
                           ),
                         ],
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      for (var i = 0; i < weeks.length; i++) ...[
-                        if (i > 0) const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            weeks[i].isCurrent
-                                ? l10n.trainingVolumeNow
-                                : dates.format(weeks[i].start),
-                            textAlign: TextAlign.center,
-                            maxLines: 2,
-                            style: AppType.ui(
-                              11,
-                              weight: i == highlight
-                                  ? FontWeight.w800
-                                  : FontWeight.w600,
-                              color: i == highlight ? t.inkMuted : t.ink3,
-                              height: kTrainingLine,
-                            ),
+                  ],
+                ),
+              ),
+              // One target per week over its bar, its label and half of each
+              // gap, so a target is wider than the bar itself.
+              Positioned.fill(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var i = 0; i < weeks.length; i++)
+                      Expanded(
+                        child: Semantics(
+                          key: ValueKey('training-volume-week-$i'),
+                          container: true,
+                          button: true,
+                          selected: i == highlight,
+                          label: spoken[i],
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => _select(weeks[i]),
+                            child: const SizedBox.expand(),
                           ),
                         ),
-                      ],
-                    ],
-                  ),
-                ],
+                      ),
+                  ],
+                ),
               ),
-            ),
+            ],
           ),
         ],
       ),

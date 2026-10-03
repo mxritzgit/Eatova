@@ -493,19 +493,28 @@ void main() {
         );
         await _openTraining(tester);
         final trend = store.weeklyTrainingVolume();
+        String text(String key) =>
+            tester.widget<Text>(find.byKey(ValueKey(key))).data!;
+        // The running week first; nothing lifted yet, so no share line.
         expect(
-          tester
-              .widget<Text>(find.byKey(const ValueKey('training-volume-value')))
-              .data,
-          trend.lastFullWeek!.tonnes.toStringAsFixed(1),
+          text('training-volume-value'),
+          trend.currentWeek.tonnes.toStringAsFixed(1),
         );
+        expect(text('training-volume-caption'), 'tonnes this week');
         expect(
-          tester
-              .widget<Text>(
-                find.byKey(const ValueKey('training-volume-change')),
-              )
-              .data,
-          '↑ ${trend.changePercent!.round()}% vs. the week before',
+          find.byKey(const ValueKey('training-volume-change')),
+          findsNothing,
+        );
+        // Last week's bar shows last week against the week before.
+        await _tap(tester, 'training-volume-week-4');
+        expect(
+          text('training-volume-value'),
+          trend.weeks[4].tonnes.toStringAsFixed(1),
+        );
+        expect(text('training-volume-caption'), 'tonnes last week');
+        expect(
+          text('training-volume-change'),
+          '↑ ${trend.changePercentAt(4)!.round()}% vs. the week before',
         );
         final highest = trend.weeks
             .map((w) => w.volumeKg)
@@ -519,17 +528,22 @@ void main() {
           );
         }
         final semantics = tester.ensureSemantics();
-        expect(
-          tester.getSemantics(
-            find.byKey(const ValueKey('training-volume-chart')),
-          ),
-          isSemantics(
-            label:
-                'Week of Aug 24: 6.8 tonnes. Week of Aug 31: 7.4 tonnes. '
-                'Week of Sep 7: 7.1 tonnes. Week of Sep 14: 7.9 tonnes. '
-                'Week of Sep 21: 8.6 tonnes. This week so far: 0.0 tonnes',
-          ),
-        );
+        const spoken = [
+          'Week of Aug 24: 6.8 tonnes',
+          'Week of Aug 31: 7.4 tonnes',
+          'Week of Sep 7: 7.1 tonnes',
+          'Week of Sep 14: 7.9 tonnes',
+          'Week of Sep 21: 8.6 tonnes',
+          'This week so far: 0.0 tonnes',
+        ];
+        for (var i = 0; i < spoken.length; i++) {
+          expect(
+            tester.getSemantics(
+              find.byKey(ValueKey('training-volume-week-$i')),
+            ),
+            isSemantics(label: spoken[i], isButton: true, isSelected: i == 4),
+          );
+        }
         semantics.dispose();
         await _leave(tester);
       });
