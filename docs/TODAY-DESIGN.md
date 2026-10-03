@@ -22,9 +22,11 @@ file records the data and interaction contract behind it.
    rows. Each row's "+" opens the Food tab's add flow for that slot on the
    shown day; the next open main meal's "+" is accent-filled.
 7. Activity card: steps against the goal with the kcal credit, then the
-   selected plan's next workout (switches to the Training tab). Without a step
-   source the steps row is dropped; on Health Connect a missing source shows
-   the review hint instead.
+   workout row. While a workout checkpoint exists it reads
+   "In progress · Resume" and resumes that workout; otherwise it shows the
+   selected plan's next workout (switches to the Training tab). Without a
+   step source the steps row is dropped; on Health Connect a missing source
+   shows the review hint instead.
 
 The page runs under the floating tab bar and pads its end by the bar's band.
 

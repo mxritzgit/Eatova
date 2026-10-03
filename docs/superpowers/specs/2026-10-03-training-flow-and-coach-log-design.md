@@ -310,6 +310,9 @@ its first exercises.
 
 ## 10. Delivery
 
+> Ruling R23 merged both PRs into one; its delivery order is in the
+> [handoff](../../PROJECT_HANDOFF.md#training-flow-coach-log-and-dictation-2026-10-03).
+
 - **PR 1 — server:** migration + `coach-chat` log mode, mode allowlist, locale
   fix, evals. After green CI and the owner's approval: apply the migration
   (after the energy-check migration 20261003100000, which is on the unmerged

@@ -2583,8 +2583,9 @@ rules and what they supersede: [TRAINING-DESIGN.md](TRAINING-DESIGN.md#workout-p
   first against the old overwrite strategy; Swift runs only in the PR's iOS
   workflow, ruling R5), a graceful stop, live partials appended to the
   draft and a DE/EN switch. Mixed German and English in one
-  recording stays out of reach of Apple's recognizer (decision D2: on-device
-  only).
+  recording stays out of reach of Apple's recognizer (decision D2: no audio
+  goes to Eatova's servers or an AI model; Apple may use its servers where
+  no on-device model exists).
 - Coach fixes: the plan brief no longer drops or wipes a draft and says why
   it cannot open; 429 texts follow the app language (the client sends
   `Accept-Language`); errors, "thinking" and answers reach screen readers; a

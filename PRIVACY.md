@@ -136,9 +136,10 @@ You enter and the app stores the following, tied to your account:
   one local notification for the end of each rest or timed interval. The
   operating system delivers it on the device; nothing about it is sent to
   our servers. Its text is generic ("Rest over: Time for your next set.",
-  "Time's up: Rest starts now."), without exercise names or weights. The app
-  asks for permission during a workout, independently of the reminder
-  setting; whether it already explained this is remembered on this device.
+  "Time's up: Rest starts now." or "Time's up: Set complete."), without
+  exercise names or weights. The app asks for permission during a workout,
+  independently of the reminder setting; whether it already explained this
+  and asked the system is remembered on this device.
 - **Health Connect (optional, Android only):** with permission, the app reads
   aggregated steps during foreground refreshes for the selected day's display
   and activity estimate, and for the weekly check (the last three weeks). It

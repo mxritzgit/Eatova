@@ -7,8 +7,11 @@
 > start, Weekly volume and Recent, fed by the store's training derivations
 > (`models/training_insights.dart`). Workouts are chosen through Quick start
 > instead of A–G tabs, and plan edit/delete sit behind the card's round
-> adjust button. The plan library (with its studio artwork), editor, player
-> and history below are unchanged. Report:
+> adjust button. The plan library (with its studio artwork) and the plan
+> editor below are unchanged; the player and history changed on 2026-10-03
+> (see [Workout player](#workout-player-list-2026-10-03); logged workouts:
+> [spec](superpowers/specs/2026-10-03-training-flow-and-coach-log-design.md)
+> §6). Report:
 > `.agents/dark-redesign-2026-09-28/worktree/.superpowers/sdd/plan/task-5-report.md`.
 
 Concept 09, selected on 2026-09-13, is implemented as a native Flutter Training
@@ -93,10 +96,12 @@ the existing dark studio look (spec
   The first workout shows one explainer before the system prompt
   (`RestAlertPermissionGate`, once per device: after "Not now" only the
   chip remains);
-  with alerts off the rest bar shows a quiet "Alerts off" chip that opens
-  the notification settings. A rest or interval that ends in the foreground
-  vibrates once. The home page pins scheduling to the account that opened
-  the player (`GuardedRestAlertScheduler`). Tapping an alert, also the one
+  with alerts off the rest bar shows a quiet "Alerts off" chip that asks
+  for permission if this device never asked (also after "Not now"),
+  otherwise opens the notification settings. A rest or interval that ends
+  in the foreground vibrates once. The home page pins scheduling to the
+  account that opened the player (`GuardedRestAlertScheduler`). Tapping an
+  alert, also the one
   that launched the app, opens Training and, for the account that owns the
   saved workout, resumes it once the tabs show. Today's workout row reads
   "In progress · Resume" while a checkpoint exists and resumes it the same
