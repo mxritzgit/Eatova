@@ -2,16 +2,26 @@ import 'package:flutter/material.dart';
 
 import '../../l10n/l10n.dart';
 import '../../theme/app_tokens.dart';
-import '../design/sheets.dart';
+import '../design/design.dart';
 
+/// The app's calendar sheet. [lastDate] defaults to [today] (diary days);
+/// [confirmLabel] defaults to the Food tab's "Open day".
 Future<DateTime?> showFoodDatePicker(
   BuildContext context, {
   required DateTime initialDate,
   required DateTime firstDate,
   required DateTime today,
+  DateTime? lastDate,
+  String? confirmLabel,
 }) => showEatovaSheet<DateTime>(
   context,
-  FoodDatePicker(initialDate: initialDate, firstDate: firstDate, today: today),
+  FoodDatePicker(
+    initialDate: initialDate,
+    firstDate: firstDate,
+    today: today,
+    lastDate: lastDate,
+    confirmLabel: confirmLabel,
+  ),
 );
 
 /// Calendar changes remain a draft until the diary day is confirmed.
@@ -21,8 +31,16 @@ class FoodDatePicker extends StatefulWidget {
     required this.initialDate,
     required this.firstDate,
     required this.today,
+    this.lastDate,
+    this.confirmLabel,
   });
   final DateTime initialDate, firstDate, today;
+
+  /// Last pickable day; null is [today].
+  final DateTime? lastDate;
+
+  /// Label of the confirm button; null is "Open day".
+  final String? confirmLabel;
 
   @override
   State<FoodDatePicker> createState() => _FoodDatePickerState();
@@ -112,7 +130,12 @@ class _FoodDatePickerState extends State<FoodDatePicker> {
                         key: const ValueKey('food-date-close'),
                         tooltip: l10n.commonClose,
                         onPressed: () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.close_rounded),
+                        style: IconButton.styleFrom(backgroundColor: t.surf2),
+                        icon: Icon(
+                          Icons.close_rounded,
+                          color: t.ink2,
+                          size: 21,
+                        ),
                       ),
                     ],
                   ),
@@ -182,7 +205,7 @@ class _FoodDatePickerState extends State<FoodDatePicker> {
                       child: InputDatePickerFormField(
                         initialDate: _day,
                         firstDate: widget.firstDate,
-                        lastDate: widget.today,
+                        lastDate: widget.lastDate ?? widget.today,
                         autofocus: true,
                         onDateSaved: (day) => _day = DateUtils.dateOnly(day),
                         onDateSubmitted: (day) {
@@ -201,7 +224,7 @@ class _FoodDatePickerState extends State<FoodDatePicker> {
                         key: ValueKey('food-calendar-$_calendarVersion'),
                         initialDate: _day,
                         firstDate: widget.firstDate,
-                        lastDate: widget.today,
+                        lastDate: widget.lastDate ?? widget.today,
                         currentDate: widget.today,
                         onDateChanged: (day) =>
                             setState(() => _day = DateUtils.dateOnly(day)),
@@ -222,17 +245,21 @@ class _FoodDatePickerState extends State<FoodDatePicker> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (!DateUtils.isSameDay(_day, widget.today))
-                TextButton.icon(
+              if (!DateUtils.isSameDay(_day, widget.today)) ...[
+                SoftPillButton(
                   key: const ValueKey('food-date-today'),
-                  onPressed: _today,
-                  icon: const Icon(Icons.today_rounded, size: 18),
-                  label: Text(l10n.foodCalendarToday),
+                  onTap: _today,
+                  icon: Icons.today_rounded,
+                  label: l10n.foodCalendarToday,
+                  tone: SoftPillTone.neutral,
+                  expand: true,
                 ),
-              FilledButton(
+                const SizedBox(height: 10),
+              ],
+              PrimaryActionButton(
                 key: const ValueKey('food-date-confirm'),
-                onPressed: _confirm,
-                child: Text(l10n.foodCalendarOpenDay),
+                onTap: _confirm,
+                label: widget.confirmLabel ?? l10n.foodCalendarOpenDay,
               ),
             ],
           ),
