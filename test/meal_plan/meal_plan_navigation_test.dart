@@ -27,6 +27,9 @@ HomeStore _store() {
   return store;
 }
 
+/// A shopping row announces its checked state like a checkbox.
+final _checked = isSemantics(hasCheckedState: true, isChecked: true);
+
 Future<void> _tap(WidgetTester tester, Finder finder) async {
   await tester.ensureVisible(finder);
   await tester.pumpAndSettle();
@@ -115,7 +118,7 @@ void main() {
         final row = find.byKey(ValueKey('shopping-item-${item.id}'));
         await _tap(tester, row);
         expect(store.shoppingChecks[item.id], isTrue);
-        expect(tester.widget<CheckboxListTile>(row).value, isTrue);
+        expect(tester.getSemantics(row), _checked);
         expect(find.text('All shopping done'), findsOneWidget);
         await _tap(tester, find.byKey(const ValueKey('meal-plan-next-week')));
         expect(row, findsNothing);
@@ -123,7 +126,7 @@ void main() {
           tester,
           find.byKey(const ValueKey('meal-plan-previous-week')),
         );
-        expect(tester.widget<CheckboxListTile>(row).value, isTrue);
+        expect(tester.getSemantics(row), _checked);
         await _tap(tester, row);
         expect(store.shoppingChecks[item.id], isFalse);
         expect(find.text('All shopping done'), findsNothing);

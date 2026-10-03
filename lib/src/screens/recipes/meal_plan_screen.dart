@@ -16,7 +16,10 @@ import '../../theme/app_tokens.dart';
 import '../../theme/meal_slot_style.dart';
 import '../../widgets/common/app_snack.dart';
 import '../../widgets/common/decimal_text.dart';
+import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
+import '../../widgets/kcal/food_date_picker.dart';
+import '../../widgets/kcal/meal_slot_picker.dart';
 import '../../widgets/recipes/recipe_photo.dart';
 import '../../widgets/recipes/recipe_navigation.dart';
 
@@ -74,19 +77,11 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     }
   }
 
-  Future<void> _edit(DateTime day, {PlannedMeal? plan}) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: context.t.bg,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(rSheet)),
-      ),
-      clipBehavior: Clip.antiAlias,
-      builder: (_) => _PlanEditor(store: store, day: day, plan: plan),
-    );
-  }
+  Future<void> _edit(DateTime day, {PlannedMeal? plan}) =>
+      showEatovaSheet<void>(
+        context,
+        _PlanEditor(store: store, day: day, plan: plan),
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -139,14 +134,16 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                       children: [
                         Text(
                           l.mealPlanLoadError,
-                          style: AppType.ui(14, color: t.ink),
+                          style: AppType.ui(14, color: t.ink, height: 1.4),
                         ),
-                        TextButton.icon(
-                          onPressed: store.mealPlansLoading
+                        const SizedBox(height: 12),
+                        SoftPillButton(
+                          key: const ValueKey('meal-plan-retry'),
+                          label: l.mealPlanRetry,
+                          icon: Icons.refresh_rounded,
+                          onTap: store.mealPlansLoading
                               ? null
                               : store.retryMealPlans,
-                          icon: const Icon(Icons.refresh_rounded),
-                          label: Text(l.mealPlanRetry),
                         ),
                       ],
                     ),
@@ -302,8 +299,13 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Container(
-                width: 54,
-                padding: const EdgeInsets.symmetric(vertical: 10),
+                // Minimum, not fixed: at 2x text a fixed 54 broke "28" over
+                // two lines.
+                constraints: const BoxConstraints(minWidth: 54),
+                padding: const EdgeInsets.symmetric(
+                  vertical: 10,
+                  horizontal: 8,
+                ),
                 decoration: BoxDecoration(
                   color: today ? t.brandSurface : t.tile,
                   borderRadius: BorderRadius.circular(rControl),
@@ -357,16 +359,17 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
             ],
           ),
           if (entries.isEmpty) ...[
-            const SizedBox(height: 4),
+            const SizedBox(height: 12),
             Align(
               alignment: AlignmentDirectional.centerStart,
-              child: TextButton.icon(
-                onPressed: () => _edit(day),
-                icon: const Icon(Icons.add_rounded, size: 18),
-                label: Text(l.mealPlanAdd),
+              child: SoftPillButton(
+                key: ValueKey('meal-plan-empty-${localDayKey(day)}'),
+                label: l.mealPlanAdd,
+                icon: Icons.add_rounded,
+                tone: SoftPillTone.neutral,
+                onTap: () => _edit(day),
               ),
             ),
-            Divider(height: 8, color: t.line),
           ],
           for (final plan in entries) ...[
             const SizedBox(height: 12),
@@ -462,43 +465,31 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Expanded(
-                  child: FilledButton.tonalIcon(
+                  child: SoftPillButton(
                     key: ValueKey('meal-plan-eat-${plan.id}'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: t.brandSurface,
-                      foregroundColor: t.onBrandSurface,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 14,
-                      ),
-                      minimumSize: const Size(48, 48),
-                    ),
-                    onPressed:
-                        busy || !plan.recipe.canLogServings(plan.servings)
+                    label: l.mealPlanEatToday,
+                    icon: Icons.restaurant_rounded,
+                    expand: true,
+                    onTap: busy || !plan.recipe.canLogServings(plan.servings)
                         ? null
                         : () => _run(
                             plan.id,
                             () => store.eatPlannedMeal(plan.id),
                           ),
-                    icon: busy
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.restaurant_rounded, size: 18),
-                    label: Text(
-                      l.mealPlanEatToday,
-                      textAlign: TextAlign.center,
-                      style: AppType.ui(14, weight: FontWeight.w700),
-                    ),
                   ),
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 8),
                 PopupMenuButton<String>(
                   key: ValueKey('meal-plan-menu-${plan.id}'),
                   tooltip: l.mealPlanMenuLabel,
                   enabled: !busy,
+                  position: PopupMenuPosition.under,
+                  // A round quiet button beside the soft action, like the
+                  // sheets' close button; 48 px is the touch floor.
+                  style: IconButton.styleFrom(
+                    backgroundColor: t.surf2,
+                    minimumSize: const Size(48, 48),
+                  ),
                   icon: Icon(Icons.more_horiz_rounded, color: t.ink2),
                   onSelected: (value) {
                     if (value == 'edit') {
@@ -508,8 +499,22 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                     }
                   },
                   itemBuilder: (_) => [
-                    PopupMenuItem(value: 'edit', child: Text(l.mealPlanEdit)),
-                    PopupMenuItem(value: 'delete', child: Text(l.commonDelete)),
+                    PopupMenuItem(
+                      value: 'edit',
+                      child: _MenuRow(
+                        icon: Icons.edit_outlined,
+                        label: l.mealPlanEdit,
+                        color: t.ink,
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'delete',
+                      child: _MenuRow(
+                        icon: Icons.delete_outline_rounded,
+                        label: l.commonDelete,
+                        color: t.danger,
+                      ),
+                    ),
                   ],
                 ),
               ],
@@ -601,10 +606,11 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
                 style: AppType.ui(14, color: t.ink2, height: 1.5),
               ),
               const SizedBox(height: 16),
-              TextButton.icon(
-                onPressed: () => setState(() => _shopping = false),
-                icon: const Icon(Icons.calendar_month_outlined),
-                label: Text(l.mealPlanWeek),
+              SoftPillButton(
+                key: const ValueKey('shopping-empty-week'),
+                label: l.mealPlanWeek,
+                icon: Icons.calendar_month_rounded,
+                onTap: () => setState(() => _shopping = false),
               ),
             ],
           ),
@@ -635,59 +641,137 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     final l = context.l10n;
     final t = context.t;
     final checked = store.shoppingChecks[item.id] ?? false;
+    final busy = _busy.contains(item.id);
+    final radius = BorderRadius.circular(rCard);
+    // One merged node like a checkbox list tile: checked state, name and
+    // amount, and the row's tap.
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: Material(
-        color: checked ? t.tile : t.surf,
-        borderRadius: BorderRadius.circular(rCard),
-        child: CheckboxListTile(
-          key: ValueKey('shopping-item-${item.id}'),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(rCard),
-          ),
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 10,
-          ),
-          controlAffinity: ListTileControlAffinity.leading,
-          checkboxShape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(6),
-          ),
-          activeColor: t.accent,
-          checkColor: t.onLime,
-          value: checked,
-          onChanged: _busy.contains(item.id)
-              ? null
-              : (v) => _run(
-                  item.id,
-                  () => store.setShoppingChecked(
-                    ShoppingCheck(id: item.id, checked: v ?? false),
-                  ),
-                  feedback: false,
+      child: MergeSemantics(
+        child: Semantics(
+          checked: checked,
+          enabled: !busy,
+          child: Material(
+            color: checked ? t.tile : t.surf,
+            borderRadius: radius,
+            child: InkWell(
+              key: ValueKey('shopping-item-${item.id}'),
+              borderRadius: radius,
+              onTap: busy
+                  ? null
+                  : () => _run(
+                      item.id,
+                      () => store.setShoppingChecked(
+                        ShoppingCheck(id: item.id, checked: !checked),
+                      ),
+                      feedback: false,
+                    ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _ShoppingCheck(checked: checked),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.grams != null ? item.name : item.recipeTitle!,
+                            style:
+                                AppType.ui(
+                                  16,
+                                  color: checked ? t.ink2 : t.ink,
+                                  weight: FontWeight.w600,
+                                  height: 1.35,
+                                ).copyWith(
+                                  decoration: checked
+                                      ? TextDecoration.lineThrough
+                                      : null,
+                                ),
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            item.grams != null
+                                ? '${NumberFormat('0.##', l.localeName).format(item.grams)} g'
+                                : '${l.mealPlanPortionCount(item.servings!)}\n'
+                                      '${item.originalQuantities ? (item.originalBatchServings == null ? l.recipeIngredientsOriginalUnknown : l.recipeIngredientsOriginalBatch(NumberFormat('0.##', l.localeName).format(item.originalBatchServings))) : ''}${item.originalQuantities ? '\n' : ''}'
+                                      '${item.name.isEmpty ? l.mealPlanNoIngredients : item.name}',
+                            style: AppType.ui(14, color: t.ink2, height: 1.45),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-          title: Text(
-            item.grams != null ? item.name : item.recipeTitle!,
-            style: AppType.ui(
-              16,
-              color: checked ? t.ink2 : t.ink,
-              weight: FontWeight.w600,
-            ).copyWith(decoration: checked ? TextDecoration.lineThrough : null),
-          ),
-          subtitle: Padding(
-            padding: const EdgeInsets.only(top: 5),
-            child: Text(
-              item.grams != null
-                  ? '${NumberFormat('0.##', l.localeName).format(item.grams)} g'
-                  : '${l.mealPlanPortionCount(item.servings!)}\n'
-                        '${item.originalQuantities ? (item.originalBatchServings == null ? l.recipeIngredientsOriginalUnknown : l.recipeIngredientsOriginalBatch(NumberFormat('0.##', l.localeName).format(item.originalBatchServings))) : ''}${item.originalQuantities ? '\n' : ''}'
-                        '${item.name.isEmpty ? l.mealPlanNoIngredients : item.name}',
-              style: AppType.ui(14, color: t.ink2, height: 1.45),
+              ),
             ),
           ),
         ),
       ),
     );
   }
+}
+
+/// The round check of a shopping row: an accent disc with a tick when
+/// bought, a quiet ring before.
+class _ShoppingCheck extends StatelessWidget {
+  const _ShoppingCheck({required this.checked});
+  final bool checked;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final motion = motionDuration(context, kMotionEnter);
+    // Lined up with the first text line (16 px at 1.35).
+    return Padding(
+      padding: const EdgeInsets.only(top: 1),
+      child: AnimatedContainer(
+        duration: motion,
+        curve: kMotionCurve,
+        width: 24,
+        height: 24,
+        decoration: BoxDecoration(
+          color: checked ? t.selectedFill : Colors.transparent,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: checked ? t.selectedFill : t.ink2,
+            width: 2,
+          ),
+        ),
+        child: checked
+            ? Icon(Icons.check_rounded, size: 16, color: t.onSelected)
+            : null,
+      ),
+    );
+  }
+}
+
+/// One popup menu entry: icon and label in the entry's tone.
+class _MenuRow extends StatelessWidget {
+  const _MenuRow({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Icon(icon, size: 20, color: color),
+      const SizedBox(width: 12),
+      Flexible(
+        child: Text(
+          label,
+          style: AppType.ui(15, weight: FontWeight.w600, color: color),
+        ),
+      ),
+    ],
+  );
 }
 
 class _PlannerSurface extends StatelessWidget {

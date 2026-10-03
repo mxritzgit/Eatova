@@ -8,6 +8,7 @@ import 'package:eatova/src/models/recipe_catalog_en.dart';
 import 'package:eatova/src/screens/recipes/meal_plan_screen.dart';
 import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/notification_service.dart';
+import 'package:eatova/src/widgets/design/design.dart';
 
 import '../outbox/outbox_test_helpers.dart' as h;
 import '../support/harness.dart';
@@ -57,7 +58,7 @@ void main() {
           reason: 'Vorbelegung',
         );
         bool aktiv() =>
-            tester.widget<FilledButton>(speichern).onPressed != null;
+            tester.widget<PrimaryActionButton>(speichern).onTap != null;
 
         for (final eingabe in const <String>['3,5', '3.5']) {
           await tester.enterText(feld, eingabe);
