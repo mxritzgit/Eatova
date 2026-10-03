@@ -42,6 +42,92 @@ and open exercise rows give Training its own character within Eatova.
   adoption, account isolation and persistence continue through their existing
   callbacks. No backend, schema or dependency changes are required.
 
+## Workout player (list, 2026-10-03)
+
+Decision D1 (owner, 2026-10-03): the player is a list of exercise cards in
+the existing dark studio look (spec
+`docs/superpowers/specs/2026-10-03-training-flow-and-coach-log-design.md`
+§5). Code: `screens/training/training_player_screen.dart`, its widgets in
+`screens/training/player/`, the ledger in
+`services/training_session_controller.dart`.
+
+- **One tap per set.** ✓ completes a repetition set; a timed set has ▶ (3 s
+  get-ready), counts down, completes at zero and offers "Done early". The
+  ledger stays a sequential prefix: only the active set's ✓ is enabled, the
+  others show a visibly disabled ✓ (supersets are out of scope). Tapping the
+  most recent completed ✓ undoes it (its rest and alert end, its values
+  become the row draft). The active card's menu: Skip set, Complete N
+  remaining as planned, Skip exercise. Pause/Resume and Discard sit in the
+  header menu.
+- **Prefill (A2).** Reps are planned reps. Weight for set *k*: a weight
+  changed earlier in this exercise carries forward, else Last time set *k*
+  (or its last set), else empty; Last-time sessions without any weight are
+  ignored (`lastWeightedTrainingPerformanceFor`). Last time is computed once
+  per route; its cell copies into the active row on tap. Prefilled values are
+  muted until the set's ✓.
+- **Layout (A3).** Header: title, sets done/total, active time, Finish, menu.
+  Done exercises collapse to "3/3 sets · 10/8/8 · 80–90 kg" (the one just
+  finished stays open through its rest); upcoming ones show the plan. The
+  active row is dominant (✓ 56 dp) and scrolls into view on activation and
+  resume. ✓ and a drag on the list close the keyboard; fields use Done. The
+  rest bar is pinned at the bottom (mm:ss 36 pt, −15 s, +15 s, Skip) and
+  expands to a full-screen rest view; ✓ on the next set ends a rest early.
+- **Time keeps running (A4).** A running rest or timed set is a UTC deadline
+  (`phase_ends_at`, local-only). Background, lock, covering pages and dialogs
+  never pause; only the menu's Pause and Save & leave do. On resume
+  `catchUp` completes a timed set at its deadline and runs its rest from
+  there; a rest that ended unseen leaves the next timed set waiting for ▶.
+  After process death a running rest continues and a timed set whose
+  deadline passed waits at zero for ✓. Rest follows every completed set
+  except the workout's final one, also between exercises (with the completed
+  exercise's rest). Completion times are clamped to the start; `startedAt` is
+  the first ✓ or ▶; a save more than 5 minutes after the last set finishes
+  at that set.
+- **Alerts (A5).** One local notification per running phase under
+  `restAlertIdForSession`, scheduled at phase start with generic texts;
+  opening the player first cancels whatever an earlier process planned.
+  ✓/Skip/Undo/Pause/Finish/Discard/leaving and closing the route cancel it.
+  The first workout shows one explainer before the system prompt
+  (`RestAlertPermissionGate`, asked again next workout after "Not now");
+  with alerts off the rest bar shows a quiet "Alerts off" chip that opens
+  the notification settings. A rest or interval that ends in the foreground
+  vibrates once. The home page pins scheduling to the account that opened
+  the player (`GuardedRestAlertScheduler`).
+- **Keep awake (A6).** Owner `training-player` holds the display only while a
+  timed set, or the rest leading into one, runs with the player on top
+  (ruling R16: owners never release each other's hold).
+- **Finishing (A7).** Finish opens a sheet (it also opens itself after the
+  last set): summary, note and an honest primary. With open sets: "Save N
+  sets (skip the rest)", "I did the rest — log as shown", "Keep training";
+  with no completed set only Discard and Keep training. A refused checkpoint
+  (`onPersist` → false, the plan changed) shows "not stored" and Finish still
+  saves the frozen plan copy.
+- **Writes.** Actions checkpoint at once; field and note edits are debounced
+  (600 ms) and flushed on any lifecycle change, cover, terminal intent and
+  dispose. Terminal intents still win over older checkpoints; failures stay
+  sanitized and retryable.
+- **Accessibility.** Set done, rest start and rest over are announced with
+  `SemanticsService.sendAnnouncement`; ✓/▶ carry "Complete set 2" style
+  labels; 320 px and 2.0 text reflow (the rest bar scrolls within 40 % of
+  the height).
+
+### Superseded rules (spec §4)
+
+| Old rule (source) | New rule |
+|---|---|
+| Background/covered routes pause; nothing resumes (TRAINING-DESIGN-2026-09-08.md "Workout player", handoff) | Rest and timed intervals run on wall-clock deadlines; only an explicit pause or process death stops them |
+| Pause/resume is the dominant control; Next/Previous visible | ✓ per set is dominant; pause, skip and undo live on the row / exercise menu |
+| No notifications | One rest/interval alert per phase, generic text |
+| Recovery always paused | Recovery continues a still-running rest; a timed interval whose deadline passed during process death waits at zero for ✓ |
+| No rest after an exercise's last set | Rest after every completed set except the workout's final set |
+| Rep sets need Start | ✓ completes a rep set directly |
+
+The tests that encoded the old rules were rewritten and renamed:
+`training_session_controller_test.dart`, `training_player_screen_test.dart`,
+`training_automatic_flow_test.dart`, `training_qa/player_lifecycle_test.dart`,
+`training_qa/timer_recovery_test.dart`; the lock scenario is
+`training_qa/rest_survives_background_test.dart`.
+
 ## Rendered preview
 
 | Training | Plan library |
