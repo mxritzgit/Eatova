@@ -233,10 +233,14 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   ({TrainingPlan? selectedPlan, bool sessionRetried})? _queuedBrief;
   bool _queuedBriefScheduled = false;
 
-  /// Answers to speak through the live region in [build], where the platform
-  /// has no announcements; each one inserts a fresh node (see
-  /// [_announceAnswer]). 0 = no cue.
-  int _answerCue = 0;
+  /// The answer to speak through the live region in [build], where the
+  /// platform has no announcements (see [_announceAnswer]); null = no cue.
+  /// Its value keys the node, so each answer inserts a fresh one.
+  int? _answerCue;
+
+  /// Source of [_answerCue], never reset: a drop and a new answer in one
+  /// frame must not reuse the dropped node.
+  int _answerCueSerial = 0;
 
   /// Clears the cue once its lifetime ends. Runs only while the cue can speak
   /// ([_cueCanSpeak]); null otherwise.
@@ -366,6 +370,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _cancelSpeechInput();
       // Leaving the tab withdraws a waiting brief; it must not pop up later.
       _queuedBrief = null;
+      // And a cue still waiting behind a sheet: the user went elsewhere.
+      _dropAnswerCue();
     }
     final cueCouldSpeak = _cueCanSpeak;
     _sichtbar = sichtbar;
@@ -374,8 +380,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       // The return of the tab or route re-creates the semantics; a kept cue
       // would announce an old answer as new.
       _dropAnswerCue();
-    } else if (!cueCouldSpeak && _cueCanSpeak && _answerCue > 0) {
-      // Arrived while hidden or covered: it speaks now.
+    } else if (!cueCouldSpeak && _cueCanSpeak && _answerCue != null) {
+      // Arrived while covered: it speaks now.
       _startAnswerCueLifetime();
     }
     final svc = widget.service;
@@ -487,6 +493,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       // After at least one `await`: Localizations is guaranteed to be there.
       setState(() {
         _loading = false;
+        // No session means no history to have failed (a retry after one).
+        _historyUnavailable = false;
         _error = context.l10n.coachErrorNoSession;
       });
       return;
@@ -748,6 +756,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
           context,
           l10n.coachErrorNewSessionFailed,
           icon: Icons.error_outline_rounded,
+          tone: SnackTone.error,
           duration: kSnackError,
         );
       }
@@ -780,6 +789,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         context,
         context.l10n.coachErrorDeleteFailed,
         icon: Icons.error_outline_rounded,
+        tone: SnackTone.error,
         duration: kSnackError,
       );
       return;
@@ -1235,12 +1245,14 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   /// same text. Only a node that is new (or relabelled) speaks, hence one per
   /// answer. The same rule speaks a re-created node again, so the cue is
   /// transient: it lives [CoachChatScreen.answerCueLifetime] once it can
-  /// speak and goes as soon as a tab switch or a route hides it.
+  /// speak and goes as soon as a tab switch or a route hides it. An answer
+  /// that lands while the tab is hidden is not announced at all: the user is
+  /// elsewhere and finds it in the list on return.
   void _announceAnswer() {
-    if (!mounted) return;
+    if (!mounted || !_sichtbar) return;
     if (!MediaQuery.supportsAnnounceOf(context)) {
-      setState(() => _answerCue++);
-      // Hidden or covered, it waits for [didChangeDependencies].
+      setState(() => _answerCue = ++_answerCueSerial);
+      // Covered, it waits for [didChangeDependencies].
       if (_cueCanSpeak) _startAnswerCueLifetime();
       return;
     }
@@ -1257,7 +1269,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     _answerCueTimer?.cancel();
     _answerCueTimer = Timer(CoachChatScreen.answerCueLifetime, () {
       _answerCueTimer = null;
-      if (mounted && _answerCue != 0) setState(() => _answerCue = 0);
+      if (mounted && _answerCue != null) setState(() => _answerCue = null);
     });
   }
 
@@ -1265,7 +1277,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   void _dropAnswerCue() {
     _answerCueTimer?.cancel();
     _answerCueTimer = null;
-    _answerCue = 0;
+    _answerCue = null;
   }
 
   /// Counterpart to `_laufendeSendungen++`; belongs in a `finally` so every
@@ -1468,24 +1480,34 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     if (_kontingentErschoepft) {
       return l10n.coachErrorDailyLimitReached(_limitFuerAnzeige);
     }
-    if (_activeSessionId == null) return l10n.coachErrorNoSession;
+    if (_activeSessionId == null) {
+      // A failed history load leaves no active session either; its banner
+      // names the real cause.
+      return _historyUnavailable
+          ? l10n.coachErrorHistoryUnavailable
+          : l10n.coachErrorNoSession;
+    }
     return null;
   }
 
   /// Opens a brief that waited for a request or a load ([_queuedBrief]).
+  /// Never on top of another sheet or page: it stays queued, and the
+  /// rebuild when that route closes opens it.
   void _openQueuedBriefWhenFree() {
     if (_queuedBrief == null ||
         _queuedBriefScheduled ||
         _sending ||
-        _loading) {
+        _loading ||
+        !_routeOnTop) {
       return;
     }
     _queuedBriefScheduled = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _queuedBriefScheduled = false;
+      if (!mounted || !(ModalRoute.of(context)?.isCurrent ?? true)) return;
       final queued = _queuedBrief;
       _queuedBrief = null;
-      if (!mounted || queued == null) return;
+      if (queued == null) return;
       unawaited(
         _openTrainingBrief(
           selectedPlan: queued.selectedPlan,
@@ -2539,7 +2561,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                     // answer makes a new node. Behind everything, outside the
                     // lazy list (an answer below the fold still speaks) and
                     // never focusable, so it only talks.
-                    if (_answerCue > 0)
+                    if (_answerCue != null)
                       Positioned.fill(
                         key: ValueKey<String>('coach-answer-cue-$_answerCue'),
                         child: Semantics(

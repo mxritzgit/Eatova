@@ -35,7 +35,10 @@ class _TrainingPlanProposalCard extends StatelessWidget {
         }
       }
     }
-    const shown = 3;
+    final shown = names.take(3).toList();
+    // Same basis as the counts line (every exercise slot), so the shown
+    // names plus "+N" add up to its total.
+    final more = exerciseCount - shown.length;
     return Column(
       key: const ValueKey('coach-plan-card'),
       mainAxisSize: MainAxisSize.min,
@@ -72,16 +75,16 @@ class _TrainingPlanProposalCard extends StatelessWidget {
           style: AppType.ui(14, color: t.ink2, height: 1.4),
         ),
         const SizedBox(height: 8),
-        for (final name in names.take(shown))
+        for (final name in shown)
           Text(
             name,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: AppType.ui(14, color: t.ink, height: 1.45),
           ),
-        if (names.length > shown)
+        if (more > 0)
           Text(
-            l10n.coachPlanCardMoreExercises(names.length - shown),
+            l10n.coachPlanCardMoreExercises(more),
             style: AppType.ui(14, color: t.ink2, height: 1.45),
           ),
         const SizedBox(height: 16),

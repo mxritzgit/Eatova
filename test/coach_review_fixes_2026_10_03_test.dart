@@ -27,6 +27,7 @@ import 'package:eatova/src/services/coach_chat_service.dart';
 import 'package:eatova/src/services/dictation_language.dart';
 import 'package:eatova/src/services/screen_awake.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
+import 'package:eatova/src/widgets/common/app_snack.dart';
 
 import 'support/harness.dart';
 
@@ -104,6 +105,7 @@ class _Coach extends CoachChatService {
   );
   String? createdSession = 's3';
   String? defaultSession = 's1';
+  bool deleteFails = false;
 
   final sent = <({String text, String? image})>[];
   final planCalls = <String>[];
@@ -123,6 +125,15 @@ class _Coach extends CoachChatService {
   @override
   Future<String?> createSession({required String title}) async =>
       createdSession;
+
+  @override
+  Future<void> deleteSession(String sessionId) async {
+    if (deleteFails) throw const CoachDataUnavailable('offline');
+    sessions = [
+      for (final session in sessions)
+        if (session.id != sessionId) session,
+    ];
+  }
 
   @override
   Future<List<ChatMessage>> loadHistory(
@@ -431,6 +442,37 @@ enum _AnswerKind { chat, recipe, plan, remappedPlan }
 /// The live region that stands in for an announcement (Android).
 Finder get _answerCue => find.bySemanticsLabel(deL10n.coachAnswerAnnouncement);
 
+/// The same cue found by its widget, not its semantics: a route above the
+/// Coach hides the Coach semantics whether the cue is still there or not.
+Finder get _answerCueWidget => find.byWidgetPredicate(
+  (widget) =>
+      widget.key is ValueKey<String> &&
+      (widget.key! as ValueKey<String>).value.startsWith('coach-answer-cue-'),
+);
+
+/// Glyph color of the toast that shows [message].
+Color _toastGlyph(WidgetTester tester, String message) {
+  final toast = find.ancestor(
+    of: find.text(message),
+    matching: find.byType(SnackBar),
+  );
+  return tester
+      .widget<Icon>(find.descendant(of: toast, matching: find.byType(Icon)))
+      .color!;
+}
+
+/// The glyph an error toast gets on the same surface, for comparison.
+Future<Color> _errorToastGlyph(WidgetTester tester) async {
+  showAppSnack(
+    tester.element(find.byType(CoachChatScreen)),
+    'Probe',
+    icon: Icons.error_outline_rounded,
+    tone: SnackTone.error,
+  );
+  await tester.pump();
+  return _toastGlyph(tester, 'Probe');
+}
+
 void _announcing(WidgetTester tester, bool supportsAnnounce) {
   tester.platformDispatcher.accessibilityFeaturesTestValue =
       FakeAccessibilityFeatures(supportsAnnounce: supportsAnnounce);
@@ -488,6 +530,55 @@ void main() {
       await _frames(tester);
       expect(_briefSubmit, findsOneWidget, reason: 'nicht verschluckt');
       expect(coach.planCalls, isEmpty);
+    });
+
+    testWidgets('eine wartende Brief-Anfrage schiebt sich nicht ueber ein '
+        'offenes Sheet und oeffnet nach dessen Schliessen', (tester) async {
+      final coach = _Coach.create()..hold = Completer<CoachChatReply>();
+      final planDraft = await _mount(tester, coach);
+      await _sendText(tester, 'Erste Frage');
+      planDraft.value = 1;
+      await _frames(tester);
+      await _openSessions(tester);
+
+      coach.hold!.complete(
+        const CoachChatReply(reply: 'Ok.', refusal: false, sessionId: 's1'),
+      );
+      await _frames(tester);
+      expect(_briefSubmit, findsNothing, reason: 'nicht ueber dem Sheet');
+      expect(find.text('Chat B'), findsOneWidget, reason: 'Sheet bleibt oben');
+
+      await _closeSheet(tester);
+      expect(_briefSubmit, findsOneWidget, reason: 'wartet, nicht verworfen');
+      expect(coach.planCalls, isEmpty);
+    });
+
+    testWidgets('der Brief beendet ein laufendes Diktat genau einmal; kein '
+        'spaeterer Teiltext schreibt ins Feld', (tester) async {
+      await _ios(() async {
+        final native = _Native()..install();
+        final planDraft = await _mount(tester, _Coach.create());
+        await tester.tap(find.byKey(const ValueKey('coach-mic')));
+        await _frames(tester);
+        native.partial('Was ist');
+        await tester.pump();
+
+        planDraft.value = 1;
+        await _frames(tester);
+        expect(_briefSubmit, findsOneWidget);
+        expect(native.count('cancel'), 1, reason: 'sofort, nicht mit Nachlauf');
+        expect(_text(tester), 'Was ist');
+
+        native.partial('Was ist das hier', token: native.tokens.single);
+        await _frames(tester);
+        expect(_text(tester), 'Was ist', reason: 'nichts hinter dem Sheet');
+
+        await tester.tap(find.byKey(const ValueKey('coach-brief-close')));
+        await _frames(tester);
+        expect(_text(tester), 'Was ist');
+        expect(native.count('cancel'), 1);
+        expect(native.count('listen'), 1);
+      });
     });
 
     for (final (draft, kept, wish) in <(String, String, String)>[
@@ -551,6 +642,37 @@ void main() {
           find.text(deL10n.coachErrorNoSession),
           loadsOnRetry ? findsNothing : findsOneWidget,
         );
+      });
+    }
+
+    // A failed history leaves no active session either; the retry must not
+    // relabel that as "no session". The second case is the guard: a retry
+    // that really finds no session says so.
+    for (final sessionGoneOnRetry in [false, true]) {
+      testWidgets('scheitert der Verlauf, nennt der Brief nach dem Nachladen '
+          '${sessionGoneOnRetry ? '"keine Session"' : 'weiter den Verlauf'}', (
+        tester,
+      ) async {
+        final coach = _Coach.create()
+          ..historyFailures = sessionGoneOnRetry ? 1 : 2;
+        final planDraft = await _mount(tester, coach);
+        expect(find.text(deL10n.coachErrorHistoryUnavailable), findsOneWidget);
+        expect(_field(tester).enabled, isFalse);
+
+        if (sessionGoneOnRetry) {
+          coach
+            ..sessions = []
+            ..defaultSession = null;
+        }
+        planDraft.value = 1;
+        await _frames(tester);
+
+        expect(_briefSubmit, findsNothing);
+        final (shown, gone) = sessionGoneOnRetry
+            ? (deL10n.coachErrorNoSession, deL10n.coachErrorHistoryUnavailable)
+            : (deL10n.coachErrorHistoryUnavailable, deL10n.coachErrorNoSession);
+        expect(find.text(shown), findsOneWidget);
+        expect(find.text(gone), findsNothing);
       });
     }
   });
@@ -689,12 +811,100 @@ void main() {
       final semantics = tester.ensureSemantics();
       _announcing(tester, false);
       await _mount(tester, _Coach.create());
+      final askedAt = tester.binding.clock.now();
       await _sendText(tester, 'Frage');
       expect(_answerCue, findsOneWidget);
 
-      await _openSessions(tester);
+      await tester.tap(find.byKey(const ValueKey('coach-sessions-open')));
+      await tester.pump();
+      // The margin, explicit: the lifetime cannot have run out yet, so only
+      // the cover itself can have removed the cue.
+      expect(
+        tester.binding.clock.now().difference(askedAt),
+        lessThan(CoachChatScreen.answerCueLifetime),
+      );
+      expect(_answerCueWidget, findsNothing, reason: 'weg, sobald verdeckt');
+
+      await _frames(tester);
       await _closeSheet(tester);
       expect(_answerCue, findsNothing, reason: 'keine alte Antwort als neue');
+      semantics.dispose();
+    });
+
+    // The cue path that drops and announces in one frame: a plan the server
+    // stored in another conversation.
+    testWidgets('ohne Ansage bekommt eine Antwort direkt nach dem Abraeumen '
+        'im selben Frame einen neuen Knoten', (tester) async {
+      final semantics = tester.ensureSemantics();
+      _announcing(tester, false);
+      final coach = _Coach.create()..planSessionId = 's2';
+      await _mount(tester, coach);
+      await _sendText(tester, 'Frage');
+      final first = tester.getSemantics(_answerCue).id;
+
+      await _sendText(tester, '/plan Beine');
+      expect(coach.planCalls, ['Beine']);
+      expect(_answerCue, findsOneWidget);
+      expect(
+        tester.getSemantics(_answerCue).id,
+        isNot(first),
+        reason: 'ein wiederverwendeter Knoten spricht auf Android nicht',
+      );
+      semantics.dispose();
+    });
+
+    // The user was on another tab; the answer is in the list on return and
+    // is not news any more.
+    for (final announces in [true, false]) {
+      testWidgets('eine Antwort bei verstecktem Tab wird auch bei der '
+          'Rueckkehr nicht ${announces ? 'angesagt' : 'gemeldet'}', (
+        tester,
+      ) async {
+        final semantics = tester.ensureSemantics();
+        _announcing(tester, announces);
+        final tab = ValueNotifier<bool>(true);
+        addTearDown(tab.dispose);
+        final coach = _Coach.create()..hold = Completer<CoachChatReply>();
+        await _mount(tester, coach, tabVisible: tab);
+        await _sendText(tester, 'Frage');
+
+        tab.value = false;
+        await _frames(tester);
+        coach.hold!.complete(
+          const CoachChatReply(reply: 'Ok.', refusal: false, sessionId: 's1'),
+        );
+        await _frames(tester);
+        tab.value = true;
+        await _frames(tester);
+
+        expect(find.text('Ok.'), findsOneWidget);
+        expect(tester.takeAnnouncements(), isEmpty);
+        expect(_answerCueWidget, findsNothing);
+        semantics.dispose();
+      });
+    }
+
+    testWidgets('ohne Ansage meldet sich eine Antwort hinter einem Sheet '
+        'nicht, wenn der Tab zwischendurch weg war', (tester) async {
+      final semantics = tester.ensureSemantics();
+      _announcing(tester, false);
+      final tab = ValueNotifier<bool>(true);
+      addTearDown(tab.dispose);
+      final coach = _Coach.create()..hold = Completer<CoachChatReply>();
+      await _mount(tester, coach, tabVisible: tab);
+      await _sendText(tester, 'Frage');
+      await _openSessions(tester);
+      coach.hold!.complete(
+        const CoachChatReply(reply: 'Ok.', refusal: false, sessionId: 's1'),
+      );
+      await _frames(tester);
+
+      tab.value = false;
+      await _frames(tester);
+      tab.value = true;
+      await _frames(tester);
+      await _closeSheet(tester);
+      expect(_answerCueWidget, findsNothing);
       semantics.dispose();
     });
 
@@ -825,6 +1035,31 @@ void main() {
       await _frames(tester);
 
       expect(find.text(deL10n.coachErrorNewSessionFailed), findsOneWidget);
+      expect(
+        _toastGlyph(tester, deL10n.coachErrorNewSessionFailed),
+        await _errorToastGlyph(tester),
+        reason: 'ein Fehler, keine Erfolgsmeldung',
+      );
+    });
+
+    testWidgets('scheitert das Loeschen, sagt es eine Fehlermeldung', (
+      tester,
+    ) async {
+      final coach = _Coach.create()..deleteFails = true;
+      await _mount(tester, coach);
+      await _openSessions(tester);
+      await tester.tap(find.byIcon(Icons.delete_outline_rounded).first);
+      await _frames(tester);
+      await tester.tap(find.text(deL10n.commonDelete));
+      await _frames(tester);
+
+      expect(find.text(deL10n.coachErrorDeleteFailed), findsOneWidget);
+      expect(find.text('Chat A'), findsOneWidget, reason: 'nicht geloescht');
+      expect(
+        _toastGlyph(tester, deL10n.coachErrorDeleteFailed),
+        await _errorToastGlyph(tester),
+        reason: 'ein Fehler, keine Erfolgsmeldung',
+      );
     });
   });
 
@@ -952,34 +1187,60 @@ void main() {
       semantics.dispose();
     });
 
-    testWidgets('die Plankarte nennt bis zu drei Uebungen und "+N weitere"', (
-      tester,
-    ) async {
-      final coach = _Coach.create()
-        ..history = {
-          's1': [
-            ChatMessage(
-              id: 'server-plan-1',
-              role: ChatRole.assistant,
-              content: 'Dein Trainingsplan.',
-              createdAt: _date,
-              trainingPlanProposal: _plan([
-                ['Kniebeuge', 'Unterarmstütz'],
-                ['Schulterkreisen', 'Kniebeuge', 'Ausfallschritt', 'Rudern'],
-              ]),
-            ),
-          ],
-        };
-      await _mount(tester, coach);
-      final card = find.byKey(const ValueKey('coach-plan-card'));
-      Finder inCard(String text) =>
-          find.descendant(of: card, matching: find.text(text));
+    // "+N" counts on the same basis as the counts line above it (every
+    // exercise slot), so shown names plus N always add up to that total.
+    for (final (days, shown, total)
+        in <(List<List<String>>, List<String>, int)>[
+          (
+            [
+              ['Kniebeuge', 'Unterarmstütz'],
+              ['Schulterkreisen', 'Kniebeuge', 'Ausfallschritt', 'Rudern'],
+            ],
+            ['Kniebeuge', 'Unterarmstütz', 'Schulterkreisen'],
+            6,
+          ),
+          // Only three distinct names, but four slots.
+          (
+            [
+              ['Kniebeuge', 'Rudern'],
+              ['Kniebeuge', 'Liegestütz'],
+            ],
+            ['Kniebeuge', 'Rudern', 'Liegestütz'],
+            4,
+          ),
+        ]) {
+      testWidgets('die Plankarte nennt bis zu drei Uebungen und "+N weitere" '
+          'passend zu $total Uebungen', (tester) async {
+        final coach = _Coach.create()
+          ..history = {
+            's1': [
+              ChatMessage(
+                id: 'server-plan-1',
+                role: ChatRole.assistant,
+                content: 'Dein Trainingsplan.',
+                createdAt: _date,
+                trainingPlanProposal: _plan(days),
+              ),
+            ],
+          };
+        await _mount(tester, coach);
+        final card = find.byKey(const ValueKey('coach-plan-card'));
+        Finder inCard(String text) =>
+            find.descendant(of: card, matching: find.text(text));
 
-      for (final name in ['Kniebeuge', 'Unterarmstütz', 'Schulterkreisen']) {
-        expect(inCard(name), findsOneWidget, reason: name);
-      }
-      expect(inCard('Ausfallschritt'), findsNothing);
-      expect(inCard(deL10n.coachPlanCardMoreExercises(2)), findsOneWidget);
-    });
+        expect(
+          inCard(deL10n.coachPlanCounts(days.length, total)),
+          findsOneWidget,
+        );
+        for (final name in shown) {
+          expect(inCard(name), findsOneWidget, reason: name);
+        }
+        expect(inCard('Ausfallschritt'), findsNothing);
+        expect(
+          inCard(deL10n.coachPlanCardMoreExercises(total - shown.length)),
+          findsOneWidget,
+        );
+      });
+    }
   });
 }

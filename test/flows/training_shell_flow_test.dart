@@ -530,13 +530,14 @@ void main() {
     await withClock(Clock.fixed(_now), () async {
       final cache = LocalCache(InMemoryKeyValueStore(), kFixlaufUser);
       // The brief opens only for a chat that can send (spec §9).
+      final server = FixlaufServer()
+        ..profileRow = serverProfileRow(completedProfile)
+        ..coachSessionId = 'coach-session';
       final store = await _mount(
         tester,
         cache,
         connected: true,
-        serverOverride: FixlaufServer()
-          ..profileRow = serverProfileRow(completedProfile)
-          ..coachSessionId = 'coach-session',
+        serverOverride: server,
       );
       await pumpUntil(tester, () => !store.bootLoadInFlight, 'boot load');
       expect(find.byType(CoachChatScreen, skipOffstage: false), findsNothing);
@@ -563,8 +564,17 @@ void main() {
         expect(find.byKey(const ValueKey('coach-brief-submit')), findsOneWidget);
         expect(store.trainingPlans, isEmpty);
         expect(find.byKey(const ValueKey('coach-plan-card')), findsNothing);
+        // Opening the brief books nothing: no Coach function call.
+        expect(
+          server.requests.where((r) => r.url.path.contains('/functions/v1/')),
+          isEmpty,
+        );
         await _tap(tester, 'coach-brief-close');
       }
+      expect(
+        server.requests.where((r) => r.url.path.contains('/functions/v1/')),
+        isEmpty,
+      );
       await tester.pumpWidget(const SizedBox.shrink());
       await _frames(tester);
     });
