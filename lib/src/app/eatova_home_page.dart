@@ -1174,7 +1174,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     if (!_isStoreSessionCurrent(ownerStore)) {
       return TrainingLogSaveOutcome.failed;
     }
-    // R15: the entry itself says whether it is plan-backed, so no caller can
+    // The entry itself says whether it is plan-backed, so no caller can
     // let one through while a session would count it twice.
     return trainingLogSaveOutcome(
       () => ownerStore.logCompletedWorkout(
