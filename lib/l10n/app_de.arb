@@ -1960,7 +1960,7 @@
       }
     }
   },
-  "coachWorkoutLogCommandDescription": "Trägt ein erledigtes Training in deinen Verlauf ein",
+  "coachWorkoutLogCommandDescription": "Macht aus einem erledigten Training einen Eintrag zum Prüfen und Hinzufügen",
   "coachWorkoutLogTry": "Trag mein Training ein",
   "coachWorkoutLogEmptyHint": "Beschreibe nach /log dein erledigtes Training – z. B. „/log heute 3 x 10 Kniebeugen mit 60 kg“.",
   "coachWorkoutLogPhotoUnsupported": "Trainings werden aus Text eingetragen. Sende deine /log-Nachricht ohne Foto.",

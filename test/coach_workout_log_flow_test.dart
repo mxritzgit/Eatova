@@ -936,6 +936,16 @@ void main() {
     expect(coach.calls, isEmpty);
   });
 
+  test('the /log menu entry promises a draft to review, like /plan', () {
+    // Nothing is written before the review sheet's Add.
+    for (final (l10n, review) in [(enL10n, 'review'), (deL10n, 'Prüfen')]) {
+      expect(l10n.coachPlanCommandDescription, contains(review));
+      expect(l10n.coachWorkoutLogCommandDescription, contains(review));
+    }
+    expect(enL10n.coachWorkoutLogCommandDescription, isNot(startsWith('Adds')));
+    expect(deL10n.coachWorkoutLogCommandDescription, isNot(contains('Trägt')));
+  });
+
   _test('the third hero chip prepares /log', (tester) async {
     final coach = _LogCoach.create();
     await _mount(tester, coach);

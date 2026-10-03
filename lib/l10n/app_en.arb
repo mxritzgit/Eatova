@@ -1911,7 +1911,7 @@
       }
     }
   },
-  "coachWorkoutLogCommandDescription": "Adds a workout you already did to your history",
+  "coachWorkoutLogCommandDescription": "Turns a workout you already did into an entry to review and add",
   "coachWorkoutLogTry": "Log a workout I did",
   "coachWorkoutLogEmptyHint": "After /log, describe the workout you did — e.g. \"/log today 3 x 10 squats at 60 kg\".",
   "coachWorkoutLogPhotoUnsupported": "Workouts are logged from text. Send your /log message without a photo.",
