@@ -121,6 +121,7 @@ Future<_Host> _open(
   TrainingSessionSnapshot? snapshot,
   List<TrainingHistoryEntry> history = const [],
   Future<bool> Function(TrainingSessionSnapshot?)? persist,
+  Future<void> Function(TrainingHistoryEntry)? complete,
   RestAlertPermissionGate? gate,
   TimerTestClock? clock,
   bool wallClock = false,
@@ -167,6 +168,7 @@ Future<_Host> _open(
                         return true;
                       },
                   onComplete: (entry) async {
+                    await complete?.call(entry);
                     host.completed.add(entry);
                     host.writes.add(null);
                   },
@@ -1000,6 +1002,66 @@ void main() {
       expect(host.completed, isEmpty);
       expect(host.alerts.log.last, 'cancel');
     });
+
+    // A failed completion locks the workout; a refused place must still
+    // leave a visible way out (Retry, Finish or Leave without saving).
+    for (final exit in ['unstored-finish', 'retry', 'unstored-leave']) {
+      testWidgets('a refused Save & leave after a failed completion keeps an '
+          'exit: $exit', (tester) async {
+        final writes = <TrainingSessionSnapshot?>[];
+        var completions = 0;
+        var refuse = false;
+        final host = await _open(
+          tester,
+          persist: (value) async {
+            writes.add(value);
+            return !refuse;
+          },
+          complete: (_) async {
+            if (completions++ == 0) throw StateError('completion failed');
+          },
+        );
+        await _tap(tester, 'training-set-check-0-0');
+        await _tap(tester, 'training-timer-finish');
+        await tester.pumpAndSettle();
+        await _tap(tester, 'training-finish-save');
+        await tester.pumpAndSettle();
+        expect(_key('training-timer-retry'), findsOneWidget);
+        refuse = true;
+        await _tap(tester, 'training-timer-back');
+        await tester.pumpAndSettle();
+        expect(find.text('Pause and leave?'), findsOneWidget);
+        await _tap(tester, 'training-timer-confirm-exit');
+        await tester.pumpAndSettle();
+        final refusedAt = writes.length;
+        expect(find.byType(TrainingPlayerScreen), findsOneWidget);
+        expect(find.text('Leave without saving?'), findsOneWidget);
+        expect(_key('training-timer-unstored-finish'), findsOneWidget);
+        await _tap(tester, 'training-timer-unstored-stay');
+        await tester.pumpAndSettle();
+        expect(_key('training-timer-retry'), findsOneWidget);
+        // Back no longer loops through "Pause and leave?".
+        await _tap(tester, 'training-timer-back');
+        await tester.pumpAndSettle();
+        expect(find.text('Pause and leave?'), findsNothing);
+        expect(find.text('Leave without saving?'), findsOneWidget);
+        if (exit == 'retry') {
+          await _tap(tester, 'training-timer-unstored-stay');
+          await tester.pumpAndSettle();
+        }
+        await _tap(tester, 'training-timer-$exit');
+        await tester.pumpAndSettle();
+        expect(find.text('Open fixture'), findsOneWidget);
+        expect(writes, hasLength(refusedAt), reason: 'no write after refusal');
+        if (exit == 'unstored-leave') {
+          expect(completions, 1);
+          expect(host.completed, isEmpty);
+        } else {
+          expect(completions, 2);
+          expect(host.completed.single.snapshot.completedSets, hasLength(1));
+        }
+      });
+    }
 
     testWidgets('the background cannot hide a failed clear or replace its '
         'retry intent', (tester) async {

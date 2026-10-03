@@ -521,8 +521,15 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
           // Stay and offer Finish, which still saves the workout.
           _hasSaved = false;
           _notStored = true;
-          _terminalIntent = null;
           _leaving = false;
+          if (_pendingCompletion != null) {
+            // A failed completion still awaits its retry: keep Retry visible.
+            _saveFailed = true;
+            _retryIntent = _SaveIntent.complete;
+            _terminalIntent = _SaveIntent.complete;
+          } else {
+            _terminalIntent = null;
+          }
           _syncAwake();
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) unawaited(_leaveUnstored());
@@ -603,7 +610,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
 
   Future<void> _leave() async {
     // A refused checkpoint cannot keep the place; never promise it.
-    if (_notStored && _enabled) return _leaveUnstored();
+    if (_notStored && !_leaving) return _leaveUnstored();
     if (!await _confirm(discard: false)) return;
     // Leaving is an explicit pause: no timer runs while the player is gone.
     _session.pause();
@@ -611,12 +618,15 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
   }
 
   /// Leaving when the place cannot be stored (spec A7): say so and offer
-  /// Finish, which still saves the workout with its frozen plan copy.
+  /// Finish, which still saves the workout with its frozen plan copy. It
+  /// also works while a failed completion awaits its retry, so a refused
+  /// place never leaves the player without an exit.
   Future<void> _leaveUnstored() async {
-    if (_dialogOpen || _sheetOpen || !_enabled || !mounted) return;
+    if (_dialogOpen || _sheetOpen || _leaving || !mounted) return;
     _dialogOpen = true;
     final l = context.l10n;
-    final canFinish = _session.completedSetCount > 0;
+    final canFinish =
+        _pendingCompletion != null || _session.completedSetCount > 0;
     final choice = await showEatovaDialog<_UnstoredChoice>(
       context: context,
       builder: (context) => EatovaDialog(
@@ -651,10 +661,13 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
       ),
     );
     _dialogOpen = false;
-    if (!mounted) return;
+    if (!mounted || _leaving) return;
     _session.catchUp();
     _syncAwake();
     switch (choice) {
+      case _UnstoredChoice.finish when _pendingCompletion != null:
+        // The sheet is locked behind the pending entry; retry that entry.
+        await _persist(_SaveIntent.complete);
       case _UnstoredChoice.finish:
         await _openFinishSheet();
       case _UnstoredChoice.leave:
@@ -667,7 +680,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
   /// Closes without a write: the store refused this place, and the dispose
   /// checkpoint must not try again.
   void _leaveWithoutSaving() {
-    if (!_enabled) return;
+    if (_leaving) return;
     _terminalIntent = _SaveIntent.leave;
     _leaving = true;
     _syncAlert();

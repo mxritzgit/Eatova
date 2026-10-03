@@ -104,7 +104,9 @@ the existing dark studio look (spec
   saves the frozen plan copy. Leaving then never promises a saved place: back
   asks "Leave without saving?" with Finish (when a set is done), Leave
   without saving (no write) and Stay; a Save & leave that is refused keeps
-  the player open and asks the same.
+  the player open and asks the same. When a failed completion is still
+  pending, Retry stays visible and the dialog's Finish retries that
+  completion, so a refused place never leaves the player without an exit.
 - **Writes.** Actions checkpoint at once; field and note edits are debounced
   (600 ms) and flushed on any lifecycle change, cover, terminal intent and
   dispose. Terminal intents still win over older checkpoints; failures stay
