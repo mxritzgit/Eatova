@@ -9,6 +9,7 @@ import '../../models/training_insights.dart';
 import '../../models/training_limits.dart';
 import '../../models/training_log.dart';
 import '../../models/training_plan.dart';
+import '../../models/training_session.dart';
 import '../../services/day_math.dart';
 import '../../services/sync_error_messages.dart';
 import '../../theme/app_tokens.dart';
@@ -188,29 +189,23 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
     }
   }
 
-  /// Planned reps; weights from "Last time" set k (or its last set) unless
-  /// that session recorded no weight at all (spec A2).
+  /// Planned reps; weights from "Last time" set k (or its last set), read
+  /// only from sessions in which this exercise carried a weight (spec A2).
   List<_PlannedSet> _plannedSets(
     String planId,
     TrainingExercise exercise,
     AppLocalizations l10n,
   ) {
-    final last = lastTrainingPerformanceFor(
+    final last = _lastWeightedPerformance(
       widget.history,
       planId: planId,
       exercise: exercise,
     );
-    final weighted = last.any((set) => set.weightKg != null);
     return [
       for (var s = 0; s < exercise.sets; s++)
         _PlannedSet(
           reps: exercise.isTimed ? '' : '${exercise.reps}',
-          weight: weighted
-              ? _weightText(
-                  (s < last.length ? last[s] : last.last).weightKg,
-                  l10n,
-                )
-              : '',
+          weight: _weightText(_lastWeightForSet(last, s), l10n),
         ),
     ];
   }
@@ -545,11 +540,14 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
               child: _header(context),
             );
             final footer = _footer(context, hint: hint, ready: ready);
+            // Both layouts share one element tree; only the slots' contents
+            // move. The keyboard can flip [compact], and a reshaped Column
+            // would rebuild the fields and drop the focused one.
             return Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 SheetHandle(onDismiss: _close),
-                if (!compact) header,
+                Visibility(visible: !compact, child: header),
                 Flexible(
                   child: SingleChildScrollView(
                     key: const ValueKey('training-log-scroll'),
@@ -560,18 +558,20 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        if (compact) header,
+                        Visibility(visible: compact, child: header),
                         ..._content(context),
-                        if (compact) footer,
+                        Visibility(visible: compact, child: footer),
                       ],
                     ),
                   ),
                 ),
-                if (!compact)
-                  Padding(
+                Visibility(
+                  visible: !compact,
+                  child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: footer,
                   ),
+                ),
               ],
             );
           },

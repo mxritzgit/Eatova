@@ -19,6 +19,7 @@ import '../support/harness.dart';
 
 const _id = '3f2b8c1e-4d5a-4b6c-8d7e-9f0a1b2c3d4e';
 const _otherId = '0b6f2a9e-1c3d-4e5f-8a7b-6c5d4e3f2a1b';
+const _id2 = '5d4c3b2a-1f0e-4d9c-8b7a-6f5e4d3c2b1a';
 
 /// Saturday 2026-10-03, 18:30 local.
 final _now = DateTime(2026, 10, 3, 18, 30);
@@ -617,9 +618,58 @@ void main() {
       });
     });
 
-    testWidgets('a last session without weights prefills no weight', (
+    testWidgets('Last time skips a newer session without weights', (
       tester,
     ) async {
+      await withClock(Clock.fixed(_now), () async {
+        await _open(
+          tester,
+          request: request(),
+          history: [
+            _planSession(_otherId, DateTime(2026, 9, 30), [80, 80, 75]),
+            _planSession(_id2, DateTime(2026, 10, 2), [null, null, null]),
+          ],
+        );
+        for (final (set, kg) in const [(0, '80'), (1, '80'), (2, '75')]) {
+          expect(_text(tester, 'training-log-planned-0-$set-weight'), kg);
+        }
+      });
+    });
+
+    testWidgets('Last time set k by its set number, else its last set', (
+      tester,
+    ) async {
+      await withClock(Clock.fixed(_now), () async {
+        // Set 1 skipped last time: it takes the last set's weight (set 3),
+        // as the player does; not the first recorded one.
+        await _open(
+          tester,
+          request: request(),
+          history: [
+            buildPlanAttachedLog(
+              historyId: _otherId,
+              plan: _plan(),
+              workoutIndex: 0,
+              sets: const [
+                [
+                  PlanAttachedSet(done: false),
+                  PlanAttachedSet(done: true, reps: 8, weightKg: 60),
+                  PlanAttachedSet(done: true, reps: 8, weightKg: 70),
+                ],
+                [PlanAttachedSet(done: true), PlanAttachedSet(done: true)],
+              ],
+              performedOn: DateTime(2026, 10, 1),
+              now: _now,
+            ),
+          ],
+        );
+        for (final (set, kg) in const [(0, '70'), (1, '60'), (2, '70')]) {
+          expect(_text(tester, 'training-log-planned-0-$set-weight'), kg);
+        }
+      });
+    });
+
+    testWidgets('without weight history nothing is prefilled', (tester) async {
       await withClock(Clock.fixed(_now), () async {
         await _open(
           tester,
@@ -696,6 +746,72 @@ void main() {
           },
         );
       }
+    }
+
+    for (final planned in [false, true]) {
+      testWidgets('the keyboard keeps the focused field '
+          '(${planned ? 'planned' : 'free'})', (tester) async {
+        await withClock(Clock.fixed(_now), () async {
+          // 375 × 667: 655 px pinned without the keyboard, 395 px (whole
+          // sheet scrolls) with a 260 px one.
+          await _open(
+            tester,
+            request: planned
+                ? PlanAttachedLogRequest(
+                    historyId: _id,
+                    plan: _plan(),
+                    workoutIndex: 0,
+                  )
+                : const FreeLogRequest(historyId: _id),
+            size: const Size(375, 667),
+          );
+          addTearDown(tester.view.resetViewInsets);
+          final key = planned
+              ? 'training-log-planned-0-0-weight'
+              : 'training-log-exercise-0-name';
+          final field = _key(key);
+          final editable = find.descendant(
+            of: field,
+            matching: find.byType(EditableText),
+          );
+          await tester.showKeyboard(field);
+          tester.testTextInput.enterText('62');
+          await tester.pump();
+          final state = tester.state<EditableTextState>(editable);
+          bool headerScrolls() => find
+              .descendant(
+                of: _key('training-log-scroll'),
+                matching: _key('training-log-close'),
+              )
+              .evaluate()
+              .isNotEmpty;
+
+          for (final (inset, compact) in const [
+            (200.0, false),
+            (260.0, true),
+            (0.0, false),
+          ]) {
+            tester.view.viewInsets = FakeViewPadding(
+              bottom: inset * tester.view.devicePixelRatio,
+            );
+            await tester.pumpAndSettle();
+            expect(headerScrolls(), compact, reason: 'keyboard $inset');
+            expect(
+              tester.state<EditableTextState>(editable),
+              same(state),
+              reason: 'keyboard $inset',
+            );
+            expect(state.widget.focusNode.hasFocus, isTrue);
+            expect(tester.testTextInput.hasAnyClients, isTrue);
+            expect(_text(tester, key), '62');
+            expect(
+              tester.getRect(editable).bottom,
+              lessThanOrEqualTo(667 - inset),
+              reason: 'the focused field stays above the keyboard',
+            );
+          }
+        });
+      });
     }
   });
 
