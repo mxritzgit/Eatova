@@ -83,6 +83,12 @@ class CoachChatScreen extends StatefulWidget {
     this.selectedPlanForCoach,
   });
 
+  /// How long the answer live region stays once it can speak (where the
+  /// platform has no announcements, see `_announceAnswer`): long enough for
+  /// TalkBack, which reads the node asynchronously after the change event.
+  @visibleForTesting
+  static const Duration answerCueLifetime = Duration(seconds: 3);
+
   final CoachChatService? service;
   final String userName;
 
@@ -232,6 +238,17 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   /// [_announceAnswer]). 0 = no cue.
   int _answerCue = 0;
 
+  /// Clears the cue once its lifetime ends. Runs only while the cue can speak
+  /// ([_cueCanSpeak]); null otherwise.
+  Timer? _answerCueTimer;
+
+  /// No route (sheet, dialog, page) above this screen's route.
+  bool _routeOnTop = true;
+
+  /// Whether the cue is in the semantics tree: a hidden tab and any route
+  /// above both drop the Coach semantics until they return.
+  bool get _cueCanSpeak => _sichtbar && _routeOnTop;
+
   /// How many send jobs (chat or recipe) are in flight.
   ///
   /// Counts per USER, not per session, because the quota does too: a plain
@@ -310,6 +327,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _trainingAccountRevision++;
       _briefIsActive?.value = false;
       _queuedBrief = null;
+      _dropAnswerCue();
       _cancelSpeechInput(discard: true);
     }
     if (widget.planDraftRequest != oldWidget.planDraftRequest) {
@@ -348,11 +366,18 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _cancelSpeechInput();
       // Leaving the tab withdraws a waiting brief; it must not pop up later.
       _queuedBrief = null;
-      // The return re-creates the tab's semantics; a kept cue would announce
-      // an old answer as new.
-      _answerCue = 0;
     }
+    final cueCouldSpeak = _cueCanSpeak;
     _sichtbar = sichtbar;
+    _routeOnTop = ModalRoute.isCurrentOf(context) ?? true;
+    if (cueCouldSpeak && !_cueCanSpeak) {
+      // The return of the tab or route re-creates the semantics; a kept cue
+      // would announce an old answer as new.
+      _dropAnswerCue();
+    } else if (!cueCouldSpeak && _cueCanSpeak && _answerCue > 0) {
+      // Arrived while hidden or covered: it speaks now.
+      _startAnswerCueLifetime();
+    }
     final svc = widget.service;
     // Only on becoming visible and only once bootstrap is done, or two calls
     // race.
@@ -406,6 +431,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _briefIsActive?.value = false;
+    _answerCueTimer?.cancel();
     _cancelSpeechInput();
     _input.dispose();
     _draft.dispose();
@@ -594,6 +620,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       // The undelivered question belongs to the session being left; its retry
       // job would otherwise land in the new one.
       _fehlgeschlagen = null;
+      // So does a cue still waiting behind the sessions sheet.
+      _dropAnswerCue();
     });
     List<ChatMessage> history;
     try {
@@ -735,6 +763,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _historyUnavailable = false;
       _error = null;
       _fehlgeschlagen = null;
+      _dropAnswerCue();
     });
   }
 
@@ -787,6 +816,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
             _messages = const <ChatMessage>[];
             _loading = false;
             _error = context.l10n.coachErrorNoSession;
+            _dropAnswerCue();
           });
           return;
         }
@@ -1203,11 +1233,15 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   /// announced (spec §9). Android discourages announcements and reports
   /// `supportsAnnounce: false`; there a new polite live region speaks the
   /// same text. Only a node that is new (or relabelled) speaks, hence one per
-  /// answer.
+  /// answer. The same rule speaks a re-created node again, so the cue is
+  /// transient: it lives [CoachChatScreen.answerCueLifetime] once it can
+  /// speak and goes as soon as a tab switch or a route hides it.
   void _announceAnswer() {
     if (!mounted) return;
     if (!MediaQuery.supportsAnnounceOf(context)) {
       setState(() => _answerCue++);
+      // Hidden or covered, it waits for [didChangeDependencies].
+      if (_cueCanSpeak) _startAnswerCueLifetime();
       return;
     }
     unawaited(
@@ -1217,6 +1251,21 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         Directionality.of(context),
       ),
     );
+  }
+
+  void _startAnswerCueLifetime() {
+    _answerCueTimer?.cancel();
+    _answerCueTimer = Timer(CoachChatScreen.answerCueLifetime, () {
+      _answerCueTimer = null;
+      if (mounted && _answerCue != 0) setState(() => _answerCue = 0);
+    });
+  }
+
+  /// Without setState: callers are inside one, or before a build.
+  void _dropAnswerCue() {
+    _answerCueTimer?.cancel();
+    _answerCueTimer = null;
+    _answerCue = 0;
   }
 
   /// Counterpart to `_laufendeSendungen++`; belongs in a `finally` so every
@@ -1778,6 +1827,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _loading = true;
       _fehlgeschlagen = null;
       _error = l10n.coachSessionSwitchedNotice;
+      _dropAnswerCue();
     });
     bool isCurrentTarget() =>
         isCurrentAccount() &&

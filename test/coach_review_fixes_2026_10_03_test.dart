@@ -338,6 +338,8 @@ Future<ValueNotifier<int>> _mount(
   Set<String> recipeSlugs = const <String>{},
   Future<SyncDelivery> Function(FitnessRecipe recipe)? onCreateRecipe,
   ValueListenable<bool> tabVisible = const AlwaysStoppedAnimation<bool>(true),
+  // The shell swaps the service in place on an account change.
+  ValueListenable<_Coach>? account,
 }) async {
   final planDraft = ValueNotifier<int>(planDraftRequest);
   addTearDown(planDraft.dispose);
@@ -350,15 +352,18 @@ Future<ValueNotifier<int>> _mount(
         valueListenable: tabVisible,
         builder: (_, visible, __) => TickerMode(
           enabled: visible,
-          child: CoachChatScreen(
-            service: coach,
-            userName: 'M',
-            planDraftRequest: request,
-            imagePicker: picker,
-            userRecipeSlugs: recipeSlugs,
-            onCreateRecipe: onCreateRecipe,
-            screenAwake: const NoopScreenAwake(),
-            dictationLanguageStore: const PrefsDictationLanguageStore(),
+          child: ValueListenableBuilder<_Coach>(
+            valueListenable: account ?? AlwaysStoppedAnimation<_Coach>(coach),
+            builder: (_, service, __) => CoachChatScreen(
+              service: service,
+              userName: 'M',
+              planDraftRequest: request,
+              imagePicker: picker,
+              userRecipeSlugs: recipeSlugs,
+              onCreateRecipe: onCreateRecipe,
+              screenAwake: const NoopScreenAwake(),
+              dictationLanguageStore: const PrefsDictationLanguageStore(),
+            ),
           ),
         ),
       ),
@@ -390,6 +395,11 @@ Future<void> _sendText(WidgetTester tester, String text) async {
 
 Future<void> _openSessions(WidgetTester tester) async {
   await tester.tap(find.byKey(const ValueKey('coach-sessions-open')));
+  await _frames(tester);
+}
+
+Future<void> _closeSheet(WidgetTester tester) async {
+  tester.state<NavigatorState>(find.byType(Navigator).first).pop();
   await _frames(tester);
 }
 
@@ -668,6 +678,86 @@ void main() {
       await _frames(tester);
       tab.value = true;
       await _frames(tester);
+      expect(_answerCue, findsNothing);
+      semantics.dispose();
+    });
+
+    // Any route above the Coach (sheet, dialog, page) drops its semantics, and
+    // closing it re-creates the nodes; on Android a kept cue speaks again.
+    testWidgets('ohne Ansage bringt ein Sheet nach der Antwort die '
+        'Live-Region beim Schliessen nicht zurueck', (tester) async {
+      final semantics = tester.ensureSemantics();
+      _announcing(tester, false);
+      await _mount(tester, _Coach.create());
+      await _sendText(tester, 'Frage');
+      expect(_answerCue, findsOneWidget);
+
+      await _openSessions(tester);
+      await _closeSheet(tester);
+      expect(_answerCue, findsNothing, reason: 'keine alte Antwort als neue');
+      semantics.dispose();
+    });
+
+    testWidgets('ohne Ansage raeumt sich die Live-Region nach dem Sprechen '
+        'selbst ab', (tester) async {
+      final semantics = tester.ensureSemantics();
+      _announcing(tester, false);
+      await _mount(tester, _Coach.create());
+      await _sendText(tester, 'Frage');
+      expect(_answerCue, findsOneWidget);
+
+      await tester.pump(CoachChatScreen.answerCueLifetime);
+      expect(_answerCue, findsNothing);
+      semantics.dispose();
+    });
+
+    for (final switchSession in [false, true]) {
+      final outcome = switchSession
+          ? 'nach einem Gespraechswechsel nicht'
+          : 'beim Schliessen einmal';
+      testWidgets('ohne Ansage meldet sich eine Antwort hinter einem Sheet '
+          '$outcome', (tester) async {
+        final semantics = tester.ensureSemantics();
+        _announcing(tester, false);
+        final coach = _Coach.create()..hold = Completer<CoachChatReply>();
+        await _mount(tester, coach);
+        await _sendText(tester, 'Frage');
+        await _openSessions(tester);
+        coach.hold!.complete(
+          const CoachChatReply(reply: 'Ok.', refusal: false, sessionId: 's1'),
+        );
+        // Longer than the lifetime: it starts once the cue can speak.
+        await tester.pump(CoachChatScreen.answerCueLifetime * 2);
+
+        if (switchSession) {
+          await tester.tap(find.text('Chat B'));
+          await _frames(tester);
+          expect(_answerCue, findsNothing, reason: 'gehoert zu Chat A');
+        } else {
+          await _closeSheet(tester);
+          expect(_answerCue, findsOneWidget);
+          await tester.pump(CoachChatScreen.answerCueLifetime);
+          expect(_answerCue, findsNothing);
+        }
+        semantics.dispose();
+      });
+    }
+
+    testWidgets('ohne Ansage nimmt ein Kontowechsel die Live-Region mit', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      _announcing(tester, false);
+      // Both up front: a client's start timer needs the first frames to run.
+      final other = _Coach.create();
+      final account = ValueNotifier<_Coach>(_Coach.create());
+      addTearDown(account.dispose);
+      await _mount(tester, account.value, account: account);
+      await _sendText(tester, 'Frage');
+      expect(_answerCue, findsOneWidget);
+
+      account.value = other;
+      await tester.pump();
       expect(_answerCue, findsNothing);
       semantics.dispose();
     });
