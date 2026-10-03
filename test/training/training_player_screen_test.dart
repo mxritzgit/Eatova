@@ -95,9 +95,18 @@ TrainingHistoryEntry _squatHistory(TrainingPlan plan) {
   return entry;
 }
 
-final class _Alerts implements RestAlertScheduler {
+final class _Alerts implements RestAlertScheduler, RestAlertCue {
   final log = <String>[];
   final scheduled = <({int id, DateTime at, String title, String body})>[];
+  final cancelled = <int>[];
+  final cues = <({int id, String title, String body})>[];
+
+  @override
+  Future<void> cueRestAlert({
+    required int id,
+    required String title,
+    required String body,
+  }) async => cues.add((id: id, title: title, body: body));
 
   @override
   Future<void> scheduleRestAlert({
@@ -111,7 +120,10 @@ final class _Alerts implements RestAlertScheduler {
   }
 
   @override
-  Future<void> cancelRestAlert(int id) async => log.add('cancel');
+  Future<void> cancelRestAlert(int id) async {
+    log.add('cancel');
+    cancelled.add(id);
+  }
 }
 
 /// The original two-member gate, as other branches' fakes implement it: no
@@ -148,6 +160,15 @@ final class _Gate extends _PlainGate implements RestAlertExplainerMemory {
     marks++;
     shown = true;
   }
+}
+
+/// A gate whose silent read fails.
+final class _BrokenGate implements RestAlertPermissionGate {
+  @override
+  Future<RestAlertPermission> state() => Future.error(StateError('gate'));
+
+  @override
+  Future<bool> request() async => false;
 }
 
 final class _Awake implements ScreenAwake {
@@ -398,6 +419,29 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
 
+    testWidgets('a weight corrected during its rest carries to the next set', (
+      tester,
+    ) async {
+      final host = await _open(tester);
+      String weight(String id) => tester
+          .widget<TextField>(_key('training-set-weight-$id'))
+          .controller!
+          .text;
+      await tester.enterText(_key('training-set-weight-0-0'), '80');
+      await _tap(tester, 'training-set-check-0-0');
+      expect(weight('0-1'), '80');
+      // The finished row stays open through its rest: correct it there.
+      await tester.enterText(_key('training-set-weight-0-0'), '85');
+      await tester.pump();
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pump();
+      expect(weight('0-1'), '85', reason: 'the next set follows');
+      await _tap(tester, 'training-set-check-0-1');
+      expect(host.writes.last!.actualSets.map((a) => a.weightKg), [85, 85]);
+      expect(weight('0-2'), '85');
+      await tester.pumpWidget(const SizedBox());
+    });
+
     testWidgets('editing a value never pauses a running rest or set', (
       tester,
     ) async {
@@ -510,6 +554,31 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
 
+    testWidgets('a double tap on ▶ never logs a timed set that did not run', (
+      tester,
+    ) async {
+      final host = await _open(tester, plan: timerPlan());
+      final button = _key('training-set-check-0-0');
+      await tester.tap(button);
+      await tester.pump();
+      host.clock.elapse(const Duration(milliseconds: 250));
+      // ▶ turned into ✓ at the same spot; the second tap lands on it.
+      await tester.tap(button);
+      await tester.pump();
+      expect(host.writes.last!.completedSets, isEmpty);
+      expect(host.writes.last!.phase, TrainingSessionPhase.exercise);
+      expect(find.text('Get ready · 3'), findsOneWidget);
+      expect(_check(tester, '0-0').enabled, isFalse, reason: 'get-ready');
+      await _elapse(tester, host, const Duration(seconds: 3));
+      expect(
+        tester.getSemantics(_key('training-timer-readout')).label,
+        '30 seconds remaining',
+        reason: 'the countdown runs',
+      );
+      expect(_check(tester, '0-0').enabled, isTrue, reason: 'Done early');
+      await tester.pumpWidget(const SizedBox());
+    });
+
     testWidgets('±15 s moves the deadline; Skip ends the rest', (tester) async {
       final host = await _open(tester);
       await _tap(tester, 'training-set-check-0-0');
@@ -577,8 +646,12 @@ void main() {
     testWidgets('one alert per phase under the session id, cancelled by ✓, '
         'Skip, Undo and Discard', (tester) async {
       final host = await _open(tester);
-      final id = restAlertIdForSession(host.writes.last!.sessionId);
-      expect(host.alerts.log, ['cancel'], reason: 'open clears stale alerts');
+      final session = host.writes.last!.sessionId;
+      final id = restAlertIdForSession(session);
+      expect(host.alerts.cancelled, [
+        id,
+        restAlertFollowUpIdForSession(session),
+      ], reason: 'open clears stale alerts');
       await _tap(tester, 'training-set-check-0-0');
       final rest = host.alerts.scheduled.single;
       expect(rest.id, id);
@@ -588,7 +661,7 @@ void main() {
 
       await _elapse(tester, host, const Duration(seconds: 20));
       await _tap(tester, 'training-set-check-0-1');
-      expect(host.alerts.log.sublist(2), [
+      expect(host.alerts.log.sublist(3), [
         'schedule',
       ], reason: 'the next rest replaces the alert under the same id');
       expect(host.alerts.scheduled.last.at, host.writes.last!.phaseEndsAt);
@@ -606,6 +679,90 @@ void main() {
       await tester.pumpAndSettle();
       expect(host.alerts.log.last, 'cancel', reason: 'discard');
       expect(host.alerts.scheduled.map((a) => a.id).toSet(), {id});
+    });
+
+    testWidgets('▶ also plans the rest that follows the timed set; Done '
+        'early, Pause and Undo drop that plan', (tester) async {
+      final host = await _open(tester, plan: timerPlan());
+      final id = restAlertIdForSession(host.writes.last!.sessionId);
+      await _tap(tester, 'training-set-check-0-0');
+      final ends = host.writes.last!.phaseEndsAt!;
+      final planned = {for (final a in host.alerts.scheduled) a.id: a};
+      expect(planned.keys, hasLength(2));
+      expect(planned[id]!.at, ends);
+      expect(planned[id]!.body, 'Rest starts now.');
+      final followUp = planned.keys.singleWhere((other) => other != id);
+      expect(isRestAlertId(followUp), isTrue);
+      expect(planned[followUp]!.at, ends.add(const Duration(seconds: 15)));
+      expect(planned[followUp]!.title, 'Rest over');
+
+      // Done early: the rest runs from now under the phase alert.
+      await _elapse(tester, host, const Duration(seconds: 10));
+      await _tap(tester, 'training-timer-done-early');
+      expect(host.alerts.cancelled.last, followUp);
+      expect(host.alerts.scheduled.last.id, id);
+      expect(host.alerts.scheduled.last.at, host.writes.last!.phaseEndsAt);
+
+      // Undo reopens the timed set; ▶ plans both again, Pause drops both.
+      await _tap(tester, 'training-set-check-0-0');
+      expect(host.alerts.cancelled.sublist(host.alerts.cancelled.length - 1), [
+        id,
+      ]);
+      await _tap(tester, 'training-set-check-0-0');
+      expect(host.alerts.scheduled.map((a) => a.id).skip(3), [id, followUp]);
+      await _menu(tester, 'training-timer-pause');
+      expect(host.alerts.cancelled.skip(host.alerts.cancelled.length - 2), [
+        id,
+        followUp,
+      ]);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('alerts off: nothing is scheduled; back from the settings '
+        'with alerts on, the running rest is planned', (tester) async {
+      final gate = _Gate(RestAlertPermission.denied);
+      final host = await _open(tester, gate: gate);
+      await _tap(tester, 'training-set-check-0-0');
+      await tester.pumpAndSettle();
+      expect(
+        host.alerts.scheduled,
+        isEmpty,
+        reason: 'iOS rejects a request without a grant (a Sentry event each)',
+      );
+      await _tap(tester, 'training-timer-alerts-off');
+      await tester.pumpAndSettle();
+      expect(host.settings, 1);
+      gate.value = RestAlertPermission.granted;
+      _lifecycle(tester, _background);
+      await tester.pump();
+      _lifecycle(tester, _foreground);
+      await tester.pumpAndSettle();
+      expect(_key('training-timer-alerts-off'), findsNothing);
+      expect(host.alerts.scheduled.single.at, host.writes.last!.phaseEndsAt);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('a timed set with alerts off schedules nothing either', (
+      tester,
+    ) async {
+      final gate = _Gate(RestAlertPermission.notAsked)..shown = true;
+      final host = await _open(tester, plan: timerPlan(), gate: gate);
+      await _tap(tester, 'training-set-check-0-0');
+      await tester.pumpAndSettle();
+      expect(host.writes.last!.phaseEndsAt, isNotNull);
+      expect(host.alerts.scheduled, isEmpty);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('a gate that cannot answer leaves the alerts to the OS', (
+      tester,
+    ) async {
+      final host = await _open(tester, gate: _BrokenGate());
+      await _tap(tester, 'training-set-check-0-0');
+      await tester.pumpAndSettle();
+      expect(host.alerts.scheduled.single.at, host.writes.last!.phaseEndsAt);
+      expect(_key('training-timer-alerts-off'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
     });
 
     testWidgets('Finish cancels a running alert', (tester) async {
@@ -641,6 +798,55 @@ void main() {
       expect(haptics, 0);
       await _elapse(tester, host, const Duration(seconds: 1));
       expect(haptics, 1);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    // Final review P-4: Android delivers the planned alert late and the
+    // player cancels it at the deadline, so a seen end posts the cue.
+    testWidgets('a rest end seen in the foreground cues once with the generic '
+        'text; one passed in the background does not', (tester) async {
+      final host = await _open(tester);
+      final cueId = restAlertCueIdForSession(host.writes.last!.sessionId);
+      await _tap(tester, 'training-set-check-0-0');
+      await _elapse(tester, host, const Duration(seconds: 59));
+      expect(host.alerts.cues, isEmpty);
+      await _elapse(tester, host, const Duration(seconds: 1));
+      expect(host.alerts.cues, [
+        (id: cueId, title: 'Rest over', body: 'Time for your next set.'),
+      ]);
+      expect(cueId, isNot(restAlertIdForSession(host.writes.last!.sessionId)));
+
+      await _tap(tester, 'training-set-check-0-1');
+      _lifecycle(tester, _background);
+      await tester.pump();
+      host.clock.elapse(const Duration(seconds: 70));
+      await tester.pump(const Duration(milliseconds: 300));
+      _lifecycle(tester, _foreground);
+      await tester.pump();
+      expect(host.writes.last!.setIndex, 2, reason: 'the rest passed');
+      expect(host.alerts.cues, hasLength(1), reason: 'the alert came instead');
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('a timed set ending in the foreground cues "Time\'s up"', (
+      tester,
+    ) async {
+      final host = await _open(tester, plan: timerPlan());
+      await _tap(tester, 'training-set-check-0-0');
+      await _elapse(tester, host, const Duration(seconds: 33));
+      expect(host.writes.last!.phase, TrainingSessionPhase.rest);
+      expect(host.alerts.cues.single.title, "Time's up");
+      expect(host.alerts.cues.single.body, 'Rest starts now.');
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('with alerts off a seen end only vibrates', (tester) async {
+      final host = await _open(tester, gate: _Gate(RestAlertPermission.denied));
+      await _tap(tester, 'training-set-check-0-0');
+      await tester.pumpAndSettle();
+      await _elapse(tester, host, const Duration(seconds: 60));
+      expect(host.writes.last!.phase, TrainingSessionPhase.exercise);
+      expect(host.alerts.cues, isEmpty);
       await tester.pumpWidget(const SizedBox());
     });
 
@@ -868,10 +1074,20 @@ void main() {
     ) async {
       final host = await _open(tester);
       await _tap(tester, 'training-set-check-0-0');
+      await _exerciseMenu(tester, 0, 'training-timer-skip-set');
       await _tap(tester, 'training-timer-finish');
       await tester.pumpAndSettle();
-      expect(find.text('Save 1 set (skip the rest)'), findsOneWidget);
-      expect(find.text('I did the rest — log as shown'), findsOneWidget);
+      // In English "rest" is the pause between sets: the remaining sets are
+      // named as such, and open ones are not counted as skipped yet.
+      expect(
+        tester.widget<Text>(_key('training-finish-summary')).data,
+        '1 of 12 sets completed · 1 set skipped · 10 open',
+      );
+      expect(find.text('Save 1 set, skip the remaining ones'), findsOneWidget);
+      expect(
+        find.text('I did the remaining sets — log as shown'),
+        findsOneWidget,
+      );
       expect(find.text('Keep training'), findsOneWidget);
       await _tap(tester, 'training-finish-keep');
       await tester.pumpAndSettle();
@@ -883,6 +1099,20 @@ void main() {
       final entry = host.completed.single;
       expect(entry.snapshot.completedSets, hasLength(1));
       expect(entry.snapshot.skippedSets, hasLength(11));
+    });
+
+    testWidgets('German: the open sets read as "offen" before the choice', (
+      tester,
+    ) async {
+      await _open(tester, locale: 'de');
+      await _tap(tester, 'training-set-check-0-0');
+      await _tap(tester, 'training-timer-finish');
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<Text>(_key('training-finish-summary')).data,
+        '1 von 12 Sätzen geschafft · 11 offen',
+      );
+      await tester.pumpWidget(const SizedBox());
     });
 
     testWidgets('"I did the rest" logs the open sets as shown', (tester) async {
@@ -1063,6 +1293,50 @@ void main() {
       gate.complete();
       await tester.pumpAndSettle();
       expect(find.text('Recovery checkpoint saved'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('the save status speaks up only when the place is not kept', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      var refuse = false;
+      Completer<void>? hold;
+      await _open(
+        tester,
+        persist: (_) async {
+          await hold?.future;
+          return !refuse;
+        },
+      );
+      final status = _key('training-timer-save-status');
+      expect(find.text('Recovery checkpoint saved'), findsOneWidget);
+      expect(tester.getSemantics(status), isSemantics(isLiveRegion: false));
+      final saving = Completer<void>();
+      hold = saving;
+      await tester.tap(_key('training-set-check-0-0'));
+      await tester.pump();
+      expect(find.text('Saving your place…'), findsOneWidget);
+      expect(
+        tester.getSemantics(status),
+        isSemantics(isLiveRegion: false),
+        reason: 'never on top of "set done" and "rest"',
+      );
+      saving.complete();
+      hold = null;
+      await tester.pumpAndSettle();
+      expect(tester.getSemantics(status), isSemantics(isLiveRegion: false));
+      refuse = true;
+      await _tap(tester, 'training-set-check-0-1');
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'Not stored: your plan changed. Finish still saves this workout.',
+        ),
+        findsOneWidget,
+      );
+      expect(tester.getSemantics(status), isSemantics(isLiveRegion: true));
+      semantics.dispose();
       await tester.pumpWidget(const SizedBox());
     });
 
@@ -1495,5 +1769,78 @@ void main() {
         await tester.pumpWidget(const SizedBox());
       });
     }
+
+    // Typing the next set's weight during a rest is the core flow: the
+    // keyboard shrinks the body, and the rest bar must never take the row
+    // being typed in. Only where not even one control row is left (320 px
+    // high text) does the bar wait for the keyboard to close.
+    for (final (size, scale, keyboard, barWhileTyping) in const [
+      (Size(320, 568), 1.0, 260.0, true),
+      (Size(320, 568), 2.0, 260.0, false),
+      (Size(360, 640), 1.0, 280.0, true),
+      (Size(375, 667), 1.3, 300.0, true),
+      (Size(375, 667), 2.0, 300.0, true),
+    ]) {
+      testWidgets('${size.width.toInt()}×${size.height.toInt()} at ${scale}x '
+          'with a ${keyboard.toInt()} px keyboard during a rest: no overflow, '
+          'the field and its ✓ stay visible, Skip stays reachable', (
+        tester,
+      ) async {
+        final host = await _open(tester, size: size, scale: scale);
+        await _tap(tester, 'training-set-check-0-0');
+        expect(_key('training-rest-bar'), findsOneWidget);
+        await tester.showKeyboard(_key('training-set-weight-0-1'));
+        tester.view.viewInsets = FakeViewPadding(bottom: keyboard);
+        addTearDown(tester.view.resetViewInsets);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        final list = tester.getRect(_key('training-player-list'));
+        for (final id in [
+          'training-set-weight-0-1',
+          'training-set-check-0-1',
+        ]) {
+          await tester.ensureVisible(_key(id));
+          await tester.pumpAndSettle();
+          final rect = tester.getRect(_key(id));
+          expect(rect.top, greaterThanOrEqualTo(list.top - 0.5), reason: id);
+          expect(rect.bottom, lessThanOrEqualTo(list.bottom + 0.5), reason: id);
+          expect(_key(id).hitTestable(), findsOneWidget, reason: id);
+        }
+        expect(tester.testTextInput.isVisible, isTrue, reason: 'still typing');
+        expect(
+          _key('training-rest-bar'),
+          barWhileTyping ? findsOneWidget : findsNothing,
+        );
+        var visibleBottom = size.height - keyboard;
+        if (!barWhileTyping) {
+          FocusManager.instance.primaryFocus?.unfocus();
+          tester.view.resetViewInsets();
+          await tester.pumpAndSettle();
+          expect(_key('training-rest-bar'), findsOneWidget, reason: 'back');
+          visibleBottom = size.height;
+        }
+        final skip = _key('training-timer-skip-rest');
+        await tester.ensureVisible(skip);
+        await tester.pumpAndSettle();
+        expect(
+          tester.getRect(skip).bottom,
+          lessThanOrEqualTo(visibleBottom + 0.5),
+        );
+        expect(skip.hitTestable(), findsOneWidget);
+        await tester.tap(skip);
+        await tester.pumpAndSettle();
+        expect(host.writes.last!.phase, TrainingSessionPhase.exercise);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+      });
+    }
+
+    testWidgets('German: the header menu is "Trainingsoptionen"', (
+      tester,
+    ) async {
+      await _open(tester, locale: 'de');
+      expect(find.byTooltip('Trainingsoptionen'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    });
   });
 }

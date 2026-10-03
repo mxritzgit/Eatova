@@ -1998,6 +1998,15 @@
       }
     }
   },
+  "trainingTimerOpenSets": "{count} open",
+  "@trainingTimerOpenSets": {
+    "description": "Finish sheet summary: sets neither done nor skipped yet, before the user chose what to do with them.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "trainingTimerSecondsRemaining": "{seconds, plural, one{1 second remaining} other{{seconds} seconds remaining}}",
   "@trainingTimerSecondsRemaining": {
     "placeholders": {
@@ -2155,7 +2164,7 @@
   "trainingTimerAlertsLater": "Not now",
   "trainingTimerAlertSetDoneBody": "Set complete.",
   "trainingTimerSaveWorkout": "Save workout",
-  "trainingTimerSaveSets": "{count, plural, one{Save 1 set (skip the rest)} other{Save {count} sets (skip the rest)}}",
+  "trainingTimerSaveSets": "{count, plural, one{Save 1 set, skip the remaining ones} other{Save {count} sets, skip the remaining ones}}",
   "@trainingTimerSaveSets": {
     "placeholders": {
       "count": {
@@ -2163,7 +2172,7 @@
       }
     }
   },
-  "trainingTimerLogRest": "I did the rest — log as shown",
+  "trainingTimerLogRest": "I did the remaining sets — log as shown",
   "trainingTimerKeepTraining": "Keep training",
   "trainingTimerNothingDone": "No set is completed yet, so there is nothing to save.",
   "trainingTimerNotStored": "Not stored: your plan changed. Finish still saves this workout.",

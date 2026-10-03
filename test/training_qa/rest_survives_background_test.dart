@@ -30,8 +30,30 @@ TrainingPlan _plan() => TrainingPlan(
   ),
 );
 
+/// The brief's case: a 45 s plank with a 60 s rest after each set.
+TrainingPlan _planks() => TrainingPlan(
+  id: 'background_planks',
+  proposal: CoachTrainingProposal(
+    title: 'Core',
+    workouts: [
+      TrainingWorkout(
+        title: 'Day B',
+        exercises: [
+          TrainingExercise(
+            name: 'Plank',
+            sets: 2,
+            durationSeconds: 45,
+            restSeconds: 60,
+          ),
+        ],
+      ),
+    ],
+  ),
+);
+
 final class _Alerts implements RestAlertScheduler {
   final log = <(String, DateTime?)>[];
+  final scheduled = <({int id, DateTime at, String title, String body})>[];
 
   @override
   Future<void> scheduleRestAlert({
@@ -39,10 +61,68 @@ final class _Alerts implements RestAlertScheduler {
     required DateTime at,
     required String title,
     required String body,
-  }) async => log.add(('schedule', at));
+  }) async {
+    log.add(('schedule', at));
+    scheduled.add((id: id, at: at, title: title, body: body));
+  }
 
   @override
   Future<void> cancelRestAlert(int id) async => log.add(('cancel', null));
+}
+
+Future<void> _openPlayer(
+  WidgetTester tester, {
+  required TrainingPlan plan,
+  required TimerTestClock time,
+  required _Alerts alerts,
+  required List<TrainingSessionSnapshot?> checkpoints,
+}) async {
+  await pumpLocalized(
+    tester,
+    Builder(
+      builder: (context) => TextButton(
+        onPressed: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => TrainingPlayerScreen(
+              plan: plan,
+              monotonicNow: time.now,
+              restAlerts: alerts,
+              screenAwake: const NoopScreenAwake(),
+              onPersist: (value) async {
+                checkpoints.add(value);
+                return true;
+              },
+            ),
+          ),
+        ),
+        child: const Text('Open'),
+      ),
+    ),
+    locale: const Locale('en'),
+    surfaceSize: const Size(393, 852),
+  );
+  await tester.tap(find.text('Open'));
+  await tester.pumpAndSettle();
+}
+
+void _lock(WidgetTester tester) {
+  for (final state in const [
+    AppLifecycleState.inactive,
+    AppLifecycleState.hidden,
+    AppLifecycleState.paused,
+  ]) {
+    tester.binding.handleAppLifecycleStateChanged(state);
+  }
+}
+
+void _unlock(WidgetTester tester) {
+  for (final state in const [
+    AppLifecycleState.hidden,
+    AppLifecycleState.inactive,
+    AppLifecycleState.resumed,
+  ]) {
+    tester.binding.handleAppLifecycleStateChanged(state);
+  }
 }
 
 void main() {
@@ -51,32 +131,13 @@ void main() {
     final time = TimerTestClock();
     final alerts = _Alerts();
     final checkpoints = <TrainingSessionSnapshot?>[];
-    await pumpLocalized(
+    await _openPlayer(
       tester,
-      Builder(
-        builder: (context) => TextButton(
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(
-              builder: (_) => TrainingPlayerScreen(
-                plan: _plan(),
-                monotonicNow: time.now,
-                restAlerts: alerts,
-                screenAwake: const NoopScreenAwake(),
-                onPersist: (value) async {
-                  checkpoints.add(value);
-                  return true;
-                },
-              ),
-            ),
-          ),
-          child: const Text('Open'),
-        ),
-      ),
-      locale: const Locale('en'),
-      surfaceSize: const Size(393, 852),
+      plan: _plan(),
+      time: time,
+      alerts: alerts,
+      checkpoints: checkpoints,
     );
-    await tester.tap(find.text('Open'));
-    await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('training-set-check-0-0')));
     await tester.pump();
@@ -84,13 +145,7 @@ void main() {
     expect(alerts.log.last, ('schedule', deadline));
 
     // Lock the phone: the app leaves the foreground.
-    for (final state in const [
-      AppLifecycleState.inactive,
-      AppLifecycleState.hidden,
-      AppLifecycleState.paused,
-    ]) {
-      tester.binding.handleAppLifecycleStateChanged(state);
-    }
+    _lock(tester);
     await tester.pump();
     final whileLocked = List.of(alerts.log);
     expect(checkpoints.last!.phaseEndsAt, deadline, reason: 'not frozen');
@@ -99,13 +154,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(alerts.log, whileLocked, reason: 'nothing replanned while locked');
 
-    for (final state in const [
-      AppLifecycleState.hidden,
-      AppLifecycleState.inactive,
-      AppLifecycleState.resumed,
-    ]) {
-      tester.binding.handleAppLifecycleStateChanged(state);
-    }
+    _unlock(tester);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
@@ -133,6 +182,68 @@ void main() {
     expect(alerts.log.sublist(scheduledAt, whileLocked.length), [
       ('schedule', deadline),
     ], reason: 'the alert was not cancelled before it fired');
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  // Final review P-1: the rest after a timed set starts only once the app
+  // sees the interval end, so its alert must be planned at ▶ already.
+  testWidgets('a lock during a timed set still alerts when the rest after it '
+      'ends', (tester) async {
+    final time = TimerTestClock();
+    final alerts = _Alerts();
+    final checkpoints = <TrainingSessionSnapshot?>[];
+    await _openPlayer(
+      tester,
+      plan: _planks(),
+      time: time,
+      alerts: alerts,
+      checkpoints: checkpoints,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('training-set-check-0-0')));
+    await tester.pump();
+    final intervalEnds = checkpoints.last!.phaseEndsAt!;
+    final restEnds = intervalEnds.add(const Duration(seconds: 60));
+
+    _lock(tester);
+    await tester.pump();
+    final whileLocked = List.of(alerts.log);
+    final planned = {for (final alert in alerts.scheduled) alert.at: alert};
+    expect(planned.keys, unorderedEquals([intervalEnds, restEnds]));
+    expect(
+      (planned[intervalEnds]!.title, planned[intervalEnds]!.body),
+      ("Time's up", 'Rest starts now.'),
+    );
+    expect(
+      (planned[restEnds]!.title, planned[restEnds]!.body),
+      ('Rest over', 'Time for your next set.'),
+      reason: 'generic texts (D5)',
+    );
+    expect(
+      planned[restEnds]!.id,
+      isNot(planned[intervalEnds]!.id),
+      reason: 'one alert never replaces the other',
+    );
+    expect(isRestAlertId(planned[restEnds]!.id), isTrue);
+    final firstPlan = alerts.log.indexOf(('schedule', intervalEnds));
+    expect(
+      alerts.log.sublist(firstPlan).where((entry) => entry.$1 == 'cancel'),
+      isEmpty,
+      reason: 'neither alert is cancelled before it fires',
+    );
+
+    // Locked through the interval and the whole rest.
+    time.elapse(const Duration(seconds: 3 + 45 + 60 + 5));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(alerts.log, whileLocked, reason: 'nothing replanned while locked');
+
+    _unlock(tester);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(checkpoints.last!.completedSets, hasLength(1));
+    expect(checkpoints.last!.phase, TrainingSessionPhase.exercise);
+    expect(checkpoints.last!.setIndex, 1, reason: 'waits for ▶');
+    expect(checkpoints.last!.phaseEndsAt, isNull);
     await tester.pumpWidget(const SizedBox.shrink());
   });
 }

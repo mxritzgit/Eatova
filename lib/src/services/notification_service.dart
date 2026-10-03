@@ -179,6 +179,15 @@ abstract class NotificationPluginGateway {
     required NotificationDetails details,
     String? payload,
   });
+
+  /// Posts a notification at once (the rest alert cue).
+  Future<void> show({
+    required int id,
+    required String title,
+    required String body,
+    required NotificationDetails details,
+    String? payload,
+  });
   Future<void> cancel(int id);
   Future<void> cancelAll();
   Future<NotificationAppLaunchDetails?> launchDetails();
@@ -247,6 +256,21 @@ class _PluginGateway implements NotificationPluginGateway {
       );
 
   @override
+  Future<void> show({
+    required int id,
+    required String title,
+    required String body,
+    required NotificationDetails details,
+    String? payload,
+  }) => _plugin.show(
+    id: id,
+    title: title,
+    body: body,
+    notificationDetails: details,
+    payload: payload,
+  );
+
+  @override
   Future<void> cancel(int id) => _plugin.cancel(id: id);
 
   @override
@@ -277,6 +301,7 @@ class LocalNotificationService
         NotificationLocalizable,
         NotificationScopedCancel,
         RestAlertScheduler,
+        RestAlertCue,
         RestAlertSessionScope,
         RestAlertPermissionGate,
         RestAlertExplainerMemory,
@@ -328,6 +353,9 @@ class LocalNotificationService
 
   /// Separate channel, so workout alerts can be tuned apart from reminders.
   static const String _restChannelId = 'eatova_training';
+
+  /// How long the Android cue ([cueRestAlert]) stays in the shade.
+  static const Duration restCueTimeout = Duration(seconds: 5);
 
   /// Device flag: [request] showed the system prompt. Not the pre-release
   /// `eatova.v1.rest_alerts_asked`, which a merely shown explainer also set.
@@ -698,6 +726,39 @@ class LocalNotificationService
   }
 
   @override
+  Future<void> cueRestAlert({
+    required int id,
+    required String title,
+    required String body,
+  }) {
+    // iOS delivers the planned alert on time; only Android needs the cue.
+    if (!isRestAlertId(id) || _platform != NotificationPlatform.android) {
+      return Future<void>.value();
+    }
+    if (!_restAlertsOpen || _endedRestAlertOwners.containsKey(id)) {
+      CrashReporter.breadcrumb('notification-rest-refused');
+      return Future<void>.value();
+    }
+    _sessionRestAlertIds.add(id);
+    final epoch = _restAlertEpoch;
+    return _enqueueMutation(() async {
+      await init();
+      if (!_initialized || epoch != _restAlertEpoch) return;
+      try {
+        await _gateway.show(
+          id: id,
+          title: title,
+          body: body,
+          details: _restCueDetails(),
+          payload: trainingRestNotificationPayload,
+        );
+      } catch (e, st) {
+        await CrashReporter.capture(e, st, context: 'notification-rest-cue');
+      }
+    });
+  }
+
+  @override
   Future<void> cancelRestAlert(int id) {
     if (!isRestAlertId(id)) return Future<void>.value();
     // Registers the id with the open session, so its end fences it. The
@@ -833,4 +894,17 @@ class LocalNotificationService
     );
     return NotificationDetails(android: android, iOS: ios);
   }
+
+  /// The Android cue: the training channel's sound, no heads-up (default
+  /// importance), gone from the shade after [restCueTimeout].
+  NotificationDetails _restCueDetails() => NotificationDetails(
+    android: AndroidNotificationDetails(
+      _restChannelId,
+      _l10n.trainingRestChannelName,
+      channelDescription: _l10n.trainingRestChannelDescription,
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
+      timeoutAfter: restCueTimeout.inMilliseconds,
+    ),
+  );
 }

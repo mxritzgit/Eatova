@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
@@ -36,6 +37,9 @@ const Duration _editDebounce = Duration(milliseconds: 600);
 
 /// One step of the rest bar's −15 s / +15 s.
 const Duration _restStep = Duration(seconds: 15);
+
+/// Below this the rest bar could not show one of its controls.
+const double _restBarMinHeight = kMinInteractiveDimension + 16;
 
 /// The list player (spec A1–A7, Option L). The caller provides account-pinned
 /// durable storage, rest alerts and the permission gate.
@@ -82,6 +86,8 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
   late final TrainingSessionController _session;
   late final List<List<TrainingSetActual>> _lastTime;
   late final int _alertId;
+  late final int _followUpId;
+  late final int _cueId;
   final ScrollController _scroll = ScrollController();
   final TextEditingController _note = TextEditingController();
   final Map<TrainingSetReference, GlobalKey> _rowKeys = {};
@@ -102,8 +108,8 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
   bool _notStored = false;
   bool _saveFailed = false;
   bool _restExpanded = false;
-  // Granted until the gate says otherwise: no gate, no chip.
-  RestAlertPermission _alertPermission = RestAlertPermission.granted;
+  // Null until the gate answers: no chip, and nothing planned yet.
+  RestAlertPermission? _alertPermission;
   bool _askedAlerts = false;
   bool _alertsChipBusy = false;
   bool _awake = false;
@@ -112,6 +118,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
   _SaveIntent? _terminalIntent;
   TrainingHistoryEntry? _pendingCompletion;
   ({DateTime at, bool rest})? _scheduledAlert;
+  DateTime? _scheduledFollowUp;
   String _identity = '';
   TrainingSetReference? _shownActive;
   int _shownCompleted = 0;
@@ -166,6 +173,8 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
             lastWeight: lastWeight,
           );
     _alertId = restAlertIdForSession(_session.sessionId);
+    _followUpId = restAlertFollowUpIdForSession(_session.sessionId);
+    _cueId = restAlertCueIdForSession(_session.sessionId);
     _note.text = snapshot?.recoveryNote ?? '';
     if (snapshot?.pendingCompletionAt != null) {
       _pendingCompletion = TrainingHistoryEntry.fromRecovery(snapshot!);
@@ -263,7 +272,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
         (cell) =>
             cell.$1 != _session.activeSet && !_session.isCompleted(cell.$1),
       );
-      if (seenEnd) unawaited(HapticFeedback.vibrate());
+      if (seenEnd) _cuePhaseEnd(previousPhase);
       _announce(previousCompleted, previousPhase);
       if (_session.phase != TrainingSessionPhase.rest) _restExpanded = false;
       if (_session.activeSet != previousActive) _scrollToActive();
@@ -323,65 +332,132 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
   /// schedule only what the current phase needs.
   void _openAlerts() {
     unawaited(_quiet(widget.restAlerts.cancelRestAlert(_alertId)));
+    unawaited(_quiet(widget.restAlerts.cancelRestAlert(_followUpId)));
     _scheduledAlert = null;
+    _scheduledFollowUp = null;
     _syncAlert();
     _readAlertPermission();
   }
 
+  /// Also on every resume: alerts turned on in the settings meanwhile plan
+  /// the running phase at once. A gate that cannot answer leaves it to the
+  /// OS, as without a gate.
   void _readAlertPermission() {
     final gate = widget.alertPermission;
     if (gate == null) return;
     unawaited(
       _quiet(
-        gate.state().then((state) {
-          if (mounted && state != _alertPermission) {
-            setState(() => _alertPermission = state);
-          }
-        }),
+        gate.state().then(
+          _setAlertPermission,
+          onError: (Object _) =>
+              _setAlertPermission(RestAlertPermission.granted),
+        ),
       ),
     );
   }
 
-  bool get _alertsOff => _alertPermission != RestAlertPermission.granted;
+  void _setAlertPermission(RestAlertPermission state) {
+    if (!mounted || state == _alertPermission) return;
+    setState(() => _alertPermission = state);
+    _syncAlert();
+  }
+
+  bool get _alertsOff =>
+      _alertPermission != null &&
+      _alertPermission != RestAlertPermission.granted;
+
+  /// Alerts are planned only with a grant: iOS rejects a request while this
+  /// app's notifications are off, each time as a reported error.
+  bool get _alertsAllowed =>
+      widget.alertPermission == null ||
+      _alertPermission == RestAlertPermission.granted;
 
   void _syncAlert() {
     final ends = _session.phaseEndsAt;
-    final want = ends == null || _terminalIntent != null
-        ? null
-        : (at: ends, rest: _session.phase == TrainingSessionPhase.rest);
-    if (want == _scheduledAlert) return;
-    _scheduledAlert = want;
-    if (want == null) {
-      unawaited(_quiet(widget.restAlerts.cancelRestAlert(_alertId)));
-      return;
+    final running = ends != null && _terminalIntent == null;
+    if (running && !_askedAlerts && widget.alertPermission != null) {
+      _askedAlerts = true;
+      unawaited(_explainAlerts());
     }
-    final l = context.l10n;
+    final at = running && _alertsAllowed ? ends : null;
+    final rest = _session.phase == TrainingSessionPhase.rest;
     final exercise = _session.exercise;
     final restFollows =
+        !rest &&
         exercise.restSeconds > 0 &&
         !(_session.exerciseIndex == _session.workout.exercises.length - 1 &&
             _session.setIndex == exercise.sets - 1);
-    // D5: generic texts, no exercise names or weights on the lock screen.
+    final want = at == null ? null : (at: at, rest: rest);
+    // The rest after a timed set starts only once the app sees the interval
+    // end: plan its end now, so a lock during the interval still alerts.
+    final followUp = at != null && restFollows
+        ? at.add(Duration(seconds: exercise.restSeconds))
+        : null;
+    final l = context.l10n;
+    if (want != _scheduledAlert) {
+      _scheduledAlert = want;
+      // D5: generic texts, no exercise names or weights on the lock screen.
+      unawaited(
+        _quiet(
+          want == null
+              ? widget.restAlerts.cancelRestAlert(_alertId)
+              : widget.restAlerts.scheduleRestAlert(
+                  id: _alertId,
+                  at: want.at,
+                  title: want.rest
+                      ? l.trainingRestAlertTitle
+                      : l.trainingIntervalAlertTitle,
+                  body: want.rest
+                      ? l.trainingRestAlertBody
+                      : restFollows
+                      ? l.trainingIntervalAlertBody
+                      : l.trainingTimerAlertSetDoneBody,
+                ),
+        ),
+      );
+    }
+    if (followUp != _scheduledFollowUp) {
+      _scheduledFollowUp = followUp;
+      unawaited(
+        _quiet(
+          followUp == null
+              ? widget.restAlerts.cancelRestAlert(_followUpId)
+              : widget.restAlerts.scheduleRestAlert(
+                  id: _followUpId,
+                  at: followUp,
+                  title: l.trainingRestAlertTitle,
+                  body: l.trainingRestAlertBody,
+                ),
+        ),
+      );
+    }
+  }
+
+  /// A phase end seen in the foreground: a haptic, plus the cue where the
+  /// scheduler offers one (Android, whose inexact alert would come late
+  /// and is cancelled at the deadline anyway).
+  void _cuePhaseEnd(TrainingSessionPhase ended) {
+    unawaited(HapticFeedback.vibrate());
+    final cue = switch (widget.restAlerts) {
+      final RestAlertCue cue => cue,
+      _ => null,
+    };
+    if (cue == null || !_alertsAllowed || _terminalIntent != null) return;
+    final l = context.l10n;
+    final rest = ended == TrainingSessionPhase.rest;
     unawaited(
       _quiet(
-        widget.restAlerts.scheduleRestAlert(
-          id: _alertId,
-          at: want.at,
-          title: want.rest
-              ? l.trainingRestAlertTitle
-              : l.trainingIntervalAlertTitle,
-          body: want.rest
+        cue.cueRestAlert(
+          id: _cueId,
+          title: rest ? l.trainingRestAlertTitle : l.trainingIntervalAlertTitle,
+          body: rest
               ? l.trainingRestAlertBody
-              : restFollows
+              : _session.phase == TrainingSessionPhase.rest
               ? l.trainingIntervalAlertBody
               : l.trainingTimerAlertSetDoneBody,
         ),
       ),
     );
-    if (!_askedAlerts && widget.alertPermission != null) {
-      _askedAlerts = true;
-      unawaited(_explainAlerts());
-    }
   }
 
   /// One in-context explainer before the system prompt, at the first phase
@@ -404,7 +480,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
       return;
     }
     if (!mounted) return;
-    setState(() => _alertPermission = state);
+    _setAlertPermission(state);
     if (state != RestAlertPermission.notAsked ||
         shown ||
         _leaving ||
@@ -444,7 +520,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
     if (allow == true) await _requestAlerts(gate);
   }
 
-  /// The system prompt; once granted the running phase is planned again.
+  /// The system prompt; once granted the running phase is planned.
   Future<void> _requestAlerts(RestAlertPermissionGate gate) async {
     bool granted;
     try {
@@ -452,17 +528,9 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
     } catch (_) {
       granted = false;
     }
-    if (!mounted) return;
-    setState(
-      () => _alertPermission = granted
-          ? RestAlertPermission.granted
-          : RestAlertPermission.denied,
+    _setAlertPermission(
+      granted ? RestAlertPermission.granted : RestAlertPermission.denied,
     );
-    if (granted) {
-      // Planned before the grant; plan again so the OS delivers it.
-      _scheduledAlert = null;
-      _syncAlert();
-    }
   }
 
   /// The "Alerts off" chip: the system prompt while this device never
@@ -484,13 +552,11 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
         case RestAlertPermission.notAsked:
           await _requestAlerts(gate);
         case RestAlertPermission.denied:
-          setState(() => _alertPermission = state);
+          _setAlertPermission(state);
           await _quiet(widget.openAlertSettings());
         case RestAlertPermission.granted:
           // Turned on elsewhere meanwhile: no chip, and plan with the grant.
-          setState(() => _alertPermission = state);
-          _scheduledAlert = null;
-          _syncAlert();
+          _setAlertPermission(state);
       }
     } finally {
       _alertsChipBusy = false;
@@ -928,6 +994,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
     }
     // A player never leaves an alert behind (account switch, sign-out).
     unawaited(_quiet(widget.restAlerts.cancelRestAlert(_alertId)));
+    unawaited(_quiet(widget.restAlerts.cancelRestAlert(_followUpId)));
     if (_awake) {
       unawaited(
         _quiet(
@@ -997,8 +1064,11 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
             ),
             const SizedBox(height: 8),
           ],
+          // Spoken only when the place is not kept: "saving / saved" after
+          // every ✓ and edit would talk over the set and rest announcements
+          // (a failed save speaks through its own error row).
           Semantics(
-            liveRegion: true,
+            liveRegion: _notStored && !_saveFailed,
             child: Text(
               _saveFailed
                   ? l.trainingTimerNotSaved
@@ -1088,19 +1158,45 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
                           ],
                         ),
                       ),
-                    Expanded(child: list),
-                    if (rest != null && !_restExpanded)
-                      ConstrainedBox(
-                        // Large text: the bar scrolls instead of eating the
-                        // list (the full view is one tap away).
-                        constraints: BoxConstraints(
-                          maxHeight: MediaQuery.sizeOf(context).height * 0.4,
-                        ),
-                        child: PlayerRestBar(
-                          rest: rest,
-                          onExpand: () => setState(() => _restExpanded = true),
-                        ),
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          // The bar never takes the list's active row: the
+                          // keyboard shrinks the body while the next weight
+                          // is typed. Without room for one of its controls
+                          // it waits for the keyboard to close.
+                          final room =
+                              constraints.maxHeight -
+                              MediaQuery.textScalerOf(context).scale(40) -
+                              32;
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(child: list),
+                              if (rest != null &&
+                                  !_restExpanded &&
+                                  room >= _restBarMinHeight)
+                                ConstrainedBox(
+                                  // Large text: the bar scrolls instead of
+                                  // eating the list (the full view is one
+                                  // tap away).
+                                  constraints: BoxConstraints(
+                                    maxHeight: math.min(
+                                      MediaQuery.sizeOf(context).height * 0.4,
+                                      room,
+                                    ),
+                                  ),
+                                  child: PlayerRestBar(
+                                    rest: rest,
+                                    onExpand: () =>
+                                        setState(() => _restExpanded = true),
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
                       ),
+                    ),
                   ],
                 ),
                 if (rest != null && _restExpanded)

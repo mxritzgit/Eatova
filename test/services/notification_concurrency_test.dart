@@ -56,6 +56,15 @@ class _DelayedGateway implements NotificationPluginGateway {
   }
 
   @override
+  Future<void> show({
+    required int id,
+    required String title,
+    required String body,
+    required NotificationDetails details,
+    String? payload,
+  }) async {}
+
+  @override
   Future<void> cancel(int id) async => pending.remove(id);
 
   @override

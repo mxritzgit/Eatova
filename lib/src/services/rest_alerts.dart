@@ -24,13 +24,24 @@ bool isRestAlertId(int id) =>
 /// FNV-1a (32 bit) over the session id, folded into the reserved range.
 /// Stable across processes and app versions — unlike `String.hashCode` — so
 /// a recovered session cancels the alert its previous process scheduled.
-int restAlertIdForSession(String sessionId) {
+int restAlertIdForSession(String sessionId) => _restAlertSlot(sessionId, 0);
+
+/// Id of the alert for the rest after a running timed set: the app applies
+/// that rest only once it sees the interval end, so it is planned at ▶
+/// next to [restAlertIdForSession]. Never equal to it.
+int restAlertFollowUpIdForSession(String sessionId) =>
+    _restAlertSlot(sessionId, 1);
+
+/// Id of the [RestAlertCue] of a session, apart from both planned alerts.
+int restAlertCueIdForSession(String sessionId) => _restAlertSlot(sessionId, 2);
+
+int _restAlertSlot(String sessionId, int offset) {
   var hash = 0x811c9dc5;
   for (final unit in sessionId.codeUnits) {
     hash ^= unit;
     hash = (hash * 0x01000193) & 0xffffffff;
   }
-  return restAlertIdFirst + hash % restAlertIdCount;
+  return restAlertIdFirst + (hash + offset) % restAlertIdCount;
 }
 
 /// Payload of every rest/interval alert; a tap carrying it opens Training.
@@ -54,6 +65,23 @@ abstract class RestAlertScheduler {
   /// Cancels the pending or shown alert [id]; nothing else. Always runs,
   /// also after a session end.
   Future<void> cancelRestAlert(int id);
+}
+
+/// Extra seam on a [RestAlertScheduler] (probed via `is`): the cue for a
+/// phase end the player saw in the foreground.
+///
+/// Android schedules rest alerts inexactly and may deliver them late, while
+/// the player cancels the pending one at the deadline. So Android posts this
+/// cue at once (sound, no heads-up, gone after a few seconds). iOS delivers
+/// the planned alert on time and posts nothing here.
+abstract class RestAlertCue {
+  /// Same rules as [RestAlertScheduler.scheduleRestAlert]: [id] from
+  /// [restAlertCueIdForSession], generic texts, ignored after a session end.
+  Future<void> cueRestAlert({
+    required int id,
+    required String title,
+    required String body,
+  });
 }
 
 /// Session scope of the rest alerts, probed via `is` by the auth gate.

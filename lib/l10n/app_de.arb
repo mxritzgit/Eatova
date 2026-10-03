@@ -2047,6 +2047,15 @@
       }
     }
   },
+  "trainingTimerOpenSets": "{count} offen",
+  "@trainingTimerOpenSets": {
+    "description": "Finish sheet summary: sets neither done nor skipped yet, before the user chose what to do with them.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "trainingTimerSecondsRemaining": "{seconds, plural, one{Noch 1 Sekunde} other{Noch {seconds} Sekunden}}",
   "@trainingTimerSecondsRemaining": {
     "placeholders": {
@@ -2057,7 +2066,7 @@
   },
   "trainingTimerResume": "Fortsetzen",
   "trainingTimerFinishShort": "Beenden",
-  "trainingTimerMenu": "Workout-Optionen",
+  "trainingTimerMenu": "Trainingsoptionen",
   "trainingTimerSetsDone": "{done}/{total} Sätze",
   "@trainingTimerSetsDone": {
     "placeholders": {

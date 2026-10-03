@@ -19,6 +19,7 @@ import 'package:eatova/src/services/health_service.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/notification_service.dart';
 import 'package:eatova/src/services/recipe_image_store.dart';
+import 'package:eatova/src/services/rest_alert_guard.dart';
 import 'package:eatova/src/services/rest_alerts.dart';
 import 'package:eatova/src/services/streak_reminder_planner.dart';
 import 'package:eatova/src/theme/app_theme.dart';
@@ -44,6 +45,15 @@ class _Scheduled {
   const _Scheduled(this.when, this.details, this.payload);
 
   final tz.TZDateTime when;
+  final NotificationDetails details;
+  final String? payload;
+}
+
+class _Shown {
+  const _Shown(this.title, this.body, this.details, this.payload);
+
+  final String title;
+  final String body;
   final NotificationDetails details;
   final String? payload;
 }
@@ -112,6 +122,21 @@ class _FakeGateway implements NotificationPluginGateway {
     pending[id] = _Scheduled(scheduledDate, details, payload);
   }
 
+  /// Notifications posted at once (the cue), by id.
+  final Map<int, _Shown> shown = <int, _Shown>{};
+
+  @override
+  Future<void> show({
+    required int id,
+    required String title,
+    required String body,
+    required NotificationDetails details,
+    String? payload,
+  }) async {
+    calls.add('show $id');
+    shown[id] = _Shown(title, body, details, payload);
+  }
+
   @override
   Future<void> cancel(int id) async {
     calls.add('cancel $id');
@@ -153,6 +178,11 @@ final int _restId = restAlertIdForSession(
 final int _otherRestId = restAlertIdForSession(
   '5e2f6a1b-8c3d-4e9f-a0b1-c2d3e4f5a6b7',
 );
+final int _cueId = restAlertCueIdForSession(
+  '0b7c9f0e-4d2a-4f53-9a51-3c1e2d4b5a69',
+);
+
+bool _always() => true;
 
 Future<void> _scheduleRest(LocalNotificationService service, [int? id]) =>
     service.scheduleRestAlert(
@@ -255,6 +285,23 @@ void main() {
         seen.add(id);
       }
       expect(seen.length, greaterThan(1990), reason: 'ids spread out');
+      // 'wrap-718917' hashes to the range's last id: its other ids wrap.
+      expect(restAlertIdForSession('wrap-718917'), 2000999999);
+      expect(restAlertFollowUpIdForSession('wrap-718917'), 2000000000);
+      for (final session in [
+        '0b7c9f0e-4d2a-4f53-9a51-3c1e2d4b5a69',
+        'a',
+        'wrap-718917',
+        for (var i = 0; i < 2000; i++) 's$i',
+      ]) {
+        final ids = {
+          restAlertIdForSession(session),
+          restAlertFollowUpIdForSession(session),
+          restAlertCueIdForSession(session),
+        };
+        expect(ids, hasLength(3), reason: 'one session never reuses an id');
+        expect(ids.every(isRestAlertId), isTrue, reason: session);
+      }
       for (
         var id = reminderNudgeIdFirst;
         id < reminderNudgeIdFirst + reminderNudgeIdCount;
@@ -404,6 +451,107 @@ void main() {
         expect(gateway.calls, isEmpty);
       }),
     );
+  });
+
+  // Final review P-4: Android defers the inexact rest alarm, and the player
+  // cancels it once it sees the deadline; the cue is the foreground sound.
+  group('Sofort-Signal bei einem gesehenen Phasenende', () {
+    Future<void> cue(LocalNotificationService service, [int? id]) =>
+        service.cueRestAlert(
+          id: id ?? _cueId,
+          title: 'Rest over',
+          body: 'Time for your next set.',
+        );
+
+    test(
+      'Android: sofort auf eatova_training, Ton ohne Heads-up, verschwindet '
+      'nach wenigen Sekunden',
+      () => _frozen(() async {
+        final gateway = _FakeGateway();
+        final service = _service(gateway)..setLocalizations(enL10n);
+
+        await cue(service);
+
+        expect(gateway.calls, ['show $_cueId']);
+        expect(gateway.pending, isEmpty, reason: 'no alarm involved');
+        final shown = gateway.shown[_cueId]!;
+        expect(
+          (shown.title, shown.body),
+          ('Rest over', 'Time for your next set.'),
+        );
+        expect(shown.payload, trainingRestNotificationPayload);
+        final android = shown.details.android!;
+        expect(android.channelId, 'eatova_training');
+        expect(android.playSound, isTrue);
+        expect(android.silent, isFalse);
+        expect(
+          android.importance.value,
+          lessThanOrEqualTo(Importance.defaultImportance.value),
+          reason: 'high importance would pop up as heads-up',
+        );
+        expect(
+          android.timeoutAfter,
+          LocalNotificationService.restCueTimeout.inMilliseconds,
+        );
+        expect(
+          LocalNotificationService.restCueTimeout,
+          lessThanOrEqualTo(const Duration(seconds: 10)),
+        );
+      }),
+    );
+
+    test(
+      'iOS: kein Sofort-Signal, der geplante Alert kommt puenktlich',
+      () => _frozen(() async {
+        final gateway = _FakeGateway();
+        final service = _service(gateway, platform: NotificationPlatform.ios);
+        await cue(service);
+        expect(gateway.calls, isEmpty);
+      }),
+    );
+
+    test(
+      'nach dem Sitzungsende und ausserhalb des Rest-Bereichs ignoriert',
+      () => _frozen(() async {
+        final gateway = _FakeGateway();
+        final service = _service(gateway);
+        await service.scheduleAll(_nudges());
+        final nudge = _nudgeIds(gateway).first;
+        gateway.calls.clear();
+        await cue(service, nudge);
+        expect(gateway.calls, isEmpty);
+
+        await cancelDeviceSchedules(notifications: service);
+        gateway.calls.clear();
+        await cue(service);
+        expect(gateway.calls, isEmpty, reason: 'a signed-out player is quiet');
+      }),
+    );
+  });
+
+  group('GuardedRestAlertScheduler', () {
+    test(
+      'reicht das Signal nur fuer das aktuelle Konto weiter',
+      () => _frozen(() async {
+        final gateway = _FakeGateway();
+        final service = _service(gateway);
+        var current = true;
+        final guarded = GuardedRestAlertScheduler(service, () => current);
+        await guarded.cueRestAlert(id: _cueId, title: 't', body: 'b');
+        expect(gateway.calls, ['show $_cueId']);
+        current = false;
+        await guarded.cueRestAlert(id: _cueId, title: 't', body: 'b');
+        expect(gateway.calls, ['show $_cueId']);
+      }),
+    );
+
+    test('ohne Signal-Faehigkeit ist das Signal ein No-op', () async {
+      const guarded = GuardedRestAlertScheduler(
+        NoopRestAlertScheduler(),
+        _always,
+      );
+      await guarded.cueRestAlert(id: _cueId, title: 't', body: 'b');
+    });
   });
 
   group('Erinnerungs-Pfade lassen den Rest-Alert stehen', () {

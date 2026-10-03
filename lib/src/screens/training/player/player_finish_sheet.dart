@@ -104,10 +104,12 @@ class _FinishSheet extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
+            // Open sets are not skipped until the user picks an action below.
             Text(
               [
                 l.trainingTimerProgress(completed, total),
-                if (skipped + open > 0) l.trainingTimerSkipped(skipped + open),
+                if (skipped > 0) l.trainingTimerSkipped(skipped),
+                if (open > 0) l.trainingTimerOpenSets(open),
               ].join(' · '),
               key: const ValueKey('training-finish-summary'),
               style: AppType.ui(14, color: t.ink2, height: 1.4),

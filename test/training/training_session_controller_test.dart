@@ -141,6 +141,28 @@ void main() {
         expect(session.phase, TrainingSessionPhase.rest);
       });
     });
+
+    test('✓ during the get-ready after ▶ does nothing; once the countdown '
+        'runs it is Done early', () {
+      final wall = _Wall();
+      wall.run(() {
+        final session = _controller();
+        addTearDown(session.dispose);
+        session.nextExercise();
+        session.startActiveSet();
+        // The same button turns from ▶ into ✓: a double tap on ▶.
+        wall.elapse(const Duration(milliseconds: 250));
+        session.completeActiveSet();
+        expect(session.completedSets, isEmpty, reason: 'it never ran');
+        expect(session.phase, TrainingSessionPhase.exercise);
+        expect(session.isRunning, isTrue);
+        expect(session.remaining, const Duration(seconds: 30));
+        wall.elapse(const Duration(seconds: 3));
+        session.completeActiveSet();
+        expect(session.completedSets, [_set(_plank, 0)]);
+        expect(session.phase, TrainingSessionPhase.rest);
+      });
+    });
   });
 
   group('rest between exercises', () {
@@ -223,6 +245,40 @@ void main() {
         session.completeActiveSet();
         expect(session.actualWeightKg, 65);
         expect(session.shownWeight(_set(_plank, 0)), isNull);
+      });
+    });
+
+    test('a weight corrected during its rest carries to the next sets; a '
+        'weight typed for the next set stays', () {
+      final wall = _Wall();
+      wall.run(() {
+        final session = _controller();
+        addTearDown(session.dispose);
+        session.setCurrentActual(reps: 8, weightKg: 80);
+        session.completeActiveSet();
+        expect(session.actualWeightKg, 80);
+        session.setCompletedActual(_set(_bench, 0), reps: 8, weightKg: 85);
+        expect(session.actualWeightKg, 85, reason: 'the active set follows');
+        expect(session.shownWeight(_set(_bench, 2)), 85);
+        session.completeActiveSet();
+        expect(session.actualSets.map((a) => a.weightKg), [85, 85]);
+
+        session.setCurrentActual(reps: 8, weightKg: 90);
+        session.setCompletedActual(_set(_bench, 1), reps: 8, weightKg: 87.5);
+        expect(session.actualWeightKg, 90, reason: 'typed by hand');
+      });
+    });
+
+    test('a corrected weight also replaces a seeded Last time weight', () {
+      final wall = _Wall();
+      wall.run(() {
+        final session = _controller(lastWeight: lastTime);
+        addTearDown(session.dispose);
+        session.completeActiveSet();
+        expect(session.actualWeightKg, 70, reason: 'Last time set 2');
+        session.setCompletedActual(_set(_bench, 0), reps: 8, weightKg: 65);
+        expect(session.actualWeightKg, 65);
+        expect(session.shownWeight(_set(_bench, 2)), 65);
       });
     });
 

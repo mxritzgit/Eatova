@@ -70,6 +70,15 @@ class _FakeGateway implements NotificationPluginGateway {
       scheduled.add(scheduledDate);
 
   @override
+  Future<void> show({
+    required int id,
+    required String title,
+    required String body,
+    required NotificationDetails details,
+    String? payload,
+  }) async {}
+
+  @override
   Future<void> cancel(int id) async => cancelled.add(id);
 
   @override

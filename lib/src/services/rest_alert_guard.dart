@@ -3,9 +3,10 @@ import 'package:app_settings/app_settings.dart';
 import 'rest_alerts.dart';
 
 /// Rest alerts pinned to the account that opened the player: scheduling
-/// stops once [isCurrent] fails (sign-out, account switch); cancelling
-/// always runs.
-final class GuardedRestAlertScheduler implements RestAlertScheduler {
+/// and cues stop once [isCurrent] fails (sign-out, account switch);
+/// cancelling always runs.
+final class GuardedRestAlertScheduler
+    implements RestAlertScheduler, RestAlertCue {
   const GuardedRestAlertScheduler(this._inner, this._isCurrent);
 
   final RestAlertScheduler _inner;
@@ -20,6 +21,17 @@ final class GuardedRestAlertScheduler implements RestAlertScheduler {
   }) async {
     if (!_isCurrent()) return;
     await _inner.scheduleRestAlert(id: id, at: at, title: title, body: body);
+  }
+
+  @override
+  Future<void> cueRestAlert({
+    required int id,
+    required String title,
+    required String body,
+  }) async {
+    if (_inner case final RestAlertCue cue when _isCurrent()) {
+      await cue.cueRestAlert(id: id, title: title, body: body);
+    }
   }
 
   @override

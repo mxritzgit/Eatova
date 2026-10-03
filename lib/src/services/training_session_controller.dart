@@ -316,30 +316,37 @@ final class TrainingSessionController extends ChangeNotifier {
     _draftWeightKg = weightKg;
   }
 
-  /// Corrects a completed row; its completion time stays.
+  /// Corrects a completed row; its completion time stays. An active draft
+  /// that still shows the carried weight follows the correction (spec A2);
+  /// a weight typed for the active set stays.
   void setCompletedActual(
     TrainingSetReference reference, {
     int? reps,
     double? weightKg,
   }) {
     if (_disposed || !_completed.contains(reference)) return;
+    final active = activeSet;
+    final carried = active != null && _draftWeightKg == _carriedWeight(active);
     _actuals[reference] = TrainingSetActual(
       reference: reference,
       completedAt: _actuals[reference]?.completedAt ?? _clampToStart(_now()),
       reps: reps,
       weightKg: weightKg,
     );
+    if (carried) _draftWeightKg = _carriedWeight(active);
     notifyListeners();
   }
 
   /// ✓ on the active row: ends a rest early, completes a repetition set at
-  /// once and a timed set that runs ("Done early") or waits at zero.
+  /// once and a timed set that runs ("Done early") or waits at zero. Never
+  /// during the get-ready after ▶, where the same button turned into ✓.
   void completeActiveSet() {
     final active = activeExercise;
     if (_disposed || active == null) return;
     if (active.isTimed &&
         (_phase == TrainingSessionPhase.rest ||
-            (_endsAt == null && _remaining > Duration.zero))) {
+            (_endsAt == null && _remaining > Duration.zero) ||
+            getReadyRemaining > Duration.zero)) {
       return;
     }
     if (_phase == TrainingSessionPhase.rest) _endRest(chain: false);

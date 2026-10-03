@@ -235,6 +235,9 @@ class PlayerExerciseCard extends StatelessWidget {
       PlayerSetState.active =>
         timedIdle ? PlayerSetButtonKind.start : PlayerSetButtonKind.complete,
     };
+    // Right after ▶ the same button is ✓: it waits out the get-ready, as
+    // Done early does, so a double tap never logs a set that did not run.
+    final gettingReady = isActive && session.getReadyRemaining > Duration.zero;
     return KeyedSubtree(
       key: rowKey(ref),
       child: PlayerSetRow(
@@ -248,7 +251,9 @@ class PlayerExerciseCard extends StatelessWidget {
         compact: compact,
         lastTime: _lastTimeFor(ref.setIndex),
         enabled: enabled,
-        buttonEnabled: kind != PlayerSetButtonKind.complete || activeValid,
+        buttonEnabled:
+            !gettingReady &&
+            (kind != PlayerSetButtonKind.complete || activeValid),
         onConfirmLegacy:
             enabled &&
                 state == PlayerSetState.done &&
