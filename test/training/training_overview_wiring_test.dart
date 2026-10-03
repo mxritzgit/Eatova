@@ -496,22 +496,19 @@ void main() {
         String text(String key) =>
             tester.widget<Text>(find.byKey(ValueKey(key))).data!;
         // The running week first; nothing lifted yet, so no share line.
-        expect(
-          text('training-volume-value'),
-          trend.currentWeek.tonnes.toStringAsFixed(1),
-        );
-        expect(text('training-volume-caption'), 'tonnes this week');
+        expect(trend.currentWeek.volumeKg, 0);
+        expect(text('training-volume-value'), '0');
+        expect(text('training-volume-caption'), 'kg this week');
         expect(
           find.byKey(const ValueKey('training-volume-change')),
           findsNothing,
         );
-        // Last week's bar shows last week against the week before.
+        // Last week's bar shows last week, exact to the kilogram, against
+        // the week before.
         await _tap(tester, 'training-volume-week-4');
-        expect(
-          text('training-volume-value'),
-          trend.weeks[4].tonnes.toStringAsFixed(1),
-        );
-        expect(text('training-volume-caption'), 'tonnes last week');
+        expect(trend.weeks[4].volumeKg, 8625);
+        expect(text('training-volume-value'), '8,625');
+        expect(text('training-volume-caption'), 'kg last week');
         expect(
           text('training-volume-change'),
           '↑ ${trend.changePercentAt(4)!.round()}% vs. the week before',
@@ -529,12 +526,12 @@ void main() {
         }
         final semantics = tester.ensureSemantics();
         const spoken = [
-          'Week of Aug 24: 6.8 tonnes',
-          'Week of Aug 31: 7.4 tonnes',
-          'Week of Sep 7: 7.1 tonnes',
-          'Week of Sep 14: 7.9 tonnes',
-          'Week of Sep 21: 8.6 tonnes',
-          'This week so far: 0.0 tonnes',
+          'Week of Aug 24: 6,798 kg',
+          'Week of Aug 31: 7,415 kg',
+          'Week of Sep 7: 7,106 kg',
+          'Week of Sep 14: 7,892 kg',
+          'Week of Sep 21: 8,625 kg',
+          'This week so far: 0 kg',
         ];
         for (var i = 0; i < spoken.length; i++) {
           expect(

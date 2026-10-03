@@ -377,8 +377,6 @@ final class TrainingVolumeWeek {
 
   /// The running, partial week.
   final bool isCurrent;
-
-  double get tonnes => volumeKg / 1000;
 }
 
 /// The "Weekly volume" chart: full weeks oldest first, then the current week.

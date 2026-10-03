@@ -641,7 +641,6 @@ void main() {
         false,
         true,
       ]);
-      expect(trend.weeks[4].tonnes, closeTo(8.6, 1e-9));
       expect(trend.currentWeek.volumeKg, 250);
       // Each week against the charted week before it.
       expect(trend.changePercentAt(4)!.round(), 9);
