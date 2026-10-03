@@ -2106,6 +2106,10 @@
   "trainingTimerKeepTraining": "Keep training",
   "trainingTimerNothingDone": "No set is completed yet, so there is nothing to save.",
   "trainingTimerNotStored": "Not stored: your plan changed. Finish still saves this workout.",
+  "trainingTimerLeaveUnstoredTitle": "Leave without saving?",
+  "trainingTimerLeaveUnstoredBody": "Your plan changed, so your place can't be saved for later. Finish saves the sets you did to your history.",
+  "trainingTimerLeaveUnstoredBodyEmpty": "Your plan changed, so your place can't be saved for later.",
+  "trainingTimerLeaveUnstored": "Leave without saving",
   "trainingTimerAnnounceSetDone": "{exercise}, set {set} done.",
   "@trainingTimerAnnounceSetDone": {
     "placeholders": {

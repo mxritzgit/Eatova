@@ -26,6 +26,8 @@ import 'player/player_set_row.dart';
 
 enum _SaveIntent { checkpoint, leave, clear, complete }
 
+enum _UnstoredChoice { finish, leave, stay }
+
 /// Owner of the player's keep-awake hold ([ScreenAwake], ruling R16).
 const String trainingPlayerAwakeOwner = 'training-player';
 
@@ -514,6 +516,19 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
           _notStored = !stored;
           return;
         }
+        if (intent == _SaveIntent.leave && !stored) {
+          // The place was refused: never close as if it were kept (spec A7).
+          // Stay and offer Finish, which still saves the workout.
+          _hasSaved = false;
+          _notStored = true;
+          _terminalIntent = null;
+          _leaving = false;
+          _syncAwake();
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) unawaited(_leaveUnstored());
+          });
+          return;
+        }
         _close();
       } on TrainingCompletionDeleted {
         if (!mounted) return;
@@ -587,10 +602,77 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
   }
 
   Future<void> _leave() async {
+    // A refused checkpoint cannot keep the place; never promise it.
+    if (_notStored && _enabled) return _leaveUnstored();
     if (!await _confirm(discard: false)) return;
     // Leaving is an explicit pause: no timer runs while the player is gone.
     _session.pause();
     await _persist(_SaveIntent.leave);
+  }
+
+  /// Leaving when the place cannot be stored (spec A7): say so and offer
+  /// Finish, which still saves the workout with its frozen plan copy.
+  Future<void> _leaveUnstored() async {
+    if (_dialogOpen || _sheetOpen || !_enabled || !mounted) return;
+    _dialogOpen = true;
+    final l = context.l10n;
+    final canFinish = _session.completedSetCount > 0;
+    final choice = await showEatovaDialog<_UnstoredChoice>(
+      context: context,
+      builder: (context) => EatovaDialog(
+        title: l.trainingTimerLeaveUnstoredTitle,
+        content: Text(
+          canFinish
+              ? l.trainingTimerLeaveUnstoredBody
+              : l.trainingTimerLeaveUnstoredBodyEmpty,
+        ),
+        icon: Icons.cloud_off_rounded,
+        actions: [
+          if (canFinish)
+            EatovaDialogAction(
+              buttonKey: const ValueKey('training-timer-unstored-finish'),
+              label: l.trainingTimerFinishShort,
+              onPressed: () => Navigator.pop(context, _UnstoredChoice.finish),
+            ),
+          EatovaDialogAction(
+            buttonKey: const ValueKey('training-timer-unstored-leave'),
+            label: l.trainingTimerLeaveUnstored,
+            onPressed: () => Navigator.pop(context, _UnstoredChoice.leave),
+            secondary: canFinish,
+            destructive: true,
+          ),
+          EatovaDialogAction(
+            buttonKey: const ValueKey('training-timer-unstored-stay'),
+            label: l.trainingTimerStay,
+            onPressed: () => Navigator.pop(context, _UnstoredChoice.stay),
+            secondary: true,
+          ),
+        ],
+      ),
+    );
+    _dialogOpen = false;
+    if (!mounted) return;
+    _session.catchUp();
+    _syncAwake();
+    switch (choice) {
+      case _UnstoredChoice.finish:
+        await _openFinishSheet();
+      case _UnstoredChoice.leave:
+        _leaveWithoutSaving();
+      case _UnstoredChoice.stay || null:
+        break;
+    }
+  }
+
+  /// Closes without a write: the store refused this place, and the dispose
+  /// checkpoint must not try again.
+  void _leaveWithoutSaving() {
+    if (!_enabled) return;
+    _terminalIntent = _SaveIntent.leave;
+    _leaving = true;
+    _syncAlert();
+    _syncAwake();
+    _close();
   }
 
   Future<void> _discard() async {

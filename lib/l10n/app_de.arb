@@ -2155,6 +2155,10 @@
   "trainingTimerKeepTraining": "Weiter trainieren",
   "trainingTimerNothingDone": "Noch kein Satz geschafft, es gibt nichts zu speichern.",
   "trainingTimerNotStored": "Nicht gesichert: Dein Plan hat sich geändert. Beenden speichert dieses Training trotzdem.",
+  "trainingTimerLeaveUnstoredTitle": "Ohne Speichern verlassen?",
+  "trainingTimerLeaveUnstoredBody": "Dein Plan hat sich geändert, deshalb lässt sich dein Stand nicht für später sichern. Beenden speichert deine geschafften Sätze im Verlauf.",
+  "trainingTimerLeaveUnstoredBodyEmpty": "Dein Plan hat sich geändert, deshalb lässt sich dein Stand nicht für später sichern.",
+  "trainingTimerLeaveUnstored": "Ohne Speichern verlassen",
   "trainingTimerAnnounceSetDone": "{exercise}, Satz {set} geschafft.",
   "@trainingTimerAnnounceSetDone": {
     "placeholders": {

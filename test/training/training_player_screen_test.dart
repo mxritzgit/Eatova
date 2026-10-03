@@ -939,6 +939,68 @@ void main() {
       expect(writes.every((s) => s != null), isTrue);
     });
 
+    testWidgets('a refused Save & leave never closes as saved; Finish still '
+        'saves the workout', (tester) async {
+      var refuse = false;
+      final host = await _open(tester, persist: (_) async => !refuse);
+      await _tap(tester, 'training-set-check-0-0');
+      expect(find.text('Recovery checkpoint saved'), findsOneWidget);
+      refuse = true;
+      await _tap(tester, 'training-timer-back');
+      await tester.pumpAndSettle();
+      expect(find.text('Pause and leave?'), findsOneWidget);
+      await _tap(tester, 'training-timer-confirm-exit');
+      await tester.pumpAndSettle();
+      expect(find.text('Open fixture'), findsNothing);
+      expect(find.byType(TrainingPlayerScreen), findsOneWidget);
+      expect(find.text('Leave without saving?'), findsOneWidget);
+      expect(
+        find.text(
+          'Not stored: your plan changed. Finish still saves this workout.',
+        ),
+        findsOneWidget,
+      );
+      await _tap(tester, 'training-timer-unstored-finish');
+      await tester.pumpAndSettle();
+      await _tap(tester, 'training-finish-save');
+      await tester.pumpAndSettle();
+      expect(find.text('Open fixture'), findsOneWidget);
+      expect(host.completed.single.snapshot.completedSets, hasLength(1));
+    });
+
+    testWidgets('a known refusal warns before leaving; Leave without saving '
+        'writes nothing', (tester) async {
+      final writes = <TrainingSessionSnapshot?>[];
+      var refuse = false;
+      final host = await _open(
+        tester,
+        persist: (value) async {
+          writes.add(value);
+          return !refuse;
+        },
+      );
+      refuse = true;
+      await _tap(tester, 'training-set-check-0-0');
+      await tester.pumpAndSettle();
+      final before = writes.length;
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('Pause and leave?'), findsNothing);
+      expect(find.text('Leave without saving?'), findsOneWidget);
+      await _tap(tester, 'training-timer-unstored-stay');
+      await tester.pumpAndSettle();
+      expect(find.byType(TrainingPlayerScreen), findsOneWidget);
+      expect(writes, hasLength(before));
+      await _tap(tester, 'training-timer-back');
+      await tester.pumpAndSettle();
+      await _tap(tester, 'training-timer-unstored-leave');
+      await tester.pumpAndSettle();
+      expect(find.text('Open fixture'), findsOneWidget);
+      expect(writes, hasLength(before), reason: 'nothing claims a save');
+      expect(host.completed, isEmpty);
+      expect(host.alerts.log.last, 'cancel');
+    });
+
     testWidgets('the background cannot hide a failed clear or replace its '
         'retry intent', (tester) async {
       var failClear = true;

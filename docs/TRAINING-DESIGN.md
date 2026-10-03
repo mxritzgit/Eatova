@@ -101,7 +101,10 @@ the existing dark studio look (spec
   sets (skip the rest)", "I did the rest — log as shown", "Keep training";
   with no completed set only Discard and Keep training. A refused checkpoint
   (`onPersist` → false, the plan changed) shows "not stored" and Finish still
-  saves the frozen plan copy.
+  saves the frozen plan copy. Leaving then never promises a saved place: back
+  asks "Leave without saving?" with Finish (when a set is done), Leave
+  without saving (no write) and Stay; a Save & leave that is refused keeps
+  the player open and asks the same.
 - **Writes.** Actions checkpoint at once; field and note edits are debounced
   (600 ms) and flushed on any lifecycle change, cover, terminal intent and
   dispose. Terminal intents still win over older checkpoints; failures stay

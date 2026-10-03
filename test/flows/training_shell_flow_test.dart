@@ -378,6 +378,20 @@ void main() {
           if (exit == 'save') {
             await _tap(tester, 'training-timer-back');
             await _tap(tester, 'training-timer-confirm-exit');
+            // The refused place is said, never claimed; nothing to finish.
+            await pumpUntil(
+              tester,
+              () => find
+                  .byKey(const ValueKey('training-timer-unstored-leave'))
+                  .evaluate()
+                  .isNotEmpty,
+              'the refused leave asks before closing',
+            );
+            expect(
+              find.byKey(const ValueKey('training-timer-unstored-finish')),
+              findsNothing,
+            );
+            await _tap(tester, 'training-timer-unstored-leave');
           } else if (exit == 'discard') {
             await _tap(tester, 'training-timer-menu');
             await _tap(tester, 'training-timer-discard');
@@ -462,6 +476,15 @@ void main() {
       );
       expect(store.trainingSession, isNull);
       await _tap(tester, 'training-timer-retry');
+      await pumpUntil(
+        tester,
+        () => find
+            .byKey(const ValueKey('training-timer-unstored-leave'))
+            .evaluate()
+            .isNotEmpty,
+        'the refused retry says the place is not kept',
+      );
+      await _tap(tester, 'training-timer-unstored-leave');
       await pumpUntil(
         tester,
         () => find.byType(TrainingPlayerScreen).evaluate().isEmpty,
