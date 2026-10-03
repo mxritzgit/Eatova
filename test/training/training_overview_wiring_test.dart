@@ -998,6 +998,60 @@ void main() {
       expect(logged, [(plan, 1)]);
     });
 
+    testWidgets('a stale store copy with more workouts never indexes past '
+        'the selected plan', (tester) async {
+      // The store's copy still has a fourth workout the saved plan dropped.
+      final stale = TrainingPlan(
+        id: plan.id,
+        proposal: CoachTrainingProposal(
+          title: plan.title,
+          workouts: [
+            ...plan.workouts,
+            TrainingWorkout(
+              title: 'Conditioning',
+              exercises: [
+                TrainingExercise(
+                  name: 'Rower',
+                  sets: 1,
+                  reps: 10,
+                  restSeconds: 0,
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+      final next = TrainingNextWorkout(
+        plan: stale,
+        workoutIndex: 2,
+        completedToday: true,
+        exercises: [
+          for (final exercise in stale.workouts[2].exercises)
+            TrainingExercisePreview(exercise: exercise),
+        ],
+      );
+      expect(next.upNextWorkoutIndex, 3, reason: 'past the saved plan');
+      final started = <(TrainingPlan, int)>[];
+      await _pumpScreen(
+        tester,
+        _screen(
+          plans: [plan],
+          next: next,
+          start: (p, i) => started.add((p, i)),
+        ),
+      );
+      expect(find.text('Done today: Lower Body'), findsOneWidget);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const ValueKey('training-card-title')))
+            .data,
+        'Upper Body Push',
+        reason: 'the rotation wraps to the first workout',
+      );
+      await _tapScreen(tester, 'training-start');
+      expect(started, [(plan, 0)]);
+    });
+
     testWidgets('a picked workout finds Last time by name in a free log', (
       tester,
     ) async {
@@ -1067,6 +1121,47 @@ void main() {
       await _tapScreen(tester, 'training-empty-log');
       expect(logs, 1);
     });
+
+    testWidgets('no plan: the empty card offers "Tell the Coach instead"', (
+      tester,
+    ) async {
+      var opened = 0;
+      await _pumpScreen(
+        tester,
+        _screen(plans: const [], logWorkout: () {}, coachLog: () => opened++),
+      );
+      expect(find.text('Tell the Coach instead'), findsOneWidget);
+      await _tapScreen(tester, 'training-empty-log-coach');
+      expect(opened, 1);
+
+      await _pumpScreen(tester, _screen(plans: const [], logWorkout: () {}));
+      expect(find.byKey(const ValueKey('training-empty-log')), findsOneWidget);
+      expect(find.text('Tell the Coach instead'), findsNothing);
+    });
+
+    for (final locale in ['de', 'en']) {
+      testWidgets('no plan, 320 px at 2.0 text, $locale: the empty card '
+          'keeps both log links reachable', (tester) async {
+        await pumpLocalized(
+          tester,
+          _screen(plans: const [], logWorkout: () {}, coachLog: () {}),
+          locale: Locale(locale),
+          textScale: 2,
+          surfaceSize: const Size(320, 568),
+          settle: true,
+        );
+        for (final key in ['training-empty-log', 'training-empty-log-coach']) {
+          final target = find.byKey(ValueKey(key));
+          await tester.ensureVisible(target);
+          await tester.pumpAndSettle();
+          final rect = tester.getRect(target);
+          expect(rect.right, lessThanOrEqualTo(320), reason: key);
+          expect(rect.height, greaterThanOrEqualTo(44), reason: key);
+          expect(target.hitTestable(), findsOneWidget, reason: key);
+        }
+        expect(tester.takeException(), isNull);
+      });
+    }
 
     for (final (size, scale) in [
       (const Size(390, 844), 1.3),

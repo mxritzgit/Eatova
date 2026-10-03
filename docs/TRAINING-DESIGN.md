@@ -62,9 +62,10 @@ the existing dark studio look (spec
 - **Prefill (A2).** Reps are planned reps. Weight for set *k*: a weight
   changed earlier in this exercise carries forward, else Last time set *k*
   (or its last set), else empty; Last-time sessions without any weight are
-  ignored (`lastWeightedTrainingPerformanceFor`). Last time is computed once
-  per route; its cell copies into the active row on tap. Prefilled values are
-  muted until the set's ✓.
+  ignored (`lastWeightedTrainingPerformanceFor`; the log editor's planned
+  sets use the same rule). Last time is computed once per route; its cell
+  copies into the active row on tap. Prefilled values are muted until the
+  set's ✓.
 - **Layout (A3).** Header: title, sets done/total, active time, Finish, menu.
   Done exercises collapse to "3/3 sets · 10/8/8 · 80–90 kg" (the one just
   finished stays open through its rest); upcoming ones show the plan. The

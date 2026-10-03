@@ -82,7 +82,8 @@ class _FreeExercise {
              ? ''
              : '${durationSeconds % 60}',
        ),
-       sets = sets ?? [_FreeSet()];
+       // A draft without sets still gets a row to fill (and to copy).
+       sets = sets == null || sets.isEmpty ? [_FreeSet()] : sets;
 
   final TextEditingController name;
   bool timed;
@@ -179,44 +180,6 @@ List<_KnownExercise> _knownExercises(List<TrainingHistoryEntry> history) {
             durationSeconds: exercise.durationSeconds,
           ),
   ];
-}
-
-/// [lastTrainingPerformanceFor] over only the sessions in which [exercise]
-/// carried a weight, so one session without weights never blanks the
-/// prefill (spec A2). The player's weight prefill reads the same sessions.
-List<TrainingSetActual> _lastWeightedPerformance(
-  List<TrainingHistoryEntry> history, {
-  required String planId,
-  required TrainingExercise exercise,
-}) {
-  final name = normalizeExerciseName(exercise.name);
-  bool weighted(TrainingHistoryEntry entry) {
-    final ownPlan = entry.snapshot.plan.id == planId;
-    final exercises = entry.snapshot.workout.exercises;
-    return entry.snapshot.actualSets.any((actual) {
-      if (actual.weightKg == null) return false;
-      final candidate = exercises[actual.reference.exerciseIndex];
-      return candidate.isTimed == exercise.isTimed &&
-          (ownPlan
-              ? exercise.id != null && candidate.id == exercise.id
-              : normalizeExerciseName(candidate.name) == name);
-    });
-  }
-
-  return lastTrainingPerformanceFor(
-    history.where(weighted).toList(),
-    planId: planId,
-    exercise: exercise,
-  );
-}
-
-/// "Last time" set [setIndex]'s weight, else its last set's (spec A2).
-double? _lastWeightForSet(List<TrainingSetActual> sets, int setIndex) {
-  if (sets.isEmpty) return null;
-  for (final set in sets) {
-    if (set.reference.setIndex == setIndex) return set.weightKg;
-  }
-  return sets.last.weightKg;
 }
 
 /// A set's done/skipped switch: lime with a check when done.

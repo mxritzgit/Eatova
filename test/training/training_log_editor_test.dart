@@ -537,6 +537,59 @@ void main() {
         expect(recorder.saved, hasLength(1));
       });
     });
+
+    testWidgets('a draft exercise without sets opens with one empty set', (
+      tester,
+    ) async {
+      await withClock(Clock.fixed(_now), () async {
+        final recorder = await _open(
+          tester,
+          request: FreeLogRequest(
+            historyId: _id,
+            fromCoach: true,
+            initial: LoggedWorkoutDraft(
+              title: 'Push',
+              performedOn: DateTime(2026, 10, 3),
+              exercises: const [
+                LoggedExercise(name: 'Bench press', timed: false, sets: []),
+              ],
+            ),
+          ),
+        );
+        expect(_text(tester, 'training-log-exercise-0-set-0-reps'), '');
+        await _tap(tester, 'training-log-exercise-0-add-set');
+        expect(_key('training-log-exercise-0-set-1-reps'), findsOneWidget);
+        await _type(tester, 'training-log-exercise-0-set-0-reps', '8');
+        await _type(tester, 'training-log-exercise-0-set-1-reps', '6');
+        await _tap(tester, 'training-log-save');
+        expect(
+          recorder.saved.single.snapshot.actualSets.map((set) => set.reps),
+          [8, 6],
+        );
+      });
+    });
+
+    testWidgets('a build failure stays in the sheet with Add usable', (
+      tester,
+    ) async {
+      await withClock(Clock.fixed(_now), () async {
+        // Not a lowercase UUID: building the entry throws.
+        final recorder = await _open(
+          tester,
+          request: const FreeLogRequest(historyId: 'Not-A-History-Id'),
+        );
+        await _type(tester, 'training-log-exercise-0-name', 'Dips');
+        await _type(tester, 'training-log-exercise-0-set-0-reps', '12');
+        await _tap(tester, 'training-log-save');
+        expect(recorder.saved, isEmpty);
+        expect(recorder.closed, isFalse);
+        expect(
+          find.text('The workout could not be added. Try again.'),
+          findsOneWidget,
+        );
+        expect(_saveEnabled(tester), isTrue);
+      });
+    });
   });
 
   group('planned workout', () {

@@ -159,9 +159,14 @@ class _TrainingScreenState extends State<TrainingScreen> {
   }
 
   /// The rotation's workout to start: [next] itself, or once that one is done
-  /// today the one after it ([TrainingNextWorkout.upNextWorkoutIndex]).
-  TrainingNextWorkout _upNext(TrainingPlan plan, TrainingNextWorkout next) =>
-      next.completedToday ? _withLastTime(plan, next.upNextWorkoutIndex) : next;
+  /// today the one after it ([TrainingNextWorkout.upNextWorkoutIndex]). A
+  /// stale store copy may count more workouts than [plan]: past its end the
+  /// rotation wraps to the first workout.
+  TrainingNextWorkout _upNext(TrainingPlan plan, TrainingNextWorkout next) {
+    if (!next.completedToday) return next;
+    final index = next.upNextWorkoutIndex;
+    return _withLastTime(plan, index < plan.workouts.length ? index : 0);
+  }
 
   /// The saved session, if the card must show it (see [activeSession]).
   TrainingSessionSnapshot? get _session =>
@@ -969,6 +974,19 @@ class _TrainingScreenState extends State<TrainingScreen> {
               ),
               icon: const Icon(Icons.edit_note_rounded, size: 20),
               label: Text(l10n.trainingLogTitle),
+            ),
+          ],
+          if (widget.onOpenCoachLog case final coachLog?) ...[
+            if (widget.onLogWorkout == null) const SizedBox(height: 6),
+            TextButton.icon(
+              key: const ValueKey('training-empty-log-coach'),
+              onPressed: coachLog,
+              style: TextButton.styleFrom(
+                foregroundColor: t.accentText,
+                minimumSize: const Size.fromHeight(44),
+              ),
+              icon: const Icon(Icons.mic_none_rounded, size: 20),
+              label: Text(l10n.trainingLogTellCoach),
             ),
           ],
         ],

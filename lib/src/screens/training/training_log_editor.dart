@@ -9,7 +9,6 @@ import '../../models/training_insights.dart';
 import '../../models/training_limits.dart';
 import '../../models/training_log.dart';
 import '../../models/training_plan.dart';
-import '../../models/training_session.dart';
 import '../../services/day_math.dart';
 import '../../services/sync_error_messages.dart';
 import '../../theme/app_tokens.dart';
@@ -190,13 +189,14 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
   }
 
   /// Planned reps; weights from "Last time" set k (or its last set), read
-  /// only from sessions in which this exercise carried a weight (spec A2).
+  /// only from sessions in which this exercise carried a weight (spec A2),
+  /// by the same rule as the player.
   List<_PlannedSet> _plannedSets(
     String planId,
     TrainingExercise exercise,
     AppLocalizations l10n,
   ) {
-    final last = _lastWeightedPerformance(
+    final last = lastWeightedTrainingPerformanceFor(
       widget.history,
       planId: planId,
       exercise: exercise,
@@ -205,7 +205,7 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
       for (var s = 0; s < exercise.sets; s++)
         _PlannedSet(
           reps: exercise.isTimed ? '' : '${exercise.reps}',
-          weight: _weightText(_lastWeightForSet(last, s), l10n),
+          weight: _weightText(lastTimeWeightForSet(last, s), l10n),
         ),
     ];
   }
@@ -358,7 +358,14 @@ class _TrainingLogEditorState extends State<_TrainingLogEditor> {
       );
       return;
     }
-    final entry = _build(now, l10n);
+    final TrainingHistoryEntry entry;
+    try {
+      entry = _build(now, l10n);
+    } catch (_) {
+      // Never log the entry: it is the user's workout. Add stays usable.
+      setState(() => _error = l10n.trainingLogSaveError);
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
