@@ -626,6 +626,8 @@
   "coachMicLabelListening": "Stop voice input",
   "coachMicLabelIdle": "Voice input",
   "coachSendLabel": "Send",
+  "coachThinkingLabel": "The coach is thinking…",
+  "coachAnswerAnnouncement": "The coach replied.",
   "coachAttachCamera": "Take photo",
   "coachAttachGallery": "From gallery",
   "coachInfoIntro": "An AI answers here, not a real person. The answers are an estimate and don't replace medical advice.",
@@ -680,10 +682,31 @@
   "coachSpeechUnavailable": "Speech recognition is not available on this device right now.",
   "coachSpeechFailed": "Speech recognition failed.",
   "coachSpeechBusy": "Speech recognition is already running. Wait a moment and try again.",
+  "coachDictationLanguageDe": "DE",
+  "coachDictationLanguageEn": "EN",
+  "coachDictationLanguageGerman": "German",
+  "coachDictationLanguageEnglish": "English",
+  "coachDictationLanguageLabel": "Dictation language: {language}",
+  "@coachDictationLanguageLabel": {
+    "placeholders": {
+      "language": { "type": "String" }
+    }
+  },
+  "coachDictationLanguageSwitchHint": "Switches to {language} and restarts the dictation",
+  "@coachDictationLanguageSwitchHint": {
+    "placeholders": {
+      "language": { "type": "String" }
+    }
+  },
+  "coachDictationLimitHint": "Dictation ends after about a minute. Tap the mic to keep talking.",
+  "coachDictationLengthHint": "Dictation stopped: the message reached its maximum length.",
+  "coachDictationSendLabel": "Finish voice input",
+  "coachDictationSendHint": "Keeps the text in the field to review. Tap again to send it.",
   "coachErrorNotLoggedIn": "Please log in first to use the coach.",
   "coachErrorNoSession": "Could not load a coach session.",
   "coachErrorHistoryUnavailable": "Your history could not be loaded. Check your connection and try again.",
   "coachErrorDeleteFailed": "The conversation could not be deleted. Check your connection and try again.",
+  "coachErrorNewSessionFailed": "The new conversation could not be created. Check your connection and try again.",
   "coachSessionSwitchedNotice": "This conversation no longer exists. Your question and the answer are now in another conversation — it is open.",
   "coachImageDefaultCaption": "Analyze this image in a fitness context.",
   "coachErrorDailyLimitReached": "Daily limit reached ({limit} coach questions per day). More tomorrow.",
@@ -1477,6 +1500,12 @@
   },
   "notifStreakStartTitle": "Start a streak",
   "notifStreakStartBody": "One log is enough to start your streak.",
+  "trainingRestAlertTitle": "Rest over",
+  "trainingRestAlertBody": "Time for your next set.",
+  "trainingIntervalAlertTitle": "Time's up",
+  "trainingIntervalAlertBody": "Rest starts now.",
+  "trainingRestChannelName": "Workout timer",
+  "trainingRestChannelDescription": "Alerts when a rest or a timed interval ends.",
 
   "authCodeRateLimited": "Too many requests in a short time. Sending is paused for now — please wait about a minute before trying again.",
   "authCodeRateLimitedSeconds": "Too many requests in a short time. Sending stays blocked for another {sekunden} s.",
@@ -1858,8 +1887,14 @@
   "coachPlanCommandDescription": "Creates a training plan to review and save",
   "coachPlanEmptyHint": "After /plan, describe your goal, training days and equipment.",
   "coachPlanPhotoUnsupported": "Training plans use text. Send your /plan request without a photo.",
-  "coachPlanUnknownCommandHint": "Unknown command. Use /recipe for a recipe or /plan for a training plan.",
+  "coachPlanUnknownCommandHint": "Unknown command. Use /recipe for a recipe, /plan for a training plan or /log for a workout you did.",
   "coachPlanCardEyebrow": "Training plan · Draft",
+  "coachPlanCardMoreExercises": "+{count} more",
+  "@coachPlanCardMoreExercises": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
   "coachPlanReviewButton": "Review plan",
   "coachPlanAdoptButton": "Save training plan",
   "coachPlanAddedLabel": "Saved",
@@ -1876,41 +1911,63 @@
       }
     }
   },
-  "trainingTimerBack": "Back to plan",
-  "trainingTimerPaused": "Paused",
-  "trainingTimerRunning": "Running",
-  "trainingTimerTimeUp": "Time is up",
-  "trainingTimerReview": "Your workout",
-  "trainingTimerRest": "Rest between sets",
-  "trainingTimerPause": "Pause",
-  "trainingTimerCompleteSet": "Complete set",
-  "trainingTimerContinue": "Continue to next set",
-  "trainingTimerRewind": "Rewind 10 sec",
-  "trainingTimerForward": "Forward 10 sec",
-  "trainingTimerReset": "Reset phase",
-  "trainingTimerSkipRest": "Skip rest",
-  "trainingTimerPreviousSet": "Previous set",
-  "trainingTimerNextSet": "Skip set",
-  "trainingTimerPreviousExercise": "Previous exercise",
-  "trainingTimerNextExercise": "Next exercise",
-  "trainingTimerNavigate": "Sets & exercises",
-  "trainingTimerNavigationHint": "Skipping does not count as completion. Going back resets progress from that set onward.",
-  "trainingTimerInstructions": "Exercise notes",
-  "trainingTimerUpNext": "Up next",
-  "trainingTimerFinish": "Finish workout",
-  "trainingTimerDiscard": "Discard workout",
-  "trainingTimerFinishTitle": "Finish this workout?",
-  "trainingTimerFinishBody": "You completed {completed} of {total, plural, one{1 set} other{{total} sets}}. Uncompleted sets stay uncompleted. The recovery checkpoint will be removed.",
-  "@trainingTimerFinishBody": {
+  "coachWorkoutLogCommandDescription": "Turns a workout you already did into an entry to review and add",
+  "coachWorkoutLogTry": "Log a workout I did",
+  "coachWorkoutLogEmptyHint": "After /log, describe the workout you did — e.g. \"/log today 3 x 10 squats at 60 kg\".",
+  "coachWorkoutLogPhotoUnsupported": "Workouts are logged from text. Send your /log message without a photo.",
+  "coachWorkoutLogUnavailable": "Logging workouts with the Coach isn't available in this version yet. You can log it in Training.",
+  "coachWorkoutLogCheckDeviceDate": "Your device's date looks off, so the workout can't be dated. Check the date and time in your device settings, then send it again.",
+  "coachWorkoutLogCardEyebrow": "Workout · Draft",
+  "coachWorkoutLogDayMissing": "Day not given — pick it when you add the workout",
+  "coachWorkoutLogOnlyDay": "Only {day} was taken. Log other days separately.",
+  "@coachWorkoutLogOnlyDay": {
     "placeholders": {
-      "completed": {
-        "type": "int"
-      },
-      "total": {
+      "day": {
+        "type": "String"
+      }
+    }
+  },
+  "coachWorkoutLogOnlyOneDay": "Only one day was taken. Log other days separately.",
+  "coachWorkoutLogSafetyLine": "If pain persists, please see a doctor or physiotherapist.",
+  "coachWorkoutLogSetsRepsMissing": "{sets, plural, =1{1 set} other{{sets} sets}}, reps missing",
+  "@coachWorkoutLogSetsRepsMissing": {
+    "placeholders": {
+      "sets": {
         "type": "int"
       }
     }
   },
+  "coachWorkoutLogSetsTimeMissing": "{sets, plural, =1{1 set} other{{sets} sets}}, time missing",
+  "@coachWorkoutLogSetsTimeMissing": {
+    "placeholders": {
+      "sets": {
+        "type": "int"
+      }
+    }
+  },
+  "coachWorkoutLogSetsMinutes": "{sets} × {minutes} min",
+  "@coachWorkoutLogSetsMinutes": {
+    "placeholders": {
+      "sets": {
+        "type": "int"
+      },
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "coachWorkoutLogAddButton": "Add to history",
+  "coachWorkoutLogAddedLabel": "Added",
+  "coachWorkoutLogOpenTraining": "Open training",
+  "coachWorkoutLogRemovedLabel": "Removed from history",
+  "trainingTimerBack": "Back to plan",
+  "trainingTimerPaused": "Paused",
+  "trainingTimerRunning": "Running",
+  "trainingTimerPause": "Pause",
+  "trainingTimerSkipRest": "Skip rest",
+  "trainingTimerNextSet": "Skip set",
+  "trainingTimerFinish": "Finish workout",
+  "trainingTimerDiscard": "Discard workout",
   "trainingTimerDiscardTitle": "Discard this workout?",
   "trainingTimerDiscardBody": "This workout’s progress and recovery checkpoint will be removed. Your plan is kept.",
   "trainingTimerLeaveTitle": "Pause and leave?",
@@ -1920,28 +1977,12 @@
   "trainingTimerSaving": "Saving your place…",
   "trainingTimerSaved": "Recovery checkpoint saved",
   "trainingTimerNotSaved": "Your place is not saved yet",
-  "trainingTimerSaveFailed": "Your place could not be saved. The workout is paused. Please retry.",
+  "trainingTimerSaveFailed": "Your place could not be saved. Please retry.",
   "trainingTimerRetry": "Retry",
-  "trainingTimerConfirmHint": "The timer was paused or adjusted at zero. Confirm when you are ready to continue.",
-  "trainingTimerAutomaticHint": "Timed sets and rests continue automatically. You can pause at any time.",
-  "trainingTimerRepetitions": "repetitions",
-  "trainingTimerMinutes": "min",
-  "trainingTimerSeconds": "sec",
   "trainingTimerProgress": "{completed} of {total, plural, one{1 set} other{{total} sets}} completed",
   "@trainingTimerProgress": {
     "placeholders": {
       "completed": {
-        "type": "int"
-      },
-      "total": {
-        "type": "int"
-      }
-    }
-  },
-  "trainingTimerSet": "Set {current} of {total}",
-  "@trainingTimerSet": {
-    "placeholders": {
-      "current": {
         "type": "int"
       },
       "total": {
@@ -1957,6 +1998,15 @@
       }
     }
   },
+  "trainingTimerOpenSets": "{count} open",
+  "@trainingTimerOpenSets": {
+    "description": "Finish sheet summary: sets neither done nor skipped yet, before the user chose what to do with them.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "trainingTimerSecondsRemaining": "{seconds, plural, one{1 second remaining} other{{seconds} seconds remaining}}",
   "@trainingTimerSecondsRemaining": {
     "placeholders": {
@@ -1965,19 +2015,198 @@
       }
     }
   },
-  "trainingTimerStart": "Start",
   "trainingTimerResume": "Resume",
-  "trainingTimerAnnouncement": "{exercise}. {sets}. {status}.",
-  "@trainingTimerAnnouncement": {
+  "trainingTimerFinishShort": "Finish",
+  "trainingTimerMenu": "Workout options",
+  "trainingTimerSetsDone": "{done}/{total} sets",
+  "@trainingTimerSetsDone": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerElapsedLabel": "Active for {minutes} min",
+  "@trainingTimerElapsedLabel": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerColumnSet": "Set",
+  "trainingTimerColumnLast": "Last",
+  "trainingTimerColumnWeight": "kg",
+  "trainingTimerColumnReps": "Reps",
+  "trainingTimerColumnTime": "Time",
+  "trainingTimerWeightField": "Set {set}, weight in kg",
+  "@trainingTimerWeightField": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerRepsField": "Set {set}, repetitions",
+  "@trainingTimerRepsField": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerCompleteSetLabel": "Complete set {set}",
+  "@trainingTimerCompleteSetLabel": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerUndoSetLabel": "Undo set {set}",
+  "@trainingTimerUndoSetLabel": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerStartSetLabel": "Start set {set}",
+  "@trainingTimerStartSetLabel": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerSetLocked": "Set {set}, not yet",
+  "@trainingTimerSetLocked": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerSetDoneLabel": "Set {set} done",
+  "@trainingTimerSetDoneLabel": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerSkippedSet": "Skipped",
+  "trainingTimerCopyLast": "Use last time: {value}",
+  "@trainingTimerCopyLast": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingTimerDoneEarly": "Done early",
+  "trainingTimerGetReady": "Get ready · {seconds}",
+  "@trainingTimerGetReady": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerTapToFinish": "Time is up. Tap ✓ to log the set.",
+  "trainingTimerExerciseOptions": "Options for {exercise}",
+  "@trainingTimerExerciseOptions": {
+    "placeholders": {
+      "exercise": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingTimerSkipExercise": "Skip exercise",
+  "trainingTimerCompleteRemaining": "{count, plural, one{Complete 1 remaining set as planned} other{Complete {count} remaining sets as planned}}",
+  "@trainingTimerCompleteRemaining": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerShowNotes": "Notes",
+  "trainingTimerShowSets": "Show sets",
+  "trainingTimerHideSets": "Hide sets",
+  "trainingTimerRestLabel": "Rest",
+  "trainingTimerRestNext": "Next: {exercise}, set {set}",
+  "@trainingTimerRestNext": {
     "placeholders": {
       "exercise": {
         "type": "String"
       },
-      "sets": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerRestShorter": "−15 s",
+  "trainingTimerRestLonger": "+15 s",
+  "trainingTimerRestShorterLabel": "15 seconds less rest",
+  "trainingTimerRestLongerLabel": "15 seconds more rest",
+  "trainingTimerRestExpand": "Show the rest timer full screen",
+  "trainingTimerRestCollapse": "Back to the sets",
+  "trainingTimerAlertsOff": "Alerts off",
+  "trainingTimerAlertsOffLabel": "Rest alerts are off. Open notification settings.",
+  "trainingTimerAlertsOffAskLabel": "Rest alerts are off. Turn on alerts.",
+  "trainingTimerAlertsTitle": "Alert when the rest is over?",
+  "trainingTimerAlertsBody": "Eatova can ring when a rest or a timed set ends, even with the phone locked. The alert shows no exercise and no weight.",
+  "trainingTimerAlertsAllow": "Turn on alerts",
+  "trainingTimerAlertsLater": "Not now",
+  "trainingTimerAlertSetDoneBody": "Set complete.",
+  "trainingTimerSaveWorkout": "Save workout",
+  "trainingTimerSaveSets": "{count, plural, one{Save 1 set, skip the remaining ones} other{Save {count} sets, skip the remaining ones}}",
+  "@trainingTimerSaveSets": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerLogRest": "I did the remaining sets — log as shown",
+  "trainingTimerKeepTraining": "Keep training",
+  "trainingTimerNothingDone": "No set is completed yet, so there is nothing to save.",
+  "trainingTimerNotStored": "Not stored: your plan changed. Finish still saves this workout.",
+  "trainingTimerLeaveUnstoredTitle": "Leave without saving?",
+  "trainingTimerLeaveUnstoredBody": "Your plan changed, so your place can't be saved for later. Finish saves the sets you did to your history.",
+  "trainingTimerLeaveUnstoredBodyEmpty": "Your plan changed, so your place can't be saved for later.",
+  "trainingTimerLeaveUnstored": "Leave without saving",
+  "trainingTimerAnnounceSetDone": "{exercise}, set {set} done.",
+  "@trainingTimerAnnounceSetDone": {
+    "placeholders": {
+      "exercise": {
         "type": "String"
       },
-      "status": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerAnnounceRest": "Rest, {seconds, plural, one{1 second} other{{seconds} seconds}}.",
+  "@trainingTimerAnnounceRest": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerAnnounceRestOver": "Rest over. Next: {exercise}, set {set}.",
+  "@trainingTimerAnnounceRestOver": {
+    "placeholders": {
+      "exercise": {
         "type": "String"
+      },
+      "set": {
+        "type": "int"
       }
     }
   },
@@ -2138,9 +2367,8 @@
   "healthConnectReview": "Review connection",
   "trainingHistoryTitle": "Workout history",
   "trainingHistorySubtitle": "Your completed workouts.",
-  "trainingHistoryEmpty": "Your confirmed workouts appear here. Start a workout and save it when you finish.",
+  "trainingHistoryEmpty": "Your workouts appear here. Start one from a plan or log a workout you already did.",
   "trainingHistoryLoadError": "History could not load. Saved workouts remain available. Try again.",
-  "trainingHistoryLastTime": "Last time",
   "trainingHistoryNote": "Workout note",
   "trainingHistoryDeleteTitle": "Delete workout?",
   "trainingHistoryDeleteBody": "This completion and its set values will be removed from your history. Your training plan stays saved.",
@@ -2212,6 +2440,79 @@
   "trainingActualConfirmLegacyTimed": "Confirm completed interval",
   "trainingHistoryDeleteAction": "Delete workout",
   "trainingHistoryAlreadyDeleted": "This workout was deleted on another device.",
+  "trainingHistoryLogged": "Logged",
+  "trainingHistoryDeleteLogBody": "This logged workout and its set values will be removed from your history.",
+  "trainingHistoryRootLoadError": "Your workout history could not be loaded, so this overview may be incomplete.",
+  "trainingLogTitle": "Log workout",
+  "trainingLogQuick": "Log workout",
+  "trainingLogAsDone": "Log as done",
+  "trainingLogTellCoach": "Tell the Coach instead",
+  "trainingLogReviewTitle": "Review workout",
+  "trainingLogReviewBody": "Check the values. Nothing is saved until you add the workout to your history.",
+  "trainingLogPlannedBody": "Untick the sets you skipped and adjust the values.",
+  "trainingLogDefaultTitle": "Workout",
+  "trainingLogName": "Workout name (optional)",
+  "trainingLogDay": "Day",
+  "trainingLogToday": "Today",
+  "trainingLogYesterday": "Yesterday",
+  "trainingLogOtherDay": "Other day",
+  "trainingLogDuration": "Duration in minutes (optional)",
+  "trainingLogReps": "Reps",
+  "trainingLogKg": "kg",
+  "trainingLogRepsSemantics": "Set {number}, repetitions",
+  "@trainingLogRepsSemantics": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLogWeightSemantics": "Set {number}, weight in kilograms, optional",
+  "@trainingLogWeightSemantics": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLogSetDone": "Set {number} done",
+  "@trainingLogSetDone": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLogAddSet": "Add set",
+  "trainingLogRemoveSet": "Remove set {number}",
+  "@trainingLogRemoveSet": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLogDurationPerSet": "Duration per set",
+  "trainingLogMinutes": "Minutes",
+  "trainingLogSeconds": "Seconds",
+  "trainingLogSave": "Add to history",
+  "trainingLogSaved": "Workout added to your history",
+  "trainingLogDeleted": "Removed from history. This workout can't be added again.",
+  "trainingLogBlocked": "A workout is in progress. Finish or discard it first, then log this one.",
+  "trainingLogSaveError": "The workout could not be added. Try again.",
+  "trainingLogProblemEmpty": "Give every exercise a name and at least one set.",
+  "trainingLogProblemNoSetDone": "Tick at least one set you did.",
+  "trainingLogProblemDate": "Pick a day within the last {days} days.",
+  "@trainingLogProblemDate": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLogProblemReps": "Enter the reps for every set.",
+  "trainingLogProblemDuration": "Enter a duration for every timed exercise.",
+  "trainingLogProblemRange": "A value is outside the allowed range.",
   "todayMacroProgressValue": "{value} of {goal} grams",
   "todayAddMeal": "Log a meal",
   "todayDayStripLabel": "Pick a day",
@@ -2244,6 +2545,7 @@
   "todayStepsNoGoal": "steps",
   "todayWorkoutNext": "Next workout · ≈ {minutes} min",
   "todayWorkoutDone": "Done today · ≈ {minutes} min",
+  "todayWorkoutInProgress": "In progress · Resume",
   "@todayMacroProgressValue": {
     "placeholders": {
       "value": {
@@ -2432,7 +2734,6 @@
   "trainingAdoptionDiscardAction": "Discard draft",
   "trainingAdoptionDiscardBody": "Only your rejected draft will be removed from this device. The current plan on the server will be kept.",
   "trainingNextWorkout": "Next workout",
-  "trainingDoneToday": "Done today",
   "trainingInProgress": "In progress",
   "trainingMinutesEstimate": "≈ {minutes} min",
   "@trainingMinutesEstimate": {
@@ -2496,6 +2797,14 @@
   "trainingWeekDayToday": "today",
   "trainingWeekDayDone": "workout done",
   "trainingWeekDayOpen": "no workout",
+  "trainingDoneTodayLine": "Done today: {title}",
+  "@trainingDoneTodayLine": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "trainingQuickStartTitle": "Quick start",
   "trainingQuickChooseWorkout": "Choose workout",
   "trainingQuickWorkouts": "Workouts",

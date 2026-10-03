@@ -50,6 +50,27 @@ class MainActivity : FlutterFragmentActivity() {
                 else -> result.notImplemented()
             }
         }
+        // Keep-awake while a timed interval runs or while dictating (Dart:
+        // ScreenAwake). A window flag: no permission, cleared with the window.
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "eatova/screen"
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "setKeepAwake" -> {
+                    val on = call.argument<Boolean>("on") == true
+                    runOnUiThread {
+                        if (on) {
+                            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        } else {
+                            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        }
+                    }
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
     }
 
     override fun onDestroy() {

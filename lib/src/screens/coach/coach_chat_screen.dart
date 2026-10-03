@@ -13,6 +13,8 @@ import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
+import 'package:flutter/semantics.dart'
+    show AccessibilityFocusBlockType, SemanticsService;
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -25,19 +27,27 @@ import '../../models/coach_day_brief.dart';
 import '../../models/coach_recipe_proposal.dart';
 import '../../models/coach_training_proposal.dart';
 import '../../models/coach_training_context.dart';
+import '../../models/coach_workout_log.dart';
 import '../../models/fitness_recipe.dart';
+import '../../models/training_history.dart';
 import '../../models/training_plan.dart';
 import '../../services/coach_chat_service.dart';
+import '../../services/dictation_language.dart';
 import '../../services/kcal_format.dart';
+import '../../services/local_day.dart';
 import '../../services/meal_photo_compressor.dart';
 import '../../services/meal_photo_temp_file.dart';
 import '../../services/recipe_image_store.dart';
+import '../../services/screen_awake.dart';
 import '../../services/sync_error_messages.dart';
+import '../../services/uuid.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/app_snack.dart';
+import '../../widgets/common/decimal_text.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
 import '../today/today_texts.dart' show greetingForHour;
+import '../training/training_log_editor.dart';
 import '../training/training_plan_editor.dart';
 import 'coach_training_brief.dart';
 
@@ -49,6 +59,7 @@ part 'coach_message_list.dart';
 part 'coach_composer.dart';
 part 'coach_recipe.dart';
 part 'coach_plan.dart';
+part 'coach_workout_log.dart';
 part 'coach_sessions.dart';
 
 /// Coach chat: the AI fitness/nutrition coach.
@@ -66,6 +77,8 @@ class CoachChatScreen extends StatefulWidget {
     this.userContext,
     this.imagePicker,
     this.speechInput = const CoachSpeechInput(),
+    this.screenAwake = const MethodChannelScreenAwake(),
+    this.dictationLanguageStore = const PrefsDictationLanguageStore(),
     this.onCreateRecipe,
     this.userRecipeSlugs = const <String>{},
     this.onCreateTrainingPlan,
@@ -75,7 +88,19 @@ class CoachChatScreen extends StatefulWidget {
     this.onOpenTraining,
     this.planDraftRequest = 0,
     this.selectedPlanForCoach,
+    this.onLogWorkout,
+    this.trainingHistoryIds = const <String>{},
+    this.trainingHistoryDeletedIds = const <String>{},
+    this.trainingHistoryAuthoritative = false,
+    this.trainingHistory = const <TrainingHistoryEntry>[],
+    this.logDraftRequest = 0,
   });
+
+  /// How long the answer live region stays once it can speak (where the
+  /// platform has no announcements, see `_announceAnswer`): long enough for
+  /// TalkBack, which reads the node asynchronously after the change event.
+  @visibleForTesting
+  static const Duration answerCueLifetime = Duration(seconds: 3);
 
   final CoachChatService? service;
   final String userName;
@@ -101,6 +126,27 @@ class CoachChatScreen extends StatefulWidget {
   final int planDraftRequest;
   final TrainingPlan? selectedPlanForCoach;
 
+  /// Writes a reviewed /log workout (`HomeStore.logCompletedWorkout` via the
+  /// shell). Runs only from the review sheet's Add. null: the card shows no
+  /// Add at all.
+  final Future<TrainingLogSaveOutcome> Function(TrainingHistoryEntry entry)?
+  onLogWorkout;
+
+  /// Live history ids and deletion receipts: a /log card's state is derived
+  /// from them, never stored ("Added", "Removed from history").
+  final Set<String> trainingHistoryIds;
+  final Set<String> trainingHistoryDeletedIds;
+
+  /// Whether the history is known (loaded, not failed, receipts readable).
+  /// Until then a /log card cannot be added: its id might already be there.
+  final bool trainingHistoryAuthoritative;
+
+  /// For the review sheet's exercise names and "Last time".
+  final List<TrainingHistoryEntry> trainingHistory;
+
+  /// Increment to prepare `/log ` in the composer without sending anything.
+  final int logDraftRequest;
+
   /// Today's numbers for the start state's "From today's log" card, built
   /// by the shell from `HomeStore.nutritionSummaryForFoodDate`. null hides
   /// the card (previews, tests without a store).
@@ -115,6 +161,12 @@ class CoachChatScreen extends StatefulWidget {
 
   final ImagePicker? imagePicker;
   final CoachSpeechInput speechInput;
+
+  /// On while dictating (spec A6/D6).
+  final ScreenAwake screenAwake;
+
+  /// Per-device DE/EN choice for dictation.
+  final DictationLanguageStore dictationLanguageStore;
 
   @override
   State<CoachChatScreen> createState() => _CoachChatScreenState();
@@ -179,6 +231,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   int _sessionListRevision = 0;
   bool _loading = true;
   bool _listening = false;
+
+  /// Current recording; also its native token. Drawn from [_speechSeq].
   int _speechGeneration = 0;
   String? _error;
 
@@ -200,13 +254,39 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   /// then not present it as "empty".
   bool _historyUnavailable = false;
 
-  /// An add is running (store image + createUserRecipe) — locks all card
-  /// buttons until it finishes.
+  /// An add is running (confirm sheet, store image, createUserRecipe) — locks
+  /// all card buttons until it finishes.
   bool _addingRecipe = false;
   bool _reviewingTrainingPlan = false;
+  bool _reviewingWorkoutLog = false;
   bool _briefingTrainingPlan = false;
   ValueNotifier<bool>? _briefIsActive;
   int _trainingAccountRevision = 0;
+
+  /// A brief asked for while a request ran or the chat loaded: never dropped
+  /// (spec §9), [build] opens it once both are done.
+  ({TrainingPlan? selectedPlan, bool sessionRetried})? _queuedBrief;
+  bool _queuedBriefScheduled = false;
+
+  /// The answer to speak through the live region in [build], where the
+  /// platform has no announcements (see [_announceAnswer]); null = no cue.
+  /// Its value keys the node, so each answer inserts a fresh one.
+  int? _answerCue;
+
+  /// Source of [_answerCue], never reset: a drop and a new answer in one
+  /// frame must not reuse the dropped node.
+  int _answerCueSerial = 0;
+
+  /// Clears the cue once its lifetime ends. Runs only while the cue can speak
+  /// ([_cueCanSpeak]); null otherwise.
+  Timer? _answerCueTimer;
+
+  /// No route (sheet, dialog, page) above this screen's route.
+  bool _routeOnTop = true;
+
+  /// Whether the cue is in the semantics tree: a hidden tab and any route
+  /// above both drop the Coach semantics until they return.
+  bool get _cueCanSpeak => _sichtbar && _routeOnTop;
 
   /// How many send jobs (chat or recipe) are in flight.
   ///
@@ -265,6 +345,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     WidgetsBinding.instance.addObserver(this);
     // ValueNotifier dedupes identical assignments, so no equality check here.
     _input.addListener(() => _draft.value = _input.text);
+    _loadDictationLanguage();
     // No service = not logged in; that branch needs a localized error text and
     // `context.l10n` is not allowed in initState — didChangeDependencies does
     // it once before the first frame.
@@ -276,6 +357,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         if (mounted) _openTrainingBrief(selectedPlan: widget.selectedPlanForCoach);
       });
     }
+    if (widget.logDraftRequest > 0) _prepareLogDraft();
   }
 
   @override
@@ -284,12 +366,44 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     if (!identical(widget.service, oldWidget.service)) {
       _trainingAccountRevision++;
       _briefIsActive?.value = false;
+      _queuedBrief = null;
+      _dropAnswerCue();
+      _cancelSpeechInput(discard: true);
     }
     if (widget.planDraftRequest != oldWidget.planDraftRequest) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _openTrainingBrief(selectedPlan: widget.selectedPlanForCoach);
       });
     }
+    if (widget.logDraftRequest != oldWidget.logDraftRequest) {
+      _prepareLogDraft();
+    }
+  }
+
+  /// After the frame: the request arrives during a build. The user asked from
+  /// Training and never saw the composer, so an unsent draft is kept: the
+  /// command goes in front of it, the cursor right after the command.
+  void _prepareLogDraft() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final draft = _input.text;
+      final command = _CoachCommand.log.token;
+      // Empty or a bare command ("/re", "/recipe "): nothing worth keeping.
+      // A running dictation keeps its words through the command's own path.
+      if (_listening || RegExp(r'^(/\S*)?$').hasMatch(draft.trim())) {
+        _applyCommand(command);
+        return;
+      }
+      final isLog = _workoutLogWishFrom(draft) != null;
+      final text = isLog ? draft : '$command ${draft.trimLeft()}';
+      _input.value = TextEditingValue(
+        text: text,
+        selection: TextSelection.collapsed(
+          offset: isLog ? text.length : command.length + 1,
+        ),
+      );
+      _inputFocus.requestFocus();
+    });
   }
 
   /// Whether the tab is visible, tracked via `TickerMode`: this screen lives
@@ -317,8 +431,24 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     }
     final sichtbar = TickerMode.valuesOf(context).enabled;
     final wurdeSichtbar = sichtbar && !_sichtbar;
-    if (!sichtbar && _sichtbar) _cancelSpeechInput();
+    if (!sichtbar && _sichtbar) {
+      _cancelSpeechInput();
+      // Leaving the tab withdraws a waiting brief; it must not pop up later.
+      _queuedBrief = null;
+      // And a cue still waiting behind a sheet: the user went elsewhere.
+      _dropAnswerCue();
+    }
+    final cueCouldSpeak = _cueCanSpeak;
     _sichtbar = sichtbar;
+    _routeOnTop = ModalRoute.isCurrentOf(context) ?? true;
+    if (cueCouldSpeak && !_cueCanSpeak) {
+      // The return of the tab or route re-creates the semantics; a kept cue
+      // would announce an old answer as new.
+      _dropAnswerCue();
+    } else if (!cueCouldSpeak && _cueCanSpeak && _answerCue != null) {
+      // Arrived while covered: it speaks now.
+      _startAnswerCueLifetime();
+    }
     final svc = widget.service;
     // Only on becoming visible and only once bootstrap is done, or two calls
     // race.
@@ -372,6 +502,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _briefIsActive?.value = false;
+    _answerCueTimer?.cancel();
     _cancelSpeechInput();
     _input.dispose();
     _draft.dispose();
@@ -427,6 +558,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       // After at least one `await`: Localizations is guaranteed to be there.
       setState(() {
         _loading = false;
+        // No session means no history to have failed (a retry after one).
+        _historyUnavailable = false;
         _error = context.l10n.coachErrorNoSession;
       });
       return;
@@ -454,6 +587,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       // state and present the history as deleted.
       if (!mounted || _activeSessionId != sessionBeforeLoad) return;
       setState(() {
+        // The list did load: the sheet shows it, and picking a conversation
+        // there retries the history load and unlocks the composer.
+        if (sessions.isNotEmpty) _sessions = sessions;
         _loading = false;
         _historyUnavailable = true;
         _error = context.l10n.coachErrorHistoryUnavailable;
@@ -557,6 +693,8 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       // The undelivered question belongs to the session being left; its retry
       // job would otherwise land in the new one.
       _fehlgeschlagen = null;
+      // So does a cue still waiting behind the sessions sheet.
+      _dropAnswerCue();
     });
     List<ChatMessage> history;
     try {
@@ -613,7 +751,15 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       return other != null &&
           jsonEncode(other.toJson()) == jsonEncode(plan.toJson());
     }
-    return row.recipeProposal == null && row.trainingPlanProposal == null;
+    final log = answer.workoutLogProposal;
+    if (log != null) {
+      final other = row.workoutLogProposal;
+      return other != null &&
+          jsonEncode(other.toJson()) == jsonEncode(log.toJson());
+    }
+    return row.recipeProposal == null &&
+        row.trainingPlanProposal == null &&
+        row.workoutLogProposal == null;
   }
 
   /// A completed send may reach the server after a user has left and returned
@@ -672,10 +818,23 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     // the list, one tap away.
     final vorher = _activeSessionId;
     final revision = _conversationRevision;
+    final l10n = context.l10n;
     final id = await svc.createSession(
-      title: context.l10n.coachSessionDefaultTitle,
+      title: l10n.coachSessionDefaultTitle,
     );
-    if (id == null) return;
+    if (id == null) {
+      // The sheet has closed; without this the tap simply did nothing.
+      if (mounted && identical(widget.service, svc)) {
+        showAppSnack(
+          context,
+          l10n.coachErrorNewSessionFailed,
+          icon: Icons.error_outline_rounded,
+          tone: SnackTone.error,
+          duration: kSnackError,
+        );
+      }
+      return;
+    }
     await _refreshSessions();
     if (!_matchesConversation(svc, vorher, revision)) return;
     setState(() {
@@ -686,6 +845,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _historyUnavailable = false;
       _error = null;
       _fehlgeschlagen = null;
+      _dropAnswerCue();
     });
   }
 
@@ -702,6 +862,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         context,
         context.l10n.coachErrorDeleteFailed,
         icon: Icons.error_outline_rounded,
+        tone: SnackTone.error,
         duration: kSnackError,
       );
       return;
@@ -738,6 +899,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
             _messages = const <ChatMessage>[];
             _loading = false;
             _error = context.l10n.coachErrorNoSession;
+            _dropAnswerCue();
           });
           return;
         }
@@ -866,6 +1028,11 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     String? imageMimeType,
     CoachTrainingContext? trainingContext,
   }) async {
+    if (_dictationHoldsSend(
+      fromComposer: textOverride == null && imageBytes == null,
+    )) {
+      return;
+    }
     // Grabbed before the first `await`: safe context access.
     final l10n = context.l10n;
     final svc = widget.service;
@@ -897,6 +1064,12 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       setState(() => _error = l10n.coachPlanPhotoUnsupported);
       return;
     }
+    // A log is read from text alone; the photo would turn it into a paid chat
+    // question with a /log caption.
+    if (hasImage && _workoutLogWishFrom(text) != null) {
+      setState(() => _error = l10n.coachWorkoutLogPhotoUnsupported);
+      return;
+    }
 
     // Slash commands, text-only: an attached photo is a normal
     // coach question, not a command. An unknown /-command never reaches the
@@ -915,6 +1088,21 @@ class _CoachChatScreenState extends State<CoachChatScreen>
           displayText: text,
           l10n: l10n,
           trainingContext: trainingContext,
+        );
+        return;
+      }
+      final logWish = _workoutLogWishFrom(text);
+      if (logWish != null) {
+        if (logWish.isEmpty) {
+          setState(() => _error = l10n.coachWorkoutLogEmptyHint);
+          return;
+        }
+        await _sendWorkoutLogRequest(
+          svc: svc,
+          sessionId: sessionId,
+          wish: logWish,
+          displayText: text,
+          l10n: l10n,
         );
         return;
       }
@@ -1033,6 +1221,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         _messages = [..._messages, answer];
       });
       HapticFeedback.lightImpact();
+      _announceAnswer();
       // Refresh sessions in the background so auto title / last_message_at are
       // current in the sheet without blocking the send flow.
       unawaited(_refreshSessions());
@@ -1144,6 +1333,47 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     });
   }
 
+  /// An answer lands without moving the screen-reader focus, so it is
+  /// announced (spec §9). Android discourages announcements and reports
+  /// `supportsAnnounce: false`; there a new polite live region speaks the
+  /// same text. Only a node that is new (or relabelled) speaks, hence one per
+  /// answer. The same rule speaks a re-created node again, so the cue is
+  /// transient: it lives [CoachChatScreen.answerCueLifetime] once it can
+  /// speak and goes as soon as a tab switch or a route hides it. An answer
+  /// that lands while the tab is hidden is not announced at all: the user is
+  /// elsewhere and finds it in the list on return.
+  void _announceAnswer() {
+    if (!mounted || !_sichtbar) return;
+    if (!MediaQuery.supportsAnnounceOf(context)) {
+      setState(() => _answerCue = ++_answerCueSerial);
+      // Covered, it waits for [didChangeDependencies].
+      if (_cueCanSpeak) _startAnswerCueLifetime();
+      return;
+    }
+    unawaited(
+      SemanticsService.sendAnnouncement(
+        View.of(context),
+        context.l10n.coachAnswerAnnouncement,
+        Directionality.of(context),
+      ),
+    );
+  }
+
+  void _startAnswerCueLifetime() {
+    _answerCueTimer?.cancel();
+    _answerCueTimer = Timer(CoachChatScreen.answerCueLifetime, () {
+      _answerCueTimer = null;
+      if (mounted && _answerCue != null) setState(() => _answerCue = null);
+    });
+  }
+
+  /// Without setState: callers are inside one, or before a build.
+  void _dropAnswerCue() {
+    _answerCueTimer?.cancel();
+    _answerCueTimer = null;
+    _answerCue = null;
+  }
+
   /// Counterpart to `_laufendeSendungen++`; belongs in a `finally` so every
   /// exit counts. After unmount only the bookkeeping runs, no setState.
   void _sendevorgangBeendet() {
@@ -1203,9 +1433,10 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     await versand;
   }
 
-  /// Restores a draft the retry had to clear. Only that: a failed question is
-  /// NOT put back here — the unsent marker is its single home, or the send
-  /// button would create a duplicate next to the retry.
+  /// Restores a draft a send had to clear. A failed question is NOT put back
+  /// here — the unsent marker is its single home, or the send button would
+  /// create a duplicate next to the retry. The one exception is a request
+  /// the server cannot take ([CoachRequestUnsupported]): it gets no marker.
   void _entwurfZurueck(String entwurf) {
     if (entwurf.isEmpty || _input.text.isNotEmpty) return;
     _input.text = entwurf;
@@ -1232,16 +1463,23 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     return match == null ? null : (match.group(1) ?? '').trim();
   }
 
+  /// `/log` and the finished workout after it ('' if none); null for any
+  /// other text. English in both app languages, like /recipe and /plan.
+  static String? _workoutLogWishFrom(String text) {
+    final match = RegExp(
+      r'^/log(?:\s+([\s\S]*))?$',
+      caseSensitive: false,
+    ).firstMatch(text.trim());
+    return match == null ? null : (match.group(1) ?? '').trim();
+  }
+
   /// The command menu shows while the draft looks like a started command:
   /// starts with "/", no whitespace yet, and is a known command prefix.
   bool _commandMenuVisibleFor(String draftText) {
     final draft = draftText.trimLeft();
     if (!draft.startsWith('/')) return false;
     if (RegExp(r'\s').hasMatch(draft)) return false;
-    return [
-      '/recipe',
-      '/plan',
-    ].any((command) => command.startsWith(draft.toLowerCase()));
+    return _CoachCommand.values.any((command) => command.offeredFor(draft));
   }
 
   /// A prepared question from the start card, sent through [_send] like a
@@ -1255,20 +1493,55 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     await versand;
   }
 
-  /// Plan discovery opens a brief; recipe discovery prepares the composer.
+  /// Plan discovery opens a brief; recipe and log discovery prepare the
+  /// composer.
   void _applyCommand(String command) {
-    if (command == '/plan') {
+    if (command == _CoachCommand.plan.token) {
       unawaited(_openTrainingBrief());
       return;
     }
     HapticFeedback.selectionClick();
-    _input.text = '$command ';
-    _input.selection = TextSelection.collapsed(offset: _input.text.length);
+    final prepared = '$command ';
+    if (_listening) {
+      // The command becomes the running dictation's draft base, so the next
+      // partial appends to it instead of writing the old base back (R17
+      // D2-M2). The words already dictated stay after it.
+      _speechDraft = prepared;
+      _setDraft(_withDictation(prepared, _speechShown));
+    } else {
+      _input.text = prepared;
+      _input.selection = TextSelection.collapsed(offset: _input.text.length);
+    }
     _inputFocus.requestFocus();
   }
 
-  Future<void> _openTrainingBrief({TrainingPlan? selectedPlan}) async {
-    if (_briefingTrainingPlan || _sending) return;
+  Future<void> _openTrainingBrief({
+    TrainingPlan? selectedPlan,
+    bool sessionRetried = false,
+  }) async {
+    if (_briefingTrainingPlan) return;
+    // A running request or a loading chat is a wait, not a refusal.
+    if (_sending || _loading) {
+      _queuedBrief = (
+        selectedPlan: selectedPlan,
+        sessionRetried: sessionRetried,
+      );
+      return;
+    }
+    // No session yet (an offline first visit): load it once more, as a tab
+    // return would, before giving up on the brief.
+    if (widget.service != null && _activeSessionId == null && !sessionRetried) {
+      _queuedBrief = (selectedPlan: selectedPlan, sessionRetried: true);
+      unawaited(_bootstrap());
+      return;
+    }
+    // Nothing could be sent from the brief: say why up front instead of
+    // after the whole form is filled in.
+    final locked = _composerLockReason(context.l10n);
+    if (locked != null) {
+      setState(() => _error = locked);
+      return;
+    }
     final service = widget.service;
     final revision = _trainingAccountRevision;
     final session = _activeSessionId;
@@ -1280,27 +1553,80 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     _briefingTrainingPlan = true;
     final active = ValueNotifier(true);
     _briefIsActive = active;
+    _endDictationForSheet();
     _inputFocus.unfocus();
+    final CoachTrainingBriefSubmission? submitted;
     try {
-      final submitted = await showCoachTrainingBrief(
+      submitted = await showCoachTrainingBrief(
         context,
         selectedPlan: selectedPlan,
         initialWish: _planWishFrom(_input.text) ?? '',
         canSubmit: () => sourceIsCurrent() && _canInteract,
         isActive: active,
       );
-      if (submitted == null || !sourceIsCurrent() || !_canInteract) return;
-      // Only this explicit submission can consume a request. Keep the snapshot
-      // on its retry job, never implicitly attach it to later ordinary chat.
-      await _send(
-        textOverride: '/plan ${submitted.wish}',
-        trainingContext: submitted.context,
-      );
     } finally {
+      // Released with the sheet, not the request: a brief asked for while
+      // the plan generates is queued instead of dropped.
       _briefingTrainingPlan = false;
       if (identical(_briefIsActive, active)) _briefIsActive = null;
       active.dispose();
     }
+    if (submitted == null || !sourceIsCurrent() || !_canInteract) return;
+    // Only this explicit submission can consume a request. Keep the snapshot
+    // on its retry job, never implicitly attach it to later ordinary chat.
+    // A typed `/plan` draft went into the brief; any other draft survives
+    // the send, as with a prepared question.
+    final draft = _input.text;
+    final versand = _send(
+      textOverride: '/plan ${submitted.wish}',
+      trainingContext: submitted.context,
+    );
+    if (mounted && _planWishFrom(draft) == null) _entwurfZurueck(draft);
+    await versand;
+  }
+
+  /// Why nothing can be sent at all, or null. Loading and a running request
+  /// are waits, not locks.
+  String? _composerLockReason(AppLocalizations l10n) {
+    if (widget.service == null) return l10n.coachErrorNotLoggedIn;
+    if (_kontingentErschoepft) {
+      return l10n.coachErrorDailyLimitReached(_limitFuerAnzeige);
+    }
+    if (_activeSessionId == null) {
+      // A failed history load leaves no active session either; its banner
+      // names the real cause.
+      return _historyUnavailable
+          ? l10n.coachErrorHistoryUnavailable
+          : l10n.coachErrorNoSession;
+    }
+    return null;
+  }
+
+  /// Opens a brief that waited for a request or a load ([_queuedBrief]).
+  /// Never on top of another sheet or page: it stays queued, and the
+  /// rebuild when that route closes opens it.
+  void _openQueuedBriefWhenFree() {
+    if (_queuedBrief == null ||
+        _queuedBriefScheduled ||
+        _sending ||
+        _loading ||
+        !_routeOnTop) {
+      return;
+    }
+    _queuedBriefScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _queuedBriefScheduled = false;
+      if (!mounted || !(ModalRoute.of(context)?.isCurrent ?? true)) return;
+      final queued = _queuedBrief;
+      _queuedBrief = null;
+      if (queued == null) return;
+      unawaited(
+        _openTrainingBrief(
+          selectedPlan: queued.selectedPlan,
+          sessionRetried: queued.sessionRetried,
+        ),
+      );
+    });
   }
 
   /// "Added" is derived, never stored: the card slug comes deterministically
@@ -1338,15 +1664,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     for (final (index, message, bytes) in await Future.wait(reads)) {
       final proposal = message.recipeProposal;
       if (proposal == null || bytes == null) continue;
-      result[index] = ChatMessage(
-        id: message.id,
-        role: message.role,
-        content: message.content,
-        createdAt: message.createdAt,
-        refusal: message.refusal,
-        recipeProposal: proposal.withImageBytes(bytes),
-        trainingPlanProposal: message.trainingPlanProposal,
-      );
+      result[index] = message.withRecipeProposal(proposal.withImageBytes(bytes));
     }
     return result;
   }
@@ -1460,6 +1778,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         _messages = [..._messages, answer];
       });
       HapticFeedback.lightImpact();
+      _announceAnswer();
       unawaited(_refreshSessions());
     } on CoachQuotaExceeded catch (e) {
       if (!mounted || !identical(widget.service, svc)) return;
@@ -1495,6 +1814,90 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     required String wish,
     required String displayText,
     required AppLocalizations l10n,
+    CoachTrainingContext? trainingContext,
+  }) => _sendProposalRequest(
+    svc: svc,
+    sessionId: sessionId,
+    displayText: displayText,
+    l10n: l10n,
+    trainingContext: trainingContext,
+    request: () async {
+      final reply = trainingContext == null
+          ? await svc.requestPlan(wish, sessionId: sessionId, locale: l10n.localeName)
+          : await svc.requestPlanWithContext(wish, sessionId: sessionId,
+              locale: l10n.localeName, trainingContext: trainingContext);
+      return (
+        answer: ChatMessage(
+          id:
+              reply.assistantMessageId ??
+              'local-p-${DateTime.now().microsecondsSinceEpoch}',
+          role: ChatRole.assistant,
+          content: reply.reply,
+          createdAt: DateTime.now(),
+          refusal: reply.refusal,
+          trainingPlanProposal: reply.refusal ? null : reply.proposal,
+        ),
+        sessionId: reply.sessionId,
+        remaining: reply.remaining,
+        dailyLimit: reply.dailyLimit,
+      );
+    },
+  );
+
+  /// /log: the same fenced send as /plan. The answer becomes a draft card;
+  /// nothing is written until its review sheet's Add.
+  Future<void> _sendWorkoutLogRequest({
+    required CoachChatService svc,
+    required String sessionId,
+    required String wish,
+    required String displayText,
+    required AppLocalizations l10n,
+  }) => _sendProposalRequest(
+    svc: svc,
+    sessionId: sessionId,
+    displayText: displayText,
+    l10n: l10n,
+    request: () async {
+      final reply = await svc.requestWorkoutLog(
+        wish,
+        sessionId: sessionId,
+        locale: l10n.localeName,
+      );
+      final proposal = reply.refusal ? null : reply.proposal;
+      final id =
+          reply.assistantMessageId ??
+          'local-w-${DateTime.now().microsecondsSinceEpoch}';
+      return (
+        answer: ChatMessage(
+          id: id,
+          role: ChatRole.assistant,
+          content: reply.reply,
+          createdAt: DateTime.now(),
+          refusal: reply.refusal,
+          workoutLogProposal: proposal,
+          // No stored row to derive the history id from: allocate it once,
+          // so a retry or a second review targets the same row.
+          workoutLogLocalId:
+              proposal != null && deriveCoachWorkoutLogId(id) == null
+              ? uuidV4()
+              : null,
+        ),
+        sessionId: reply.sessionId,
+        remaining: reply.remaining,
+        dailyLimit: reply.dailyLimit,
+      );
+    },
+  );
+
+  /// One account- and conversation-fenced proposal request (/plan, /log):
+  /// the optimistic bubble, quota from every answer of this account, and the
+  /// answer only in the conversation that asked for it.
+  Future<void> _sendProposalRequest({
+    required CoachChatService svc,
+    required String sessionId,
+    required String displayText,
+    required AppLocalizations l10n,
+    required Future<_ProposalAnswer> Function() request,
     CoachTrainingContext? trainingContext,
   }) async {
     final accountRevision = _trainingAccountRevision;
@@ -1534,26 +1937,14 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       (_) => _scrollToEnd(sanft: true),
     );
     try {
-      final reply = trainingContext == null
-          ? await svc.requestPlan(wish, sessionId: sessionId, locale: l10n.localeName)
-          : await svc.requestPlanWithContext(wish, sessionId: sessionId,
-              locale: l10n.localeName, trainingContext: trainingContext);
+      final reply = await request();
       if (!isCurrentAccount()) return;
       // Quota is account-wide, including responses to another conversation.
       _quotaUebernehmen(
         remaining: reply.remaining,
         dailyLimit: reply.dailyLimit,
       );
-      final answer = ChatMessage(
-        id:
-            reply.assistantMessageId ??
-            'local-p-${DateTime.now().microsecondsSinceEpoch}',
-        role: ChatRole.assistant,
-        content: reply.reply,
-        createdAt: DateTime.now(),
-        refusal: reply.refusal,
-        trainingPlanProposal: reply.refusal ? null : reply.proposal,
-      );
+      final answer = reply.answer;
       if (!isCurrentConversation()) {
         if (_activeSessionId == sessionId &&
             _conversationRevision != conversationRevision &&
@@ -1568,7 +1959,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         return;
       }
       if (reply.sessionId != sessionId) {
-        await _receiveRemappedPlan(
+        await _receiveRemappedAnswer(
           svc: svc,
           sessionId: reply.sessionId,
           answer: answer,
@@ -1582,6 +1973,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         _messages = [..._messages, answer];
       });
       HapticFeedback.lightImpact();
+      _announceAnswer();
       unawaited(_refreshSessions());
     } on CoachQuotaExceeded catch (error) {
       if (!isCurrentAccount()) return;
@@ -1591,6 +1983,17 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         _error = error.message;
         _fehlgeschlagen = retry;
       });
+    } on CoachRequestUnsupported catch (error) {
+      if (!isCurrentConversation()) return;
+      // Certain and free (an older server): no Retry to loop on. The text
+      // goes back to the composer instead of a bubble that looks sent.
+      setState(() {
+        _error = error.message;
+        _messages = _messages
+            .where((message) => message.id != userMsg.id)
+            .toList(growable: false);
+      });
+      _entwurfZurueck(displayText);
     } on CoachChatException catch (error) {
       if (!isCurrentConversation()) return;
       setState(() {
@@ -1603,9 +2006,10 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) => _folgeDemEnde());
   }
 
-  /// A paid plan can be valid even when its assistant history write failed.
-  /// Keep that buffered answer after remapping, without duplicating persisted IDs.
-  Future<void> _receiveRemappedPlan({
+  /// A paid plan or log can be valid even when its assistant history write
+  /// failed. Keep that buffered answer after remapping, without duplicating
+  /// persisted IDs.
+  Future<void> _receiveRemappedAnswer({
     required CoachChatService svc,
     required String sessionId,
     required ChatMessage answer,
@@ -1633,6 +2037,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       _loading = true;
       _fehlgeschlagen = null;
       _error = l10n.coachSessionSwitchedNotice;
+      _dropAnswerCue();
     });
     bool isCurrentTarget() =>
         isCurrentAccount() &&
@@ -1658,6 +2063,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       if (historyUnavailable) _error = l10n.coachErrorHistoryUnavailable;
     });
     HapticFeedback.lightImpact();
+    _announceAnswer();
     WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToEnd());
   }
 
@@ -1705,6 +2111,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
               identical(current.trainingPlanProposal, proposal),
         );
     HapticFeedback.selectionClick();
+    _endDictationForSheet();
     _inputFocus.unfocus();
     setState(() => _reviewingTrainingPlan = true);
     try {
@@ -1737,6 +2144,95 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     }
   }
 
+  /// Where a /log card stands, derived from the live history. Deleted wins:
+  /// the server refuses that id for good, so it can never be added again.
+  _WorkoutLogCardStatus _workoutLogStatus(ChatMessage message) {
+    final id = _workoutLogHistoryId(message);
+    if (id == null) return _WorkoutLogCardStatus.waiting;
+    if (widget.trainingHistoryDeletedIds.contains(id)) {
+      return _WorkoutLogCardStatus.removed;
+    }
+    if (widget.trainingHistoryIds.contains(id)) {
+      return _WorkoutLogCardStatus.added;
+    }
+    return widget.trainingHistoryAuthoritative
+        ? _WorkoutLogCardStatus.open
+        : _WorkoutLogCardStatus.waiting;
+  }
+
+  /// Reviewing a /log card: the log editor, prefilled and editable, is the
+  /// confirmation, and its Add is the only write (spec C1). The editor
+  /// allocates nothing; every Add carries the card's history id.
+  Future<void> _reviewWorkoutLog(ChatMessage message) async {
+    final proposal = message.workoutLogProposal;
+    final onLog = widget.onLogWorkout;
+    final historyId = _workoutLogHistoryId(message);
+    final service = widget.service;
+    final accountRevision = _trainingAccountRevision;
+    final sessionId = _activeSessionId;
+    if (proposal == null ||
+        onLog == null ||
+        historyId == null ||
+        _reviewingWorkoutLog ||
+        _workoutLogStatus(message) != _WorkoutLogCardStatus.open) {
+      return;
+    }
+    bool isCurrentDraft() =>
+        mounted &&
+        identical(widget.service, service) &&
+        _trainingAccountRevision == accountRevision &&
+        _activeSessionId == sessionId &&
+        _messages.any(
+          (current) =>
+              current.id == message.id &&
+              identical(current.workoutLogProposal, proposal),
+        );
+    HapticFeedback.selectionClick();
+    // Taken before the sheet: a second tap in this frame opens nothing.
+    setState(() => _reviewingWorkoutLog = true);
+    // No partial may rewrite the composer under the sheet.
+    _endDictationForSheet();
+    _inputFocus.unfocus();
+    try {
+      await showTrainingLogEditor(
+        context,
+        request: FreeLogRequest(
+          historyId: historyId,
+          initial: proposal.toDraft(),
+          fromCoach: true,
+        ),
+        history: widget.trainingHistory,
+        onSave: (entry) async {
+          // Sheet routes can outlive their account or conversation: recheck
+          // at the write boundary, before and after the write.
+          if (!isCurrentDraft() || entry.id != historyId) {
+            throw StateError('Workout draft is no longer active');
+          }
+          // Another device or an earlier Add got there first: no second row,
+          // and a deleted entry is never resurrected.
+          if (widget.trainingHistoryDeletedIds.contains(historyId)) {
+            return TrainingLogSaveOutcome.deleted;
+          }
+          if (widget.trainingHistoryIds.contains(historyId)) {
+            return TrainingLogSaveOutcome.saved;
+          }
+          // Ids and receipts that are not authoritative may be stale: no
+          // write until the history is known again.
+          if (!widget.trainingHistoryAuthoritative) {
+            throw StateError('Workout history is not known');
+          }
+          final outcome = await onLog(entry);
+          if (!isCurrentDraft()) {
+            throw StateError('Workout draft is no longer active');
+          }
+          return outcome;
+        },
+      );
+    } finally {
+      if (mounted) setState(() => _reviewingWorkoutLog = false);
+    }
+  }
+
   /// Adopting a /recipe proposal — the ONLY way anything from a coach answer
   /// is ever stored, entirely client-side via the user-confirmed
   /// [CoachChatScreen.onCreateRecipe] hook.
@@ -1746,14 +2242,16 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     if (proposal == null || onCreate == null || _addingRecipe) return;
     if (_isRecipeAdded(message)) return;
     HapticFeedback.selectionClick();
-    final confirmed = await showEatovaSheet<bool>(
-      context,
-      _RecipeAddSheet(proposal: proposal),
-    );
-    if (confirmed != true || !mounted) return;
-
+    // Taken before the sheet: the navigator absorbs a second tap once the
+    // route is pushed, but not a second accessibility action in that frame.
     setState(() => _addingRecipe = true);
+    _endDictationForSheet();
     try {
+      final confirmed = await showEatovaSheet<bool>(
+        context,
+        _RecipeAddSheet(proposal: proposal),
+      );
+      if (confirmed != true || !mounted) return;
       var imageAsset = '';
       var photoFailed = false;
       final bytes = proposal.imageBytes;
@@ -1860,12 +2358,14 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     final service = widget.service;
     final sessionId = _activeSessionId;
     final revision = _conversationRevision;
+    // The caption is the draft as it stood when the photo was picked. The
+    // field stays typeable during the scrub; edits there no longer drop the
+    // photo, they stay in the field (spec §9).
     final draft = _input.text;
     bool isCurrent() => mounted &&
         identical(widget.service, service) &&
         _activeSessionId == sessionId &&
         _conversationRevision == revision &&
-        _input.text == draft &&
         _canInteract;
     // The copy the picker leaves in the app cache; deleted in `finally`, or
     // the user's photos stay on the device forever, even after account
@@ -1891,13 +2391,18 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         setState(() => _error = l10n.coachErrorImageTooLarge);
         return;
       }
-      await _send(
+      final typed = _input.text;
+      final versand = _send(
         textOverride: draft.trim().isEmpty
             ? l10n.coachImageDefaultCaption
             : draft.trim(),
         imageBytes: bytes,
         imageMimeType: _mimeForBytes(bytes, image),
       );
+      // [_send] clears the field on its way out; text typed meanwhile is not
+      // part of this message and goes back.
+      if (mounted && typed.trim() != draft.trim()) _entwurfZurueck(typed);
+      await versand;
     } on PlatformException catch (e) {
       if (!isCurrent()) return;
       setState(() => _error = _permissionMessageFor(source, e, l10n));
@@ -1938,62 +2443,209 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     return l10n.coachErrorImageOpenFailed;
   }
 
-  /// A hidden or disposed screen must neither record nor accept late dictation.
-  void _cancelSpeechInput() {
-    _speechGeneration++;
+  // --- Dictation (spec Part D) ----------------------------------------------
+
+  /// Source of [_speechGeneration] for every screen instance: a token from a
+  /// disposed screen can never pass as one of its successor's.
+  static int _speechSeq = 0;
+
+  /// The draft a recording started from; dictated text is appended to it.
+  String _speechDraft = '';
+
+  /// Dictated text currently shown after [_speechDraft].
+  String _speechShown = '';
+
+  /// A graceful stop is draining the final result.
+  bool _speechStopping = false;
+
+  /// Draft plus dictation reached the input cap during this recording.
+  bool _speechCapReached = false;
+
+  /// Device preference; null until loaded or chosen (then the app language).
+  DictationLanguage? _dictationLanguage;
+  DictationLanguage _listeningLanguage = DictationLanguage.de;
+  bool _screenKeptAwake = false;
+
+  /// Reads the per-device choice in the background, only where the mic
+  /// exists (see the composer).
+  void _loadDictationLanguage() {
+    if (defaultTargetPlatform != TargetPlatform.iOS) return;
+    unawaited(
+      widget.dictationLanguageStore.load().then((stored) {
+        if (mounted && stored != null) _dictationLanguage ??= stored;
+      }),
+    );
+  }
+
+  void _keepScreenAwake(bool on) {
+    if (_screenKeptAwake == on) return;
+    _screenKeptAwake = on;
+    unawaited(widget.screenAwake.setKeepAwake(on));
+  }
+
+  void _setDraft(String text) {
+    _input.value = TextEditingValue(
+      text: text,
+      selection: TextSelection.collapsed(offset: text.length),
+    );
+  }
+
+  /// One space between draft and dictation, none after a trailing space
+  /// (`/log `).
+  static String _withDictation(String draft, String dictated) {
+    if (dictated.isEmpty) return draft;
+    if (draft.isEmpty || RegExp(r'\s$').hasMatch(draft)) {
+      return '$draft$dictated';
+    }
+    return '$draft $dictated';
+  }
+
+  /// Immediate end for hide, background, dispose and account change: the mic
+  /// goes off at once and a late result is ignored. Hide and background keep
+  /// the text already shown; [discard] (account change) drops this
+  /// recording's text. Callers rebuild (setState, build phase or dispose).
+  void _cancelSpeechInput({bool discard = false}) {
+    _speechGeneration = ++_speechSeq;
     if (!_listening) return;
     _listening = false;
+    if (discard) _setDraft(_speechDraft);
+    unawaited(widget.speechInput.cancel());
+    _keepScreenAwake(false);
+  }
+
+  /// Every sheet over the composer (attach, brief, reviews, sessions, info)
+  /// reads the draft as it stands: the recording ends at once and keeps what
+  /// it showed, so no partial rewrites the field behind the sheet and no mic
+  /// stays live without a visible stop (R17 D2-M1).
+  void _endDictationForSheet() {
+    if (_listening) setState(_cancelSpeechInput);
+  }
+
+  /// Graceful end (mic, send, input cap): the audio stops and the final
+  /// result still lands in the field; [_listening] stays on until it does.
+  void _stopSpeechGracefully() {
+    if (!_listening || _speechStopping) return;
+    _speechStopping = true;
     unawaited(widget.speechInput.stop());
   }
 
+  /// First call in [_send]: a send never interleaves with a recording. The
+  /// composer's send only finishes it, so the final text stays for review
+  /// and a second tap sends it (never unseen text). Other sends carry their
+  /// own visible text (prepared question, retry, brief, photo): the recording
+  /// ends at once and keeps what it showed.
+  bool _dictationHoldsSend({required bool fromComposer}) {
+    if (!_listening) return false;
+    if (fromComposer) {
+      _stopSpeechGracefully();
+      return true;
+    }
+    setState(_cancelSpeechInput);
+    return false;
+  }
+
   Future<void> _toggleSpeechInput() async {
-    if (!_canInteract) return;
-    HapticFeedback.selectionClick();
     if (_listening) {
-      final generation = _speechGeneration;
-      await widget.speechInput.stop();
-      if (mounted && generation == _speechGeneration) {
-        setState(() => _listening = false);
-      }
+      HapticFeedback.selectionClick();
+      _stopSpeechGracefully();
       return;
     }
+    // Typing by voice: allowed whenever typing is, even while an answer runs.
+    if (!_canType) return;
+    HapticFeedback.selectionClick();
+    _speechDraft = _input.text;
+    await _listen(
+      _dictationLanguage ??
+          DictationLanguage.forAppLanguage(context.l10n.localeName),
+    );
+  }
 
+  /// The pill: same draft, other language. Only this recording's text is
+  /// replaced; the choice is remembered per device.
+  void _switchDictationLanguage() {
+    if (!_listening || _speechStopping) return;
+    HapticFeedback.selectionClick();
+    final next = _listeningLanguage.other;
+    _dictationLanguage = next;
+    unawaited(widget.dictationLanguageStore.save(next));
+    _speechGeneration = ++_speechSeq;
+    _setDraft(_speechDraft);
+    // Channel order: the cancel reaches the plugin before the new listen.
+    unawaited(widget.speechInput.cancel());
+    unawaited(_listen(next));
+  }
+
+  /// Partials replace the shown dictation live, after the draft.
+  void _showDictation(int generation, String text) {
+    if (!mounted || generation != _speechGeneration || !_listening) return;
+    _speechShown = text.trim();
+    final draft = _withDictation(_speechDraft, _speechShown);
+    _setDraft(draft);
+    // Draft and dictation share the composer cap: stop there, never cut.
+    if (!_speechCapReached && _CoachInputLimit.overflow(draft) >= 0) {
+      _speechCapReached = true;
+      _stopSpeechGracefully();
+    }
+  }
+
+  /// One recording. Into the field only, never straight to the server: a
+  /// misheard sentence would cost a daily slot and seed the auto title. The
+  /// user reviews and presses send.
+  Future<void> _listen(DictationLanguage language) async {
     // Grabbed before the first `await`: safe context access.
     final l10n = context.l10n;
-    final generation = ++_speechGeneration;
+    final generation = _speechGeneration = ++_speechSeq;
     setState(() {
       _listening = true;
+      _listeningLanguage = language;
+      _speechShown = '';
+      _speechStopping = false;
+      _speechCapReached = false;
       _error = null;
     });
+    _keepScreenAwake(true);
+    var end = CoachSpeechEnd.stopped;
     try {
-      // Dictation locale follows the app language: 'en' -> 'en_US', anything
-      // else falls back to 'de_DE'.
-      final speechLocaleId = l10n.localeName == 'en' ? 'en_US' : 'de_DE';
-      final spokenText = await widget.speechInput.listen(
-        localeId: speechLocaleId,
+      final spoken = await widget.speechInput.listen(
+        localeId: language.localeId,
         l10n: l10n,
+        token: generation,
+        onPartial: (text) => _showDictation(generation, text),
+        onEnd: (value) => end = value,
       );
       if (!mounted || generation != _speechGeneration) return;
-      setState(() => _listening = false);
-      final text = spokenText?.trim() ?? '';
-      if (text.isEmpty) {
-        setState(() => _error = l10n.coachErrorSpeechEmpty);
-        return;
+      final text = spoken?.trim() ?? '';
+      // An empty final never takes back words already shown.
+      final dictated = text.isEmpty ? _speechShown : text;
+      final String? hint;
+      if (dictated.isEmpty) {
+        hint = l10n.coachErrorSpeechEmpty;
+      } else if (_speechCapReached || end == CoachSpeechEnd.length) {
+        hint = l10n.coachDictationLengthHint;
+      } else if (end == CoachSpeechEnd.limit) {
+        hint = l10n.coachDictationLimitHint;
+      } else {
+        hint = null;
       }
-      // Into the field only, never straight to the server: a misheard
-      // sentence would cost a daily slot and seed the auto title. The user
-      // reviews and presses send.
-      _input.text = text;
-      _input.selection = TextSelection.collapsed(offset: text.length);
-      _inputFocus.requestFocus();
+      _keepScreenAwake(false);
+      setState(() {
+        _listening = false;
+        if (dictated.isNotEmpty) {
+          _setDraft(_withDictation(_speechDraft, dictated));
+        }
+        if (hint != null) _error = hint;
+      });
+      if (dictated.isNotEmpty) _inputFocus.requestFocus();
     } on CoachSpeechException catch (e) {
       if (!mounted || generation != _speechGeneration) return;
+      _keepScreenAwake(false);
       setState(() {
         _listening = false;
         _error = e.message;
       });
     } catch (_) {
       if (!mounted || generation != _speechGeneration) return;
+      _keepScreenAwake(false);
       setState(() {
         _listening = false;
         _error = l10n.coachSpeechUnavailable;
@@ -2004,6 +2656,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   void _openAttachSheet() {
     if (!_canInteract) return;
     HapticFeedback.selectionClick();
+    _endDictationForSheet();
     // showEatovaSheet takes a ready widget, not a builder. The `Builder` gets
     // a context BELOW the sheet route; with the screen context `pop()` would
     // hit the top route blindly — the home route after a swipe-dismiss.
@@ -2047,6 +2700,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
 
   void _openSessionsSheet() {
     HapticFeedback.selectionClick();
+    _endDictationForSheet();
     showEatovaSheet<void>(
       context,
       // StatefulBuilder so the sheet rebuilds right after a delete: it does
@@ -2077,6 +2731,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
   /// (i), the empty-state hint and the quota hint.
   void _openCoachInfoSheet() {
     HapticFeedback.selectionClick();
+    _endDictationForSheet();
     final quota = _quota;
     showEatovaSheet<void>(
       context,
@@ -2120,6 +2775,9 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     // would claim "no conversation yet". Empty conversation + banner instead.
     final isHero = !_loading && _messages.isEmpty && !_historyUnavailable;
     _merkeNeueNachrichten();
+    // Every state change that can end a wait rebuilds, so this one place
+    // covers the reply, the bootstrap and a session load alike.
+    _openQueuedBriefWhenFree();
     return LayoutBuilder(
       builder: (context, constraints) {
         // The floating tab bar's band (from the shell). The composer's own
@@ -2181,6 +2839,22 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                 conversation: Stack(
                   fit: StackFit.expand,
                   children: <Widget>[
+                    // The answer cue of [_announceAnswer]: a new key per
+                    // answer makes a new node. Behind everything, outside the
+                    // lazy list (an answer below the fold still speaks) and
+                    // never focusable, so it only talks.
+                    if (_answerCue != null)
+                      Positioned.fill(
+                        key: ValueKey<String>('coach-answer-cue-$_answerCue'),
+                        child: Semantics(
+                          container: true,
+                          liveRegion: true,
+                          accessibilityFocusBlockType:
+                              AccessibilityFocusBlockType.blockNode,
+                          label: context.l10n.coachAnswerAnnouncement,
+                          child: const SizedBox.expand(),
+                        ),
+                      ),
                     AnimatedSwitcher(
                       duration: motionDuration(
                         context,
@@ -2225,6 +2899,10 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                                   widget.onCreateTrainingPlan != null &&
                                   !_reviewingTrainingPlan,
                               onReviewPlan: _reviewTrainingPlan,
+                              workoutLogStatusFor: _workoutLogStatus,
+                              workoutLogAddable: widget.onLogWorkout != null,
+                              workoutLogAddEnabled: !_reviewingWorkoutLog,
+                              onAddWorkoutLog: _reviewWorkoutLog,
                               onScroll: _onChatScroll,
                               onMetricsChanged: _onChatMetrics,
                               entersFor: (message) =>
@@ -2289,8 +2967,10 @@ class _CoachChatScreenState extends State<CoachChatScreen>
                     remaining: _restFuerAnzeige,
                     draft: draft,
                     listening: _listening,
+                    dictationLanguage: _listeningLanguage,
                     onSubmit: () => _send(),
                     onMic: _toggleSpeechInput,
+                    onDictationLanguage: _switchDictationLanguage,
                     onAttach: _openAttachSheet,
                     onQuotaTap: _openCoachInfoSheet,
                   ),
@@ -2370,6 +3050,15 @@ class _CoachConversationArea extends StatelessWidget {
   );
 }
 
+/// What a proposal request hands [_CoachChatScreenState._sendProposalRequest]:
+/// the finished answer bubble plus the session and quota the server named.
+typedef _ProposalAnswer = ({
+  ChatMessage answer,
+  String sessionId,
+  int? remaining,
+  int? dailyLimit,
+});
+
 /// A send attempt that never reached the server — marker and retry job.
 ///
 /// Holds everything the second attempt needs instead of reconstructing it from
@@ -2420,12 +3109,18 @@ class _UnsentNotice extends StatelessWidget {
           Icon(Icons.error_outline_rounded, size: 13, color: t.warning),
           const SizedBox(width: 5),
           Flexible(
-            child: Text(
-              l10n.coachMessageNotSent,
-              style: AppType.ui(
-                11.5,
-                weight: FontWeight.w600,
-                color: t.warning,
+            // Appears without focus moving: a live region, so a screen
+            // reader learns the question did not go out.
+            child: Semantics(
+              container: true,
+              liveRegion: true,
+              child: Text(
+                l10n.coachMessageNotSent,
+                style: AppType.ui(
+                  11.5,
+                  weight: FontWeight.w600,
+                  color: t.warning,
+                ),
               ),
             ),
           ),

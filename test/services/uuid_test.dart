@@ -77,6 +77,47 @@ void main() {
     });
   });
 
+  // A Coach /log card's history id is derived from the assistant message id,
+  // so confirming twice or on a second device targets the same row.
+  group('deriveCoachWorkoutLogId', () {
+    test('golden vectors freeze the wire format', () {
+      // The zero UUID shows the ASCII mask 'eatova-workoutlg' almost as is.
+      expect(
+        deriveCoachWorkoutLogId('00000000-0000-4000-8000-000000000000'),
+        '6561746f-7661-6d77-ef72-6b6f75746c67',
+      );
+      expect(
+        deriveCoachWorkoutLogId('9d2f1a6c-7b3e-4c51-9f08-1e2d3c4b5a69'),
+        'f84e6e03-0d5f-6126-f07a-7542493f360e',
+      );
+    });
+
+    test('is lowercase whatever the input case', () {
+      expect(
+        deriveCoachWorkoutLogId('9D2F1A6C-7B3E-4C51-9F08-1E2D3C4B5A69'),
+        'f84e6e03-0d5f-6126-f07a-7542493f360e',
+      );
+    });
+
+    test('local and malformed message ids have no derivation', () {
+      expect(deriveCoachWorkoutLogId('local-r-1'), isNull);
+      expect(deriveCoachWorkoutLogId(''), isNull);
+      expect(
+        deriveCoachWorkoutLogId('9d2f1a6c7b3e4c519f081e2d3c4b5a69'),
+        isNull,
+      );
+    });
+
+    test('has its own namespace, apart from the stats request ids', () {
+      const source = '9d2f1a6c-7b3e-4c51-9f08-1e2d3c4b5a69';
+      expect(
+        deriveCoachWorkoutLogId(source),
+        isNot(deriveStatsRequestId(source)),
+      );
+      expect(deriveCoachWorkoutLogId(source), isNot(source));
+    });
+  });
+
   group('isUuidShape', () {
     test('akzeptiert 8-4-4-4-12 Hex in beiden Schreibweisen', () {
       expect(isUuidShape(uuidV4()), isTrue);

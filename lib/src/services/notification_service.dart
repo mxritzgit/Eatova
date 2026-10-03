@@ -1,13 +1,23 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../l10n/l10n.dart';
 import 'crash_reporter.dart';
+import 'rest_alerts.dart';
+
+/// Ids reserved for reminder nudges; the streak planner fills the whole
+/// range. [NotificationService.scheduleAll] and the reminder opt-out cancel
+/// exactly these, so alerts outside it (training rest alerts) survive.
+const int reminderNudgeIdFirst = 700;
+const int reminderNudgeIdCount = 28;
 
 /// A fully resolved, schedule-ready notification spec. Pure immutable value
 /// type passed straight to zonedSchedule; no Flutter or IO dependency.
@@ -57,11 +67,14 @@ abstract class NotificationService {
   /// Android 13+: POST_NOTIFICATIONS). True if granted.
   Future<bool> requestPermission();
 
-  /// Cancels all scheduled nudges and schedules [specs] instead. Callers must
-  /// always pass the full list, since the old entries are dropped first.
+  /// Replaces every scheduled reminder nudge with [specs]. Callers must
+  /// always pass the full list, since the old nudges are dropped first.
+  /// Other alerts (training rest alerts) stay.
   Future<void> scheduleAll(List<NotificationSpec> specs);
 
-  /// Cancels all scheduled/shown nudges (logout, reminders turned off).
+  /// Cancels everything scheduled or shown: the session-end operation
+  /// (sign-out, account switch, deletion). Reminder paths prefer
+  /// [NotificationScopedCancel] when the service offers it.
   Future<void> cancelAll();
 }
 
@@ -91,6 +104,21 @@ abstract class NotificationPermissionProbe {
 /// stays German.
 abstract class NotificationLocalizable {
   void setLocalizations(AppLocalizations l10n);
+}
+
+/// Extra seam (same pattern as [NotificationPermissionProbe]): narrower
+/// cancellations, so reminder paths and the cold-start backstop leave the
+/// running workout's rest alert alone (spec A5). Callers probe via `is` and
+/// fall back to [NotificationService.cancelAll].
+abstract class NotificationScopedCancel {
+  /// Cancels the reminder nudges only (opt-out, OS permission withdrawn).
+  Future<void> cancelNudges();
+
+  /// Cold-start backstop: clears everything an earlier session or process
+  /// left behind, but keeps the rest alert this process scheduled since the
+  /// current account's session opened, which belongs to the session now
+  /// running.
+  Future<void> cancelStaleSchedules();
 }
 
 /// No-op implementation for platforms without local notifications (web/test)
@@ -134,7 +162,10 @@ NotificationPlatform _detectPlatform() {
 /// The gateway exposes exactly the calls the service makes; [_PluginGateway]
 /// forwards them to the real plugin, tests implement this interface.
 abstract class NotificationPluginGateway {
-  Future<void> initialize(InitializationSettings settings);
+  Future<void> initialize(
+    InitializationSettings settings, {
+    DidReceiveNotificationResponseCallback? onResponse,
+  });
   Future<void> createAndroidChannel(AndroidNotificationChannel channel);
   Future<bool?> requestIosPermissions();
   Future<bool?> requestAndroidPermission();
@@ -146,8 +177,20 @@ abstract class NotificationPluginGateway {
     required String body,
     required tz.TZDateTime scheduledDate,
     required NotificationDetails details,
+    String? payload,
   });
+
+  /// Posts a notification at once (the rest alert cue).
+  Future<void> show({
+    required int id,
+    required String title,
+    required String body,
+    required NotificationDetails details,
+    String? payload,
+  });
+  Future<void> cancel(int id);
   Future<void> cancelAll();
+  Future<NotificationAppLaunchDetails?> launchDetails();
 }
 
 class _PluginGateway implements NotificationPluginGateway {
@@ -164,8 +207,14 @@ class _PluginGateway implements NotificationPluginGateway {
           IOSFlutterLocalNotificationsPlugin>();
 
   @override
-  Future<void> initialize(InitializationSettings settings) =>
-      _plugin.initialize(settings: settings);
+  Future<void> initialize(
+    InitializationSettings settings, {
+    DidReceiveNotificationResponseCallback? onResponse,
+  }) =>
+      _plugin.initialize(
+        settings: settings,
+        onDidReceiveNotificationResponse: onResponse,
+      );
 
   @override
   Future<void> createAndroidChannel(AndroidNotificationChannel channel) async =>
@@ -194,6 +243,7 @@ class _PluginGateway implements NotificationPluginGateway {
     required String body,
     required tz.TZDateTime scheduledDate,
     required NotificationDetails details,
+    String? payload,
   }) =>
       _plugin.zonedSchedule(
         id: id,
@@ -202,10 +252,33 @@ class _PluginGateway implements NotificationPluginGateway {
         scheduledDate: scheduledDate,
         notificationDetails: details,
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+        payload: payload,
       );
 
   @override
+  Future<void> show({
+    required int id,
+    required String title,
+    required String body,
+    required NotificationDetails details,
+    String? payload,
+  }) => _plugin.show(
+    id: id,
+    title: title,
+    body: body,
+    notificationDetails: details,
+    payload: payload,
+  );
+
+  @override
+  Future<void> cancel(int id) => _plugin.cancel(id: id);
+
+  @override
   Future<void> cancelAll() => _plugin.cancelAll();
+
+  @override
+  Future<NotificationAppLaunchDetails?> launchDetails() =>
+      _plugin.getNotificationAppLaunchDetails();
 }
 
 /// Real platform-backed implementation. Serves iOS/Android only; everywhere
@@ -216,11 +289,23 @@ class _PluginGateway implements NotificationPluginGateway {
 /// each cold start; now it is reported via [CrashReporter], the service stays
 /// "not available" ([isAvailable] false — permission reads answer `false`,
 /// scheduling no-ops) and the next [init] retries.
+///
+/// It also carries the training rest alerts (spec A5): their own Android
+/// channel and reserved ids, ordered through the same FIFO as the reminders,
+/// closed at session end ([cancelAll]) until the auth gate opens the next
+/// account ([openRestAlerts]).
 class LocalNotificationService
     implements
         NotificationService,
         NotificationPermissionProbe,
-        NotificationLocalizable {
+        NotificationLocalizable,
+        NotificationScopedCancel,
+        RestAlertScheduler,
+        RestAlertCue,
+        RestAlertSessionScope,
+        RestAlertPermissionGate,
+        RestAlertExplainerMemory,
+        NotificationTapSource {
   /// [gateway], [platform] and [localTimezoneName] are test seams; production
   /// passes nothing and gets the real plugin, the detected platform and
   /// `flutter_timezone`.
@@ -266,6 +351,45 @@ class LocalNotificationService
   String get _androidChannelName => _l10n.notifChannelName;
   String get _androidChannelDescription => _l10n.notifChannelDescription;
 
+  /// Separate channel, so workout alerts can be tuned apart from reminders.
+  static const String _restChannelId = 'eatova_training';
+
+  /// How long the Android cue ([cueRestAlert]) stays in the shade.
+  static const Duration restCueTimeout = Duration(seconds: 5);
+
+  /// Device flag: [request] showed the system prompt. Not the pre-release
+  /// `eatova.v1.rest_alerts_asked`, which a merely shown explainer also set.
+  static const String restAlertsRequestedKey =
+      'eatova.v1.rest_alerts_requested';
+
+  /// Device flag: the workout explainer was shown ([markExplainerShown]).
+  static const String restAlertsExplainedKey =
+      'eatova.v1.rest_alerts_explained';
+
+  final StreamController<String> _taps = StreamController<String>.broadcast();
+  bool _launchPayloadRead = false;
+
+  // Session fence for rest alerts (see [RestAlertSessionScope]). Open from
+  // process start (the gate closes at once without a session); closed from
+  // a session end until the gate opens the next account. Each end starts a
+  // new epoch: a request queued before it never reaches the plugin, and the
+  // backstop re-plans only the open session's alerts.
+  bool _restAlertsOpen = true;
+  String? _restAlertOwner;
+  int _restAlertEpoch = 0;
+
+  // Ids seen in the open session, and the owner of each ended one. Ids
+  // derive from the training session id, so an ended id stays refused for
+  // other accounts; its own account may resume it after signing back in.
+  final Set<int> _sessionRestAlertIds = <int>{};
+  final Map<int, String?> _endedRestAlertOwners = <int, String?>{};
+
+  // Rest alerts handed to the OS, with the epoch of their request, so the
+  // cold-start backstop can keep the open session's (see
+  // [cancelStaleSchedules]).
+  final Map<int, ({tz.TZDateTime when, String title, String body, int epoch})>
+      _liveRestAlerts = {};
+
   bool get _supported => _platform != NotificationPlatform.unsupported;
 
   /// Whether the plugin came up. False before [init] and after a failed one.
@@ -304,7 +428,7 @@ class LocalNotificationService
       // init as a zone error either.
       tzdata.initializeTimeZones();
       await _setLocalTimezone();
-      await _gateway.initialize(settings);
+      await _gateway.initialize(settings, onResponse: _onResponse);
       // Android 8+ needs an explicit channel or nudges are not shown.
       // Idempotent — recreating it is a no-op.
       if (_platform == NotificationPlatform.android) {
@@ -313,6 +437,14 @@ class LocalNotificationService
             _androidChannelId,
             _androidChannelName,
             description: _androidChannelDescription,
+            importance: Importance.defaultImportance,
+          ),
+        );
+        await _gateway.createAndroidChannel(
+          AndroidNotificationChannel(
+            _restChannelId,
+            _l10n.trainingRestChannelName,
+            description: _l10n.trainingRestChannelDescription,
             importance: Importance.defaultImportance,
           ),
         );
@@ -403,8 +535,9 @@ class LocalNotificationService
 
     try {
       // Clear first, then reschedule — avoids duplicates and orphans when a
-      // run yields fewer or different specs.
-      await _gateway.cancelAll();
+      // run yields fewer or different specs. Nudge ids only: a running rest
+      // alert in the same plugin must survive a re-plan (spec A5).
+      await _cancelNudgeIds();
 
       final details = _details();
       final now = tz.TZDateTime.now(tz.local);
@@ -437,9 +570,15 @@ class LocalNotificationService
   }
 
   @override
-  Future<void> cancelAll() => _enqueueMutation(_cancelAll);
+  Future<void> cancelAll() {
+    // Session end. Closed synchronously, so a request issued after this call
+    // is refused even while the cancel still waits in the queue.
+    _endRestAlertSession();
+    return _enqueueMutation(_cancelAll);
+  }
 
   Future<void> _cancelAll() async {
+    _liveRestAlerts.clear();
     if (!_supported) return;
     await init();
     if (!_initialized) return;
@@ -447,6 +586,276 @@ class LocalNotificationService
       await _gateway.cancelAll();
     } catch (e, st) {
       await CrashReporter.capture(e, st, context: 'notification-cancel');
+    }
+  }
+
+  @override
+  Future<void> cancelNudges() => _enqueueMutation(() async {
+        if (!_supported) return;
+        await init();
+        if (!_initialized) return;
+        try {
+          await _cancelNudgeIds();
+        } catch (e, st) {
+          await CrashReporter.capture(e, st, context: 'notification-cancel');
+        }
+      });
+
+  /// Per id, so a rest alert in the same plugin survives. `cancel` also
+  /// removes a nudge already shown, as `cancelAll` did.
+  Future<void> _cancelNudgeIds() async {
+    for (var id = reminderNudgeIdFirst;
+        id < reminderNudgeIdFirst + reminderNudgeIdCount;
+        id++) {
+      await _gateway.cancel(id);
+    }
+  }
+
+  @override
+  Future<void> cancelStaleSchedules() =>
+      _enqueueMutation(_cancelStaleSchedules);
+
+  Future<void> _cancelStaleSchedules() async {
+    if (!_supported) return;
+    await init();
+    if (!_initialized) return;
+    try {
+      await _gateway.cancelAll();
+      // Boot can reach this backstop after the player already resumed a
+      // rest; that alert is this session's, so it is planned again. One
+      // requested before the latest session end is not.
+      final kept = Map.of(_liveRestAlerts);
+      _liveRestAlerts.clear();
+      for (final MapEntry(key: id, value: alert) in kept.entries) {
+        if (alert.epoch != _restAlertEpoch ||
+            !alert.when.isAfter(clock.now())) {
+          continue;
+        }
+        await _scheduleRestAlertNow(
+            id, alert.when, alert.title, alert.body, alert.epoch);
+      }
+    } catch (e, st) {
+      await CrashReporter.capture(e, st, context: 'notification-cancel');
+    }
+  }
+
+  // --- Rest alerts (spec A5) ------------------------------------------------
+
+  @override
+  void openRestAlerts(String ownerId) {
+    if (_restAlertsOpen && _restAlertOwner == ownerId) return;
+    // Another owner without a session end in between: end that session too.
+    _endRestAlertSession();
+    _endedRestAlertOwners.removeWhere((_, owner) => owner == ownerId);
+    _restAlertOwner = ownerId;
+    _restAlertsOpen = true;
+  }
+
+  void _endRestAlertSession() {
+    if (!_restAlertsOpen) return;
+    for (final id in _sessionRestAlertIds) {
+      _endedRestAlertOwners[id] = _restAlertOwner;
+    }
+    _sessionRestAlertIds.clear();
+    _restAlertOwner = null;
+    _restAlertsOpen = false;
+    _restAlertEpoch++;
+  }
+
+  @override
+  Future<void> scheduleRestAlert({
+    required int id,
+    required DateTime at,
+    required String title,
+    required String body,
+  }) {
+    if (!isRestAlertId(id)) return Future<void>.value();
+    if (!_restAlertsOpen || _endedRestAlertOwners.containsKey(id)) {
+      // Constant only: no id, no text (privacy rule of the facade).
+      CrashReporter.breadcrumb('notification-rest-refused');
+      return Future<void>.value();
+    }
+    _sessionRestAlertIds.add(id);
+    final epoch = _restAlertEpoch;
+    return _enqueueMutation(
+        () => _scheduleRestAlert(id, at, title, body, epoch));
+  }
+
+  Future<void> _scheduleRestAlert(
+    int id,
+    DateTime at,
+    String title,
+    String body,
+    int epoch,
+  ) async {
+    if (!_supported) return;
+    await init();
+    // The session ended while this request waited in the queue.
+    if (!_initialized || epoch != _restAlertEpoch) return;
+    try {
+      final when = tz.TZDateTime.from(at, tz.local);
+      if (when.isAfter(clock.now())) {
+        await _scheduleRestAlertNow(id, when, title, body, epoch);
+      } else {
+        // The plugin rejects past dates, and a deadline already reached needs
+        // no alert: drop the one planned for the earlier deadline instead.
+        _liveRestAlerts.remove(id);
+        await _gateway.cancel(id);
+      }
+    } catch (e, st) {
+      await CrashReporter.capture(e, st, context: 'notification-rest-schedule');
+    }
+  }
+
+  Future<void> _scheduleRestAlertNow(
+    int id,
+    tz.TZDateTime when,
+    String title,
+    String body,
+    int epoch,
+  ) async {
+    await _gateway.zonedSchedule(
+      id: id,
+      title: title,
+      body: body,
+      scheduledDate: when,
+      details: _restDetails(),
+      payload: trainingRestNotificationPayload,
+    );
+    _liveRestAlerts[id] = (when: when, title: title, body: body, epoch: epoch);
+  }
+
+  @override
+  Future<void> cueRestAlert({
+    required int id,
+    required String title,
+    required String body,
+  }) {
+    // iOS delivers the planned alert on time; only Android needs the cue.
+    if (!isRestAlertId(id) || _platform != NotificationPlatform.android) {
+      return Future<void>.value();
+    }
+    if (!_restAlertsOpen || _endedRestAlertOwners.containsKey(id)) {
+      CrashReporter.breadcrumb('notification-rest-refused');
+      return Future<void>.value();
+    }
+    _sessionRestAlertIds.add(id);
+    final epoch = _restAlertEpoch;
+    return _enqueueMutation(() async {
+      await init();
+      if (!_initialized || epoch != _restAlertEpoch) return;
+      try {
+        await _gateway.show(
+          id: id,
+          title: title,
+          body: body,
+          details: _restCueDetails(),
+          payload: trainingRestNotificationPayload,
+        );
+      } catch (e, st) {
+        await CrashReporter.capture(e, st, context: 'notification-rest-cue');
+      }
+    });
+  }
+
+  @override
+  Future<void> cancelRestAlert(int id) {
+    if (!isRestAlertId(id)) return Future<void>.value();
+    // Registers the id with the open session, so its end fences it. The
+    // cancel itself always runs, also after a session end.
+    if (_restAlertsOpen && !_endedRestAlertOwners.containsKey(id)) {
+      _sessionRestAlertIds.add(id);
+    }
+    return _enqueueMutation(() => _cancelRestAlert(id));
+  }
+
+  Future<void> _cancelRestAlert(int id) async {
+    _liveRestAlerts.remove(id);
+    if (!_supported) return;
+    await init();
+    if (!_initialized) return;
+    try {
+      await _gateway.cancel(id);
+    } catch (e, st) {
+      await CrashReporter.capture(e, st, context: 'notification-rest-cancel');
+    }
+  }
+
+  // --- Permission gate ------------------------------------------------------
+
+  /// A failing read counts as never requested: asking again is harmless (the
+  /// OS shows its prompt once), a Settings page without a switch is not.
+  @override
+  Future<RestAlertPermission> state() async {
+    if (await hasPermission()) return RestAlertPermission.granted;
+    return await _restAlertFlag(restAlertsRequestedKey, onError: false)
+        ? RestAlertPermission.denied
+        : RestAlertPermission.notAsked;
+  }
+
+  @override
+  Future<bool> request() async {
+    await _markRestAlertFlag(restAlertsRequestedKey);
+    return requestPermission();
+  }
+
+  /// A failing read counts as shown: a quiet "Alerts off" chip beats an
+  /// explainer before every workout.
+  @override
+  Future<bool> explainerShown() =>
+      _restAlertFlag(restAlertsExplainedKey, onError: true);
+
+  @override
+  Future<void> markExplainerShown() =>
+      _markRestAlertFlag(restAlertsExplainedKey);
+
+  Future<bool> _restAlertFlag(String key, {required bool onError}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool(key) ?? false;
+    } catch (e, st) {
+      await CrashReporter.capture(e, st, context: 'rest-alert-flag');
+      return onError;
+    }
+  }
+
+  Future<void> _markRestAlertFlag(String key) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(key, true);
+    } catch (e, st) {
+      await CrashReporter.capture(e, st, context: 'rest-alert-flag');
+    }
+  }
+
+  // --- Taps -----------------------------------------------------------------
+
+  @override
+  Stream<String> get taps => _taps.stream;
+
+  void _onResponse(NotificationResponse response) {
+    final payload = response.payload;
+    if (response.notificationResponseType !=
+            NotificationResponseType.selectedNotification ||
+        payload == null ||
+        payload.isEmpty) {
+      return;
+    }
+    _taps.add(payload);
+  }
+
+  @override
+  Future<String?> launchPayload() async {
+    if (!_supported || _launchPayloadRead) return null;
+    _launchPayloadRead = true;
+    try {
+      final details = await _gateway.launchDetails();
+      if (details == null || !details.didNotificationLaunchApp) return null;
+      final payload = details.notificationResponse?.payload;
+      return payload == null || payload.isEmpty ? null : payload;
+    } catch (e, st) {
+      await CrashReporter.capture(e, st, context: 'notification-launch');
+      return null;
     }
   }
 
@@ -465,4 +874,37 @@ class LocalNotificationService
     );
     return NotificationDetails(android: android, iOS: ios);
   }
+
+  /// Foreground: sound only, the app adds a haptic; in the background the
+  /// alert shows normally (spec A5). No badge for a timer.
+  NotificationDetails _restDetails() {
+    final android = AndroidNotificationDetails(
+      _restChannelId,
+      _l10n.trainingRestChannelName,
+      channelDescription: _l10n.trainingRestChannelDescription,
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
+    );
+    const ios = DarwinNotificationDetails(
+      presentAlert: false,
+      presentBadge: false,
+      presentSound: true,
+      presentBanner: false,
+      presentList: false,
+    );
+    return NotificationDetails(android: android, iOS: ios);
+  }
+
+  /// The Android cue: the training channel's sound, no heads-up (default
+  /// importance), gone from the shade after [restCueTimeout].
+  NotificationDetails _restCueDetails() => NotificationDetails(
+    android: AndroidNotificationDetails(
+      _restChannelId,
+      _l10n.trainingRestChannelName,
+      channelDescription: _l10n.trainingRestChannelDescription,
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
+      timeoutAfter: restCueTimeout.inMilliseconds,
+    ),
+  );
 }

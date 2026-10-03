@@ -43,7 +43,14 @@ void main() {
       expect(l.trainingHistoryRepsValue(8), '8 Wiederholungen');
       expect(l.trainingTimerProgress(0, 1), '0 von 1 Satz geschafft');
       expect(l.trainingTimerProgress(2, 3), '2 von 3 Sätzen geschafft');
-      expect(l.trainingTimerFinishBody(1, 1), startsWith('Du hast 1 von 1 Satz geschafft.'));
+      expect(
+        l.trainingTimerSaveSets(1),
+        '1 Satz speichern (Rest überspringen)',
+      );
+      expect(
+        l.trainingTimerSaveSets(3),
+        '3 Sätze speichern (Rest überspringen)',
+      );
       expect(l.profileUnitEntries(1), 'Eintrag');
       expect(l.profileUnitEntries(4), 'Einträge');
       expect(l.exportSummary(1, 1), '1 Bereich · 1 Datensatz');

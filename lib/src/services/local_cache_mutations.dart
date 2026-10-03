@@ -1409,7 +1409,12 @@ extension LocalCacheMutations on LocalCache {
           entry.id,
           entry.toRow(),
         );
-        state[_trainingSessionKey] = {'snapshot': null};
+        // Only the finished session's own checkpoint ends; a log never wipes
+        // another paused workout.
+        final recovery = state[_trainingSessionKey]?['snapshot'];
+        if (recovery is Map && recovery['session_id'] == entry.id) {
+          state[_trainingSessionKey] = {'snapshot': null};
+        }
       case SyncOpKind.trainingHistoryDelete:
         _deleteHistory(state, op.entityId);
       case SyncOpKind.trackingDay:

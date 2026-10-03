@@ -18,7 +18,10 @@ class _DelayedGateway implements NotificationPluginGateway {
   bool _firstSchedule = true;
 
   @override
-  Future<void> initialize(InitializationSettings settings) async {}
+  Future<void> initialize(
+    InitializationSettings settings, {
+    DidReceiveNotificationResponseCallback? onResponse,
+  }) async {}
 
   @override
   Future<void> createAndroidChannel(AndroidNotificationChannel channel) async {}
@@ -42,6 +45,7 @@ class _DelayedGateway implements NotificationPluginGateway {
     required String body,
     required tz.TZDateTime scheduledDate,
     required NotificationDetails details,
+    String? payload,
   }) async {
     if (_firstSchedule) {
       _firstSchedule = false;
@@ -52,7 +56,22 @@ class _DelayedGateway implements NotificationPluginGateway {
   }
 
   @override
+  Future<void> show({
+    required int id,
+    required String title,
+    required String body,
+    required NotificationDetails details,
+    String? payload,
+  }) async {}
+
+  @override
+  Future<void> cancel(int id) async => pending.remove(id);
+
+  @override
   Future<void> cancelAll() async => pending.clear();
+
+  @override
+  Future<NotificationAppLaunchDetails?> launchDetails() async => null;
 }
 
 class _DelayedPermissionService
@@ -106,8 +125,9 @@ HomeStore _store(LocalCache cache, NotificationService service) {
   return store;
 }
 
-NotificationSpec _spec(int id) => NotificationSpec(
-  id: id,
+/// Real nudge ids: scheduleAll replaces only the reminder range.
+NotificationSpec _spec(int slot) => NotificationSpec(
+  id: reminderNudgeIdFirst + slot,
   title: 'Reminder',
   body: 'Test',
   // Safely future without depending on the test runner's current date.
@@ -140,7 +160,10 @@ void main() {
         await oldPlan;
         await newer;
 
-        expect(gateway.pending, replacement ? {3} : isEmpty);
+        expect(
+          gateway.pending,
+          replacement ? {reminderNudgeIdFirst + 3} : isEmpty,
+        );
       },
     );
   }

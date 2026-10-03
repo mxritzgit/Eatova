@@ -91,7 +91,10 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
     return generation < (_trainingSourceGenerations[sourcePlanId] ?? 0);
   }
 
-  Future<void> saveTrainingSession(
+  /// Stores the player's checkpoint (null clears it). True only once it is
+  /// stored; false when the route's source plan changed or was retired, which
+  /// never writes. Other refusals and storage failures throw.
+  Future<bool> saveTrainingSession(
     TrainingSessionSnapshot? snapshot, {
     int? generation,
     String? sourcePlanId,
@@ -138,7 +141,7 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
                     (op) => _sourceChangeInvalidates(op, validated),
                   ) ||
                   _sourceDeliveryInvalidates(validated)))) {
-        throw StateError('Training session source changed');
+        return false;
       }
       final cache = _cache;
       if (cache == null) {
@@ -157,6 +160,7 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
         _trainingSessionRetired = false;
         _trainingSessionVersion++;
       });
+      return true;
     });
   }
 

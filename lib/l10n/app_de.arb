@@ -657,6 +657,8 @@
   "coachMicLabelListening": "Spracheingabe beenden",
   "coachMicLabelIdle": "Spracheingabe",
   "coachSendLabel": "Senden",
+  "coachThinkingLabel": "Der Coach denkt nach…",
+  "coachAnswerAnnouncement": "Der Coach hat geantwortet.",
   "coachAttachCamera": "Foto aufnehmen",
   "coachAttachGallery": "Aus der Galerie",
   "coachInfoIntro": "Hier antwortet eine KI, keine echte Person. Die Antworten sind eine Schätzung und ersetzen keinen ärztlichen Rat.",
@@ -712,10 +714,35 @@
   "coachSpeechFailed": "Spracherkennung fehlgeschlagen.",
   "coachSpeechBusy": "Die Spracherkennung läuft bereits. Warte kurz und versuch es dann nochmal.",
   "@coachSpeechBusy": {"description": "The platform reports that a recognition session is still running."},
+  "coachDictationLanguageDe": "DE",
+  "@coachDictationLanguageDe": {"description": "Short label on the dictation language pill while German is recognised."},
+  "coachDictationLanguageEn": "EN",
+  "@coachDictationLanguageEn": {"description": "Short label on the dictation language pill while English is recognised."},
+  "coachDictationLanguageGerman": "Deutsch",
+  "coachDictationLanguageEnglish": "Englisch",
+  "coachDictationLanguageLabel": "Diktiersprache: {language}",
+  "@coachDictationLanguageLabel": {
+    "description": "Screen reader name of the dictation language pill.",
+    "placeholders": {
+      "language": { "type": "String" }
+    }
+  },
+  "coachDictationLanguageSwitchHint": "Wechselt zu {language} und beginnt das Diktat neu",
+  "@coachDictationLanguageSwitchHint": {
+    "description": "Screen reader hint: what tapping the language pill does.",
+    "placeholders": {
+      "language": { "type": "String" }
+    }
+  },
+  "coachDictationLimitHint": "Die Spracheingabe endet nach etwa einer Minute. Tippe aufs Mikro, um weiterzusprechen.",
+  "coachDictationLengthHint": "Spracheingabe beendet: Die Nachricht hat ihre maximale Länge erreicht.",
+  "coachDictationSendLabel": "Spracheingabe abschließen",
+  "coachDictationSendHint": "Der Text bleibt zum Prüfen im Feld. Erneut tippen sendet ihn.",
   "coachErrorNotLoggedIn": "Bitte erst einloggen, um den Coach zu nutzen.",
   "coachErrorNoSession": "Konnte keine Coach-Session laden.",
   "coachErrorHistoryUnavailable": "Dein Verlauf konnte nicht geladen werden. Prüf deine Verbindung und versuch es nochmal.",
   "coachErrorDeleteFailed": "Die Unterhaltung konnte nicht gelöscht werden. Prüf deine Verbindung und versuch es nochmal.",
+  "coachErrorNewSessionFailed": "Die neue Unterhaltung konnte nicht angelegt werden. Prüf deine Verbindung und versuch es nochmal.",
   "coachSessionSwitchedNotice": "Diese Unterhaltung gibt es nicht mehr. Deine Frage und die Antwort stehen jetzt in einer anderen Unterhaltung — sie ist geöffnet.",
   "coachImageDefaultCaption": "Analysiere dieses Bild im Fitness-Kontext.",
   "coachErrorDailyLimitReached": "Tageslimit erreicht ({limit} Coach-Fragen pro Tag). Morgen geht's weiter.",
@@ -1522,6 +1549,12 @@
   },
   "notifStreakStartTitle": "Streak starten",
   "notifStreakStartBody": "Ein Log genügt, um deine Serie zu starten.",
+  "trainingRestAlertTitle": "Pause vorbei",
+  "trainingRestAlertBody": "Zeit für den nächsten Satz.",
+  "trainingIntervalAlertTitle": "Zeit um",
+  "trainingIntervalAlertBody": "Jetzt Pause.",
+  "trainingRestChannelName": "Trainings-Timer",
+  "trainingRestChannelDescription": "Meldet, wenn eine Pause oder ein Zeitintervall endet.",
 
   "authCodeRateLimited": "Zu viele Anfragen in kurzer Zeit. Der Versand ist vorübergehend gesperrt — bitte warte etwa eine Minute, bevor du es erneut versuchst.",
   "authCodeRateLimitedSeconds": "Zu viele Anfragen in kurzer Zeit. Der Versand ist noch {sekunden} s gesperrt.",
@@ -1903,8 +1936,14 @@
   "coachPlanCommandDescription": "Erstellt einen Trainingsplan zum Prüfen und Übernehmen",
   "coachPlanEmptyHint": "Beschreibe nach /plan dein Ziel, deine Trainingstage und dein Equipment.",
   "coachPlanPhotoUnsupported": "Trainingspläne entstehen aus Text. Sende deinen /plan-Wunsch ohne Foto.",
-  "coachPlanUnknownCommandHint": "Unbekannter Befehl. Nutze /recipe für ein Rezept oder /plan für einen Trainingsplan.",
+  "coachPlanUnknownCommandHint": "Unbekannter Befehl. Nutze /recipe für ein Rezept, /plan für einen Trainingsplan oder /log für ein erledigtes Training.",
   "coachPlanCardEyebrow": "Trainingsplan · Entwurf",
+  "coachPlanCardMoreExercises": "+{count} weitere",
+  "@coachPlanCardMoreExercises": {
+    "placeholders": {
+      "count": { "type": "int" }
+    }
+  },
   "coachPlanReviewButton": "Plan prüfen",
   "coachPlanAdoptButton": "Trainingsplan übernehmen",
   "coachPlanAddedLabel": "Übernommen",
@@ -1921,41 +1960,63 @@
       }
     }
   },
-  "trainingTimerBack": "Zurück zum Plan",
-  "trainingTimerPaused": "Pausiert",
-  "trainingTimerRunning": "Läuft",
-  "trainingTimerTimeUp": "Zeit abgelaufen",
-  "trainingTimerReview": "Dein Training",
-  "trainingTimerRest": "Satzpause",
-  "trainingTimerPause": "Pause",
-  "trainingTimerCompleteSet": "Satz geschafft",
-  "trainingTimerContinue": "Zum nächsten Satz",
-  "trainingTimerRewind": "10 Sek. zurück",
-  "trainingTimerForward": "10 Sek. vor",
-  "trainingTimerReset": "Phase zurücksetzen",
-  "trainingTimerSkipRest": "Pause überspringen",
-  "trainingTimerPreviousSet": "Vorheriger Satz",
-  "trainingTimerNextSet": "Satz überspringen",
-  "trainingTimerPreviousExercise": "Vorherige Übung",
-  "trainingTimerNextExercise": "Nächste Übung",
-  "trainingTimerNavigate": "Sätze & Übungen",
-  "trainingTimerNavigationHint": "Überspringen zählt nicht als geschafft. Zurückgehen setzt den Fortschritt ab diesem Satz zurück.",
-  "trainingTimerInstructions": "Hinweise zur Übung",
-  "trainingTimerUpNext": "Nächste Übung",
-  "trainingTimerFinish": "Training beenden",
-  "trainingTimerDiscard": "Training verwerfen",
-  "trainingTimerFinishTitle": "Training beenden?",
-  "trainingTimerFinishBody": "Du hast {completed} von {total, plural, one{1 Satz} other{{total} Sätzen}} geschafft. Nicht absolvierte Sätze bleiben offen. Der gespeicherte Wiedereinstieg wird entfernt.",
-  "@trainingTimerFinishBody": {
+  "coachWorkoutLogCommandDescription": "Macht aus einem erledigten Training einen Eintrag zum Prüfen und Hinzufügen",
+  "coachWorkoutLogTry": "Trag mein Training ein",
+  "coachWorkoutLogEmptyHint": "Beschreibe nach /log dein erledigtes Training – z. B. „/log heute 3 x 10 Kniebeugen mit 60 kg“.",
+  "coachWorkoutLogPhotoUnsupported": "Trainings werden aus Text eingetragen. Sende deine /log-Nachricht ohne Foto.",
+  "coachWorkoutLogUnavailable": "Trainings über den Coach eintragen geht in dieser Version noch nicht. Du kannst es im Training eintragen.",
+  "coachWorkoutLogCheckDeviceDate": "Das Datum auf deinem Gerät scheint nicht zu stimmen, deshalb lässt sich das Training nicht datieren. Prüf Datum und Uhrzeit in den Einstellungen und sende es dann noch einmal.",
+  "coachWorkoutLogCardEyebrow": "Training · Entwurf",
+  "coachWorkoutLogDayMissing": "Tag fehlt – du wählst ihn beim Hinzufügen",
+  "coachWorkoutLogOnlyDay": "Nur {day} wurde übernommen. Trag andere Tage einzeln ein.",
+  "@coachWorkoutLogOnlyDay": {
     "placeholders": {
-      "completed": {
-        "type": "int"
-      },
-      "total": {
+      "day": {
+        "type": "String"
+      }
+    }
+  },
+  "coachWorkoutLogOnlyOneDay": "Nur ein Tag wurde übernommen. Trag andere Tage einzeln ein.",
+  "coachWorkoutLogSafetyLine": "Wenn Schmerzen anhalten, lass das bitte ärztlich oder physiotherapeutisch abklären.",
+  "coachWorkoutLogSetsRepsMissing": "{sets, plural, =1{1 Satz} other{{sets} Sätze}}, Wdh. fehlen",
+  "@coachWorkoutLogSetsRepsMissing": {
+    "placeholders": {
+      "sets": {
         "type": "int"
       }
     }
   },
+  "coachWorkoutLogSetsTimeMissing": "{sets, plural, =1{1 Satz} other{{sets} Sätze}}, Dauer fehlt",
+  "@coachWorkoutLogSetsTimeMissing": {
+    "placeholders": {
+      "sets": {
+        "type": "int"
+      }
+    }
+  },
+  "coachWorkoutLogSetsMinutes": "{sets} × {minutes} Min.",
+  "@coachWorkoutLogSetsMinutes": {
+    "placeholders": {
+      "sets": {
+        "type": "int"
+      },
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "coachWorkoutLogAddButton": "Zum Verlauf hinzufügen",
+  "coachWorkoutLogAddedLabel": "Hinzugefügt",
+  "coachWorkoutLogOpenTraining": "Zum Training",
+  "coachWorkoutLogRemovedLabel": "Aus dem Verlauf entfernt",
+  "trainingTimerBack": "Zurück zum Plan",
+  "trainingTimerPaused": "Pausiert",
+  "trainingTimerRunning": "Läuft",
+  "trainingTimerPause": "Pause",
+  "trainingTimerSkipRest": "Pause überspringen",
+  "trainingTimerNextSet": "Satz überspringen",
+  "trainingTimerFinish": "Training beenden",
+  "trainingTimerDiscard": "Training verwerfen",
   "trainingTimerDiscardTitle": "Training verwerfen?",
   "trainingTimerDiscardBody": "Der Fortschritt dieses Trainings und der gespeicherte Wiedereinstieg werden entfernt. Dein Plan bleibt erhalten.",
   "trainingTimerLeaveTitle": "Pausieren und verlassen?",
@@ -1965,28 +2026,12 @@
   "trainingTimerSaving": "Stand wird gespeichert …",
   "trainingTimerSaved": "Wiedereinstieg gespeichert",
   "trainingTimerNotSaved": "Stand noch nicht gespeichert",
-  "trainingTimerSaveFailed": "Dein Stand konnte nicht gespeichert werden. Das Training ist pausiert. Bitte versuche es erneut.",
+  "trainingTimerSaveFailed": "Dein Stand konnte nicht gespeichert werden. Bitte versuche es erneut.",
   "trainingTimerRetry": "Erneut versuchen",
-  "trainingTimerConfirmHint": "Der Timer wurde bei null pausiert oder angepasst. Bestätige, wenn du bereit bist, fortzufahren.",
-  "trainingTimerAutomaticHint": "Sätze mit Timer und Satzpausen laufen automatisch weiter. Du kannst jederzeit pausieren.",
-  "trainingTimerRepetitions": "Wiederholungen",
-  "trainingTimerMinutes": "Min.",
-  "trainingTimerSeconds": "Sek.",
   "trainingTimerProgress": "{completed} von {total, plural, one{1 Satz} other{{total} Sätzen}} geschafft",
   "@trainingTimerProgress": {
     "placeholders": {
       "completed": {
-        "type": "int"
-      },
-      "total": {
-        "type": "int"
-      }
-    }
-  },
-  "trainingTimerSet": "Satz {current} von {total}",
-  "@trainingTimerSet": {
-    "placeholders": {
-      "current": {
         "type": "int"
       },
       "total": {
@@ -2002,6 +2047,15 @@
       }
     }
   },
+  "trainingTimerOpenSets": "{count} offen",
+  "@trainingTimerOpenSets": {
+    "description": "Finish sheet summary: sets neither done nor skipped yet, before the user chose what to do with them.",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "trainingTimerSecondsRemaining": "{seconds, plural, one{Noch 1 Sekunde} other{Noch {seconds} Sekunden}}",
   "@trainingTimerSecondsRemaining": {
     "placeholders": {
@@ -2010,19 +2064,198 @@
       }
     }
   },
-  "trainingTimerStart": "Starten",
   "trainingTimerResume": "Fortsetzen",
-  "trainingTimerAnnouncement": "{exercise}. {sets}. {status}.",
-  "@trainingTimerAnnouncement": {
+  "trainingTimerFinishShort": "Beenden",
+  "trainingTimerMenu": "Trainingsoptionen",
+  "trainingTimerSetsDone": "{done}/{total} Sätze",
+  "@trainingTimerSetsDone": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerElapsedLabel": "Seit {minutes} Min. aktiv",
+  "@trainingTimerElapsedLabel": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerColumnSet": "Satz",
+  "trainingTimerColumnLast": "Zuletzt",
+  "trainingTimerColumnWeight": "kg",
+  "trainingTimerColumnReps": "Wdh.",
+  "trainingTimerColumnTime": "Zeit",
+  "trainingTimerWeightField": "Satz {set}, Gewicht in kg",
+  "@trainingTimerWeightField": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerRepsField": "Satz {set}, Wiederholungen",
+  "@trainingTimerRepsField": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerCompleteSetLabel": "Satz {set} abhaken",
+  "@trainingTimerCompleteSetLabel": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerUndoSetLabel": "Satz {set} zurücknehmen",
+  "@trainingTimerUndoSetLabel": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerStartSetLabel": "Satz {set} starten",
+  "@trainingTimerStartSetLabel": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerSetLocked": "Satz {set}, noch nicht dran",
+  "@trainingTimerSetLocked": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerSetDoneLabel": "Satz {set} geschafft",
+  "@trainingTimerSetDoneLabel": {
+    "placeholders": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerSkippedSet": "Übersprungen",
+  "trainingTimerCopyLast": "Letztes Mal übernehmen: {value}",
+  "@trainingTimerCopyLast": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingTimerDoneEarly": "Früher fertig",
+  "trainingTimerGetReady": "Bereit machen · {seconds}",
+  "@trainingTimerGetReady": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerTapToFinish": "Zeit um. Tippe ✓, um den Satz einzutragen.",
+  "trainingTimerExerciseOptions": "Optionen für {exercise}",
+  "@trainingTimerExerciseOptions": {
+    "placeholders": {
+      "exercise": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingTimerSkipExercise": "Übung überspringen",
+  "trainingTimerCompleteRemaining": "{count, plural, one{1 offenen Satz wie geplant abhaken} other{{count} offene Sätze wie geplant abhaken}}",
+  "@trainingTimerCompleteRemaining": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerShowNotes": "Hinweise",
+  "trainingTimerShowSets": "Sätze zeigen",
+  "trainingTimerHideSets": "Sätze ausblenden",
+  "trainingTimerRestLabel": "Pause",
+  "trainingTimerRestNext": "Als Nächstes: {exercise}, Satz {set}",
+  "@trainingTimerRestNext": {
     "placeholders": {
       "exercise": {
         "type": "String"
       },
-      "sets": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerRestShorter": "−15 s",
+  "trainingTimerRestLonger": "+15 s",
+  "trainingTimerRestShorterLabel": "15 Sekunden weniger Pause",
+  "trainingTimerRestLongerLabel": "15 Sekunden mehr Pause",
+  "trainingTimerRestExpand": "Pausentimer im Vollbild zeigen",
+  "trainingTimerRestCollapse": "Zurück zu den Sätzen",
+  "trainingTimerAlertsOff": "Alarme aus",
+  "trainingTimerAlertsOffLabel": "Pausen-Alarme sind aus. Benachrichtigungseinstellungen öffnen.",
+  "trainingTimerAlertsOffAskLabel": "Pausen-Alarme sind aus. Alarme einschalten.",
+  "trainingTimerAlertsTitle": "Alarm, wenn die Pause vorbei ist?",
+  "trainingTimerAlertsBody": "Eatova kann klingeln, wenn eine Pause oder ein Satz mit Timer endet, auch bei gesperrtem Handy. Der Alarm zeigt keine Übung und kein Gewicht.",
+  "trainingTimerAlertsAllow": "Alarme einschalten",
+  "trainingTimerAlertsLater": "Jetzt nicht",
+  "trainingTimerAlertSetDoneBody": "Satz geschafft.",
+  "trainingTimerSaveWorkout": "Training speichern",
+  "trainingTimerSaveSets": "{count, plural, one{1 Satz speichern (Rest überspringen)} other{{count} Sätze speichern (Rest überspringen)}}",
+  "@trainingTimerSaveSets": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerLogRest": "Den Rest auch gemacht – wie angezeigt eintragen",
+  "trainingTimerKeepTraining": "Weiter trainieren",
+  "trainingTimerNothingDone": "Noch kein Satz geschafft, es gibt nichts zu speichern.",
+  "trainingTimerNotStored": "Nicht gesichert: Dein Plan hat sich geändert. Beenden speichert dieses Training trotzdem.",
+  "trainingTimerLeaveUnstoredTitle": "Ohne Speichern verlassen?",
+  "trainingTimerLeaveUnstoredBody": "Dein Plan hat sich geändert, deshalb lässt sich dein Stand nicht für später sichern. Beenden speichert deine geschafften Sätze im Verlauf.",
+  "trainingTimerLeaveUnstoredBodyEmpty": "Dein Plan hat sich geändert, deshalb lässt sich dein Stand nicht für später sichern.",
+  "trainingTimerLeaveUnstored": "Ohne Speichern verlassen",
+  "trainingTimerAnnounceSetDone": "{exercise}, Satz {set} geschafft.",
+  "@trainingTimerAnnounceSetDone": {
+    "placeholders": {
+      "exercise": {
         "type": "String"
       },
-      "status": {
+      "set": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerAnnounceRest": "Pause, {seconds, plural, one{1 Sekunde} other{{seconds} Sekunden}}.",
+  "@trainingTimerAnnounceRest": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingTimerAnnounceRestOver": "Pause vorbei. Als Nächstes: {exercise}, Satz {set}.",
+  "@trainingTimerAnnounceRestOver": {
+    "placeholders": {
+      "exercise": {
         "type": "String"
+      },
+      "set": {
+        "type": "int"
       }
     }
   },
@@ -2184,9 +2417,8 @@
   "healthConnectReview": "Verbindung prüfen",
   "trainingHistoryTitle": "Trainingsverlauf",
   "trainingHistorySubtitle": "Deine abgeschlossenen Trainings.",
-  "trainingHistoryEmpty": "Hier erscheinen deine bestätigten Trainingsabschlüsse. Starte ein Training und speichere es am Ende.",
+  "trainingHistoryEmpty": "Hier erscheinen deine Trainings. Starte eines aus einem Plan oder trage ein bereits absolviertes nach.",
   "trainingHistoryLoadError": "Der Verlauf konnte nicht geladen werden. Gespeicherte Trainings bleiben verfügbar. Versuche es erneut.",
-  "trainingHistoryLastTime": "Letztes Mal",
   "trainingHistoryNote": "Notiz zum Training",
   "trainingHistoryDeleteTitle": "Training löschen?",
   "trainingHistoryDeleteBody": "Dieser Abschluss und seine Satzwerte werden aus deinem Verlauf entfernt. Dein Trainingsplan bleibt erhalten.",
@@ -2258,6 +2490,79 @@
   "trainingActualConfirmLegacyTimed": "Abgeschlossenes Intervall bestätigen",
   "trainingHistoryDeleteAction": "Training löschen",
   "trainingHistoryAlreadyDeleted": "Dieses Training wurde auf einem anderen Gerät gelöscht.",
+  "trainingHistoryLogged": "Nachgetragen",
+  "trainingHistoryDeleteLogBody": "Dieses nachgetragene Training und seine Satzwerte werden aus deinem Verlauf entfernt.",
+  "trainingHistoryRootLoadError": "Dein Trainingsverlauf konnte nicht geladen werden. Diese Übersicht ist womöglich unvollständig.",
+  "trainingLogTitle": "Training nachtragen",
+  "trainingLogQuick": "Nachtragen",
+  "trainingLogAsDone": "Als erledigt eintragen",
+  "trainingLogTellCoach": "Lieber dem Coach erzählen",
+  "trainingLogReviewTitle": "Training prüfen",
+  "trainingLogReviewBody": "Prüfe die Werte. Gespeichert wird erst, wenn du das Training zum Verlauf hinzufügst.",
+  "trainingLogPlannedBody": "Nimm den Haken bei ausgelassenen Sätzen raus und passe die Werte an.",
+  "trainingLogDefaultTitle": "Training",
+  "trainingLogName": "Name des Trainings (optional)",
+  "trainingLogDay": "Tag",
+  "trainingLogToday": "Heute",
+  "trainingLogYesterday": "Gestern",
+  "trainingLogOtherDay": "Anderer Tag",
+  "trainingLogDuration": "Dauer in Minuten (optional)",
+  "trainingLogReps": "Wdh.",
+  "trainingLogKg": "kg",
+  "trainingLogRepsSemantics": "Satz {number}, Wiederholungen",
+  "@trainingLogRepsSemantics": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLogWeightSemantics": "Satz {number}, Gewicht in Kilogramm, optional",
+  "@trainingLogWeightSemantics": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLogSetDone": "Satz {number} erledigt",
+  "@trainingLogSetDone": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLogAddSet": "Satz hinzufügen",
+  "trainingLogRemoveSet": "Satz {number} entfernen",
+  "@trainingLogRemoveSet": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLogDurationPerSet": "Dauer pro Satz",
+  "trainingLogMinutes": "Minuten",
+  "trainingLogSeconds": "Sekunden",
+  "trainingLogSave": "Zum Verlauf hinzufügen",
+  "trainingLogSaved": "Training zum Verlauf hinzugefügt",
+  "trainingLogDeleted": "Aus dem Verlauf entfernt. Dieses Training lässt sich nicht erneut hinzufügen.",
+  "trainingLogBlocked": "Ein Training läuft noch. Beende oder verwirf es zuerst und trage dieses dann nach.",
+  "trainingLogSaveError": "Das Training konnte nicht hinzugefügt werden. Versuche es erneut.",
+  "trainingLogProblemEmpty": "Gib jeder Übung einen Namen und mindestens einen Satz.",
+  "trainingLogProblemNoSetDone": "Hake mindestens einen Satz ab, den du gemacht hast.",
+  "trainingLogProblemDate": "Wähle einen Tag aus den letzten {days} Tagen.",
+  "@trainingLogProblemDate": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "trainingLogProblemReps": "Trag die Wiederholungen für jeden Satz ein.",
+  "trainingLogProblemDuration": "Trag für jede Zeitübung eine Dauer ein.",
+  "trainingLogProblemRange": "Ein Wert liegt außerhalb des erlaubten Bereichs.",
   "todayMacroProgressValue": "{value} von {goal} Gramm",
   "todayAddMeal": "Mahlzeit erfassen",
   "todayDayStripLabel": "Tag wählen",
@@ -2305,6 +2610,7 @@
   "@todayWorkoutNext": {"placeholders": {"minutes": {"type": "int"}}},
   "todayWorkoutDone": "Heute erledigt · ≈ {minutes} Min.",
   "@todayWorkoutDone": {"placeholders": {"minutes": {"type": "int"}}},
+  "todayWorkoutInProgress": "Läuft · Fortsetzen",
   "@todayMacroProgressValue": {
     "placeholders": {
       "value": {
@@ -2493,7 +2799,6 @@
   "trainingAdoptionDiscardAction": "Entwurf verwerfen",
   "trainingAdoptionDiscardBody": "Nur dein abgelehnter Entwurf wird von diesem Gerät entfernt. Der aktuelle Plan auf dem Server bleibt erhalten.",
   "trainingNextWorkout": "Nächstes Training",
-  "trainingDoneToday": "Heute erledigt",
   "trainingInProgress": "Begonnen",
   "trainingMinutesEstimate": "≈ {minutes} Min.",
   "@trainingMinutesEstimate": {
@@ -2557,6 +2862,14 @@
   "trainingWeekDayToday": "heute",
   "trainingWeekDayDone": "Training erledigt",
   "trainingWeekDayOpen": "kein Training",
+  "trainingDoneTodayLine": "Heute erledigt: {title}",
+  "@trainingDoneTodayLine": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "trainingQuickStartTitle": "Schnellstart",
   "trainingQuickChooseWorkout": "Einheit wählen",
   "trainingQuickWorkouts": "Einheiten",

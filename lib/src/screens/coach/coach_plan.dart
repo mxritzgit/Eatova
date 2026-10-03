@@ -24,6 +24,21 @@ class _TrainingPlanProposalCard extends StatelessWidget {
       0,
       (count, workout) => count + workout.exercises.length,
     );
+    // A glimpse of the content without opening the editor: the first three
+    // distinct exercises in plan order (days often repeat one).
+    final names = <String>[];
+    final seen = <String>{};
+    for (final workout in proposal.workouts) {
+      for (final exercise in workout.exercises) {
+        if (seen.add(exercise.name.trim().toLowerCase())) {
+          names.add(exercise.name);
+        }
+      }
+    }
+    final shown = names.take(3).toList();
+    // Same basis as the counts line (every exercise slot), so the shown
+    // names plus "+N" add up to its total.
+    final more = exerciseCount - shown.length;
     return Column(
       key: const ValueKey('coach-plan-card'),
       mainAxisSize: MainAxisSize.min,
@@ -59,6 +74,19 @@ class _TrainingPlanProposalCard extends StatelessWidget {
           l10n.coachPlanCounts(proposal.workouts.length, exerciseCount),
           style: AppType.ui(14, color: t.ink2, height: 1.4),
         ),
+        const SizedBox(height: 8),
+        for (final name in shown)
+          Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppType.ui(14, color: t.ink, height: 1.45),
+          ),
+        if (more > 0)
+          Text(
+            l10n.coachPlanCardMoreExercises(more),
+            style: AppType.ui(14, color: t.ink2, height: 1.45),
+          ),
         const SizedBox(height: 16),
         if (added)
           Semantics(

@@ -18,6 +18,7 @@ import 'package:eatova/src/models/planned_meal.dart';
 import 'package:eatova/src/models/recipe_pick.dart';
 import 'package:eatova/src/models/training_insights.dart';
 import 'package:eatova/src/models/training_plan.dart';
+import 'package:eatova/src/models/training_session.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/today/today_macros.dart';
 import 'package:eatova/src/screens/today/today_progress.dart';
@@ -112,6 +113,40 @@ TrainingNextWorkout _workout({bool completedToday = false}) =>
       exercises: const <TrainingExercisePreview>[],
     );
 
+/// A saved checkpoint of the plan's second workout ("Beine"), so the row
+/// visibly names the session's workout rather than the rotation's.
+TrainingSessionSnapshot _session() {
+  final base = _workout();
+  return TrainingSessionSnapshot(
+    plan: TrainingPlan(
+      id: base.plan.id,
+      proposal: base.plan.proposal.copyWith(
+        workouts: <TrainingWorkout>[
+          base.workout,
+          TrainingWorkout(
+            title: 'Beine',
+            exercises: <TrainingExercise>[
+              TrainingExercise(
+                id: 'squat',
+                name: 'Kniebeuge',
+                sets: 3,
+                reps: 5,
+                restSeconds: 120,
+              ),
+            ],
+          ),
+        ],
+      ),
+    ),
+    sessionId: '44f8625f-7f4b-4ffc-b6b0-ec94fcae1f39',
+    workoutIndex: 1,
+    exerciseIndex: 0,
+    setIndex: 0,
+    phase: TrainingSessionPhase.exercise,
+    remainingMilliseconds: 0,
+  );
+}
+
 /// The shell's gutters around Today (20 px sides, nothing on top: the page
 /// starts at TabChrome.topInset itself) — that is what makes it testable
 /// that the screen adds NO second side margin.
@@ -131,6 +166,7 @@ TodayScreen _today({
   bool dayLoading = false,
   RecipePick? pick,
   TrainingNextWorkout? nextWorkout,
+  TrainingSessionSnapshot? activeSession,
   MealSlot? accentSlot,
   ValueChanged<DateTime>? onDateSelected,
   VoidCallback? onOpenProfile,
@@ -138,6 +174,7 @@ TodayScreen _today({
   ValueChanged<RecipePick>? onOpenPick,
   VoidCallback? onOpenFoodLog,
   VoidCallback? onOpenTraining,
+  VoidCallback? onResumeWorkout,
 }) => TodayScreen(
   userName: userName,
   profile: profile,
@@ -155,6 +192,7 @@ TodayScreen _today({
   dayLoading: dayLoading,
   pick: pick,
   nextWorkout: nextWorkout,
+  activeSession: activeSession,
   accentSlot: accentSlot,
   onDateSelected: onDateSelected,
   onOpenProfile: onOpenProfile,
@@ -162,6 +200,7 @@ TodayScreen _today({
   onOpenPick: onOpenPick,
   onOpenFoodLog: onOpenFoodLog,
   onOpenTraining: onOpenTraining,
+  onResumeWorkout: onResumeWorkout,
 );
 
 /// The loading card spins forever, so `pumpAndSettle` would never settle;
@@ -1023,6 +1062,108 @@ void main() {
       expect(
         _textOf(tester, 'today-workout-sub'),
         'Heute erledigt · ≈ 50 Min.',
+      );
+    });
+
+    testWidgets('das erledigte Training bleibt stehen, auch wenn das '
+        'naechste schon feststeht', (tester) async {
+      // Only the Training card moves on to upNextWorkoutIndex.
+      final done = _workout(completedToday: true);
+      final legs = TrainingWorkout(
+        title: 'Beine',
+        exercises: <TrainingExercise>[
+          TrainingExercise(
+            id: 'squat',
+            name: 'Kniebeuge',
+            sets: 3,
+            reps: 5,
+            restSeconds: 120,
+          ),
+        ],
+      );
+      final workout = TrainingNextWorkout(
+        plan: TrainingPlan(
+          id: done.plan.id,
+          proposal: done.plan.proposal.copyWith(
+            workouts: <TrainingWorkout>[done.workout, legs],
+          ),
+        ),
+        workoutIndex: 0,
+        completedToday: true,
+        exercises: done.exercises,
+      );
+      expect(workout.upNextWorkoutIndex, 1);
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pump(tester, _today(nextWorkout: workout));
+      });
+      await _scrollTo(tester, find.byKey(const ValueKey('today-workout-row')));
+      expect(_textOf(tester, 'today-workout-title'), 'Oberkörper Drücken');
+      expect(
+        _textOf(tester, 'today-workout-sub'),
+        'Heute erledigt · ≈ 50 Min.',
+      );
+      expect(find.text('Beine', skipOffstage: false), findsNothing);
+    });
+
+    testWidgets('ein gespeichertes Training laeuft: die Zeile nennt es und '
+        'setzt es fort', (tester) async {
+      var resumed = 0;
+      var opened = 0;
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pump(
+          tester,
+          _today(
+            nextWorkout: _workout(),
+            activeSession: _session(),
+            onOpenTraining: () => opened++,
+            onResumeWorkout: () => resumed++,
+          ),
+        );
+        await _scrollTo(
+          tester,
+          find.byKey(const ValueKey('today-workout-row')),
+        );
+        // The session's workout, not the rotation's next one.
+        expect(_textOf(tester, 'today-workout-title'), 'Beine');
+        expect(_textOf(tester, 'today-workout-sub'), 'Läuft · Fortsetzen');
+        await _tap(tester, 'today-workout-row');
+      });
+      expect(resumed, 1);
+      expect(opened, 0, reason: 'Resume opens the player, not the tab');
+    });
+
+    testWidgets('in progress also without a next workout, in English', (
+      tester,
+    ) async {
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pump(
+          tester,
+          _today(activeSession: _session(), onResumeWorkout: () {}),
+          locale: const Locale('en'),
+        );
+        await _scrollTo(
+          tester,
+          find.byKey(const ValueKey('today-workout-row')),
+        );
+      });
+      expect(_textOf(tester, 'today-workout-title'), 'Beine');
+      expect(_textOf(tester, 'today-workout-sub'), 'In progress · Resume');
+    });
+
+    testWidgets('ein Archivtag zeigt kein laufendes Training', (tester) async {
+      await withClock(Clock.fixed(_jetzt), () async {
+        await _pump(
+          tester,
+          _today(
+            selectedDate: DateTime(2026, 8, 4),
+            activeSession: _session(),
+            onResumeWorkout: () {},
+          ),
+        );
+      });
+      expect(
+        find.byKey(const ValueKey('today-workout-row'), skipOffstage: false),
+        findsNothing,
       );
     });
 

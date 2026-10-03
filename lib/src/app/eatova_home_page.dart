@@ -9,6 +9,7 @@ import '../models/logged_meal.dart';
 import '../models/macro_progress.dart';
 import '../models/recipe_pick.dart';
 import '../models/training_history.dart';
+import '../models/training_log.dart';
 import '../models/training_plan.dart';
 import '../models/training_session.dart';
 import '../services/data_export.dart';
@@ -24,9 +25,11 @@ import '../services/notification_service.dart';
 import '../services/open_food_facts_product_service.dart';
 import '../services/recipe_import_inbox.dart';
 import '../services/recipe_import_service.dart';
+import '../services/rest_alerts.dart';
 import '../services/meal_scan_identity.dart';
 import '../services/sync_error_messages.dart';
 import '../services/sync_connectivity.dart';
+import '../services/uuid.dart';
 import '../screens/coach/coach_chat_screen.dart';
 import '../screens/meal_analysis_screen.dart';
 import '../screens/onboarding_screen.dart';
@@ -40,6 +43,8 @@ import '../screens/today/today_screen.dart';
 import '../screens/today/today_texts.dart' show greetingForHour;
 import '../screens/training/training_screen.dart';
 import '../screens/training/training_history_screen.dart';
+import '../screens/training/training_log_editor.dart';
+import '../services/rest_alert_guard.dart';
 import '../screens/training/training_player_screen.dart';
 import '../screens/training/training_plan_editor.dart';
 import '../l10n/l10n.dart';
@@ -147,6 +152,12 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     null,
   );
   final ValueNotifier<int> _planDraftRequest = ValueNotifier<int>(0);
+  final ValueNotifier<int> _logDraftRequest = ValueNotifier<int>(0);
+  StreamSubscription<String>? _notificationTaps;
+
+  /// A tapped rest alert waits here until the tabs show (see
+  /// [_resumeAfterRestAlert]).
+  bool _restAlertTapPending = false;
 
   /// Hour boundaries for time-of-day content (the coach's greeting, the next
   /// meal slot behind every tab's pick and accent), which change without any
@@ -156,6 +167,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   bool _trainingRouteOpen = false;
   bool _trainingAdoptionReviewOpen = false;
   bool _trainingHistoryRouteOpen = false;
+  bool _trainingLogOpen = false;
   bool _profileRouteOpen = false;
   late bool _welcomeFinished;
   bool _recipeImportOpen = false;
@@ -188,6 +200,17 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       });
     }
     _store.start();
+    if (widget.notificationService case final NotificationTapSource source) {
+      _notificationTaps = source.taps.listen(_onNotificationTap);
+      // The alert that launched the app; read once the first frame is up.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(
+          source.launchPayload().then((payload) {
+            if (payload != null) _onNotificationTap(payload);
+          }),
+        );
+      });
+    }
     final connectivity = widget.syncConnectivity;
     if (widget.sync != null && connectivity != null) {
       _reconnectSync = ReconnectSyncCoordinator(
@@ -209,12 +232,14 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(_notificationTaps?.cancel());
     _reconnectSync?.dispose();
     _store.removeListener(_onStoreChanged);
     widget.recipeImportInbox?.removeListener(_scheduleRecipeImport);
     _profileRefresh.dispose();
     _addSlotRequest.dispose();
     _planDraftRequest.dispose();
+    _logDraftRequest.dispose();
     _localHours.dispose();
     _store.dispose();
     super.dispose();
@@ -226,6 +251,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   /// pushed route and the calendar-day guard for steps (B3b).
   void _onStoreChanged() {
     _scheduleRecipeImport();
+    _resumeAfterRestAlert();
     if (_profileRouteOpen && mounted) _profileRefresh.value++;
     // B3b: the midnight rollover keeps `dailySteps`, so pull one refresh per
     // calendar day or yesterday's steps feed `burnedKcal` all day.
@@ -511,7 +537,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         profileReady: _store.profileReady,
         celebrateLogin: widget.showWelcome,
         onComplete: () {
-          if (mounted) setState(() => _welcomeFinished = true);
+          if (!mounted) return;
+          setState(() => _welcomeFinished = true);
+          _resumeAfterRestAlert();
         },
       );
     }
@@ -742,6 +770,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       _store.trainingPlans,
       _store.selectedTrainingPlanId,
       _store.trainingHistory,
+      _store.trainingSession,
     ),
     builder: (context) {
       assert(_countTabBuild(_tabHeute));
@@ -766,6 +795,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             ? _store.nextMealPick(localeName: context.l10n.localeName)
             : null,
         nextWorkout: today ? _store.nextTrainingWorkoutForToday() : null,
+        activeSession: today ? _store.trainingSession : null,
         accentSlot: today ? _store.nextOpenMainSlot() : null,
         onDateSelected: _store.setFoodDate,
         // Settings moved behind the avatar: the profile page opens them.
@@ -778,6 +808,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         onOpenPick: (pick) => _openTodayPick(context, pick),
         onOpenFoodLog: () => _store.setTab(_tabFood),
         onOpenTraining: () => _store.setTab(_tabTraining),
+        // Training's Resume path: the player opens over Today.
+        onResumeWorkout: _resumeTrainingWorkout,
         energyCheck: today ? _store.energyCheckProposal : null,
         onAcceptEnergyCheck: () {
           final proposal = _store.energyCheckProposal;
@@ -1135,6 +1167,78 @@ class _EatovaHomePageState extends State<EatovaHomePage>
     unawaited(_openTrainingPlayer());
   }
 
+  /// The one write path of a logged workout, for Training's log editor and
+  /// the Coach's `/log` review alike, bound to [ownerStore].
+  Future<TrainingLogSaveOutcome> Function(TrainingHistoryEntry)
+  _trainingLogSaver(HomeStore ownerStore) => (entry) async {
+    if (!_isStoreSessionCurrent(ownerStore)) {
+      return TrainingLogSaveOutcome.failed;
+    }
+    // R15: the entry itself says whether it is plan-backed, so no caller can
+    // let one through while a session would count it twice.
+    return trainingLogSaveOutcome(
+      () => ownerStore.logCompletedWorkout(
+        entry,
+        planAttached: !isLoggedTrainingEntry(entry),
+      ),
+    );
+  };
+
+  /// Opens the log editor for [request], whose history ID was allocated for
+  /// this opening: every Add in it, retries included, carries that ID.
+  Future<void> _openTrainingLog(TrainingLogEditorRequest request) async {
+    if (_trainingLogOpen || !_isStoreSessionCurrent(_store)) return;
+    _trainingLogOpen = true;
+    final ownerStore = _store;
+    try {
+      await showTrainingLogEditor(
+        context,
+        request: request,
+        onSave: _trainingLogSaver(ownerStore),
+        history: ownerStore.trainingHistory,
+      );
+    } finally {
+      _trainingLogOpen = false;
+    }
+  }
+
+  /// "Tell the Coach instead": the Coach prepares `/log ` and sends nothing.
+  void _openCoachLog() {
+    _logDraftRequest.value++;
+    _store.setTab(_tabCoach);
+  }
+
+  /// A tapped rest alert (spec A5) opens Training and, with a saved
+  /// workout, the player on its active set. Only for the signed-in account
+  /// this store belongs to.
+  void _onNotificationTap(String payload) {
+    if (payload != trainingRestNotificationPayload ||
+        widget.sync == null ||
+        !_isStoreSessionCurrent(_store)) {
+      return;
+    }
+    _store.setTab(_tabTraining);
+    _restAlertTapPending = true;
+    _resumeAfterRestAlert();
+  }
+
+  /// Opens the player for a tapped rest alert once the tabs show: a cold
+  /// start taps through the welcome, and the checkpoint arrives with the
+  /// account cache before it ends.
+  void _resumeAfterRestAlert() {
+    if (!_restAlertTapPending ||
+        !_welcomeFinished ||
+        _store.bootUnanswered ||
+        _store.legacyStorageConflict ||
+        _store.needsOnboarding) {
+      return;
+    }
+    _restAlertTapPending = false;
+    if (_isStoreSessionCurrent(_store) && _store.trainingSession != null) {
+      unawaited(_openTrainingPlayer());
+    }
+  }
+
   Future<void> _openTrainingPlayer({
     TrainingPlan? plan,
     int workoutIndex = 0,
@@ -1180,6 +1284,16 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         }
         return;
       }
+      // Rest alerts and their permission (spec A5) come from the
+      // notification service when it carries them; scheduling is pinned to
+      // this account, cancelling always runs.
+      final notifications = widget.notificationService;
+      final restAlerts = GuardedRestAlertScheduler(
+        notifications is RestAlertScheduler
+            ? notifications as RestAlertScheduler
+            : const NoopRestAlertScheduler(),
+        () => _isStoreSessionCurrent(ownerStore),
+      );
       await Navigator.of(context).push<void>(
         MaterialPageRoute<void>(
           builder: (_) => TrainingPlayerScreen(
@@ -1187,6 +1301,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
             workoutIndex: workoutIndex,
             initialSnapshot: snapshot,
             history: ownerStore.trainingHistory,
+            restAlerts: restAlerts,
+            alertPermission: notifications is RestAlertPermissionGate
+                ? notifications as RestAlertPermissionGate
+                : null,
             onComplete: (entry) async {
               if (!_isStoreSessionCurrent(ownerStore)) {
                 throw StateError('Training session ended');
@@ -1208,9 +1326,11 @@ class _EatovaHomePageState extends State<EatovaHomePage>
                 );
               }
 
-              if (sourceRetired()) return;
+              // A refused checkpoint is reported, never claimed as saved; the
+              // player shows "not stored" and Finish still saves the workout.
+              if (sourceRetired()) return false;
               try {
-                await ownerStore.saveTrainingSession(
+                return await ownerStore.saveTrainingSession(
                   value,
                   generation: sessionGeneration,
                   sourcePlanId: sourcePlanId,
@@ -1219,6 +1339,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
                 // Source invalidation may have overtaken an awaited write.
                 // The obsolete route can close without touching new recovery.
                 if (!sourceRetired()) rethrow;
+                return false;
               }
             },
           ),
@@ -1333,6 +1454,7 @@ class _EatovaHomePageState extends State<EatovaHomePage>
       // Inputs of the derivations below (never their fresh results), plus
       // the day: the week strip and the rotation follow midnight.
       _store.trainingHistory,
+      _store.trainingHistoryLoadFailed,
       DateUtils.dateOnly(clock.now()),
     ),
     builder: (context) {
@@ -1368,13 +1490,37 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         recentWorkouts: _store.recentWorkoutSummaries(limit: 3),
         history: _store.trainingHistory,
         onOpenWorkout: (entry) => unawaited(_openTrainingHistory(entry)),
+        // Logging writes account data: none in the local preview. Each
+        // opening allocates its history ID once.
+        onLogWorkout: widget.sync == null
+            ? null
+            : () => unawaited(
+                _openTrainingLog(FreeLogRequest(historyId: uuidV4())),
+              ),
+        onLogPlannedWorkout: widget.sync == null
+            ? null
+            : (plan, workoutIndex) => unawaited(
+                _openTrainingLog(
+                  PlanAttachedLogRequest(
+                    historyId: uuidV4(),
+                    plan: plan,
+                    workoutIndex: workoutIndex,
+                  ),
+                ),
+              ),
+        onOpenCoachLog: widget.sync == null ? null : _openCoachLog,
+        historyLoadFailed: _store.trainingHistoryLoadFailed,
+        onRetryHistory: _store.retryTrainingHistory,
       );
     },
   );
 
-  Widget _coachTab() => ValueListenableBuilder<int>(
-    valueListenable: _planDraftRequest,
-    builder: (context, planRequest, _) => StoreSelector(
+  Widget _coachTab() => ListenableBuilder(
+    listenable: Listenable.merge(<Listenable>[
+      _planDraftRequest,
+      _logDraftRequest,
+    ]),
+    builder: (context, _) => StoreSelector(
       // Plus the hour: greeting and meal slot move on with the clock alone.
       store: Listenable.merge(<Listenable>[_store, _localHours]),
       // The INPUTS of `coachContext`; the getter itself builds a fresh
@@ -1394,6 +1540,10 @@ class _EatovaHomePageState extends State<EatovaHomePage>
         _store.userRecipes,
         _store.pendingRecipeDeletes,
         _store.trainingPlans,
+        // A /log card's state derives from these (Added, Removed, waiting).
+        _store.trainingHistory,
+        _store.trainingHistoryDeletedCount,
+        _store.trainingHistoryAuthoritative,
       ),
       builder: (context) {
         assert(_countTabBuild(_tabCoach));
@@ -1432,8 +1582,17 @@ class _EatovaHomePageState extends State<EatovaHomePage>
               if (plan.coachSourceId case final sourceId?) sourceId,
           },
           onOpenTraining: () => _store.setTab(_tabTraining),
-          planDraftRequest: planRequest,
+          planDraftRequest: _planDraftRequest.value,
           selectedPlanForCoach: _selectedPlanForCoach,
+          // Runs only from the review sheet's Add (the user's confirmation).
+          onLogWorkout: widget.sync == null ? null : _trainingLogSaver(_store),
+          trainingHistoryIds: {
+            for (final entry in _store.trainingHistory) entry.id,
+          },
+          trainingHistoryDeletedIds: _store.trainingHistoryDeletedIds,
+          trainingHistoryAuthoritative: _store.trainingHistoryAuthoritative,
+          trainingHistory: _store.trainingHistory,
+          logDraftRequest: _logDraftRequest.value,
         );
       },
     ),

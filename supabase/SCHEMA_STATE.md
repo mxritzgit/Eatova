@@ -32,7 +32,7 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 `.github/workflows/security.yml`; die Bedienung steht in
 `supabase/SCHEMA_STATE_2026-06-07.md`.
 
-## Migrationen (52)
+## Migrationen (53)
 
 1. `20260516150000_create_profiles.sql`
 2. `20260516160000_app_data_schema.sql`
@@ -86,6 +86,7 @@ angewendet hat, prueft der Job `supabase-migration-drift` in
 50. `20260925100000_provider_usage_denied_retention.sql`
 51. `20261001100000_training_history_rpc_least_privilege.sql`
 52. `20261003100000_profiles_energy_check.sql`
+53. `20261004090000_chat_message_workout_log.sql`
 
 ## Tabellen in `public` (24)
 
@@ -196,7 +197,7 @@ Policies umzuschreiben. `normalisiereAusdruck` in
 `test/migrations/migration_schema.dart` liest beide Schreibweisen
 als dieselbe Bedingung; der Waechter prueft beide Varianten.
 
-## Funktionen in `public` (49)
+## Funktionen in `public` (50)
 
 | Funktion | Rechte des | `search_path` | EXECUTE fuer | aus |
 |---|---|---|---|---|
@@ -219,6 +220,7 @@ als dieselbe Bedingung; der Waechter prueft beide Varianten.
 | `handle_new_user_profile` | **Eigentuemers** | `public` | `service_role` | `20260516150000_create_profiles.sql` |
 | `handle_new_user_stats` | **Eigentuemers** | `public` | `service_role` | `20260516160000_app_data_schema.sql` |
 | `increment_lifetime_stats` | **Eigentuemers** | `public` | `authenticated`, `service_role` | `20260814120000_audit_rls_guard.sql` |
+| `is_valid_coach_workout_log` | Aufrufers | `pg_catalog` | `authenticated`, `service_role` | `20261004090000_chat_message_workout_log.sql` |
 | `is_valid_planned_meal` | Aufrufers | `public` | `authenticated`, `service_role` | `20260910182000_meal_plans.sql` |
 | `is_valid_training_exercise_ids` | Aufrufers | `pg_catalog` | `authenticated`, `service_role` | `20260910181000_training_history.sql` |
 | `is_valid_training_history` | Aufrufers | `pg_catalog` | `authenticated`, `service_role` | `20260920100500_training_plan_incarnations.sql` |

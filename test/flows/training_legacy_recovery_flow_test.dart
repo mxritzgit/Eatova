@@ -142,10 +142,12 @@ void main() {
           expect(store.trainingSession!.toJson(), _persisted(storage));
 
           now = now.add(const Duration(seconds: 5));
-          await _tap(
-            tester,
-            exit == 'save' ? 'training-timer-back' : 'training-timer-discard',
-          );
+          if (exit == 'save') {
+            await _tap(tester, 'training-timer-back');
+          } else {
+            await _tap(tester, 'training-timer-menu');
+            await _tap(tester, 'training-timer-discard');
+          }
           await _tap(tester, 'training-timer-confirm-exit');
           await pumpUntil(
             tester,

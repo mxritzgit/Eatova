@@ -91,16 +91,26 @@ class _RecipeProposalCard extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         if (added)
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Icon(Icons.check_rounded, size: 16, color: t.accent),
-              const SizedBox(width: 6),
-              Text(
-                l10n.coachRecipeAddedLabel,
-                style: AppType.ui(13, weight: FontWeight.w600, color: t.accent),
-              ),
-            ],
+          // Live region like the plan card's: the button turns into this
+          // state after the sheet closes, without focus moving to it.
+          Semantics(
+            container: true,
+            liveRegion: true,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(Icons.check_rounded, size: 16, color: t.accent),
+                const SizedBox(width: 6),
+                Text(
+                  l10n.coachRecipeAddedLabel,
+                  style: AppType.ui(
+                    13,
+                    weight: FontWeight.w600,
+                    color: t.accent,
+                  ),
+                ),
+              ],
+            ),
           )
         else
           PrimaryActionButton(
@@ -309,6 +319,37 @@ class _RecipeAddSheet extends StatelessWidget {
   }
 }
 
+/// Every slash command, in menu and chip order: the one list the command
+/// menu, its visibility check and the hero chips read. The tokens are English
+/// in both app languages.
+enum _CoachCommand {
+  recipe('/recipe', Icons.restaurant_rounded),
+  plan('/plan', Icons.fitness_center_rounded),
+  log('/log', Icons.playlist_add_check_rounded);
+
+  const _CoachCommand(this.token, this.icon);
+
+  final String token;
+  final IconData icon;
+
+  String description(AppLocalizations l10n) => switch (this) {
+    _CoachCommand.recipe => l10n.coachCommandRecipeDescription,
+    _CoachCommand.plan => l10n.coachPlanCommandDescription,
+    _CoachCommand.log => l10n.coachWorkoutLogCommandDescription,
+  };
+
+  /// The start state's "Try asking" chip.
+  String tryLabel(AppLocalizations l10n) => switch (this) {
+    _CoachCommand.recipe => l10n.coachTryRecipe,
+    _CoachCommand.plan => l10n.coachTryPlan,
+    _CoachCommand.log => l10n.coachWorkoutLogTry,
+  };
+
+  /// Whether the menu offers this command for a started [draft] ("/l").
+  bool offeredFor(String draft) =>
+      token.startsWith(draft.trimLeft().toLowerCase());
+}
+
 /// Command menu above the composer: appears once the draft looks like a
 /// started command ("/", "/r", …) and completes the matching command on tap.
 class _CommandSuggestions extends StatelessWidget {
@@ -340,22 +381,15 @@ class _CommandSuggestions extends StatelessWidget {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  if ('/recipe'.startsWith(draft.trimLeft().toLowerCase()))
-                    _CommandSuggestion(
-                      command: '/recipe',
-                      compact: compact,
-                      description: l10n.coachCommandRecipeDescription,
-                      icon: Icons.restaurant_rounded,
-                      onPick: onPick,
-                    ),
-                  if ('/plan'.startsWith(draft.trimLeft().toLowerCase()))
-                    _CommandSuggestion(
-                      command: '/plan',
-                      compact: compact,
-                      description: l10n.coachPlanCommandDescription,
-                      icon: Icons.fitness_center_rounded,
-                      onPick: onPick,
-                    ),
+                  for (final command in _CoachCommand.values)
+                    if (command.offeredFor(draft))
+                      _CommandSuggestion(
+                        command: command.token,
+                        compact: compact,
+                        description: command.description(l10n),
+                        icon: command.icon,
+                        onPick: onPick,
+                      ),
                 ],
               ),
             ),

@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:eatova/src/models/coach_training_proposal.dart';
 import 'package:eatova/src/models/training_history.dart';
 import 'package:eatova/src/models/training_insights.dart';
+import 'package:eatova/src/models/training_log.dart';
 import 'package:eatova/src/models/training_plan.dart';
 import 'package:eatova/src/models/training_session.dart';
 
@@ -123,6 +124,37 @@ TrainingHistoryEntry _lifted(DateTime start, double kg, int reps) => _session(
   },
 );
 
+String _nextId() {
+  _sessionCounter++;
+  return '00000000-0000-4000-8000-${_sessionCounter.toString().padLeft(12, '0')}';
+}
+
+/// A free log ([buildLoggedWorkout], plan `log_<id>`) on the local [day]:
+/// one repetition exercise per entry of [lifts], (weight, reps) per set.
+TrainingHistoryEntry _log(
+  DateTime day, {
+  required DateTime now,
+  required Map<String, List<(double?, int)>> lifts,
+}) => buildLoggedWorkout(
+  historyId: _nextId(),
+  draft: LoggedWorkoutDraft(
+    title: 'Logged',
+    performedOn: day,
+    exercises: [
+      for (final MapEntry(key: name, value: sets) in lifts.entries)
+        LoggedExercise(
+          name: name,
+          timed: false,
+          sets: [
+            for (final (kg, reps) in sets) LoggedSet(reps: reps, weightKg: kg),
+          ],
+        ),
+    ],
+  ),
+  now: now,
+  fallbackTitle: 'Workout',
+);
+
 void main() {
   // Monday of the design week.
   final monday = DateTime(2026, 9, 28, 18, 30);
@@ -192,6 +224,7 @@ void main() {
         now: monday,
       )!;
       expect(next.workoutIndex, 0);
+      expect(next.upNextWorkoutIndex, 0);
       expect(next.title, 'Upper Body Push');
       expect(next.completedToday, isFalse);
       expect(next.exerciseCount, 3);
@@ -239,17 +272,107 @@ void main() {
       expect(next.completedToday, isTrue);
     });
 
+    test('up next is the successor of a workout done today, else the '
+        'workout itself', () {
+      final legsToday = _session(_plan, 2, start: DateTime(2026, 9, 28, 7));
+      final done = nextTrainingWorkout(
+        plan: _plan,
+        history: [legsToday],
+        now: monday,
+      )!;
+      // Today keeps showing Legs; the Training card moves on and wraps.
+      expect(
+        (done.workoutIndex, done.completedToday, done.upNextWorkoutIndex),
+        (2, true, 0),
+      );
+      expect(done.title, 'Lower Body');
+
+      final pullBefore = _session(_plan, 1, start: DateTime(2026, 9, 25, 18));
+      final open = nextTrainingWorkout(
+        plan: _plan,
+        history: [pullBefore],
+        now: monday,
+      )!;
+      expect(
+        (open.workoutIndex, open.completedToday, open.upNextWorkoutIndex),
+        (2, false, 2),
+      );
+
+      // A one-workout plan offers the same workout again.
+      final single = nextTrainingWorkout(
+        plan: _volumePlan,
+        history: [_lifted(DateTime(2026, 9, 28, 7), 50, 5)],
+        now: monday,
+      )!;
+      expect(
+        (single.workoutIndex, single.completedToday, single.upNextWorkoutIndex),
+        (0, true, 0),
+      );
+    });
+
     test('another plan\'s sessions do not move the rotation', () {
       final other = TrainingPlan(id: 'other', proposal: _plan.proposal);
-      final foreign = _session(other, 1, start: DateTime(2026, 9, 27, 18));
+      final foreign = _session(other, 0, start: DateTime(2026, 9, 27, 18));
       final next = nextTrainingWorkout(
         plan: _plan,
         history: [foreign],
         now: monday,
       )!;
       expect(next.workoutIndex, 0);
-      // "Last time" is plan-scoped too: the foreign bench never counts.
-      expect(next.exercises.first.lastTopSet, isNull);
+      // Spec A2 (2026-10-03) replaces "plan-scoped only": without own
+      // history, "Last time" takes the same-named exercise of another plan.
+      expect(next.exercises.first.lastTopSet!.reps, 8);
+    });
+
+    test('free logs never move the rotation; a plan-attached log does', () {
+      final push = _session(_plan, 0, start: DateTime(2026, 9, 21, 18));
+      // Logged yesterday and today under the plan's own exercise names.
+      final logs = [
+        _log(
+          DateTime(2026, 9, 27),
+          now: monday,
+          lifts: {
+            'Exercise row': [(60, 8)],
+          },
+        ),
+        _log(
+          DateTime(2026, 9, 28),
+          now: monday,
+          lifts: {
+            'Exercise bench': [(100, 5)],
+          },
+        ),
+      ];
+      final next = nextTrainingWorkout(
+        plan: _plan,
+        history: [...logs, push],
+        now: monday,
+      )!;
+      expect((next.workoutIndex, next.completedToday), (1, false));
+      expect(next.upNextWorkoutIndex, 1);
+
+      // "Log as done" keeps the plan's identity, so it is the plan's session.
+      final attached = buildPlanAttachedLog(
+        historyId: _nextId(),
+        plan: _plan,
+        workoutIndex: 1,
+        sets: [
+          for (final exercise in _pull.exercises)
+            [
+              for (var s = 0; s < exercise.sets; s++)
+                PlanAttachedSet(done: s == 0, reps: 8, weightKg: 60),
+            ],
+        ],
+        performedOn: DateTime(2026, 9, 28),
+        now: monday,
+      );
+      final moved = nextTrainingWorkout(
+        plan: _plan,
+        history: [...logs, push, attached],
+        now: monday,
+      )!;
+      expect((moved.workoutIndex, moved.completedToday), (1, true));
+      expect(moved.upNextWorkoutIndex, 2);
     });
 
     test('an edited, reordered plan maps by exercise identity', () {
@@ -325,6 +448,64 @@ void main() {
       final plank = next.exercises[2].lastTopSet!;
       expect((plank.weightKg, plank.reps), (null, null));
     });
+
+    test('without own history "Last time" falls back to the newest '
+        'same-named exercise of a log or another plan', () {
+      final older = _log(
+        DateTime(2026, 9, 20),
+        now: monday,
+        lifts: {
+          'Exercise bench': [(60, 10)],
+        },
+      );
+      // Spelled differently; the name only has to match once normalized.
+      final newer = _log(
+        DateTime(2026, 9, 26),
+        now: monday,
+        lifts: {
+          '  exercise   BENCH ': [(70, 8), (72.5, 6)],
+          // A repetition "plank" never stands in for the timed plank.
+          'Plank': [(null, 20)],
+        },
+      );
+      final next = nextTrainingWorkout(
+        plan: _plan,
+        history: [older, newer],
+        now: monday,
+      )!;
+      expect(next.workoutIndex, 0);
+      final bench = next.exercises[0].lastTopSet!;
+      expect((bench.weightKg, bench.reps), (72.5, 6));
+      expect(next.exercises[1].lastTopSet, isNull);
+      expect(next.exercises[2].lastTopSet, isNull);
+    });
+
+    test('the plan\'s own "Last time" wins over a newer same-named log', () {
+      final own = _session(
+        _plan,
+        0,
+        start: DateTime(2026, 9, 21, 18),
+        sets: {
+          'bench': [(75, 8)],
+        },
+      );
+      final pull = _session(_plan, 1, start: DateTime(2026, 9, 23, 18));
+      final legs = _session(_plan, 2, start: DateTime(2026, 9, 25, 18));
+      final log = _log(
+        DateTime(2026, 9, 27),
+        now: monday,
+        lifts: {
+          'Exercise bench': [(100, 5)],
+        },
+      );
+      final next = nextTrainingWorkout(
+        plan: _plan,
+        history: [log, own, pull, legs],
+        now: monday,
+      )!;
+      expect(next.workoutIndex, 0);
+      expect(next.exercises[0].lastTopSet!.weightKg, 75);
+    });
   });
 
   group('trainingWeekOf', () {
@@ -383,6 +564,35 @@ void main() {
       );
       final week = trainingWeekOf(now: thursday, history: [late]);
       expect(week.days.first.done, isTrue);
+    });
+
+    test('a backdated log counts on the local day it was done', () {
+      // Logged for Tuesday shortly after midnight on Thursday: neither today
+      // nor (east of UTC) the UTC day before.
+      final now = DateTime(2026, 10, 1, 0, 30);
+      final log = _log(
+        DateTime(2026, 9, 29),
+        now: now,
+        lifts: {
+          'Bench press': [(80, 5)],
+        },
+      );
+      final week = trainingWeekOf(now: now, history: [log], plan: _plan);
+      expect(week.days.map((d) => d.done), [
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+      ]);
+      expect(week.days[1].sessions.single.id, log.id);
+      expect(week.doneSessions, 1);
+      expect(
+        trainingVolumeTrend(history: [log], now: now).currentWeek.volumeKg,
+        400,
+      );
     });
   });
 

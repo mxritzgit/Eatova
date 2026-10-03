@@ -548,19 +548,14 @@ void main() {
       expect(env.store.trainingSession, isNull);
       expect(await env.cache.readTrainingSession(), isNull);
       cipher.blockPlanRead = false;
-      await expectLater(
-        env.store.saveTrainingSession(_snapshot()),
-        throwsStateError,
-      );
+      expect(await env.store.saveTrainingSession(_snapshot()), isFalse);
       await env.store.adoptTrainingPlan(plan());
       final adopted = env.store.trainingPlans.single;
       expect(adopted.id, plan().id);
       expect(adopted.incarnation, 1);
       expect(env.store.trainingSession, isNull);
-      await expectLater(
-        env.store.saveTrainingSession(_snapshot()),
-        throwsStateError,
-      );
+      expect(await env.store.saveTrainingSession(_snapshot()), isFalse);
+      expect(await env.cache.readTrainingSession(), isNull);
       final checkpoint = TrainingSessionSnapshot(
         sessionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
         startedAt: DateTime.utc(2026, 9, 20),
@@ -831,31 +826,34 @@ void main() {
       );
       await h.settle();
       final deletion = env.store.deleteTrainingPlan(plan().id);
-      final lateCheckpoint = expectLater(
-        env.store.saveTrainingSession(_snapshot(), generation: generation),
-        throwsStateError,
+      final lateCheckpoint = env.store.saveTrainingSession(
+        _snapshot(),
+        generation: generation,
       );
       storage.gate!.complete();
-      await checkpoint;
+      expect(await checkpoint, isTrue);
       await deletion;
-      await lateCheckpoint;
+      expect(await lateCheckpoint, isFalse);
       expect(env.store.trainingSession, isNull);
       expect(await env.cache.readTrainingSession(), isNull);
       await env.store.adoptTrainingPlan(plan());
       final replacement = env.store.trainingPlans.single;
       expect(replacement.id, plan().id);
       expect(replacement.incarnation, 1);
-      await expectLater(
-        env.store.saveTrainingSession(_snapshot(), generation: generation),
-        throwsStateError,
+      expect(
+        await env.store.saveTrainingSession(
+          _snapshot(),
+          generation: generation,
+        ),
+        isFalse,
       );
-      await expectLater(
-        env.store.saveTrainingSession(
+      expect(
+        await env.store.saveTrainingSession(
           null,
           generation: generation,
           sourcePlanId: plan().id,
         ),
-        throwsStateError,
+        isFalse,
       );
       await env.store.saveTrainingSession(snapshotFor(replacement));
       expect(env.store.trainingSession, isNotNull);
@@ -869,13 +867,62 @@ void main() {
     await env.store.saveTrainingPlan(plan());
     server.holdWrite = Completer<void>();
     final deletion = env.store.deleteTrainingPlan(plan().id);
-    await expectLater(
-      env.store.saveTrainingSession(_snapshot()),
-      throwsStateError,
-    );
+    expect(await env.store.saveTrainingSession(_snapshot()), isFalse);
     server.holdWrite!.complete();
     await deletion;
     expect(await env.cache.readTrainingSession(), isNull);
+  });
+
+  test('a checkpoint save reports whether it was stored', () async {
+    final env = _Harness(_Server());
+    await env.boot();
+    await env.store.saveTrainingPlan(plan());
+    final generation = env.store.trainingSessionGeneration;
+    expect(
+      await env.store.saveTrainingSession(
+        _snapshot(),
+        generation: generation,
+        sourcePlanId: plan().id,
+      ),
+      isTrue,
+    );
+    expect(
+      (await env.cache.readTrainingSession())?.toJson(),
+      _snapshot().toJson(),
+    );
+    await env.store.saveTrainingPlan(
+      plan().copyWith(
+        proposal: plan().proposal.copyWith(
+          workouts: [plan().workouts.single.copyWith(title: 'Day A, edited')],
+        ),
+      ),
+    );
+    expect(env.store.trainingSession, isNull);
+    // The retired route learns that nothing was stored ...
+    expect(
+      await env.store.saveTrainingSession(
+        _snapshot(),
+        generation: generation,
+        sourcePlanId: plan().id,
+      ),
+      isFalse,
+    );
+    expect(await env.cache.readTrainingSession(), isNull);
+    final replacement = snapshotFor(env.store.trainingPlans.single);
+    expect(await env.store.saveTrainingSession(replacement), isTrue);
+    // ... and cannot clear the newer checkpoint either.
+    expect(
+      await env.store.saveTrainingSession(
+        null,
+        generation: generation,
+        sourcePlanId: plan().id,
+      ),
+      isFalse,
+    );
+    expect(
+      (await env.cache.readTrainingSession())?.toJson(),
+      replacement.toJson(),
+    );
   });
 
   test(
@@ -1067,14 +1114,15 @@ void main() {
       final replacement = env.store.trainingPlans.single;
       expect(replacement.id, plan().id);
       expect(replacement.incarnation, 1);
-      await expectLater(
-        env.store.saveTrainingSession(
+      expect(
+        await env.store.saveTrainingSession(
           _snapshot(),
           generation: generation,
           sourcePlanId: plan().id,
         ),
-        throwsStateError,
+        isFalse,
       );
+      expect(await env.cache.readTrainingSession(), isNull);
       await env.store.saveTrainingSession(snapshotFor(replacement));
       expect(env.store.trainingSession, isNotNull);
     },
@@ -1105,15 +1153,16 @@ void main() {
     await env.store.saveTrainingPlan(plan());
     await env.store.saveTrainingPlan(plan('other'));
     await env.store.saveTrainingSession(snapshotFor(plan('other')));
-    await expectLater(
-      env.store.saveTrainingSession(null, sourcePlanId: plan().id),
-      throwsStateError,
+    expect(
+      await env.store.saveTrainingSession(null, sourcePlanId: plan().id),
+      isFalse,
     );
-    await expectLater(
-      env.store.saveTrainingSession(_snapshot(), sourcePlanId: plan().id),
-      throwsStateError,
+    expect(
+      await env.store.saveTrainingSession(_snapshot(), sourcePlanId: plan().id),
+      isFalse,
     );
     expect(env.store.trainingSession?.plan.id, 'other');
+    expect((await env.cache.readTrainingSession())?.plan.id, 'other');
   });
 
   test(

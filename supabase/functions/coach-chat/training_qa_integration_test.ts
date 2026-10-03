@@ -122,7 +122,7 @@ Deno.test("QA: model refusal never creates adoptable history", async () => {
   check(!result.calls.some((call) => call.body.training_plan), "Refusal persisted as plan");
 });
 
-for (const command of ["/planet training", "/planx", "/dance training"]) {
+for (const command of ["/planet training", "/planx", "/dance training", "/logbook training"]) {
   Deno.test(`QA: unknown command ${command} stays ordinary chat`, async () => {
     const result = await run({ message: command });
     check(result.status === 200 && !result.result.training_plan, "Unknown command generated a plan");
@@ -143,6 +143,30 @@ for (const explicitMode of [true, false]) {
       image_mime_type: "image/png",
     });
     check(result.status === 400 && result.result.error === "plan_image_not_supported", `Photo+plan routed to ${result.status}`);
+    check(!result.calls.some((call) => call.path.includes("chat/completions")), "Rejected attachment consumed a provider call");
+  });
+}
+
+Deno.test("QA: a workout log is a proposal in assistant history, never a training write", async () => {
+  const extraction = { status: "ok", refuse_reason: null, workout: {
+    title: "Workout", performed_on: "2026-09-08", duration_minutes: null, other_days_omitted: false, note: "",
+    exercises: [{ name: "Squat", kind: "reps", duration_seconds: null, weight_unit: "kg", sets: [{ reps: 5, weight: 100 }] }],
+  } };
+  const result = await run({ mode: "log", local_date: "2026-09-08", message: "today squats 5 at 100 kg" }, { providerDraft: extraction });
+  check(result.status === 200 && result.result.workout_log?.exercises?.[0]?.sets?.[0]?.weight_kg === 100, "No usable log proposal");
+  const history = result.calls.filter((call) => call.path === "/rest/v1/chat_messages" && call.body.workout_log);
+  check(history.length === 1 && history[0].body.role === "assistant" && history[0].body.user_id === USER, "Wrong log history");
+  check(!result.calls.some((call) => /training_history|apply_sync_operation|training_plans/.test(call.path)), "Proposal wrote training data");
+});
+
+for (const explicitMode of [true, false]) {
+  Deno.test(`QA: photo plus /log rejects before any provider call (explicit mode ${explicitMode})`, async () => {
+    const result = await run({ ...(explicitMode ? { mode: "log", local_date: "2026-09-08" } : {}), message: "/log squats 3x5",
+      image_base64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+      image_mime_type: "image/png",
+    });
+    const expected = explicitMode ? "log_fields_not_supported" : "log_mode_required";
+    check(result.status === 400 && result.result.error === expected, `Photo+log routed to ${result.status}`);
     check(!result.calls.some((call) => call.path.includes("chat/completions")), "Rejected attachment consumed a provider call");
   });
 }

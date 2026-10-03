@@ -5,6 +5,7 @@ import '../../models/day_nutrition.dart';
 import '../../models/logged_meal.dart';
 import '../../models/recipe_pick.dart';
 import '../../models/training_insights.dart';
+import '../../models/training_session.dart';
 import '../../services/kcal_format.dart';
 import '../../services/meal_totals.dart';
 import '../../theme/app_tokens.dart';
@@ -509,9 +510,10 @@ class _AddButton extends StatelessWidget {
 }
 
 /// Steps against the goal with the activity credit, then the next workout of
-/// the selected plan. Without a step source the steps row is dropped rather
-/// than claiming "0 / 8,000"; on Health Connect a missing source says so and
-/// leads to the profile's connection settings.
+/// the selected plan, or the saved workout while one is in progress. Without
+/// a step source the steps row is dropped rather than claiming "0 / 8,000";
+/// on Health Connect a missing source says so and leads to the profile's
+/// connection settings.
 class TodayActivityCard extends StatelessWidget {
   const TodayActivityCard({
     super.key,
@@ -521,7 +523,9 @@ class TodayActivityCard extends StatelessWidget {
     this.healthConnectMissing = false,
     this.onReviewHealth,
     this.workout,
+    this.activeSession,
     this.onOpenTraining,
+    this.onResumeWorkout,
   });
 
   final int? steps;
@@ -529,14 +533,23 @@ class TodayActivityCard extends StatelessWidget {
   final bool healthConnectMissing;
   final VoidCallback? onReviewHealth;
   final TrainingNextWorkout? workout;
+
+  /// A saved workout checkpoint: the row shows it in place of [workout].
+  final TrainingSessionSnapshot? activeSession;
   final VoidCallback? onOpenTraining;
+  final VoidCallback? onResumeWorkout;
 
   /// Whether the card has anything to show at all.
   static bool hasContent({
     required int? steps,
     required bool healthConnectMissing,
     required TrainingNextWorkout? workout,
-  }) => steps != null || healthConnectMissing || workout != null;
+    TrainingSessionSnapshot? activeSession,
+  }) =>
+      steps != null ||
+      healthConnectMissing ||
+      workout != null ||
+      activeSession != null;
 
   @override
   Widget build(BuildContext context) {
@@ -548,7 +561,23 @@ class TodayActivityCard extends StatelessWidget {
         : healthConnectMissing
         ? _HealthMissingRow(onReview: onReviewHealth)
         : null;
+    final session = activeSession;
     final next = workout;
+    final row = session != null
+        ? _WorkoutRow(
+            title: session.workout.title,
+            subtitle: l10n.todayWorkoutInProgress,
+            onTap: onResumeWorkout,
+          )
+        : next != null
+        ? _WorkoutRow(
+            title: next.title,
+            subtitle: next.completedToday
+                ? l10n.todayWorkoutDone(next.estimatedMinutes)
+                : l10n.todayWorkoutNext(next.estimatedMinutes),
+            onTap: onOpenTraining,
+          )
+        : null;
     return Semantics(
       container: true,
       explicitChildNodes: true,
@@ -565,13 +594,13 @@ class TodayActivityCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             ?top,
-            if (next != null) ...<Widget>[
+            if (row != null) ...<Widget>[
               if (top != null) ...<Widget>[
                 const SizedBox(height: 14),
                 Container(height: 1, color: t.line),
                 const SizedBox(height: 14),
               ],
-              _WorkoutRow(workout: next, onTap: onOpenTraining),
+              row,
             ],
           ],
         ),
@@ -775,18 +804,17 @@ class _HealthMissingRow extends StatelessWidget {
 }
 
 /// The selected plan's next workout (a rotation, not a schedule), leading
-/// to the Training tab.
+/// to the Training tab, or the workout in progress, resuming it.
 class _WorkoutRow extends StatelessWidget {
-  const _WorkoutRow({required this.workout, this.onTap});
+  const _WorkoutRow({required this.title, required this.subtitle, this.onTap});
 
-  final TrainingNextWorkout workout;
+  final String title;
+  final String subtitle;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final l10n = context.l10n;
-    final minutes = workout.estimatedMinutes;
     return MergeSemantics(
       child: Semantics(
         button: onTap != null,
@@ -807,7 +835,7 @@ class _WorkoutRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      workout.title,
+                      title,
                       key: const ValueKey('today-workout-title'),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
@@ -820,9 +848,7 @@ class _WorkoutRow extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      workout.completedToday
-                          ? l10n.todayWorkoutDone(minutes)
-                          : l10n.todayWorkoutNext(minutes),
+                      subtitle,
                       key: const ValueKey('today-workout-sub'),
                       style: AppType.ui(
                         13,

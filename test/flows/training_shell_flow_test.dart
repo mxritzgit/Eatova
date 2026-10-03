@@ -375,15 +375,31 @@ void main() {
           await store.saveTrainingSession(replacementSnapshot);
           const checkpointKey = 'eatova.v1.training_session.$kFixlaufUser';
           final savedBytes = storage.snapshot[checkpointKey];
-          await _tap(
-            tester,
-            exit == 'save'
-                ? 'training-timer-back'
-                : exit == 'discard'
-                ? 'training-timer-discard'
-                : 'training-timer-primary',
-          );
-          await _tap(tester, 'training-timer-confirm-exit');
+          if (exit == 'save') {
+            await _tap(tester, 'training-timer-back');
+            await _tap(tester, 'training-timer-confirm-exit');
+            // The refused place is said, never claimed; nothing to finish.
+            await pumpUntil(
+              tester,
+              () => find
+                  .byKey(const ValueKey('training-timer-unstored-leave'))
+                  .evaluate()
+                  .isNotEmpty,
+              'the refused leave asks before closing',
+            );
+            expect(
+              find.byKey(const ValueKey('training-timer-unstored-finish')),
+              findsNothing,
+            );
+            await _tap(tester, 'training-timer-unstored-leave');
+          } else if (exit == 'discard') {
+            await _tap(tester, 'training-timer-menu');
+            await _tap(tester, 'training-timer-discard');
+            await _tap(tester, 'training-timer-confirm-exit');
+          } else {
+            // The review checkpoint opens the finish sheet by itself.
+            await _tap(tester, 'training-finish-save');
+          }
           await pumpUntil(
             tester,
             () => find.byType(TrainingPlayerScreen).evaluate().isEmpty,
@@ -434,7 +450,12 @@ void main() {
       await _frames(tester);
       await _tap(tester, 'training-resume');
       cache.fail = true;
-      await _tap(tester, 'training-timer-forward');
+      // A changed value must reach storage; the write fails like the leave.
+      await tester.enterText(
+        find.byKey(const ValueKey('training-set-weight-0-0')),
+        '5',
+      );
+      await _frames(tester);
       await _tap(tester, 'training-timer-back');
       await _tap(tester, 'training-timer-confirm-exit');
       await pumpUntil(
@@ -455,6 +476,15 @@ void main() {
       );
       expect(store.trainingSession, isNull);
       await _tap(tester, 'training-timer-retry');
+      await pumpUntil(
+        tester,
+        () => find
+            .byKey(const ValueKey('training-timer-unstored-leave'))
+            .evaluate()
+            .isNotEmpty,
+        'the refused retry says the place is not kept',
+      );
+      await _tap(tester, 'training-timer-unstored-leave');
       await pumpUntil(
         tester,
         () => find.byType(TrainingPlayerScreen).evaluate().isEmpty,
@@ -499,7 +529,17 @@ void main() {
       (tester) async {
     await withClock(Clock.fixed(_now), () async {
       final cache = LocalCache(InMemoryKeyValueStore(), kFixlaufUser);
-      final store = await _mount(tester, cache);
+      // The brief opens only for a chat that can send (spec §9).
+      final server = FixlaufServer()
+        ..profileRow = serverProfileRow(completedProfile)
+        ..coachSessionId = 'coach-session';
+      final store = await _mount(
+        tester,
+        cache,
+        connected: true,
+        serverOverride: server,
+      );
+      await pumpUntil(tester, () => !store.bootLoadInFlight, 'boot load');
       expect(find.byType(CoachChatScreen, skipOffstage: false), findsNothing);
 
       for (var visit = 0; visit < 2; visit++) {
@@ -507,6 +547,15 @@ void main() {
         await _frames(tester);
         await _tap(tester, 'training-empty-coach');
         expect(store.selectedTab, 4);
+        // The brief waits for the chat to load (spec §9).
+        await pumpUntil(
+          tester,
+          () => find
+              .byKey(const ValueKey('coach-brief-scroll'))
+              .evaluate()
+              .isNotEmpty,
+          'the brief opens once the chat has loaded',
+        );
         final input = tester.widget<TextField>(
           find.byKey(const ValueKey('coach-input')),
         );
@@ -515,8 +564,17 @@ void main() {
         expect(find.byKey(const ValueKey('coach-brief-submit')), findsOneWidget);
         expect(store.trainingPlans, isEmpty);
         expect(find.byKey(const ValueKey('coach-plan-card')), findsNothing);
+        // Opening the brief books nothing: no Coach function call.
+        expect(
+          server.requests.where((r) => r.url.path.contains('/functions/v1/')),
+          isEmpty,
+        );
         await _tap(tester, 'coach-brief-close');
       }
+      expect(
+        server.requests.where((r) => r.url.path.contains('/functions/v1/')),
+        isEmpty,
+      );
       await tester.pumpWidget(const SizedBox.shrink());
       await _frames(tester);
     });
@@ -543,21 +601,29 @@ void main() {
       await _tap(tester, 'training-start');
       expect(find.byType(TrainingPlayerScreen), findsOneWidget);
       expect(store.trainingSession?.plan.id, plan.id);
-      await _tap(tester, 'training-timer-forward');
-      expect(store.trainingSession?.remainingMilliseconds, 20000);
-      await _tap(tester, 'training-timer-rewind');
-      expect(store.trainingSession?.remainingMilliseconds, 30000);
+      await _tap(tester, 'training-set-check-0-0');
+      await pumpUntil(tester, () => store.trainingSession?.phaseEndsAt != null,
+          'the running interval is checkpointed with its deadline');
       await _tap(tester, 'training-timer-back');
       await _tap(tester, 'training-timer-confirm-exit');
       await pumpUntil(tester,
           () => find.byType(TrainingPlayerScreen).evaluate().isEmpty,
           'the paused checkpoint is durable before route exit');
       expect(find.byType(TrainingPlayerScreen), findsNothing);
-      expect((await cache.readTrainingSession())?.remainingMilliseconds, 30000);
+      final paused = await cache.readTrainingSession();
+      expect(paused?.remainingMilliseconds, 30000);
+      expect(paused?.phaseEndsAt, isNull, reason: 'leaving pauses');
       expect(find.byKey(const ValueKey('training-resume')), findsOneWidget);
 
       await _tap(tester, 'training-resume');
-      expect(find.text('Pausiert'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('training-timer-readout')),
+          matching: find.text('00:30'),
+        ),
+        findsOneWidget,
+      );
+      await _tap(tester, 'training-timer-menu');
       await _tap(tester, 'training-timer-discard');
       await _tap(tester, 'training-timer-confirm-exit');
       await pumpUntil(tester,

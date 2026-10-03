@@ -29,10 +29,14 @@ class _FakeGateway implements NotificationPluginGateway {
   bool? androidEnabled = true;
   int initCalls = 0;
   int cancelAllCalls = 0;
+  final List<int> cancelled = <int>[];
   final List<tz.TZDateTime> scheduled = <tz.TZDateTime>[];
 
   @override
-  Future<void> initialize(InitializationSettings settings) async {
+  Future<void> initialize(
+    InitializationSettings settings, {
+    DidReceiveNotificationResponseCallback? onResponse,
+  }) async {
     initCalls++;
     if (failInit) {
       throw PlatformException(code: 'init', message: 'plugin kaputt');
@@ -61,11 +65,27 @@ class _FakeGateway implements NotificationPluginGateway {
     required String body,
     required tz.TZDateTime scheduledDate,
     required NotificationDetails details,
+    String? payload,
   }) async =>
       scheduled.add(scheduledDate);
 
   @override
+  Future<void> show({
+    required int id,
+    required String title,
+    required String body,
+    required NotificationDetails details,
+    String? payload,
+  }) async {}
+
+  @override
+  Future<void> cancel(int id) async => cancelled.add(id);
+
+  @override
   Future<void> cancelAll() async => cancelAllCalls++;
+
+  @override
+  Future<NotificationAppLaunchDetails?> launchDetails() async => null;
 }
 
 /// Tomorrow 20:00 local wall clock — what the streak planner emits.
@@ -140,7 +160,12 @@ void main() {
         await service.scheduleAll([_spec(wann)]);
 
         expect(service.isAvailable, isTrue);
-        expect(gateway.cancelAllCalls, 1, reason: 'cancel-first');
+        // Cancel-first, per nudge id: a rest alert in the plugin survives.
+        expect(gateway.cancelled, [
+          for (var i = 0; i < reminderNudgeIdCount; i++)
+            reminderNudgeIdFirst + i,
+        ]);
+        expect(gateway.cancelAllCalls, 0);
         expect(gateway.scheduled, hasLength(1));
         final geplant = gateway.scheduled.single;
         expect(geplant.location.name, zone);

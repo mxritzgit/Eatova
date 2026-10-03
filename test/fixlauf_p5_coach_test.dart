@@ -295,6 +295,9 @@ class _LangesDiktat extends CoachSpeechInput {
   Future<String?> listen({
     String localeId = 'de_DE',
     required AppLocalizations l10n,
+    int token = 0,
+    ValueChanged<String>? onPartial,
+    ValueChanged<CoachSpeechEnd>? onEnd,
   }) async =>
       'a' * laenge;
 }

@@ -1,6 +1,7 @@
 # Privacy Policy — Eatova
 
-_Repository data-flow update: 2026-09-14_
+_Repository data-flow update: 2026-09-14; Coach `/log`, workout logging and
+rest alerts: 2026-10-03_
 
 > The published German policy for the app and website lives at
 > **[eatova.de/datenschutz](https://eatova.de/datenschutz)**. This repository
@@ -57,7 +58,9 @@ You enter and the app stores the following, tied to your account:
   servings, consumption links and weekly shopping-item check states. Scheduling
   a meal alone does not add it to your eaten-food diary.
 - **Training:** saved plans/workouts/exercises and completed workout snapshots,
-  including actual repetitions, weight or duration where recorded. A paused
+  including actual repetitions, weight or duration where recorded. Workouts
+  you log afterwards, by hand or confirmed from a coach `/log` card, are
+  stored the same way. A paused
   session checkpoint is kept encrypted on this device. Deleting completed
   history keeps an account-scoped identifier receipt, without the deleted
   workout content, to stop an older offline copy from restoring it. These
@@ -106,6 +109,15 @@ You enter and the app stores the following, tied to your account:
   phone carries it across — exactly as described for your own recipe photos
   above. See "Where it is stored and who processes it" and
   "Transfers outside the EU/EEA": this feature involves a transfer to the USA.
+- **Workout logging (the `/log` command in the coach):** the workout you
+  describe, typed or dictated, is sent to the AI provider like any coach
+  message, but without the profile/progress snapshot, a photo or earlier
+  messages. It is stored in your chat history like any other message. The
+  workout read from it (title, date, duration, exercises with sets,
+  repetitions, weights or times, and a note) is stored with that chat message
+  (`chat_messages.workout_log`) so the card survives a restart. It becomes
+  part of your training history only when you confirm it with Add in the
+  review sheet; that entry is then stored like any completed workout.
 - **Apple Health (optional, iOS only):** if you grant permission, the app reads
   your step count and body-weight history from Apple Health.
   With the same permission it also writes back to Apple Health: a body-weight
@@ -116,7 +128,18 @@ You enter and the app stores the following, tied to your account:
 - **Voice input (optional, iOS only):** if you use the coach's microphone button,
   audio is captured only while the microphone is active (tap to start, tap again
   to stop) and is converted to text by Apple's speech recognition. Only the resulting text is sent to the coach — the
-  app neither stores the audio recording nor sends it to our servers.
+  app neither stores the audio recording nor sends it to our servers. The
+  text appears in the field while you speak and is sent only when you send
+  it. The dictation language you pick (German or English) is remembered on
+  this device only.
+- **Rest alerts (optional, training):** during a workout the app schedules
+  one local notification for the end of each rest or timed interval. The
+  operating system delivers it on the device; nothing about it is sent to
+  our servers. Its text is generic ("Rest over: Time for your next set.",
+  "Time's up: Rest starts now." or "Time's up: Set complete."), without
+  exercise names or weights. The app asks for permission during a workout,
+  independently of the reminder setting; whether it already explained this
+  and asked the system is remembered on this device.
 - **Health Connect (optional, Android only):** with permission, the app reads
   aggregated steps during foreground refreshes for the selected day's display
   and activity estimate, and for the weekly check (the last three weeks). It
@@ -176,6 +199,8 @@ the device, before the photo is uploaded.
     from your wording alone (no profile snapshot, no photo);
   - training requests use Gemini 3.8 Flash with the explicit brief and any
     selected-plan context;
+  - a workout you describe with `/log` is read by the same Gemini model (by
+    default), from your wording alone (no profile snapshot, no photo);
   - meal photos use Gemini 3.8 Flash for analysis; recipe pictures use a separate
     image-generation model, `google/gemini-3.1-flash-image`.
 
@@ -241,8 +266,8 @@ The configured AI path involves recipients in, or routing to, the United States:
   the EU by Google's European entity.
 
 These AI transfers happen when you use coach chat, a coach recipe/training
-proposal or AI meal analysis. The published policy identifies the
-**Standard Contractual Clauses** adopted by the EU
+proposal, a coach workout log or AI meal analysis. The published policy
+identifies the **Standard Contractual Clauses** adopted by the EU
 Commission (Art. 46(2)(c) GDPR). Despite these safeguards, a residual risk
 remains that US authorities can access data held by US providers, and that your
 rights may be harder to enforce there than in the EU. If you do not want this,

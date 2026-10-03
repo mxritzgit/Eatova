@@ -229,6 +229,12 @@ Future<void> _review(WidgetTester tester) async {
   await _frames(tester);
 }
 
+/// The card under the editor lists exercise names too.
+Finder _inEditor(String text) => find.descendant(
+  of: find.byKey(const ValueKey('training-editor-scroll')),
+  matching: find.text(text),
+);
+
 Future<void> _confirm(WidgetTester tester) async {
   final action = find.text('Trainingsplan übernehmen');
   await tester.ensureVisible(action);
@@ -460,7 +466,7 @@ void main() {
     );
     await _review(tester);
     expect(find.text('Ganzkörper'), findsOneWidget);
-    expect(find.text('Kniebeuge'), findsOneWidget);
+    expect(_inEditor('Kniebeuge'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('training-editor-close')));
     await _frames(tester);
     expect(saves, 0);
@@ -977,7 +983,7 @@ void main() {
             onCreate: (_) async => SyncDelivery.delivered,
           );
           await _review(tester);
-          expect(find.text('Kniebeuge'), findsOneWidget);
+          expect(_inEditor('Kniebeuge'), findsOneWidget);
         });
         expect(errors, isEmpty, reason: describeOverflows(errors));
       },

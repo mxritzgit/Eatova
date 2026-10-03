@@ -105,7 +105,8 @@ DateTime trainingTimestamp(Object? value, {bool allowOffset = false}) {
   return date.toUtc();
 }
 
-/// A recovery checkpoint is always paused, with no wall-clock deadline.
+/// A recovery checkpoint's status is always paused; a running rest or timed
+/// interval is recorded only as its wall-clock deadline ([phaseEndsAt]).
 final class TrainingSessionSnapshot {
   TrainingSessionSnapshot({
     required this.plan,
@@ -117,6 +118,7 @@ final class TrainingSessionSnapshot {
     this.pendingCompletionAt,
     this.pendingCompletionNote,
     this.recoveryNote,
+    DateTime? phaseEndsAt,
     required this.workoutIndex,
     required this.exerciseIndex,
     required this.setIndex,
@@ -126,6 +128,7 @@ final class TrainingSessionSnapshot {
     List<TrainingSetReference> skippedSets = const [],
   }) : sessionId = sessionId ?? uuidV4(),
        startedAt = (startedAt ?? clock.now()).toUtc(),
+       phaseEndsAt = phaseEndsAt?.toUtc(),
        actualSets = List.unmodifiable(actualSets),
        completedSets = List.unmodifiable(completedSets),
        skippedSets = List.unmodifiable(skippedSets) {
@@ -173,6 +176,15 @@ final class TrainingSessionSnapshot {
       TrainingSessionPhase.review => 0,
     };
     TrainingJson.integer(remainingMilliseconds, 0, maximum);
+    if (this.phaseEndsAt != null) {
+      trainingTimestamp(this.phaseEndsAt!.toIso8601String());
+      final running =
+          phase == TrainingSessionPhase.rest ||
+          (phase == TrainingSessionPhase.exercise && exercise.isTimed);
+      if (!running || pendingCompletionAt != null) {
+        throw const FormatException('Invalid training phase deadline');
+      }
+    }
     final seen = <TrainingSetReference>{};
     for (final entry in [...completedSets, ...skippedSets]) {
       TrainingJson.integer(
@@ -207,8 +219,10 @@ final class TrainingSessionSnapshot {
     if (phase == TrainingSessionPhase.exercise && seen.contains(current)) {
       throw const FormatException('Invalid training session progress');
     }
+    // Rest follows any completed set except the workout's final set.
     if (phase == TrainingSessionPhase.rest &&
-        (setIndex == exercise.sets - 1 ||
+        ((exerciseIndex == workout.exercises.length - 1 &&
+                setIndex == exercise.sets - 1) ||
             exercise.restSeconds == 0 ||
             !completedSets.contains(current))) {
       throw const FormatException('Invalid training session rest');
@@ -223,6 +237,10 @@ final class TrainingSessionSnapshot {
 
   /// Local-only receipt recovery; excluded from the immutable server snapshot.
   final String? recoveryNote;
+
+  /// Local-only UTC deadline of a running rest or timed interval; presence
+  /// means running. Never in review, with a pending completion or in history.
+  final DateTime? phaseEndsAt;
   final DateTime? pendingCompletionAt;
   final String? pendingCompletionNote;
   final int? draftReps;
@@ -288,6 +306,7 @@ final class TrainingSessionSnapshot {
     TrainingJson.requireKeys(json, {
       if (json.containsKey('recovery_note')) 'recovery_note',
       if (pending) ...['pending_completion_at', 'pending_completion_note'],
+      if (version == 2 && json.containsKey('phase_ends_at')) 'phase_ends_at',
       if (version == 2) ...[
         'session_id',
         'started_at',
@@ -369,6 +388,9 @@ final class TrainingSessionSnapshot {
               TrainingLimits.notesMaxLength,
             )
           : null,
+      phaseEndsAt: json.containsKey('phase_ends_at')
+          ? trainingTimestamp(json['phase_ends_at'])
+          : null,
       pendingCompletionAt: pending
           ? trainingTimestamp(json['pending_completion_at'])
           : null,
@@ -438,6 +460,7 @@ final class TrainingSessionSnapshot {
     'set_index': setIndex,
     'phase': phase.name,
     'remaining_milliseconds': remainingMilliseconds,
+    if (phaseEndsAt != null) 'phase_ends_at': phaseEndsAt!.toIso8601String(),
     'completed_sets': completedSets.map((entry) => entry.toJson()).toList(),
     'skipped_sets': skippedSets.map((entry) => entry.toJson()).toList(),
   };

@@ -212,12 +212,13 @@ void main() {
           onSelectPlan: (_) {},
           onStartWorkout: (_, _) {},
           onOpenCoach: () {},
+          onLogWorkout: () {},
         ),
         locale: Locale(locale),
         surfaceSize: const Size(390, 844),
       );
       for (final key in [
-        'training-quick-create',
+        'training-quick-log',
         'training-quick-workouts',
         'training-open-plans',
         'training-discuss-plan',

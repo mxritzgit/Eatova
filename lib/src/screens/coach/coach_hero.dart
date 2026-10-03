@@ -32,7 +32,8 @@ class _CoachHero extends StatelessWidget {
   /// Sends a prepared question as the user's message.
   final ValueChanged<String> onAsk;
 
-  /// Starts a slash command (`/recipe`, `/plan`) the way the command menu does.
+  /// Starts a slash command (`/recipe`, `/plan`, `/log`) the way the command
+  /// menu does.
   final ValueChanged<String> onCommand;
 
   /// Opens the (i) sheet detailing which data goes where.
@@ -375,9 +376,9 @@ class _CardPill extends StatelessWidget {
   }
 }
 
-/// "Try asking": the coach's two commands as chips, so they are discoverable
-/// without typing "/". `/recipe` prepares the composer, `/plan` opens the
-/// training brief — exactly what the command menu does.
+/// "Try asking": the coach's commands as chips, so they are discoverable
+/// without typing "/". `/recipe` and `/log` prepare the composer, `/plan`
+/// opens the training brief — exactly what the command menu does.
 class _TryAsking extends StatelessWidget {
   const _TryAsking({required this.enabled, required this.onCommand});
 
@@ -416,17 +417,14 @@ class _TryAsking extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: _kShellInset),
           child: Row(
             children: <Widget>[
-              _TryChip(
-                key: const ValueKey('coach-try-recipe'),
-                label: l10n.coachTryRecipe,
-                onTap: enabled ? () => onCommand('/recipe') : null,
-              ),
-              const SizedBox(width: 8),
-              _TryChip(
-                key: const ValueKey('coach-try-plan'),
-                label: l10n.coachTryPlan,
-                onTap: enabled ? () => onCommand('/plan') : null,
-              ),
+              for (final command in _CoachCommand.values) ...<Widget>[
+                if (command.index > 0) const SizedBox(width: 8),
+                _TryChip(
+                  key: ValueKey('coach-try-${command.name}'),
+                  label: command.tryLabel(l10n),
+                  onTap: enabled ? () => onCommand(command.token) : null,
+                ),
+              ],
             ],
           ),
         ),

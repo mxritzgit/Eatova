@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../l10n/l10n.dart';
 import '../../models/training_history.dart';
 import '../../models/training_insights.dart';
+import '../../models/training_log.dart';
 import '../../models/training_session.dart';
 import '../../theme/app_tokens.dart';
 import '../../widgets/common/lively.dart';
@@ -1073,7 +1074,13 @@ class _RecentRow extends StatelessWidget {
       l10n.localeName,
     ).format(summary.finishedAt.toLocal());
     final minutes = (summary.duration.inSeconds / 60).round();
-    final meta = '$date · ${l10n.trainingDurationMinutes(minutes)}';
+    // No duration, nothing to show ("0 min" would lie). Only a free log says
+    // Logged: a played workout can end without a duration too.
+    final meta = trainingEntryHasDuration(summary.entry)
+        ? '$date · ${l10n.trainingDurationMinutes(minutes)}'
+        : isLoggedTrainingEntry(summary.entry)
+        ? '$date · ${l10n.trainingHistoryLogged}'
+        : date;
     final records = summary.personalRecords;
     final badge = records > 0 ? l10n.trainingRecentPrs(records) : null;
     // A stable hue per workout of the plan; it encodes no workout type.

@@ -2,8 +2,9 @@
 
 Base source review: **2026-09-14**, main through PR #88; authentication and
 onboarding updated **2026-09-16**; Today, Settings and visual contracts
-updated **2026-10-01** for the dark redesign (PR #118). This is the current
-capability inventory.
+updated **2026-10-01** for the dark redesign (PR #118); Training, Coach `/log`
+and dictation updated **2026-10-03** ([design](superpowers/specs/2026-10-03-training-flow-and-coach-log-design.md)).
+This is the current capability inventory.
 Dated reviews describe what was present at their own checkpoint.
 
 ## What is available
@@ -11,18 +12,20 @@ Dated reviews describe what was present at their own checkpoint.
 | Area / entry point | Implemented behavior | Source |
 | --- | --- | --- |
 | Account entry | Email/password and Google sign-in, code confirmation/recovery, six-step profile setup with editable summary | [Entry and onboarding](AUTH-ONBOARDING-DESIGN.md) |
-| Today | Seven-day strip, calorie balance with activity credit, macro tiles, streak, recipe pick for the next open meal, per-slot add, steps and next workout; avatar to Profile | [Today](../lib/src/screens/today/today_screen.dart), [Today design](TODAY-DESIGN.md) |
+| Today | Seven-day strip, calorie balance with activity credit, macro tiles, streak, recipe pick for the next open meal, per-slot add, steps and next workout ("In progress · Resume" while a workout is saved); avatar to Profile | [Today](../lib/src/screens/today/today_screen.dart), [Today design](TODAY-DESIGN.md) |
 | Food | Breakfast/lunch/dinner/snack diary, meal editing and deletion, date calendar, favorites, history trends | [App shell](../lib/src/app/eatova_home_page.dart), [Food design](FOOD-DESIGN.md) |
 | Meal entry | Camera or gallery with optional context; barcode; product search; manual per-100-g values and a chosen portion; shared meal-slot picker | [Entry contracts](FOOD-ENTRY-POLISH-2026-09-14.md) |
 | Recipes | Browse catalog; create, edit or delete own/adopted recipes; photo, preparation, structured ingredients, fractional servings; add to selected diary date | [Recipes](../lib/src/screens/recipes/recipes_screen.dart) |
 | Meal Plan | Weekly date/slot planning with recipe snapshots and servings; explicit consumption adds to diary without double-counting retries | [Plan screen](../lib/src/screens/recipes/meal_plan_screen.dart), [store](../lib/src/app/home_store_meal_plan.dart) |
 | Shopping List | Weekly ingredient aggregation and durable checked state; compatible structured quantities combine, free-text lines remain independent | [Plan and shopping screen](../lib/src/screens/recipes/meal_plan_screen.dart) |
 | Training plans | Multiple workouts, plan selection/editing, exercise lists, repetition/timed sets and rest | [Training](../lib/src/screens/training/training_screen.dart) |
-| Workout player | Pause/resume, reset, 10-second rewind/forward, set/exercise navigation, actual values and local paused recovery | [Session controller](../lib/src/services/training_session_controller.dart) |
+| Workout player | List of exercise cards with one tap per set (✓; timed sets ▶ with a 3 s lead and "Done early"); weights carry forward within an exercise or come from Last time; undo, skip set/exercise, complete the rest as planned; rests and timed sets keep running while the phone is locked; one generic rest alert per phase, whose tap reopens the workout; finish sheet (save the done sets, log the rest as shown, or discard); local recovery | [Player](../lib/src/screens/training/training_player_screen.dart), [Training design](TRAINING-DESIGN.md#workout-player-list-2026-10-03) |
+| Training log | "Log workout" for a free workout (today, yesterday or up to 30 days back, optional duration, exercises with sets or a time, note) and "Log as done" for the plan's shown workout; nothing is written before Add | [Log editor](../lib/src/screens/training/training_log_editor.dart) |
 | Training history | Completed immutable sessions with actual values, previous results/Last time and deletion | [History](../lib/src/screens/training/training_history_screen.dart) |
 | Coach | Chat over SSE with full server-side approval before text is released; sessions, attached image, nutrition context and quota | [Coach service](../lib/src/services/coach_chat_service.dart) |
 | Coach recipes | `/recipe` proposal with recipe text and a generated picture; explicit confirmation saves the recipe | [Recipe flow](../lib/src/screens/coach/coach_recipe.dart) |
 | Coach training | `/plan` brief with goal/experience/equipment/frequency/duration/constraints; optional selected-plan discussion or adaptation; explicit adoption | [Training brief](../lib/src/screens/coach/coach_training_brief.dart) |
+| Coach workout log | `/log` (typed, dictated or from Training's "Tell the Coach instead") turns a described finished workout into a draft card; one of the daily Coach requests. "Add to history" opens the log editor prefilled, and its Add is the confirmation; the card then reads Added or Removed from history | [Log card](../lib/src/screens/coach/coach_workout_log.dart) |
 | Profile | Body data, daily goals, weight chart with trend, health connection and lifetime statistics; weigh-ins re-anchor the profile weight and live goals; a weekly check on Today proposes a calibrated calorie goal from logged intake and the weight trend, applied only after confirmation ([weight trend](WEIGHT-TREND.md)) | [Profile](../lib/src/screens/profile_screen.dart) |
 | Settings | Language (theme row hidden while dark-only), account changes, JSON export, sign-out and verified account deletion | [Settings](../lib/src/screens/settings/settings_screen.dart) |
 | Reminders | Local evening streak-at-risk notification, scheduled ahead; no server push channel | [Notifications](../lib/src/services/notification_service.dart) |
@@ -35,7 +38,8 @@ Dated reviews describe what was present at their own checkpoint.
 | Health steps | Health Connect, read-only, foreground refresh | HealthKit read |
 | Health weight history / write-back | Not implemented | Read history; write a recorded weigh-in with permission |
 | Health availability | Explicit unsupported/update/permission/no-data states | Explicit permission and read-evidence states |
-| Coach dictation | Not exposed | Native speech-to-text |
+| Coach dictation | Not exposed | Apple speech recognition: text appears while speaking and is added to the draft; German/English switch while listening; on-device where Apple offers it |
+| Rest alerts | Local notification; may arrive late (inexact scheduling) | Local notification; a Focus can silence it |
 | Google sign-in | Native Credential Manager path, web fallback | Native Google SDK path, web fallback |
 | Localization | German / English including auth | German / English including auth |
 | Recipe pictures | Device-local | Device-local |
@@ -54,8 +58,9 @@ these states distinct. Sources: [platform factory](../lib/src/services/platform_
   Without a known cooked mass, the recipe remains portion-based; the app does
   not invent a grams-per-portion value. Free-text ingredients are not a complete
   nutrition database.
-- Coach recipe/plan output is a proposal. Opening a card or receiving a reply
-  does not silently adopt it.
+- Coach recipe/plan/log output is a proposal. Opening a card or receiving a
+  reply does not silently adopt it; a `/log` workout enters the history only
+  through the log editor's Add.
 - Initial setup groups personal details, body data, activity, goals and an
   optional dietary preference into six screens, ending in an editable plan.
   Completing it does not request notification permission; reminders require
@@ -63,6 +68,9 @@ these states distinct. Sources: [platform factory](../lib/src/services/platform_
 - Completed workouts preserve a snapshot and actual values. Editing a source
   plan does not rewrite history. A paused checkpoint is local to the device;
   it is not a cross-device live workout session.
+- A logged workout is a history entry like a played one. A free log gets its
+  own `log_` plan; a log of a plan's workout is refused while a workout is
+  saved, so one session is never counted twice.
 - Cache/outbox data is account-scoped and encrypted. Offline changes reconcile
   when service is available; AI generation and uncached remote search require
   connectivity. Recipe picture bytes are not part of server sync or JSON export.
@@ -86,6 +94,9 @@ and [Backend](BACKEND.md) for persistence details.
   identified. Diary, recipes and recipe history paginate; other sections have a
   10,000-row client limit (a server cap may be lower).
   [Export source](../lib/src/services/data_export.dart).
+- Dictation hears one language at a time (German or English); a mix of both
+  in one recording is not transcribed reliably. Apple ends a server-based
+  recording after about a minute; the text so far stays.
 - Theme/language apply to app-owned UI. Stored user text, previous AI replies
   and independently configured auth email templates are not retroactively
   translated by changing the picker.

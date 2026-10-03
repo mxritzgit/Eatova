@@ -77,22 +77,21 @@ void main() {
             );
           } else {
             expect(env.store.trainingSession, isNull);
-            await expectLater(
-              env.store.saveTrainingSession(
+            final durable = (await cache.readTrainingSession())?.toJson();
+            expect(
+              await env.store.saveTrainingSession(
                 saved,
                 generation: generation,
                 sourcePlanId: plan().id,
               ),
-              throwsStateError,
+              isFalse,
             );
-            await expectLater(
-              env.store.saveTrainingSession(checkpoint()),
-              throwsStateError,
+            expect(await env.store.saveTrainingSession(checkpoint()), isFalse);
+            expect(
+              await env.store.saveTrainingSession(checkpoint(completion: true)),
+              isFalse,
             );
-            await expectLater(
-              env.store.saveTrainingSession(checkpoint(completion: true)),
-              throwsStateError,
-            );
+            expect((await cache.readTrainingSession())?.toJson(), durable);
           }
         });
       },

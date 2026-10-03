@@ -18,6 +18,42 @@ function json(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), { status, headers: { "content-type": "application/json" } });
 }
 
+// coach-chat knows `local_date` (log mode only) and a closed set of modes; both
+// are validated with the other fields, before any protected effect.
+for (const [label, extra, error] of [
+  ["local_date outside log mode", { local_date: "2026-10-03" }, "invalid_local_date"],
+  ["unknown mode", { mode: "logbook" }, "invalid_mode"],
+  ["/log text without its mode", { message: "/log squats 3x5" }, "log_mode_required"],
+] as const) {
+  Deno.test(`coach-chat: rejects ${label} before protected effects`, async () => {
+    const original = globalThis.fetch;
+    let sideEffects = 0;
+    globalThis.fetch = ((resource: string | URL | Request, init?: RequestInit) => {
+      const url = String(resource);
+      if (url === `${BASE}/auth/v1/user`) return Promise.resolve(json({ id: USER }));
+      if (url.endsWith("/prune_edge_rate_limits")) return Promise.resolve(new Response(null, { status: 204 }));
+      if (url.endsWith("/consume_edge_rate_limits")) {
+        return Promise.resolve(json(JSON.parse(String(init?.body)).p_gates.map((gate: Record<string, number>) => ({
+          allowed: true, limit: gate.limit, remaining: gate.limit - 1, windowSeconds: gate.window_seconds,
+          resetAt: new Date(Date.now() + gate.window_seconds * 1000).toISOString() }))));
+      }
+      sideEffects++;
+      return Promise.resolve(json({ error: "synthetic operation must not be reached" }, 500));
+    }) as typeof globalThis.fetch;
+    try {
+      const response = await coach(new Request(`${BASE}/functions/v1/coach-chat`, {
+        method: "POST", headers: { authorization: `Bearer ${userToken(USER)}`, "content-type": "application/json" },
+        body: JSON.stringify({ message: "How can I begin training?", ...extra }),
+      }));
+      const data = await response.json();
+      check(response.status === 400 && data.error === error, `Expected ${error}, got ${response.status} ${data.error}`);
+      check(sideEffects === 0, "Rejected request reached a session, day quota, or provider operation");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+}
+
 for (const [name, handler] of [["coach-chat", coach], ["analyze-meal", analyze]] as const) {
   for (const field of unexpectedFields) {
     Deno.test(`${name}: rejects request field ${field} before protected effects`, async () => {

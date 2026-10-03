@@ -17,6 +17,10 @@ class _Conversation extends StatelessWidget {
     required this.planAddedFor,
     required this.planReviewEnabled,
     required this.onReviewPlan,
+    required this.workoutLogStatusFor,
+    required this.workoutLogAddable,
+    required this.workoutLogAddEnabled,
+    required this.onAddWorkoutLog,
     required this.onScroll,
     required this.onMetricsChanged,
     required this.entersFor,
@@ -55,6 +59,15 @@ class _Conversation extends StatelessWidget {
   final bool Function(ChatMessage message) planAddedFor;
   final bool planReviewEnabled;
   final ValueChanged<ChatMessage> onReviewPlan;
+
+  /// A /log card's state, derived from the live training history.
+  final _WorkoutLogCardStatus Function(ChatMessage message)
+  workoutLogStatusFor;
+
+  /// A save hook exists; without one /log cards show no Add.
+  final bool workoutLogAddable;
+  final bool workoutLogAddEnabled;
+  final ValueChanged<ChatMessage> onAddWorkoutLog;
   final VoidCallback? onOpenTraining;
 
   @override
@@ -87,10 +100,17 @@ class _Conversation extends StatelessWidget {
                   valueListenable: preview,
                   builder: (context, text, _) {
                     if (text.isEmpty) {
-                      return const _Entrance(
-                        key: ValueKey('coach-thinking-entrance'),
+                      // The dots say nothing to a screen reader; the live
+                      // region announces that an answer is on its way.
+                      return _Entrance(
+                        key: const ValueKey('coach-thinking-entrance'),
                         animate: true,
-                        child: _ThinkingRow(),
+                        child: Semantics(
+                          container: true,
+                          liveRegion: true,
+                          label: context.l10n.coachThinkingLabel,
+                          child: const _ThinkingRow(),
+                        ),
                       );
                     }
                     return _Entrance(
@@ -122,6 +142,12 @@ class _Conversation extends StatelessWidget {
                   planAdded: planAddedFor(message),
                   planReviewEnabled: planReviewEnabled,
                   onReviewPlan: () => onReviewPlan(message),
+                  workoutLogStatus: message.workoutLogProposal == null
+                      ? _WorkoutLogCardStatus.waiting
+                      : workoutLogStatusFor(message),
+                  workoutLogAddable: workoutLogAddable,
+                  workoutLogAddEnabled: workoutLogAddEnabled,
+                  onAddWorkoutLog: () => onAddWorkoutLog(message),
                   onOpenTraining: onOpenTraining,
                 ),
               );
@@ -210,6 +236,10 @@ class _MessageView extends StatelessWidget {
     this.planAdded = false,
     this.planReviewEnabled = false,
     this.onReviewPlan,
+    this.workoutLogStatus = _WorkoutLogCardStatus.waiting,
+    this.workoutLogAddable = false,
+    this.workoutLogAddEnabled = false,
+    this.onAddWorkoutLog,
     this.onOpenTraining,
   });
   final ChatMessage message;
@@ -219,6 +249,10 @@ class _MessageView extends StatelessWidget {
   final bool planAdded;
   final bool planReviewEnabled;
   final VoidCallback? onReviewPlan;
+  final _WorkoutLogCardStatus workoutLogStatus;
+  final bool workoutLogAddable;
+  final bool workoutLogAddEnabled;
+  final VoidCallback? onAddWorkoutLog;
   final VoidCallback? onOpenTraining;
 
   @override
@@ -306,9 +340,21 @@ class _MessageView extends StatelessWidget {
                       ),
                       const SizedBox(height: 10),
                     ],
-                    // /rezept proposal: the card replaces the bubble text,
-                    // which would only say the same thing twice.
-                    if (message.trainingPlanProposal != null &&
+                    // A proposal card replaces the bubble text, which would
+                    // only say the same thing twice.
+                    if (message.workoutLogProposal != null &&
+                        !fromUser &&
+                        !message.refusal)
+                      _WorkoutLogProposalCard(
+                        proposal: message.workoutLogProposal!,
+                        status: workoutLogStatus,
+                        safetyLine: _workoutLogSafetyLineIn(message.content),
+                        canAdd: workoutLogAddable,
+                        enabled: workoutLogAddEnabled,
+                        onAdd: onAddWorkoutLog,
+                        onOpenTraining: onOpenTraining,
+                      )
+                    else if (message.trainingPlanProposal != null &&
                         !fromUser &&
                         !message.refusal)
                       _TrainingPlanProposalCard(
@@ -441,26 +487,32 @@ class _ErrorBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return Container(
-      margin: const EdgeInsets.fromLTRB(0, 8, 0, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-      decoration: BoxDecoration(
-        color: t.warning.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(rCard),
-        border: Border.all(color: t.warning.withValues(alpha: 0.35)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Icon(Icons.error_outline_rounded, size: 16, color: t.warning),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              text,
-              style: AppType.ui(12.5, color: t.ink, height: 1.45),
+    // Live region: a failed send, the quota or a speech error appears without
+    // focus moving, so a screen reader would otherwise stay silent.
+    return Semantics(
+      container: true,
+      liveRegion: true,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(0, 8, 0, 0),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        decoration: BoxDecoration(
+          color: t.warning.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(rCard),
+          border: Border.all(color: t.warning.withValues(alpha: 0.35)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Icon(Icons.error_outline_rounded, size: 16, color: t.warning),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                text,
+                style: AppType.ui(12.5, color: t.ink, height: 1.45),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -20,6 +20,7 @@ import {
   type ClassifierResult,
   CLASSIFIER_CATEGORIES,
   layer2RefusalReason,
+  LOG_REFUSAL_CATEGORIES,
   PLAN_REFUSAL_CATEGORIES,
   RECIPE_REFUSAL_CATEGORIES,
   refusalCategoriesFor,
@@ -57,6 +58,15 @@ import {
   trainingContextMessage,
   trainingContextRefusal,
 } from "./training_context.ts";
+import {
+  acceptableLocalDate,
+  type CoachWorkoutLog,
+  decodeWorkoutLogExtraction,
+  parseWorkoutLogCommand,
+  workoutLogRefusalText,
+  workoutLogSummary,
+  workoutLogSystemPrompt,
+} from "./workout_log.ts";
 
 // Models and daily limit are overridable via function secrets. Keep the
 // answer and classifier on the same low-latency multimodal Gemini model: it
@@ -66,6 +76,8 @@ import {
 const DEFAULT_COACH_MODEL = "google/gemini-3.8-flash";
 const MODEL_ANSWER     = Deno.env.get("COACH_MODEL_ANSWER") ?? DEFAULT_COACH_MODEL;
 const MODEL_CLASSIFIER = Deno.env.get("COACH_MODEL_CLASSIFIER") ?? DEFAULT_COACH_MODEL;
+// /log extraction defaults to the answer model; pinnable on its own.
+const MODEL_LOG        = Deno.env.get("COACH_MODEL_LOG") ?? MODEL_ANSWER;
 // Image GENERATION needs its own model: the "-image" family outputs images and
 // is NOT usable for photo->JSON analysis (see analyze-meal).
 const MODEL_IMAGE      = Deno.env.get("COACH_IMAGE_MODEL") ?? "google/gemini-3.1-flash-image";
@@ -77,6 +89,8 @@ const DAILY_LIMIT            = positiveIntFromEnv("COACH_DAILY_LIMIT", 5);
 const ANSWER_MAX_TOKENS      = 3072;
 // Structured recipe JSON needs room for reasoning as well as every field.
 const RECIPE_MAX_TOKENS      = 3072;
+// A full log (20 exercises x 10 sets) plus low reasoning fits with headroom.
+const LOG_MAX_TOKENS         = 4096;
 const MAX_IMAGE_BASE64_CHARS = 6_000_000;
 const MAX_CONTENT_LENGTH     = 6_250_000;
 const MAX_PROVIDER_RESPONSE_BYTES = 512 * 1024;
@@ -247,7 +261,8 @@ const ANSWER_SYSTEM_PROMPT = `You are Eatova Coach - a friendly fitness and nutr
 
 LANGUAGE RULE (very important):
 - Detect the user's message language and ALWAYS reply in that same language.
-- If they write in Russian, answer in Russian. English -> English. Spanish -> Spanish. Default to German if the language is ambiguous or mixed.
+- If they write in Russian, answer in Russian. English -> English. Spanish -> Spanish.
+- If the message mixes languages (for example dictated German and English) or its language is ambiguous, reply in the app language named at the very end of these instructions.
 - This rule overrides any earlier instruction to "always answer in German".
 
 YOUR SCOPE (nutrition first):
@@ -255,6 +270,7 @@ YOUR SCOPE (nutrition first):
 - Recipes, sauces, restaurant/brand-inspired dishes and lighter versions (for example a low-calorie Raising Cane's sauce) are nutrition questions. A lighter dish alone is not a crash diet or eating disorder; explicit unsafe intent still takes priority.
 - Nutrition for athletes: protein targets, pre/post-workout meals, cutting/bulking phases done sensibly.
 - Training as the secondary topic: strength, hypertrophy, endurance, mobility, recovery, sleep and stress in the context of sport; exercises, technique cues, progression, frequency.
+- Finished workouts: when the user reports training they already did (exercises, sets, weights), reply briefly and point them to the /log command, for example "/log today squats 3x10 80 kg", which turns it into an entry they can review and add to their training history. You cannot save anything yourself.
 - Light coach-style smalltalk: greetings ("hi", "hallo", "привет"), thanks, "how are you", "good morning", short check-ins, motivation. Reply warmly in 1-2 sentences and gently invite them to ask about nutrition or training.
 
 USING APP DATA:
@@ -321,6 +337,8 @@ Important:
 - "Sag mir eine Low Kcalorie Raising Canes Soße" -> nutrition. A lighter recipe alone is not evidence of an eating disorder or a crash diet.
 - Evaluate the ENTIRE message: a greeting or recipe request never overrides self-harm, eating-disorder, medical-risk or injection intent elsewhere in it.
 - "I've been cutting myself" -> self_harm.
+- Gym slang about exhaustion or soreness is fitness: "I'm dead after leg day", "destroyed myself in the gym", "ich bin nach dem Beintag tot", "der Muskelkater bringt mich um". It is self_harm only when the message also expresses wanting to die or to hurt oneself.
+- A report of a finished workout ("today squats 3x10 at 100 kg", "gestern Bankdrücken 5x5") -> fitness.
 - "What is the capital of France?" -> off_topic.
 - "Help me with my homework" -> off_topic.
 - When unsure between smalltalk and off_topic, prefer smalltalk only if the user is clearly addressing the coach in a normal conversational way; otherwise off_topic.
@@ -551,6 +569,7 @@ function answerPayload(
   userContext?: string,
   stream = false,
   trainingContext?: TrainingContext,
+  locale: CoachLocale = "de",
 ): Record<string, unknown> {
   const userContent: string | UserContentPart[] = image
     ? [
@@ -581,7 +600,13 @@ function answerPayload(
     // Context sits right before the current question, AFTER the history:
     // up to 10 turns earlier it lost its weight (F5-07).
     messages: [
-      { role: "system", content: ANSWER_SYSTEM_PROMPT + (trainingContext ? "\n" + TRAINING_CONTEXT_RULES : "") },
+      {
+        role: "system",
+        // The app language closes the prompt: mixed or ambiguous input
+        // (dictated German and English) is answered in it.
+        content: ANSWER_SYSTEM_PROMPT + (trainingContext ? "\n" + TRAINING_CONTEXT_RULES : "") +
+          `\n\nAPP LANGUAGE: ${locale === "en" ? "English" : "German"}`,
+      },
       ...history,
       ...contextMessages,
       ...(trainingContext ? [trainingContextMessage(trainingContext)] : []),
@@ -675,7 +700,7 @@ async function answer(
     // Deadline for fetch AND the resp.json()/text() below (finding 6); the
     // timeout throws into the existing answer refund paths (refund + 504).
     signal,
-    body: JSON.stringify(answerPayload(history, userMessage, image, userContext, false, trainingContext)),
+    body: JSON.stringify(answerPayload(history, userMessage, image, userContext, false, trainingContext, locale)),
   });
   if (!resp.ok) {
     const meta = await providerErrorBodyMeta(resp, signal);
@@ -802,6 +827,7 @@ async function openAnswerStream(
   userContext?: string,
   trainingContext?: TrainingContext,
   requestSignal?: AbortSignal,
+  locale: CoachLocale = "de",
 ): Promise<AnswerStreamState> {
   const abort = new AbortController();
   await budget("coach_answer");
@@ -819,7 +845,7 @@ async function openAnswerStream(
     // PROVIDER_TIMEOUTS_MS.answer instead of hanging until the platform limit
     // Includes all bytes held for final approval.
     signal,
-    body: JSON.stringify(answerPayload(history, userMessage, image, userContext, true, trainingContext)),
+    body: JSON.stringify(answerPayload(history, userMessage, image, userContext, true, trainingContext, locale)),
   });
   if (!resp.ok) {
     const meta = await providerErrorBodyMeta(resp, signal);
@@ -1499,6 +1525,166 @@ async function handlePlanMode(params: {
 }
 
 // ---------------------------------------------------------------------------
+// mode: "log" — a finished workout as a confirmable proposal (spec C2). Same
+// shape as the plan path: buffered, validated, and never a history write; the
+// client's confirmed save is the only writer of training_history.
+// ---------------------------------------------------------------------------
+
+async function extractWorkoutLog(
+  apiKey: string,
+  budget: ProviderCallBudget,
+  wish: string,
+  locale: CoachLocale,
+  localDate: string,
+): Promise<{ content: string; finishReason: string | undefined }> {
+  // Reuses the plan budget operation: no change to reserve_ai_provider_call.
+  await budget("coach_plan");
+  const signal = AbortSignal.timeout(PROVIDER_TIMEOUTS_MS.answer);
+  const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://eatova.de",
+      "X-Title": "Eatova Coach",
+    },
+    signal,
+    body: JSON.stringify({
+      model: MODEL_LOG,
+      messages: [
+        { role: "system", content: workoutLogSystemPrompt(locale, localDate) },
+        { role: "user", content: wish },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0,
+      max_tokens: LOG_MAX_TOKENS,
+      reasoning: { effort: "low", exclude: true },
+      provider: { require_parameters: true },
+    }),
+  });
+  if (!resp.ok) {
+    // Keep the known status even if the error body cannot be cancelled.
+    void resp.body?.cancel().catch(() => {});
+    throw new ProviderError(resp.status, `workout log provider status ${resp.status}`);
+  }
+  const raw = await readProviderBody(resp, MAX_PROVIDER_RESPONSE_BYTES, signal);
+  if (raw === null) throw new Error("workout log provider response too large");
+  const data = JSON.parse(raw);
+  const content = data?.choices?.[0]?.message?.content;
+  return {
+    content: typeof content === "string" ? content.trim() : "",
+    finishReason: loggableFinishReason(data?.choices?.[0]?.finish_reason),
+  };
+}
+
+async function storeWorkoutLogMessage(
+  serviceKey: string,
+  supabaseUrl: string,
+  row: { user_id: string; session_id: string; content: string; workout_log: CoachWorkoutLog },
+): Promise<string | null> {
+  let resp: Response;
+  try {
+    resp = await supabaseFetch(`${supabaseUrl}/rest/v1/chat_messages?select=id`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${serviceKey}`, "apikey": serviceKey,
+        "Content-Type": "application/json", "Prefer": "return=representation",
+      },
+      body: JSON.stringify({ ...row, role: "assistant", refusal: false, refusal_reason: null }),
+    });
+  } catch (e) {
+    if (!isSupabaseIoError(e)) throw e;
+    console.error(isAbortError(e) ? "storeWorkoutLogMessage timeout" : "storeWorkoutLogMessage unavailable");
+    return null;
+  }
+  if (!resp.ok) {
+    console.error(`storeWorkoutLogMessage failed: ${resp.status}`);
+    return null;
+  }
+  const data = await readSupabaseBody(() => resp.json(), "storeWorkoutLogMessage");
+  const id = Array.isArray(data) ? data[0]?.id : data?.id;
+  return typeof id === "string" && SESSION_ID_RE.test(id) ? id : null;
+}
+
+async function handleWorkoutLogMode(params: {
+  budget: ProviderCallBudget;
+  requestSignal: AbortSignal;
+  serviceKey: string; supabaseUrl: string; openRouterKey: string;
+  userId: string; sessionId: string; message: string; locale: CoachLocale;
+  localDate: string; medicalRisk: boolean;
+  remaining: number | null; quotaDay: string | null;
+}): Promise<Response> {
+  const { serviceKey, supabaseUrl, openRouterKey, userId, sessionId, message, locale, remaining, quotaDay } = params;
+  const refund = () => params.requestSignal.aborted ? Promise.resolve() : rpcRefundQuota(serviceKey, supabaseUrl, userId, quotaDay);
+  const userStored = await storeMessage(serviceKey, supabaseUrl, {
+    user_id: userId, session_id: sessionId, role: "user", content: message,
+  });
+  if (!userStored) {
+    await refund();
+    return json({ error: "store_failed", session_id: sessionId }, 500);
+  }
+  void maybeAutoTitle(serviceKey, supabaseUrl, userId, sessionId, message)
+    .catch(() => console.error("maybeAutoTitle unavailable"));
+
+  let completion: Awaited<ReturnType<typeof extractWorkoutLog>>;
+  try {
+    completion = await extractWorkoutLog(openRouterKey, params.budget, message, locale, params.localDate);
+  } catch (e) {
+    // Status class only: transport and JSON errors can quote private text.
+    // A budget stop is no outage; its code is a fixed enum.
+    console.error(e instanceof ProviderBudgetError ? `workout log budget ${e.code}` :
+      isProviderTimeout(e) ? "workout log provider timeout" :
+      e instanceof ProviderError ? `workout log provider status ${e.status}` : "workout log provider unavailable");
+    if (!isClientFaultFailure(e)) await refund();
+    await touchSession(serviceKey, supabaseUrl, sessionId);
+    if (e instanceof ProviderBudgetError) return json({ error: e.code, session_id: sessionId }, e.status);
+    return json({ error: isProviderTimeout(e) ? "provider_timeout" : "provider_error", session_id: sessionId }, isProviderTimeout(e) ? 504 : 502);
+  }
+
+  const quotaFields = { ...(remaining === null ? {} : { remaining }), daily_limit: DAILY_LIMIT, session_id: sessionId };
+  const refuse = async (reply: string, reason: string): Promise<Response> => {
+    // Paid refusals keep the slot, like every other refusal.
+    await storeMessage(serviceKey, supabaseUrl, {
+      user_id: userId, session_id: sessionId, role: "assistant", content: reply,
+      refusal: true, refusal_reason: reason,
+    });
+    await touchSession(serviceKey, supabaseUrl, sessionId);
+    return json({ reply, refusal: true, refusal_reason: reason, ...quotaFields });
+  };
+  if (completion.finishReason === "content_filter") {
+    return await refuse(refusalForReason("fallback", locale), "model_refusal");
+  }
+  const extraction = completion.finishReason === "stop"
+    ? decodeWorkoutLogExtraction(completion.content, params.localDate) : null;
+  if (extraction === null) {
+    console.error(`workout log invalid (chars=${completion.content.length}, finish_reason=${completion.finishReason ?? "missing"})`);
+    await refund();
+    await touchSession(serviceKey, supabaseUrl, sessionId);
+    return json({ error: "provider_error", session_id: sessionId }, 502);
+  }
+  if (extraction.kind === "refusal") {
+    return await refuse(workoutLogRefusalText(extraction.reason, locale), `log_${extraction.reason}`);
+  }
+
+  // D4 needs either signal: a finished-workout report that mentions pain
+  // usually classifies as fitness, so the extraction flags it too.
+  const summary = workoutLogSummary(extraction.log, locale, {
+    medicalRisk: params.medicalRisk || extraction.healthMention,
+  });
+  const [assistantMessageId] = await Promise.all([
+    storeWorkoutLogMessage(serviceKey, supabaseUrl, {
+      user_id: userId, session_id: sessionId, content: summary, workout_log: extraction.log,
+    }),
+    touchSession(serviceKey, supabaseUrl, sessionId),
+  ]);
+  // A failed history insert leaves a valid, paid, ephemeral proposal.
+  return json({
+    reply: summary, workout_log: extraction.log, ...quotaFields,
+    ...(assistantMessageId === null ? {} : { assistant_message_id: assistantMessageId }),
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Refusal texts for L1/L2
 // ---------------------------------------------------------------------------
 // Request language; anything but exactly "en" is "de" (see handleRequest,
@@ -1624,9 +1810,9 @@ const LIMIT_TEXTS: Record<string, Record<CoachLocale, string>> = {
 
 // Locale for messages produced BEFORE the body is read: the body locale is
 // off-limits there, because these gates exist to stop a surplus request from
-// costing 6.25 MB of body. Accept-Language is the only early hint.
-// LIMIT: the Flutter client does not set it, so these three stay German for
-// it — but the daily limit fires long before them and is body-localised.
+// costing 6.25 MB of body. Accept-Language is the only early hint; the
+// Flutter client sends its app language with every Coach request, so these
+// three follow it. A client without the header gets German.
 function localeFromHeaders(req: Request): CoachLocale {
   const header = (req.headers.get("accept-language") ?? "").trim().toLowerCase();
   return header.startsWith("en") ? "en" : "de";
@@ -2257,8 +2443,16 @@ function json(body: unknown, status = 200, extraHeaders: Record<string, string> 
 
 const REQUEST_FIELDS = new Set([
   "message", "session_id", "locale", "image_base64", "image_mime_type",
-  "user_context", "mode", "training_context",
+  "user_context", "mode", "training_context", "local_date",
 ]);
+
+// An explicit mode always wins; text commands are parsed only without one.
+// Anything else is a protocol error, so a client/server mismatch fails fast
+// instead of buying an ordinary chat answer with the user's slot.
+const REQUEST_MODES = new Set(["chat", "recipe", "plan", "log"]);
+
+// A log takes text only; app context or a photo would be silently ignored.
+const LOG_FORBIDDEN_FIELDS = ["image_base64", "image_mime_type", "training_context", "user_context"];
 
 // Keep CORS request-local for every JSON/SSE outcome, including early errors.
 // Reusing the body preserves streaming and cancellation semantics.
@@ -2422,12 +2616,32 @@ async function handleCoachRequest(req: Request): Promise<Response> {
   let imageMimeType = typeof body?.image_mime_type === "string"
     ? safeImageMimeType(body.image_mime_type)
     : "image/jpeg";
+  if (body.mode !== undefined && !REQUEST_MODES.has(body.mode)) {
+    return json({ error: "invalid_mode" }, 400);
+  }
+  const mode: string | undefined = body.mode;
   // mode: "recipe": recipe JSON + image instead of a chat reply; the branch
   // sits after the classifier block.
-  const isRecipeMode = body?.mode === "recipe";
+  const isRecipeMode = mode === "recipe";
+  const isLogMode = mode === "log";
+  // /log has no text fallback: only the explicit mode can select it.
+  if (mode === undefined && parseWorkoutLogCommand(rawMessage) !== null) {
+    return json({ error: "log_mode_required" }, 400);
+  }
   const commandWish = parsePlanCommand(rawMessage);
-  const isPlanMode = body?.mode === "plan" || (!isRecipeMode && commandWish !== null);
-  const message = isPlanMode && commandWish !== null ? commandWish : rawMessage;
+  const isPlanMode = mode === "plan" || (mode === undefined && commandWish !== null);
+  const message = isLogMode
+    ? parseWorkoutLogCommand(rawMessage) ?? rawMessage
+    : isPlanMode && commandWish !== null ? commandWish : rawMessage;
+  // Log-only fields and limits, all before session writes, quota or providers.
+  if (isLogMode && LOG_FORBIDDEN_FIELDS.some((field) => body[field] !== undefined)) {
+    return json({ error: "log_fields_not_supported" }, 400);
+  }
+  const localDate = body.local_date;
+  if (isLogMode ? !acceptableLocalDate(localDate, Date.now()) : localDate !== undefined) {
+    return json({ error: "invalid_local_date" }, 400);
+  }
+  if (isLogMode && message.length === 0) return json({ error: "empty_log" }, 400);
   // Validate before session writes, quota or providers. No database ID lookup:
   // the caller explicitly supplies one snapshot, never an owner or plan ID.
   const trainingContext = body?.training_context === undefined
@@ -2528,7 +2742,7 @@ async function handleCoachRequest(req: Request): Promise<Response> {
   // here, before a slot is burned, instead of silently answering without
   // context. Structured proposals need no history and skip the roundtrip.
   let history: HistoryMessage[] = [];
-  if (!isRecipeMode && !isPlanMode && !trainingContext) {
+  if (!isRecipeMode && !isPlanMode && !isLogMode && !trainingContext) {
     const loaded = await loadHistory(serviceKey, supabaseUrl, userId, sessionId);
     if (loaded === null) {
       return json({ error: "history_unavailable" }, 500);
@@ -2570,13 +2784,19 @@ async function handleCoachRequest(req: Request): Promise<Response> {
   // nothing to classify and would hit the fail-closed off_topic default,
   // rejecting every legitimate upload. Two past bypasses came from narrowing
   // it — `if (!hasImage)`, and the recipe branch sitting before this block —
-  // and both silently disabled the crisis categories. Both structured proposal
-  // modes must run this guard before reaching their dedicated draft prompts.
+  // and both silently disabled the crisis categories. Every structured
+  // proposal mode must run this guard before reaching its dedicated prompt.
   const classificationInput = trainingContext
     ? message + "\n" + trainingContextMessage(trainingContext).content : message;
+  const isStructuredMode = isRecipeMode || isPlanMode || isLogMode || trainingContext !== undefined;
+  // D4: a log that mentions pain is extracted, and its summary ends with a
+  // fixed safety line instead of a medical refusal. This verdict is one
+  // signal; the extraction's health_mention flag is the other.
+  let medicalRisk = false;
   if (shouldRunClassifier(classificationInput)) {
     const activeRefusalCategories = isRecipeMode
       ? RECIPE_REFUSAL_CATEGORIES
+      : isLogMode ? LOG_REFUSAL_CATEGORIES
       : isPlanMode || trainingContext ? PLAN_REFUSAL_CATEGORIES : refusalCategoriesFor(hasImage);
     let cls: ClassifierResult;
     try {
@@ -2585,7 +2805,7 @@ async function handleCoachRequest(req: Request): Promise<Response> {
       // Stop before answering/persisting and reuse the outage refund path.
       // Image captions share this outage handling. Structured proposals use
       // the safe refusal path below because they have no answer-stage fallback.
-      if (cls.parseFailed && !isRecipeMode && !isPlanMode && !trainingContext) {
+      if (cls.parseFailed && !isStructuredMode) {
         throw new ProviderError(502, "classifier output unusable");
       }
     } catch (e) {
@@ -2614,8 +2834,9 @@ async function handleCoachRequest(req: Request): Promise<Response> {
     const refusalReason = layer2RefusalReason({
       result: cls,
       categories: activeRefusalCategories,
-      refuseOnUnusableOutput: isRecipeMode || isPlanMode || trainingContext !== undefined,
+      refuseOnUnusableOutput: isStructuredMode,
     });
+    medicalRisk = cls.category === "medical_risk";
     if (refusalReason !== null) {
       const reply = refusalForReason(refusalReason, locale);
       await storeMessage(serviceKey, supabaseUrl, {
@@ -2651,6 +2872,16 @@ async function handleCoachRequest(req: Request): Promise<Response> {
       serviceKey, supabaseUrl, openRouterKey, userId, sessionId, message, locale,
       remaining: claim.remaining, quotaDay,
       trainingContext,
+    });
+  }
+
+  if (isLogMode) {
+    return await handleWorkoutLogMode({
+      budget,
+      requestSignal: req.signal,
+      serviceKey, supabaseUrl, openRouterKey, userId, sessionId, message, locale,
+      localDate: localDate as string, medicalRisk,
+      remaining: claim.remaining, quotaDay,
     });
   }
 
@@ -2755,6 +2986,7 @@ async function handleCoachRequest(req: Request): Promise<Response> {
         userContext,
         trainingContext,
         req.signal,
+        locale,
       );
     } catch (e) {
       // Nothing to release: openAnswerStream throws before it hands out a

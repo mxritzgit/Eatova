@@ -314,6 +314,10 @@ const Map<String, FunktionsErwartung> _erwarteteFunktionen = {
   'is_valid_training_plan': FunktionsErwartung.client(
       definer: false,
       grund: 'Reine JSON-Validierung fuer CHECKs, ohne Tabellenzugriff.'),
+  'is_valid_coach_workout_log': FunktionsErwartung.client(
+      definer: false,
+      grund: 'Pure format check of Coach /log proposals for the chat_messages '
+          'CHECK; no table access, no clock.'),
   // -- callable by the app -------------------------------------------------
   'create_chat_session': FunktionsErwartung.client(
       definer: true, grund: 'Coach: neue Unterhaltung anlegen.'),

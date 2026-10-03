@@ -48,6 +48,11 @@ class TrainingScreen extends StatefulWidget {
     this.recentWorkouts = const [],
     this.history = const [],
     this.onOpenWorkout,
+    this.onLogWorkout,
+    this.onLogPlannedWorkout,
+    this.onOpenCoachLog,
+    this.historyLoadFailed = false,
+    this.onRetryHistory,
   });
 
   final List<TrainingPlan> plans;
@@ -75,7 +80,8 @@ class TrainingScreen extends StatefulWidget {
   final Future<void> Function(TrainingPlan)? onDiscardAdoption;
 
   /// The selected plan's workout for today (`nextTrainingWorkoutForToday`);
-  /// without it the card starts the plan at its first workout.
+  /// without it the card starts the plan at its first workout. Once that
+  /// workout is done today, the card offers the one after it.
   final TrainingNextWorkout? nextWorkout;
 
   /// This week's finished workouts (`currentTrainingWeek`); hidden if null.
@@ -93,6 +99,21 @@ class TrainingScreen extends StatefulWidget {
 
   /// Opens one finished workout (a "Recent" row).
   final ValueChanged<TrainingHistoryEntry>? onOpenWorkout;
+
+  /// Opens the free log editor ("Log workout"); hidden when null.
+  final VoidCallback? onLogWorkout;
+
+  /// Opens the log editor for workout [workoutIndex] of [plan] ("Log as
+  /// done"); hidden when null and while a session exists.
+  final void Function(TrainingPlan plan, int workoutIndex)? onLogPlannedWorkout;
+
+  /// Opens the Coach on `/log` ("Tell the Coach instead"); hidden when null.
+  final VoidCallback? onOpenCoachLog;
+
+  /// The workout history did not load: week, volume and Recent may be
+  /// incomplete, and the page says so.
+  final bool historyLoadFailed;
+  final VoidCallback? onRetryHistory;
 
   @override
   State<TrainingScreen> createState() => _TrainingScreenState();
@@ -137,27 +158,42 @@ class _TrainingScreenState extends State<TrainingScreen> {
     );
   }
 
+  /// The rotation's workout to start: [next] itself, or once that one is done
+  /// today the one after it. The successor is counted in [plan], not in the
+  /// store's copy ([TrainingNextWorkout.upNextWorkoutIndex]), which may be
+  /// stale with more or fewer workouts; an index outside [plan] falls back to
+  /// the first workout.
+  TrainingNextWorkout _upNext(TrainingPlan plan, TrainingNextWorkout next) {
+    if (!next.completedToday) return next;
+    final index = next.workoutIndex + 1;
+    return _withLastTime(
+      plan,
+      index > 0 && index < plan.workouts.length ? index : 0,
+    );
+  }
+
   /// The saved session, if the card must show it (see [activeSession]).
   TrainingSessionSnapshot? get _session =>
       widget.hasActiveSession ? widget.activeSession : null;
 
   /// What the card shows: a saved session's workout, else the hand-picked
-  /// one, else the rotation's.
-  TrainingNextWorkout _shown(TrainingPlan plan, TrainingNextWorkout next) {
+  /// one, else the rotation's ([upNext]).
+  TrainingNextWorkout _shown(TrainingPlan plan, TrainingNextWorkout upNext) {
     final session = _session;
     if (session != null) {
       return _withLastTime(session.plan, session.workoutIndex);
     }
     final chosen = _chosenWorkout;
     if (chosen == null ||
-        chosen == next.workoutIndex ||
+        chosen == upNext.workoutIndex ||
         chosen >= plan.workouts.length) {
-      return next;
+      return upNext;
     }
     return _withLastTime(plan, chosen);
   }
 
-  /// Workout [index] of [plan] with "Last time" from the model helpers.
+  /// Workout [index] of [plan] with "Last time" as the store derives it
+  /// (this plan first, then the same name elsewhere).
   TrainingNextWorkout _withLastTime(TrainingPlan plan, int index) {
     return TrainingNextWorkout(
       plan: plan,
@@ -167,16 +203,13 @@ class _TrainingScreenState extends State<TrainingScreen> {
         for (final exercise in plan.workouts[index].exercises)
           TrainingExercisePreview(
             exercise: exercise,
-            lastTopSet: exercise.id == null
-                ? null
-                : topTrainingSet(
-                    lastTrainingPerformance(
-                      widget.history,
-                      plan.id,
-                      exercise.id!,
-                      isTimed: exercise.isTimed,
-                    ),
-                  ),
+            lastTopSet: topTrainingSet(
+              lastTrainingPerformanceFor(
+                widget.history,
+                planId: plan.id,
+                exercise: exercise,
+              ),
+            ),
           ),
       ],
     );
@@ -459,6 +492,9 @@ class _TrainingScreenState extends State<TrainingScreen> {
     final l10n = context.l10n;
     final plan = _plan;
     final next = _next(plan);
+    // Computed once per build: the card tells the rotation's pick apart from
+    // a hand-picked workout by identity.
+    final upNext = plan != null && next != null ? _upNext(plan, next) : null;
     final selectedConflict = widget.adoptionConflicts
         .where((entry) => entry.id == plan?.id)
         .firstOrNull;
@@ -536,6 +572,22 @@ class _TrainingScreenState extends State<TrainingScreen> {
                 ),
                 gap,
               ],
+              if (widget.historyLoadFailed) ...[
+                _notice(
+                  context,
+                  l10n.trainingHistoryRootLoadError,
+                  icon: Icons.cloud_off_rounded,
+                  action: widget.onRetryHistory == null
+                      ? null
+                      : TextButton.icon(
+                          key: const ValueKey('training-history-retry'),
+                          onPressed: widget.onRetryHistory,
+                          icon: const Icon(Icons.refresh_rounded),
+                          label: Text(l10n.trainingPageRetry),
+                        ),
+                ),
+                gap,
+              ],
               if (widget.week case final week?) ...[
                 TrainingWeekCard(
                   key: const ValueKey('training-week'),
@@ -543,15 +595,15 @@ class _TrainingScreenState extends State<TrainingScreen> {
                 ),
                 gap,
               ],
-              if (plan != null && next != null)
-                _workoutCard(context, plan, next, selectedConflict)
+              if (plan != null && next != null && upNext != null)
+                _workoutCard(context, plan, next, upNext, selectedConflict)
               else if (widget.loading)
                 _loadingState(context)
               else if (!widget.loadFailed)
                 _empty(context),
-              if (plan != null && next != null) ...[
+              if (plan != null && upNext != null) ...[
                 const SizedBox(height: 20),
-                _quickStart(context, plan, next),
+                _quickStart(context, plan, upNext),
               ],
               if (volume != null &&
                   (hasHistory || volume.weeks.any((w) => w.volumeKg > 0))) ...[
@@ -581,21 +633,23 @@ class _TrainingScreenState extends State<TrainingScreen> {
     BuildContext context,
     TrainingPlan plan,
     TrainingNextWorkout next,
+    TrainingNextWorkout upNext,
     TrainingPlan? selectedConflict,
   ) {
     final t = context.t;
     final l10n = context.l10n;
-    final shown = _shown(plan, next);
+    final shown = _shown(plan, upNext);
     final workout = shown.workout;
-    final done = shown.completedToday;
-    final eyebrow = done
-        ? l10n.trainingDoneToday
-        : _session != null
+    // Today's finished workout stays named; the card offers the next one.
+    final doneToday = next.completedToday && _session == null
+        ? next.title
+        : null;
+    final eyebrow = _session != null
         ? l10n.trainingInProgress
-        : identical(shown, next)
+        : identical(shown, upNext)
         ? l10n.trainingNextWorkout
         : l10n.trainingPageWorkoutNumber(shown.workoutIndex + 1);
-    final eyebrowColor = done ? t.success : t.accentText;
+    final logPlanned = widget.onLogPlannedWorkout;
     final action = selectedConflict != null
         ? TrainingStartButton(
             key: const ValueKey('training-review-adoption-primary'),
@@ -621,13 +675,30 @@ class _TrainingScreenState extends State<TrainingScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          if (doneToday != null) ...[
+            Row(
+              key: const ValueKey('training-done-today'),
+              children: [
+                Icon(Icons.check_circle_rounded, size: 15, color: t.success),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    l10n.trainingDoneTodayLine(doneToday),
+                    style: AppType.ui(
+                      13,
+                      weight: FontWeight.w700,
+                      color: t.success,
+                      height: kTrainingLine,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+          ],
           Row(
             key: const ValueKey('training-card-eyebrow'),
             children: [
-              if (done) ...[
-                Icon(Icons.check_circle_rounded, size: 15, color: eyebrowColor),
-                const SizedBox(width: 6),
-              ],
               Flexible(
                 child: Text(
                   eyebrow.toUpperCase(),
@@ -635,7 +706,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
                   style: AppType.ui(
                     12,
                     weight: FontWeight.w800,
-                    color: eyebrowColor,
+                    color: t.accentText,
                     letterSpacing: 0.96,
                     height: kTrainingLine,
                   ),
@@ -697,6 +768,22 @@ class _TrainingScreenState extends State<TrainingScreen> {
               ),
             ],
           ),
+          // One session at a time: a saved session offers Resume only.
+          if (logPlanned != null &&
+              selectedConflict == null &&
+              !widget.hasActiveSession) ...[
+            const SizedBox(height: 6),
+            TextButton.icon(
+              key: const ValueKey('training-log-done'),
+              onPressed: () => logPlanned(plan, shown.workoutIndex),
+              style: TextButton.styleFrom(
+                foregroundColor: t.accentText,
+                minimumSize: const Size.fromHeight(44),
+              ),
+              icon: const Icon(Icons.task_alt_rounded, size: 20),
+              label: Text(l10n.trainingLogAsDone),
+            ),
+          ],
         ],
       ),
     );
@@ -705,12 +792,14 @@ class _TrainingScreenState extends State<TrainingScreen> {
   Widget _quickStart(
     BuildContext context,
     TrainingPlan plan,
-    TrainingNextWorkout next,
+    TrainingNextWorkout upNext,
   ) {
     final t = context.t;
     final l10n = context.l10n;
     final discuss = widget.onDiscussPlan;
-    final shown = _shown(plan, next).workoutIndex;
+    final log = widget.onLogWorkout;
+    final coachLog = widget.onOpenCoachLog;
+    final shown = _shown(plan, upNext).workoutIndex;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -733,14 +822,17 @@ class _TrainingScreenState extends State<TrainingScreen> {
         const SizedBox(height: 10),
         TrainingQuickGrid(
           tiles: [
-            TrainingQuickTile(
-              key: const ValueKey('training-quick-create'),
-              icon: const Icon(Icons.add_rounded),
-              label: l10n.trainingPageCreateTitle,
-              tint: t.accentTintStrong,
-              ink: t.accentText,
-              onTap: () => _edit(context),
-            ),
+            // The header + creates plans; this slot logs a finished workout.
+            if (log != null)
+              TrainingQuickTile(
+                key: const ValueKey('training-quick-log'),
+                icon: const Icon(Icons.edit_note_rounded),
+                label: l10n.trainingLogQuick,
+                semanticLabel: l10n.trainingLogTitle,
+                tint: t.accentTintStrong,
+                ink: t.accentText,
+                onTap: log,
+              ),
             // A saved session owns the card until it is resumed or ended.
             if (plan.workouts.length > 1 && !widget.hasActiveSession)
               Builder(
@@ -772,6 +864,22 @@ class _TrainingScreenState extends State<TrainingScreen> {
             ),
           ],
         ),
+        if (coachLog != null) ...[
+          const SizedBox(height: 4),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: TextButton.icon(
+              key: const ValueKey('training-log-coach'),
+              onPressed: coachLog,
+              style: TextButton.styleFrom(
+                foregroundColor: t.accentText,
+                minimumSize: const Size(44, 44),
+              ),
+              icon: const Icon(Icons.mic_none_rounded, size: 20),
+              label: Text(l10n.trainingLogTellCoach),
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -858,6 +966,33 @@ class _TrainingScreenState extends State<TrainingScreen> {
             ),
             child: Text(l10n.trainingPageCreate),
           ),
+          // A finished workout needs no plan.
+          if (widget.onLogWorkout case final log?) ...[
+            const SizedBox(height: 6),
+            TextButton.icon(
+              key: const ValueKey('training-empty-log'),
+              onPressed: log,
+              style: TextButton.styleFrom(
+                foregroundColor: t.accentText,
+                minimumSize: const Size.fromHeight(44),
+              ),
+              icon: const Icon(Icons.edit_note_rounded, size: 20),
+              label: Text(l10n.trainingLogTitle),
+            ),
+          ],
+          if (widget.onOpenCoachLog case final coachLog?) ...[
+            if (widget.onLogWorkout == null) const SizedBox(height: 6),
+            TextButton.icon(
+              key: const ValueKey('training-empty-log-coach'),
+              onPressed: coachLog,
+              style: TextButton.styleFrom(
+                foregroundColor: t.accentText,
+                minimumSize: const Size.fromHeight(44),
+              ),
+              icon: const Icon(Icons.mic_none_rounded, size: 20),
+              label: Text(l10n.trainingLogTellCoach),
+            ),
+          ],
         ],
       ),
     );

@@ -41,8 +41,46 @@ TrainingPlan _plan(String id) => TrainingPlan(
 
 final _plans = [_plan('p1'), _plan('p2')];
 
-TrainingHistoryEntry _entry(Random random, int i, DateTime finishedAt) {
-  final plan = _plans[random.nextInt(_plans.length)];
+/// A free log's plan: the plans' exercise names respelled, two of them as
+/// the other kind (a repetition plank, a timed a2).
+TrainingPlan _logPlan(String sessionId) => TrainingPlan(
+  id: 'log_$sessionId',
+  proposal: CoachTrainingProposal(
+    title: 'Logged',
+    workouts: [
+      TrainingWorkout(
+        title: 'Logged',
+        exercises: [
+          for (final (id, name, timed) in const [
+            ('n_1', 'exercise   A1', false),
+            ('n_2', 'EXERCISE b1', false),
+            ('n_3', 'Exercise plank', false),
+            ('n_4', 'Exercise a2', true),
+          ])
+            TrainingExercise(
+              id: id,
+              name: name,
+              sets: 3,
+              reps: timed ? null : 8,
+              durationSeconds: timed ? 30 : null,
+              restSeconds: 0,
+            ),
+        ],
+      ),
+    ],
+  ),
+);
+
+TrainingHistoryEntry _entry(
+  Random random,
+  int i,
+  DateTime finishedAt, {
+  bool withLogs = false,
+}) {
+  final sessionId = '00000000-0000-4000-8000-${i.toString().padLeft(12, '0')}';
+  final plan = withLogs && random.nextInt(3) == 0
+      ? _logPlan(sessionId)
+      : _plans[random.nextInt(_plans.length)];
   final workoutIndex = random.nextInt(plan.workouts.length);
   final workout = plan.workouts[workoutIndex];
   final start = finishedAt.subtract(const Duration(minutes: 40));
@@ -72,7 +110,7 @@ TrainingHistoryEntry _entry(Random random, int i, DateTime finishedAt) {
   return TrainingHistoryEntry(
     snapshot: TrainingSessionSnapshot(
       plan: plan,
-      sessionId: '00000000-0000-4000-8000-${i.toString().padLeft(12, '0')}',
+      sessionId: sessionId,
       startedAt: start,
       actualSets: actuals,
       workoutIndex: workoutIndex,
@@ -90,7 +128,12 @@ TrainingHistoryEntry _entry(Random random, int i, DateTime finishedAt) {
 /// A history of [count] workouts, newest first like the store keeps it.
 /// Finish times cluster within four hours of local midnights, so the day and
 /// week edges are exercised (entries store UTC instants).
-List<TrainingHistoryEntry> _history(int seed, DateTime now, int count) {
+List<TrainingHistoryEntry> _history(
+  int seed,
+  DateTime now,
+  int count, {
+  bool withLogs = false,
+}) {
   final random = Random(seed);
   final used = <DateTime>{};
   final entries = <TrainingHistoryEntry>[];
@@ -101,7 +144,7 @@ List<TrainingHistoryEntry> _history(int seed, DateTime now, int count) {
       at = day.add(Duration(minutes: random.nextInt(8 * 60) - 4 * 60));
       // Distinct instants: ties are pinned separately below.
     } while (!used.add(at.toUtc()));
-    entries.add(_entry(random, i, at));
+    entries.add(_entry(random, i, at, withLogs: withLogs));
   }
   return entries..sort((a, b) => b.finishedAt.compareTo(a.finishedAt));
 }
@@ -171,6 +214,67 @@ List<TrainingSetActual> _refLast(
   }
   return const [];
 }
+
+// --- Reference rules for the training flow (spec 2026-10-03) ---------------
+
+String _refName(String name) =>
+    name.trim().split(RegExp(r'\s+')).join(' ').toLowerCase();
+
+/// "Last time" (spec A2): the plan's own sessions, else the newest session
+/// of any other plan or log with an exercise of the same kind and name.
+List<TrainingSetActual> _refLastFor(
+  List<TrainingHistoryEntry> history,
+  String planId,
+  TrainingExercise exercise,
+) {
+  final own = _refLast(
+    history,
+    planId,
+    exercise.id!,
+    isTimed: exercise.isTimed,
+  );
+  if (own.isNotEmpty) return own;
+  final sorted = [...history]
+    ..sort((a, b) => b.finishedAt.compareTo(a.finishedAt));
+  for (final entry in sorted) {
+    if (entry.snapshot.plan.id == planId) continue;
+    final exercises = entry.snapshot.workout.exercises;
+    for (var i = 0; i < exercises.length; i++) {
+      if (exercises[i].isTimed != exercise.isTimed ||
+          _refName(exercises[i].name) != _refName(exercise.name)) {
+        continue;
+      }
+      final sets =
+          entry.snapshot.actualSets
+              .where((a) => a.reference.exerciseIndex == i)
+              .toList()
+            ..sort(
+              (a, b) => a.reference.setIndex.compareTo(b.reference.setIndex),
+            );
+      if (sets.isNotEmpty) return sets;
+    }
+  }
+  return const [];
+}
+
+/// The rotation over the plan's own sessions only (logs have their own plan
+/// IDs): (shown workout, done today, up next). Up next is always the
+/// successor of the newest session; the shown one stays on it for its day.
+(int, bool, int) _refRotation(
+  TrainingPlan plan,
+  List<TrainingHistoryEntry> history,
+  DateTime now,
+) {
+  final own = history.where((e) => e.snapshot.plan.id == plan.id).toList()
+    ..sort((a, b) => b.finishedAt.compareTo(a.finishedAt));
+  if (own.isEmpty) return (0, false, 0);
+  final last = own.first.snapshot.workoutIndex;
+  final upNext = (last + 1) % plan.workouts.length;
+  final today = _refLocalDay(own.first.finishedAt) == _refLocalDay(now);
+  return (today ? last : upNext, today, upNext);
+}
+
+String _top(TrainingSetActual? set) => set == null ? '-' : _sets([set]);
 
 String _sets(List<TrainingSetActual> sets) => [
   for (final set in sets)
@@ -330,5 +434,66 @@ void main() {
     expect(kg([skipped, first, tie, older]), 60);
     expect(kg([skipped, tie, first, older]), 70);
     expect(kg([older, skipped]), 50);
+  });
+
+  test('nextTrainingWorkout matches the plan-only rotation and the '
+      'plan-then-name "Last time" rule, with logs in the history', () {
+    // p3 was never trained: every preview comes from the name fallback.
+    final plans = [..._plans, _plan('p3')];
+    var doneToday = 0;
+    for (var seed = 0; seed < 12; seed++) {
+      for (final now in nows) {
+        final all = _history(seed, now, 60, withLogs: true);
+        // Without future sessions the newest one is often today's.
+        final past = [
+          for (final entry in all)
+            if (!entry.finishedAt.isAfter(now)) entry,
+        ];
+        for (final history in [all, past]) {
+          for (final plan in plans) {
+            final reason =
+                'seed $seed, now $now, ${plan.id}, ${history.length} entries';
+            final next = nextTrainingWorkout(
+              plan: plan,
+              history: history,
+              now: now,
+            )!;
+            final (index, today, upNext) = _refRotation(plan, history, now);
+            if (today) doneToday++;
+            expect(
+              (next.workoutIndex, next.completedToday, next.upNextWorkoutIndex),
+              (index, today, upNext),
+              reason: reason,
+            );
+            expect(
+              [for (final preview in next.exercises) _top(preview.lastTopSet)],
+              [
+                for (final exercise in plan.workouts[index].exercises)
+                  _top(topTrainingSet(_refLastFor(history, plan.id, exercise))),
+              ],
+              reason: reason,
+            );
+            // Every workout, not just the rotation's (the player's prefill).
+            for (final workout in plan.workouts) {
+              for (final exercise in workout.exercises) {
+                expect(
+                  _sets(
+                    lastTrainingPerformanceFor(
+                      history,
+                      planId: plan.id,
+                      exercise: exercise,
+                    ),
+                  ),
+                  _sets(_refLastFor(history, plan.id, exercise)),
+                  reason: '$reason/${exercise.id}',
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+    // The split between done today and up next must actually be covered.
+    expect(doneToday, greaterThan(10));
   });
 }
