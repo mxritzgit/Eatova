@@ -2811,6 +2811,23 @@
   "trainingQuickCoach": "Ask Coach",
   "trainingVolumeTitle": "Weekly volume",
   "trainingVolumeLastWeek": "tonnes last week",
+  "trainingVolumeThisWeek": "tonnes this week",
+  "trainingVolumeWeekOf": "tonnes in the week of {date}",
+  "@trainingVolumeWeekOf": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "trainingVolumeShareOfLastWeek": "{percent}% of last week so far",
+  "@trainingVolumeShareOfLastWeek": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
   "trainingVolumeUp": "↑ {percent}% vs. the week before",
   "@trainingVolumeUp": {
     "placeholders": {

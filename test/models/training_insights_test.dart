@@ -641,9 +641,16 @@ void main() {
         false,
         true,
       ]);
-      expect(trend.lastFullWeek!.tonnes, closeTo(8.6, 1e-9));
+      expect(trend.weeks[4].tonnes, closeTo(8.6, 1e-9));
       expect(trend.currentWeek.volumeKg, 250);
-      expect(trend.changePercent!.round(), 9);
+      // Each week against the charted week before it.
+      expect(trend.changePercentAt(4)!.round(), 9);
+      expect(trend.changePercentAt(5), closeTo((250 - 8600) / 86, 1e-9));
+      expect(trend.changePercentAt(1), -100);
+      // The oldest bar has no charted predecessor; an empty one is no base.
+      expect(trend.changePercentAt(0), isNull);
+      expect(trend.changePercentAt(2), isNull);
+      expect(trend.changePercentAt(3), isNull);
     });
 
     test('no earlier volume -> no percentage; empty history -> zeros', () {
@@ -651,12 +658,15 @@ void main() {
         history: [_lifted(DateTime(2026, 9, 22, 18), 100, 10)],
         now: monday,
       );
-      expect(trend.lastFullWeek!.volumeKg, 1000);
-      expect(trend.changePercent, isNull);
+      expect(trend.weeks[4].volumeKg, 1000);
+      expect(trend.changePercentAt(4), isNull);
+      expect(trend.changePercentAt(5), -100);
       final empty = trainingVolumeTrend(history: const [], now: monday);
       expect(empty.weeks, hasLength(6));
       expect(empty.weeks.every((w) => w.volumeKg == 0), isTrue);
-      expect(empty.changePercent, isNull);
+      for (var i = 0; i < 6; i++) {
+        expect(empty.changePercentAt(i), isNull);
+      }
       // A shorter window still works; one full week has no comparison.
       final short = trainingVolumeTrend(
         history: const [],
@@ -664,7 +674,7 @@ void main() {
         fullWeeks: 1,
       );
       expect(short.weeks, hasLength(2));
-      expect(short.changePercent, isNull);
+      expect(short.changePercentAt(1), isNull);
     });
 
     test('weeks follow local days across the DST switch', () {

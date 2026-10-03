@@ -2652,3 +2652,20 @@ XCTests.
 3. #129 squash-merged as `46f956e`. Main CI on `46f956e`: 16 of 16 green,
    including RLS against PostgreSQL and both live migration drift checks.
 4. Device build `1.1.0+4` is the owner's step.
+
+## Weekly volume follows the selected week, 2026-10-03
+
+Owner report after a `/log` workout: the Training card read "0.0 tonnes last
+week" although this week's bar had the volume, and "Now" did nothing on tap.
+Cause: the card was built to show only the last full week
+(`weeks.length - 2`), and the bars carried no tap target. Now the running
+week is shown first ("tonnes this week", with "50% of last week so far"
+instead of a drop while the week is partial), and each bar selects its
+week, with a target over its bar, label and half of each gap. A picked week
+is remembered by its start date, so it stays picked across the Monday
+rollover and falls back to the running week once it leaves the chart.
+`TrainingVolumeTrend.changePercentAt(index)` replaces `lastFullWeek` and
+`changePercent`. App-only change, no backend step. Regression tests:
+`test/training/training_volume_card_test.dart`. They fail on the old card,
+and on five mutations (every bar selected, no tap handler, a lost
+selection, the share shown as a drop, a share for an empty week).
