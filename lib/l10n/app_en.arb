@@ -2542,6 +2542,7 @@
   "todayStepsNoGoal": "steps",
   "todayWorkoutNext": "Next workout · ≈ {minutes} min",
   "todayWorkoutDone": "Done today · ≈ {minutes} min",
+  "todayWorkoutInProgress": "In progress · Resume",
   "@todayMacroProgressValue": {
     "placeholders": {
       "value": {

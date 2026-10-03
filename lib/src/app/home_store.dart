@@ -240,6 +240,10 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   Set<String> get trainingHistoryDeletedIds =>
       Set.unmodifiable(_trainingHistoryDeletedIds);
 
+  /// Change fingerprint of [trainingHistoryDeletedIds] for selectors, which
+  /// must not copy the set per notify. Exact: receipts are only ever added.
+  int get trainingHistoryDeletedCount => _trainingHistoryDeletedIds.length;
+
   List<TrainingPlan> _trainingPlansState = const <TrainingPlan>[];
   bool _trainingPlansKnown = false;
   bool _trainingPlansAuthoritative = false;

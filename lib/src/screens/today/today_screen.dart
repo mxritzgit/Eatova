@@ -7,6 +7,7 @@ import '../../models/lifetime_stats.dart';
 import '../../models/logged_meal.dart';
 import '../../models/recipe_pick.dart';
 import '../../models/training_insights.dart';
+import '../../models/training_session.dart';
 import '../../models/user_profile.dart';
 import '../../services/day_math.dart';
 import '../../services/energy_check.dart';
@@ -45,6 +46,7 @@ class TodayScreen extends StatelessWidget {
     this.dayLoading = false,
     this.pick,
     this.nextWorkout,
+    this.activeSession,
     this.accentSlot,
     this.onDateSelected,
     this.onOpenProfile,
@@ -52,6 +54,7 @@ class TodayScreen extends StatelessWidget {
     this.onOpenPick,
     this.onOpenFoodLog,
     this.onOpenTraining,
+    this.onResumeWorkout,
     this.energyCheck,
     this.onAcceptEnergyCheck,
     this.onDismissEnergyCheck,
@@ -88,6 +91,11 @@ class TodayScreen extends StatelessWidget {
   /// The selected plan's next workout; shown on today only.
   final TrainingNextWorkout? nextWorkout;
 
+  /// The saved workout checkpoint (`HomeStore.trainingSession`): while it
+  /// exists the workout row names its workout as in progress and taps
+  /// [onResumeWorkout] instead. Today only.
+  final TrainingSessionSnapshot? activeSession;
+
   /// Today's next open main meal (`HomeStore.nextOpenMainSlot`, the rule
   /// behind [pick]); its add button is accent-filled. Ignored on archive
   /// days and while a day loads.
@@ -108,6 +116,7 @@ class TodayScreen extends StatelessWidget {
   final ValueChanged<RecipePick>? onOpenPick;
   final VoidCallback? onOpenFoodLog;
   final VoidCallback? onOpenTraining;
+  final VoidCallback? onResumeWorkout;
 
   /// The weekly energy check's proposal (docs/WEIGHT-TREND.md); shown on
   /// today only, under the day's numbers it would change.
@@ -129,6 +138,7 @@ class TodayScreen extends StatelessWidget {
     final nextSlot = istHeute && !dayLoading ? accentSlot : null;
     final shownPick = istHeute && !dayLoading ? pick : null;
     final workout = istHeute ? nextWorkout : null;
+    final session = istHeute ? activeSession : null;
     final check = istHeute && !dayLoading ? energyCheck : null;
     final healthMissing = steps == null && healthConnect;
     final showActivity =
@@ -137,6 +147,7 @@ class TodayScreen extends StatelessWidget {
           steps: steps,
           healthConnectMissing: healthMissing,
           workout: workout,
+          activeSession: session,
         );
 
     // No SafeArea and no side padding: the shell supplies the gutters. The
@@ -222,7 +233,9 @@ class TodayScreen extends StatelessWidget {
                 healthConnectMissing: healthMissing,
                 onReviewHealth: onOpenProfile,
                 workout: workout,
+                activeSession: session,
                 onOpenTraining: onOpenTraining,
+                onResumeWorkout: onResumeWorkout,
               ),
             ],
         ]),
