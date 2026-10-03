@@ -23,7 +23,7 @@ notes are in the [documentation index](docs/README.md).
 
 This feature summary was checked against `main` at `8b8ee12` on
 **2026-09-25**, through [PR #107](https://github.com/mxritzgit/Eatova/pull/107).
-The package is `eatova`; `pubspec.yaml` declares **1.1.0+3**. The Today, UI
+The package is `eatova`; `pubspec.yaml` declares **1.1.0+4**. The Today, UI
 and screenshot entries were updated on **2026-10-01** for the dark redesign
 ([PR #118](https://github.com/mxritzgit/Eatova/pull/118)).
 

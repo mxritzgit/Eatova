@@ -7,7 +7,7 @@ Checked against main through PR #88 on **2026-09-14**. Use
 
 - Flutter **3.47.2 stable**, Dart **3.13.2**, matching the workflow pin.
 - `pubspec.yaml` has the Dart lower bound `^3.11.5`; that is not the recommended
-  development SDK. The declared package version is `1.1.0+3`.
+  development SDK. The declared package version is `1.1.0+4`.
 - Android application ID: `com.eatova.app`, minimum API 26. Health Connect is
   separately availability-checked and is not promised on every supported OS.
 - iOS minimum: **15.0**. Building iOS requires macOS, Xcode and CocoaPods.
