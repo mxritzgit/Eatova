@@ -5,7 +5,7 @@ import { handleRequest } from "./handler.ts";
 
 type Row = Record<string, unknown>;
 type Call = { url: URL; method: string; body: Row };
-type Stage = "claim" | "classifier" | "answer" | "plan" | "recipe" | "image";
+type Stage = "claim" | "classifier" | "answer" | "plan" | "recipe" | "log" | "image";
 const USER_A = "11111111-1111-4111-8111-111111111111";
 const USER_B = "44444444-4444-4444-8444-444444444444";
 const SESSION_A = "22222222-2222-4222-8222-222222222222";
@@ -20,6 +20,16 @@ const PLAN = { schema_version: 1, title: "Saved plan", description: "", goal: "S
 ] };
 const RECIPE = { title: "Oats", description: "Breakfast", portion: "One bowl", ingredients: "- Oats\n- Banana",
   preparation: "1. Mix.", calories_kcal: 350, protein_g: 12, carbs_g: 55, fat_g: 8, estimated_g: 300 };
+const LOG_EXTRACTION = { status: "ok", refuse_reason: null, workout: { title: "Workout", performed_on: "2026-09-15",
+  duration_minutes: null, other_days_omitted: false, note: "", exercises: [
+    { name: "Squat", kind: "reps", duration_seconds: null, weight_unit: "kg", sets: [{ reps: 8, weight: 60 }] },
+  ] } };
+const PROPOSAL_FIELD = { plan: "training_plan", recipe: "recipe", log: "workout_log" } as const;
+
+/** Request fields that select a mode; /log also needs the client's day. */
+function modeFields(mode: "chat" | "plan" | "recipe" | "log"): Row {
+  return mode === "chat" ? {} : mode === "log" ? { mode, local_date: "2026-09-15" } : { mode };
+}
 
 function assert(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
@@ -128,6 +138,10 @@ async function withBackend(
         stage("recipe");
         return completion(JSON.stringify(options.invalidDraft ? {} : RECIPE));
       }
+      if (system.includes("You extract workout logs")) {
+        stage("log");
+        return completion(JSON.stringify(options.invalidDraft ? {} : LOG_EXTRACTION));
+      }
       stage("answer");
       return completion(options.reply ?? "A controlled movement and a comfortable range of motion are useful.");
     }
@@ -155,7 +169,9 @@ async function withBackend(
       },
     });
     equal(unexpected, [], "No unstubbed request");
-    assert(calls.every((call) => !["/rest/v1/recipes", "/rest/v1/training_plans"].includes(call.url.pathname)), "Proposals cannot adopt themselves");
+    assert(calls.every((call) => ![
+      "/rest/v1/recipes", "/rest/v1/training_plans", "/rest/v1/training_history", "/rest/v1/rpc/apply_sync_operation",
+    ].includes(call.url.pathname)), "Proposals cannot adopt themselves");
   } finally {
     globalThis.fetch = originalFetch;
     Date.now = originalNow;
@@ -167,10 +183,10 @@ async function withBackend(
   }
 }
 
-for (const mode of ["chat", "plan", "recipe"] as const) {
+for (const mode of ["chat", "plan", "recipe", "log"] as const) {
   Deno.test(`cancellation: ${mode} keeps the paid classifier slot when the next budget gate sees disconnect`, async () => {
     await withBackend({ abortAt: "classifier" }, async (backend) => {
-      const result = await backend.invoke({ message: "A simple meal or training idea", ...(mode === "chat" ? {} : { mode }) });
+      const result = await backend.invoke({ message: "A simple meal or training idea", ...modeFields(mode) });
       equal(result.status, 503, "Aborted budget fails closed");
       equal(result.body.error, "ai_budget_unavailable", "Stable public error");
       equal(backend.providers().length, 1, "Classifier was paid; no later provider call");
@@ -189,11 +205,11 @@ Deno.test("cancellation: first budget gate after a claimed quota cannot refund a
   });
 });
 
-for (const mode of ["chat", "plan", "recipe"] as const) {
+for (const mode of ["chat", "plan", "recipe", "log"] as const) {
   const stage: Stage = mode === "chat" ? "answer" : mode;
   Deno.test(`cancellation: ${mode} paid transport error after disconnect does not restore quota`, async () => {
     await withBackend({ abortAt: stage, failureAt: stage }, async (backend) => {
-      const result = await backend.invoke({ message: "A simple meal or training idea", ...(mode === "chat" ? {} : { mode }) });
+      const result = await backend.invoke({ message: "A simple meal or training idea", ...modeFields(mode) });
       equal(result.status, 502, "Transport error remains honest");
       equal(backend.providers().length, 2, "Classifier and attempted generation");
       equal(backend.refunds().length, 0, "No paid cancellation refund");
@@ -201,17 +217,18 @@ for (const mode of ["chat", "plan", "recipe"] as const) {
   });
   Deno.test(`outage: ${mode} transport error with a connected client still refunds exactly once`, async () => {
     await withBackend({ failureAt: stage }, async (backend) => {
-      const result = await backend.invoke({ message: "A simple meal or training idea", ...(mode === "chat" ? {} : { mode }) });
+      const result = await backend.invoke({ message: "A simple meal or training idea", ...modeFields(mode) });
       equal(result.status, 502, "Honest outage");
       equal(backend.refunds().map((call) => call.body), [{ p_user_id: USER_A, p_quota_day: "2026-09-15" }], "One refund on the charged day");
     });
   });
 }
 
-for (const stage of ["answer", "recipe", "image"] as const) {
+for (const stage of ["answer", "recipe", "image", "log"] as const) {
   Deno.test(`diagnostics: ${stage} transport exceptions cannot echo private input`, async () => {
     await withBackend({ failureAt: stage, privateError: "SYNTHETIC_PRIVATE_TRANSPORT_ERROR" }, async (backend) => {
-      const result = await backend.invoke({ message: "Oats with banana", ...(stage === "answer" ? {} : { mode: "recipe" }) });
+      const result = await backend.invoke({ message: "Oats with banana",
+        ...(stage === "answer" ? {} : stage === "log" ? modeFields("log") : { mode: "recipe" }) });
       equal(result.status, stage === "image" ? 200 : 502, "Optional image failure preserves the recipe");
       assert(!JSON.stringify(result.body).includes("SYNTHETIC_PRIVATE"), "Private input absent from response");
       assert(!backend.logs.join("\n").includes("SYNTHETIC_PRIVATE"), "Private input absent from logs");
@@ -219,10 +236,10 @@ for (const stage of ["answer", "recipe", "image"] as const) {
   });
 }
 
-for (const mode of ["plan", "recipe"] as const) {
+for (const mode of ["plan", "recipe", "log"] as const) {
   Deno.test(`cancellation: invalid ${mode} result after disconnect cannot restore the paid slot`, async () => {
     await withBackend({ abortAt: mode, invalidDraft: true }, async (backend) => {
-      const result = await backend.invoke({ message: "A simple meal or training idea", mode });
+      const result = await backend.invoke({ message: "A simple meal or training idea", ...modeFields(mode) });
       equal(result.status, 502, "Invalid proposal is still rejected");
       equal(backend.refunds().length, 0, "No cancellation refund through schema rejection");
       equal(backend.writes().filter((call) => call.body.role === "assistant").length, 0, "Invalid proposal never persisted");
@@ -230,9 +247,9 @@ for (const mode of ["plan", "recipe"] as const) {
   });
   Deno.test(`cancellation: a completed buffered ${mode} remains recoverable in owned history`, async () => {
     await withBackend({ abortAt: mode }, async (backend) => {
-      const result = await backend.invoke({ message: "A simple meal or training idea", mode });
+      const result = await backend.invoke({ message: "A simple meal or training idea", ...modeFields(mode) });
       equal(result.status, 200, "Completed proposal survives disconnect");
-      assert(result.body[mode === "plan" ? "training_plan" : "recipe"], "Proposal is available");
+      assert(result.body[PROPOSAL_FIELD[mode]], "Proposal is available");
       equal(backend.refunds().length, 0, "Completed paid work is not refunded");
       const assistant = backend.writes().filter((call) => call.body.role === "assistant");
       equal(assistant.length, 1, "Completed proposal persisted once");

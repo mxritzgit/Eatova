@@ -541,7 +541,9 @@ Deno.test("A3: gestreamter Prompt ist derselbe wie der gepufferte, nur mit strea
   const gepuffert = installFetch();
   let ohneStream: JsonRecord;
   try {
-    await handleRequest(makeRequest({ message: FRAGE, user_context: "Ziel: 2000 kcal" }));
+    // English locale on both: a streamed path that dropped it would fall back
+    // to German and differ here.
+    await handleRequest(makeRequest({ message: FRAGE, user_context: "Ziel: 2000 kcal", locale: "en" }));
     ohneStream = gepuffert.answerBodies()[0];
   } finally {
     gepuffert.restore();
@@ -549,7 +551,7 @@ Deno.test("A3: gestreamter Prompt ist derselbe wie der gepufferte, nur mit strea
   const gestreamt = installFetch({ answerDeltas: [LANGER_TEXT_A] });
   try {
     const res = await handleRequest(
-      makeRequest({ message: FRAGE, user_context: "Ziel: 2000 kcal" }, true),
+      makeRequest({ message: FRAGE, user_context: "Ziel: 2000 kcal", locale: "en" }, true),
     );
     await res.text();
     const mitStream = { ...gestreamt.answerBodies()[0] };
@@ -990,6 +992,29 @@ Deno.test("A3: der Rezept-Modus streamt nie, auch mit Accept-Header", async () =
     const body = await res.json() as JsonRecord;
     assert(body.recipe !== undefined, `kein Rezept im Body: ${JSON.stringify(body)}`);
     assertEquals(stub.answerBodies().length, 0, "kein Chat-Answer-Call im Rezept-Modus");
+  } finally {
+    stub.restore();
+  }
+});
+
+Deno.test("A3: der Log-Modus streamt nie, auch mit Accept-Header", async () => {
+  // Der ganze Vorschlag wird vor der Auslieferung validiert, wie bei /plan.
+  const draftContent = JSON.stringify({ status: "ok", refuse_reason: null, workout: {
+    title: "Workout", performed_on: null, duration_minutes: null, other_days_omitted: false, note: "",
+    exercises: [{ name: "Squat", kind: "reps", duration_seconds: null, weight_unit: "kg", sets: [{ reps: 5, weight: 100 }] }],
+  } });
+  const stub = installFetch({ draftContent });
+  try {
+    const res = await handleRequest(makeRequest({
+      message: "today squats 5 at 100 kg",
+      mode: "log",
+      local_date: new Date(Date.now()).toISOString().slice(0, 10),
+    }, true));
+    assertEquals(res.status, 200, "Status");
+    assertEquals(res.headers.get("content-type"), "application/json; charset=utf-8", "Content-Type");
+    const body = await res.json() as JsonRecord;
+    assert(body.workout_log !== undefined, `kein Log im Body: ${JSON.stringify(body)}`);
+    assertEquals(stub.answerBodies().length, 0, "kein Chat-Answer-Call im Log-Modus");
   } finally {
     stub.restore();
   }

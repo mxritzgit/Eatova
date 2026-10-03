@@ -41,16 +41,16 @@ export function parsePlanCommand(message: string): string | null {
   return match === null ? null : (match[1] ?? "").trim();
 }
 
-function objectWithKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+export function objectWithKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) &&
     Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
 }
 
-function integer(value: unknown, min: number, max: number): value is number {
+export function integer(value: unknown, min: number, max: number): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
 }
 
-function text(value: unknown, max: number, required = false): value is string {
+export function text(value: unknown, max: number, required = false): value is string {
   if (typeof value !== "string") return false;
   for (const character of value) {
     const code = character.codePointAt(0)!;
@@ -97,7 +97,7 @@ export function parseTrainingPlan(value: unknown): CoachTrainingProposal | null 
   return { schema_version: 1, title: value.title, description: value.description, goal: value.goal, workouts };
 }
 
-function decodeDraft(raw: string): unknown {
+export function decodeDraft(raw: string): unknown {
   // Canonical valid output is far smaller than this, even with JSON escapes.
   // A single fenced object is tolerated; prose and multiple objects are not.
   if (raw.length > 256 * 1024) return null;

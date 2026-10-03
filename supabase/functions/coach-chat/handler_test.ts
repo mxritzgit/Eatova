@@ -57,6 +57,11 @@ const PROMPT_LEAK_REPLY_EN =
 const SELF_HARM_TEXT = "ich will einfach nicht mehr aufwachen, alles ist sinnlos";
 const EATING_DISORDER_TEXT = "wie schaffe ich 10 kg in 5 tagen runter";
 
+// /log needs the client's calendar day within one day of the server's UTC day.
+function logMode(): JsonRecord {
+  return { mode: "log", local_date: new Date(Date.now()).toISOString().slice(0, 10) };
+}
+
 Deno.env.set("SUPABASE_URL", BASE_URL);
 Deno.env.set("SUPABASE_ANON_KEY", "test-anon-key");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
@@ -399,6 +404,8 @@ function makeRequest(payload: JsonRecord, token = userToken(USER_ID)): Request {
 // ---------------------------------------------------------------------------
 
 for (const locale of ["de", "en"] as const) {
+  // /log is deliberately absent: it logs with a fixed safety line instead (D4,
+  // handler_workout_log_test.ts).
   Deno.test(`Medical refusals address symptoms and injuries across modes (${locale})`, async () => {
     for (const extra of [{}, { image_base64: IMAGE_BASE64 }, { mode: "recipe" }, { mode: "plan" }]) {
       const stub = installFetch({ classifierCategory: "medical_risk" });
@@ -884,7 +891,7 @@ Deno.test("Review: erkannte Sicherheitskategorien bleiben bei unvollstaendigen M
 });
 
 Deno.test("Review: Provider-Sicherheitsfilter bleibt in jedem Modus ohne Refund gesperrt", async () => {
-  for (const extra of [{}, { image_base64: IMAGE_BASE64 }, { mode: "recipe" }, { mode: "plan" }]) {
+  for (const extra of [{}, { image_base64: IMAGE_BASE64 }, { mode: "recipe" }, { mode: "plan" }, logMode()]) {
     const stub = installFetch({ classifierContent: "", classifierFinishReason: "content_filter" });
     try {
       const res = await handleRequest(makeRequest({ message: "Bitte hilf mir damit", ...extra }));
@@ -2479,6 +2486,22 @@ Deno.test("F5-03/F5-07: System-Prompt verlangt Plain-Text und erklaert die App-D
   }
 });
 
+Deno.test("Chat answer: mixed languages follow the app locale; finished workouts point to /log", async () => {
+  for (const [locale, language] of [["en", "English"], ["de", "German"], [undefined, "German"]] as const) {
+    const stub = installFetch({ classifierCategory: "fitness" });
+    try {
+      await handleRequest(makeRequest({ message: "Heute leg day gemacht, what should I eat now?", ...(locale ? { locale } : {}) }));
+      const system = String((stub.answerBodies()[0].messages as { content: unknown }[])[0].content);
+      assert(system.endsWith(`APP LANGUAGE: ${language}`), `${locale}: app language closes the prompt`);
+      assert(/mixes languages[^\n]*app language/i.test(system), `${locale}: mixed input follows the app language`);
+      assert(!/Default to German/.test(system), `${locale}: no German default for mixed input`);
+      assert(system.includes("/log"), `${locale}: completed workouts suggest /log`);
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
 Deno.test("F5-07: Kontext-Message steht direkt VOR der aktuellen User-Message, nach der History", async () => {
   const stub = installFetch({
     classifierCategory: "nutrition",
@@ -2895,7 +2918,7 @@ Deno.test("Security S02: unusable image-caption classifier stops before answerin
 
 Deno.test("Provider budget: global exhaustion and disable stop all paid Coach paths", async () => {
   for (const providerBudgetReason of ["budget_exhausted", "disabled"] as const) {
-    for (const extra of [{}, { image_base64: IMAGE_BASE64 }, { mode: "recipe" }, { mode: "plan" }]) {
+    for (const extra of [{}, { image_base64: IMAGE_BASE64 }, { mode: "recipe" }, { mode: "plan" }, logMode()]) {
       const stub = installFetch({ providerBudgetReason });
       try {
         const res = await handleRequest(makeRequest({ message: "Please help with dinner", ...extra }));
@@ -2920,7 +2943,11 @@ Deno.test("Provider budget: question refunds cannot reopen paid classifier allow
 });
 
 Deno.test("Provider budget: invalid Coach input spends no provider allowance", async () => {
-  for (const payload of [{ message: "x".repeat(1001) }, { image_base64: "not-base64!" }, { mode: "plan", image_base64: IMAGE_BASE64 }]) {
+  for (const payload of [
+    { message: "x".repeat(1001) }, { image_base64: "not-base64!" }, { mode: "plan", image_base64: IMAGE_BASE64 },
+    { message: "Squats", mode: "foo" }, { message: "/log squats 3x5" }, { message: "Squats", ...logMode(), image_base64: IMAGE_BASE64 },
+    { message: "Squats", mode: "log" }, { message: "", ...logMode() },
+  ]) {
     const stub = installFetch();
     try {
       await handleRequest(makeRequest(payload));
@@ -2931,17 +2958,18 @@ Deno.test("Provider budget: invalid Coach input spends no provider allowance", a
 });
 
 Deno.test("Provider budget: each answer mode needs a second reservation after classifier", async () => {
-  for (const mode of ["chat", "stream", "recipe", "plan", "image-only"]) {
+  for (const mode of ["chat", "stream", "recipe", "plan", "log", "image-only"]) {
     const stub = installFetch({ providerBudgetCalls: mode === "image-only" ? 0 : 1 });
     try {
       const req = makeRequest(mode === "image-only" ? { image_base64: IMAGE_BASE64 } :
-        { message: "Please help with dinner", ...(mode === "recipe" || mode === "plan" ? { mode } : {}) });
+        { message: "Please help with dinner", ...(mode === "recipe" || mode === "plan" ? { mode } : mode === "log" ? logMode() : {}) });
       if (mode === "stream") req.headers.set("accept", "text/event-stream");
       const res = await handleRequest(req);
       assertEquals(res.status, 429, "budget denial before answer headers");
       assertEquals(stub.openRouterBodies.length, mode === "image-only" ? 0 : 1, "no answer/draft without its own reservation");
       const operations = stub.callsTo("reserve_ai_provider_call").map((call) => JSON.parse(call.body).p_operation);
-      assertEquals(operations.at(-1), mode === "recipe" ? "coach_recipe" : mode === "plan" ? "coach_plan" : "coach_answer", "correct paid operation");
+      // /log reuses the plan operation, so reserve_ai_provider_call is unchanged.
+      assertEquals(operations.at(-1), mode === "recipe" ? "coach_recipe" : mode === "plan" || mode === "log" ? "coach_plan" : "coach_answer", "correct paid operation");
     } finally { stub.restore(); }
   }
 });

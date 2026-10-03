@@ -80,6 +80,17 @@ export const PLAN_REFUSAL_CATEGORIES: ReadonlySet<ClassifierCategory> =
     "injection",
   ]);
 
+// /log path: a finished workout that mentions pain is still logged, with a
+// fixed safety line instead of a medical refusal (owner decision D4), and
+// scope (off_topic) is judged by the extraction prompt. Unusable classifier
+// output is refused like in every structured mode.
+export const LOG_REFUSAL_CATEGORIES: ReadonlySet<ClassifierCategory> =
+  new Set([
+    "self_harm",
+    "eating_disorder",
+    "injection",
+  ]);
+
 /**
  * Does Layer 2 run? The only exclusion is empty text, not the presence of an
  * image: a blind classify(key, "") would hit the fail-closed `off_topic`

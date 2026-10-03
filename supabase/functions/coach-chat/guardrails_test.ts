@@ -13,6 +13,7 @@ import {
   type ClassifierResult,
   IMAGE_REFUSAL_CATEGORIES,
   layer2RefusalReason,
+  LOG_REFUSAL_CATEGORIES,
   MAX_USER_CONTEXT_CHARS,
   RECIPE_REFUSAL_CATEGORIES,
   REFUSAL_CATEGORIES,
@@ -173,6 +174,32 @@ Deno.test("Rezept-Pfad schliesst off_topic aus (der Rezept-Prompt entscheidet)",
     assert(
       REFUSAL_CATEGORIES.has(category),
       `"${category}" ist im Rezept-Set, fehlt aber im Text-Set`,
+    );
+  }
+});
+
+Deno.test("Log path refuses crisis, eating disorder and injection only", () => {
+  // D4: a logged workout that mentions pain is logged with a fixed safety line
+  // instead of a medical refusal; scope (off_topic) is the extraction's call.
+  const expected = ["self_harm", "eating_disorder", "injection"];
+  assert(
+    LOG_REFUSAL_CATEGORIES.size === expected.length &&
+      expected.every((category) => LOG_REFUSAL_CATEGORIES.has(category as ClassifierCategory)),
+    `log set is ${[...LOG_REFUSAL_CATEGORIES].join(", ")}`,
+  );
+  assert(
+    LOG_REFUSAL_CATEGORIES !== RECIPE_REFUSAL_CATEGORIES && LOG_REFUSAL_CATEGORIES !== REFUSAL_CATEGORIES,
+    "the log set is its own instance",
+  );
+  assert(
+    layer2RefusalReason({ result: UNUSABLE, categories: LOG_REFUSAL_CATEGORIES, refuseOnUnusableOutput: true }) ===
+      "classifier_unusable",
+    "unusable output never reaches the extraction",
+  );
+  for (const category of ["medical_risk", "off_topic", "fitness"] as const) {
+    assert(
+      layer2RefusalReason({ result: classified(category), categories: LOG_REFUSAL_CATEGORIES, refuseOnUnusableOutput: true }) === null,
+      `"${category}" reaches the extraction`,
     );
   }
 });
