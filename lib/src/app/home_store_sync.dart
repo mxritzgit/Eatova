@@ -383,7 +383,14 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         );
         if (_disposed || _trainingSessionEnded) return;
         claim = await guard.tryClaim(s.userId, expectedSessionId: sessionId);
-        if (claim == null) return;
+        if (claim == null) {
+          // Another engine or a killed process's unexpired lease holds the
+          // claim. The lease is bounded, so keep a retry armed rather than
+          // waiting for the next lifecycle event.
+          if (vomTimer) _bumpRetryStage();
+          _scheduleOutboxRetry();
+          return;
+        }
       } else if (debugCache == null) {
         return;
       }
