@@ -203,7 +203,6 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
       _query,
     );
     final bottomInset = MediaQuery.paddingOf(context).bottom;
-    final keyboardUp = MediaQuery.viewInsetsOf(context).bottom > 0;
 
     // showEatovaSheet supplies handle, keyboard inset and the height cap; this
     // is only the inside: header, search, capped scroll area, no footer.
@@ -263,9 +262,9 @@ class _FavoritesSheetState extends State<FavoritesSheet> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   // Ordering one row is no choice. In the scroll area, not
-                  // the fixed head, and gone while the keyboard is up: at
-                  // 2x text the list would have no room left for results.
-                  if (pinned.length > 1 && !keyboardUp)
+                  // the fixed head: at 2x text with the keyboard up the head
+                  // would leave the list no room.
+                  if (pinned.length > 1)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 14),
                       child: _SortChips(
