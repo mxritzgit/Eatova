@@ -115,7 +115,9 @@ default, or infer that all later findings are fixed just because an earlier run 
 ## Decisions and useful constraints
 
 - Preserve the selected calorie model unless asked to revisit it. Its rationale
-  is in `docs/REVIEW-KCAL-2026-08-21.md` and Claude's calorie-review note.
+  is in `docs/REVIEW-KCAL-2026-08-21.md` and Claude's calorie-review note. The
+  user revisited it on 2026-10-03: the plan follows the weight trend, and a
+  weekly check proposes a bounded calibration ([WEIGHT-TREND.md](WEIGHT-TREND.md)).
 - OpenRouter-backed meal analysis and Coach answer/classifier calls default to
   `google/gemini-3.8-flash`, which accepts the existing image-to-text payload.
   Function secrets can still pin an operator-selected model explicitly.
@@ -2481,3 +2483,41 @@ The user decided the calorie-model questions in the chat:
 - Stage 2 needs a profile column (migration, column grants,
   `apply_sync_operation`, RLS tests). It is a separate PR, and its live
   migration needs the user's approval.
+
+### Weekly energy check, stage 2, 2026-10-03
+
+Branch `feat/energy-check`; its PR records CI and merge. The user approved
+the live migration and any function deploy in the chat. No function reads
+the new columns, so none was deployed.
+
+- The check (pure `EnergyCheck`, rules in [WEIGHT-TREND.md](WEIGHT-TREND.md)):
+  - window: 21 local days ending yesterday; at least 14 logged days (intake
+    of at least 50 % of the goal) and 4 weigh-in days spanning 14 days;
+  - observed expenditure = mean intake − weight slope × 7700; modelled =
+    maintenance with the current offset + mean step kcal;
+  - proposes only above 100 kcal AND two standard errors of the slope
+    (noise floor 0.5 kg per weigh-in, so daily weigh-ins need about
+    280 kcal); step rounded to 50, capped at ±150, offset at ±500;
+  - with a step source, only days with their own step value count.
+- Store: a proposal only on data the server answered in this session
+  (profile, weight log, the meal window without a row cap) and after the
+  window's step values were refreshed once. "Adjust" adds the step to the
+  current offset; both answers record `energy_checked_on`.
+- UI: a card on Today (Adjust / Not now) and, in live mode, the calibration
+  with a reset on the goals screen.
+- Data: `profiles.energy_adjustment_kcal` (smallint, ±1000 check) and
+  `energy_checked_on` (date), written only through `apply_sync_operation`.
+  A payload without the keys keeps the stored values, so older builds do
+  not reset them. No client column grants.
+- Rollout order: the live migration must precede the client, because
+  `ProfileSync.load` selects both columns.
+- Live, 2026-10-03, before the merge: `20261003100000` applied and registered
+  in one transaction through the Management API (52 registered migrations).
+  Read back: both columns with their defaults, the range check,
+  `apply_sync_operation` writing both (SECURITY DEFINER,
+  `search_path=pg_catalog`, EXECUTE only for `authenticated` and
+  `service_role`), no client column grants, existing rows at the defaults.
+- Verification before the PR: PostgreSQL 17.6 replay of all migrations plus
+  `rls_cross_user.sql`; an independent review (5 findings, all fixed with
+  tests that fail on the previous code); strict analysis; 6184 Flutter
+  tests, 96.61 % coverage.
