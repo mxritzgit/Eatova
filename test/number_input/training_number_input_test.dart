@@ -12,33 +12,31 @@ import 'number_input_cases.dart';
 
 // Training: the set's weight is a decimal and read "1.000" as 1 kg; reps are
 // whole and answered "3,5" with a generic message. In the plan editor
-// `digitsOnly` turned "3,5" repetitions into 35 and saved them.
+// `digitsOnly` turned "3,5" repetitions into 35 and saved them. The player's
+// set cells ([TrainingSetValueField]) flag such input instead of saving it.
 
 class _Satz {
-  int? reps;
-  double? kg;
-  bool? gueltig;
+  num? wert;
+  bool gueltig = true;
 }
 
-Future<_Satz> _pumpSatz(WidgetTester tester, Locale locale) async {
+const _feld = ValueKey('satz-feld');
+
+Future<_Satz> _pumpSatz(
+  WidgetTester tester,
+  Locale locale, {
+  required bool decimal,
+}) async {
   final satz = _Satz();
   await pumpLocalized(
     tester,
-    Column(
-      children: [
-        TrainingActualFields(
-          timed: false,
-          reps: 8,
-          weightKg: 60,
-          onChanged: (reps, kg) {
-            satz
-              ..reps = reps
-              ..kg = kg;
-          },
-          onValidityChanged: (valid) => satz.gueltig = valid,
-        ),
-        const TextField(key: ValueKey('anderswo')),
-      ],
+    TrainingSetValueField(
+      fieldKey: _feld,
+      value: decimal ? 60 : 8,
+      decimal: decimal,
+      semanticLabel: 'Satz 1',
+      onChanged: (value) => satz.wert = value,
+      onValidityChanged: (valid) => satz.gueltig = valid,
     ),
     locale: locale,
     scrollable: true,
@@ -46,12 +44,8 @@ Future<_Satz> _pumpSatz(WidgetTester tester, Locale locale) async {
   return satz;
 }
 
-/// Types [text] and moves focus away — the fields only show errors after
-/// they lost focus once.
-Future<void> _tippe(WidgetTester tester, String key, String text) async {
-  await tester.enterText(find.byKey(ValueKey(key)), text);
-  await tester.pump();
-  await tester.tap(find.byKey(const ValueKey('anderswo')));
+Future<void> _tippe(WidgetTester tester, String text) async {
+  await tester.enterText(find.byKey(_feld), text);
   await tester.pump();
 }
 
@@ -62,39 +56,34 @@ void main() {
 
     testWidgets('Satzgewicht [$code]: Komma, Punkt, Gruppe, keine Raterei',
         (tester) async {
-      final satz = await _pumpSatz(tester, locale);
-      const feld = 'training-actual-weight';
+      final satz = await _pumpSatz(tester, locale, decimal: true);
 
       for (final eingabe in const <String>['3,5', '3.5']) {
-        await _tippe(tester, feld, eingabe);
+        await _tippe(tester, eingabe);
         expect(satz.gueltig, isTrue, reason: eingabe);
-        expect(satz.kg, 3.5, reason: eingabe);
+        expect(satz.wert, 3.5, reason: eingabe);
       }
 
-      await _tippe(tester, feld, '1.000');
+      await _tippe(tester, '1.000');
       expect(satz.gueltig, isFalse, reason: 'frueher still 1 kg');
-      expect(satz.kg, 3.5, reason: 'der letzte gueltige Wert bleibt');
-      expect(find.text(mehrdeutigHinweis(l10n)), findsOneWidget);
+      expect(satz.wert, 3.5, reason: 'der letzte gueltige Wert bleibt');
 
-      await _tippe(tester, feld, '1.000,5');
+      await _tippe(tester, '1.000,5');
       expect(satz.gueltig, isTrue);
-      expect(satz.kg, 1000.5);
-      expect(find.text(mehrdeutigHinweis(l10n)), findsNothing);
+      expect(satz.wert, 1000.5);
     });
 
-    testWidgets('Wiederholungen [$code]: ganze Zahl mit klarem Hinweis',
-        (tester) async {
-      final satz = await _pumpSatz(tester, locale);
-      const feld = 'training-actual-reps';
+    testWidgets('Wiederholungen [$code]: nur ganze Zahlen', (tester) async {
+      final satz = await _pumpSatz(tester, locale, decimal: false);
 
-      for (final (eingabe, hinweis) in ganzzahlFaelle(l10n)) {
-        await _tippe(tester, feld, eingabe);
+      for (final (eingabe, _) in ganzzahlFaelle(l10n)) {
+        await _tippe(tester, eingabe);
         expect(satz.gueltig, isFalse, reason: eingabe);
-        expect(find.text(hinweis), findsOneWidget, reason: eingabe);
+        expect(satz.wert, isNull, reason: '$eingabe wurde nie gemeldet');
       }
-      await _tippe(tester, feld, '12');
+      await _tippe(tester, '12');
       expect(satz.gueltig, isTrue);
-      expect(satz.reps, 12);
+      expect(satz.wert, 12);
     });
 
     testWidgets('Planeditor [$code]: 3,5 Wiederholungen werden nicht zu 35',

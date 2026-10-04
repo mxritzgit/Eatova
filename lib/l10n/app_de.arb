@@ -2484,12 +2484,8 @@
       }
     }
   },
-  "trainingActualReps": "Geschaffte Wiederholungen",
-  "trainingActualWeight": "Gewicht (kg, optional)",
   "trainingActualOptional": "Optional",
   "trainingActualNoWeight": "Gewicht nicht erfasst",
-  "trainingActualInvalid": "Wiederholungen: 0–1000. Gewicht: 0–2000 kg oder leer.",
-  "trainingActualReview": "Deine Satzwerte",
   "trainingActualMissing": "Ergänze die Wiederholungen der erledigten Sätze, bevor du das Training speicherst.",
   "trainingHistorySourceChanged": "Dein Plan wurde geändert. Dieses Training wurde nicht gespeichert.",
   "trainingActualConfirmLegacyTimed": "Abgeschlossenes Intervall bestätigen",
