@@ -281,11 +281,14 @@ class MealAnalysisScreen extends StatelessWidget {
       initialSlot: currentMealSlot(),
     );
     if (scan == null || !context.mounted) return;
+    // As for the photo scan: offline the lookup fails before the sheet
+    // listens, which must not surface as an unhandled zone error.
+    final lookup = productService.lookupBarcode(scan.code)..ignore();
     // No retry/cancel: a lookup is cheap and its "not found" is final.
     final outcome = await showMealAnalysisSheet(
       context,
       slot: scan.slot,
-      resultFuture: productService.lookupBarcode(scan.code),
+      resultFuture: lookup,
       previewImage: null,
       onAdd: onAddMeal,
       onUpdateMeal: onUpdateMeal,
