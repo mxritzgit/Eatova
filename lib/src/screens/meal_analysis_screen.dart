@@ -217,9 +217,11 @@ class MealAnalysisScreen extends StatelessWidget {
       context,
       slot: capture.slot,
       resultFuture: first,
+      // Not MealAnalysisCancelled: the sheet reads that as its own close and
+      // would stay on the loading card. The photo belongs to the old session.
       retry: () => identity.isCurrent
           ? analyzer.analyze(request)
-          : Future.error(const MealAnalysisCancelled()),
+          : Future.error(const MealAnalysisReauthRequired()),
       cancellation: request.cancellation,
       previewImage: capture.previewBytes,
       onAdd: onAddMeal,
