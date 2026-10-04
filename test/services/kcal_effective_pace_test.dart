@@ -275,6 +275,37 @@ void main() {
       );
     });
 
+    test('Halten an der Untergrenze: bleibt es stabil, gibt es nichts zu warnen',
+        () {
+      // 40 kg / 150 cm / 57 y / female / sedentary: maintenance 1159 → 1150
+      // → floor 1200. +41 kcal/day ≙ 0.037 kg/week: the promise "stable" is
+      // kept. The stable sentence ("... statt Gewicht stabil zu erreichen")
+      // only makes sense for a pace that was promised.
+      const halten = UserProfile(
+        weightKg: 40,
+        heightCm: 150,
+        ageYears: 57,
+        sex: BiologicalSex.female,
+        targetWeightKg: 40,
+      );
+      final t = calc.calculate(halten);
+
+      expect(t.floorApplied, isTrue);
+      expect(t.goal, WeightGoal.maintain);
+      expect(t.effectivePaceLabel(), 'Gewicht stabil');
+      expect(t.paceWarning(), isNull);
+
+      // Once the floor moves the plan off "stable", the card names it.
+      final aelter = calc.calculate(halten.copyWith(ageYears: 75));
+      expect(aelter.effectivePaceLabel(), '+0,15 kg/Woche');
+      expect(
+        aelter.paceWarning(),
+        'Aus Sicherheitsgründen liegt dein Tagesziel bei 1200 kcal statt '
+        '1050 kcal. Dein tatsächliches Tempo ist damit +0,15 kg/Woche statt '
+        'Gewicht stabil.',
+      );
+    });
+
     test('Untergrenze kann ein Abnehm-Ziel in einen Ueberschuss drehen', () {
       // 35 kg / 140 cm / 80 y / neutral: maintenance 971, and the 1350 floor
       // sits 379 kcal above it, so losing weight would really mean gaining.
