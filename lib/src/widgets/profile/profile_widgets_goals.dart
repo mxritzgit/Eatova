@@ -19,6 +19,15 @@ class GoalsCard extends StatelessWidget {
   static double _fraction(int? value, int goal) =>
       value == null || goal <= 0 ? 0 : (value / goal).clamp(0.0, 1.0);
 
+  /// Hairline between rows, starting at the text column like the Food diary.
+  static Widget _rowDivider(AppTokens t) => Divider(
+    height: 1,
+    thickness: 1,
+    indent: 16 + 40 + 12,
+    endIndent: 16,
+    color: t.line,
+  );
+
   @override
   Widget build(BuildContext context) {
     final t = context.t;
@@ -31,11 +40,12 @@ class GoalsCard extends StatelessWidget {
     return AppCard(
       clip: true,
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           _GoalRow(
-            leading: IconTile(
-              icon: Icons.local_fire_department_rounded,
-              color: t.accent,
+            leading: _profileTile(
+              Icons.local_fire_department_rounded,
+              t.accent,
             ),
             title: l10n.profileGoalsCalories,
             // Exactly this text ('<actual>/<goal>', no spaces) is what
@@ -46,11 +56,14 @@ class GoalsCard extends StatelessWidget {
             fraction: _fraction(dailyKcal, profile.dailyKcalGoal),
             color: t.progressAccent,
           ),
-          Divider(height: 1, thickness: 1, color: t.line),
+          _rowDivider(t),
           _GoalRow(
-            leading: IconTile.custom(
-              color: t.activity,
-              child: const StepsIcon(),
+            leading: ExcludeSemantics(
+              child: IconTile.custom(
+                color: t.activity,
+                size: 40,
+                child: const StepsIcon(size: 20),
+              ),
             ),
             title: l10n.profileGoalsSteps,
             actual: '${dailySteps ?? '–'}',
@@ -59,19 +72,20 @@ class GoalsCard extends StatelessWidget {
             color: t.activity,
           ),
           if (hatMakros) ...<Widget>[
-            Divider(height: 1, thickness: 1, color: t.line),
+            _rowDivider(t),
             _MacroSplitBlock(protein: protein, carbs: carbs, fat: fat),
           ],
-          if (onEdit != null) ...<Widget>[
-            Divider(height: 1, thickness: 1, color: t.line),
-            SettingsRow(
-              key: const ValueKey('profile-edit-goals'),
-              leading: IconTile(icon: Icons.tune_rounded, color: t.accent),
-              title: l10n.profileGoalsEditCta,
-              titleColor: t.accentText,
-              onTap: onEdit,
+          if (onEdit != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+              child: SoftPillButton(
+                key: const ValueKey('profile-edit-goals'),
+                label: l10n.profileGoalsEditCta,
+                icon: Icons.tune_rounded,
+                expand: true,
+                onTap: onEdit,
+              ),
             ),
-          ],
         ],
       ),
     );
@@ -121,7 +135,7 @@ class _GoalRow extends StatelessWidget {
                     Text(
                       title,
                       style: AppType.ui(
-                        13.5,
+                        15,
                         weight: FontWeight.w600,
                         color: t.ink,
                       ),
@@ -198,13 +212,13 @@ class _MacroSplitBlock extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              IconTile(icon: Icons.donut_small_rounded, color: t.accent),
+              _profileTile(Icons.donut_small_rounded, null),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   l10n.profileMacroSplitTitle,
                   style:
-                      AppType.ui(13.5, weight: FontWeight.w600, color: t.ink),
+                      AppType.ui(15, weight: FontWeight.w600, color: t.ink),
                 ),
               ),
             ],

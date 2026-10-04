@@ -39,25 +39,36 @@ class WeightCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
             children: <Widget>[
-              Expanded(
-                child: Text(
-                  l10n.profileWeightTitle,
-                  style: AppType.ui(15, weight: FontWeight.w700, color: t.ink),
-                ),
-              ),
+              _profileTile(Icons.monitor_weight_outlined, t.carbs),
               const SizedBox(width: 12),
-              Text(
-                hatVerlauf
-                    ? l10n.profileWeightMeasurementsCount(entries.length)
-                    : '–',
-                textAlign: TextAlign.right,
-                style: AppType.ui(12, weight: FontWeight.w500, color: t.ink3),
+              // At large text the count moves under the title.
+              Expanded(
+                child: _SpreadRow(
+                  start: Text(
+                    l10n.profileWeightTitle,
+                    style: AppType.ui(
+                      16,
+                      weight: FontWeight.w700,
+                      color: t.ink,
+                    ),
+                  ),
+                  end: Text(
+                    hatVerlauf
+                        ? l10n.profileWeightMeasurementsCount(entries.length)
+                        : '–',
+                    textAlign: TextAlign.right,
+                    style: AppType.ui(
+                      12.5,
+                      weight: FontWeight.w500,
+                      color: t.ink2,
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 16),
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: <Widget>[
@@ -315,16 +326,18 @@ class BmiCard extends StatelessWidget {
     final bmiColor = BmiZones.colorFor(t, bmi);
 
     return AppCard(
-      padding: const EdgeInsets.fromLTRB(18, 10, 8, 18),
+      padding: const EdgeInsets.fromLTRB(18, 16, 8, 18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           Row(
             children: <Widget>[
+              _profileTile(Icons.accessibility_new_rounded, t.protein),
+              const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   l10n.profileStudioBodyDetails,
-                  style: AppType.ui(15, weight: FontWeight.w700, color: t.ink),
+                  style: AppType.ui(16, weight: FontWeight.w700, color: t.ink),
                 ),
               ),
               _InfoButton(
@@ -338,7 +351,7 @@ class BmiCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                const SizedBox(height: 2),
+                const SizedBox(height: 14),
                 Semantics(
                   key: const ValueKey('profile-bmi-summary'),
                   label: 'BMI',
@@ -390,11 +403,9 @@ class BmiCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                const SizedBox(height: 18),
-                Divider(height: 1, thickness: 1, color: t.line),
-                const SizedBox(height: 16),
-                // Wrap instead of Row: at large system font the facts stack
-                // instead of overflowing the line.
+                const SizedBox(height: 20),
+                // Three value capsules in a row; at large system font they
+                // stack, each on the full width, instead of overflowing.
                 LayoutBuilder(
                   builder: (context, constraints) {
                     final facts = <Widget>[
@@ -411,21 +422,31 @@ class BmiCard extends StatelessWidget {
                         value: profile.sex.label(l10n),
                       ),
                     ];
+                    const gap = 8.0;
                     final fits =
-                        constraints.maxWidth / 3 >=
+                        (constraints.maxWidth - gap * 2) / 3 >=
                         MediaQuery.textScalerOf(context).scale(84);
                     if (!fits) {
-                      return Wrap(
-                        spacing: 24,
-                        runSpacing: 12,
-                        children: facts,
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: <Widget>[
+                          for (var i = 0; i < facts.length; i++) ...<Widget>[
+                            if (i > 0) const SizedBox(height: gap),
+                            facts[i],
+                          ],
+                        ],
                       );
                     }
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        for (final fact in facts) Expanded(child: fact),
-                      ],
+                    return IntrinsicHeight(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: <Widget>[
+                          for (var i = 0; i < facts.length; i++) ...<Widget>[
+                            if (i > 0) const SizedBox(width: gap),
+                            Expanded(child: facts[i]),
+                          ],
+                        ],
+                      ),
                     );
                   },
                 ),
@@ -1093,7 +1114,7 @@ class _BmiScale extends StatelessWidget {
   }
 }
 
-/// One body fact: small caps label over the value.
+/// One body fact as a value capsule: label over the value.
 class _BodyFact extends StatelessWidget {
   const _BodyFact({required this.label, required this.value});
 
@@ -1103,17 +1124,27 @@ class _BodyFact extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        Text(label.toUpperCase(), style: AppType.eyebrow(t.ink2, size: 10.5)),
-        const SizedBox(height: 5),
-        Text(
-          value,
-          style: AppType.ui(15, weight: FontWeight.w700, color: t.ink),
-        ),
-      ],
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 11),
+      decoration: BoxDecoration(
+        color: t.surf2,
+        borderRadius: BorderRadius.circular(rControl),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Text(
+            label,
+            style: AppType.ui(12, weight: FontWeight.w600, color: t.ink2),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: AppType.ui(15, weight: FontWeight.w700, color: t.ink),
+          ),
+        ],
+      ),
     );
   }
 }

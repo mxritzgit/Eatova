@@ -1,10 +1,11 @@
 part of 'profile_widgets.dart';
 
-/// One metric tile: icon and uppercase label, large number, unit — the
-/// Today macro tile's language.
+/// One metric: a tinted icon tile beside its label and the large number with
+/// its unit — the Training quick tiles' and Today rows' language.
 ///
 /// [framed] draws the tile card; the hero passes `false` to set the streak
-/// straight onto its own surface. [tone] colors the icon (default `accentText`).
+/// straight onto its own surface. [tone] tints the icon tile (default the
+/// accent).
 ///
 /// Not named `StatTile`: this library imports the whole design barrel, and
 /// that generic a name would eventually collide.
@@ -38,30 +39,22 @@ class ProfileStatTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = context.t;
-    final color = tone ?? t.accentText;
     final numberStyle = AppType.display(
-      large ? 34 : 26,
+      large ? 30 : 22,
       weight: FontWeight.w700,
       color: t.ink,
-      letterSpacing: large ? -0.8 : -0.5,
+      letterSpacing: large ? -0.6 : -0.4,
       height: 1.1,
     );
-    final content = Column(
+    final texts = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisAlignment: MainAxisAlignment.center,
       children: <Widget>[
-        Row(
-          children: <Widget>[
-            if (icon != null) ...<Widget>[
-              Icon(icon, size: 15, color: color),
-              const SizedBox(width: 6),
-            ],
-            Flexible(
-              child: Text(label, style: AppType.eyebrow(t.ink2, size: 10.5)),
-            ),
-          ],
+        Text(
+          label,
+          style: AppType.ui(13, weight: FontWeight.w600, color: t.ink2),
         ),
-        SizedBox(height: large ? 8 : 10),
+        const SizedBox(height: 2),
         // Let the unit move below the number instead of shrinking text.
         Wrap(
           spacing: 5,
@@ -80,13 +73,22 @@ class ProfileStatTile extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 3),
               child: Text(
                 unit,
-                style: AppType.ui(12.5, weight: FontWeight.w500, color: t.ink3),
+                style: AppType.ui(13, weight: FontWeight.w500, color: t.ink3),
               ),
             ),
           ],
         ),
       ],
     );
+    final content = icon == null
+        ? texts
+        : Row(
+            children: <Widget>[
+              _profileTile(icon!, tone ?? t.accent, size: large ? 44 : 36),
+              SizedBox(width: large ? 12 : 10),
+              Expanded(child: texts),
+            ],
+          );
     if (!framed) return content;
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
@@ -99,6 +101,18 @@ class ProfileStatTile extends StatelessWidget {
     );
   }
 }
+
+/// The page's icon tile: [icon] on a rounded tile tinted by [tone], the glyph
+/// in the tone's readable ink ([IconTile]); neutral without a tone.
+/// Decorative: every tile stands next to its own label.
+Widget _profileTile(IconData icon, Color? tone, {double size = 40}) =>
+    ExcludeSemantics(
+      child: IconTile.custom(
+        color: tone,
+        size: size,
+        child: Icon(icon, size: size * 0.5),
+      ),
+    );
 
 /// Equal-height tiles side by side, stacking when larger text needs room.
 ///

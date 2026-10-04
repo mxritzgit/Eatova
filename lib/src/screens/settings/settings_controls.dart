@@ -16,9 +16,9 @@ import '../../widgets/design/sheets.dart'
 
 // ---------------------------------------------------------------------------
 // Controls of the settings page. Package-local clones because the shared
-// library covers none of these four cases: a key on the inner field, keys per
-// pill option, a tonal secondary button, and explanatory rows. Once the library
-// catches up, they can go.
+// library covers none of these cases: a key on the inner field, keys per pill
+// option, a row tile that takes any glyph, and explanatory rows. Once the
+// library catches up, they can go.
 // ---------------------------------------------------------------------------
 
 /// A row with a right-aligned number field: label, value, unit.
@@ -40,9 +40,14 @@ class SettingsNumberRow extends StatefulWidget {
     required this.fieldKey,
     this.errorText,
     this.onChanged,
+    this.leading,
   });
 
   final String label;
+
+  /// Icon tile before the label (the goals rows' tile). Dropped while the
+  /// capsule stacks under the label, so the label keeps the full width.
+  final Widget? leading;
 
   /// Unit shown right of the field.
   final String suffix;
@@ -180,8 +185,11 @@ class _SettingsNumberRowState extends State<SettingsNumberRow> {
       ),
     );
 
+    final leading = stacked ? null : widget.leading;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(18, 10, 14, 10),
+      // 12 px top and bottom: with a 44 px capsule the row is as tall as a
+      // settings row with its 40 px tile, so mixed groups keep one rhythm.
+      padding: const EdgeInsets.fromLTRB(18, 12, 14, 12),
       child: MergeSemantics(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -193,6 +201,10 @@ class _SettingsNumberRowState extends State<SettingsNumberRow> {
             ] else
               Row(
                 children: <Widget>[
+                  if (leading != null) ...<Widget>[
+                    leading,
+                    const SizedBox(width: 14),
+                  ],
                   Expanded(child: label),
                   const SizedBox(width: 12),
                   capsule,
@@ -200,13 +212,60 @@ class _SettingsNumberRowState extends State<SettingsNumberRow> {
               ),
             if (hatFehler) ...<Widget>[
               const SizedBox(height: 6),
-              Text(
-                widget.errorText!,
-                style:
-                    AppType.ui(12, weight: FontWeight.w500, color: t.danger),
+              Padding(
+                // Under the label, not under the tile.
+                padding: EdgeInsets.only(left: leading == null ? 0 : 54),
+                child: Text(
+                  widget.errorText!,
+                  style: AppType.ui(
+                    12,
+                    weight: FontWeight.w500,
+                    color: t.danger,
+                  ),
+                ),
               ),
             ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The icon tile that leads a goals row or a picker option: the settings
+/// rows' 40 px tile, neutral or tinted by [tone], with any glyph as [child]
+/// (an [Icon], the steps mark, a macro dot, a level meter). The glyph takes
+/// size and colour from the tile's [IconTheme]. Decorative: the row's title
+/// names it.
+class SettingsGlyphTile extends StatelessWidget {
+  const SettingsGlyphTile({super.key, required this.child, this.tone});
+
+  /// Edge length; the settings rows' tile.
+  static const double size = 40;
+
+  final Widget child;
+  final Color? tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = context.t;
+    final ton = tone;
+    return ExcludeSemantics(
+      child: Container(
+        width: size,
+        height: size,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: ton == null ? t.tile : ton.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(rChip),
+        ),
+        // On a tint the glyph needs [AppTokens.readableOnTint] to hold 3:1.
+        child: IconTheme(
+          data: IconThemeData(
+            size: 20,
+            color: ton == null ? t.inkMuted : t.readableOnTint(ton),
+          ),
+          child: child,
         ),
       ),
     );
@@ -456,75 +515,6 @@ class SettingsLanguagePill extends StatelessWidget {
       value: value,
       optionen: optionen,
       onChanged: onChanged,
-    );
-  }
-}
-
-/// Tonal button for a secondary action. `onTap == null` means disabled:
-/// dimmed and inert, not hidden. **A11y:** a bare [InkWell] carries neither
-/// `isButton` nor the enabled state, so the explicit [Semantics] is what keeps
-/// a disabled button from sounding enabled to a screen reader (D11).
-class SettingsSecondaryButton extends StatelessWidget {
-  const SettingsSecondaryButton({
-    super.key,
-    required this.label,
-    this.icon,
-    this.onTap,
-    this.tone,
-  });
-
-  final String label;
-  final IconData? icon;
-  final VoidCallback? onTap;
-
-  /// Tints fill and icon; defaults to the neutral tile tone.
-  final Color? tone;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final ton = tone;
-    return Semantics(
-      button: true,
-      enabled: onTap != null,
-      child: Opacity(
-        opacity: onTap == null ? 0.4 : 1,
-        // A tonal capsule, no outline: the tone tints the fill and the glyph,
-        // the label stays `ink` so it reads on every tint.
-        child: Material(
-          color: ton == null ? t.tile : ton.withValues(alpha: 0.14),
-          shape: const StadiumBorder(),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: onTap,
-            child: Container(
-              width: double.infinity,
-              constraints: const BoxConstraints(minHeight: 50),
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: <Widget>[
-                  if (icon != null) ...<Widget>[
-                    Icon(icon, size: 18, color: ton ?? t.ink2),
-                    const SizedBox(width: 8),
-                  ],
-                  Flexible(
-                    child: Text(
-                      label,
-                      textAlign: TextAlign.center,
-                      style: AppType.ui(
-                        14,
-                        weight: FontWeight.w700,
-                        color: t.ink,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
     );
   }
 }
