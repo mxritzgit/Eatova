@@ -362,14 +362,6 @@ class _BookmarkButton extends StatelessWidget {
   final bool saved;
   final VoidCallback onTap;
 
-  /// The glyph pairs with the glass, which takes the page tone: white on the
-  /// dark glass (the design), ink on the near-white light glass, where a
-  /// white glyph all but vanished.
-  static Color glyphColor(BuildContext context) =>
-      Theme.of(context).brightness == Brightness.light
-      ? context.t.ink
-      : context.t.onImage;
-
   @override
   Widget build(BuildContext context) {
     final t = context.t;
@@ -393,9 +385,12 @@ class _BookmarkButton extends StatelessWidget {
                 child: SizedBox.square(
                   dimension: 44,
                   child: Center(
+                    // Ink pairs with the glass in the page tone, like the AI
+                    // label; the always-white `onImage` vanished on the
+                    // near-white light glass.
                     child: _GlyphIcon(
                       _RecipeGlyph.bookmark,
-                      color: glyphColor(context),
+                      color: t.ink,
                       filled: saved,
                     ),
                   ),
