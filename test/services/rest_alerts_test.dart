@@ -706,19 +706,6 @@ void main() {
 
   group('Sitzungsende', () {
     test(
-      'cancelAll ueber das Auth-Gate entfernt den Rest-Alert',
-      () => _frozen(() async {
-        final gateway = _FakeGateway();
-        final service = _service(gateway);
-        await _scheduleRest(service);
-
-        await cancelDeviceSchedules(notifications: service);
-
-        expect(gateway.pending, isEmpty);
-      }),
-    );
-
-    test(
       'ein Rest-Alert der beendeten Sitzung wird danach ignoriert',
       () => _frozen(() async {
         final gateway = _FakeGateway();

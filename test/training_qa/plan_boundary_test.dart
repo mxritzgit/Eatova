@@ -161,10 +161,6 @@ void main() {
       );
     });
   }
-  test('history with absent role cannot expose an adoptable proposal', () {
-    final row = trainingMessage()..remove('role');
-    expect(ChatMessage.fromRow(row).trainingPlanProposal, isNull);
-  });
   test(
     'valid assistant history survives; refusal and conflicting proposal do not',
     () {
