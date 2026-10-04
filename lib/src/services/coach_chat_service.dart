@@ -218,11 +218,9 @@ class CoachChatService {
   /// anyway, otherwise the timeout the caller has always seen.
   ///
   /// `remaining` and `dailyLimit` stay null on purpose. Both are unknown here,
-  /// and the screen reads a null `remaining` as "keep the counter you have" —
-  /// exactly what it did on the old error path, so nothing regresses. Fetching
-  /// the counter would add a second round trip to an already slow request and,
-  /// as long as the server has not named COACH_DAILY_LIMIT itself, would only
-  /// echo the client's own assumption back at the user.
+  /// and the screen reads a null `remaining` as "keep the counter you have"
+  /// and asks the server for a fresh one in the background. Fetching it here
+  /// would add a second round trip to an already slow request.
   Future<CoachChatReply> _antwortNachFrist(
     String sessionId,
     String gesendet,

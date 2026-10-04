@@ -1186,6 +1186,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       // before the session comparison.
       if (!mounted || !identical(widget.service, svc)) return;
       _quotaUebernehmen(remaining: res.remaining, dailyLimit: res.dailyLimit);
+      if (res.remaining == null) _quotaNachfragen(svc);
       final answer = ChatMessage(
         id: 'local-r-${DateTime.now().microsecondsSinceEpoch}',
         role: ChatRole.assistant,
@@ -1246,6 +1247,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         _fehlgeschlagen = auftrag;
       });
     } on CoachChatException catch (e) {
+      _quotaNachfragen(svc);
       if (!_matchesConversation(svc, sessionId, conversationRevision)) return;
       setState(() {
         _error = e.message;
@@ -1309,6 +1311,16 @@ class _CoachChatScreenState extends State<CoachChatScreen>
     // [_switchToSession] does the full load; the history it fetches already
     // contains both the question and the answer.
     await _switchToSession(benutzt);
+  }
+
+  /// Asks the server for the counter after a request that named none: one
+  /// recovered from the transcript, or one that failed after it may have
+  /// spent its slot (deadline, lost connection, input the provider billed).
+  /// Keeping the old number would promise a question the server refuses.
+  void _quotaNachfragen(CoachChatService svc) {
+    if (mounted && identical(widget.service, svc)) {
+      unawaited(_refreshQuota(svc));
+    }
   }
 
   /// Takes over a quota state the server just named.
@@ -1721,6 +1733,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       // As in [_send]: the slot is spent even if the card is discarded.
       if (!mounted || !identical(widget.service, svc)) return;
       _quotaUebernehmen(remaining: res.remaining, dailyLimit: res.dailyLimit);
+      if (res.remaining == null) _quotaNachfragen(svc);
       // Store the image under the SERVER message id, so history reconstruction
       // and the live card use the same key.
       final serverId = res.assistantMessageId;
@@ -1797,6 +1810,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         _fehlgeschlagen = auftrag;
       });
     } on CoachChatException catch (e) {
+      _quotaNachfragen(svc);
       if (!_matchesConversation(svc, sessionId, conversationRevision)) return;
       setState(() {
         _error = e.message;
@@ -1944,6 +1958,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
         remaining: reply.remaining,
         dailyLimit: reply.dailyLimit,
       );
+      if (reply.remaining == null) _quotaNachfragen(svc);
       final answer = reply.answer;
       if (!isCurrentConversation()) {
         if (_activeSessionId == sessionId &&
@@ -1995,6 +2010,7 @@ class _CoachChatScreenState extends State<CoachChatScreen>
       });
       _entwurfZurueck(displayText);
     } on CoachChatException catch (error) {
+      if (isCurrentAccount()) _quotaNachfragen(svc);
       if (!isCurrentConversation()) return;
       setState(() {
         _error = error.message;
