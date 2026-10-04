@@ -3,10 +3,13 @@ import 'dart:developer' as dev;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'src/app/eatova_app.dart';
+import 'src/app/locale_controller.dart';
 import 'src/config/supabase_config.dart';
+import 'src/l10n/l10n.dart';
 import 'src/services/platform_health_service.dart';
 import 'src/services/crash_reporter.dart';
 import 'src/services/background_sync_scheduler.dart';
@@ -132,19 +135,21 @@ void _installGlobalErrorHandlers() {
   };
 }
 
-/// Test seam: the screen shown when booting fails.
+/// Test seam: the screen shown when booting fails. [showDetails] lets a test
+/// see the release text.
 @visibleForTesting
-Widget buildBootErrorApp(Object error) => _BootErrorApp(error: error);
+Widget buildBootErrorApp(Object error, {bool showDetails = !kReleaseMode}) =>
+    _BootErrorApp(error: error, showDetails: showDetails);
 
 class _BootErrorApp extends StatelessWidget {
-  const _BootErrorApp({required this.error});
+  const _BootErrorApp({required this.error, this.showDetails = !kReleaseMode});
 
   final Object error;
 
   /// Debug/profile: raw error text plus dart-define hint. Release: generic
   /// message, because '$error' can carry internal URLs or stack fragments.
   /// The error itself is already reported via CrashReporter.capture.
-  static const bool showDetails = !kReleaseMode;
+  final bool showDetails;
 
   @override
   Widget build(BuildContext context) {
@@ -158,6 +163,17 @@ class _BootErrorApp extends StatelessWidget {
       theme: buildEatovaTheme(Brightness.light),
       darkTheme: buildEatovaTheme(Brightness.dark),
       themeMode: kDarkOnly ? ThemeMode.dark : ThemeMode.system,
+      // Device language as in the app; the stored override is not read here,
+      // boot failed before anything else could be trusted.
+      supportedLocales: const [Locale('de'), Locale('en')],
+      localeListResolutionCallback: (locales, _) =>
+          resolveEatovaLocale(locales),
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       // Same status/navigation bar styling as the app itself.
       builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
         value: eatovaSystemUiOverlayStyle(Theme.of(context)),
@@ -166,6 +182,7 @@ class _BootErrorApp extends StatelessWidget {
       home: Builder(
         builder: (context) {
           final t = context.t;
+          final l10n = context.l10n;
           return Scaffold(
             body: SafeArea(
               child: SingleChildScrollView(
@@ -176,7 +193,7 @@ class _BootErrorApp extends StatelessWidget {
                     Icon(Icons.error_outline, color: t.danger, size: 56),
                     const SizedBox(height: 16),
                     Text(
-                      'Eatova konnte nicht starten',
+                      l10n.bootErrorTitle,
                       style: AppType.display(
                         22,
                         weight: FontWeight.w700,
@@ -199,9 +216,7 @@ class _BootErrorApp extends StatelessWidget {
                       ),
                     ] else
                       Text(
-                        'Beim Start ist ein Fehler aufgetreten. Bitte starte '
-                        'die App neu.\nWenn das Problem bleibt, erreichst du '
-                        'uns unter support@eatova.de.',
+                        l10n.bootErrorBody,
                         style: AppType.ui(14, color: t.ink2),
                       ),
                   ],

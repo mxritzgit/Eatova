@@ -1087,6 +1087,10 @@
   "commonBootUnansweredTitle": "Verbindung langsam",
   "commonBootUnansweredBody": "Deine Daten konnten noch nicht vom Server geladen werden. Prüf deine Verbindung und versuch es erneut.",
   "commonBootUnansweredRetry": "Erneut versuchen",
+  "bootErrorTitle": "Eatova konnte nicht starten",
+  "@bootErrorTitle": {"description": "Title of the screen shown when the app fails before it can start (no backend, no account yet)."},
+  "bootErrorBody": "Beim Start ist ein Fehler aufgetreten. Bitte starte die App neu.\nWenn das Problem bleibt, erreichst du uns unter support@eatova.de.",
+  "@bootErrorBody": {"description": "Release-build body of the start failure screen."},
 
   "settingsFieldRequired": "Bitte ausfüllen",
   "settingsRangeErrorKg": "{min}–{max} kg (ganze Zahl)",

@@ -1050,6 +1050,8 @@
   "commonBootUnansweredTitle": "Slow connection",
   "commonBootUnansweredBody": "Your data couldn't be loaded from the server yet. Check your connection and try again.",
   "commonBootUnansweredRetry": "Try again",
+  "bootErrorTitle": "Eatova couldn't start",
+  "bootErrorBody": "Something went wrong while starting. Please restart the app.\nIf the problem persists, contact us at support@eatova.de.",
 
   "settingsFieldRequired": "Please fill in",
   "settingsRangeErrorKg": "{min}–{max} kg (whole number)",
