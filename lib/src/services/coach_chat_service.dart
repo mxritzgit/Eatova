@@ -1479,16 +1479,19 @@ class _RequestIdentity {
   _RequestIdentity(this._client)
       : _initialSession = _client.auth.currentSession,
         _userId = _client.auth.currentUser?.id {
-    _subscription = _client.auth.onAuthStateChange.listen((state) {
+    // The sync stream: the async one replays its latest event to every new
+    // subscriber, an error included (a failed refresh, a bad callback link),
+    // and that error blocked every request until the next data event.
+    // Identity changes always arrive as data events.
+    // ignore: invalid_use_of_internal_member
+    _subscription = _client.auth.onAuthStateChangeSync.listen((state) {
       if (state.session?.user.id != _userId ||
           (state.event == AuthChangeEvent.signedIn &&
               !identical(state.session, _initialSession) &&
               identical(state.session, _client.auth.currentSession))) {
         _changed = true;
       }
-    }, onError: (Object error) {
-      _changed = true;
-    });
+    }, onError: (Object _, StackTrace __) {});
   }
 
   final SupabaseClient _client;
