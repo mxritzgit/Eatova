@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/recipe_import_result.dart';
+import 'package:eatova/src/screens/recipes/recipe_import_nutrition.dart';
 import 'package:eatova/src/screens/recipes/recipe_import_sheet.dart';
 import 'package:eatova/src/screens/recipes/recipes_screen.dart';
 import 'package:eatova/src/services/recipe_import_service.dart';
@@ -16,6 +17,8 @@ import 'package:eatova/src/services/sync_error_messages.dart';
 import 'package:eatova/src/widgets/design/design.dart';
 
 import 'support/harness.dart';
+import 'widgets/design/design_harness.dart'
+    show designHarness, expectTextStaysVisible;
 
 const _source = 'https://www.tiktok.com/@cook/video/123';
 const _bowl = RecipeImportCandidate(
@@ -1146,4 +1149,33 @@ void main() {
       expect(saved.last.caloriesKcal, 450);
     },
   );
+
+  testWidgets('nutrition tile labels meet AA contrast in both themes', (
+    tester,
+  ) async {
+    // The macro tones are marker colours: on their own tinted tile they reach
+    // only 3.4-4.0:1 in light mode, short of AA for 12 px labels.
+    const candidate = RecipeImportCandidate(
+      id: 'tiles',
+      title: 'Tiles',
+      ingredients: '100 g rice',
+      preparation: '',
+      caloriesKcal: 500,
+      proteinG: 30,
+      carbsG: 60,
+      fatG: 12,
+    );
+    for (final brightness in Brightness.values) {
+      await tester.pumpWidget(
+        designHarness(
+          const RecipeImportNutrition(candidate: candidate),
+          brightness: brightness,
+          locale: const Locale('en'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Carbs'), findsOneWidget);
+      expectTextStaysVisible(tester, minRatio: 4.5);
+    }
+  });
 }
