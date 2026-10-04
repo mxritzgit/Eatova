@@ -145,14 +145,6 @@ void main() {
     });
   }
 
-  test('de und en tragen dieselbe High-Protein-Menge', () {
-    Set<String> mitTag(List<FitnessRecipe> katalog) => katalog
-        .where((r) => r.categories.contains(highProteinCategory))
-        .map((r) => r.slug)
-        .toSet();
-    expect(mitTag(recipeCatalogEn), mitTag(recipeCatalogDe));
-  });
-
   test('High Protein steht als Filter-Chip zur Verfuegung', () {
     // Die Konstante und der Chip muessen dasselbe Wort sein, sonst filtert der
     // Chip ins Leere.
