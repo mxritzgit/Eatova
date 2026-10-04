@@ -18,6 +18,7 @@ import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/settings/goals_screen.dart';
 import 'package:eatova/src/screens/settings/settings_screen.dart';
 import 'package:eatova/src/services/sync_outbox.dart';
+import 'package:eatova/src/theme/theme_mode_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -51,18 +52,25 @@ Widget _settings({
   addTearDown(repo.dispose);
   final language = LocaleController();
   addTearDown(language.dispose);
-  return LocaleScope(
-    controller: language,
-    child: SettingsScreen(
-      email: _mail,
-      authRepository: repo,
-      onOpenGoals: () {},
-      onSignOut: () async {},
-      onDeleteAccount: (deleteRemote, _) async => deleteRemote(),
-      onExportData: () async => '{}',
-      pendingSyncCount: pending,
-      syncBlockedReason: blocked,
-      onSyncNow: () async {},
+  // The app shell always provides the scope; without it the appearance row
+  // (System / Light / Dark) drops out.
+  final themeMode = ThemeModeController();
+  addTearDown(themeMode.dispose);
+  return ThemeModeScope(
+    controller: themeMode,
+    child: LocaleScope(
+      controller: language,
+      child: SettingsScreen(
+        email: _mail,
+        authRepository: repo,
+        onOpenGoals: () {},
+        onSignOut: () async {},
+        onDeleteAccount: (deleteRemote, _) async => deleteRemote(),
+        onExportData: () async => '{}',
+        pendingSyncCount: pending,
+        syncBlockedReason: blocked,
+        onSyncNow: () async {},
+      ),
     ),
   );
 }
@@ -136,6 +144,7 @@ void main() {
         'settings-change-password',
         'settings-change-email',
         'settings-open-goals',
+        'settings-theme-mode',
         'settings-language',
         'settings-sync-status',
         'settings-export',
@@ -162,6 +171,30 @@ void main() {
         'settings-de',
         page: find.byKey(settingsPage),
       );
+    });
+  });
+
+  testWidgets('settings: the appearance row in each of its three states', (
+    tester,
+  ) async {
+    await withClock(Clock.fixed(_now), () async {
+      await _mount(tester, _settings());
+      final row = find.byKey(const ValueKey('settings-theme-mode'));
+      // Mid-screen, so the shot shows the row's title above the pill.
+      await Scrollable.ensureVisible(tester.element(row), alignment: 0.4);
+      await tester.pumpAndSettle();
+      expect(find.text('Appearance'), findsOneWidget);
+      for (final mode in const <String>['system', 'light', 'dark']) {
+        final segment = find.byKey(ValueKey('settings-theme-mode-$mode'));
+        await tester.tap(segment);
+        await tester.pumpAndSettle();
+        expect(
+          tester.getSemantics(segment),
+          isSemantics(isSelected: true, isButton: true),
+          reason: mode,
+        );
+        await captureDesignShot(tester, 'settings-theme-$mode');
+      }
     });
   });
 
