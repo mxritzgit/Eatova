@@ -38,12 +38,12 @@ import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
-import 'package:eatova/src/screens/onboarding/onboarding_controls.dart';
 import 'package:eatova/src/screens/onboarding_screen.dart';
 import 'package:eatova/src/screens/today/today_day_strip.dart';
 import 'package:eatova/src/services/local_day.dart';
 import 'package:eatova/src/theme/app_tokens.dart';
 import 'package:eatova/src/widgets/design/controls.dart';
+import 'package:eatova/src/widgets/design/option_card.dart';
 import 'package:eatova/src/widgets/kcal/edit_meal_sheet.dart';
 import 'package:eatova/src/widgets/kcal/food_glyphs.dart';
 
@@ -183,7 +183,7 @@ BoxDecoration _radioDeko(WidgetTester tester, Key key) =>
                   .descendant(
                     of: find.descendant(
                       of: find.byKey(key),
-                      matching: find.byType(OnboardingRadio),
+                      matching: find.byType(OptionRadio),
                     ),
                     matching: find.byType(AnimatedContainer),
                   )

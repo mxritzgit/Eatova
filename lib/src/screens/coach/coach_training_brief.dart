@@ -11,7 +11,6 @@ import '../../theme/app_tokens.dart';
 import '../../widgets/common/lively.dart';
 import '../../widgets/common/motion.dart';
 import '../../widgets/design/design.dart';
-import '../onboarding/onboarding_controls.dart';
 import '../training/training_exercise_list.dart';
 
 final class CoachTrainingBriefSubmission {
@@ -350,22 +349,22 @@ class _CoachTrainingBriefState extends State<_CoachTrainingBrief> {
         const SizedBox(height: 16),
         _PlanPreviewCard(plan: plan),
         _section(context, l10n.coachBriefIntent),
-        OnboardingOptionCard(
+        OptionCard(
           actionKey: const ValueKey('coach-brief-intent-adapt'),
           selected: _intent == CoachTrainingIntent.adapt,
           onTap: () => _choose(() => _intent = CoachTrainingIntent.adapt),
           title: l10n.coachBriefAdapt,
           subtitle: l10n.coachBriefAdaptHint,
-          leading: const OnboardingGlyphTile(icon: Icons.tune_rounded),
+          leading: const OptionGlyphTile(icon: Icons.tune_rounded),
         ),
         const SizedBox(height: 10),
-        OnboardingOptionCard(
+        OptionCard(
           actionKey: const ValueKey('coach-brief-intent-discuss'),
           selected: _intent == CoachTrainingIntent.discuss,
           onTap: () => _choose(() => _intent = CoachTrainingIntent.discuss),
           title: l10n.coachBriefDiscuss,
           subtitle: l10n.coachBriefDiscussHint,
-          leading: const OnboardingGlyphTile(icon: Icons.forum_outlined),
+          leading: const OptionGlyphTile(icon: Icons.forum_outlined),
         ),
       ],
       _section(context, l10n.coachBriefGoal),
