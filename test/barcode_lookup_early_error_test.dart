@@ -12,10 +12,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
+import 'package:image_picker/image_picker.dart';
+
 import 'package:eatova/src/l10n/l10n.dart';
+import 'package:eatova/src/models/meal_analysis_request.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
+import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/screens/meal_analysis_screen.dart';
+import 'package:eatova/src/services/meal_analyzer.dart';
+import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
+import 'package:eatova/src/widgets/kcal/add_meal_sheet.dart';
 
 import 'support/harness.dart';
 
@@ -79,6 +86,17 @@ class _OfflineProducts implements ProductLookupService {
       const <ProductSearchResult>[];
 }
 
+class _UnusedAnalyzer implements MealAnalyzer {
+  @override
+  Future<MealAnalysisResult> analyze(MealAnalysisRequest request) =>
+      throw UnimplementedError();
+}
+
+class _NoPhotos implements MealPhotoInput {
+  @override
+  Future<MealPhotoSelection?> pick(ImageSource source) async => null;
+}
+
 void main() {
   testWidgets(
     'ein sofort scheiternder Barcode-Lookup landet im Sheet, nicht als '
@@ -98,6 +116,50 @@ void main() {
       );
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('food-action-barcode')));
+      await tester.pumpAndSettle();
+
+      scanner.emit('4001724012345');
+      await tester.pumpAndSettle();
+
+      expect(products.lookups, <String>['4001724012345']);
+      expect(
+        find.text(enL10n.foodAnalysisOfflineMessage),
+        findsOneWidget,
+        reason: 'the sheet still reports the error it received',
+      );
+    },
+  );
+
+  testWidgets(
+    'im Hinzufuegen-Sheet landet ein sofort scheiternder Barcode-Lookup '
+    'ebenso im Sheet, nicht als unbehandelter Fehler',
+    (tester) async {
+      final prior = MobileScannerPlatform.instance;
+      final scanner = _FakeScanner();
+      MobileScannerPlatform.instance = scanner;
+      addTearDown(() => MobileScannerPlatform.instance = prior);
+      final products = _OfflineProducts();
+      pinPhoneViewport(tester);
+
+      await tester.pumpWidget(
+        localizedApp(
+          AddMealSheet(
+            slot: MealSlot.lunch,
+            analyzer: _UnusedAnalyzer(),
+            productService: products,
+            photoInput: _NoPhotos(),
+            favorites: const [],
+            onAdd: (_, _) => 'id-1',
+            onUpdateMeal: (_, _) {},
+            onRemoveFavorite: (_) {},
+          ),
+          locale: const Locale('en'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final barcode = find.byKey(const ValueKey('analyse-barcode-button'));
+      await tester.ensureVisible(barcode);
+      await tester.tap(barcode);
       await tester.pumpAndSettle();
 
       scanner.emit('4001724012345');

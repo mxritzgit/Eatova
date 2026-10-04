@@ -901,9 +901,11 @@ class _AddMealSheetState extends State<AddMealSheet> {
       context,
       slot: _selectedSlot,
       resultFuture: first,
+      // Not MealAnalysisCancelled: the sheet reads that as its own close and
+      // would stay on the loading card. The photo belongs to the old session.
       retry: () => identity.isCurrent
           ? analyzer.analyze(request)
-          : Future.error(const MealAnalysisCancelled()),
+          : Future.error(const MealAnalysisReauthRequired()),
       cancellation: request.cancellation,
       previewImage: selection.previewBytes,
       onAdd: _logAndMirror,
@@ -929,11 +931,14 @@ class _AddMealSheetState extends State<AddMealSheet> {
     // header would show one slot while the hit went to another.
     _selectSlot(scan.slot);
 
+    // As for the photo scan: offline the lookup fails before the sheet
+    // listens, which must not surface as an unhandled zone error.
+    final lookup = widget.productService.lookupBarcode(scan.code)..ignore();
     // No retry/cancel: a lookup is cheap and its "not found" is final.
     final outcome = await showMealAnalysisSheet(
       context,
       slot: scan.slot,
-      resultFuture: widget.productService.lookupBarcode(scan.code),
+      resultFuture: lookup,
       previewImage: null,
       onAdd: _logAndMirror,
       onUpdateMeal: _updateAndMirror,

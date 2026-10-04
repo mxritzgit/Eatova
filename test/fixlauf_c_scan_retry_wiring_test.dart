@@ -306,6 +306,23 @@ void main() {
       expect(find.text('Bowl'), findsWidgets);
     });
 
+    testWidgets('Retry nach Kontowechsel laedt nicht endlos, sondern nennt '
+        'die Anmeldung — und laedt nichts hoch', (tester) async {
+      addTearDown(RecipeImageStore.resetInstance);
+      final analyzer = await pumpSheet(tester);
+
+      // A new account scope trips the scan's identity fence.
+      RecipeImageStore.resetInstance();
+      await tester.tap(find.byKey(const ValueKey('analyse-retry')));
+      await _flush(tester);
+
+      expect(analyzer.requests, hasLength(1),
+          reason: 'das Foto geht nicht unter der neuen Sitzung raus');
+      expect(find.byKey(const ValueKey('analyse-loading')), findsNothing,
+          reason: 'ohne Antwort hing das Sheet im Ladezustand');
+      expect(find.text(deL10n.foodReauthRequiredError), findsOneWidget);
+    });
+
     testWidgets('„Manuell eintragen" öffnet das Manuell-Sheet, der Eintrag '
         'landet im gewählten Slot und in der Liste', (tester) async {
       // Same pin as the camera case above: the sheet's slot is lunch, so
