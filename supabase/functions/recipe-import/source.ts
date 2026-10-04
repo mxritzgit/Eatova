@@ -133,10 +133,13 @@ export async function loadSource(text: string, signal: AbortSignal): Promise<Sou
       } catch { /* Login pages, challenges and unavailable public pages stay unavailable. */ }
     }
     if (!caption) return result;
-    caption = [...caption].filter((char) => {
+    // The app rejects the whole response for a C0 control in any text field.
+    const inert = (value: string) => [...value].filter((char) => {
       const code = char.charCodeAt(0);
       return code !== 127 && (code >= 32 || code === 9 || code === 10 || code === 13);
     }).join('');
+    caption = inert(caption);
+    author = inert(author).trim();
     result.source.title = caption.slice(0, 160);
     if (author) result.source.author = author.slice(0, 160);
     result.source.unavailable = false;
