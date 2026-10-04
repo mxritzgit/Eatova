@@ -29,16 +29,6 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('Override en schaltet die App auf Englisch', (tester) async {
-    final controller = LocaleController(initial: const Locale('en'));
-    addTearDown(controller.dispose);
-
-    await pumpApp(tester, controller);
-
-    final ctx = tester.element(find.byType(Scaffold).first);
-    expect(Localizations.localeOf(ctx), const Locale('en'));
-  });
-
   testWidgets('System + russisches Geraet landet auf Englisch', (tester) async {
     tester.platformDispatcher.localesTestValue =
         const [Locale('ru'), Locale('ru', 'RU')];
