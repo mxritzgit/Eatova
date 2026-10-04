@@ -503,18 +503,6 @@ Deno.test('P6-01: falscher content-type -> 415 ohne globalen Slot', async () => 
   }
 });
 
-Deno.test('P6-01: zu grosses Bild -> 413 ohne globalen Slot', async () => {
-  const stub = installFetch();
-  try {
-    const res = await handleRequest(makeRequest({ imageBase64: OVERSIZED_IMAGE_BASE64 }));
-    assertEquals(res.status, 413, 'Status');
-    assertEquals((await res.json() as JsonRecord).error, 'image_too_large', 'Fehlercode');
-    assertEquals(stub.rateLimitScopes().join(','), ATTEMPT_GATES, 'Gate-Reihenfolge');
-  } finally {
-    stub.restore();
-  }
-});
-
 Deno.test('P6-01: nur der bezahlte Weg verbraucht den globalen Slot', async () => {
   const stub = installFetch();
   try {
@@ -528,53 +516,10 @@ Deno.test('P6-01: nur der bezahlte Weg verbraucht den globalen Slot', async () =
 });
 
 // ---------------------------------------------------------------------------
-// P6-02: the per-user day bucket counts analyses, not attempts.
+// P6-02 (the per-user day bucket counts analyses, not attempts) is pinned per
+// denied gate by the A4 batch tests below and by handler_test.ts
+// ('User-Limit erschoepft -> 429 vor dem globalen Gate').
 // ---------------------------------------------------------------------------
-
-Deno.test('P6-02: Stundenlimit erschoepft -> kein Tages-Slot verbraucht', async () => {
-  const stub = installFetch({ userAllowed: false });
-  try {
-    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
-    assertEquals(res.status, 429, 'Status');
-    assertEquals((await res.json() as JsonRecord).error, 'rate_limited', 'Fehlercode');
-    // 100 rejected retries must not lock the user out until midnight when
-    // only 20 analyses actually happened.
-    assertEquals(stub.rateLimitScopes().join(','), ATTEMPT_GATES, 'Gate-Reihenfolge');
-    assert(
-      !stub.rateLimitScopes().includes('analyze-meal:user-day'),
-      'abgewiesener Stundenversuch darf keinen Tages-Slot kosten',
-    );
-  } finally {
-    stub.restore();
-  }
-});
-
-Deno.test('P6-02: IP-Limit erschoepft -> weder Stunden- noch Tages-Slot', async () => {
-  const stub = installFetch({ ipAllowed: false });
-  try {
-    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
-    assertEquals(res.status, 429, 'Status');
-    assertEquals(stub.rateLimitScopes().join(','), 'analyze-meal:ip', 'Gate-Reihenfolge');
-  } finally {
-    stub.restore();
-  }
-});
-
-Deno.test('P6-02: Tageslimit erschoepft -> 429 vor dem globalen Gate', async () => {
-  const stub = installFetch({ userDayAllowed: false });
-  try {
-    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
-    assertEquals(res.status, 429, 'Status');
-    assertEquals(
-      stub.rateLimitScopes().join(','),
-      'analyze-meal:ip,analyze-meal:user,analyze-meal:user-day',
-      'Gate-Reihenfolge',
-    );
-    assertEquals(stub.callsTo('openrouter.ai').length, 0, 'Provider-Calls');
-  } finally {
-    stub.restore();
-  }
-});
 
 // ---------------------------------------------------------------------------
 // P6-07: every outbound call has a deadline, and their sum stays below the

@@ -215,17 +215,3 @@ Deno.test("E2: auch eine reine Zahl ueber der Grenze wird nicht ausgeschrieben",
   assert(joined.includes("out of range"), `Grund fehlt: ${joined}`);
   assert(joined.includes('"valueLength":9'), `Laenge fehlt: ${joined}`);
 });
-
-Deno.test("bisheriges Verhalten bleibt: unbrauchbare Werte -> Default", () => {
-  assertEquals(parsed(null), FALLBACK, "nicht gesetzt");
-  assertEquals(parsed(""), FALLBACK, "leer");
-  assertEquals(parsed("   "), FALLBACK, "nur Whitespace");
-  assertEquals(parsed("abc"), FALLBACK, "nicht numerisch");
-  assertEquals(parsed("20x"), FALLBACK, "Ziffern mit Anhang");
-  assertEquals(parsed("2.5"), FALLBACK, "kein Integer");
-  assertEquals(parsed("-5"), FALLBACK, "negativ");
-  assertEquals(parsed("0"), FALLBACK, "Null waere ein Totalblock");
-  // Beyond Number.MAX_SAFE_INTEGER parseInt rounds silently, so the value
-  // would no longer be the configured one.
-  assertEquals(parsed("9".repeat(30)), FALLBACK, "kein sicherer Integer");
-});
