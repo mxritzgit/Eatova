@@ -100,7 +100,8 @@ changes without a tap. User decision of 2026-10-03: with confirmation.
 - At least 7 days since the last answered check (`energy_checked_on`).
 - The window's step values have been refreshed from the health store once in
   this session (full-day totals). A value pinned before its day ended would
-  understate the model.
+  understate the model. A session that runs into a new day re-reads the day
+  that just ended before the check may propose again.
 - Enough data in the **window**: the 21 local days that end yesterday (today
   is not complete yet).
   - At least 14 **logged days**. A day counts when its logged intake reaches

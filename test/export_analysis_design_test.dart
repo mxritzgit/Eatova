@@ -196,8 +196,6 @@ void main() {
               child: localizedApp(
                 DataExportSheet(
                   snapshot: Future.value(_export()),
-                  fallbackSnapshot: '',
-                  vollstaendig: true,
                 ),
                 brightness: brightness,
                 locale: locale,
@@ -264,8 +262,6 @@ void main() {
         tester,
         DataExportSheet(
           snapshot: pending.future,
-          fallbackSnapshot: '',
-          vollstaendig: true,
         ),
       );
       final copy = find.descendant(

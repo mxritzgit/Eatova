@@ -1031,6 +1031,33 @@ void main() {
       expect(host.awake.on, isFalse);
     });
 
+    testWidgets('a sheet or menu over a running interval releases the display '
+        'until the player is on top again', (tester) async {
+      final host = await _open(tester, plan: timerPlan());
+      await _tap(tester, 'training-set-check-0-0');
+      await _elapse(tester, host, const Duration(seconds: 4));
+      expect(host.awake.on, isTrue);
+      // A finish sheet left open must not keep the phone lit, also not
+      // after the interval behind it has ended.
+      await _tap(tester, 'training-timer-finish');
+      await tester.pumpAndSettle();
+      expect(_key('training-finish-sheet'), findsOneWidget);
+      expect(host.awake.on, isFalse, reason: 'the sheet is on top');
+      await _elapse(tester, host, const Duration(seconds: 5));
+      expect(host.awake.on, isFalse);
+      await _tap(tester, 'training-finish-keep');
+      await tester.pumpAndSettle();
+      expect(host.awake.on, isTrue, reason: 'the interval still runs');
+      await _tap(tester, 'training-timer-menu');
+      await tester.pumpAndSettle();
+      expect(host.awake.on, isFalse, reason: 'the menu is on top');
+      await tester.tapAt(const Offset(8, 840));
+      await tester.pumpAndSettle();
+      expect(host.awake.on, isTrue);
+      await tester.pumpWidget(const SizedBox());
+      expect(host.awake.on, isFalse);
+    });
+
     testWidgets('a repetition workout never holds the display', (tester) async {
       final host = await _open(tester);
       await _tap(tester, 'training-set-check-0-0');

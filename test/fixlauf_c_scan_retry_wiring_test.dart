@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_request.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
@@ -17,6 +18,7 @@ import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/meal_camera_launcher.dart';
 import 'package:eatova/src/services/meal_photo_input.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
+import 'package:eatova/src/services/recipe_image_store.dart';
 import 'package:eatova/src/widgets/kcal/add_meal_sheet.dart';
 
 import 'support/harness.dart';
@@ -180,6 +182,38 @@ void main() {
       expect(find.text('Bowl'), findsWidgets);
     });
 
+    testWidgets('Retry nach Kontowechsel laedt nicht endlos, sondern nennt '
+        'die Anmeldung — und laedt nichts hoch', (tester) async {
+      _telefon(tester);
+      addTearDown(RecipeImageStore.resetInstance);
+      final analyzer = _ZweiterVersuchAnalyzer();
+      await tester.pumpWidget(_app(MealAnalysisScreen(
+        dailyConsumedKcal: 0,
+        analyzer: analyzer,
+        cameraLauncher: _Kamera(),
+        productService: _StummerProduktdienst(),
+      )));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('food-action-ai')));
+      await _flush(tester);
+      await tester.ensureVisible(find.byKey(const ValueKey('meal-scan-start')));
+      await tester.tap(find.byKey(const ValueKey('meal-scan-start')));
+      await _flush(tester);
+      expect(find.byKey(const ValueKey('analyse-error')), findsOneWidget);
+
+      // Sign-out or account switch while the error card is up: a new
+      // account scope trips the scan's identity fence.
+      RecipeImageStore.resetInstance();
+      await tester.tap(find.byKey(const ValueKey('analyse-retry')));
+      await _flush(tester);
+
+      expect(analyzer.requests, hasLength(1),
+          reason: 'das Foto geht nicht unter der neuen Sitzung raus');
+      expect(find.byKey(const ValueKey('analyse-loading')), findsNothing,
+          reason: 'ohne Antwort hing das Sheet im Ladezustand');
+      expect(find.text(deL10n.foodReauthRequiredError), findsOneWidget);
+    });
+
     testWidgets('„Manuell eintragen" öffnet das Manuell-Sheet und loggt in '
         'den Slot der Aufnahme', (tester) async {
       // Pinned clock, and the reason is the whole point of the case:
@@ -270,6 +304,23 @@ void main() {
           same(analyzer.requests[0].cancellation));
       expect(analyzer.requests[1].imageId, 'gallery-photo');
       expect(find.text('Bowl'), findsWidgets);
+    });
+
+    testWidgets('Retry nach Kontowechsel laedt nicht endlos, sondern nennt '
+        'die Anmeldung — und laedt nichts hoch', (tester) async {
+      addTearDown(RecipeImageStore.resetInstance);
+      final analyzer = await pumpSheet(tester);
+
+      // A new account scope trips the scan's identity fence.
+      RecipeImageStore.resetInstance();
+      await tester.tap(find.byKey(const ValueKey('analyse-retry')));
+      await _flush(tester);
+
+      expect(analyzer.requests, hasLength(1),
+          reason: 'das Foto geht nicht unter der neuen Sitzung raus');
+      expect(find.byKey(const ValueKey('analyse-loading')), findsNothing,
+          reason: 'ohne Antwort hing das Sheet im Ladezustand');
+      expect(find.text(deL10n.foodReauthRequiredError), findsOneWidget);
     });
 
     testWidgets('„Manuell eintragen" öffnet das Manuell-Sheet, der Eintrag '

@@ -156,9 +156,6 @@ class _DatabaseSentinel implements DekSentinelStore {
   @override
   Future<bool> isPlaintextMigrationClosed() =>
       _readBool(CacheKeyProvider.plaintextMigrationClosedKey);
-  @override
-  Future<void> closePlaintextMigration() =>
-      _write(CacheKeyProvider.plaintextMigrationClosedKey, 'true');
 
   Future<bool> consumeResetNotice() async {
     final key = _key(CacheKeyProvider.cacheResetNoticeKey);
@@ -226,11 +223,7 @@ Future<EncryptedKeyValueStore?> migrateDurableCache({
         final dek = await CacheKeyProvider.readExisting(keyStore: keyStore);
         return dek == null
             ? null
-            : EncryptedKeyValueStore(
-                database,
-                createCacheCipher(dek),
-                acceptLegacyPlaintext: false,
-              );
+            : EncryptedKeyValueStore(database, createCacheCipher(dek));
       }
       Map<String, String> legacy;
       try {
@@ -310,11 +303,7 @@ Future<EncryptedKeyValueStore?> migrateDurableCache({
           await database.getString(_legacyConflictKey) == 'true') {
         await database.remove(_legacyConflictKey);
       }
-      return EncryptedKeyValueStore(
-        database,
-        cipher,
-        acceptLegacyPlaintext: false,
-      );
+      return EncryptedKeyValueStore(database, cipher);
     });
   } on LegacyStorageConflict {
     CacheKeyProvider.invalidateRolledBackBootstrap();

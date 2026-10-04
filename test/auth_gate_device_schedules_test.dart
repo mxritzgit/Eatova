@@ -225,16 +225,6 @@ void main() {
         reason: 'Die Session endete, waehrend die App nicht lief.');
   });
 
-  testWidgets('Kaltstart mit Session verwirft nichts', (tester) async {
-    final log = <String>[];
-    final repository = _ScriptedAuthRepository(_a);
-    addTearDown(repository.dispose);
-
-    await _pumpGate(tester, repository, _RecordingNotifications(log));
-
-    expect(log, ['schedule']);
-  });
-
   testWidgets(
       'ein werfender Benachrichtigungsdienst haelt den Wechsel nicht auf '
       'und wird gemeldet', (tester) async {

@@ -4,16 +4,15 @@ import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/lifetime_stats.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
-import 'package:eatova/src/models/user_profile.dart';
 import 'package:eatova/src/services/food_kcal_db.dart';
-import 'package:eatova/src/services/kcal_calculator.dart';
 import 'package:eatova/src/services/meals_sync.dart';
 
 // Pure logic tests for money- and data-critical functions (first streak day,
-// stats rows, food-history JSON roundtrip, auto split, macro split).
+// stats rows, food-history JSON roundtrip, auto split).
 // Deterministic, no network or UI. The slot heuristic, the running streak and
 // the macro aggregation live in test/models/logged_meal_slot_test.dart,
-// lifetime_stats_test.dart and macro_progress_test.dart.
+// lifetime_stats_test.dart and macro_progress_test.dart; the macro split in
+// test/services/kcal_macro_split_test.dart.
 
 MealAnalysisResult _result({
   String name = 'Testmahlzeit',
@@ -45,29 +44,11 @@ MealAnalysisResult _result({
 void main() {
   group('LifetimeStats.recordTrackedDay (Logging-Streak)', () {
     final day1 = DateTime(2026, 6, 1);
-    final day2 = DateTime(2026, 6, 2);
 
     test('erster Log-Tag -> Streak 1', () {
       final s = LifetimeStats().recordTrackedDay(day1);
       expect(s.currentStreak, 1);
       expect(s.longestStreak, 1);
-    });
-    test('toRow/fromRow Roundtrip erhält Zähler + Streak', () {
-      final s = LifetimeStats(
-        workoutsCompleted: 7,
-        mealsLogged: 42,
-        waterTotalMl: 12000,
-        currentStreak: 3,
-        longestStreak: 9,
-        lastTrackedDate: day2,
-      );
-      final back = LifetimeStats.fromRow(s.toRow());
-      expect(back.workoutsCompleted, 7);
-      expect(back.mealsLogged, 42);
-      expect(back.waterTotalMl, 12000);
-      expect(back.currentStreak, 3);
-      expect(back.longestStreak, 9);
-      expect(back.lastTrackedDate, day2);
     });
     test('fromRow ist defensiv bei fehlenden/falschen Spalten', () {
       final back = LifetimeStats.fromRow(<String, dynamic>{
@@ -162,25 +143,6 @@ void main() {
         autoSplitItems(mealName: 'Apfel', totalGrams: 120, totalKcal: 62),
         isEmpty,
       );
-    });
-  });
-
-  group('KcalCalculator Makro-Aufteilung', () {
-    const calc = KcalCalculator();
-
-    test('Protein = 1.6 g/kg Körpergewicht', () {
-      const base = UserProfile(); // 78 kg
-      final t = calc.calculate(base);
-      expect(t.proteinG, (78 * 1.6).round()); // 125
-    });
-    test('Makros sind positiv und gehen ungefähr im kcal-Ziel auf', () {
-      const base = UserProfile();
-      final t = calc.calculate(base);
-      expect(t.proteinG, greaterThan(0));
-      expect(t.carbsG, greaterThan(0));
-      expect(t.fatG, greaterThan(0));
-      final fromMacros = t.proteinG * 4 + t.carbsG * 4 + t.fatG * 9;
-      expect(fromMacros, closeTo(t.kcal, 60)); // rounding tolerance
     });
   });
 }

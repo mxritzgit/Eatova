@@ -148,6 +148,37 @@ void main() {
     expect(halter.result?.explicitZeroKcal, isTrue);
   });
 
+  // Review 2026-10-04: 2 kcal/100 g at 20 g rounds to 0 kcal. Without the
+  // marker the logged entry read as the legacy "unknown" sentinel: the Food
+  // tab called it unloggable right after logging it, and its recent could
+  // not be added again.
+  testWidgets('eine auf 0 kcal gerundete Portion trägt explicitZeroKcal', (
+    tester,
+  ) async {
+    final halter = await _open(tester);
+    await tester.enterText(
+      find.byKey(const ValueKey('manual-meal-name')),
+      'Kräutertee',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('manual-meal-kcal100')),
+      '2',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('manual-meal-grams')),
+      '20',
+    );
+    await tester.pump();
+
+    await tester.ensureVisible(find.byKey(const ValueKey('manual-meal-save')));
+    await tester.tap(find.byKey(const ValueKey('manual-meal-save')));
+    await tester.pumpAndSettle();
+
+    expect(halter.result?.caloriesKcal, 0);
+    expect(halter.result?.kcalPer100G, 2);
+    expect(halter.result?.explicitZeroKcal, isTrue);
+  });
+
   testWidgets('initialName belegt das Namensfeld vor (Such-CTA)', (
     tester,
   ) async {

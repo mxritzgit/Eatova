@@ -195,7 +195,6 @@ void main() {
         const ProductSearchResult(
           code: 'stale',
           title: 'Old result',
-          subtitle: '',
           kcalPer100G: 100,
           result: _meal,
         ),

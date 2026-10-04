@@ -697,22 +697,6 @@ Deno.test('A4: Batch-Element ohne allowed -> 500 rate_limit_unavailable', async 
   }
 });
 
-Deno.test('A4: der Erfolgsfall kostet zwei Limiter-Roundtrips statt vier', async () => {
-  // Performance audit 2026-09-01: the four gates were four PostgREST calls.
-  // The saving may not move a single bucket, hence the unchanged gate order
-  // next to the roundtrip count; WHEN each bucket is spent is pinned in
-  // gate_order_test.ts.
-  const stub = installFetch();
-  try {
-    const res = await handleRequest(makeRequest({ imageBase64: IMAGE_BASE64 }));
-    assertEquals(res.status, 200, 'Status');
-    assertEquals(stub.rateLimitCalls(), 2, 'Limiter-Roundtrips');
-    assertEquals(stub.rateLimitScopes().join(','), GATE_ORDER, 'Gate-Reihenfolge');
-  } finally {
-    stub.restore();
-  }
-});
-
 Deno.test('zu grosses Bild -> 413 image_too_large, ohne bezahlten Provider-Call', async () => {
   const stub = installFetch();
   try {

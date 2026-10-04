@@ -182,5 +182,9 @@ void main() {
       expect(todayInitial(''), 'S');
       expect(todayInitial('   '), 'S');
     });
+
+    test('ein Emoji am Anfang bleibt ein ganzes Zeichen', () {
+      expect(todayInitial('😀 Anna'), '😀');
+    });
   });
 }

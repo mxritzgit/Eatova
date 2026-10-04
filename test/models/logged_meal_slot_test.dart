@@ -59,11 +59,6 @@ void main() {
   });
 
   group('currentMealSlot (clock.now-getrieben)', () {
-    test('default (ohne withClock) liest echte Zeit ohne Crash', () {
-      // No pin -> default clock == DateTime.now(); slot is one of the four.
-      expect(MealSlot.values, contains(currentMealSlot()));
-    });
-
     test('um 23:58 -> Snack, 2 Minuten spaeter (00:01 naechster Tag) -> Fruehstueck', () {
       // The midnight flake the old DateTime.now() variant made
       // unreproducible, pinned here.

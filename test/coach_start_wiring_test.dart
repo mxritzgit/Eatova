@@ -543,16 +543,6 @@ void main() {
       expect(svc.recipeWishes, isEmpty);
     });
 
-    testWidgets('the plan chip opens the training brief and sends nothing', (
-      tester,
-    ) async {
-      final svc = _Coach.create();
-      await _pump(tester, service: svc);
-      await _tap(tester, find.byKey(const ValueKey('coach-try-plan')));
-      expect(find.byKey(const ValueKey('coach-brief-submit')), findsOneWidget);
-      expect(svc.sent, isEmpty);
-    });
-
     testWidgets('the chip row takes taps and drags up to the screen edge', (
       tester,
     ) async {

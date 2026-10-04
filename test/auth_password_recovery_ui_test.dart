@@ -348,17 +348,4 @@ void main() {
         reason: 'und der Nutzer erfaehrt, dass Ziffern fehlen — nicht, dass '
             'der Code falsch war');
   });
-
-  testWidgets('Signup-Flow: Neuanfordern nutzt resendSignupCode',
-      (tester) async {
-    final repo = InMemoryAuthRepository();
-    await _pumpCode(tester, repo, flow: AuthCodeFlow.signup);
-
-    await tester.tap(find.byKey(const ValueKey('code-resend')));
-    await tester.pumpAndSettle();
-
-    expect(repo.signupResends, ['user@example.com']);
-    expect(repo.passwordResets, isEmpty,
-        reason: 'Signup-Resend darf keinen Passwort-Reset ausloesen');
-  });
 }

@@ -58,9 +58,4 @@ extension MealSlotStyle on MealSlot {
     MealSlot.dinner => l10n.commonSlotDinnerShort,
     MealSlot.snack => l10n.commonSlotSnackShort,
   };
-
-  /// Initial for the round slot avatar, taken from the localized [label] so
-  /// it follows the active language.
-  String initial(AppLocalizations l10n) =>
-      label(l10n).substring(0, 1).toUpperCase();
 }

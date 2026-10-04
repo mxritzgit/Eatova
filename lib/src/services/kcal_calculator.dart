@@ -170,11 +170,14 @@ class KcalTargets {
     if (!safetyClampApplied && !deficitCapApplied && matchesPromisedPace) {
       return null;
     }
+    // A clamp that eats the whole deficit gets its own wording.
+    final stable = effectiveWeeklyRateKg.abs() < weeklyRateNoiseKg;
+    // Holding was the promise and the clamped plan still holds: nothing to
+    // warn about ("stable instead of stable").
+    if (stable && goal == WeightGoal.maintain) return null;
     final t = l10n ?? deL10n;
     final effectivePace = effectivePaceLabel(l10n);
     final promisedPace = goal.paceLabel(l10n);
-    // A clamp that eats the whole deficit gets its own wording.
-    final stable = effectiveWeeklyRateKg.abs() < weeklyRateNoiseKg;
     if (floorApplied) {
       return stable
           ? t.commonPaceWarningFloorStable(floor, uncappedKcal, promisedPace)
@@ -399,8 +402,9 @@ class KcalCalculator {
 
   /// Weeks to target weight — **optimistic lower bound**; prefer
   /// [weeksToGoalRange] for display. Uses [KcalTargets.effectiveWeeklyRateKg],
-  /// not [WeightGoalInfo.weeklyRateKg], which would promise a pace the caps
-  /// forbid (B2). `null` on a reached target, noise rate, or wrong direction.
+  /// not [WeightGoalInfo.signedWeeklyRateKg], which would promise a pace the
+  /// caps forbid (B2). `null` on a reached target, noise rate, or wrong
+  /// direction.
   int? weeksToGoal(UserProfile profile, {KcalTargets? targets}) {
     final diffKg = (profile.weightKg - profile.targetWeightKg).abs();
     if (diffKg == 0) return null;

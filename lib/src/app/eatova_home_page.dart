@@ -170,6 +170,8 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   bool _trainingHistoryRouteOpen = false;
   bool _trainingLogOpen = false;
   bool _profileRouteOpen = false;
+  bool _goalsRouteOpen = false;
+  bool _settingsRouteOpen = false;
   late bool _welcomeFinished;
   bool _recipeImportOpen = false;
   bool _recipeImportScheduled = false;
@@ -383,6 +385,18 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   ///
   /// A pushed route, separate from settings. Returns [SettingsResult].
   Future<void> _openGoals() async {
+    // One form: a hidden second copy keeps the profile of its opening and
+    // could save it over a newer edit.
+    if (_goalsRouteOpen) return;
+    _goalsRouteOpen = true;
+    try {
+      await _pushGoals();
+    } finally {
+      _goalsRouteOpen = false;
+    }
+  }
+
+  Future<void> _pushGoals() async {
     final ownerStore = _store;
     await Navigator.of(context).push<SettingsResult>(
       MaterialPageRoute<SettingsResult>(
@@ -413,6 +427,16 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   /// Settings — account, display, data, danger zone. Body data and goals live
   /// in [_openGoals]; mixing them is what bloated the old sheet.
   Future<void> _openSettings() async {
+    if (_settingsRouteOpen) return;
+    _settingsRouteOpen = true;
+    try {
+      await _pushSettings();
+    } finally {
+      _settingsRouteOpen = false;
+    }
+  }
+
+  Future<void> _pushSettings() async {
     final ownerStore = _store;
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
@@ -492,6 +516,9 @@ class _EatovaHomePageState extends State<EatovaHomePage>
   }
 
   Future<void> _openProfile() async {
+    // One route: a second tap during the push transition stacked a copy, and
+    // closing either one switched the bridge below off for the other.
+    if (_profileRouteOpen) return;
     // ARCH-1/PERF-2: while open, the store listener bumps _profileRefresh so
     // mid-route state changes reach the ProfileScreen.
     _profileRouteOpen = true;

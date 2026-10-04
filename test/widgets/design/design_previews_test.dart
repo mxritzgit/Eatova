@@ -10,7 +10,6 @@ import '../../support/harness.dart';
 // breaks a preview fails here instead of silently in the IDE previewer.
 
 final Map<String, Widget Function()> _previews = <String, Widget Function()>{
-  'Makrobalken': macroBarsPreview,
   'Primäre Aktion': primaryActionPreview,
   'Navigation': navBarPreview,
   'Lesbare Spalte (Tablet)': readableWidthPreview,

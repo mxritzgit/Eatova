@@ -125,25 +125,6 @@ void main() {
   });
 
   group('Review 2026-08-21 · 1-%-Defizitdeckel', () {
-    test('Standardprofil, −1 kg/Woche: Deckel 825 statt 1100', () {
-      final t = calc.calculate(
-        standard.copyWith(weightGoal: WeightGoal.lose1kg),
-      );
-      expect(t.maxDeficitKcal, 825);
-      expect(t.appliedKcalDelta, -825);
-      expect(t.deficitCapApplied, isTrue);
-      expect(t.kcal, 1350); // 2164 − 825 = 1339 → 1350 = neutral floor
-      expect(t.floorApplied, isFalse);
-      expect(t.effectivePaceLabel(), '−0,75 kg/Woche');
-
-      final hinweis = t.paceWarning();
-      expect(hinweis, isNotNull);
-      expect(hinweis, contains('1 %'));
-      expect(hinweis, contains('825'));
-      expect(hinweis, contains('−0,75 kg/Woche'));
-      expect(hinweis, contains('−1 kg/Woche'));
-    });
-
     test('ab 100 kg ist 1 kg/Woche genau 1 % — kein Deckel', () {
       const hundert = UserProfile(
         weightKg: 100,
@@ -272,6 +253,37 @@ void main() {
         'Aus Sicherheitsgründen liegt dein Tagesziel bei 1200 kcal statt '
         '950 kcal. Damit bleibt dein Gewicht praktisch stabil, statt '
         '−0,25 kg/Woche zu erreichen.',
+      );
+    });
+
+    test('Halten an der Untergrenze: bleibt es stabil, gibt es nichts zu warnen',
+        () {
+      // 40 kg / 150 cm / 57 y / female / sedentary: maintenance 1159 → 1150
+      // → floor 1200. +41 kcal/day ≙ 0.037 kg/week: the promise "stable" is
+      // kept. The stable sentence ("... statt Gewicht stabil zu erreichen")
+      // only makes sense for a pace that was promised.
+      const halten = UserProfile(
+        weightKg: 40,
+        heightCm: 150,
+        ageYears: 57,
+        sex: BiologicalSex.female,
+        targetWeightKg: 40,
+      );
+      final t = calc.calculate(halten);
+
+      expect(t.floorApplied, isTrue);
+      expect(t.goal, WeightGoal.maintain);
+      expect(t.effectivePaceLabel(), 'Gewicht stabil');
+      expect(t.paceWarning(), isNull);
+
+      // Once the floor moves the plan off "stable", the card names it.
+      final aelter = calc.calculate(halten.copyWith(ageYears: 75));
+      expect(aelter.effectivePaceLabel(), '+0,15 kg/Woche');
+      expect(
+        aelter.paceWarning(),
+        'Aus Sicherheitsgründen liegt dein Tagesziel bei 1200 kcal statt '
+        '1050 kcal. Dein tatsächliches Tempo ist damit +0,15 kg/Woche statt '
+        'Gewicht stabil.',
       );
     });
 

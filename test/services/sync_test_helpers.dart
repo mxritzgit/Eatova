@@ -14,7 +14,6 @@ import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/models/meal_component.dart';
-import 'package:eatova/src/services/local_cache.dart';
 
 /// Analysis result of a logged meal. Defaults match the "Bowl / 300 kcal"
 /// fixture the cache tests use; [portionNotes] carries the PII marker the
@@ -114,27 +113,3 @@ FavoriteMeal testFavorite(
       addedAt: addedAt ?? DateTime(2026, 8, 5, 13),
       pinned: pinned,
     );
-
-/// [KeyValueStore] counting `setString` per slot — the proxy for "encrypt the
-/// whole blob once" in the debounce tests.
-class CountingKeyValueStore implements KeyValueStore {
-  final Map<String, String> _data = <String, String>{};
-  final Map<String, int> _writes = <String, int>{};
-
-  int writesFuer(String key) => _writes[key] ?? 0;
-  Map<String, String> get snapshot => Map.unmodifiable(_data);
-
-  @override
-  Future<String?> getString(String key) async => _data[key];
-
-  @override
-  Future<void> setString(String key, String value) async {
-    _writes[key] = (_writes[key] ?? 0) + 1;
-    _data[key] = value;
-  }
-
-  @override
-  Future<void> remove(String key) async {
-    _data.remove(key);
-  }
-}

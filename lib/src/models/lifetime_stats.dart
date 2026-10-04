@@ -151,24 +151,6 @@ class LifetimeStats {
     );
   }
 
-  /// Serializes to the public.lifetime_stats column format. There is no direct
-  /// client write to the table any more (RPCs only), so this map is just a
-  /// wire-format guard for tests. session_start is deliberately omitted: the
-  /// first insert sets it via DB default and later saves must not overwrite it.
-  Map<String, dynamic> toRow() {
-    return <String, dynamic>{
-      'workouts_completed': workoutsCompleted,
-      'meals_logged': mealsLogged,
-      'water_total_ml': waterTotalMl,
-      'steps_recorded': stepsRecorded,
-      'weight_logs': weightLogs,
-      'current_streak': currentStreak,
-      'longest_streak': longestStreak,
-      'last_workout_date':
-          lastTrackedDate == null ? null : _dateOnly(lastTrackedDate!),
-    };
-  }
-
   static int _toInt(Object? value) {
     if (value is int) return value;
     if (value is num) return value.toInt();
@@ -182,12 +164,5 @@ class LifetimeStats {
       return DateTime.tryParse(value);
     }
     return null;
-  }
-
-  static String _dateOnly(DateTime d) {
-    final y = d.year.toString().padLeft(4, '0');
-    final m = d.month.toString().padLeft(2, '0');
-    final day = d.day.toString().padLeft(2, '0');
-    return '$y-$m-$day';
   }
 }

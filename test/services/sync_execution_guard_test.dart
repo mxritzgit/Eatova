@@ -75,6 +75,61 @@ void main() {
   );
 
   test(
+    'Lease eines gekillten Workers unter vorgestellter Uhr sperrt nach dem '
+    'Zurueckstellen nicht laenger als eine Lease-Dauer',
+    () async {
+      // The device clock ran a day ahead, then NTP corrected it.
+      var now = DateTime.utc(2026, 9, 21, 12);
+      await withClock(Clock(() => now), () async {
+        final db = InMemoryKeyValueStore();
+        final guard = SyncExecutionGuard(db);
+        await guard.activate('A', 'session');
+        final dead = (await guard.tryClaim('A'))!;
+        // The process holding it is killed: no release.
+        now = DateTime.utc(2026, 9, 20, 12);
+        final next = await SyncExecutionGuard(db).tryClaim('A');
+        expect(
+          next,
+          isNotNull,
+          reason:
+              'ein Lease reicht nie weiter als eine Lease-Dauer ueber die '
+              'Uhr hinaus, die ihn schrieb; sonst stuende die Zustellung '
+              'einen Tag lang',
+        );
+        expect(await dead.isCurrent(), isFalse);
+        expect(await next!.isCurrent(), isTrue);
+        expect(
+          await SyncExecutionGuard(db).tryClaim('A'),
+          isNull,
+          reason: 'ein frischer Lease sperrt weiterhin',
+        );
+      });
+    },
+  );
+
+  test(
+    'eine kleine Uhrkorrektur waehrend eines lebenden Leases gibt ihn nicht '
+    'frei',
+    () async {
+      // NTP sets the clock back a second right after a worker claimed.
+      var now = DateTime.utc(2026, 9, 20, 12);
+      await withClock(Clock(() => now), () async {
+        final db = InMemoryKeyValueStore();
+        final guard = SyncExecutionGuard(db);
+        await guard.activate('A', 'session');
+        final live = (await guard.tryClaim('A'))!;
+        now = now.subtract(const Duration(seconds: 1));
+        expect(
+          await SyncExecutionGuard(db).tryClaim('A'),
+          isNull,
+          reason: 'ein lebender Lease bleibt exklusiv',
+        );
+        expect(await live.isCurrent(), isTrue);
+      });
+    },
+  );
+
+  test(
     'Claimrenew fence aendert sich atomar und braucht dieselbe Session',
     () async {
       var now = DateTime.utc(2026, 9, 20);

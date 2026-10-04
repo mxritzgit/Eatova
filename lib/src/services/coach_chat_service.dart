@@ -178,6 +178,14 @@ class CoachChatService {
   /// answer to it, and that answer is young enough to belong to this attempt.
   /// Anything else — a failing lookup included — returns null and the timeout
   /// stands: missing proof is not proof of the opposite.
+  ///
+  /// A connection that dies mid-request is the same case: functions_client
+  /// wraps every transport error up to the response HEADERS, and coach-chat
+  /// sends those only once its work is done (buffered modes) or under way
+  /// (stream). A network switch or iOS reclaiming a backgrounded app's socket
+  /// leaves the slot spent and the answer stored, so [verbindungWeg] callers
+  /// ask too — with one attempt, because offline the lookup fails as well and
+  /// PostgREST's GET backoff would hold the error back for seconds.
   Future<ChatMessage?> _nachzuegler({
     required String sessionId,
     required String gesendet,
@@ -210,22 +218,22 @@ class CoachChatService {
   /// anyway, otherwise the timeout the caller has always seen.
   ///
   /// `remaining` and `dailyLimit` stay null on purpose. Both are unknown here,
-  /// and the screen reads a null `remaining` as "keep the counter you have" —
-  /// exactly what it did on the old error path, so nothing regresses. Fetching
-  /// the counter would add a second round trip to an already slow request and,
-  /// as long as the server has not named COACH_DAILY_LIMIT itself, would only
-  /// echo the client's own assumption back at the user.
+  /// and the screen reads a null `remaining` as "keep the counter you have"
+  /// and asks the server for a fresh one in the background. Fetching it here
+  /// would add a second round trip to an already slow request.
   Future<CoachChatReply> _antwortNachFrist(
     String sessionId,
     String gesendet,
-    DateTime begonnen,
-  ) async {
+    DateTime begonnen, {
+    bool verbindungWeg = false,
+  }) async {
     final antwort = await _nachzuegler(
       sessionId: sessionId,
       gesendet: gesendet,
       begonnen: begonnen,
+      historyLoader: _stragglerLoader(sessionId, verbindungWeg),
     );
-    if (antwort == null) throw CoachChatException(_l10n.coachErrorTimeout);
+    if (antwort == null) throw CoachChatException(_unbewiesen(verbindungWeg));
     return CoachChatReply(
       reply: antwort.content,
       refusal: antwort.refusal,
@@ -243,16 +251,18 @@ class CoachChatService {
   Future<CoachRecipeReply> _rezeptNachFrist(
     String sessionId,
     String wunsch,
-    DateTime begonnen,
-  ) async {
+    DateTime begonnen, {
+    bool verbindungWeg = false,
+  }) async {
     final antwort = await _nachzuegler(
       sessionId: sessionId,
       gesendet: wunsch,
       begonnen: begonnen,
+      historyLoader: _stragglerLoader(sessionId, verbindungWeg),
     );
     final vorschlag = antwort?.recipeProposal;
     if (antwort == null || (vorschlag == null && !antwort.refusal)) {
-      throw CoachChatException(_l10n.coachErrorTimeout);
+      throw CoachChatException(_unbewiesen(verbindungWeg));
     }
     return CoachRecipeReply(
       reply: antwort.content,
@@ -264,6 +274,20 @@ class CoachChatService {
       assistantMessageId: antwort.id.isEmpty ? null : antwort.id,
     );
   }
+
+  /// The transcript read for a straggler: the default (with PostgREST's
+  /// retries) after a deadline, a single attempt after a lost connection.
+  Future<List<ChatMessage>> Function()? _stragglerLoader(
+    String sessionId,
+    bool verbindungWeg,
+  ) => verbindungWeg
+      ? () => _readHistory(sessionId, limit: 2, retry: false)
+      : null;
+
+  /// The error that stands when no straggler proves an answer.
+  String _unbewiesen(bool verbindungWeg) => verbindungWeg
+      ? _l10n.coachErrorNoConnection
+      : _l10n.coachErrorTimeout;
 
   /// Locale pack for the user-visible fallback error texts. Set via setter
   /// rather than a `send()` parameter so test doubles overriding `send` stay
@@ -398,28 +422,8 @@ class CoachChatService {
   }
 
   /// Throws [CoachDataUnavailable] on failure, like loadSessions and friends:
-  /// a `Future<void>` that completes asserts "renamed/deleted" to the caller,
-  /// so a swallowed error would let the screen continue as if it succeeded.
-  Future<void> renameSession(String sessionId, String title) async {
-    try {
-      await userRpc(
-        _client,
-        _userId,
-        'rename_chat_session',
-        params: {'p_session_id': sessionId, 'p_title': title},
-      );
-    } catch (e, stack) {
-      dev.log(
-        'CoachChatService.renameSession failed',
-        error: e,
-        stackTrace: stack,
-        name: 'eatova.coach',
-      );
-      _melde('coach.renameSession', e, stack);
-      throw CoachDataUnavailable('Umbenennen fehlgeschlagen', e);
-    }
-  }
-
+  /// a `Future<void>` that completes asserts "deleted" to the caller, so a
+  /// swallowed error would let the screen continue as if it succeeded.
   Future<void> deleteSession(String sessionId) async {
     try {
       await userRpc(
@@ -453,9 +457,10 @@ class CoachChatService {
     String sessionId, {
     required int limit,
     String? authorization,
+    bool retry = true,
   }) async {
     try {
-      final request = _client
+      var request = _client
           .from('chat_messages')
           // Proposals survive reload; neither query nor parser saves a plan.
           .select(
@@ -467,6 +472,7 @@ class CoachChatService {
           .inFilter('role', ['user', 'assistant'])
           .order('created_at', ascending: false)
           .limit(limit);
+      if (!retry) request = request.retry(enabled: false);
       final rows = await (authorization == null
           ? request
           : request.setHeader('Authorization', authorization));
@@ -657,20 +663,23 @@ class CoachChatService {
       _melde('coach.send.relay', e, stack);
       throw CoachChatException(_unreachableMessage);
     } on FunctionsFetchException catch (e, stack) {
-      // The request never left the device. Deliberately unreported: the pure
-      // offline case, whose type [isNetworkSyncError] does not recognise.
+      // Offline, or a connection lost before the response headers — after
+      // the server may have taken the question ([_nachzuegler]). Deliberately
+      // unreported: a type [isNetworkSyncError] does not recognise.
       _logSendFailure(e, stack);
-      throw CoachChatException(_l10n.coachErrorNoConnection);
+      return _antwortNachFrist(sessionId, message, begonnen,
+          verbindungWeg: true);
     } on http.ClientException catch (e, stack) {
       // Only reachable on the streamed body: functions_client wraps a transport
       // error into [FunctionsFetchException] while it opens the request, but
       // the socket now stays open long past that, and a connection dropped
-      // mid-answer arrives raw. Mapped to the same offline text, and equally
-      // unreported — it is the same event, just later. Must stay BELOW the
+      // mid-answer arrives raw. Handled like it and equally unreported — it is
+      // the same event, just later. Must stay BELOW the
       // [RequestAbortedException] arm: that one is a ClientException subclass
-      // and the deadline must keep its straggler recovery.
+      // and keeps the deadline's timeout text.
       _logSendFailure(e, stack);
-      throw CoachChatException(_l10n.coachErrorNoConnection);
+      return _antwortNachFrist(sessionId, message, begonnen,
+          verbindungWeg: true);
     } catch (e, stack) {
       _logSendFailure(e, stack);
       _melde('coach.send.unbekannt', e, stack);
@@ -871,9 +880,17 @@ class CoachChatService {
       _melde('coach.recipe.relay', e, stack);
       throw CoachChatException(_unreachableMessage);
     } on FunctionsFetchException catch (e, stack) {
-      // As in [send], deliberately unreported: the request never left.
+      // As in [send], deliberately unreported. The server sends its headers
+      // only after the draft, the image and the stored row: this is the
+      // window an app switch during a long /recipe falls into.
       _logSendFailure(e, stack);
-      throw CoachChatException(_l10n.coachErrorNoConnection);
+      return _rezeptNachFrist(sessionId, wish, begonnen, verbindungWeg: true);
+    } on http.ClientException catch (e, stack) {
+      // The buffered body broke while it downloaded (a 2-3 MB image rides
+      // along); the row was stored before the first byte. Below the
+      // [RequestAbortedException] arm, as in [send].
+      _logSendFailure(e, stack);
+      return _rezeptNachFrist(sessionId, wish, begonnen, verbindungWeg: true);
     } catch (e, stack) {
       _logSendFailure(e, stack);
       _melde('coach.recipe.unbekannt', e, stack);
@@ -923,9 +940,9 @@ class CoachChatService {
       tags: _planTags,
       parse: (payload) =>
           _planFromPayload(payload, sessionId, discussion: discussion),
-      afterDeadline: (startedAt, authorization, verifyIdentity) =>
+      afterDeadline: (startedAt, authorization, verifyIdentity, lost) =>
           _planAfterDeadline(
-            sessionId, wish, startedAt, authorization, verifyIdentity,
+            sessionId, wish, startedAt, authorization, verifyIdentity, lost,
             discussion: discussion,
           ),
     );
@@ -956,9 +973,9 @@ class CoachChatService {
       unknown: 'coach.workoutLog.unbekannt',
     ),
     parse: (payload) => _workoutLogFromPayload(payload, sessionId),
-    afterDeadline: (startedAt, authorization, verifyIdentity) =>
+    afterDeadline: (startedAt, authorization, verifyIdentity, lost) =>
         _workoutLogAfterDeadline(
-          sessionId, wish, startedAt, authorization, verifyIdentity,
+          sessionId, wish, startedAt, authorization, verifyIdentity, lost,
         ),
     failureForStatus: _workoutLogFailure,
   );
@@ -980,15 +997,16 @@ class CoachChatService {
         body: body,
         tags: _planTags,
         parse: (_) {},
-        afterDeadline: (_, _, _) async {},
+        afterDeadline: (_, _, _, _) async {},
       );
 
   /// One buffered proposal request (/plan, /log), fenced to this account: the
   /// bearer is captured before the call, the identity is re-checked after
   /// every await (A -> B -> A included), the body may come as JSON or as an
-  /// SSE `done`, and a deadline asks the transcript before reporting a
-  /// timeout. [tags] name the diagnostics; [failureForStatus] maps non-2xx
-  /// statuses, by default like every other Coach request.
+  /// SSE `done`, and a deadline or a lost connection asks the transcript
+  /// before reporting an error. [tags] name the diagnostics;
+  /// [failureForStatus] maps non-2xx statuses, by default like every other
+  /// Coach request.
   Future<T> _fencedRequest<T>({
     required Duration deadline,
     required String locale,
@@ -999,6 +1017,7 @@ class CoachChatService {
       DateTime startedAt,
       String authorization,
       void Function() verifyIdentity,
+      bool connectionLost,
     )
     afterDeadline,
     Exception Function(int status, dynamic details)? failureForStatus,
@@ -1055,14 +1074,27 @@ class CoachChatService {
       if (authorization == null) {
         throw CoachChatException(_l10n.coachErrorTimeout);
       }
-      return await afterDeadline(startedAt, authorization, verifyIdentity);
+      return await afterDeadline(
+        startedAt, authorization, verifyIdentity, false,
+      );
     } on RequestAbortedException catch (e, stack) {
       verifyIdentity();
       _logSendFailure(e, stack);
       if (authorization == null) {
         throw CoachChatException(_l10n.coachErrorTimeout);
       }
-      return await afterDeadline(startedAt, authorization, verifyIdentity);
+      return await afterDeadline(
+        startedAt, authorization, verifyIdentity, false,
+      );
+    } on AuthRetryableFetchException catch (e) {
+      // Refreshing the expired bearer failed for lack of a connection (or a
+      // GoTrue 5xx), not because the session ended; nothing was sent. "Sign
+      // in again" would be wrong advice to someone who is merely offline.
+      throw CoachChatException(
+        e.statusCode == null
+            ? _l10n.coachErrorNoConnection
+            : _unreachableMessage,
+      );
     } on AuthException {
       throw CoachChatException(_l10n.coachErrorSessionExpired);
     } on FunctionsHttpException catch (e, stack) {
@@ -1076,13 +1108,20 @@ class CoachChatService {
       _melde(tags.relay, e, stack);
       throw CoachChatException(_unreachableMessage);
     } on FunctionsFetchException catch (e, stack) {
+      // A lost connection may have reached the server; see [_nachzuegler].
       verifyIdentity();
       _logSendFailure(e, stack);
-      throw CoachChatException(_l10n.coachErrorNoConnection);
+      if (authorization == null) {
+        throw CoachChatException(_l10n.coachErrorNoConnection);
+      }
+      return await afterDeadline(startedAt, authorization, verifyIdentity, true);
     } on http.ClientException catch (e, stack) {
       verifyIdentity();
       _logSendFailure(e, stack);
-      throw CoachChatException(_l10n.coachErrorNoConnection);
+      if (authorization == null) {
+        throw CoachChatException(_l10n.coachErrorNoConnection);
+      }
+      return await afterDeadline(startedAt, authorization, verifyIdentity, true);
     } catch (e, stack) {
       verifyIdentity();
       _logSendFailure(e, stack);
@@ -1246,14 +1285,16 @@ class CoachChatService {
     return value.toInt();
   }
 
-  /// The persisted answer to [wish] after a deadline, read with the bearer
-  /// captured for the request; null when the transcript cannot prove one.
+  /// The persisted answer to [wish] after a deadline or a lost connection,
+  /// read with the bearer captured for the request; null when the transcript
+  /// cannot prove one.
   Future<ChatMessage?> _answerAfterDeadline(
     String sessionId,
     String wish,
     DateTime startedAt,
     String authorization,
     void Function() verifyIdentity,
+    bool connectionLost,
   ) async {
     verifyIdentity();
     final message = await _nachzuegler(
@@ -1261,7 +1302,10 @@ class CoachChatService {
       gesendet: wish,
       begonnen: startedAt,
       historyLoader: () => _readHistory(
-        sessionId, limit: 2, authorization: authorization,
+        sessionId,
+        limit: 2,
+        authorization: authorization,
+        retry: !connectionLost,
       ),
     );
     verifyIdentity();
@@ -1273,17 +1317,19 @@ class CoachChatService {
     String wish,
     DateTime startedAt,
     String authorization,
-    void Function() verifyIdentity, {
+    void Function() verifyIdentity,
+    bool connectionLost, {
     bool discussion = false,
   }) async {
     final message = await _answerAfterDeadline(
       sessionId, wish, startedAt, authorization, verifyIdentity,
+      connectionLost,
     );
     final proposal = message?.trainingPlanProposal;
     if (message == null ||
         (!discussion && proposal == null && !message.refusal) ||
         (discussion && (proposal != null || message.recipeProposal != null))) {
-      throw CoachChatException(_l10n.coachErrorTimeout);
+      throw CoachChatException(_unbewiesen(connectionLost));
     }
     return CoachPlanReply(
       reply: message.content,
@@ -1295,20 +1341,22 @@ class CoachChatService {
   }
 
   /// A row that is neither a refusal nor a log draft is no answer to /log,
-  /// so the timeout stands. Quota stays unknown, as for every straggler.
+  /// so the error stands. Quota stays unknown, as for every straggler.
   Future<CoachWorkoutLogReply> _workoutLogAfterDeadline(
     String sessionId,
     String wish,
     DateTime startedAt,
     String authorization,
     void Function() verifyIdentity,
+    bool connectionLost,
   ) async {
     final message = await _answerAfterDeadline(
       sessionId, wish, startedAt, authorization, verifyIdentity,
+      connectionLost,
     );
     final proposal = message?.workoutLogProposal;
     if (message == null || (proposal == null && !message.refusal)) {
-      throw CoachChatException(_l10n.coachErrorTimeout);
+      throw CoachChatException(_unbewiesen(connectionLost));
     }
     return CoachWorkoutLogReply(
       reply: message.content,
@@ -1431,16 +1479,19 @@ class _RequestIdentity {
   _RequestIdentity(this._client)
       : _initialSession = _client.auth.currentSession,
         _userId = _client.auth.currentUser?.id {
-    _subscription = _client.auth.onAuthStateChange.listen((state) {
+    // The sync stream: the async one replays its latest event to every new
+    // subscriber, an error included (a failed refresh, a bad callback link),
+    // and that error blocked every request until the next data event.
+    // Identity changes always arrive as data events.
+    // ignore: invalid_use_of_internal_member
+    _subscription = _client.auth.onAuthStateChangeSync.listen((state) {
       if (state.session?.user.id != _userId ||
           (state.event == AuthChangeEvent.signedIn &&
               !identical(state.session, _initialSession) &&
               identical(state.session, _client.auth.currentSession))) {
         _changed = true;
       }
-    }, onError: (Object error) {
-      _changed = true;
-    });
+    }, onError: (Object _, StackTrace __) {});
   }
 
   final SupabaseClient _client;

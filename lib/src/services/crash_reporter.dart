@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:developer' as dev;
 
+import 'package:clock/clock.dart';
 import 'package:flutter/foundation.dart'
     show kProfileMode, kReleaseMode, visibleForTesting;
 import 'package:flutter/services.dart' show PlatformException;
@@ -62,13 +63,18 @@ class CrashReporter {
   ///
   /// Uses the same classification as the user-facing message
   /// ([isNetworkSyncError]); a second threshold would be a second place for
-  /// the two to drift apart.
+  /// the two to drift apart. One exception: a GoTrue answer >= 500
+  /// ([isAuthServerFaultError]) shares its wrapper type with a dead socket,
+  /// but the server answered, so it is an auth outage and is reported, at
+  /// most once per [authServerFaultReportInterval].
   static Future<void> captureSyncFailure(
     Object error,
     StackTrace stack, {
     String? context,
   }) async {
-    if (isNetworkSyncError(error)) {
+    if (isNetworkSyncError(error) && isAuthServerFaultError(error)) {
+      if (!_authServerFaultReportDue()) return;
+    } else if (isNetworkSyncError(error)) {
       dev.log(
         'Sync-Write offline gescheitert — eingereiht, nicht gemeldet',
         error: error,
@@ -78,6 +84,29 @@ class CrashReporter {
     }
     await capture(error, stack, context: context);
   }
+
+  /// During an outage the SDK's auto-refresh retries every 10 s and every
+  /// failure reaches the auth stream again; one report per window says the
+  /// same without burning the quota.
+  static const Duration authServerFaultReportInterval = Duration(minutes: 10);
+
+  static DateTime? _lastAuthServerFaultReport;
+
+  static bool _authServerFaultReportDue() {
+    final now = clock.now();
+    final last = _lastAuthServerFaultReport;
+    // `abs`: a clock set backwards must not mute reports until it catches up.
+    if (last != null &&
+        now.difference(last).abs() < authServerFaultReportInterval) {
+      return false;
+    }
+    _lastAuthServerFaultReport = now;
+    return true;
+  }
+
+  @visibleForTesting
+  static void debugResetAuthServerFaultThrottle() =>
+      _lastAuthServerFaultReport = null;
 
   /// Reports a handled error. Always logs via `dart:developer`; only reaches
   /// Sentry (sanitized) when [isActive]. Never throws — reporting must not

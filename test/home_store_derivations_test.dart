@@ -122,24 +122,6 @@ void main() {
     });
   });
 
-  test('slot summaries: all four slots, first time and item count', () {
-    withClock(Clock.fixed(_now), () {
-      final store = _store()..loggedMeals = _designDay();
-      final slots = store.mealSlotSummariesForFoodDate(_now);
-      expect(slots.map((s) => s.slot), MealSlot.values);
-      final breakfast = slots[0];
-      expect(breakfast.entryCount, 3);
-      expect(breakfast.kcal, 401);
-      expect(breakfast.firstLoggedAt, DateTime(2026, 9, 28, 8, 10));
-      // Oldest first, regardless of the store's newest-first order.
-      expect(breakfast.meals.map((m) => m.id), ['b1', 'b3', 'b2']);
-      expect(slots[2].isEmpty, isTrue);
-      expect(slots[2].firstLoggedAt, isNull);
-      expect(slots[3].entryCount, 2);
-      expect(slots[3].firstLoggedAt, DateTime(2026, 9, 28, 16, 20));
-    });
-  });
-
   test('next open slot and the recipe pick follow the store state', () async {
     await withClock(Clock.fixed(_now), () async {
       final store = _store()

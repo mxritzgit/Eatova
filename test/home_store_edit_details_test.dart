@@ -59,8 +59,11 @@ MealAnalysisResult _meal(String name) => MealAnalysisResult(
       sourceLabel: 'Foto-KI',
     );
 
-DateTime get _today => DateUtils.dateOnly(DateTime.now());
-DateTime get _yesterday => _today.subtract(const Duration(days: 1));
+// The store's clock, and calendar (not 24-hour) arithmetic: on the day after
+// the spring DST switch, `_today.subtract(Duration(days: 1))` lands at 23:00
+// two calendar days back.
+DateTime get _today => DateUtils.dateOnly(clock.now());
+DateTime get _yesterday => DateTime(_today.year, _today.month, _today.day - 1);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -97,7 +100,7 @@ void main() {
     expect(updated.loggedAt.minute, before.loggedAt.minute);
 
     // Today is cleared, yesterday filled, including the store fields for today.
-    expect(s.store.consumedKcalForFoodDate(DateTime.now()), 0);
+    expect(s.store.consumedKcalForFoodDate(clock.now()), 0);
     expect(s.store.consumedKcalForFoodDate(_yesterday), 300);
     expect(s.store.dailyConsumedKcal, 0);
     expect(s.store.macroProgress.proteinG, 0);
@@ -112,7 +115,7 @@ void main() {
         foodDate: _yesterday);
     expect(s.store.lifetimeStats.currentStreak, 0);
 
-    await s.store.updateLoggedMealDetails(id, day: DateTime.now());
+    await s.store.updateLoggedMealDetails(id, day: clock.now());
 
     expect(s.store.lifetimeStats.currentStreak, 1);
     expect(s.store.lifetimeStats.lastTrackedDate, _today);
@@ -120,7 +123,7 @@ void main() {
     // A second move onto today does not count the day twice.
     final id2 = await s.store.addResultToDailyTotal(_meal('Nachtrag 2'),
         foodDate: _yesterday);
-    await s.store.updateLoggedMealDetails(id2, day: DateTime.now());
+    await s.store.updateLoggedMealDetails(id2, day: clock.now());
     expect(s.store.lifetimeStats.currentStreak, 1);
   });
 
@@ -190,43 +193,24 @@ void main() {
     expect(s.store.dailyConsumedKcal, 300);
   });
 
-  // B5: _moveDayLabel measured the distance in absolute time, so across the
-  // spring DST switch a 23-hour day read as 0 days and the confirmation claimed
-  // "moved to today" for a meal on yesterday. The clock is pinned via withClock;
-  // a UTC machine has no 23-hour day, but the assertions hold in every zone.
-  group('B5 — Verschiebe-Label ueber die Fruehjahrsumstellung 29.03.2026', () {
-    test('vom 30.03. auf den 29.03. meldet „gestern", nicht „heute"', () async {
-      await withClock(Clock.fixed(DateTime(2026, 3, 30, 10)), () async {
-        final s = _setup();
-        final id = await s.store.addResultToDailyTotal(_meal('Bowl'));
+  // Review 2026-10-04: an entry logged in this session had no localDay and
+  // bucketed by its timestamp's CURRENT local day. A zone change while the
+  // app kept running (east across midnight) moved a 23:45 dinner to the next
+  // day on screen, and a later slot edit wrote that day to the server.
+  test('ein geloggter Eintrag traegt seinen Tag als kanonischen Schluessel',
+      () async {
+    await withClock(Clock.fixed(DateTime(2026, 10, 4, 23, 45)), () async {
+      final s = _setup();
+      final heute = await s.store.addResultToDailyTotal(_meal('Abendessen'));
+      final nachtrag = await s.store.addResultToDailyTotal(
+        _meal('Nachtrag'),
+        foodDate: DateTime(2026, 10, 2),
+      );
 
-        await s.store.updateLoggedMealDetails(id, day: DateTime(2026, 3, 29));
-
-        expect(s.snacks.messages.last, 'Mahlzeit auf gestern verschoben.');
-      });
-    });
-
-    test('vom 30.03. auf den 28.03. meldet das Datum, nicht „gestern"', () async {
-      await withClock(Clock.fixed(DateTime(2026, 3, 30, 10)), () async {
-        final s = _setup();
-        final id = await s.store.addResultToDailyTotal(_meal('Bowl'));
-
-        await s.store.updateLoggedMealDetails(id, day: DateTime(2026, 3, 28));
-
-        expect(s.snacks.messages.last, 'Mahlzeit auf den 28.3. verschoben.');
-      });
-    });
-
-    test('auf den laufenden Tag selbst meldet weiterhin „heute"', () async {
-      await withClock(Clock.fixed(DateTime(2026, 3, 30, 10)), () async {
-        final s = _setup();
-        final id = await s.store.addResultToDailyTotal(_meal('Bowl'),
-            foodDate: DateTime(2026, 3, 28));
-
-        await s.store.updateLoggedMealDetails(id, day: DateTime(2026, 3, 30));
-
-        expect(s.snacks.messages.last, 'Mahlzeit auf heute verschoben.');
-      });
+      String? tagVon(String id) =>
+          s.store.loggedMeals.firstWhere((m) => m.id == id).localDay;
+      expect(tagVon(heute), '2026-10-04');
+      expect(tagVon(nachtrag), '2026-10-02');
     });
   });
 }

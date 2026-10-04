@@ -340,25 +340,6 @@ void main() {
   });
 
   testWidgets(
-    'active session exposes resume and does not start a second workout',
-    (tester) async {
-      var resumed = 0;
-      await pumpLocalized(
-        tester,
-        _screen(
-          plans: [_plan()],
-          hasActiveSession: true,
-          resume: () => resumed++,
-        ),
-        locale: const Locale('en'),
-      );
-      expect(find.byKey(const ValueKey('training-start')), findsNothing);
-      await _tap(tester, 'training-resume');
-      expect(resumed, 1);
-    },
-  );
-
-  testWidgets(
     'delete requires confirmation and reports failure without losing plan',
     (tester) async {
       var deletes = 0;

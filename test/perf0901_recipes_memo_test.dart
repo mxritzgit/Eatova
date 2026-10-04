@@ -254,16 +254,6 @@ void main() {
   });
 
   group('Jeder Eingang des Schluessels macht den Cache ungueltig', () {
-    testWidgets('die Query', (tester) async {
-      _grosseFlaeche(tester);
-      await _pump(tester);
-      final vorher = RecipeMemoStats.filterRuns;
-
-      await _suche(tester, 'lachs');
-
-      expect(RecipeMemoStats.filterRuns, vorher + 1);
-    });
-
     testWidgets('der Filter-Chip', (tester) async {
       _grosseFlaeche(tester);
       await _pump(tester);

@@ -460,6 +460,9 @@ function g(request: Request, error: HttpError) {
 ''';
 
     test('beide Schreibweisen werden mit ihrem Status gelesen', () {
+      // The exact map also pins the parser edges of the probe: commented-out
+      // codes stay out, the code behind the https:// literal is found (the
+      // P10-03b lesson) and `error: error.code` invents no code.
       final gefunden = _serverFehlercodes(<String, String>{'probe.ts': probe});
       expect(
         <String, int?>{
@@ -473,26 +476,6 @@ function g(request: Request, error: HttpError) {
           'internal_error': 500,
         },
       );
-    });
-
-    test('ein Code im Kommentar ist kein Servercode', () {
-      final gefunden = _serverFehlercodes(<String, String>{'probe.ts': probe});
-      expect(gefunden.keys, isNot(contains('nur_ein_kommentar')));
-      expect(gefunden.keys, isNot(contains('auch_nur_kommentar')));
-    });
-
-    test('ein https:// im Literal schneidet die Zeile nicht ab', () {
-      // The P10-03b lesson: a line-cutting comment stripper would drop the
-      // HttpError standing BEHIND the URL on the same line — and a code that
-      // is never found is a code that never fails.
-      final gefunden = _serverFehlercodes(<String, String>{'probe.ts': probe});
-      expect(gefunden.keys, contains('invalid_body'));
-    });
-
-    test('die Durchreiche error: error.code erfindet keinen Code', () {
-      final gefunden = _serverFehlercodes(<String, String>{'probe.ts': probe});
-      expect(gefunden.keys, isNot(contains('code')));
-      expect(gefunden.keys, hasLength(5));
     });
 
     test('eine geschweifte Klammer in der Meldung schliesst das Objekt nicht',

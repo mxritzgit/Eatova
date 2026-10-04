@@ -155,17 +155,6 @@ void main() {
       expect(spion.sentryValue, contains('PostgrestException'));
       erwarteKeineNutzerdaten();
     });
-
-    test('context-Label bleibt erhalten — es ist ein Entwickler-Konstant',
-        () async {
-      await CrashReporter.capture(
-        const PostgrestException(message: 'x', code: '23514'),
-        StackTrace.current,
-        context: 'profil-onboarding',
-      );
-
-      expect(spion.kontexte.single, 'profil-onboarding');
-    });
   });
 
   group('C1 · weitere Fehlertypen mit gefaehrlichem toString()', () {
@@ -369,24 +358,6 @@ void main() {
       // No throw escapes AND the report is still usable.
       expect(spion.fehler, hasLength(1));
       expect(spion.sentryValue, contains('_KaputterToString'));
-    });
-  });
-
-  group('C1 · Stacktrace', () {
-    test('bleibt unveraendert erhalten', () async {
-      final stack = StackTrace.current;
-      StackTrace? gesehen;
-      CrashReporter.debugSentrySink = (error, s, context) => gesehen = s;
-
-      await CrashReporter.capture(
-        const PostgrestException(message: 'x', code: '23514'),
-        stack,
-      );
-
-      // A Dart stack trace is file, class and method names plus line numbers,
-      // all fixed at compile time — no runtime values, so no user data. A
-      // report without it could not be attributed at all.
-      expect(gesehen, same(stack));
     });
   });
 

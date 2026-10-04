@@ -124,11 +124,16 @@ Future<bool> _fragAbbruch(
 class _AbbruchGuard extends StatefulWidget {
   const _AbbruchGuard({
     required this.verbraucht,
+    required this.busy,
     required this.codeVerbraucht,
     required this.child,
   });
 
   final bool verbraucht;
+
+  /// A request is in flight. Its outcome cannot be cancelled, so no discard
+  /// is offered: the success path's pop would otherwise close the dialog.
+  final bool busy;
 
   /// A code that is already CONFIRMED (email flow, step two) — sharper wording.
   final bool codeVerbraucht;
@@ -146,7 +151,7 @@ class _AbbruchGuardState extends State<_AbbruchGuard> {
   bool _dialogOffen = false;
 
   Future<void> _frage() async {
-    if (_dialogOffen) return;
+    if (_dialogOffen || widget.busy) return;
     _dialogOffen = true;
     final abbrechen =
         await _fragAbbruch(context, codeVerbraucht: widget.codeVerbraucht);
@@ -379,6 +384,7 @@ class _PasswordChangeSheetState extends State<_PasswordChangeSheet> {
       // From step two on a code is out in the world and the mail quota is
       // down one; losing that to a stray swipe costs a new mail at best.
       verbraucht: !ersterSchritt,
+      busy: _busy,
       codeVerbraucht: false,
       child: SheetScaffold(
         title: l10n.settingsChangePasswordTitle,
@@ -631,6 +637,7 @@ class _EmailChangeSheetState extends State<_EmailChangeSheet> {
       // and thereby burned. That is the state the file's own comment on
       // [_altBestaetigt] warns about; a swipe must not take it.
       verbraucht: !ersterSchritt,
+      busy: _busy,
       codeVerbraucht: _altBestaetigt || _neuBestaetigt,
       child: SheetScaffold(
         title: l10n.settingsChangeEmailTitle,
@@ -778,41 +785,46 @@ class _CodeFeld extends StatelessWidget {
                   child: Row(
                     children: <Widget>[
                       Expanded(
-                        child: TextField(
-                          key: fieldKey,
-                          controller: controller,
-                          enabled: enabled,
-                          // Otherwise the cursor fade animates forever and
-                          // `pumpAndSettle` never settles.
-                          cursorOpacityAnimates: false,
-                          cursorColor: t.accent,
-                          keyboardType: TextInputType.number,
-                          inputFormatters: <TextInputFormatter>[
-                            FilteringTextInputFormatter.digitsOnly,
-                            LengthLimitingTextInputFormatter(
-                              kAccountCodeLength,
-                            ),
-                          ],
-                          style: AppType.display(
-                            18,
-                            weight: FontWeight.w700,
-                            color: t.ink,
-                            letterSpacing: 5,
-                          ),
-                          decoration: InputDecoration(
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                            disabledBorder: InputBorder.none,
-                            filled: false,
-                            isDense: true,
-                            contentPadding:
-                                const EdgeInsets.symmetric(vertical: 15),
-                            hintText: '••••••••',
-                            hintStyle: AppType.ui(
-                              14,
-                              color: t.ink2,
+                        // Spoken name: the hint is only dots, and the email
+                        // change shows two such fields.
+                        child: Semantics(
+                          label: label,
+                          child: TextField(
+                            key: fieldKey,
+                            controller: controller,
+                            enabled: enabled,
+                            // Otherwise the cursor fade animates forever and
+                            // `pumpAndSettle` never settles.
+                            cursorOpacityAnimates: false,
+                            cursorColor: t.accent,
+                            keyboardType: TextInputType.number,
+                            inputFormatters: <TextInputFormatter>[
+                              FilteringTextInputFormatter.digitsOnly,
+                              LengthLimitingTextInputFormatter(
+                                kAccountCodeLength,
+                              ),
+                            ],
+                            style: AppType.display(
+                              18,
+                              weight: FontWeight.w700,
+                              color: t.ink,
                               letterSpacing: 5,
+                            ),
+                            decoration: InputDecoration(
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              disabledBorder: InputBorder.none,
+                              filled: false,
+                              isDense: true,
+                              contentPadding:
+                                  const EdgeInsets.symmetric(vertical: 15),
+                              hintText: '••••••••',
+                              hintStyle: AppType.ui(
+                                14,
+                                color: t.ink2,
+                                letterSpacing: 5,
+                              ),
                             ),
                           ),
                         ),

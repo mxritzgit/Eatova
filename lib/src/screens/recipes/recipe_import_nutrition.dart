@@ -85,13 +85,31 @@ class RecipeImportNutrition extends StatelessWidget {
                             style: AppType.display(24, color: t.ink),
                           ),
                           const SizedBox(height: 6),
-                          Text(
-                            label,
-                            style: AppType.ui(
-                              12,
-                              color: color,
-                              weight: FontWeight.w600,
-                            ),
+                          // The tone marks the nutrient; on its tinted tile it
+                          // is too faint for text (3.4:1 light), so the label
+                          // stays in a text token, as on the recipe detail.
+                          Row(
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: BoxDecoration(
+                                  color: color,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Flexible(
+                                child: Text(
+                                  label,
+                                  style: AppType.ui(
+                                    12,
+                                    color: t.ink2,
+                                    weight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),

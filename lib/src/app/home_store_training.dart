@@ -275,7 +275,6 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
     final op = SyncOp.trainingPlanUpsert(validated, adoption: adoption);
     return _saveTrainingMutation(
       op,
-      () => sync!.trainingPlans.upsert(validated),
       () {
         final effective =
             _outbox
@@ -366,7 +365,7 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
         _trainingHeads[id]?.incarnation ??
         0;
     final op = SyncOp.trainingPlanDelete(id, incarnation: incarnation);
-    return _saveTrainingMutation(op, () => sync!.trainingPlans.delete(id), () {
+    return _saveTrainingMutation(op, () {
       if (!_trainingIntentApplies(op)) return;
       _trainingPlans = trainingPlans.where((entry) => entry.id != id).toList();
       if (_selectedTrainingPlanId == id) {
@@ -378,7 +377,6 @@ mixin _HomeStoreTrainingPart on _HomeStoreBase, _HomeStoreSyncPart {
 
   Future<SyncDelivery> _saveTrainingMutation(
     SyncOp op,
-    Future<void> Function() send,
     VoidCallback publish, {
     String? replacingTrainingAdoption,
     String? expectedTrainingDraftOperationId,

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:eatova/src/app/home_store.dart';
 import 'package:eatova/src/models/fitness_recipe.dart';
 import 'package:eatova/src/services/local_cache.dart';
 import 'package:eatova/src/services/sync_error_messages.dart';
@@ -30,6 +31,15 @@ FitnessRecipe draft(String title, {String slug = 'user_saved'}) =>
       categories: const ['Eigene'],
       userCreated: true,
     );
+
+extension on HomeStore {
+  /// The detail route's edit path, without watching the result afterwards.
+  Future<SyncDelivery> editRecipe(FitnessRecipe recipe) async {
+    final result = await editUserRecipe(recipe);
+    result.handle.dispose();
+    return result.delivery;
+  }
+}
 
 class _HeldRecipeServer extends h.FakeServer {
   Completer<void>? gate;
@@ -65,7 +75,7 @@ void main() {
       await h.bootUntilIdle(env.store);
       await env.store.saveUserRecipe(draft('Original'));
       env.server.offline = true;
-      final delivery = await env.store.updateUserRecipe(
+      final delivery = await env.store.editRecipe(
         env.store.userRecipes.single.copyWith(title: 'Edited'),
       );
       expect(delivery, SyncDelivery.queuedOffline);
@@ -103,7 +113,7 @@ void main() {
         }
       };
       await expectLater(
-        env.store.updateUserRecipe(
+        env.store.editRecipe(
           env.store.userRecipes.single.copyWith(title: 'Rejected'),
         ),
         throwsStateError,
@@ -117,13 +127,13 @@ void main() {
     final env = h.setup();
     await h.bootUntilIdle(env.store);
     await expectLater(
-      env.store.updateUserRecipe(draft('Foreign')),
+      env.store.editRecipe(draft('Foreign')),
       throwsStateError,
     );
     await env.store.saveUserRecipe(draft('Original'));
     await env.store.deleteUserRecipe('user_saved');
     await expectLater(
-      env.store.updateUserRecipe(draft('Resurrected')),
+      env.store.editRecipe(draft('Resurrected')),
       throwsStateError,
     );
     expect(env.store.userRecipes, isEmpty);
@@ -139,7 +149,7 @@ void main() {
       await env.store.signOutCleanup();
       final requests = env.server.requests.length;
       await expectLater(
-        env.store.updateUserRecipe(draft('Private')),
+        env.store.editRecipe(draft('Private')),
         throwsStateError,
       );
       expect(env.server.requests.length, requests);
@@ -201,7 +211,7 @@ void main() {
       await h.bootUntilIdle(env.store);
       await env.store.saveUserRecipe(draft('Original'));
       server.gate = Completer<void>();
-      final first = env.store.updateUserRecipe(
+      final first = env.store.editRecipe(
         env.store.userRecipes.single.copyWith(title: 'Acknowledged edit'),
       );
       await server.started.future;
@@ -213,7 +223,7 @@ void main() {
         }
       };
       await expectLater(
-        env.store.updateUserRecipe(
+        env.store.editRecipe(
           env.store.userRecipes.single.copyWith(title: 'Rejected edit'),
         ),
         throwsStateError,
@@ -274,12 +284,12 @@ void main() {
       await h.bootUntilIdle(env.store);
       await env.store.saveUserRecipe(draft('Original'));
       server.gate = Completer<void>();
-      final first = env.store.updateUserRecipe(
+      final first = env.store.editRecipe(
         env.store.userRecipes.single.copyWith(title: 'Older edit'),
       );
       await server.started.future;
       expect(
-        await env.store.updateUserRecipe(
+        await env.store.editRecipe(
           env.store.userRecipes.single.copyWith(title: 'Newer edit'),
         ),
         SyncDelivery.queuedRetry,

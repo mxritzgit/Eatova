@@ -179,7 +179,6 @@ void main() {
         (context) => showDataExportSheet(
           context,
           snapshot: () async => _export(),
-          vollstaendig: true,
           dateiTeilen: (_, _) async {},
         ),
         width: width,

@@ -648,8 +648,14 @@ class _HistoryEntry extends StatelessWidget {
     final macros = MacroProgress.empty.add(meal.result);
     final hasMacros =
         macros.proteinG > 0 || macros.carbsG > 0 || macros.fatG > 0;
+    final kcalNumber = formatThousands(
+      meal.result.caloriesKcal,
+      l10n.localeName,
+    );
     final kcalText = Text(
-      formatThousands(meal.result.caloriesKcal, l10n.localeName),
+      kcalNumber,
+      // The unit is implicit on screen only.
+      semanticsLabel: '$kcalNumber kcal',
       style: foodText(
         14,
         weight: FontWeight.w600,

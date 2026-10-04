@@ -209,16 +209,6 @@ class LocalCache {
     await release?.call();
   }
 
-  /// Deletes slots that only exist in old installations.
-  ///
-  /// Currently [_legacyDailyKey]: pre-Today-tab installs still hold a
-  /// daily_logs snapshot including the free-text mood note there, and the
-  /// encrypting decorator would never touch it (it only encrypts on write).
-  /// So the slot must go, not be encrypted.
-  ///
-  /// Public so it is testable through the plain constructor.
-  Future<void> dropLegacySlots() => _store.remove(_legacyDailyKey);
-
   // Version prefix allows later schema migrations without crashing on old
   // entries (unknown keys are ignored).
   String get _profileKey => 'eatova.v1.profile.$_userId';
@@ -394,13 +384,6 @@ class LocalCache {
       return null;
     }
   }
-
-  Future<void> writeMealPlans(List<PlannedMeal> plans,
-      Map<String, bool> checks) => _writeJson(_mealPlansKey, {
-    'plans': plans.map((plan) => plan.toJson()).toList(),
-    'checks': checks.entries.map((e) =>
-      ShoppingCheck(id: e.key, checked: e.value).toJson()).toList(),
-  });
 
   Future<({List<PlannedMeal> plans, Map<String, bool> checks})?> readMealPlans() async {
     final json = await _readJson(_mealPlansKey);

@@ -217,9 +217,11 @@ class MealAnalysisScreen extends StatelessWidget {
       context,
       slot: capture.slot,
       resultFuture: first,
+      // Not MealAnalysisCancelled: the sheet reads that as its own close and
+      // would stay on the loading card. The photo belongs to the old session.
       retry: () => identity.isCurrent
           ? analyzer.analyze(request)
-          : Future.error(const MealAnalysisCancelled()),
+          : Future.error(const MealAnalysisReauthRequired()),
       cancellation: request.cancellation,
       previewImage: capture.previewBytes,
       onAdd: onAddMeal,
@@ -281,11 +283,14 @@ class MealAnalysisScreen extends StatelessWidget {
       initialSlot: currentMealSlot(),
     );
     if (scan == null || !context.mounted) return;
+    // As for the photo scan: offline the lookup fails before the sheet
+    // listens, which must not surface as an unhandled zone error.
+    final lookup = productService.lookupBarcode(scan.code)..ignore();
     // No retry/cancel: a lookup is cheap and its "not found" is final.
     final outcome = await showMealAnalysisSheet(
       context,
       slot: scan.slot,
-      resultFuture: productService.lookupBarcode(scan.code),
+      resultFuture: lookup,
       previewImage: null,
       onAdd: onAddMeal,
       onUpdateMeal: onUpdateMeal,

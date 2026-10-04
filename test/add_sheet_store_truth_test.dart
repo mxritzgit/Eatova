@@ -9,6 +9,8 @@
 // a fake store through the REAL opener (showAddMealSheet) and assert what the
 // sheet shows — never just what a callback received.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
@@ -222,6 +224,7 @@ Future<void> _oeffneSheet(
   _FakeFoodStore store, {
   ValueChanged<MealAnalysisResult>? onToggleFavorite,
   bool mitScope = true,
+  FutureOr<String> Function(MealAnalysisResult, MealSlot)? onAdd,
 }) async {
   pinPhoneViewport(tester);
   final host = Builder(
@@ -235,7 +238,7 @@ Future<void> _oeffneSheet(
         photoInput: _StummeFotoquelle(),
         favorites: store.favorites,
         existingMeals: store.meals,
-        onAdd: store.logMeal,
+        onAdd: onAdd ?? store.logMeal,
         onUpdateMeal: (_, __) {},
         onRemoveFavorite: store.removeFavorite,
         onRemoveMeal: store.removeMeal,
@@ -581,5 +584,89 @@ void main() {
       '100',
       reason: 'eine echt geaenderte Portion soll die Eingabe zuruecksetzen',
     );
+  });
+
+  // Review 2026-10-04: HomeStore publishes the new row (and notifies) before
+  // its delivery attempt returns the id, up to kSyncDeliveryWindow later. The
+  // re-seed then already holds the row when the mirror runs.
+  testWidgets(
+      'ein erst nach dem Notify bestätigtes Hinzufügen steht nur einmal in '
+      'der Liste', (tester) async {
+    final store = _FakeFoodStore(
+      favorites: <FavoriteMeal>[_favorit(_mahlzeit('Apfel', kcal: 250))],
+    );
+    final zustellung = Completer<void>();
+    await _oeffneSheet(
+      tester,
+      store,
+      onAdd: (result, slot) async {
+        final id = store.logMeal(result, slot);
+        await zustellung.future;
+        return id;
+      },
+    );
+    final kachel = find.byKey(const ValueKey('favorite-tile-0'));
+    await tester.ensureVisible(kachel);
+    await tester.pumpAndSettle();
+    await tester.tap(kachel);
+    await tester.pumpAndSettle();
+    final plus = find.byKey(const ValueKey('favorite-tile-add-0'));
+    await tester.ensureVisible(plus);
+    await tester.tap(plus);
+    // The store's notify is drawn while its delivery is still open.
+    await tester.pump();
+    expect(_zeile('Apfel'), findsOneWidget);
+
+    zustellung.complete();
+    await tester.pumpAndSettle();
+
+    expect(
+      _zeile('Apfel'),
+      findsOneWidget,
+      reason: 'der Spiegel legt die schon vom Store gemeldete Zeile doppelt an',
+    );
+    expect(
+      _summe('250'),
+      findsOneWidget,
+      reason: 'die Slot-Summe zählt die Mahlzeit doppelt',
+    );
+  });
+
+  // Same order for the heart: the store drops the unpinned row at its recents
+  // cap and notifies before its call returns.
+  testWidgets(
+      'P8-06: ein erst nach dem Notify bestätigtes Entpinnen holt die vom '
+      'Store gelöschte Zeile nicht zurück', (tester) async {
+    final skyr = _mahlzeit('Skyr');
+    final store = _FakeFoodStore(
+      favorites: <FavoriteMeal>[_favorit(skyr, gepinnt: true, tag: 20)],
+    );
+    final zustellung = Completer<void>();
+    await _oeffneSheet(tester, store, onToggleFavorite: (result) async {
+      store.unpinAndDrop(result);
+      await zustellung.future;
+    });
+
+    final zeile = find.byKey(const ValueKey('add-meal-favorites-all'));
+    await tester.ensureVisible(zeile);
+    await tester.tap(zeile);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('favorites-sheet-fav-0')));
+    // The store's notify is drawn while its delivery is still open.
+    await tester.pump();
+    zustellung.complete();
+    await tester.pumpAndSettle();
+    Navigator.of(
+      tester.element(find.byKey(const ValueKey('favorites-sheet'))),
+    ).pop();
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Skyr'),
+      findsNothing,
+      reason: 'der Spiegel legt den vom Store gelöschten Eintrag als Recent '
+          'wieder an',
+    );
+    expect(find.byKey(const ValueKey('favorite-tile-0')), findsNothing);
   });
 }

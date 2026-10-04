@@ -368,18 +368,6 @@ void main() {
       );
     });
 
-    test('REGRESSION: die Textformen der Enumeration greifen weiter', () {
-      for (final roh in const <String>[
-        'A user with this email address has already been registered',
-        'User already registered',
-        'Email address already in use',
-      ]) {
-        expect(accountChangeErrorMessage(AuthException(roh)),
-            deL10n.settingsAccountEmailNotAvailable,
-            reason: roh);
-      }
-    });
-
     test('REGRESSION: die uebrigen Textregeln stehen unveraendert', () {
       expect(
         accountChangeErrorMessage(

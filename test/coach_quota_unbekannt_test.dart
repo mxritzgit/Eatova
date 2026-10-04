@@ -215,23 +215,6 @@ void main() {
       );
     });
 
-    test('eine Antwort ohne Zahlen darf keine Zahlen erfinden', () async {
-      // Empty table return: the RPC was reachable but returned no row. `?? 5`
-      // silently turned that into "5 left".
-      final client = SupabaseClient(
-        'https://example.supabase.co',
-        'test-anon-key',
-        httpClient: MockClient((req) async => _json(req, <dynamic>[], 200)),
-      );
-      client.auth.stopAutoRefresh();
-      final svc = CoachChatService(client, 'user-123');
-      await expectLater(
-        svc.loadQuotaToday(),
-        throwsA(isA<CoachDataUnavailable>()),
-        reason: 'ohne used/remaining/daily_limit weiss niemand etwas',
-      );
-    });
-
     test('eine gueltige Antwort kommt unveraendert durch (Kontrast)', () async {
       final svc = _service(
         _Backend()

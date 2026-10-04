@@ -577,6 +577,7 @@ class _CaptureBar extends StatelessWidget {
         _RoundButton(
           keyValue: const ValueKey('meal-camera-gallery'),
           icon: Icons.photo_library_outlined,
+          label: context.l10n.foodFromGalleryTooltip,
           onTap: busy ? null : onGallery,
         ),
         _Shutter(enabled: canCapture, busy: busy, onTap: onCapture),
@@ -590,26 +591,35 @@ class _RoundButton extends StatelessWidget {
   const _RoundButton({
     required this.keyValue,
     required this.icon,
+    required this.label,
     required this.onTap,
   });
 
   final Key keyValue;
   final IconData icon;
+
+  /// The screen reader's name for the icon-only button.
+  final String label;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      key: keyValue,
-      color: Colors.black.withValues(alpha: 0.45),
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onTap,
-        child: SizedBox(
-          width: 48,
-          height: 48,
-          child: Icon(icon, color: Colors.white, size: 21),
+    return Semantics(
+      button: true,
+      enabled: onTap != null,
+      label: label,
+      child: Material(
+        key: keyValue,
+        color: Colors.black.withValues(alpha: 0.45),
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: SizedBox(
+            width: 48,
+            height: 48,
+            child: Icon(icon, color: Colors.white, size: 21),
+          ),
         ),
       ),
     );
@@ -625,38 +635,43 @@ class _Shutter extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      key: const ValueKey('meal-camera-shutter'),
-      onTap: enabled ? onTap : null,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        width: 70,
-        height: 70,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: Colors.white.withValues(alpha: enabled ? 0.95 : 0.4),
-            width: 4,
-          ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(4.5),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: enabled
-                ? context.t.imageAccent
-                : Colors.white.withValues(alpha: 0.4),
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: context.l10n.foodTakePhotoTooltip,
+      child: GestureDetector(
+        key: const ValueKey('meal-camera-shutter'),
+        onTap: enabled ? onTap : null,
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          width: 70,
+          height: 70,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: Colors.white.withValues(alpha: enabled ? 0.95 : 0.4),
+              width: 4,
             ),
-            child: busy
-                ? const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: Colors.black,
-                    ),
-                  )
-                : null,
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(4.5),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: enabled
+                    ? context.t.imageAccent
+                    : Colors.white.withValues(alpha: 0.4),
+              ),
+              child: busy
+                  ? const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.5,
+                        color: Colors.black,
+                      ),
+                    )
+                  : null,
+            ),
           ),
         ),
       ),

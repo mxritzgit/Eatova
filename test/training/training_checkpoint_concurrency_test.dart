@@ -46,7 +46,6 @@ void main() {
               EncryptedKeyValueStore(
                 db,
                 AesGcmCacheCipher(Uint8List(32)),
-                acceptLegacyPlaintext: false,
               );
           final controlled = AtomicStoreFaults(encrypted(first));
           final cache = LocalCache(controlled, 'A');
@@ -245,7 +244,6 @@ void main() {
               EncryptedKeyValueStore(
                 db,
                 AesGcmCacheCipher(Uint8List(32)),
-                acceptLegacyPlaintext: false,
               ),
               'A',
             );

@@ -320,7 +320,8 @@ void main() {
   });
 
   group('Befund 3 — die Bestaetigungen folgen der App-Sprache', () {
-    // Clock pinned past the spring DST switch — the edge B5 covers.
+    // Clock pinned past the spring DST switch (B5: the move label once
+    // measured absolute time, so the 23-hour day read as 0 days, "today").
     Future<void> mitUhr(Future<void> Function() body) =>
         withClock(Clock.fixed(DateTime(2026, 3, 30, 10)), body);
 

@@ -39,12 +39,14 @@ class EdgeFunctionRecipeImportService implements RecipeImportService {
     String? Function()? currentUserId,
     http.Client Function()? clientFactory,
     Duration timeout = const Duration(seconds: 65),
+    GoTrueClient? auth,
   }) : _baseUrl = baseUrl,
        _anonKey = anonKey,
        _tokenProvider = tokenProvider,
        _currentUserId = currentUserId,
        _clientFactory = clientFactory,
-       _timeout = timeout;
+       _timeout = timeout,
+       _auth = auth;
 
   static const maxTextLength = 20000;
   static const maxResponseBytes = 256 * 1024;
@@ -52,6 +54,25 @@ class EdgeFunctionRecipeImportService implements RecipeImportService {
   final String? Function()? _tokenProvider, _currentUserId;
   final http.Client Function()? _clientFactory;
   final Duration _timeout;
+
+  /// The session source when no [tokenProvider] is given; null is the app's.
+  final GoTrueClient? _auth;
+
+  /// A share usually opens the app from the background, where the SDK's
+  /// token refresh only starts on resume. Sending the expired token would
+  /// read as a lost login, so an expired session is refreshed first; if that
+  /// fails, the request itself reports offline or reauthentication.
+  Future<String?> _sessionToken() async {
+    final auth = _auth ?? Supabase.instance.client.auth;
+    if (auth.currentSession?.isExpired ?? false) {
+      try {
+        await auth.refreshSession();
+      } on Object {
+        // Keep the current token; the response maps the actual failure.
+      }
+    }
+    return auth.currentSession?.accessToken;
+  }
 
   @override
   Future<RecipeImportResult> extract(
@@ -67,9 +88,7 @@ class EdgeFunctionRecipeImportService implements RecipeImportService {
     final identity = MealScanIdentity(currentUserId: _currentUserId);
     String? token;
     try {
-      token = _tokenProvider != null
-          ? _tokenProvider()
-          : Supabase.instance.client.auth.currentSession?.accessToken;
+      token = _tokenProvider != null ? _tokenProvider() : await _sessionToken();
     } on Object {
       throw const RecipeImportException(RecipeImportFailure.reauthRequired);
     }

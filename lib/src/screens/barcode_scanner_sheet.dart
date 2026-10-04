@@ -448,22 +448,28 @@ class _TorchButton extends StatelessWidget {
           return const SizedBox.shrink();
         }
         final on = state.torchState == TorchState.on;
-        return Material(
-          key: const ValueKey('barcode-torch'),
-          color: on
-              ? context.t.imageAccent.withValues(alpha: 0.92)
-              : Colors.black.withValues(alpha: 0.45),
-          shape: const CircleBorder(),
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: controller.toggleTorch,
-            child: SizedBox(
-              width: 48,
-              height: 48,
-              child: Icon(
-                on ? Icons.flash_on_rounded : Icons.flash_off_rounded,
-                color: on ? Colors.black : Colors.white,
-                size: 21,
+        // Icon-only: the screen reader needs its name and on/off state.
+        return Semantics(
+          button: true,
+          toggled: on,
+          label: context.l10n.foodBarcodeTorchLabel,
+          child: Material(
+            key: const ValueKey('barcode-torch'),
+            color: on
+                ? context.t.imageAccent.withValues(alpha: 0.92)
+                : Colors.black.withValues(alpha: 0.45),
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: controller.toggleTorch,
+              child: SizedBox(
+                width: 48,
+                height: 48,
+                child: Icon(
+                  on ? Icons.flash_on_rounded : Icons.flash_off_rounded,
+                  color: on ? Colors.black : Colors.white,
+                  size: 21,
+                ),
               ),
             ),
           ),

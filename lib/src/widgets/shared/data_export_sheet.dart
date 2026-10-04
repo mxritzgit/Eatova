@@ -33,15 +33,10 @@ typedef ExportDateiTeiler =
 /// sheet's builder, exactly where the `FutureBuilder` subscribes to it. An
 /// already running future would have no error listener between the call and
 /// the first sheet frame, so a failed server export would surface as an
-/// unhandled zone error instead of falling back to the session snapshot.
-///
-/// [fallbackSnapshot] is shown when [snapshot] fails; without it the card
-/// stays empty and the subtitle says so.
+/// unhandled zone error instead of the sheet's error state.
 Future<void> showDataExportSheet(
   BuildContext context, {
   required Future<String> Function() snapshot,
-  required bool vollstaendig,
-  String fallbackSnapshot = '',
   ExportDateiTeiler? dateiTeilen,
 }) {
   // Material's handle stays on: this is a DraggableScrollableSheet and the
@@ -50,12 +45,8 @@ Future<void> showDataExportSheet(
   return showEatovaSheet<void>(
     context,
     Builder(
-      builder: (_) => DataExportSheet(
-        snapshot: snapshot(),
-        fallbackSnapshot: fallbackSnapshot,
-        vollstaendig: vollstaendig,
-        dateiTeilen: dateiTeilen,
-      ),
+      builder: (_) =>
+          DataExportSheet(snapshot: snapshot(), dateiTeilen: dateiTeilen),
     ),
   );
 }
@@ -65,19 +56,12 @@ class DataExportSheet extends StatefulWidget {
   const DataExportSheet({
     super.key,
     required this.snapshot,
-    required this.fallbackSnapshot,
-    required this.vollstaendig,
     this.dateiTeilen,
   });
 
-  /// The asynchronously loaded export; with sync, the full server copy.
+  /// The full server export (GDPR Art. 15/20). A failure leaves the card
+  /// empty and the subtitle says so.
   final Future<String> snapshot;
-
-  /// Shown when [snapshot] fails (offline), together with a hint that this is
-  /// not the complete copy.
-  final String fallbackSnapshot;
-
-  final bool vollstaendig;
 
   /// Passes the full export on as a file. `null` while the app has no share
   /// plugin; the button then disappears instead of offering a dead path.
@@ -108,10 +92,7 @@ class _DataExportSheetState extends State<DataExportSheet> {
   @override
   void didUpdateWidget(covariant DataExportSheet alt) {
     super.didUpdateWidget(alt);
-    if (alt.snapshot != widget.snapshot ||
-        alt.fallbackSnapshot != widget.fallbackSnapshot) {
-      _auskunft = _aufbereiten();
-    }
+    if (alt.snapshot != widget.snapshot) _auskunft = _aufbereiten();
   }
 
   /// Parse and order once; large documents are prepared off the UI isolate.
@@ -128,7 +109,7 @@ class _DataExportSheetState extends State<DataExportSheet> {
         stackTrace: st,
         name: 'data_export_sheet',
       );
-      return _Auskunft.aus(widget.fallbackSnapshot, fehler: true);
+      return _Auskunft.aus('', fehler: true);
     }
   }
 
@@ -154,6 +135,18 @@ class _DataExportSheetState extends State<DataExportSheet> {
         stackTrace: st,
         name: 'data_export_sheet',
       );
+      // Copying is the only way out of the export; a silent failure (e.g. a
+      // multi-megabyte text over the Android clipboard limit) looked like a
+      // dead button.
+      if (mounted) {
+        showAppSnack(
+          context,
+          context.l10n.exportSheetCopyFailedSnack,
+          icon: Icons.error_outline_rounded,
+          tone: SnackTone.error,
+          duration: kSnackError,
+        );
+      }
       return;
     }
     if (!mounted) return;
@@ -184,7 +177,6 @@ class _DataExportSheetState extends State<DataExportSheet> {
   String _untertitel(AppLocalizations l10n, bool laedt, _Auskunft? auskunft) {
     if (laedt || auskunft == null) return l10n.exportSheetLoadingSubtitle;
     if (auskunft.fehler) return l10n.exportSheetErrorSubtitle;
-    if (!widget.vollstaendig) return l10n.exportSheetSessionSubtitle;
     if (auskunft.document == null || auskunft.umfang == null) {
       return l10n.exportUnverified;
     }
@@ -202,9 +194,7 @@ class _DataExportSheetState extends State<DataExportSheet> {
       _jsonOutput || data.document == null
       ? data.document?.json ?? data.voll
       : data.document!.report(
-          widget.vollstaendig
-              ? l10n.exportSheetTitleFull
-              : l10n.exportSheetTitleSession,
+          l10n.exportSheetTitleFull,
           (key) => exportLabel(key, l10n),
           value: (fields, path, value) =>
               exportReadableValue(fields, path, value, l10n),
@@ -238,7 +228,7 @@ class _DataExportSheetState extends State<DataExportSheet> {
                 24 + MediaQuery.viewPaddingOf(context).bottom,
               ),
               children: [
-                _ExportHeader(full: widget.vollstaendig),
+                const _ExportHeader(),
                 const SizedBox(height: 12),
                 AppCard(
                   color: t.brandSurface,
@@ -429,8 +419,7 @@ class _ShareFileButton extends StatelessWidget {
 }
 
 class _ExportHeader extends StatelessWidget {
-  const _ExportHeader({required this.full});
-  final bool full;
+  const _ExportHeader();
 
   @override
   Widget build(BuildContext context) {
@@ -438,11 +427,9 @@ class _ExportHeader extends StatelessWidget {
     final title = HeadingSemantics(
       level: 1,
       child: Text(
-        full
-            ? (largeText
-                  ? context.l10n.settingsExportDataTitle
-                  : context.l10n.exportSheetTitleFull)
-            : context.l10n.exportSheetTitleSession,
+        largeText
+            ? context.l10n.settingsExportDataTitle
+            : context.l10n.exportSheetTitleFull,
         style: AppType.display(largeText ? 22 : 26, color: context.t.ink),
       ),
     );

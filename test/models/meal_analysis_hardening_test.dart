@@ -391,6 +391,27 @@ void main() {
       expect(r.estimatedGrams, 100);
       expect(r.caloriesKcal, 340);
     });
+
+    test('unmoegliche Makros pro 100 g werden "-" statt hochgerechnet', () {
+      // 100 g of food cannot hold more than 100 g of one macro, and none can
+      // be negative: a unit slip in the crowd-sourced record is not a
+      // measurement, and scaled to the serving it reached the diary as 825 g
+      // protein.
+      final r = MealAnalysisResult.fromOpenFoodFacts(<String, dynamic>{
+        'product_name': 'Proteinshake',
+        'serving_quantity': 330,
+        'nutriments': <String, dynamic>{
+          'energy-kcal_100g': 60,
+          'proteins_100g': 250,
+          'carbohydrates_100g': -4,
+          'fat_100g': 2,
+        },
+      }, '120');
+      expect(r.protein, '-');
+      expect(r.carbs, '-');
+      expect(r.fat, '6,6 g', reason: 'ein plausibler Wert bleibt gerechnet');
+      expect(r.caloriesKcal, 198);
+    });
   });
 
   group('B8 · Makros folgen den Bestandteilen, nicht der Masse', () {

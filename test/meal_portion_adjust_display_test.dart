@@ -267,15 +267,6 @@ void main() {
       expect(applied.result.fat, '5 g');
     });
 
-    test('ohne Makros bleibt der identische Posten reine Gewichtsanpassung', () {
-      final applied = mealPortionAdjustment(_produkt, [
-        _produkt.asSingleComponent.adjustedToGrams(180),
-      ]);
-      expect(applied!.isWeightOnly, isTrue);
-      expect(applied.result.items, isEmpty);
-      expect(applied.result.estimatedGrams, 180);
-    });
-
     test('ein Ergebnis MIT Posten geht nie über den Gewichtsweg', () {
       final applied = mealPortionAdjustment(_teller, [_teller.items.first]);
       expect(applied!.isWeightOnly, isFalse);

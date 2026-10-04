@@ -90,13 +90,8 @@ final class MealSlotSummary {
   /// Summed kcal and macros of [meals].
   final MacroProgress macros;
 
-  int get entryCount => meals.length;
   bool get isEmpty => meals.isEmpty;
   int get kcal => macros.kcal;
-
-  /// Local time of the earliest entry; null for an empty slot.
-  DateTime? get firstLoggedAt =>
-      meals.isEmpty ? null : meals.first.loggedAt.toLocal();
 }
 
 /// All four slots of [date] in [MealSlot.values] order, empty ones included,

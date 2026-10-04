@@ -239,20 +239,6 @@ void main() {
     Map<String, dynamic> snapshotOf(Map<String, dynamic> row) =>
         (row['session'] as Map)['snapshot'] as Map<String, dynamic>;
 
-    test('cached rows written by the player still decode', () {
-      final value = entry();
-      expect(
-        TrainingHistoryEntry.fromRow(
-          jsonDecode(jsonEncode(value.toRow())) as Map,
-        ).toRow(),
-        value.toRow(),
-      );
-      final recovered = TrainingHistoryEntry.fromRecovery(
-        TrainingSessionSnapshot.fromJson(value.recoverySnapshot().toJson()),
-      );
-      expect(recovered.toRow(), value.toRow());
-    });
-
     final invalid = <String, void Function(Map<String, dynamic>)>{
       'a draft repetition value': (r) => snapshotOf(r)['draft_reps'] = 6,
       'a zero draft repetition value': (r) => snapshotOf(r)['draft_reps'] = 0,

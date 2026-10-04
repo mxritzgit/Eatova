@@ -7,6 +7,7 @@ import 'package:eatova/src/services/recipe_import_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 const emptyResult =
     '{"status":"needs_text","source":{"url":null},"candidates":[]}';
@@ -152,5 +153,67 @@ void main() {
     ).extract('caption', locale: 'en');
     await expectLater(pending, throwsA(failure(RecipeImportFailure.timeout)));
     response.complete(http.Response(emptyResult, 200));
+  });
+
+  test('refreshes an expired session before sending its token', () async {
+    // A share resumes the app while the SDK's own refresh is still running:
+    // the stored access token has expired, the refresh token is valid.
+    String jwt(int exp) {
+      String part(Object value) =>
+          base64Url.encode(utf8.encode(jsonEncode(value))).replaceAll('=', '');
+      return '${part({'alg': 'HS256'})}.'
+          '${part({'sub': 'user-a', 'session_id': 's1', 'exp': exp})}.sig';
+    }
+
+    Map<String, dynamic> session(String token, String refresh) => {
+      'access_token': token,
+      'refresh_token': refresh,
+      'token_type': 'bearer',
+      'expires_in': 3600,
+      'user': {
+        'id': 'user-a',
+        'aud': 'authenticated',
+        'created_at': '2026-09-20T00:00:00Z',
+        'app_metadata': <String, dynamic>{},
+        'user_metadata': <String, dynamic>{},
+      },
+    };
+    final expired = jwt(1);
+    final fresh = jwt(4102444800);
+    final authTransport = MockClient((request) async {
+      expect(request.url.path, '/auth/v1/token');
+      expect(request.url.queryParameters['grant_type'], 'refresh_token');
+      return http.Response(
+        jsonEncode(session(fresh, 'refresh-2')),
+        200,
+        headers: {'content-type': 'application/json'},
+      );
+    });
+    final supabase = SupabaseClient(
+      'https://ci.invalid',
+      'ci-dummy-key',
+      httpClient: authTransport,
+      authOptions: const AuthClientOptions(autoRefreshToken: false),
+    );
+    addTearDown(supabase.dispose);
+    await supabase.auth.setInitialSession(
+      jsonEncode(session(expired, 'refresh-1')),
+    );
+    expect(supabase.auth.currentSession!.isExpired, isTrue);
+
+    final sent = <String?>[];
+    final result = await EdgeFunctionRecipeImportService(
+      baseUrl: 'https://ci.invalid',
+      anonKey: 'ci-dummy-key',
+      auth: supabase.auth,
+      currentUserId: () => 'user-a',
+      clientFactory: () => MockClient((request) async {
+        sent.add(request.headers['Authorization']);
+        return http.Response(emptyResult, 200);
+      }),
+    ).extract('caption', locale: 'en');
+
+    expect(result.status, RecipeImportStatus.needsText);
+    expect(sent, ['Bearer $fresh']);
   });
 }

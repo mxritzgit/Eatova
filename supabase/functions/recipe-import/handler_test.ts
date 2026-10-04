@@ -1,3 +1,4 @@
+import { resetAuthFailCacheForTests } from '../_shared/auth_fail_gate.ts';
 import { userToken } from '../_shared/auth_test_fixtures.ts';
 import { handleRequest } from './handler.ts';
 
@@ -163,6 +164,42 @@ Deno.test('recipe-import rejected authenticated lookup consumes only failed-auth
     check(response.status === 401, 'Denied token');
     check(calls.length === 2 && calls[1].body.p_scope === 'recipe-import:auth-fail', 'Failure damper');
   });
+});
+
+Deno.test('recipe-import P7-02: a replayed revoked token costs at most two lookups', async () => {
+  resetAuthFailCacheForTests();
+  try {
+    await stub({ authStatus: 401 }, async (calls) => {
+      const token = userToken(USER);
+      for (let i = 0; i < 10; i++) {
+        const response = await handleRequest(request(undefined, token));
+        check(response.status === 401, 'Still a denied token');
+      }
+      const lookups = calls.filter((call) => call.url.endsWith('/auth/v1/user')).length;
+      const upserts = calls.filter((call) => call.url.endsWith('/consume_edge_rate_limit')).length;
+      check(lookups <= 2, `GoTrue lookups: expected at most 2, got ${lookups}`);
+      check(upserts <= 2, `Limiter upserts: expected at most 2, got ${upserts}`);
+    });
+  } finally {
+    resetAuthFailCacheForTests();
+  }
+});
+
+Deno.test('recipe-import P7-02: a valid token from the same address is still looked up', async () => {
+  resetAuthFailCacheForTests();
+  try {
+    await stub({ authStatus: 401 }, async () => {
+      for (let i = 0; i < 3; i++) await handleRequest(request(undefined, userToken(USER)));
+    });
+    const other = '22222222-2222-4222-8222-222222222222';
+    await stub({ authBody: { id: other } }, async (calls) => {
+      const response = await handleRequest(request(undefined, userToken(other)));
+      check(response.status === 200, `Valid token: expected 200, got ${response.status}`);
+      check(calls.some((call) => call.url.endsWith('/auth/v1/user')), 'A new token is looked up');
+    });
+  } finally {
+    resetAuthFailCacheForTests();
+  }
 });
 
 Deno.test('recipe-import rate-limit denial or malformed batch prevents source fetch and model use', async () => {

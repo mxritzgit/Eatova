@@ -220,6 +220,23 @@ void main() {
       // `XFile.fromData` without a path yields '' — no file behind it.
       await expectLater(deleteMealPhotoTempFile(''), completes);
     });
+
+    test('die unskalierte Picker-Kopie nimmt ihren leeren UUID-Ordner mit',
+        () async {
+      // image_picker_android returns its <cache>/<uuid>/<name> copy itself
+      // when it cannot read the dimensions.
+      final ordner = Directory(
+        '${cache.path}${Platform.pathSeparator}'
+        '5d1e7c2a-9b3f-4a6d-8e1c-0f2b4d6a8c9e',
+      )..createSync();
+      final kopie = File('${ordner.path}${Platform.pathSeparator}pick.jpg')
+        ..writeAsBytesSync(_jpegMitGps());
+
+      await deleteMealPhotoTempFile(kopie.path);
+
+      expect(kopie.existsSync(), isFalse);
+      expect(ordner.existsSync(), isFalse);
+    });
   });
 
   group('DeviceMealPhotoInput', () {
@@ -239,6 +256,47 @@ void main() {
       expect(kopie.existsSync(), isFalse,
           reason: 'das Essensfoto bliebe sonst dauerhaft im App-Cache liegen '
               '— auch nach der Kontoloeschung');
+    });
+
+    test(
+        'Android: auch die volle Kopie im UUID-Ordner des Pickers ist weg — '
+        'nur die zur Auswahl gehoerende', () async {
+      // image_picker_android copies a gallery pick in full, EXIF and GPS
+      // included, to <cache>/<uuid>/<name> and returns only its resized copy
+      // <cache>/scaled_<name>; the full copy is never deleted by the plugin.
+      String imCache(String name) =>
+          '${cache.path}${Platform.pathSeparator}$name';
+      final ordner = Directory(imCache('0f6c2a5e-3b1d-4c8e-9a7f-2d4b6e8a1c3f'))
+        ..createSync();
+      final original = File(
+        '${ordner.path}${Platform.pathSeparator}IMG_0412.jpg',
+      )..writeAsBytesSync(_jpegMitGps(width: 1600, height: 1200));
+      final skaliert = File(imCache('scaled_IMG_0412.jpg'))
+        ..writeAsBytesSync(_jpegMitGps());
+      final andererPick = Directory(
+        imCache('8a1c3f0f-6c2a-4e3b-9d4c-8e9a7f2d4b6e'),
+      )..createSync();
+      final fremd = File(
+        '${andererPick.path}${Platform.pathSeparator}IMG_0999.jpg',
+      )..writeAsBytesSync(const <int>[1]);
+      final eigenerOrdner = Directory(imCache('eigene'))..createSync();
+      final gleichnamig = File(
+        '${eigenerOrdner.path}${Platform.pathSeparator}IMG_0412.jpg',
+      )..writeAsBytesSync(const <int>[2]);
+      ImagePickerPlatform.instance = _FakePickerPlatform(XFile(skaliert.path));
+
+      final auswahl = await DeviceMealPhotoInput().pick(ImageSource.gallery);
+
+      expect(auswahl?.previewBytes, isNotNull);
+      expect(skaliert.existsSync(), isFalse);
+      expect(original.existsSync(), isFalse,
+          reason: 'die volle Kopie samt GPS bliebe sonst dauerhaft im '
+              'App-Cache liegen — auch nach der Kontoloeschung');
+      expect(ordner.existsSync(), isFalse);
+      expect(fremd.existsSync(), isTrue,
+          reason: 'eine andere Auswahl gehoert nicht zu diesem Foto');
+      expect(gleichnamig.existsSync(), isTrue,
+          reason: 'nur die UUID-Ordner des Pickers werden angefasst');
     });
 
     test('auch wenn der Scrub scheitert, bleibt keine Datei liegen', () async {

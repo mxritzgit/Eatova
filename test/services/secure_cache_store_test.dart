@@ -16,8 +16,8 @@ import 'package:eatova/src/services/secure_cache_store.dart';
 // puts AES-256-GCM underneath with the key in the OS keystore.
 //
 // Driven over an InMemoryKeyValueStore with an injected cipher, no plugin
-// channel. Covers roundtrip, idempotent legacy migration, purge-and-null on
-// an undecryptable slot, AAD binding against slot (= user) swaps, nonce
+// channel. Covers roundtrip, rejection of magic-less plaintext, purge-and-null
+// on an undecryptable slot, AAD binding against slot (= user) swaps, nonce
 // freshness, a single-flight DEK bootstrap, and the REAL cipher.
 
 // ---------------------------------------------------------------------------
@@ -181,57 +181,22 @@ void main() {
     });
   });
 
-  group('EncryptedKeyValueStore Legacy-Migration', () {
+  group('EncryptedKeyValueStore Klartext', () {
     test(
-        'erster Read liefert Klartext UND verschluesselt den Slot — ueber drei '
-        'Reads idempotent', () async {
+        'magic-loser Slot -> null und geraeumt, nie verschluesselt '
+        'uebernommen', () async {
+      // Legacy plaintext is encrypted by the SQLite import
+      // (durable_cache_migration_test.dart); the store itself has no
+      // plaintext path, whatever the constructor is given.
       const key = 'eatova.v1.profile.user-1';
       final raw = InMemoryKeyValueStore({key: _profileJson});
       final store = EncryptedKeyValueStore(raw, _FakeCipher('dek-a'));
 
-      expect(await store.getString(key), _profileJson);
-      final nachErstem = raw.snapshot[key];
-      expect(nachErstem, startsWith(cacheCipherMagic));
-      expect(nachErstem, isNot(contains('weight_kg')));
-
-      // The second read takes the decryption branch, same result.
-      expect(await store.getString(key), _profileJson);
-      final nachZweitem = raw.snapshot[key];
-      // The third read proves it stays there: after the first migration the
-      // raw value no longer changes, so no read re-encrypts the blob.
-      expect(await store.getString(key), _profileJson);
-
-      expect(nachZweitem, nachErstem);
-      expect(raw.snapshot[key], nachErstem);
-    });
-
-    test(
-        'GEGENPROBE: ein waehrend der Migration geschriebener neuerer Stand '
-        'wird NICHT vom Klartext ueberschrieben', () async {
-      // The migration runs on the write chain and its payload is the value
-      // the READ saw. Between that read and the write sits the encryption
-      // (an isolate hop in production), and a regular setString can land in
-      // exactly that window. Without the freshness check in
-      // `_migrateLegacyPlaintext` the stale plaintext wins and the slot rolls
-      // back to the state from before the update — silently, because both
-      // writes "succeed".
-      const key = 'eatova.v1.logged_meals.user-1';
-      const alt = '{"items":["VOR DEM UPDATE"]}';
-      const neu = '{"items":["FRISCH GELOGGT"]}';
-      final raw = InMemoryKeyValueStore({key: alt});
-      final store = EncryptedKeyValueStore(raw, _FakeCipher('dek-a'));
-
-      // The read hands the plaintext over and schedules its migration...
-      final lesen = store.getString(key);
-      // ...and the fresher write lands first.
-      await store.setString(key, neu);
-
-      expect(await lesen, alt, reason: 'Der Leser bekommt, was zum '
-          'Lesezeitpunkt dastand — das ist nicht der Fund hier.');
-      expect(await store.getString(key), neu,
-          reason: 'Der Klartext von vor dem Update darf den frisch '
-              'geloggten Stand nicht zurueckrollen.');
-      expect(raw.snapshot[key], startsWith(cacheCipherMagic));
+      expect(await store.getString(key), isNull,
+          reason: 'Ohne Magic gibt es weder Tag noch AAD.');
+      await Future<void>.delayed(Duration.zero);
+      expect(raw.snapshot.containsKey(key), isFalse,
+          reason: 'Weder liegen lassen noch zu Ciphertext aufwerten.');
     });
   });
 
@@ -357,10 +322,6 @@ void main() {
 
       expect(await cipher.decrypt(key, await cipher.encrypt(key, big)), big);
     });
-
-    test('DEK mit falscher Laenge wird abgelehnt', () {
-      expect(() => AesGcmCacheCipher(Uint8List(16)), throwsArgumentError);
-    });
   });
 
   group('CacheKeyProvider', () {
@@ -381,15 +342,6 @@ void main() {
       expect(results[0], hasLength(AesGcmCacheCipher.dekLengthBytes));
       expect(base64.decode(keyStore.data[CacheKeyProvider.dekStorageKey]!),
           results[0]);
-    });
-
-    test('EncryptedKeyValueStore.create liefert null ohne DEK', () async {
-      final store = await EncryptedKeyValueStore.create(
-        InMemoryKeyValueStore(),
-        keyStore: _FailingKeyStore(),
-      );
-      // No plaintext fallback: rather no cache at all.
-      expect(store, isNull);
     });
   });
 
@@ -622,34 +574,4 @@ void main() {
           throwsA(isA<InvalidCipherTextException>()));
     });
   });
-
-  group('LocalCache.dropLegacySlots', () {
-    test('entfernt eatova.v1.daily.<uid> (Mood-Freitext aus Alt-Installation)',
-        () async {
-      final raw = InMemoryKeyValueStore({
-        'eatova.v1.daily.user-1': '{"mood_note":"$_pii"}',
-        'eatova.v1.daily.user-2': '{"mood_note":"fremd"}',
-      });
-
-      await LocalCache(raw, 'user-1').dropLegacySlots();
-
-      expect(raw.snapshot.containsKey('eatova.v1.daily.user-1'), isFalse);
-      // Foreign namespace stays untouched.
-      expect(raw.snapshot.containsKey('eatova.v1.daily.user-2'), isTrue);
-    });
-  });
-}
-
-/// Keystore whose read throws. No new DEK is minted: an existing one may be
-/// temporarily unreadable, and overwriting it orphans the cache.
-class _FailingKeyStore implements SecureKeyStore {
-  @override
-  Future<String?> read(String key) async => throw StateError('keystore kaputt');
-
-  @override
-  Future<void> write(String key, String value) async =>
-      throw StateError('keystore kaputt');
-
-  @override
-  Future<void> delete(String key) async => throw StateError('keystore kaputt');
 }

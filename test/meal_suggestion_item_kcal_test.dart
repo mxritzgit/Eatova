@@ -201,4 +201,21 @@ void main() {
     await tester.pump();
     expect(geloggt.single.estimatedGrams, 200);
   });
+
+  // Review 2026-10-04: a screen reader heard the portion slider as "15%"
+  // (its share of the 1..1000 g window) and the field as an unnamed "150".
+  testWidgets('Regler und Feld nennen dem Screenreader die Portion in Gramm', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    await pumpItem(tester, apfelkuchen);
+
+    expect(find.semantics.byValue('150 g'), findsOne);
+    expect(find.semantics.byValue('15%'), findsNothing);
+    expect(tester.getSemantics(find.byType(TextField)).label, 'Gewicht');
+
+    await tippeGramm(tester, '300');
+    expect(find.semantics.byValue('300 g'), findsOne);
+    semantics.dispose();
+  });
 }

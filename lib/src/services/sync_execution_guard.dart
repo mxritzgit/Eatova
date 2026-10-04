@@ -40,6 +40,11 @@ class SyncExecutionGuard {
   final AtomicKeyValueStore store;
   static const leaseDuration = Duration(seconds: 60);
 
+  /// How far the clock may be set back under a live lease (an NTP
+  /// correction) before that lease counts as written by a clock that ran
+  /// ahead.
+  static const clockCorrectionSlack = Duration(minutes: 5);
+
   /// A missing/mismatched foreground identity is not mere worker contention.
   Future<bool> hasActiveSession(String userId, String sessionId) async {
     final snapshot = await store.readSnapshot([syncSessionKey]);
@@ -157,7 +162,14 @@ class SyncExecutionGuard {
         prior['expires_at']?.toString() ?? '',
       );
       if (expiresAt == null) throw const FormatException('Invalid sync claim');
-      if (clock.now().toUtc().isBefore(expiresAt)) return null;
+      final now = clock.now().toUtc();
+      // A lease never ends more than one duration after the clock that wrote
+      // it. A much later end was written before the clock was set back; a
+      // small correction keeps a live lease exclusive.
+      if (now.isBefore(expiresAt) &&
+          !expiresAt.isAfter(now.add(leaseDuration + clockCorrectionSlack))) {
+        return null;
+      }
     }
     final claim = SyncExecutionClaim._(
       store,

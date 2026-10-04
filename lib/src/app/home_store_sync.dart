@@ -30,9 +30,13 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
 
   void _observeLocalCommit(LocalMutationReceipt receipt) {
     _adoptTrainingHeads(receipt);
+    // The claim lease changes on every acquire, renew and release. It fences
+    // delivery, not the cache state a later snapshot commit is based on.
+    final claimKey = syncClaimKey(sync?.userId ?? '');
     _cacheObservedVersions = {
       ..._cacheObservedVersions,
-      ...receipt.snapshot.versions,
+      for (final entry in receipt.snapshot.versions.entries)
+        if (entry.key != claimKey) entry.key: entry.value,
     };
     _localCommitGeneration++;
   }
@@ -383,7 +387,14 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         );
         if (_disposed || _trainingSessionEnded) return;
         claim = await guard.tryClaim(s.userId, expectedSessionId: sessionId);
-        if (claim == null) return;
+        if (claim == null) {
+          // Another engine or a killed process's unexpired lease holds the
+          // claim. The lease is bounded, so keep a retry armed rather than
+          // waiting for the next lifecycle event.
+          if (vomTimer) _bumpRetryStage();
+          _scheduleOutboxRetry();
+          return;
+        }
       } else if (debugCache == null) {
         return;
       }
@@ -392,7 +403,9 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
       );
       while (attempted.length < 20) {
         if (_disposed || _trainingSessionEnded) return;
-        if (claim != null && !await claim.renew()) return;
+        // A lease lost mid-pass (e.g. the app was suspended past it) ends the
+        // pass; breaking out still arms the retry for the remaining queue.
+        if (claim != null && !await claim.renew()) break;
         _outbox = await cache.readSyncOperations(
           guards: claim?.guards ?? const {},
         );
@@ -419,7 +432,7 @@ mixin _HomeStoreSyncPart on _HomeStoreBase {
         if (_disposed ||
             _trainingSessionEnded ||
             (claim != null && !await claim.isCurrent())) {
-          return;
+          break;
         }
         _inFlightOps[op.entityKey] = op;
         var delivered = false;

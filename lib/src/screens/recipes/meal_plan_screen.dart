@@ -25,6 +25,14 @@ import '../../widgets/recipes/recipe_navigation.dart';
 
 part 'meal_plan_editor.dart';
 
+/// The planning window: the editor's calendar and the week navigation share
+/// it, so every plannable day has a reachable week. Calendar arithmetic keeps
+/// a DST change from shifting either end by a day.
+DateTime _firstPlanDay(DateTime today) =>
+    DateTime(today.year, today.month, today.day - 35);
+DateTime _lastPlanDay(DateTime today) =>
+    DateTime(today.year, today.month, today.day + 365);
+
 class MealPlanScreen extends StatefulWidget {
   const MealPlanScreen({super.key, required this.store});
   final HomeStore store;
@@ -172,6 +180,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
     final l = context.l10n;
     final t = context.t;
     final end = DateTime(_week.year, _week.month, _week.day + 6);
+    final today = DateUtils.dateOnly(clock.now());
     final formatter = _week.year == clock.now().year && end.year == _week.year
         ? DateFormat.MMMd(l.localeName)
         : DateFormat.yMMMd(l.localeName);
@@ -186,12 +195,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
             foregroundColor: t.ink,
           ),
           icon: const Icon(Icons.chevron_left_rounded),
-          onPressed:
-              _week.isAfter(
-                DateUtils.dateOnly(
-                  clock.now(),
-                ).subtract(const Duration(days: 28)),
-              )
+          onPressed: _week.isAfter(_firstPlanDay(today))
               ? () => setState(
                   () =>
                       _week = DateTime(_week.year, _week.month, _week.day - 7),
@@ -218,7 +222,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
             foregroundColor: t.ink,
           ),
           icon: const Icon(Icons.chevron_right_rounded),
-          onPressed: _week.isBefore(clock.now().add(const Duration(days: 350)))
+          onPressed: end.isBefore(_lastPlanDay(today))
               ? () => setState(
                   () =>
                       _week = DateTime(_week.year, _week.month, _week.day + 7),
@@ -289,6 +293,10 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
         store.plannedMeals.where((p) => p.day == localDayKey(day)).toList()
           ..sort((a, b) => a.slot.index.compareTo(b.slot.index));
     final today = DateUtils.isSameDay(day, clock.now());
+    // The window's first and last week also show days outside it.
+    final now = DateUtils.dateOnly(clock.now());
+    final plannable =
+        !day.isBefore(_firstPlanDay(now)) && !day.isAfter(_lastPlanDay(now));
     return Padding(
       key: ValueKey('meal-plan-day-${localDayKey(day)}'),
       padding: const EdgeInsets.only(bottom: 24),
@@ -348,7 +356,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
               IconButton(
                 key: ValueKey('meal-plan-add-${localDayKey(day)}'),
                 tooltip: l.mealPlanAdd,
-                onPressed: () => _edit(day),
+                onPressed: plannable ? () => _edit(day) : null,
                 style: IconButton.styleFrom(
                   backgroundColor: t.brandSurface,
                   foregroundColor: t.onBrandSurface,
@@ -358,7 +366,7 @@ class _MealPlanScreenState extends State<MealPlanScreen> {
               ),
             ],
           ),
-          if (entries.isEmpty) ...[
+          if (entries.isEmpty && plannable) ...[
             const SizedBox(height: 12),
             Align(
               alignment: AlignmentDirectional.centerStart,

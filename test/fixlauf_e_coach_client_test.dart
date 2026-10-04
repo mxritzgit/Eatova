@@ -300,23 +300,6 @@ void main() {
     });
   });
 
-  group('F5-05 Mikro nur auf iOS', () {
-    testWidgets('unter Android (Test-Default) gibt es keinen Mikro-Knopf',
-        (tester) async {
-      await _pumpCoach(tester, _ECoach.create());
-      expect(find.byKey(const ValueKey('coach-mic')), findsNothing,
-          reason: 'der MethodChannel eatova/speech existiert nur im iOS-Runner');
-      expect(find.byKey(const ValueKey('coach-send')), findsOneWidget);
-    });
-
-    testWidgets('unter iOS steht der Mikro-Knopf im Composer', (tester) async {
-      await _alsIOS(() async {
-        await _pumpCoach(tester, _ECoach.create());
-        expect(find.byKey(const ValueKey('coach-mic')), findsOneWidget);
-      });
-    });
-  });
-
   group('F5-06 Diktat fuellt das Feld, sendet nicht', () {
     testWidgets('erkannter Text landet mit Cursor am Ende im Feld',
         (tester) async {

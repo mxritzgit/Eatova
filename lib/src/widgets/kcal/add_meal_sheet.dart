@@ -564,15 +564,20 @@ class _AddMealSheetState extends State<AddMealSheet> {
   Future<String> _logAndMirror(MealAnalysisResult result, MealSlot slot) async {
     final id = await widget.onAdd(result, slot);
     if (!mounted) return id;
-    final day = widget.foodDate;
-    final mirrored = LoggedMeal(
-      id: id,
-      result: result,
-      loggedAt: clock.now(),
-      forcedSlot: slot,
-      localDay: day == null ? null : localDayKey(DateUtils.dateOnly(day)),
-    );
-    setState(() => _existing = [mirrored, ..._existing]);
+    // The store publishes before its delivery attempt returns the id, so the
+    // re-seed may already hold this row; a second copy doubled the row and
+    // the slot total.
+    if (!widget.existingMeals.any((m) => m.id == id)) {
+      final day = widget.foodDate;
+      final mirrored = LoggedMeal(
+        id: id,
+        result: result,
+        loggedAt: clock.now(),
+        forcedSlot: slot,
+        localDay: day == null ? null : localDayKey(DateUtils.dateOnly(day)),
+      );
+      setState(() => _existing = [mirrored, ..._existing]);
+    }
     _touchFavorite(result);
     return id;
   }
@@ -896,9 +901,11 @@ class _AddMealSheetState extends State<AddMealSheet> {
       context,
       slot: _selectedSlot,
       resultFuture: first,
+      // Not MealAnalysisCancelled: the sheet reads that as its own close and
+      // would stay on the loading card. The photo belongs to the old session.
       retry: () => identity.isCurrent
           ? analyzer.analyze(request)
-          : Future.error(const MealAnalysisCancelled()),
+          : Future.error(const MealAnalysisReauthRequired()),
       cancellation: request.cancellation,
       previewImage: selection.previewBytes,
       onAdd: _logAndMirror,
@@ -924,11 +931,14 @@ class _AddMealSheetState extends State<AddMealSheet> {
     // header would show one slot while the hit went to another.
     _selectSlot(scan.slot);
 
+    // As for the photo scan: offline the lookup fails before the sheet
+    // listens, which must not surface as an unhandled zone error.
+    final lookup = widget.productService.lookupBarcode(scan.code)..ignore();
     // No retry/cancel: a lookup is cheap and its "not found" is final.
     final outcome = await showMealAnalysisSheet(
       context,
       slot: scan.slot,
-      resultFuture: widget.productService.lookupBarcode(scan.code),
+      resultFuture: lookup,
       previewImage: null,
       onAdd: _logAndMirror,
       onUpdateMeal: _updateAndMirror,
@@ -944,9 +954,9 @@ class _AddMealSheetState extends State<AddMealSheet> {
   // ─── Manual entry ─────────────────────────────────────────────────────
 
   /// Entry point for own nutrition values (spec 2026-08-13). The form only
-  /// builds the result; logging happens here via [_handleAdd], including the
-  /// 0-kcal guard (a manual 0 carries explicitZeroKcal and passes it) and the
-  /// success snack. [initialName] comes from the search CTA.
+  /// builds the result; logging happens here via [_logAndMirror], plus the
+  /// success snack. A manual 0 kcal is measured (explicitZeroKcal), so no
+  /// sentinel guard applies. [initialName] comes from the search CTA.
   Future<void> _openManualEntry({String? initialName}) async {
     var slot = _selectedSlot;
     final result = await showManualMealSheet(
@@ -1384,8 +1394,11 @@ class _AddMealSheetState extends State<AddMealSheet> {
     final id = FavoriteMeal.idFor(result);
     final before = _favorites.indexWhere((f) => f.id == id);
     final pinned = before == -1 || !_favorites[before].pinned;
+    final fed = widget.favorites;
     await widget.onToggleFavorite?.call(result);
-    if (!mounted) return;
+    // Re-fed during the call: the list already holds the store's outcome,
+    // and mirroring a dropped row would bring it back.
+    if (!mounted || !identical(widget.favorites, fed)) return;
     setState(() {
       final idx = _favorites.indexWhere((f) => f.id == id);
       if (idx == -1) {

@@ -2766,3 +2766,144 @@ the entry into the favorites menu. Design A–E approved in chat.
   failed, both expecting the old 42 px chip or a live chip without `onTap`.
   Their expectations were updated, and their files then passed 103 of 103.
   Local line coverage without the generated l10n is 96.8 %.
+
+## In-depth review with twelve agents, 2026-10-04
+
+Owner request: twelve subagents review Eatova in depth (auth, logic,
+functionality), fix what they find, and remove dead code and superfluous
+tests; merge after CI. Each reviewer worked in its own worktree on one area:
+1. client auth
+2. backend security
+3. sync and outbox
+4. food logging
+5. energy and targets
+6. scan and search
+7. Coach
+8. recipes and meal plan
+9. training and health
+10. app shell, settings and export
+11. repo-wide dead code
+12. test audit
+
+Every fix came with a regression test shown to fail without it. The
+orchestrator read every diff before cherry-picking it onto
+`review/indepth-2026-10-04`, resolved four test-file conflicts by keeping
+both intents, and added its own fixes where a finding crossed areas.
+
+**Fixed (medium):**
+- **Coach:**
+  - A connection lost during `/recipe`, `/plan` or `/log` now checks the
+    transcript before saying "No connection". A retry no longer buys a
+    second daily slot.
+  - An auth-stream error replayed to the per-request identity fence
+    blocked `/plan` and `/log` for up to an hour. The fence now uses the
+    sync stream.
+- **Food:**
+  - The add sheet mirrored a meal the store had already re-fed. It was
+    listed twice, and an X on the copy deleted the real meal.
+  - A manual portion that rounded to 0 kcal could not be logged.
+- **Sync:**
+  - A dead claim lease left no retry armed.
+  - A lease lost mid-pass left no retry armed.
+  - The orchestrator added a 5-minute clock-correction slack to the
+    orphaned-lease bound (`ac0fe11`), so an NTP correction of a second
+    cannot release a live lease.
+- **Energy:** the weekly check re-reads the ended day's full step total after
+  a day rollover.
+- **Scan:**
+  - Android gallery picks left a full-size GPS-tagged copy in the app cache.
+    It is now deleted.
+  - Impossible Open Food Facts macros (250 g protein per 100 g) are dropped
+    instead of scaled up.
+- **Auth:**
+  - GoTrue exchanges (sign-in, sign-up, Google, password and email change)
+    and the mail requests had no timeout. They now end after 20 s with the
+    offline message.
+- **Recipes:** an import after a long background period sent an expired
+  token and asked the user to sign in again.
+- **Shell:**
+  - GoTrue 5xx from sync paths now reaches Sentry, throttled to one report
+    per 10 minutes.
+  - A failed "copy all" export is now shown.
+
+**Fixed (low), with tests:**
+- **Coach:** "Send again" at 2x text; the quota refreshes after failures.
+- **Sync:** the boot no longer reloads twice after a delivery.
+- **Energy and goals:** wrong pace texts.
+- **Scan:**
+  - bidi and control characters in model labels;
+  - confidence case;
+  - item fallback 'Zutat';
+  - scan retry after an account change;
+  - early barcode errors in both the Food tab and the add sheet;
+  - unnamed camera controls.
+- **Meal plan:** week navigation now covers the editor's window.
+- **Recipes:**
+  - recipe search on hidden import markers;
+  - goal matches on incomplete nutrition;
+  - import tile contrast;
+  - control characters in the import author;
+  - the known-bad-token cache in recipe-import.
+- **Training:**
+  - the player kept the display on under a sheet;
+  - Health Connect still said "install" after installing.
+- **Auth:** dismiss race and code-field labels in the account-change sheets.
+- **App shell:**
+  - localized boot error;
+  - emoji avatar initial;
+  - double pushes of profile, goals and settings;
+  - the quadratic export.
+
+**Removed:**
+- **Dead code:**
+  - the legacy prefs-plaintext path of `EncryptedKeyValueStore` (`create`,
+    `migrateAllLegacySlots`, the probe, the accepting read branch);
+    production builds the store only through `migrateDurableCache`;
+  - MacroBar, MealAvatar and DotGridBackground;
+  - TrainingActualFields, `renameSession`, `RecipeImageStore.deleteFor`, the
+    portion-hint plumbing, the export session-snapshot mode, unused sync
+    and cache writers, and test-only clamps and serializers.
+- **Tests:** 83 Flutter and 9 Deno tests that a named stronger test already
+  covers or that could not fail.
+- **Fragile tests:** three were fixed: a DST time bomb in the day-load and
+  edit tests (red locally in Germany for up to 40 days after the spring
+  switch), an order-dependent Supabase wiring test, and a midnight race in
+  the lifecycle flow.
+
+**Needs a deploy (owner):**
+- search-key (stalled-body classification)
+- recipe-import (author filter, known-bad-token cache)
+- analyze-meal (label sanitizing, confidence case, item fallback)
+
+No migration is part of this change.
+
+**Report-only, decisions for the owner:**
+- **D1, per-account byte budget (medium).** Row caps limit rows, not bytes:
+  one confirmed account can store about 13 GB through normal writes. On the
+  Free plan, 500 MB puts the whole project into read-only mode. The backend
+  reviewer verified a 64 MiB draft migration (PT507) against a local replay:
+  [proposal](STORAGE-BUDGET-PROPOSAL-2026-10-04.md). The size is
+  the owner's call.
+- **R10-04 (medium).** Large exports cannot leave an Android device: copying
+  hits the binder limit, and there is no share path. Fixing it needs a share
+  plugin, which is a dependency change.
+- **R10-09 (medium a11y).** Undo toasts auto-dismiss after 2.6 s even with a
+  screen reader on.
+- **Smaller decisions:**
+  - shopping-list check ids that include grams;
+  - 5xx responses that count against the outbox's eight-attempt budget;
+  - the classifier `content_filter` that keeps the slot;
+  - RPC grants with no client caller (`rename_chat_session`,
+    `eat_planned_meal`, ...);
+  - the legacy `refund_chat_quota(uuid)`;
+  - the PRIVACY.md barcode wording;
+  - about 14 legacy `LocalCache` writers used only as test seeding;
+  - the default sentinel and probe seams of `CacheKeyProvider.obtain`, which
+    production no longer uses.
+- **Remaining mixed-clock tests.** The test audit lists the tests that can
+  still race midnight by milliseconds.
+
+Verification on Windows with Flutter 3.47.2, final head: the analyzer is
+clean; the full suite passed 6,810 of 6,810 with 96.9 % local line coverage
+(generated l10n excluded); Deno lint, check and 922 tests are green; the CI
+shard plan and tooling tests pass.

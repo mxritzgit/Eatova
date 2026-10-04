@@ -441,6 +441,7 @@
   "foodAddItemMacrosToggle": "Add macros (optional)",
   "foodMacroRangeHint": "Macros in grams, each between 0 and 1000.",
   "foodBarcodeHintText": "Hold the barcode inside the frame",
+  "foodBarcodeTorchLabel": "Flashlight",
   "foodCameraUnavailableMessage": "Camera unavailable. Check the camera permission in Settings.",
   "foodDetectionStalledTitle": "Detection is stuck",
   "foodDetectionStalledBody": "The picture is running, but no results are coming through. Restarting the scanner usually fixes this.",
@@ -1049,6 +1050,8 @@
   "commonBootUnansweredTitle": "Slow connection",
   "commonBootUnansweredBody": "Your data couldn't be loaded from the server yet. Check your connection and try again.",
   "commonBootUnansweredRetry": "Try again",
+  "bootErrorTitle": "Eatova couldn't start",
+  "bootErrorBody": "Something went wrong while starting. Please restart the app.\nIf the problem persists, contact us at support@eatova.de.",
 
   "settingsFieldRequired": "Please fill in",
   "settingsRangeErrorKg": "{min}–{max} kg (whole number)",
@@ -1253,10 +1256,9 @@
   "exportSheetLoadingSubtitle": "Your data is loading from the server …",
   "exportSheetErrorSubtitle": "This copy is incomplete or could not be fully verified. Please try again later.",
   "exportSheetFullSubtitle": "Full copy of your stored data, clearly organized by section.",
-  "exportSheetSessionSubtitle": "A snapshot of the data in your current session.",
   "exportSheetTitleFull": "Data disclosure",
-  "exportSheetTitleSession": "Data snapshot",
   "exportSheetCopiedSnack": "Export copied to clipboard",
+  "exportSheetCopyFailedSnack": "Couldn't copy. Try again or copy the sections one by one.",
   "exportSheetCopyButton": "Copy all",
 
   "targetBmiHintUnderweight": "This target weight would correspond to a BMI of {bmi} — that's below the range considered healthy.",
@@ -2433,12 +2435,8 @@
       }
     }
   },
-  "trainingActualReps": "Actual repetitions",
-  "trainingActualWeight": "Weight (kg, optional)",
   "trainingActualOptional": "Optional",
   "trainingActualNoWeight": "Weight not recorded",
-  "trainingActualInvalid": "Repetitions: 0–1000. Weight: 0–2000 kg or blank.",
-  "trainingActualReview": "Your set values",
   "trainingActualMissing": "Enter the actual repetitions for completed sets before saving the workout.",
   "trainingHistorySourceChanged": "Your plan changed. This workout was not saved.",
   "trainingActualConfirmLegacyTimed": "Confirm completed interval",

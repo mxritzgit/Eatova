@@ -403,15 +403,6 @@ String? clampBarcode(String? value) =>
 String? clampSourceLabel(String? value) =>
     _clampNullableText(value, LoggedMealLimits.sourceLabelMaxChars);
 
-/// Truncates `avatar_url` to 2048 chars (nullable).
-String? clampAvatarUrl(String? value) =>
-    _clampNullableText(value, ProfileLimits.avatarUrlMaxChars);
-
-/// Truncates `display_name` to 80 chars. The column is `not null default ''`
-/// with no minimum length, so the empty string stays allowed.
-String clampDisplayName(String value) =>
-    truncateToChars(value.trim(), ProfileLimits.displayNameMaxChars);
-
 String? _clampNullableText(String? value, int maxChars) {
   if (value == null) return null;
   final getrimmt = value.trim();
@@ -422,60 +413,16 @@ String? _clampNullableText(String? value, int maxChars) {
 // ---------------------------------------------------------------------------
 // Numeric clamps: profiles
 // ---------------------------------------------------------------------------
-
-/// Clamps to `profiles.weight_kg` (30..300, integer).
-///
-/// Last resort before the DB only. For user input use
-/// [isValidProfileWeightKg]: "75,5" becomes 755 via `digitsOnly`, and clamping
-/// 755 to 300 writes a number the user never meant.
-int clampProfileWeightKg(num value, {int? fallback}) =>
-    _clampInt(value, ProfileLimits.weightKgMin, ProfileLimits.weightKgMax, fallback);
-
-/// Clamps to `profiles.height_cm` (100..250).
-int clampProfileHeightCm(num value, {int? fallback}) =>
-    _clampInt(value, ProfileLimits.heightCmMin, ProfileLimits.heightCmMax, fallback);
-
-/// Clamps to `profiles.age_years` (16..100).
-int clampProfileAgeYears(num value, {int? fallback}) =>
-    _clampInt(value, ProfileLimits.ageYearsMin, ProfileLimits.ageYearsMax, fallback);
+//
+// Body data and goals the user types are rejected (`isValid…` below), and a
+// server row with unreadable numbers fails the load; only the onboarding
+// picker's starting target weight and the calculator's macros are clamped.
 
 /// Clamps to `profiles.target_weight_kg` (30..300).
 int clampProfileTargetWeightKg(num value, {int? fallback}) => _clampInt(
   value,
   ProfileLimits.targetWeightKgMin,
   ProfileLimits.targetWeightKgMax,
-  fallback,
-);
-
-/// Clamps to `profiles.daily_steps_goal` (1000..100000).
-int clampDailyStepsGoal(num value, {int? fallback}) => _clampInt(
-  value,
-  ProfileLimits.dailyStepsGoalMin,
-  ProfileLimits.dailyStepsGoalMax,
-  fallback,
-);
-
-/// Clamps to `profiles.daily_kcal_goal` (800..7000).
-int clampDailyKcalGoal(num value, {int? fallback}) => _clampInt(
-  value,
-  ProfileLimits.dailyKcalGoalMin,
-  ProfileLimits.dailyKcalGoalMax,
-  fallback,
-);
-
-/// Clamps to `profiles.daily_water_goal_ml` (500..12000).
-int clampDailyWaterGoalMl(num value, {int? fallback}) => _clampInt(
-  value,
-  ProfileLimits.dailyWaterGoalMlMin,
-  ProfileLimits.dailyWaterGoalMlMax,
-  fallback,
-);
-
-/// Clamps to `profiles.daily_sleep_goal_minutes` (180..900).
-int clampDailySleepGoalMinutes(num value, {int? fallback}) => _clampInt(
-  value,
-  ProfileLimits.dailySleepGoalMinutesMin,
-  ProfileLimits.dailySleepGoalMinutesMax,
   fallback,
 );
 
@@ -612,20 +559,6 @@ bool isValidDailyStepsGoal(num value) =>
 /// `true` if [value] satisfies `profiles.daily_kcal_goal` (800..7000).
 bool isValidDailyKcalGoal(num value) =>
     _isWithin(value, ProfileLimits.dailyKcalGoalMin, ProfileLimits.dailyKcalGoalMax);
-
-/// `true` if [value] satisfies `profiles.daily_water_goal_ml` (500..12000).
-bool isValidDailyWaterGoalMl(num value) => _isWithin(
-  value,
-  ProfileLimits.dailyWaterGoalMlMin,
-  ProfileLimits.dailyWaterGoalMlMax,
-);
-
-/// `true` if [value] satisfies `profiles.daily_sleep_goal_minutes` (180..900).
-bool isValidDailySleepGoalMinutes(num value) => _isWithin(
-  value,
-  ProfileLimits.dailySleepGoalMinutesMin,
-  ProfileLimits.dailySleepGoalMinutesMax,
-);
 
 /// `true` if [value] satisfies `profiles.protein_goal_g` (0..400).
 bool isValidProteinGoalG(num value) =>

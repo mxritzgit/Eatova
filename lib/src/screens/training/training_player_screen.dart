@@ -99,6 +99,7 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
   Timer? _debounce;
   Animation<double>? _coverAnimation;
   ModalRoute<dynamic>? _route;
+  bool _routeCurrent = true;
   bool _covered = false;
   bool _allowPop = false;
   bool _leaving = false;
@@ -207,6 +208,17 @@ class _TrainingPlayerScreenState extends State<TrainingPlayerScreen>
       _coverAnimation?.removeListener(_routeCoverageChanged);
       _coverAnimation = animation;
       animation?.addListener(_routeCoverageChanged);
+    }
+    // A sheet, dialog or menu on top drives no cover animation, yet the
+    // player is no longer on top (spec A6): re-evaluate once it settles.
+    final current = _route?.isCurrent ?? true;
+    if (current != _routeCurrent) {
+      _routeCurrent = current;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (_visible()) _session.catchUp();
+        _syncAwake();
+      });
     }
   }
 

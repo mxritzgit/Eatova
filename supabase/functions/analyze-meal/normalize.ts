@@ -33,13 +33,16 @@ export function normalizeMealResult(raw: Record<string, unknown>): NormalizedMea
     .slice(0, 20)
     .map((item) => ({
       // A name is a label, not a measurement: a fallback text invents no
-      // number, so clampString stays right here.
-      name: clampString(item.name, 'Lebensmittel', 80),
+      // number, so clampString stays right here. 'Zutat' is the client's
+      // PersistedLabels.ingredientNameFallback, which it translates.
+      name: clampString(item.name, 'Zutat', 80),
       grams: optionalInt(item.grams, 0, 10000),
       caloriesKcal: optionalInt(item.caloriesKcal, 0, 10000),
       kcalPer100G: optionalNumber(item.kcalPer100G, 0, 1000),
     }));
 
+  // The model is not strict about case; the client matches it the same way.
+  const confidence = typeof raw.confidence === 'string' ? raw.confidence.trim().toLowerCase() : '';
   return {
     mealName: clampString(raw.mealName, 'Mahlzeit', 160),
     caloriesKcal: optionalInt(raw.caloriesKcal, 0, 10000),
@@ -50,17 +53,24 @@ export function normalizeMealResult(raw: Record<string, unknown>): NormalizedMea
     fatG: optionalInt(raw.fatG, 0, 1000),
     // E7: confidence is the model's statement about itself, not a label — if
     // it is missing it is missing, not "medium". The client says so.
-    confidence: ['high', 'medium', 'low'].includes(String(raw.confidence))
-      ? String(raw.confidence)
-      : null,
+    confidence: ['high', 'medium', 'low'].includes(confidence) ? confidence : null,
     explanation: clampString(raw.explanation, '', 500),
     items,
   };
 }
 
+// The model's labels are stored and shown as one-line meal and item names,
+// and text in the photo can steer them. Same rule as the user hint in
+// handler.ts: controls and bidi overrides/isolates are not label content.
+// deno-lint-ignore no-control-regex -- intentionally strip unsafe controls
+const UNSAFE_LABEL_CHARACTERS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f‪-‮⁦-⁩]/g;
+
+/** Labels collapse to one line and are cut by code point, never mid-emoji. */
 export function clampString(value: unknown, fallback: string, maxLength: number): string {
-  const text = typeof value === 'string' ? value.trim() : fallback;
-  return (text || fallback).slice(0, maxLength);
+  const text = typeof value === 'string'
+    ? value.replace(UNSAFE_LABEL_CHARACTERS, '').replace(/\s+/g, ' ').trim()
+    : fallback;
+  return Array.from(text || fallback).slice(0, maxLength).join('').trimEnd();
 }
 
 /**

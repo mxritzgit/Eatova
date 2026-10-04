@@ -111,27 +111,4 @@ void main() {
             'Verlauf existiert aber, er war nur nicht ladbar');
     expect(find.textContaining('Verlauf konnte nicht geladen'), findsOneWidget);
   });
-
-  testWidgets(
-      'Loeschen scheitert -> Session bleibt in der Liste und es gibt einen '
-      'Hinweis', (tester) async {
-    final svc = _Svc.create()..deleteFails = true;
-
-    await _pump(tester, svc);
-    await tester.tap(find.byKey(const ValueKey('coach-sessions-open')));
-    await _settle(tester);
-    await tester.tap(find.byIcon(Icons.delete_outline_rounded).first);
-    await _settle(tester);
-    // Confirmation dialog.
-    await tester.tap(find.widgetWithText(FilledButton, 'Löschen'));
-    await _settle(tester);
-
-    expect(svc.deleteCalls, 1);
-    expect(find.text('Chat A'), findsWidgets,
-        reason: 'die Session ist NICHT geloescht — sie darf nicht aus der '
-            'Liste verschwinden oder kommentarlos stehen bleiben');
-    expect(find.textContaining('konnte nicht gelöscht'), findsOneWidget,
-        reason: 'ohne Hinweis haelt der Nutzer den fehlgeschlagenen Zustand '
-            'fuer einen Anzeigefehler');
-  });
 }

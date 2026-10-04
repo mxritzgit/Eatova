@@ -128,6 +128,20 @@ Deno.test("kaputte confidence wird nicht zu 'medium' aufgehuebscht", () => {
   assertEquals(result.confidence, null, "unlesbare confidence bleibt fehlend");
 });
 
+Deno.test("confidence in anderer Schreibweise bleibt die Aussage des Modells", () => {
+  // The client reads 'High'/'HIGH' as high on purpose (the model is not
+  // strict here); dropping them on the server turned them into "unknown".
+  assertEquals(normalizeMealResult({ confidence: "High" }).confidence, "high", "High");
+  assertEquals(normalizeMealResult({ confidence: " LOW " }).confidence, "low", "LOW");
+});
+
+Deno.test("namenloses Item bekommt den Fallback, den der Client uebersetzt", () => {
+  // PersistedLabels.ingredientNameFallback; any other German word reached
+  // an English diary untranslated.
+  const result = normalizeMealResult({ items: [{ grams: 80, caloriesKcal: 40 }] });
+  assertEquals(result.items[0].name, "Zutat", "Item-Fallback");
+});
+
 Deno.test("gueltige Werte werden weiterhin geklemmt (max darf nicht kaputtgehen)", () => {
   const result = normalizeMealResult({
     caloriesKcal: 99999,
@@ -204,6 +218,32 @@ Deno.test("items[]: die Deckelung bei 20 haelt, Nicht-Objekte fallen raus", () =
   });
   assertEquals(gemischt.items.length, 1, "nur das eine echte Item");
   assertEquals(gemischt.items[0].name, "Sauce", "und es ist das richtige");
+});
+
+Deno.test("Modell-Labels: einzeilig, ohne Steuer- und Bidi-Zeichen", () => {
+  // Text in the photo can steer the model, and its labels are stored and
+  // shown as meal and item names. A bidi override reverses what follows it
+  // on screen; newlines split a one-line diary row.
+  const result = normalizeMealResult({
+    mealName: "  Salat‮talas\n\nmit\tFeta\u0007 ",
+    explanation: "Zeile eins.\r\nZeile⁦ zwei.",
+    items: [{ name: "Feta‏⁩\n(Schaf)", grams: 50 }],
+  });
+  assertEquals(result.mealName, "Salattalas mit Feta", "mealName bereinigt");
+  assertEquals(result.explanation, "Zeile eins. Zeile zwei.", "explanation bereinigt");
+  assertEquals(result.items[0].name, "Feta‏ (Schaf)", "Item-Name bereinigt");
+
+  const nurSteuerzeichen = normalizeMealResult({ mealName: "‮\u0000 \n" });
+  assertEquals(nurSteuerzeichen.mealName, "Mahlzeit", "leer nach Bereinigung -> Fallback");
+});
+
+Deno.test("Modell-Labels: gekuerzt wird nach Codepoints, kein halbes Emoji", () => {
+  // A UTF-16 slice at 160 halved the emoji into a lone surrogate, which the
+  // client renders as a replacement character and stores as one.
+  const result = normalizeMealResult({ mealName: `${"a".repeat(159)}\u{1F957}b` });
+  assertEquals(Array.from(result.mealName).length, 160, "160 Codepoints");
+  assert(result.mealName.endsWith("\u{1F957}"), "das Emoji bleibt ganz");
+  assert(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(result.mealName), "kein einzelnes Surrogat");
 });
 
 Deno.test("optionalInt/optionalNumber: Einzelverhalten", () => {

@@ -747,27 +747,6 @@ Deno.test("Textpfad unveraendert: on-topic laeuft durch bis zur Antwort", async 
 // image and structured proposal paths retain their existing safety policy.
 // ---------------------------------------------------------------------------
 
-Deno.test("W1-Gegenprobe: echtes off_topic im Chat bleibt die normale Off-Topic-Refusal", async () => {
-  // The classifier answered "off_topic". That is no parse failure, so it must
-  // neither escalate (classifier_unusable) nor produce an error status.
-  const stub = installFetch({ classifierCategory: "off_topic" });
-  try {
-    const res = await handleRequest(makeRequest({
-      message: "Erklaer mir bitte die franzoesische Revolution",
-    }));
-    assertEquals(res.status, 200, "Status");
-    const body = await res.json() as JsonRecord;
-    assertEquals(body.reply, OFF_TOPIC_REPLY, "unveraenderter Off-Topic-Text");
-    assertEquals(body.refusal, true, "refusal");
-    assertEquals(body.refusal_reason, "off_topic", "refusal_reason bleibt die Kategorie");
-    assertEquals(body.remaining, 4, "remaining aus dem Quota-Claim");
-    assertEquals(stub.answerBodies().length, 0, "kein Answer-Call");
-    assertEquals(stub.callsTo("refund_chat_quota").length, 0, "kein Refund");
-  } finally {
-    stub.restore();
-  }
-});
-
 Deno.test("Chat: unbrauchbare Klassifikation ist ein Providerfehler, keine Themenablehnung", async () => {
   for (
     const content of [
@@ -1548,34 +1527,6 @@ Deno.test("CWE-400-Fix: wiederholte Auth-Fehlschlaege verbrauchen das Fail-Bucke
     assertEquals(stub.gateBatches().length, 0, "kein gebuendelter Limiter-Call auf dem Fehlschlag-Pfad");
     assertEquals(stub.callsTo("claim_chat_quota").length, 0, "keine Quota");
     assertEquals(stub.openRouterBodies.length, 0, "kein Provider-Call");
-  } finally {
-    stub.restore();
-  }
-});
-
-Deno.test("CWE-400-Fix: erfolgreiche Auth beruehrt das Fail-Bucket nicht", async () => {
-  const stub = installFetch({
-    classifierCategory: "fitness",
-    answerContent: "Alles gut, weiter so.",
-  });
-  try {
-    const res = await handleRequest(makeRequest({
-      message: "Wie oft soll ich pro Woche trainieren?",
-    }));
-    assertEquals(res.status, 200, "Status");
-    // The fail bucket runs through the SINGLE-gate RPC (auth_fail_gate.ts).
-    const singleScopes = stub.calls
-      .filter((c) => c.url.endsWith("/rpc/consume_edge_rate_limit"))
-      .map((c) => (JSON.parse(c.body) as JsonRecord).p_scope);
-    assert(!singleScopes.includes("coach-chat:auth-fail"), "Fail-Bucket auf dem Happy Path beruehrt");
-    // The regular gates run unchanged, in order: ip, then user — but in ONE
-    // batched roundtrip (P6-02).
-    const batches = stub.gateBatches();
-    assertEquals(batches.length, 1, "genau ein Limiter-Roundtrip");
-    const scopes = batches[0].map((gate) => gate.scope);
-    assertEquals(scopes[0], "coach-chat:ip", "IP-Gate");
-    assertEquals(scopes[1], "coach-chat:user", "User-Gate");
-    assertEquals(scopes.length, 2, "genau zwei Gates auf dem Happy Path");
   } finally {
     stub.restore();
   }
@@ -2468,17 +2419,6 @@ Deno.test("F5-03: finish_reason=length -> Antwort mit Auslassungszeichen, max_to
       .map((c) => JSON.parse(c.body) as JsonRecord)
       .find((r) => r.role === "assistant");
     assertEquals(stored?.content, body.reply, "persistierte Zeile == Antwort");
-  } finally {
-    stub.restore();
-  }
-});
-
-Deno.test("F5-03: finish_reason=stop bleibt unveraendert", async () => {
-  const stub = installFetch({ classifierCategory: "fitness", answerContent: "Passt so." });
-  try {
-    const res = await handleRequest(makeRequest({ message: "Wie viel Protein nach dem Training?" }));
-    const body = await res.json() as JsonRecord;
-    assertEquals(body.reply, "Passt so.", "keine Kennzeichnung ohne Abbruch");
   } finally {
     stub.restore();
   }

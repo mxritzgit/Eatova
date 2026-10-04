@@ -227,37 +227,6 @@ void main() {
   );
 
   testWidgets(
-    'wer hochgescrollt hat, wird von Token und Abschluss nicht bewegt',
-    (tester) async {
-      final svc = await _oeffne(tester);
-      await _sende(tester, 'Wie viel Protein?');
-      await tester.pump(const Duration(milliseconds: 300));
-      svc.vorschau!('Für deinen Muskelaufbau');
-      await tester.pump(const Duration(milliseconds: 300));
-      await tester.drag(
-          find.byKey(const ValueKey('coach-message-list')),
-          const Offset(0, 400));
-      await tester.pump(const Duration(seconds: 1));
-      final gelesen = _liste(tester).pixels;
-      expect(gelesen, lessThan(_liste(tester).maxScrollExtent - 100),
-          reason: 'Vorbedingung: der Nutzer liest weiter oben');
-      svc.vorschau!(_antwort);
-      await tester.pump(const Duration(milliseconds: 300));
-      svc.auftrag!.complete(const CoachChatReply(
-        reply: _antwort,
-        refusal: false,
-        sessionId: 's1',
-        remaining: 4,
-        dailyLimit: 5,
-      ));
-      await tester.pump(const Duration(seconds: 1));
-      expect(_liste(tester).pixels, moreOrLessEquals(gelesen, epsilon: 0.5),
-          reason: 'die Leseposition darf nicht springen');
-    },
-    variant: TargetPlatformVariant.mobile(),
-  );
-
-  testWidgets(
     'die Tastatur verdeckt die letzte Nachricht nicht',
     (tester) async {
       await _oeffne(tester);

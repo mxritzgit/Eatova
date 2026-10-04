@@ -168,14 +168,6 @@ void main() {
     );
   });
 
-  testWidgets('die Favoriten-Zeile zählt alle gepinnten', (tester) async {
-    await _pumpe(tester, favoriten: _fuenfGepinnt);
-    expect(
-      find.descendant(of: _alleKnopf(), matching: find.text('5 gespeichert')),
-      findsOneWidget,
-    );
-  });
-
   testWidgets('englisch heißt sie „Favorites · 5 saved"', (tester) async {
     await _pumpe(
       tester,

@@ -25,7 +25,8 @@ import 'meal_photo_compressor.dart';
 /// photo. Now:
 ///
 ///   * Files live in `recipe_images/<uid>/`; [resolve], [save] and
-///     [deleteFor] work only in the namespace bound by [setActiveUser].
+///     [reconcileRecipePhotos] work only in the namespace bound by
+///     [setActiveUser].
 ///     No signed-in user means no resolution and no storage (fail-closed).
 ///   * New files are named from [Random.secure] — nothing guessable.
 ///   * An identity change during process runtime (other user OR session loss)
@@ -39,11 +40,11 @@ import 'meal_photo_compressor.dart';
 /// [compressMealPhoto] and stores only the result; undecodable bytes are
 /// dropped fail-closed.
 ///
-/// **Nothing outlives its recipe (P3-04).** [deleteFor] only fires when THIS
-/// device deletes and the server acknowledges at once, so a delete on a second
-/// device, an offline delete delivered later and an abandoned coach adoption
-/// all leave bytes behind. [reconcileRecipePhotos] compares the folder against
-/// the recipes that actually exist and releases the rest.
+/// **Nothing outlives its recipe (P3-04).** A deleted recipe keeps its photo
+/// in version history, and a delete on a second device, an offline delete
+/// delivered later or an abandoned coach adoption never reach this folder.
+/// [reconcileRecipePhotos] compares the folder against every reference that
+/// still exists and releases the rest; it is the only per-photo release.
 class RecipeImageStore {
   RecipeImageStore({Future<Directory> Function()? baseDirectory})
       : _resolveBaseDirectory = baseDirectory ?? _appDocumentsFolder;
@@ -67,7 +68,7 @@ class RecipeImageStore {
   Future<Directory?>? _rootInFlight;
 
   /// User ID the store is bound to; null means nobody is signed in and
-  /// resolve/save/deleteFor refuse (fail-closed).
+  /// resolve/save/reconcile refuse (fail-closed).
   String? _activeUserId;
   String? _activeSessionId;
   Object _scopeToken = Object();
@@ -432,35 +433,13 @@ class RecipeImageStore {
 
   // --- Cleanup --------------------------------------------------------------
 
-  /// Deletes the image for [imageAsset] in the active user's namespace. No-op
-  /// for bundle assets, empty references and without a signed-in user.
-  Future<void> deleteFor(String imageAsset) async {
-    final scope = _scopeToken;
-    final name = _fileNameFor(imageAsset);
-    if (name == null) return;
-    final namespace = await _ensureNamespace();
-    if (namespace == null) return;
-    await _afterMaintenance(() async {
-      if (!identical(scope, _scopeToken)) return;
-      try {
-        final file = File('${namespace.path}/$name');
-        if (await file.exists()) await file.delete();
-      } catch (e) {
-        dev.log('RecipeImageStore: Loeschen fehlgeschlagen',
-            error: e, name: 'recipe_image_store');
-      }
-    });
-  }
-
   /// Releases photos whose recipe no longer exists, and returns how many
   /// files fell (P3-04).
   ///
-  /// Until now `img_*` was released ONLY by [deleteFor], and only when this
-  /// device deleted the recipe AND the server acknowledged at once
-  /// (`recipes_screen.dart`). A delete on a second device never reaches this
-  /// one, an offline delete deliberately keeps the bytes and is never followed
-  /// up, and an adoption abandoned in the coach leaves its photo lying. Each
-  /// leftover is 200-400 kB of PII that nothing ever collects.
+  /// Deleting a recipe never deletes its photo: the version history keeps
+  /// it restorable. A delete on a second device never reaches this one, and
+  /// an adoption abandoned in the coach leaves its photo lying. Each leftover
+  /// is 200-400 kB of PII that only this comparison collects.
   ///
   /// [liveReferences] are the `imageAsset` values of the recipes that exist —
   /// non-local ones (bundle assets, empty) are ignored. A COMPARISON, not a

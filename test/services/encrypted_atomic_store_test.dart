@@ -47,7 +47,6 @@ void main() {
     storage = EncryptedKeyValueStore(
       database,
       cipher,
-      acceptLegacyPlaintext: false,
     );
   });
   tearDown(() async {

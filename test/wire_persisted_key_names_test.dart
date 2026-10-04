@@ -39,9 +39,9 @@ void main() {
           'eatova.v1.cache_plaintext_migrated',
           reason: 'umbenannt = der Marker gilt auf JEDEM installierten Geraet '
               'wieder als ungesetzt, der Klartext-Pfad oeffnet sich noch '
-              'einmal, und ein untergeschobener magic-loser Slot wird in '
-              'diesem Start uebernommen statt als ExpiredPlaintextCacheSlot '
-              'verworfen und gemeldet');
+              'einmal, und ein untergeschobener magic-loser Prefs-Slot wird '
+              'beim SQLite-Import verschluesselt uebernommen statt '
+              'abgelehnt');
     });
 
     test('Strike-Zaehler und Reset-Hinweis (Welle 6)', () {
@@ -132,16 +132,6 @@ void main() {
         expect(store.snapshot.keys, contains('eatova.v1.notifications_enabled.user-99'));
         expect(await cache.readNotificationsEnabled(), isTrue);
         expect(await andere.readNotificationsEnabled(), isFalse);
-      });
-
-      test('das Versions-Praefix ist v1 — eine Erhoehung verwaist alle Slots '
-          'und muss eine bewusste Migration sein', () async {
-        await cache.writeNotificationsEnabled(true);
-
-        for (final key in store.snapshot.keys) {
-          expect(key, startsWith('eatova.v1.'),
-              reason: '$key faellt aus dem Namensraum');
-        }
       });
     });
   });

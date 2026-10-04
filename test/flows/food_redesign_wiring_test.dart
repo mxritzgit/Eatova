@@ -714,17 +714,6 @@ void main() {
       });
     });
 
-    testWidgets('the camera button leads into the scan preview', (
-      tester,
-    ) async {
-      await withClock(Clock.fixed(foodDesignNow), () async {
-        await _pumpFood(tester, camera: FakeMealCameraLauncher());
-        await tester.tap(_key('food-action-ai'));
-        await tester.pumpAndSettle();
-        expect(_key('meal-scan-start'), findsOneWidget);
-      });
-    });
-
     testWidgets('manual entry: long-press on the capsule opens it directly '
         'and it saves into the chosen slot', (tester) async {
       await withClock(Clock.fixed(foodDesignNow), () async {

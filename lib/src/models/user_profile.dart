@@ -85,7 +85,7 @@ extension DietPreferenceInfo on DietPreference {
 /// Energy content of one kilogram of body mass (Wishnofsky rule of thumb).
 ///
 /// The **only** kcal ↔ kg conversion in the project: both
-/// [WeightGoalInfo.weeklyRateKg] (promised pace) and
+/// [WeightGoalInfo.signedWeeklyRateKg] (promised pace) and
 /// `KcalTargets.effectiveWeeklyRateKg` (achievable pace) go through it.
 const int kcalPerKgBodyMass = 7700;
 
@@ -143,11 +143,9 @@ extension WeightGoalInfo on WeightGoal {
   bool get isLoss => kcalDelta < 0;
   bool get isGain => kcalDelta > 0;
 
-  /// Weekly kg change (≈ 7700 kcal per kg). Unsigned.
-  double get weeklyRateKg => kcalDelta.abs() * 7 / kcalPerKgBodyMass;
-
-  /// Same rate signed: negative when losing, positive when gaining.
-  /// Counterpart to `KcalTargets.effectiveWeeklyRateKg` for direct comparison.
+  /// Weekly kg change (≈ 7700 kcal per kg), signed: negative when losing,
+  /// positive when gaining. Counterpart to `KcalTargets.effectiveWeeklyRateKg`
+  /// for direct comparison.
   double get signedWeeklyRateKg => kcalDelta * 7 / kcalPerKgBodyMass;
 
   /// Direction label without pace, localized via the ARB — see

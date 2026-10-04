@@ -159,6 +159,25 @@ Deno.test('import source never fetches unsupported, multiple or absent links', a
   } finally { globalThis.fetch = original; }
 });
 
+Deno.test('import source attribution carries no control characters', async () => {
+  const original = globalThis.fetch;
+  // The app rejects the whole import response when any text field holds a C0
+  // control character, so a display name with one must not cost the recipe.
+  globalThis.fetch = (() => Promise.resolve(Response.json({
+    title: '200 g Pasta\nPasta kochen.', author_name: 'Chef\u0007Anna\u001b',
+  }))) as typeof fetch;
+  try {
+    const result = await loadSource(VIDEO, AbortSignal.timeout(1000));
+    check(result.source.author === 'ChefAnna', 'Control characters removed from the author');
+    check(!result.incomplete && result.text === '200 g Pasta\nPasta kochen.', 'Caption kept');
+    globalThis.fetch = (() => Promise.resolve(Response.json({
+      title: 'Pasta', author_name: '\u0007',
+    }))) as typeof fetch;
+    const empty = await loadSource(VIDEO, AbortSignal.timeout(1000));
+    check(empty.source.author === undefined, 'An author of control characters only is omitted');
+  } finally { globalThis.fetch = original; }
+});
+
 Deno.test('import source treats private posts and malformed metadata as text-needed', async () => {
   const original = globalThis.fetch;
   try {

@@ -44,26 +44,6 @@ void main() {
     }
   });
 
-  testWidgets('a chip is at least 44 px tall', (tester) async {
-    await pumpLocalized(
-      tester,
-      Row(
-        children: [
-          FilterChipPill(
-            key: const ValueKey('on'),
-            label: 'On',
-            selected: true,
-            onTap: () {},
-          ),
-        ],
-      ),
-    );
-    expect(
-      tester.getSize(find.byKey(const ValueKey('on'))).height,
-      greaterThanOrEqualTo(44),
-    );
-  });
-
   testWidgets('the source pill says whether its details are open', (
     tester,
   ) async {

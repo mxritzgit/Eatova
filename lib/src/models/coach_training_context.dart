@@ -44,50 +44,6 @@ final class CoachTrainingContext {
   final int minutesPerSession;
   final CoachTrainingProposal? selectedPlan;
 
-  factory CoachTrainingContext.fromJson(Map<dynamic, dynamic> json) {
-    TrainingJson.requireKeys(json, const {
-      'schema_version',
-      'intent',
-      'goal',
-      'experience',
-      'equipment',
-      'sessions_per_week',
-      'minutes_per_session',
-      'selected_plan',
-    });
-    TrainingJson.integer(json['schema_version'], 1, 1);
-    final rawPlan = json['selected_plan'];
-    final plan = rawPlan is Map
-        ? CoachTrainingProposal.fromJson(rawPlan)
-        : null;
-    if (rawPlan != null && plan == null) {
-      throw const FormatException('Invalid selected training plan');
-    }
-    return CoachTrainingContext(
-      intent: _enumValue(CoachTrainingIntent.values, json['intent']),
-      goal: TrainingJson.text(json['goal'], 200, required: true),
-      experience: _enumValue(
-        CoachTrainingExperience.values,
-        json['experience'],
-      ),
-      equipment: _enumValue(CoachTrainingEquipment.values, json['equipment']),
-      sessionsPerWeek: TrainingJson.integer(json['sessions_per_week'], 1, 7),
-      minutesPerSession: TrainingJson.integer(
-        json['minutes_per_session'],
-        10,
-        180,
-      ),
-      selectedPlan: plan,
-    );
-  }
-
-  static T _enumValue<T extends Enum>(List<T> values, Object? value) {
-    for (final item in values) {
-      if (item.name == value) return item;
-    }
-    throw const FormatException('Invalid training choice');
-  }
-
   static Iterable<String> _planText(CoachTrainingProposal plan) sync* {
     yield plan.title;
     yield plan.description;

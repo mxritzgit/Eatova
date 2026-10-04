@@ -2,142 +2,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../theme/app_tokens.dart';
-import '../common/motion.dart';
-import 'text_scale.dart';
 
 // ---------------------------------------------------------------------------
-// METERS — macro bar, meal avatar, sparkline, dot grid.
+// METERS — sparkline.
 //
-// All of them take values from the network or from user input, so handling 0,
-// negatives, over-target, NaN and empty series without throwing is the job,
-// not a convenience.
+// It takes values from the network or from user input, so handling 0,
+// negatives, NaN and empty series without throwing is the job, not a
+// convenience.
 // ---------------------------------------------------------------------------
-
-/// One macro row: name, bar, "value / goal unit".
-class MacroBar extends StatelessWidget {
-  const MacroBar({
-    super.key,
-    required this.label,
-    required this.value,
-    required this.goal,
-    required this.unit,
-    required this.color,
-  });
-
-  final String label;
-  final int value, goal;
-  final String unit;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    final pct = goal <= 0 ? 0.0 : (value / goal).clamp(0.0, 1.0);
-
-    // Both side columns grow with the system font, capped so the bar between
-    // them does not vanish. Base 84 because the longest German macro name
-    // needs ~80 px at AppType.ui(12) and wrapped to two lines even at scale
-    // 1.0, leaving the three bars visibly misaligned.
-    final labelWidth = scaledWidth(context, 84, max: 124);
-    final valueWidth = scaledWidth(context, 68, max: 120);
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 13),
-      child: Row(
-        children: <Widget>[
-          SizedBox(
-            width: labelWidth,
-            child: Text(
-              label,
-              style: AppType.ui(12, weight: FontWeight.w600, color: t.ink),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: TweenAnimationBuilder<double>(
-              tween: Tween<double>(begin: 0, end: pct),
-              duration: motionDuration(context, kMotionValue),
-              curve: kMotionCurve,
-              // Deliberate literal (bar cap = half of the 9 px bar), outside
-              // the rChip/rControl scale on purpose.
-              builder: (context, v, _) => ClipRRect(
-                borderRadius: BorderRadius.circular(5),
-                child: LinearProgressIndicator(
-                  value: v,
-                  minHeight: 9,
-                  backgroundColor: t.tile,
-                  valueColor: AlwaysStoppedAnimation<Color>(color),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          SizedBox(
-            width: valueWidth,
-            child: Text.rich(
-              TextSpan(
-                text: '$value',
-                style: AppType.ui(12, weight: FontWeight.w600, color: t.ink),
-                children: <InlineSpan>[
-                  TextSpan(
-                    text: ' / $goal$unit',
-                    style:
-                        AppType.ui(12, weight: FontWeight.w500, color: t.ink2),
-                  ),
-                ],
-              ),
-              textAlign: TextAlign.right,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// The letter avatar in front of a meal.
-class MealAvatar extends StatelessWidget {
-  const MealAvatar({
-    super.key,
-    required this.letter,
-    required this.color,
-    this.size = 40,
-  });
-
-  final String letter;
-  final Color color;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = context.t;
-    // No FittedBox: that neutralised the system font. The tile grows with the
-    // scaler (capped at 1.5x) and the letter follows the tile, so at 2.0 the
-    // glyph is honestly larger and still inside its box.
-    final side = scaledWidth(context, size);
-    return Container(
-      width: side,
-      height: side,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.16),
-        borderRadius: BorderRadius.circular(side * 0.33),
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        letter,
-        maxLines: 1,
-        textScaler: TextScaler.noScaling,
-        style: AppType.display(
-          side * 0.38,
-          weight: FontWeight.w700,
-          // Not the full slot color: on its own 16 % tint it only reaches
-          // 2.15:1 in light mode (carb amber).
-          color: t.readableOnTint(color),
-        ),
-      ),
-    );
-  }
-}
 
 /// Axis-free polyline for trends (weight, kcal per week).
 class Sparkline extends StatelessWidget {
@@ -236,39 +108,4 @@ class _SparklinePainter extends CustomPainter {
       old.stroke != stroke ||
       old.dotFill != dotFill ||
       !listEquals(old.values, values);
-}
-
-/// The dot grid behind branded surfaces (hero cards, banners). Built for
-/// `Positioned.fill`: it always takes the full area.
-class DotGridBackground extends StatelessWidget {
-  const DotGridBackground({super.key, required this.color});
-
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(
-      size: Size.infinite,
-      painter: _DotGridPainter(color: color),
-    );
-  }
-}
-
-class _DotGridPainter extends CustomPainter {
-  _DotGridPainter({required this.color});
-
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final dot = Paint()..color = color;
-    for (double y = 7; y < size.height; y += 14) {
-      for (double x = 7; x < size.width; x += 14) {
-        canvas.drawCircle(Offset(x, y), 1, dot);
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(_DotGridPainter old) => old.color != color;
 }

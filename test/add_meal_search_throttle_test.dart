@@ -99,7 +99,6 @@ final List<ProductSearchResult> _einTreffer = <ProductSearchResult>[
   ProductSearchResult(
     code: '4000000000001',
     title: 'Eiweissbrot · Testmarke',
-    subtitle: 'Testmarke · 240 kcal / 100 g',
     kcalPer100G: 240,
     result: _eiweissbrot,
   ),

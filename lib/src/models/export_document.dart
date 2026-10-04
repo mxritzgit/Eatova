@@ -168,10 +168,13 @@ class ExportSection {
 
   final String key;
   final dynamic value;
-  List<dynamic> get records {
+
+  /// Derived once: the recipe projection parses every row, and the report and
+  /// the paged view read the records per row.
+  late final List<dynamic> records = () {
     final rows = value is List ? value as List : [value];
     return key == 'user_recipes' ? rows.map(_recipePresentation).toList() : rows;
-  }
+  }();
 
   /// Readable exports gain context; raw JSON and every original field survive.
   static dynamic _recipePresentation(dynamic row) {

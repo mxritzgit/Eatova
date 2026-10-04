@@ -32,12 +32,6 @@ mixin _HomeStoreDerivationsPart on _HomeStoreBase {
         consumed: macroProgressForFoodDate(date),
       );
 
-  /// The four diary slots of [date] with entries, first time and totals.
-  ///
-  /// Selector inputs: [loggedMeals].
-  List<totals.MealSlotSummary> mealSlotSummariesForFoodDate(DateTime date) =>
-      totals.mealSlotSummariesForFoodDate(loggedMeals, date);
-
   /// Today's next open main meal ([nextOpenMainMealSlot]), or null.
   ///
   /// Selector inputs: [loggedMeals] (plus the clock's current slot).

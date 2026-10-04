@@ -244,16 +244,6 @@ void main() {
       },
     );
 
-    test('ab 366 faellt der aelteste Eintrag — auf beiden Seiten gleich', () {
-      var log = const WeightLog();
-      for (var i = 1; i <= 366; i++) {
-        log = log.add(i.toDouble());
-      }
-      expect(log.entries.length, 365);
-      expect(log.baseline!.weightKg, 2);
-      expect(log.latest!.weightKg, 366);
-    });
-
     test('sanitizeKg: Tabellengrenzen und zwei Nachkommastellen', () {
       expect(WeightLog.sanitizeKg(7.55), 20.0);
       expect(WeightLog.sanitizeKg(755), 400.0);

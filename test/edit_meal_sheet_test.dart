@@ -618,7 +618,6 @@ class _FakeProductLookupService implements ProductLookupService {
       ProductSearchResult(
         code: '4001724012345',
         title: 'Die Ofenfrische Salami · Dr. Oetker',
-        subtitle: 'Dr. Oetker · 390 g · 252 kcal / 100 g',
         kcalPer100G: 252,
         result: salamiPizza,
       ),

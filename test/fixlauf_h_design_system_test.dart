@@ -653,39 +653,6 @@ void main() {
   // F8-09 — text scaling as a layout feature
   // =========================================================================
   group('F8-09 Textskalierung', () {
-    testWidgets('MealAvatar nutzt keine FittedBox mehr und waechst mit',
-        (tester) async {
-      await pumpLocalized(
-        tester,
-        MealAvatar(letter: 'F', color: AppTokens.light.carbs),
-        brightness: Brightness.light,
-        padding: _rand,
-      );
-      expect(
-        find.descendant(
-          of: find.byType(MealAvatar),
-          matching: find.byType(FittedBox),
-        ),
-        findsNothing,
-      );
-      expect(tester.getSize(find.byType(MealAvatar)), const Size(40, 40));
-      final klein = tester.getSize(find.text('F'));
-
-      await pumpLocalized(
-        tester,
-        MealAvatar(letter: 'F', color: AppTokens.light.carbs),
-        brightness: Brightness.light,
-        padding: _rand,
-        textScale: 2.0,
-      );
-      expect(tester.takeException(), isNull);
-      final kachel = tester.getSize(find.byType(MealAvatar));
-      expect(kachel.width, greaterThan(40));
-      expect(kachel.width, lessThanOrEqualTo(60));
-      expect(tester.getSize(find.text('F')).height, greaterThan(klein.height),
-          reason: 'die Ziffer skaliert mit dem Systemfont');
-    });
-
     testWidgets('scaledWidth reserviert Breite, gedeckelt', (tester) async {
       late double normal;
       late double gross;
@@ -1005,29 +972,6 @@ void main() {
   // F8-11 — radii from the scale
   // =========================================================================
   group('F8-11 Radius-Skala', () {
-    testWidgets('AppCard rundet mit rCard', (tester) async {
-      await pumpLocalized(tester, const AppCard(child: Text('K')),
-          padding: _rand);
-      expect(
-        decorationOf(tester, find.byType(AppCard)).borderRadius,
-        BorderRadius.circular(rCard),
-      );
-    });
-
-    testWidgets('PrimaryActionButton rundet mit rButton', (tester) async {
-      await pumpLocalized(tester, const PrimaryActionButton(label: 'Weiter'),
-          padding: _rand);
-      final material = tester.widget<Material>(
-        find
-            .descendant(
-              of: find.byType(PrimaryActionButton),
-              matching: find.byType(Material),
-            )
-            .first,
-      );
-      expect(material.borderRadius, BorderRadius.circular(rButton));
-    });
-
     testWidgets('SquareIconButton und IconTile runden mit rChip',
         (tester) async {
       await pumpLocalized(

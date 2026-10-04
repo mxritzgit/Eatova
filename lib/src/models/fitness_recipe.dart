@@ -287,9 +287,10 @@ class FitnessRecipe {
 
   /// 0..1 fit against the day's remaining macros (protein weighted double) plus
   /// a kcal term; filling the remainder without overshooting ranks highest.
-  /// Sorting heuristic only, not nutrition advice.
+  /// Sorting heuristic only, not nutrition advice. A weighed recipe stores its
+  /// known partial sums, so incomplete per-portion values never count as a fit.
   double matchScore(MacroProgress remaining) {
-    if (hasPendingNutrition) return 0;
+    if (hasPendingNutrition || !displayNutrition.isComplete) return 0;
     if (remaining.kcal <= 0 &&
         remaining.proteinG <= 0 &&
         remaining.carbsG <= 0 &&
@@ -714,11 +715,6 @@ const recipeFilters = <String>[
   "Vegan",
   "Low Carb",
 ];
-
-/// Backwards-compatible alias pointing at [recipeCatalogDe]: existing tests
-/// import `fitnessRecipes` without a locale and pin German titles. New
-/// locale-aware callers use [recipeCatalogForLocale].
-const List<FitnessRecipe> fitnessRecipes = recipeCatalogDe;
 
 /// Search normalisation: lower case plus a simple umlaut fold, so "Haehnchen"
 /// finds "Hähnchen" and vice versa. Applied to query AND fields.

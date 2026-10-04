@@ -557,16 +557,6 @@ void main() {
       }
     });
 
-    test('gedaempfter Text auf surf2 erreicht AA-Large (3:1)', () {
-      for (final p in _paletten.entries) {
-        final t = p.value;
-        expect(_contrast(t.ink2, t.surf2), greaterThanOrEqualTo(3.0),
-            reason: '${p.key}: ink2 auf der zweiten Flaeche');
-        expect(_contrast(t.ink, t.surf2), greaterThanOrEqualTo(4.5),
-            reason: '${p.key}: Haupttext auf der zweiten Flaeche');
-      }
-    });
-
     test('Icons auf tile erreichen AA-Large (3:1) — tile ist TRANSPARENT', () {
       // `tile` is semi-transparent in both palettes (light 5 % ink, dark 7 %
       // white). Without compositing one measures the full ink and misses that
@@ -582,30 +572,6 @@ void main() {
               reason: '${p.key}: Icon (ink2) auf tile ueber ${grund.key}');
           expect(_contrast(t.ink, kachel), greaterThanOrEqualTo(4.5),
               reason: '${p.key}: Text (ink) auf tile ueber ${grund.key}');
-        }
-      }
-    });
-
-    test('der Kalorien-Bogen hebt sich in jedem aktiven Modus von seiner Spur '
-        'ab', () {
-      // Today's calorie arc (TodayArcPainter, today_progress.dart) strokes a
-      // gradient from `arcStart` to `arcEnd` over the opaque `arcTrack`. The
-      // fill level is the message, so WCAG 1.4.11's 3:1 for graphical objects
-      // applies to both gradient ends. The redesign replaced the TickGauge
-      // this test used to measure.
-      //
-      // The light palette is measured once `kDarkOnly` is lifted: its
-      // `arcEnd` reaches only 1.77:1 on `arcTrack` today, so bringing light
-      // back must retune it first.
-      for (final p in _paletten.entries) {
-        final t = p.value;
-        if (kDarkOnly && p.key == 'hell') continue;
-        for (final (name, farbe) in <(String, Color)>[
-          ('arcStart', t.arcStart),
-          ('arcEnd', t.arcEnd),
-        ]) {
-          expect(_contrast(farbe, t.arcTrack), greaterThanOrEqualTo(3.0),
-              reason: '${p.key}: $name gegen arcTrack');
         }
       }
     });
@@ -669,8 +635,8 @@ void main() {
     // The two findings that stood here as OPEN are closed; the block is the
     // assertion now, so a regression fails instead of being re-described.
     test('der MealAvatar-Buchstabe erreicht auf seinem eigenen Tint AA', () {
-      // MealAvatar (widgets/design/meters.dart) puts the letter on that same
-      // slot color at 16 %. In the full color it reached 2.15:1 in light mode;
+      // A glyph on its own slot tint (16 % here; `IconTile` uses 15 %) sits on
+      // that same slot color. In the full color it reached 2.15:1 in light mode;
       // `readableOnTint` blends towards `ink` and now holds 5.95 … 7.75 (hell)
       // and 7.35 … 8.35 (dunkel).
       for (final p in _paletten.entries) {

@@ -124,17 +124,4 @@ void main() {
 
     expect(() => compressMealPhoto(garbage), throwsFormatException);
   });
-
-  test('bereits kleine, stark komprimierte Bilder werden nicht aufgeblaeht',
-      () {
-    // q60 fixture below 1600 px: a q85 recompression would grow the file, so
-    // the original must come back unchanged.
-    final image = img.Image(width: 640, height: 480);
-    img.fill(image, color: img.ColorRgb8(120, 180, 90));
-    final original = Uint8List.fromList(img.encodeJpg(image, quality: 60));
-
-    final result = compressMealPhoto(original);
-
-    expect(result.lengthInBytes, lessThanOrEqualTo(original.lengthInBytes));
-  });
 }

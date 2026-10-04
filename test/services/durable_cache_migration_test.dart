@@ -330,6 +330,70 @@ void main() {
   );
 
   test(
+    'unreadable preferences before the import keep the plaintext path open',
+    () async {
+      legacy.slots[_outbox] = '{"items":["pending"]}';
+      legacy.failRead = true;
+      // Without enumeration there is no telling what was left to inherit, so
+      // nothing may commit — least of all the one-way marker.
+      await expectLater(migrate(), throwsA(isA<StateError>()));
+      expect((await database.readAll()).values, isEmpty);
+      expect(legacy.cleanups, 0);
+
+      legacy.failRead = false;
+      CacheKeyProvider.debugReset();
+      final cache = (await migrate())!;
+      expect(CacheKeyProvider.legacyPlaintextAccepted, isTrue);
+      expect(await cache.getString(_outbox), '{"items":["pending"]}');
+      expect(await database.getString(_outbox), startsWith(cacheCipherMagic));
+      expect(legacy.slots, isEmpty);
+    },
+  );
+
+  test(
+    'vanished key with ciphertext present mints no replacement key',
+    () async {
+      // The bootstrap must see the legacy blobs through its own probe; a
+      // probe reporting nothing would mint here and orphan them.
+      keys.value = null;
+      legacy.metadata[CacheKeyProvider.dekProvisionedKey] = 'true';
+      legacy.slots[_outbox] = await AesGcmCacheCipher(
+        _testKey,
+      ).encrypt(_outbox, 'pending');
+      final original = Map.of(legacy.slots);
+      expect(await migrate(), isNull);
+      expect(keys.writes, 0);
+      expect(legacy.slots, original);
+      expect(legacy.cleanups, 0);
+      expect(await database.getString(_marker), isNull);
+      expect(await database.getString(_outbox), isNull);
+    },
+  );
+
+  test('only account cache slots count as durable slots', () {
+    expect(durableCacheSlotNames.containsAll(legacyCacheSlotNames), isTrue);
+    for (final slot in durableCacheSlotNames) {
+      expect(isDurableCacheSlotKey('eatova.v1.$slot.user-1'), isTrue,
+          reason: slot);
+    }
+    // Same prefs namespace, read WITHOUT the decorator: an import would
+    // encrypt them and the cleanup delete them.
+    for (final key in [
+      'eatova.v1.locale',
+      'eatova.v1.theme_mode',
+      'eatova.v1.search_credentials',
+      'eatova.v1.otp_guard.mail@example.com',
+      CacheKeyProvider.dekStorageKey,
+      CacheKeyProvider.dekProvisionedKey,
+      CacheKeyProvider.plaintextMigrationClosedKey,
+      'sb-eatova-auth-token',
+      'eatova.v1.outbox.',
+    ]) {
+      expect(isDurableCacheSlotKey(key), isFalse, reason: key);
+    }
+  });
+
+  test(
     'failed conflict fence write preserves the actionable error and both stores',
     () async {
       legacy.slots[_outbox] = 'imported';

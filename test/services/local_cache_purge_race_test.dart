@@ -116,12 +116,11 @@ LoggedMeal _meal(String id) => LoggedMeal(
     roh: roh,
     cipher: cipher,
     store: LocalCache(
-      EncryptedKeyValueStore(roh, cipher, acceptLegacyPlaintext: false),
+      EncryptedKeyValueStore(roh, cipher),
       _uid,
     ),
     purge: LocalCache(
-      EncryptedKeyValueStore(roh, _SofortCipher('dek-a'),
-          acceptLegacyPlaintext: false),
+      EncryptedKeyValueStore(roh, _SofortCipher('dek-a')),
       _uid,
     ),
   );
@@ -205,8 +204,7 @@ void main() {
         () async {
       final f = _zweiInstanzen();
       final fremd = LocalCache(
-        EncryptedKeyValueStore(f.roh, _SofortCipher('dek-a'),
-            acceptLegacyPlaintext: false),
+        EncryptedKeyValueStore(f.roh, _SofortCipher('dek-a')),
         'anderer',
       );
       await fremd.writeLoggedMeals([_meal('m-fremd')]);

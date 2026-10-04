@@ -154,4 +154,22 @@ void main() {
     expect(() => ExportDocument.parse('bad data'), throwsFormatException);
     expect(() => ExportDocument.parse('[]'), throwsFormatException);
   });
+
+  test('records are derived once, not on every read', () {
+    // The recipe projection parses each row. report() read `records` twice
+    // per row and the paged view several times per build, so copying the
+    // readable export of a few hundred own recipes parsed them quadratically
+    // on the UI isolate.
+    final section = ExportDocument.parse(
+      jsonEncode({
+        'user_recipes': [
+          {'slug': 'user_a', 'title': 'A'},
+          {'slug': 'user_b', 'title': 'B'},
+        ],
+      }),
+    ).sections.single;
+
+    expect(identical(section.records, section.records), isTrue);
+    expect(section.count, 2);
+  });
 }

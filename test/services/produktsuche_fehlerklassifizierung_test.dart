@@ -108,7 +108,6 @@ MealAnalysisResult _meal(String name) => MealAnalysisResult(
 ProductSearchResult _hit(String title) => ProductSearchResult(
       code: '1',
       title: title,
-      subtitle: '',
       kcalPer100G: 100,
       result: _meal(title),
     );

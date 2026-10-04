@@ -325,6 +325,42 @@ void main() {
           greaterThan(over.matchScore(remaining)));
     });
 
+    test('eine unvollstaendige Zutatenrechnung ist kein Treffer', () {
+      // The stored integers of a weighed recipe are the KNOWN partial sums;
+      // the rice below has no kcal or macros, so the per-portion values the
+      // cards show are unknown and the recipe cannot be logged.
+      const remaining =
+          MacroProgress(proteinG: 60, carbsG: 40, fatG: 15, kcal: 600);
+      final incomplete = _recipe(
+        caloriesKcal: 330,
+        proteinG: 62,
+        carbsG: 0,
+        fatG: 7,
+        estimatedGrams: 0,
+      ).copyWith(
+        structuredIngredients: [
+          RecipeIngredient(
+            name: 'Chicken',
+            grams: 300,
+            per100g: const RecipeNutrition(
+              caloriesKcal: 110,
+              proteinG: 20.7,
+              carbsG: 0,
+              fatG: 2.3,
+            ),
+          ),
+          RecipeIngredient(
+            name: 'Rice',
+            grams: 150,
+            per100g: const RecipeNutrition(),
+          ),
+        ],
+      );
+      expect(incomplete.displayNutrition.isComplete, isFalse);
+      expect(incomplete.canLogServings(1), isFalse);
+      expect(incomplete.matchScore(remaining), 0);
+    });
+
     test('kcalPer100G mit 0 Gramm crasht nicht', () {
       expect(_recipe(estimatedGrams: 0).kcalPer100G, 0);
     });
@@ -356,7 +392,7 @@ void main() {
   });
 
   group('ProductSearchResult.fromOpenFoodFacts (Such-Mapper)', () {
-    test('Subtitle = Marke · Menge · kcal/100g, Code getrimmt', () {
+    test('Titel = Name · Marke, Code getrimmt', () {
       final p = ProductSearchResult.fromOpenFoodFacts(<String, dynamic>{
         'code': '  123 ',
         'product_name': 'Skyr',
@@ -368,20 +404,18 @@ void main() {
       });
       expect(p.code, '123');
       expect(p.title, 'Skyr · Arla');
-      expect(p.subtitle, 'Arla · 450 g · 63 kcal / 100 g');
       expect(
         p.imageUrl,
         'https://images.openfoodfacts.org/images/products/123/front.200.jpg',
       );
     });
 
-    test('ohne Marke/Menge bleibt nur die kcal-Angabe', () {
+    test('ohne Marke bleibt nur der Name, ohne Bild keine URL', () {
       final p = ProductSearchResult.fromOpenFoodFacts(<String, dynamic>{
         'code': '9',
         'product_name': 'Wasser',
         'nutriments': <String, dynamic>{'energy-kcal_100g': 0},
       });
-      expect(p.subtitle, '0 kcal / 100 g');
       expect(p.imageUrl, isNull);
       expect(p.title, 'Wasser');
     });

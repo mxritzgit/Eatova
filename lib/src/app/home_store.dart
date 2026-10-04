@@ -409,7 +409,8 @@ abstract class _HomeStoreBase extends ChangeNotifier {
   String get profileInitial {
     final parts = userName.trim().split(RegExp(r'\s+'));
     if (parts.isEmpty || parts.first.isEmpty) return 'S';
-    return parts.first.substring(0, 1).toUpperCase();
+    // A grapheme, not a UTF-16 unit: an emoji would leave half a pair.
+    return parts.first.characters.first.toUpperCase();
   }
 
   /// Compact day/profile snapshot for the AI coach, so it can advise on
@@ -1588,6 +1589,7 @@ class HomeStore extends _HomeStoreBase
       dailyConsumedKcal = consumedKcalForFoodDate(today);
       macroProgress = macroProgressForFoodDate(today);
     });
+    _refreshEnergyCheckWindowForNewDay();
     // A suspend halts timers, so after a rollover the timer may point at a
     // long-past midnight. Rearm — but only if it was armed, so a resume in a
     // sync-less instance creates no timer out of nowhere.

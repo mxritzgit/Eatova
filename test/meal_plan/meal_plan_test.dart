@@ -26,7 +26,7 @@ final today = DateTime(2026, 9, 10, 12);
 FitnessRecipe recipe({
   List<RecipeIngredient> ingredients = const [],
   double batch = 1,
-}) => fitnessRecipes.first.copyWith(
+}) => recipeCatalogDe.first.copyWith(
   title: 'Oats',
   ingredients: ingredients.isEmpty ? '100 g oats\nMilk to taste' : '',
   structuredIngredients: ingredients,

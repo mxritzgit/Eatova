@@ -87,6 +87,11 @@ class AndroidHealthService implements HealthService, HealthConnectAccess {
     if (!_current(generation)) return false;
     switch (status) {
       case HealthConnectSdkStatus.sdkAvailable:
+        // Installed or updated meanwhile: the card must not ask for it again.
+        if (_state == HealthAuthState.updateRequired ||
+            _state == HealthAuthState.unavailable) {
+          _state = HealthAuthState.unknown;
+        }
         return true;
       case HealthConnectSdkStatus.sdkUnavailable:
         _state = HealthAuthState.unavailable;

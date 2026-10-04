@@ -201,6 +201,8 @@ class _ExistingMealRow extends StatelessWidget {
             const SizedBox(width: 10),
             Text(
               '${meal.result.caloriesKcal}',
+              // The unit is implicit on screen only.
+              semanticsLabel: '${meal.result.caloriesKcal} kcal',
               style: AppType.ui(14, weight: FontWeight.w600, color: t.ink2)
                   .copyWith(fontFeatures: const [FontFeature.tabularFigures()]),
             ),

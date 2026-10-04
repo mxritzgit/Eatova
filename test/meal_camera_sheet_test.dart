@@ -9,6 +9,7 @@ import 'package:image/image.dart' as img;
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
+import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
 import 'package:eatova/src/screens/meal_camera_sheet.dart';
 import 'package:eatova/src/services/meal_camera_launcher.dart';
@@ -250,6 +251,23 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets('Ausloeser und Galerie tragen Namen fuer den Screenreader',
+      (tester) async {
+    CameraPlatform.instance = _FakeCameraPlatform();
+    final semantics = tester.ensureSemantics();
+    await _pumpSheet(tester);
+
+    expect(
+      tester.getSemantics(find.bySemanticsLabel(deL10n.foodTakePhotoTooltip)),
+      isSemantics(isButton: true, isEnabled: true, hasTapAction: true),
+    );
+    expect(
+      tester.getSemantics(find.bySemanticsLabel(deL10n.foodFromGalleryTooltip)),
+      isSemantics(isButton: true, isEnabled: true, hasTapAction: true),
+    );
+    semantics.dispose();
+  });
 
   testWidgets('camera meal picker changes the slot without restarting preview',
       (tester) async {

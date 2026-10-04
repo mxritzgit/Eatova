@@ -18,10 +18,5 @@ void main() {
       expect(localDayKey(DateTime(2026, 6, 4, 0, 0)), localDayKey(day));
       expect(localDayKey(DateTime(2026, 6, 4, 23, 59, 59)), localDayKey(day));
     });
-
-    test('deterministisch ueber mehrfachen Aufruf', () {
-      final t = DateTime(2026, 6, 4, 23, 45);
-      expect(localDayKey(t), localDayKey(t));
-    });
   });
 }

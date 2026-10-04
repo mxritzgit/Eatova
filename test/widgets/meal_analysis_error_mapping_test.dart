@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:eatova/src/l10n/l10n.dart';
 import 'package:eatova/src/models/logged_meal.dart';
+import 'package:eatova/src/models/meal_analysis_request.dart';
 import 'package:eatova/src/models/meal_analysis_result.dart';
 import 'package:eatova/src/services/meal_analyzer.dart';
 import 'package:eatova/src/services/open_food_facts_product_service.dart';
@@ -99,6 +100,36 @@ void main() {
         mealAnalysisErrorMessage(
             const FormatException('bad'), _fallback, _de),
         _fallback,
+      );
+    });
+
+    test(
+        'ein Foto ohne Bytes (Scrub gescheitert) nennt das Foto, nicht die '
+        'Verbindung', () async {
+      // DeviceMealPhotoInput hands out a selection without bytes when the
+      // fail-closed scrub rejects the picked file; the add sheet still lets
+      // the user start the analysis from the "photo unavailable" preview.
+      final analyzer = EdgeFunctionMealAnalyzer(
+        baseUrl: 'https://ci.invalid',
+        anonKey: 'ci-dummy-key',
+        tokenProvider: () => 'jwt',
+        clientFactory: () => throw StateError('kein Request erwartet'),
+      );
+      Object? error;
+      try {
+        await analyzer.analyze(const MealAnalysisRequest(imageId: 'pick.jpg'));
+      } catch (caught) {
+        error = caught;
+      }
+
+      expect(error, isA<MealAnalysisServerError>());
+      expect(
+        mealAnalysisErrorMessage(error!, _fallback, _de),
+        _de.foodAnalysisImageUnusableMessage,
+      );
+      expect(
+        mealAnalysisErrorMessage(error, _fallback, _en),
+        _en.foodAnalysisImageUnusableMessage,
       );
     });
 

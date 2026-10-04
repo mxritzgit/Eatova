@@ -83,6 +83,24 @@ void main() {
     },
   );
 
+  test(
+    'back from installing Health Connect, the refresh stops asking to install',
+    () async {
+      adapter.status =
+          HealthConnectSdkStatus.sdkUnavailableProviderUpdateRequired;
+      expect(
+        await service.requestAuthorization(),
+        HealthAuthState.updateRequired,
+      );
+      // The resume refresh after the store visit: installed, not connected.
+      adapter.status = HealthConnectSdkStatus.sdkAvailable;
+      expect(await service.readSnapshot(), isNull);
+      expect(service.authState, HealthAuthState.unknown);
+      expect(adapter.requests, 0);
+      expect(adapter.intervals, isEmpty);
+    },
+  );
+
   test('unknown availability fails closed', () async {
     adapter.status = null;
     expect(await service.requestAuthorization(), HealthAuthState.error);

@@ -1,9 +1,5 @@
 import 'dart:typed_data';
 
-/// Portion hint sent with a photo analysis; the Edge Function maps each name
-/// to its own prompt text.
-enum MealPortionHint { small, normal, large, extraLarge }
-
 /// Cooperative cancel handle for one photo analysis (Review 2026-08-27,
 /// F4-02): the result sheet cancels on dispose, the analyzer closes its
 /// `HttpClient`. This only frees the client (socket, wait time): the server
@@ -44,7 +40,6 @@ class MealAnalysisRequest {
   const MealAnalysisRequest({
     required this.imageId,
     this.imageBytes,
-    this.portionHint,
     this.freeTextHint,
     this.language = 'de',
     this.cancellation,
@@ -52,7 +47,6 @@ class MealAnalysisRequest {
 
   final String imageId;
   final Uint8List? imageBytes;
-  final MealPortionHint? portionHint;
 
   /// Optional food observations for this scan only; never persisted locally.
   final String? freeTextHint;
@@ -81,7 +75,6 @@ class MealAnalysisRequest {
   MealAnalysisRequest withHint(String? hint) => MealAnalysisRequest(
     imageId: imageId,
     imageBytes: imageBytes,
-    portionHint: portionHint,
     freeTextHint: normalizedHint(hint),
     language: language,
     cancellation: cancellation ?? MealAnalysisCancellation(),
@@ -103,7 +96,6 @@ class MealAnalysisRequest {
   MealAnalysisRequest withLanguage(String language) => MealAnalysisRequest(
         imageId: imageId,
         imageBytes: imageBytes,
-        portionHint: portionHint,
         freeTextHint: freeTextHint,
         language: language,
         cancellation: cancellation,
