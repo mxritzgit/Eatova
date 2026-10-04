@@ -1,4 +1,4 @@
-import { authFailGate } from '../_shared/auth_fail_gate.ts';
+import { authFailGate, forgetAuthFailure, knownAuthFailure } from '../_shared/auth_fail_gate.ts';
 import { clientIpSubject } from '../_shared/client_ip.ts';
 import { readProviderBody } from '../_shared/provider_body.ts';
 import { providerCallBudget, ProviderBudgetError } from '../_shared/provider_budget.ts';
@@ -59,6 +59,15 @@ async function boundedJson(response: Response, maxBytes: number, signal: AbortSi
 async function authenticate(request: Request, secrets: Secrets, total: AbortSignal): Promise<string> {
   const token = request.headers.get('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1].trim();
   if (!token || token === secrets.anonKey || token.length > 16_384) throw new ImportError(401, 'unauthorized');
+  // P7-02, as in the other functions: a token GoTrue already rejected twice
+  // is answered without another lookup or limiter upsert.
+  const scope = 'recipe-import:auth-fail';
+  const subject = clientIpSubject(request, 'anon');
+  const known = await knownAuthFailure({ scope, subject, token });
+  if (known !== null) {
+    if (known.limited) throw new ImportError(429, 'rate_limited', known.retryAfterSeconds);
+    throw new ImportError(401, 'unauthorized');
+  }
   const signal = stepSignal(total, 5000);
   let response: Response;
   try {
@@ -71,8 +80,8 @@ async function authenticate(request: Request, secrets: Secrets, total: AbortSign
     if (response.status >= 500 || response.status === 429) throw new ImportError(503, 'auth_unavailable');
     const gate = await authFailGate({
       supabaseUrl: secrets.supabaseUrl, serviceKey: secrets.serviceKey,
-      scope: 'recipe-import:auth-fail', subject: clientIpSubject(request, 'anon'),
-      signal: stepSignal(total, 5000),
+      scope, subject, signal: stepSignal(total, 5000),
+      rejection: { token, status: response.status },
     });
     if (gate.limited) throw new ImportError(429, 'rate_limited', gate.retryAfterSeconds);
     throw new ImportError(401, 'unauthorized');
@@ -81,6 +90,7 @@ async function authenticate(request: Request, secrets: Secrets, total: AbortSign
   try { user = await boundedJson(response, 32_000, signal); }
   catch { throw new ImportError(503, 'auth_unavailable'); }
   if (!record(user) || typeof user.id !== 'string' || !hasExpectedUserTokenContext(token, user.id)) throw new ImportError(401, 'unauthorized');
+  await forgetAuthFailure(scope, token);
   return user.id;
 }
 
