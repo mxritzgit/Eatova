@@ -1588,6 +1588,7 @@ class HomeStore extends _HomeStoreBase
       dailyConsumedKcal = consumedKcalForFoodDate(today);
       macroProgress = macroProgressForFoodDate(today);
     });
+    _refreshEnergyCheckWindowForNewDay();
     // A suspend halts timers, so after a rollover the timer may point at a
     // long-past midnight. Rearm — but only if it was armed, so a resume in a
     // sync-less instance creates no timer out of nowhere.

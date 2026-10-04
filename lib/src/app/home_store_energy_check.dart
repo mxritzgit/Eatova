@@ -16,12 +16,21 @@ mixin _HomeStoreEnergyCheckPart
 
   Object? _energyCheckKey;
   EnergyCheckProposal? _energyCheckProposal;
-  bool _energyCheckStepsReady = false;
+
+  /// The local day whose window [_backfillEnergyCheckWindow] last refreshed.
+  DateTime? _energyCheckStepsDay;
+
+  /// The boot asked for a window refresh, so a new day asks again.
+  bool _energyCheckWindowRequested = false;
 
   /// The window's step values were refreshed from the health store in this
-  /// session ([_backfillEnergyCheckWindow]); the Today shell selects it, so
-  /// the card appears once and with final numbers.
-  bool get energyCheckStepsReady => _energyCheckStepsReady;
+  /// session for TODAY's window ([_backfillEnergyCheckWindow]); the Today
+  /// shell selects it, so the card appears once and with final numbers. A
+  /// new day ends a window day that holds only its last in-day snapshot.
+  bool get energyCheckStepsReady {
+    final day = _energyCheckStepsDay;
+    return day != null && daysBetween(clock.now(), day) == 0;
+  }
 
   /// Today's weekly-check proposal, or null.
   ///
@@ -34,7 +43,7 @@ mixin _HomeStoreEnergyCheckPart
             _serverAnsweredProfileAndWeightLog &&
             _serverMealsLoaded &&
             !_bootMealsAtCapacity &&
-            _energyCheckStepsReady)) {
+            energyCheckStepsReady)) {
       return null;
     }
     final today = startOfDay(clock.now());
@@ -60,13 +69,27 @@ mixin _HomeStoreEnergyCheckPart
   /// expenditure and push the goal up. Without a health source the reads
   /// return nothing and change nothing.
   Future<void> _backfillEnergyCheckWindow() async {
+    _energyCheckWindowRequested = true;
     final today = startOfDay(clock.now());
     for (var n = 1; n <= EnergyCheck.windowDays; n++) {
       if (_disposed) return;
       await _maybeBackfillDailyActivity(addDays(today, -n));
     }
-    if (_disposed || _energyCheckStepsReady) return;
-    _mutate(() => _energyCheckStepsReady = true);
+    // After a rollover meanwhile, the new day's own refresh marks its window.
+    if (_disposed ||
+        daysBetween(clock.now(), today) != 0 ||
+        energyCheckStepsReady) {
+      return;
+    }
+    _mutate(() => _energyCheckStepsDay = today);
+  }
+
+  /// Day rollover: refreshes the new window once the boot has asked, so the
+  /// day that just ended counts with its full-day total. Days refreshed
+  /// before are not read again ([_maybeBackfillDailyActivity]).
+  void _refreshEnergyCheckWindowForNewDay() {
+    if (_disposed || !_energyCheckWindowRequested) return;
+    unawaited(_backfillEnergyCheckWindow());
   }
 
   /// Applies [proposal]: its step on the maintenance offset, today as the
