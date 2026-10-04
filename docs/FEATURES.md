@@ -11,7 +11,7 @@ Dated reviews describe what was present at their own checkpoint.
 
 | Area / entry point | Implemented behavior | Source |
 | --- | --- | --- |
-| Account entry | Email/password and Google sign-in, code confirmation/recovery, six-step profile setup with editable summary | [Entry and onboarding](AUTH-ONBOARDING-DESIGN.md) |
+| Account entry | Email/password and Google sign-in, code confirmation/recovery, goal-first profile setup (six questions, eight with a weight goal) ending in an editable plan | [Entry](AUTH-ONBOARDING-DESIGN.md), [onboarding](ONBOARDING-2026-10-04.md) |
 | Today | Seven-day strip, calorie balance with activity credit, macro tiles, streak, recipe pick for the next open meal, per-slot add, steps and next workout ("In progress · Resume" while a workout is saved); avatar to Profile | [Today](../lib/src/screens/today/today_screen.dart), [Today design](TODAY-DESIGN.md) |
 | Food | Breakfast/lunch/dinner/snack diary, meal editing and deletion, date calendar, favorites, history trends | [App shell](../lib/src/app/eatova_home_page.dart), [Food design](FOOD-DESIGN.md) |
 | Meal entry | Camera or gallery with optional context; barcode; product search; manual per-100-g values and a chosen portion; shared meal-slot picker | [Entry contracts](FOOD-ENTRY-POLISH-2026-09-14.md) |
@@ -61,10 +61,11 @@ these states distinct. Sources: [platform factory](../lib/src/services/platform_
 - Coach recipe/plan/log output is a proposal. Opening a card or receiving a
   reply does not silently adopt it; a `/log` workout enters the history only
   through the log editor's Add.
-- Initial setup groups personal details, body data, activity, goals and an
-  optional dietary preference into six screens, ending in an editable plan.
-  Completing it does not request notification permission; reminders require
-  the existing explicit opt-in. See [entry and onboarding](AUTH-ONBOARDING-DESIGN.md).
+- Initial setup asks the goal first, then personal details, body data and
+  activity; target weight and pace only for a weight goal; and an optional
+  dietary preference, ending in an editable plan. Completing it does not
+  request notification permission; reminders require the existing explicit
+  opt-in. See [onboarding](ONBOARDING-2026-10-04.md).
 - Completed workouts preserve a snapshot and actual values. Editing a source
   plan does not rewrite history. A paused checkpoint is local to the device;
   it is not a cross-device live workout session.
