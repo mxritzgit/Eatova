@@ -15,7 +15,7 @@ import 'support/harness.dart';
 // One widget test covers the real screen wiring.
 
 FitnessRecipe _byTitle(String title) =>
-    fitnessRecipes.firstWhere((r) => r.title == title);
+    recipeCatalogDe.firstWhere((r) => r.title == title);
 
 void main() {
   group('FitnessRecipe.matchesDiet (reine Eignungs-Heuristik)', () {
@@ -26,7 +26,7 @@ void main() {
     final omelett = _byTitle('Omelett mit Spinat & Avocado');
 
     test('none erlaubt jedes Rezept', () {
-      for (final r in fitnessRecipes) {
+      for (final r in recipeCatalogDe) {
         expect(r.matchesDiet(DietPreference.none), isTrue,
             reason: '${r.title} sollte bei "none" passen');
       }
@@ -74,7 +74,7 @@ void main() {
     });
 
     test('vegetarian filtert die Bestandsliste auf rein veg/ei-Gerichte', () {
-      final veg = fitnessRecipes
+      final veg = recipeCatalogDe
           .where((r) => r.matchesDiet(DietPreference.vegetarian))
           .map((r) => r.title)
           .toList();

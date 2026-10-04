@@ -276,7 +276,7 @@ void main() {
   test(
     'non-imported catalog and structured recipes preserve existing behavior',
     () {
-      for (final recipe in fitnessRecipes) {
+      for (final recipe in recipeCatalogDe) {
         expect(recipe.displayIngredients(deL10n), recipe.ingredients);
       }
       final recipe = importedPortions(

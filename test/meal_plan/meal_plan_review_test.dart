@@ -22,7 +22,7 @@ import 'package:eatova/src/services/meals_sync.dart';
 
 final now = DateTime(2026, 9, 10, 12);
 PlannedMeal plan() => PlannedMeal.create(
-  recipe: fitnessRecipes.first,
+  recipe: recipeCatalogDe.first,
   day: now,
   slot: MealSlot.dinner,
 );
@@ -104,7 +104,7 @@ void main() {
   test(
     'eaten checked quantities must not check a new meal with the same amount',
     () {
-      final recipe = fitnessRecipes.first.copyWith(
+      final recipe = recipeCatalogDe.first.copyWith(
         ingredients: '',
         structuredIngredients: [
           RecipeIngredient(

@@ -218,7 +218,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('recipes-search-clear')), findsOneWidget);
-    expect(find.text('${fitnessRecipes.length} Treffer'), findsNothing,
+    expect(find.text('${recipeCatalogDe.length} Treffer'), findsNothing,
         reason: 'Vorbedingung: die Liste ist gerade gefiltert.');
 
     await tester.tap(find.byKey(const ValueKey('recipes-search-clear')));
@@ -227,7 +227,7 @@ void main() {
     expect(_searchText(tester), '');
     expect(find.byKey(const ValueKey('recipes-search-clear')), findsNothing);
     expect(
-      find.text('${fitnessRecipes.length} Treffer'),
+      find.text('${recipeCatalogDe.length} Treffer'),
       findsOneWidget,
       reason: 'Nach dem Leeren muss die volle Liste zurueck sein.',
     );

@@ -716,11 +716,6 @@ const recipeFilters = <String>[
   "Low Carb",
 ];
 
-/// Backwards-compatible alias pointing at [recipeCatalogDe]: existing tests
-/// import `fitnessRecipes` without a locale and pin German titles. New
-/// locale-aware callers use [recipeCatalogForLocale].
-const List<FitnessRecipe> fitnessRecipes = recipeCatalogDe;
-
 /// Search normalisation: lower case plus a simple umlaut fold, so "Haehnchen"
 /// finds "Hähnchen" and vice versa. Applied to query AND fields.
 ///

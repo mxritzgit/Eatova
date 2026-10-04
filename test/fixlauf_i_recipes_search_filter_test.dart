@@ -205,7 +205,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // "Chiasamen" steht bei den Overnight Oats nur in den Zutaten.
-      final oats = fitnessRecipes
+      final oats = recipeCatalogDe
           .firstWhere((r) => r.slug == 'overnight_oats_mit_skyr_and_banane');
       expect(oats.title.toLowerCase().contains('chiasamen'), isFalse);
       expect(oats.description.toLowerCase().contains('chiasamen'), isFalse);
