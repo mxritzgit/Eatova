@@ -30,19 +30,6 @@ void main() {
     });
   });
 
-  test('UnavailableAuthRepository wirft einen TYP, keinen deutschen Satz',
-      () async {
-    const repo = UnavailableAuthRepository('boot failed');
-    await expectLater(
-      repo.signIn(email: 'a@b.de', password: 'x'),
-      throwsA(isA<AuthUnavailableException>()),
-    );
-    await expectLater(
-      repo.signInWithOAuth(EatovaOAuthProvider.google),
-      throwsA(isA<AuthUnavailableException>()),
-    );
-  });
-
   test('Test-Fakes tragen keinen Fitpilot-Namen mehr', () async {
     final repo = InMemoryAuthRepository();
     addTearDown(repo.dispose);

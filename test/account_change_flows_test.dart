@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -529,60 +528,7 @@ void main() {
     });
   });
 
-  // --- The error translator (pure, no widget) -------------------------------
-
-  group('accountChangeErrorMessage', () {
-    test('uebersetzt den abgelaufenen/falschen Code', () {
-      expect(
-        accountChangeErrorMessage(
-            const AuthException('Token has expired or is invalid')),
-        kAccountCodeRejected(),
-      );
-    });
-
-    test('uebersetzt eine bereits vergebene Adresse — ohne sie zu bestaetigen',
-        () {
-      expect(
-        accountChangeErrorMessage(const AuthException(
-            'A user with this email address has already been registered')),
-        deL10n.settingsAccountEmailNotAvailable,
-        reason: 'die alte Meldung („wird bereits verwendet") bestaetigte '
-            'fremde Kontoexistenz (Audit 2026-08-14)',
-      );
-    });
-
-    test('uebersetzt ein zu schwaches Passwort', () {
-      expect(
-        accountChangeErrorMessage(
-            const AuthException('Password should be at least 6 characters')),
-        'Dieses Passwort ist zu schwach. Nimm ein längeres oder '
-            'ungewöhnlicheres.',
-      );
-    });
-
-    test('uebersetzt fehlendes Netz', () {
-      expect(
-        accountChangeErrorMessage(const SocketException('no route to host')),
-        startsWith('Offline'),
-      );
-    });
-
-    test('uebersetzt eine Sperre wegen zu vieler Versuche', () {
-      expect(
-        accountChangeErrorMessage(const AuthException(
-            'For security purposes, you can only request this after 51 seconds')),
-        startsWith('Zu viele Versuche'),
-      );
-    });
-
-    test('gibt NIE den Roh-Text weiter', () {
-      // An AuthException text can carry internals, so unknown stays generic.
-      const roh = 'unexpected_failure at https://xyz.supabase.co/auth/v1/user';
-      final meldung = accountChangeErrorMessage(const AuthException(roh));
-
-      expect(meldung, 'Das hat gerade nicht geklappt. Bitte versuch es später '
-          'erneut.');
-      expect(meldung.contains('supabase'), isFalse);
-    });
-  });
+  // The error translator (`accountChangeErrorMessage`) is pinned in
+  // review_31/h_account_change_classifier_test.dart and
+  // auth_enumeration_test.dart.
 }

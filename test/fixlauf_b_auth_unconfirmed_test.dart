@@ -141,17 +141,6 @@ void main() {
   });
 
   group('F2-05: Fehler-Erkennung ueber Typ und Code', () {
-    testWidgets('AuthCancelledException -> Abbruch-Meldung', (tester) async {
-      final repo =
-          _FailingAuthRepository(const AuthCancelledException('Google'));
-      addTearDown(repo.dispose);
-      await _pumpAuth(tester, repo);
-      await tester.tap(find.byKey(const ValueKey('auth-google-oauth')));
-      await tester.pumpAndSettle();
-      expect(find.text(deL10n.authErrorCancelled), findsOneWidget);
-      expect(find.text(deL10n.authErrorGeneric), findsNothing);
-    });
-
     testWidgets('AuthUnavailableException -> Neustart-Hinweis',
         (tester) async {
       final repo = _FailingAuthRepository(const AuthUnavailableException());

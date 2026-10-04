@@ -50,8 +50,4 @@ void main() {
     expect(buildSyncForUser('user-1', allowPreview: true), isNull);
     expect(meldungen, isEmpty);
   });
-
-  test('Debug/Test-Pfad: null bleibt fuer Widget-Tests erhalten', () {
-    expect(buildSyncForUser('user-1', allowPreview: true), isNull);
-  });
 }
